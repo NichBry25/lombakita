@@ -15,6 +15,7 @@ export const serverEnv = {
   databaseUrl: read(process.env.DATABASE_URL),
   authUrl: read(process.env.AUTH_URL),
   authSecret: read(process.env.AUTH_SECRET),
+  authEmailFrom: read(process.env.AUTH_EMAIL_FROM),
   redisUrl: read(process.env.REDIS_URL),
   meilisearchHost: read(process.env.MEILISEARCH_HOST),
   meilisearchApiKey: read(process.env.MEILISEARCH_API_KEY),
@@ -23,7 +24,7 @@ export const serverEnv = {
   r2Bucket: read(process.env.R2_BUCKET),
   r2AccessKeyId: read(process.env.R2_ACCESS_KEY_ID),
   r2SecretAccessKey: read(process.env.R2_SECRET_ACCESS_KEY),
-  postmarkServerToken: read(process.env.POSTMARK_SERVER_TOKEN),
+  resendApiKey: read(process.env.RESEND_API_KEY),
   xenditSecretKey: read(process.env.XENDIT_SECRET_KEY),
   sentryDsn: read(process.env.SENTRY_DSN),
   workerConcurrency: Number.parseInt(process.env.WORKER_CONCURRENCY ?? "5", 10),
@@ -34,7 +35,7 @@ export const serverEnv = {
 export const REQUIRED_ENV_KEYS_BY_MILESTONE = {
   beforeCoding: [],
   beforeStaging: ["AUTH_SECRET", "DATABASE_URL", "REDIS_URL"],
-  beforeMvpLaunch: ["POSTMARK_SERVER_TOKEN", "XENDIT_SECRET_KEY"],
+  beforeMvpLaunch: ["RESEND_API_KEY", "AUTH_EMAIL_FROM", "XENDIT_SECRET_KEY"],
   beforeBeta: [],
 } as const;
 
