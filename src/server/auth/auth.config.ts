@@ -3,7 +3,7 @@ import type { NextAuthOptions } from "next-auth";
 import type { Adapter } from "next-auth/adapters";
 import EmailProvider from "next-auth/providers/email";
 import { publicEnv } from "@/config/env";
-import { serverEnv } from "@/config/env.server";
+import { assertRuntimeEnv, serverEnv } from "@/config/env.server";
 import { DEFAULT_APP_ROLE, isAppRole } from "@/lib/access/roles";
 import { logger } from "@/lib/logger";
 import { getDb } from "@/server/db/client";
@@ -11,6 +11,8 @@ import { accounts, sessions, users, verificationTokens } from "@/server/db/schem
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/auth/auth.config");
+
+assertRuntimeEnv("web");
 
 export const isEmailAuthConfigured = Boolean(serverEnv.resendApiKey && serverEnv.authEmailFrom);
 

@@ -6,18 +6,19 @@ export default function HomePage() {
       <header className="space-y-3">
         <h1 className="text-3xl font-semibold tracking-tight">Lombakita Platform Baseline</h1>
         <p className="max-w-2xl text-zinc-600">
-          Step 1.3 identity baseline is active. Auth.js integration, persistence, and access-control
-          skeleton are in place while business features remain intentionally deferred.
+          Step 1.5 deployment baseline is active. Managed-environment contracts, staging runtime
+          rules, and migration safeguards are in place while business features remain intentionally
+          deferred.
         </p>
       </header>
 
       <section className="rounded border border-zinc-200 bg-white p-6">
-        <h2 className="mb-3 text-lg font-medium">Step 1.3 Status</h2>
+        <h2 className="mb-3 text-lg font-medium">Step 1.5 Status</h2>
         <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-700">
-          <li>Auth.js route wiring with database sessions</li>
-          <li>Identity schema and migrations added via Drizzle</li>
-          <li>Role/access guard helpers for page and API contexts</li>
-          <li>Minimal sign-in and protected route baseline</li>
+          <li>Auth.js, identity persistence, and role-access skeleton</li>
+          <li>User-domain and institution membership foundation</li>
+          <li>Managed PostgreSQL-ready env contract and SSL controls</li>
+          <li>Staging deployment runbook and guarded migration flow</li>
           <li>No student/institution/competition business workflows yet</li>
         </ul>
       </section>
@@ -44,9 +45,9 @@ export default function HomePage() {
             </Link>
           </li>
           <li>
-            Platform ops role-guard example:{" "}
-            <Link className="underline" href="/api/v1/platform-ops/example">
-              /api/v1/platform-ops/example
+            Tenant context API example:{" "}
+            <Link className="underline" href="/api/v1/auth/context">
+              /api/v1/auth/context
             </Link>
           </li>
           <li>

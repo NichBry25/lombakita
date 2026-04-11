@@ -11,7 +11,7 @@ export default async function SignInPage(props: { searchParams?: Promise<{ error
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">Sign In</h1>
         <p className="text-sm text-zinc-600">
-          Step 1.3 baseline uses Auth.js with Resend magic-link sign-in.
+          Step 1.5 baseline uses Auth.js with Resend magic-link sign-in.
         </p>
       </header>
 

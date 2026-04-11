@@ -11,13 +11,17 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "format": "prettier --ignore-unknown --write \"src/**/*.{ts,tsx,css}\" \".github/workflows/*.{yml,yaml}\" README.md package.json tsconfig.json eslint.config.mjs next.config.ts postcss.config.mjs vitest.config.ts drizzle.config.ts .prettierrc.json .env.example",
-    "format:check": "prettier --ignore-unknown --check \"src/**/*.{ts,tsx,css}\" \".github/workflows/*.{yml,yaml}\" README.md package.json tsconfig.json eslint.config.mjs next.config.ts postcss.config.mjs vitest.config.ts drizzle.config.ts .prettierrc.json .env.example",
+    "format": "prettier --ignore-unknown --write \"src/**/*.{ts,tsx,css}\" \".github/workflows/*.{yml,yaml}\" README.md package.json tsconfig.json eslint.config.mjs next.config.ts postcss.config.mjs vitest.config.ts drizzle.config.ts .prettierrc.json .env.example .env.preview.example .env.staging.example .env.production.example .env.worker.example",
+    "format:check": "prettier --ignore-unknown --check \"src/**/*.{ts,tsx,css}\" \".github/workflows/*.{yml,yaml}\" README.md package.json tsconfig.json eslint.config.mjs next.config.ts postcss.config.mjs vitest.config.ts drizzle.config.ts .prettierrc.json .env.example .env.preview.example .env.staging.example .env.production.example .env.worker.example",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "connectors:status": "node --import tsx src/server/scripts/connectors-status.ts",
-    "connectors:status:live": "node --import tsx src/server/scripts/connectors-status.ts --live"
+    "connectors:status:live": "node --import tsx src/server/scripts/connectors-status.ts --live",
+    "db:migrate:guarded": "node --import tsx src/server/scripts/migration-guard.ts && drizzle-kit migrate",
+    "env:check:web": "node --import tsx src/server/scripts/validate-env.ts --runtime=web",
+    "env:check:worker": "node --import tsx src/server/scripts/validate-env.ts --runtime=worker",
+    "env:check": "node --import tsx src/server/scripts/validate-env.ts --runtime=web"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.1",

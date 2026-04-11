@@ -4,8 +4,10 @@ assertServerOnly("server/db/client");
 
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { serverEnv } from "@/config/env.server";
+import { assertRuntimeEnv, serverEnv } from "@/config/env.server";
 import * as schema from "@/server/db/schema";
+
+assertRuntimeEnv("web");
 
 export type Database = PostgresJsDatabase<typeof schema>;
 
@@ -22,12 +24,41 @@ const requireDatabaseUrl = (): string => {
   return serverEnv.databaseUrl;
 };
 
+const resolveSslOption = (): postgres.Options<Record<string, never>>["ssl"] | undefined => {
+  if (serverEnv.databaseSslMode === "inherit") {
+    return undefined;
+  }
+
+  if (serverEnv.databaseSslMode === "disable") {
+    return false;
+  }
+
+  const tlsOptions: {
+    rejectUnauthorized: boolean;
+    ca?: string;
+  } = {
+    rejectUnauthorized:
+      serverEnv.databaseSslMode === "require_insecure"
+        ? false
+        : serverEnv.databaseSslRejectUnauthorized,
+  };
+
+  if (serverEnv.databaseSslCaCertBase64) {
+    tlsOptions.ca = Buffer.from(serverEnv.databaseSslCaCertBase64, "base64").toString("utf8");
+  }
+
+  return tlsOptions;
+};
+
 const createSqlClient = (): postgres.Sql => {
+  const ssl = resolveSslOption();
+
   return postgres(requireDatabaseUrl(), {
     max: 5,
     idle_timeout: 20,
     connect_timeout: 10,
     prepare: false,
+    ...(ssl !== undefined ? { ssl } : {}),
   });
 };
 
