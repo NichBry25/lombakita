@@ -34,7 +34,7 @@ export default function HomePage() {
           </li>
           <li>
             Protected example page:{" "}
-            <Link className="underline" href="/protected">
+            <Link className="underline" href="/protected" prefetch={false}>
               /protected
             </Link>
           </li>

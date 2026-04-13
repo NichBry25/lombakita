@@ -6,6 +6,8 @@ import { signIn } from "next-auth/react";
 export const SignInForm = ({ enabled }: { enabled: boolean }) => {
   const [email, setEmail] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -15,12 +17,17 @@ export const SignInForm = ({ enabled }: { enabled: boolean }) => {
     }
 
     setIsSubmitting(true);
+    setStatusMessage(null);
+    setErrorMessage(null);
 
     try {
       await signIn("email", {
         email: email.trim().toLowerCase(),
         callbackUrl: "/protected",
       });
+      setStatusMessage("If this email is recognized, a magic link has been sent.");
+    } catch {
+      setErrorMessage("Could not send magic link. Check email provider credentials and try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -48,6 +55,9 @@ export const SignInForm = ({ enabled }: { enabled: boolean }) => {
       >
         {isSubmitting ? "Sending..." : "Send magic link"}
       </button>
+
+      {statusMessage ? <p className="text-xs text-emerald-700">{statusMessage}</p> : null}
+      {errorMessage ? <p className="text-xs text-rose-700">{errorMessage}</p> : null}
     </form>
   );
 };
