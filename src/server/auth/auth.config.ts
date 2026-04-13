@@ -77,6 +77,15 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
+  logger: {
+    error(code, metadata) {
+      logger.error("NextAuth error", { code, metadata });
+    },
+    warn(code) {
+      logger.warn("NextAuth warning", { code });
+    },
+  },
+
   events: {
     signIn({ user }) {
       logger.info("Auth sign-in completed", {

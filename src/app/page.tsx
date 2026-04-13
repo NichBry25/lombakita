@@ -40,13 +40,13 @@ export default function HomePage() {
           </li>
           <li>
             Session API example:{" "}
-            <Link className="underline" href="/api/v1/auth/session">
+            <Link className="underline" href="/api/v1/auth/session" prefetch={false}>
               /api/v1/auth/session
             </Link>
           </li>
           <li>
             Tenant context API example:{" "}
-            <Link className="underline" href="/api/v1/auth/context">
+            <Link className="underline" href="/api/v1/auth/context" prefetch={false}>
               /api/v1/auth/context
             </Link>
           </li>
