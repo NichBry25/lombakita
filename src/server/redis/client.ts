@@ -2,14 +2,18 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/redis/client");
 
-import Redis from "ioredis";
+import Redis, { type RedisOptions } from "ioredis";
 import { serverEnv } from "@/config/env.server";
 
 declare global {
   var __lombakitaRedis: Redis | undefined;
 }
 
-const requireRedisUrl = (): string => {
+const REDIS_CONNECT_TIMEOUT_MS = 3000;
+
+export type RedisClientMode = "default" | "bullmq";
+
+export const requireRedisUrl = (): string => {
   if (!serverEnv.redisUrl) {
     throw new Error("REDIS_URL is not configured");
   }
@@ -17,13 +21,21 @@ const requireRedisUrl = (): string => {
   return serverEnv.redisUrl;
 };
 
-const createRedisClient = (): Redis => {
-  return new Redis(requireRedisUrl(), {
+export const getRedisClientOptions = (mode: RedisClientMode = "default"): RedisOptions => {
+  return {
     lazyConnect: true,
-    maxRetriesPerRequest: 1,
+    maxRetriesPerRequest: mode === "bullmq" ? null : 1,
     enableOfflineQueue: false,
-    connectTimeout: 3000,
-  });
+    connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
+  };
+};
+
+const createRedisClient = (): Redis => {
+  return new Redis(requireRedisUrl(), getRedisClientOptions("default"));
+};
+
+export const createBullmqRedisClient = (): Redis => {
+  return new Redis(requireRedisUrl(), getRedisClientOptions("bullmq"));
 };
 
 export const getRedisClient = (): Redis => {

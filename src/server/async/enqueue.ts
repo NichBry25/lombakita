@@ -1,0 +1,83 @@
+import { assertServerOnly } from "@/server/runtime/assert-server-only";
+
+assertServerOnly("server/async/enqueue");
+
+import {
+  ASYNC_JOB_NAMES,
+  ASYNC_JOB_QUEUE_BY_NAME,
+  type AsyncJobName,
+  type AsyncJobPayloadByName,
+} from "@/server/async/contracts";
+import { buildAsyncJobId, sanitizeIdempotencyKey } from "@/server/async/idempotency";
+import { logEnqueueAccepted, logEnqueueRequested } from "@/server/async/observability";
+import { getAsyncQueue } from "@/server/async/queue";
+
+export type EnqueueAsyncJobInput<Name extends AsyncJobName> = {
+  jobName: Name;
+  payload: AsyncJobPayloadByName[Name];
+  idempotencyKey: string;
+};
+
+export type EnqueueAsyncJobResult<Name extends AsyncJobName> = {
+  queueName: (typeof ASYNC_JOB_QUEUE_BY_NAME)[Name];
+  jobName: Name;
+  jobId: string;
+  idempotencyKey: string;
+  duplicate: boolean;
+};
+
+export const enqueueAsyncJob = async <Name extends AsyncJobName>(
+  input: EnqueueAsyncJobInput<Name>,
+): Promise<EnqueueAsyncJobResult<Name>> => {
+  const { jobName, payload } = input;
+  const idempotencyKey = sanitizeIdempotencyKey(input.idempotencyKey);
+  const queueName = ASYNC_JOB_QUEUE_BY_NAME[jobName];
+  const jobId = buildAsyncJobId(jobName, idempotencyKey);
+  const queue = getAsyncQueue(queueName);
+
+  const existingJob = await queue.getJob(jobId);
+  const duplicate = Boolean(existingJob);
+
+  logEnqueueRequested({
+    queueName,
+    jobName,
+    jobId,
+    idempotencyKey,
+    duplicate,
+  });
+
+  const acceptedJob = await queue.add(jobName, payload, {
+    jobId,
+  });
+
+  logEnqueueAccepted({
+    queueName,
+    jobName,
+    jobId,
+    idempotencyKey,
+    duplicate,
+  });
+
+  return {
+    queueName,
+    jobName,
+    jobId: acceptedJob.id ?? jobId,
+    idempotencyKey,
+    duplicate,
+  };
+};
+
+export const enqueueProbeJob = async (input: {
+  probeId: string;
+  triggeredBy: "script";
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.probePing>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.probePing,
+    idempotencyKey: input.probeId,
+    payload: {
+      probeId: input.probeId,
+      requestedAt: new Date().toISOString(),
+      triggeredBy: input.triggeredBy,
+    },
+  });
+};

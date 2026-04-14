@@ -51,11 +51,13 @@ describe("env runtime validation", () => {
       ...baseEnv,
       APP_ENV: "staging",
       NEXT_PUBLIC_APP_ENV: "staging",
+      REDIS_URL: undefined,
       WORKER_RUNTIME_TARGET: "pending_selection",
     });
 
     const validation = getRuntimeEnvValidation("worker", env);
 
+    expect(validation.missingKeys).toContain("REDIS_URL");
     expect(validation.missingKeys).toContain("WORKER_RUNTIME_TARGET");
   });
 });

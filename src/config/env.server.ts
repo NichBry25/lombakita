@@ -186,6 +186,7 @@ export const getRuntimeEnvValidation = (
   }
 
   if (runtime === "worker" && env.appEnv !== "local" && env.appEnv !== "test") {
+    includeMissing(values, "REDIS_URL", Boolean(env.redisUrl));
     includeMissing(
       values,
       "WORKER_RUNTIME_TARGET",

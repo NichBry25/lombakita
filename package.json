@@ -18,6 +18,8 @@
     "db:studio": "drizzle-kit studio",
     "connectors:status": "node --import tsx src/server/scripts/connectors-status.ts",
     "connectors:status:live": "node --import tsx src/server/scripts/connectors-status.ts --live",
+    "worker:start": "RUNTIME_NAME=worker node --import tsx src/worker/index.ts",
+    "jobs:probe:enqueue": "node --import tsx src/server/scripts/enqueue-probe-job.ts",
     "db:migrate:guarded": "node --import tsx src/server/scripts/migration-guard.ts && drizzle-kit migrate",
     "env:check:web": "node --import tsx src/server/scripts/validate-env.ts --runtime=web",
     "env:check:worker": "node --import tsx src/server/scripts/validate-env.ts --runtime=worker",
@@ -26,6 +28,7 @@
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.1",
     "@aws-sdk/client-s3": "^3.894.0",
+    "bullmq": "^5.73.5",
     "drizzle-orm": "^0.44.6",
     "ioredis": "^5.8.1",
     "meilisearch": "^0.54.0",

@@ -1,7 +1,11 @@
 import { existsSync } from "node:fs";
 
-const loadLocalEnvFiles = (): void => {
-  const candidates = [".env.local", ".env"];
+const loadLocalEnvFiles = (runtimeArg: string | undefined): void => {
+  const runtime = runtimeArg?.toLowerCase();
+  const candidates =
+    runtime === "worker"
+      ? [".env.worker.local", ".env.worker", ".env.local", ".env"]
+      : [".env.local", ".env"];
 
   for (const file of candidates) {
     if (!existsSync(file)) {
@@ -13,12 +17,12 @@ const loadLocalEnvFiles = (): void => {
 };
 
 const run = async (): Promise<void> => {
-  loadLocalEnvFiles();
+  const argRuntime = process.argv.find((item) => item.startsWith("--runtime="));
+  loadLocalEnvFiles(argRuntime?.split("=")[1]);
 
   const { assertRuntimeEnv, getRuntimeEnvValidation, resolveServerRuntime } =
     await import("@/config/env.server");
 
-  const argRuntime = process.argv.find((item) => item.startsWith("--runtime="));
   const runtime = resolveServerRuntime(argRuntime?.split("=")[1]);
   const validation = getRuntimeEnvValidation(runtime);
 
