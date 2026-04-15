@@ -2,14 +2,18 @@
 
 import { signOut } from "next-auth/react";
 
-export const SignOutButton = () => {
+type SignOutButtonProps = {
+  className?: string;
+};
+
+export const SignOutButton = ({ className }: SignOutButtonProps) => {
   const onClick = async (): Promise<void> => {
-    await signOut({ callbackUrl: "/" });
+    await signOut({ callbackUrl: "/auth/sign-in" });
   };
 
   return (
     <button
-      className="rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white"
+      className={className ?? "primary-button"}
       onClick={() => {
         void onClick();
       }}

@@ -29,6 +29,20 @@
       "when": 1775902561427,
       "tag": "0003_polite_ulik",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776259807363,
+      "tag": "0004_nappy_star_brand",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776265286132,
+      "tag": "0005_many_doomsday",
+      "breakpoints": true
     }
   ]
 }

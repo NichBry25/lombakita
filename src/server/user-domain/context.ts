@@ -35,6 +35,7 @@ export type UserDomainContext = {
   platformRoles: PlatformUserRole[];
   profile: {
     displayName: string | null;
+    phoneNumber: string | null;
     avatarUrl: string | null;
     summary: string | null;
   };
@@ -91,6 +92,7 @@ export const getUserDomainContext = async (userId: string): Promise<UserDomainCo
       accountStatus: users.status,
       primaryRole: users.role,
       profileDisplayName: userProfiles.displayName,
+      profilePhoneNumber: userProfiles.phoneNumber,
       profileAvatarUrl: userProfiles.avatarUrl,
       profileSummary: userProfiles.summary,
     })
@@ -128,6 +130,7 @@ export const getUserDomainContext = async (userId: string): Promise<UserDomainCo
     platformRoles: Array.from(roleSet),
     profile: {
       displayName: userRow.profileDisplayName,
+      phoneNumber: userRow.profilePhoneNumber,
       avatarUrl: userRow.profileAvatarUrl,
       summary: userRow.profileSummary,
     },

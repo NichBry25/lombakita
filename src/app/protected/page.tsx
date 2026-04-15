@@ -1,11 +1,18 @@
 import Link from "next/link";
 import { SignOutButton } from "@/components/auth/sign-out-button";
-import { buildAccessContext } from "@/server/auth/access-core";
-import { requireAuthenticatedSession } from "@/server/auth/session";
+import { assertAuthenticatedSession, buildAccessContext } from "@/server/auth/access-core";
+import { getCurrentSession } from "@/server/auth/session";
+import { redirect } from "next/navigation";
 
 export default async function ProtectedPage() {
-  const session = await requireAuthenticatedSession();
-  const access = buildAccessContext(session);
+  const session = await getCurrentSession();
+
+  if (!session?.user?.id) {
+    redirect("/auth/sign-in?callbackUrl=%2Fprotected");
+  }
+
+  const authenticatedSession = assertAuthenticatedSession(session);
+  const access = buildAccessContext(authenticatedSession);
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
@@ -22,9 +29,9 @@ export default async function ProtectedPage() {
           {JSON.stringify(
             {
               user: {
-                id: session.user.id,
-                email: session.user.email,
-                role: session.user.role,
+                id: authenticatedSession.user.id,
+                email: authenticatedSession.user.email,
+                role: authenticatedSession.user.role,
               },
               access,
             },

@@ -1,38 +1,52 @@
-import Link from "next/link";
 import { SignInForm } from "@/components/auth/sign-in-form";
 import { isEmailAuthConfigured } from "@/server/auth/auth.config";
 
-export default async function SignInPage(props: { searchParams?: Promise<{ error?: string }> }) {
+const mapSignInPageError = (error: string): string => {
+  if (error.includes("EMAIL_NOT_VERIFIED")) {
+    return "Login ditolak karena email belum diverifikasi. Cek inbox/spam lalu klik tautan verifikasi.";
+  }
+
+  if (error.includes("INVALID_CREDENTIALS") || error === "CredentialsSignin") {
+    return "Login gagal karena email atau password tidak cocok. Periksa kembali data login Anda.";
+  }
+
+  if (error === "AccessDenied") {
+    return "Akses ditolak karena sesi Anda tidak valid. Login ulang dengan akun yang benar.";
+  }
+
+  if (error === "Configuration") {
+    return "Login gagal karena konfigurasi autentikasi belum lengkap. Hubungi admin sistem.";
+  }
+
+  return `Login gagal karena ${error}. Coba ulang atau hubungi admin jika masalah berlanjut.`;
+};
+
+export default async function SignInPage(props: {
+  searchParams?: Promise<{
+    error?: string;
+    verified?: string;
+    email?: string;
+    callbackUrl?: string;
+  }>;
+}) {
   const searchParams = await props.searchParams;
   const error = searchParams?.error;
+  const verified = searchParams?.verified === "1";
+  const email = searchParams?.email;
+  const callbackUrl = searchParams?.callbackUrl;
 
   return (
-    <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-6 px-6 py-16">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">Sign In</h1>
-        <p className="text-sm text-zinc-600">
-          Step 1.5 baseline uses Auth.js with Resend magic-link sign-in.
-        </p>
-      </header>
+    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-12">
+      <section className="rounded-2xl border border-zinc-200 bg-white p-5 md:p-6">
+        <SignInForm
+          verificationEnabled={isEmailAuthConfigured}
+          verified={verified}
+          initialEmail={email}
+          callbackUrl={callbackUrl}
+        />
 
-      <section className="rounded border border-zinc-200 bg-white p-5">
-        <SignInForm enabled={isEmailAuthConfigured} />
-
-        {!isEmailAuthConfigured ? (
-          <p className="mt-3 text-xs text-amber-700">
-            Auth email provider is not fully configured. Set `RESEND_API_KEY` and `AUTH_EMAIL_FROM`
-            in your environment.
-          </p>
-        ) : null}
-
-        {error ? <p className="mt-3 text-xs text-rose-700">Sign-in error: {error}</p> : null}
+        {error ? <p className="mt-4 text-xs text-rose-700">{mapSignInPageError(error)}</p> : null}
       </section>
-
-      <p className="text-sm text-zinc-600">
-        <Link className="underline" href="/">
-          Back to home
-        </Link>
-      </p>
     </main>
   );
 }

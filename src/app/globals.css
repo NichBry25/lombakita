@@ -1,8 +1,20 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+  --background: #f2f7fb;
+  --foreground: #0f1012;
+  --surface-glass: rgba(255, 255, 255, 0.72);
+  --surface-muted: rgba(227, 236, 248, 0.72);
+  --surface-border: rgba(53, 87, 149, 0.2);
+  --text-primary: #0f1012;
+  --text-muted: #355795;
+  --text-contrast: #f4f8ff;
+  --accent-soft: #ece5ff;
+  --accent-strong: #355795;
+  --accent-hover: rgba(53, 87, 149, 0.15);
+  --badge-bg: rgba(236, 229, 255, 0.86);
+  --badge-text: #355795;
+  --skeleton: rgba(53, 87, 149, 0.14);
 }
 
 @theme inline {
@@ -12,13 +24,227 @@
   --font-mono: var(--font-geist-mono);
 }
 
+[data-theme="dark"] {
+  --background: #07192f;
+  --foreground: #dce7fa;
+  --surface-glass: rgba(14, 30, 57, 0.78);
+  --surface-muted: rgba(42, 59, 109, 0.52);
+  --surface-border: rgba(220, 231, 250, 0.28);
+  --text-primary: #edf4ff;
+  --text-muted: #dce7fa;
+  --text-contrast: #ffffff;
+  --accent-soft: rgba(42, 59, 109, 0.88);
+  --accent-strong: #2a3b6d;
+  --accent-hover: rgba(220, 231, 250, 0.16);
+  --badge-bg: rgba(42, 59, 109, 0.82);
+  --badge-text: #e6eeff;
+  --skeleton: rgba(220, 231, 250, 0.18);
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  background: var(--background);
+  background:
+    radial-gradient(circle at 12% 10%, rgba(236, 229, 255, 0.62), transparent 45%),
+    radial-gradient(circle at 82% 14%, rgba(180, 212, 246, 0.5), transparent 40%), var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), sans-serif;
+}
+
+[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at 14% 10%, rgba(42, 59, 109, 0.52), transparent 42%),
+    radial-gradient(circle at 86% 12%, rgba(220, 231, 250, 0.12), transparent 45%),
+    linear-gradient(145deg, #050f1f 0%, #07192f 38%, #0d2141 100%);
+}
+
+[data-theme="dark"] .glass-card {
+  background:
+    linear-gradient(110deg, rgba(220, 231, 250, 0.08) 0%, rgba(220, 231, 250, 0) 38%),
+    linear-gradient(160deg, rgba(15, 32, 60, 0.82) 0%, rgba(9, 22, 43, 0.9) 100%);
+  border-color: rgba(220, 231, 250, 0.3);
+  box-shadow:
+    0 16px 34px rgba(4, 10, 24, 0.42),
+    inset 0 1px 0 rgba(220, 231, 250, 0.14);
+}
+
+[data-theme="dark"] .sidebar-item-inactive:hover {
+  background: rgba(220, 231, 250, 0.12);
+  border-color: rgba(220, 231, 250, 0.24);
+}
+
+[data-theme="dark"] .sidebar-item-active {
+  background: rgba(42, 59, 109, 0.72);
+  border-color: rgba(220, 231, 250, 0.28);
+}
+
+[data-theme="dark"] .action-chip {
+  background: rgba(42, 59, 109, 0.7);
+  border-color: rgba(220, 231, 250, 0.28);
+}
+
+[data-theme="dark"] .action-chip:hover:not(:disabled) {
+  background: rgba(220, 231, 250, 0.17);
+}
+
+[data-theme="dark"] .primary-button {
+  box-shadow: 0 8px 18px rgba(8, 18, 44, 0.38);
+}
+
+[data-theme="dark"] .form-input {
+  background: rgba(17, 37, 69, 0.8);
+  border-color: rgba(220, 231, 250, 0.26);
+  color: #f7fbff;
+}
+
+[data-theme="dark"] .form-input::placeholder {
+  color: rgba(220, 231, 250, 0.76);
+}
+
+[data-theme="dark"] .form-label {
+  color: #e2ecff;
+}
+
+[data-theme="dark"] .form-input-readonly {
+  background: rgba(42, 59, 109, 0.46);
+  color: #eef5ff;
+}
+
+[data-theme="dark"] .form-input:focus-visible {
+  border-color: rgba(220, 231, 250, 0.62);
+  box-shadow: 0 0 0 3px rgba(42, 59, 109, 0.5);
+}
+
+.text-gleam {
+  color: inherit;
+}
+
+[data-theme="dark"] .text-gleam {
+  color: #f7fbff;
+  text-shadow:
+    0 0 1px rgba(255, 255, 255, 0.8),
+    0 0 14px rgba(220, 231, 250, 0.24);
+}
+
+.glass-card {
+  border: 1px solid var(--surface-border);
+  background: var(--surface-glass);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 12px 30px rgba(22, 44, 86, 0.1);
+  border-radius: 1.25rem;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  border-radius: 0.95rem;
+  padding: 0.62rem 0.76rem;
+  border: 1px solid transparent;
+  color: var(--text-primary);
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.sidebar-item-inactive:hover {
+  background: var(--accent-hover);
+  border-color: var(--surface-border);
+  transform: translateY(-1px);
+}
+
+.sidebar-item-active {
+  background: var(--accent-soft);
+  border-color: var(--surface-border);
+}
+
+.action-chip {
+  border: 1px solid var(--surface-border);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  border-radius: 999px;
+  padding: 0.58rem 0.92rem;
+  font-size: 0.81rem;
+  font-weight: 600;
+  line-height: 1;
+  transition:
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.action-chip:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.primary-button {
+  border: 1px solid transparent;
+  background: var(--accent-strong);
+  color: var(--text-contrast);
+  border-radius: 999px;
+  padding: 0.68rem 1.2rem;
+  font-size: 0.84rem;
+  font-weight: 650;
+  line-height: 1;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.primary-button:hover:not(:disabled) {
+  opacity: 0.94;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(30, 54, 98, 0.3);
+}
+
+.primary-button:disabled,
+.action-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.form-field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.form-label {
+  font-size: 0.79rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.form-input {
+  width: 100%;
+  border: 1px solid var(--surface-border);
+  border-radius: 0.95rem;
+  background: color-mix(in srgb, var(--surface-glass) 80%, transparent);
+  color: var(--text-primary);
+  padding: 0.72rem 0.9rem;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+.form-input::placeholder {
+  color: color-mix(in srgb, var(--text-muted) 70%, transparent);
+}
+
+.form-input:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent-strong) 70%, white 30%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-soft) 55%, transparent);
+}
+
+.form-input-readonly {
+  background: color-mix(in srgb, var(--surface-muted) 74%, transparent);
+  color: var(--text-muted);
 }

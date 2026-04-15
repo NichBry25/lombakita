@@ -65,11 +65,40 @@ export const userProfiles = pgTable("user_profiles", {
     .primaryKey()
     .references(() => users.id, { onDelete: "cascade" }),
   displayName: text("display_name"),
+  phoneNumber: text("phone_number"),
   avatarUrl: text("avatar_url"),
   summary: text("summary"),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
 });
+
+export const userPasswordCredentials = pgTable("user_password_credentials", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+});
+
+export const userEmailVerificationTokens = pgTable(
+  "user_email_verification_tokens",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("user_email_verification_tokens_token_hash_unique_idx").on(table.tokenHash),
+  ],
+);
 
 export const userPlatformRoles = pgTable(
   "user_platform_roles",

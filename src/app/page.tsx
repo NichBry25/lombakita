@@ -6,26 +6,37 @@ export default function HomePage() {
       <header className="space-y-3">
         <h1 className="text-3xl font-semibold tracking-tight">Lombakita Platform Baseline</h1>
         <p className="max-w-2xl text-zinc-600">
-          Step 1.5 deployment baseline is active. Managed-environment contracts, staging runtime
-          rules, and migration safeguards are in place while business features remain intentionally
-          deferred.
+          Step 2.1 student profile shell is active. Authenticated students can now view and update
+          their minimal application profile while broader business workflows remain deferred.
         </p>
       </header>
 
       <section className="rounded border border-zinc-200 bg-white p-6">
-        <h2 className="mb-3 text-lg font-medium">Step 1.5 Status</h2>
+        <h2 className="mb-3 text-lg font-medium">Step 2.1 Status</h2>
         <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-700">
-          <li>Auth.js, identity persistence, and role-access skeleton</li>
+          <li>Auth.js credentials login with Resend-verified registration</li>
           <li>User-domain and institution membership foundation</li>
-          <li>Managed PostgreSQL-ready env contract and SSL controls</li>
-          <li>Staging deployment runbook and guarded migration flow</li>
-          <li>No student/institution/competition business workflows yet</li>
+          <li>Student profile shell endpoint and guarded profile page</li>
+          <li>Managed PostgreSQL-ready env contract and guarded migration flow</li>
+          <li>No eligibility, institution workspace, or payment workflows yet</li>
         </ul>
       </section>
 
       <section className="rounded border border-zinc-200 bg-white p-6">
-        <h2 className="mb-3 text-lg font-medium">Auth and Ops Endpoints</h2>
+        <h2 className="mb-3 text-lg font-medium">Current Runtime Surfaces</h2>
         <ul className="space-y-1 text-sm text-zinc-700">
+          <li>
+            Student profile page:{" "}
+            <Link className="underline" href="/student/profile" prefetch={false}>
+              /student/profile
+            </Link>
+          </li>
+          <li>
+            Student profile API:{" "}
+            <Link className="underline" href="/api/v1/students/me/profile" prefetch={false}>
+              /api/v1/students/me/profile
+            </Link>
+          </li>
           <li>
             Sign-in page:{" "}
             <Link className="underline" href="/auth/sign-in">
