@@ -6,19 +6,21 @@ export default function HomePage() {
       <header className="space-y-3">
         <h1 className="text-3xl font-semibold tracking-tight">Lombakita Platform Baseline</h1>
         <p className="max-w-2xl text-zinc-600">
-          Step 2.1 student profile shell is active. Authenticated students can now view and update
-          their minimal application profile while broader business workflows remain deferred.
+          Step 2.2 institution workspace creation baseline is active. Authenticated users can create
+          an institution tenant with durable owner membership and manage a minimal settings shell.
         </p>
       </header>
 
       <section className="rounded border border-zinc-200 bg-white p-6">
-        <h2 className="mb-3 text-lg font-medium">Step 2.1 Status</h2>
+        <h2 className="mb-3 text-lg font-medium">Step 2.2 Status</h2>
         <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-700">
           <li>Auth.js credentials login with Resend-verified registration</li>
           <li>User-domain and institution membership foundation</li>
           <li>Student profile shell endpoint and guarded profile page</li>
+          <li>Institution tenant creation endpoint with owner membership assignment</li>
+          <li>Slug-based institution settings shell with owner-only updates</li>
           <li>Managed PostgreSQL-ready env contract and guarded migration flow</li>
-          <li>No eligibility, institution workspace, or payment workflows yet</li>
+          <li>No staff invitations, verification workflow, competition tooling, or payments</li>
         </ul>
       </section>
 
@@ -35,6 +37,18 @@ export default function HomePage() {
             Student profile API:{" "}
             <Link className="underline" href="/api/v1/students/me/profile" prefetch={false}>
               /api/v1/students/me/profile
+            </Link>
+          </li>
+          <li>
+            Institution workspace page:{" "}
+            <Link className="underline" href="/institution/workspace" prefetch={false}>
+              /institution/workspace
+            </Link>
+          </li>
+          <li>
+            Institution create API:{" "}
+            <Link className="underline" href="/api/v1/institutions" prefetch={false}>
+              /api/v1/institutions
             </Link>
           </li>
           <li>

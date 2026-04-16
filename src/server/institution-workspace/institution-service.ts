@@ -1,0 +1,258 @@
+import { and, eq, sql } from "drizzle-orm";
+import { AccessError } from "@/server/auth/access-core";
+import { getDb, type Database } from "@/server/db/client";
+import { institutionMemberships, institutions } from "@/server/db/schema";
+import {
+  InstitutionWorkspaceInputError,
+  buildInstitutionSlugCandidate,
+  deriveInstitutionSlugBase,
+  parseInstitutionSlugParam,
+  parseInstitutionWorkspaceCreateInput,
+  parseInstitutionWorkspaceSettingsPatch,
+  type InstitutionWorkspaceShell,
+} from "@/server/institution-workspace/institution-core";
+
+const MAX_SLUG_ATTEMPTS = 20;
+const NEW_INSTITUTION_DEFAULT_STATUS = "inactive";
+const OWNER_ROLE = "institution_admin";
+const ACTIVE_MEMBERSHIP_STATUS = "active";
+
+type InstitutionWorkspaceRow = {
+  institutionId: string;
+  institutionDisplayName: string;
+  institutionSlug: string;
+  institutionStatus: InstitutionWorkspaceShell["status"];
+  institutionCreatedAt: Date;
+  institutionUpdatedAt: Date;
+  membershipId: string;
+  membershipRole: InstitutionWorkspaceShell["ownerMembership"]["membershipRole"];
+  membershipStatus: InstitutionWorkspaceShell["ownerMembership"]["membershipStatus"];
+  membershipJoinedAt: Date;
+};
+
+const mapInstitutionWorkspace = (row: InstitutionWorkspaceRow): InstitutionWorkspaceShell => {
+  return {
+    institutionId: row.institutionId,
+    displayName: row.institutionDisplayName,
+    slug: row.institutionSlug,
+    status: row.institutionStatus,
+    ownerMembership: {
+      membershipId: row.membershipId,
+      membershipRole: row.membershipRole,
+      membershipStatus: row.membershipStatus,
+      joinedAt: row.membershipJoinedAt,
+    },
+    createdAt: row.institutionCreatedAt,
+    updatedAt: row.institutionUpdatedAt,
+  };
+};
+
+const findInstitutionWorkspaceByOwnerAndSlug = async (
+  userId: string,
+  institutionSlug: string,
+  db: Database,
+): Promise<InstitutionWorkspaceRow | null> => {
+  const [row] = await db
+    .select({
+      institutionId: institutions.id,
+      institutionDisplayName: institutions.displayName,
+      institutionSlug: institutions.slug,
+      institutionStatus: institutions.status,
+      institutionCreatedAt: institutions.createdAt,
+      institutionUpdatedAt: institutions.updatedAt,
+      membershipId: institutionMemberships.id,
+      membershipRole: institutionMemberships.membershipRole,
+      membershipStatus: institutionMemberships.status,
+      membershipJoinedAt: institutionMemberships.joinedAt,
+    })
+    .from(institutions)
+    .innerJoin(
+      institutionMemberships,
+      and(
+        eq(institutionMemberships.institutionId, institutions.id),
+        eq(institutionMemberships.userId, userId),
+        eq(institutionMemberships.membershipRole, OWNER_ROLE),
+        eq(institutionMemberships.status, ACTIVE_MEMBERSHIP_STATUS),
+      ),
+    )
+    .where(eq(institutions.slug, institutionSlug))
+    .limit(1);
+
+  return row ?? null;
+};
+
+const isInstitutionSlugUniqueViolation = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const maybeError = error as {
+    code?: string;
+    constraint_name?: string;
+    constraint?: string;
+    detail?: string;
+  };
+
+  if (maybeError.code !== "23505") {
+    return false;
+  }
+
+  if (
+    maybeError.constraint === "institutions_slug_unique_idx" ||
+    maybeError.constraint_name === "institutions_slug_unique_idx"
+  ) {
+    return true;
+  }
+
+  return maybeError.detail?.toLowerCase().includes("(slug)") ?? false;
+};
+
+export const createInstitutionWorkspaceForUser = async (
+  userId: string,
+  payload: unknown,
+  db: Database = getDb(),
+): Promise<InstitutionWorkspaceShell> => {
+  const input = parseInstitutionWorkspaceCreateInput(payload);
+  const baseSlug = input.slug ?? deriveInstitutionSlugBase(input.displayName);
+
+  for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
+    const candidateSlug = buildInstitutionSlugCandidate(baseSlug, attempt);
+
+    try {
+      return await db.transaction(async (tx) => {
+        const [institutionRow] = await tx
+          .insert(institutions)
+          .values({
+            displayName: input.displayName,
+            slug: candidateSlug,
+            status: NEW_INSTITUTION_DEFAULT_STATUS,
+          })
+          .returning({
+            institutionId: institutions.id,
+            institutionDisplayName: institutions.displayName,
+            institutionSlug: institutions.slug,
+            institutionStatus: institutions.status,
+            institutionCreatedAt: institutions.createdAt,
+            institutionUpdatedAt: institutions.updatedAt,
+          });
+
+        if (!institutionRow) {
+          throw new Error("Failed to create institution record");
+        }
+
+        const [membershipRow] = await tx
+          .insert(institutionMemberships)
+          .values({
+            institutionId: institutionRow.institutionId,
+            userId,
+            membershipRole: OWNER_ROLE,
+            status: ACTIVE_MEMBERSHIP_STATUS,
+          })
+          .returning({
+            membershipId: institutionMemberships.id,
+            membershipRole: institutionMemberships.membershipRole,
+            membershipStatus: institutionMemberships.status,
+            membershipJoinedAt: institutionMemberships.joinedAt,
+          });
+
+        if (!membershipRow) {
+          throw new Error("Failed to create institution owner membership");
+        }
+
+        return mapInstitutionWorkspace({
+          ...institutionRow,
+          ...membershipRow,
+        });
+      });
+    } catch (error) {
+      if (isInstitutionSlugUniqueViolation(error)) {
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw new InstitutionWorkspaceInputError(
+    "institution_invalid_value",
+    "slug is not available. Please try another slug",
+    {
+      fields: ["slug"],
+    },
+  );
+};
+
+export const getInstitutionWorkspaceForOwnerBySlug = async (
+  userId: string,
+  institutionSlug: string,
+  db: Database = getDb(),
+): Promise<InstitutionWorkspaceShell> => {
+  const normalizedSlug = parseInstitutionSlugParam(institutionSlug);
+  const row = await findInstitutionWorkspaceByOwnerAndSlug(userId, normalizedSlug, db);
+
+  if (!row) {
+    throw new AccessError("forbidden", 403, "Institution owner access required");
+  }
+
+  return mapInstitutionWorkspace(row);
+};
+
+export const updateInstitutionWorkspaceForOwnerBySlug = async (
+  userId: string,
+  institutionSlug: string,
+  payload: unknown,
+  db: Database = getDb(),
+): Promise<InstitutionWorkspaceShell> => {
+  const normalizedLookupSlug = parseInstitutionSlugParam(institutionSlug);
+  const patch = parseInstitutionWorkspaceSettingsPatch(payload);
+  const current = await findInstitutionWorkspaceByOwnerAndSlug(userId, normalizedLookupSlug, db);
+
+  if (!current) {
+    throw new AccessError("forbidden", 403, "Institution owner access required");
+  }
+
+  const updates: {
+    displayName?: string;
+    slug?: string;
+    updatedAt?: ReturnType<typeof sql>;
+  } = {};
+
+  if (patch.displayName !== undefined && patch.displayName !== current.institutionDisplayName) {
+    updates.displayName = patch.displayName;
+  }
+
+  if (patch.slug !== undefined && patch.slug !== current.institutionSlug) {
+    updates.slug = patch.slug;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return mapInstitutionWorkspace(current);
+  }
+
+  updates.updatedAt = sql`now()`;
+
+  try {
+    await db.update(institutions).set(updates).where(eq(institutions.id, current.institutionId));
+  } catch (error) {
+    if (isInstitutionSlugUniqueViolation(error)) {
+      throw new InstitutionWorkspaceInputError(
+        "institution_invalid_value",
+        "slug is already used by another institution",
+        {
+          fields: ["slug"],
+        },
+      );
+    }
+
+    throw error;
+  }
+
+  const nextSlug = updates.slug ?? current.institutionSlug;
+  const updated = await findInstitutionWorkspaceByOwnerAndSlug(userId, nextSlug, db);
+
+  if (!updated) {
+    throw new AccessError("forbidden", 403, "Institution owner access required");
+  }
+
+  return mapInstitutionWorkspace(updated);
+};
