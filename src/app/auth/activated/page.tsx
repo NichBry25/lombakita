@@ -1,8 +1,6 @@
 import Link from "next/link";
 
-export default async function ActivatedPage(props: {
-  searchParams?: Promise<{ email?: string }>;
-}) {
+export default async function ActivatedPage(props: { searchParams?: Promise<{ email?: string }> }) {
   const searchParams = await props.searchParams;
   const email = searchParams?.email;
   const signInHref = email
@@ -31,4 +29,3 @@ export default async function ActivatedPage(props: {
     </main>
   );
 }
-

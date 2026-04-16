@@ -227,8 +227,7 @@ export const StudentProfileShell = () => {
 
   useEffect(() => {
     const storedTheme = window.localStorage.getItem("lombakita-theme");
-    const resolvedTheme =
-      storedTheme === "light" || storedTheme === "dark" ? storedTheme : "light";
+    const resolvedTheme = storedTheme === "light" || storedTheme === "dark" ? storedTheme : "light";
 
     if (resolvedTheme !== "light") {
       const frameId = window.requestAnimationFrame(() => {
