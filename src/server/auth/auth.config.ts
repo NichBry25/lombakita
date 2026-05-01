@@ -2,7 +2,6 @@ import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import type { NextAuthOptions } from "next-auth";
 import type { Adapter } from "next-auth/adapters";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { publicEnv } from "@/config/env";
 import { assertRuntimeEnv, serverEnv } from "@/config/env.server";
 import { DEFAULT_APP_ROLE, isAppRole } from "@/lib/access/roles";
 import { logger } from "@/lib/logger";
@@ -79,7 +78,7 @@ export const authOptions: NextAuthOptions = {
         return token;
       }
 
-      const role = (user as { role?: string }).role;
+      const role = user.role;
       token.role = role && isAppRole(role) ? role : DEFAULT_APP_ROLE;
 
       return token;
@@ -89,10 +88,9 @@ export const authOptions: NextAuthOptions = {
         return session;
       }
 
-      const rawRole =
-        (user as { role?: string } | undefined)?.role ??
-        (token as { role?: string } | undefined)?.role ??
-        DEFAULT_APP_ROLE;
+      const userRole = user?.role;
+      const tokenRole = typeof token?.role === "string" ? token.role : undefined;
+      const rawRole = userRole ?? tokenRole ?? DEFAULT_APP_ROLE;
       const normalizedRole = isAppRole(rawRole) ? rawRole : DEFAULT_APP_ROLE;
 
       const userId = user?.id ?? token?.sub;
@@ -120,7 +118,7 @@ export const authOptions: NextAuthOptions = {
     signIn({ user }) {
       logger.info("Auth sign-in completed", {
         userId: user.id,
-        role: (user as { role?: string }).role ?? DEFAULT_APP_ROLE,
+        role: user.role ?? DEFAULT_APP_ROLE,
       });
     },
     signOut({ session }) {
@@ -130,11 +128,3 @@ export const authOptions: NextAuthOptions = {
     },
   },
 };
-
-export const authScaffoldConfig = {
-  baseUrl: serverEnv.authUrl ?? publicEnv.appUrl,
-  secretConfigured: Boolean(serverEnv.authSecret),
-  providerMode: "email_password_with_resend_verification",
-  providerConfigured: isEmailAuthConfigured,
-  persistenceConfigured: isAuthPersistenceConfigured,
-} as const;

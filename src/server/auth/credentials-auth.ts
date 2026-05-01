@@ -1,4 +1,4 @@
-import { and, eq, isNull, lt, ne } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   userEmailVerificationTokens,
@@ -477,16 +477,6 @@ export const verifyRegistrationEmailToken = async (
   };
 };
 
-export const clearExpiredVerificationTokens = async (db: Database = getDb()): Promise<void> => {
-  await db
-    .delete(userEmailVerificationTokens)
-    .where(
-      and(
-        lt(userEmailVerificationTokens.expiresAt, new Date()),
-        isNull(userEmailVerificationTokens.consumedAt),
-      ),
-    );
-};
 
 export const authenticateWithEmailPassword = async (
   email: string,
