@@ -8,6 +8,7 @@ import {
   userPlatformRoles,
   userProfiles,
   users,
+  type AppUserStatus,
   type InstitutionMembershipRole,
   type InstitutionMembershipStatus,
   type InstitutionStatus,
@@ -30,7 +31,7 @@ export type InstitutionMembershipRecord = {
 export type UserDomainContext = {
   userId: string;
   email: string;
-  accountStatus: "active" | "suspended" | "deactivated";
+  accountStatus: AppUserStatus;
   primaryRole: (typeof users.$inferSelect)["role"];
   platformRoles: PlatformUserRole[];
   profile: {
@@ -42,7 +43,7 @@ export type UserDomainContext = {
   memberships: InstitutionMembershipRecord[];
 };
 
-export const listMembershipsForUser = async (
+const listMembershipsForUser = async (
   userId: string,
   options?: { activeOnly?: boolean },
 ): Promise<InstitutionMembershipRecord[]> => {
@@ -136,15 +137,4 @@ export const getUserDomainContext = async (userId: string): Promise<UserDomainCo
     },
     memberships,
   };
-};
-
-export const isUserMemberOfInstitution = async (
-  userId: string,
-  institutionId: string,
-): Promise<boolean> => {
-  const membership = await getInstitutionMembershipForUser(userId, institutionId, {
-    activeOnly: true,
-  });
-
-  return Boolean(membership);
 };

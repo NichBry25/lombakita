@@ -4,7 +4,6 @@ import type { InstitutionMembershipRole } from "@/server/db/schema";
 import {
   getInstitutionMembershipForUser,
   getUserDomainContext,
-  isUserMemberOfInstitution,
   type InstitutionMembershipRecord,
   type UserDomainContext,
 } from "@/server/user-domain/context";
@@ -44,10 +43,4 @@ export const requireCurrentUserInstitutionAccess = async (options: {
     membership: activeMembership,
     userId: session.user.id,
   };
-};
-
-export const currentUserHasInstitutionAccess = async (institutionId: string): Promise<boolean> => {
-  const session = await requireAuthenticatedSession();
-
-  return isUserMemberOfInstitution(session.user.id, institutionId);
 };

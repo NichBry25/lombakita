@@ -40,6 +40,7 @@ export const institutionMembershipStatusEnum = pgEnum("institution_membership_st
   "revoked",
 ]);
 
+export type AppUserStatus = (typeof appUserStatusEnum.enumValues)[number];
 export type InstitutionMembershipRole = (typeof institutionMembershipRoleEnum.enumValues)[number];
 export type InstitutionMembershipStatus =
   (typeof institutionMembershipStatusEnum.enumValues)[number];
