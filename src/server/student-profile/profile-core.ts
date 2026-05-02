@@ -26,9 +26,6 @@ const PROTECTED_FIELDS = [
   "summary",
 ] as const;
 
-type EditableField = (typeof EDITABLE_FIELDS)[number];
-type ProtectedField = (typeof PROTECTED_FIELDS)[number];
-
 const editableFieldSet = new Set<string>(EDITABLE_FIELDS);
 const protectedFieldSet = new Set<string>(PROTECTED_FIELDS);
 
@@ -222,6 +219,3 @@ export const toStudentProfileInputErrorResponse = (
     { status: 400 },
   );
 };
-
-export const STUDENT_PROFILE_EDITABLE_FIELDS: readonly EditableField[] = EDITABLE_FIELDS;
-export const STUDENT_PROFILE_PROTECTED_FIELDS: readonly ProtectedField[] = PROTECTED_FIELDS;
