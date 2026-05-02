@@ -165,11 +165,8 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-14">
-      <header className="space-y-2">
+      <header>
         <h1 className="text-2xl font-semibold text-gleam">Pengaturan Institusi</h1>
-        <p className="text-sm text-[var(--text-muted)]">
-          Minimal settings shell Step 2.2 untuk pemilik institusi.
-        </p>
       </header>
 
       <section className="glass-card p-6">

@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: publicEnv.appName,
-  description: "Indonesia-focused opportunities platform baseline scaffold",
+  description: "Platform peluang mahasiswa Indonesia — kompetisi, beasiswa, dan magang.",
 };
 
 export default function RootLayout({

@@ -17,10 +17,7 @@ export default async function ProtectedPage() {
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
       <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">Protected Baseline Page</h1>
-        <p className="text-sm text-zinc-700">
-          This route verifies authenticated session access through shared server-side guards.
-        </p>
+        <h1 className="text-2xl font-semibold">Sesi Aktif</h1>
       </header>
 
       <section className="rounded border border-zinc-200 bg-white p-5">

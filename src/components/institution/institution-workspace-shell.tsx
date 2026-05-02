@@ -106,11 +106,8 @@ export const InstitutionWorkspaceShell = () => {
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-14">
-      <header className="space-y-2">
+      <header>
         <h1 className="text-2xl font-semibold text-gleam">Buat Workspace Institusi</h1>
-        <p className="text-sm text-[var(--text-muted)]">
-          Proof surface Step 2.2 untuk membuat tenant institusi dan owner awal.
-        </p>
       </header>
 
       <section className="glass-card p-6">

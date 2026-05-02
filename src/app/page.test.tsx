@@ -3,15 +3,11 @@ import { describe, expect, it } from "vitest";
 import HomePage from "@/app/page";
 
 describe("HomePage", () => {
-  it("renders Step 2.2 baseline messaging", () => {
+  it("renders the Lombakita home page", () => {
     render(<HomePage />);
 
-    expect(screen.getByText(/Lombakita Platform Baseline/i)).toBeTruthy();
-    expect(
-      screen.getByText(/Step 2.2 institution workspace creation baseline is active/i),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(/Institution tenant creation endpoint with owner membership assignment/i),
-    ).toBeTruthy();
+    expect(screen.getByText(/Lombakita/i)).toBeTruthy();
+    expect(screen.getByText(/Platform peluang mahasiswa Indonesia/i)).toBeTruthy();
+    expect(screen.getByText(/Login atau daftar akun/i)).toBeTruthy();
   });
 });
