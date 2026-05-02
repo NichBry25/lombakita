@@ -25,10 +25,6 @@ const PROTECTED_FIELDS = [
   "updatedAt",
 ] as const;
 
-type CreateField = (typeof CREATE_FIELDS)[number];
-type UpdateField = (typeof UPDATE_FIELDS)[number];
-type ProtectedField = (typeof PROTECTED_FIELDS)[number];
-
 const createFieldSet = new Set<string>(CREATE_FIELDS);
 const updateFieldSet = new Set<string>(UPDATE_FIELDS);
 const protectedFieldSet = new Set<string>(PROTECTED_FIELDS);
@@ -281,6 +277,3 @@ export const toInstitutionWorkspaceInputErrorResponse = (
   );
 };
 
-export const INSTITUTION_WORKSPACE_CREATE_FIELDS: readonly CreateField[] = CREATE_FIELDS;
-export const INSTITUTION_WORKSPACE_UPDATE_FIELDS: readonly UpdateField[] = UPDATE_FIELDS;
-export const INSTITUTION_WORKSPACE_PROTECTED_FIELDS: readonly ProtectedField[] = PROTECTED_FIELDS;
