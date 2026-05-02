@@ -30,7 +30,11 @@ const authAdapter: Adapter | undefined = isAuthPersistenceConfigured
 export const authOptions: NextAuthOptions = {
   adapter: authAdapter,
   session: {
-    // Credentials provider in NextAuth v4 requires JWT sessions.
+    // SESSION STRATEGY POSTURE — known decision, not an oversight.
+    // JWT fallback is active. On NEXTAUTH_SECRET rotation, existing JWT sessions
+    // may carry stale role data until they expire. DB-backed sessions revalidate
+    // on every request and do not have this risk. If role accuracy on rotation
+    // becomes a hard requirement, migrate fully to database session strategy.
     strategy: "jwt",
   },
   secret: serverEnv.authSecret,
