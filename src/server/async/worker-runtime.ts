@@ -7,7 +7,11 @@ import { QueueEvents, Worker, type Job } from "bullmq";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
 import { getWorkerConcurrency } from "@/server/async/config";
-import { type AsyncJobName, type AsyncQueueName } from "@/server/async/contracts";
+import {
+  type AsyncJobName,
+  type AsyncJobPayloadByName,
+  type AsyncQueueName,
+} from "@/server/async/contracts";
 import {
   logProcessFailed,
   logProcessRetryScheduled,
@@ -79,7 +83,7 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
           throw new Error(`No processor registered for job '${job.name}' on queue '${queueName}'`);
         }
 
-        await processor(job as never);
+        await processor(job as Job<AsyncJobPayloadByName[AsyncJobName], void, AsyncJobName>);
       },
       {
         connection: createConnection(),
