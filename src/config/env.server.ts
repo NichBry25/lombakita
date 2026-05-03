@@ -213,21 +213,3 @@ export const assertRuntimeEnv = (runtime: ServerRuntime, env: ServerEnv = server
   );
 };
 
-export const REQUIRED_ENV_KEYS_BY_MILESTONE = {
-  beforeCoding: [],
-  beforeStaging: ["DATABASE_URL", "AUTH_SECRET", "APP_BASE_URL"],
-  beforeMvpLaunch: ["RESEND_API_KEY", "AUTH_EMAIL_FROM", "XENDIT_SECRET_KEY"],
-  beforeBeta: ["WORKER_RUNTIME_TARGET"],
-} as const;
-
-export type RequiredMilestone = keyof typeof REQUIRED_ENV_KEYS_BY_MILESTONE;
-
-export const getRequiredEnvValues = (
-  keys: readonly string[],
-  env: NodeJS.ProcessEnv = process.env,
-): Array<{ key: string; configured: boolean }> => {
-  return keys.map((key) => ({
-    key,
-    configured: Boolean(read(env[key])),
-  }));
-};

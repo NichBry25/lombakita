@@ -84,5 +84,3 @@ export const publicEnv = {
   appEnv: resolveAppEnvironment(process.env.NEXT_PUBLIC_APP_ENV),
   appUrl: resolvePublicAppUrl(),
 } as const;
-
-export type PublicEnv = typeof publicEnv;
