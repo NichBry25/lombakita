@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  index,
   integer,
   pgEnum,
   pgTable,
@@ -40,7 +41,17 @@ export const institutionMembershipStatusEnum = pgEnum("institution_membership_st
   "revoked",
 ]);
 
+export const institutionInvitationStatusEnum = pgEnum("institution_invitation_status", [
+  "pending",
+  "accepted",
+  "declined",
+  "expired",
+  "cancelled",
+]);
+
 export type AppUserStatus = (typeof appUserStatusEnum.enumValues)[number];
+export type InstitutionInvitationStatus =
+  (typeof institutionInvitationStatusEnum.enumValues)[number];
 export type InstitutionMembershipRole = (typeof institutionMembershipRoleEnum.enumValues)[number];
 export type InstitutionMembershipStatus =
   (typeof institutionMembershipStatusEnum.enumValues)[number];
@@ -206,6 +217,35 @@ export const verificationTokens = pgTable(
     primaryKey({
       columns: [table.identifier, table.token],
     }),
+  ],
+);
+
+// institution_memberships already has institution_membership_institution_user_unique_idx
+// on (institution_id, user_id) from step 2.2 — no additional constraint needed here.
+export const institutionInvitations = pgTable(
+  "institution_invitations",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    institutionId: text("institution_id")
+      .notNull()
+      .references(() => institutions.id, { onDelete: "cascade" }),
+    invitedEmail: text("invited_email").notNull(),
+    invitedRole: institutionMembershipRoleEnum("invited_role").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    status: institutionInvitationStatusEnum("status").notNull().default("pending"),
+    invitedByUserId: text("invited_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("institution_invitations_token_hash_unique_idx").on(table.tokenHash),
+    index("institution_invitations_institution_id_idx").on(table.institutionId),
+    index("institution_invitations_status_idx").on(table.status),
   ],
 );
 

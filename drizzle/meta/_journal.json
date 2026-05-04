@@ -43,6 +43,13 @@
       "when": 1776265286132,
       "tag": "0005_many_doomsday",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777827394971,
+      "tag": "0006_overrated_lyja",
+      "breakpoints": true
     }
   ]
 }
