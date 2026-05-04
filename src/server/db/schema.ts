@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -246,6 +247,29 @@ export const institutionInvitations = pgTable(
     uniqueIndex("institution_invitations_token_hash_unique_idx").on(table.tokenHash),
     index("institution_invitations_institution_id_idx").on(table.institutionId),
     index("institution_invitations_status_idx").on(table.status),
+  ],
+);
+
+export const institutionAuditLogs = pgTable(
+  "institution_audit_logs",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    institutionId: text("institution_id")
+      .notNull()
+      .references(() => institutions.id, { onDelete: "cascade" }),
+    actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    action: text("action").notNull(),
+    targetMembershipId: text("target_membership_id").references(() => institutionMemberships.id, {
+      onDelete: "set null",
+    }),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("institution_audit_logs_institution_id_idx").on(table.institutionId),
+    index("institution_audit_logs_action_idx").on(table.action),
   ],
 );
 
