@@ -29,6 +29,13 @@ export const institutionStatusEnum = pgEnum("institution_status", [
   "suspended",
 ]);
 
+export const institutionVerificationStatusEnum = pgEnum("institution_verification_status", [
+  "pending_verification",
+  "under_review",
+  "verified",
+  "rejected",
+]);
+
 export const institutionMembershipRoleEnum = pgEnum("institution_membership_role", [
   "institution_admin",
   "institution_staff",
@@ -57,6 +64,8 @@ export type InstitutionMembershipRole = (typeof institutionMembershipRoleEnum.en
 export type InstitutionMembershipStatus =
   (typeof institutionMembershipStatusEnum.enumValues)[number];
 export type InstitutionStatus = (typeof institutionStatusEnum.enumValues)[number];
+export type InstitutionVerificationStatus =
+  (typeof institutionVerificationStatusEnum.enumValues)[number];
 export type PlatformUserRole = (typeof platformUserRoleEnum.enumValues)[number];
 
 export const users = pgTable("users", {
@@ -140,6 +149,12 @@ export const institutions = pgTable(
     displayName: text("display_name").notNull(),
     slug: text("slug").notNull(),
     status: institutionStatusEnum("status").notNull().default("active"),
+    verificationStatus: institutionVerificationStatusEnum("verification_status")
+      .notNull()
+      .default("pending_verification"),
+    verifiedAt: timestamp("verified_at", { mode: "date", withTimezone: true }),
+    rejectedAt: timestamp("rejected_at", { mode: "date", withTimezone: true }),
+    rejectionReason: text("rejection_reason"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
@@ -270,6 +285,27 @@ export const institutionAuditLogs = pgTable(
   (table) => [
     index("institution_audit_logs_institution_id_idx").on(table.institutionId),
     index("institution_audit_logs_action_idx").on(table.action),
+  ],
+);
+
+export const institutionVerificationAudit = pgTable(
+  "institution_verification_audit",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    institutionId: text("institution_id")
+      .notNull()
+      .references(() => institutions.id, { onDelete: "cascade" }),
+    actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    fromStatus: institutionVerificationStatusEnum("from_status").notNull(),
+    toStatus: institutionVerificationStatusEnum("to_status").notNull(),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("institution_verification_audit_institution_id_idx").on(table.institutionId),
+    index("institution_verification_audit_created_at_idx").on(table.createdAt),
   ],
 );
 
