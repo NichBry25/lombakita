@@ -114,7 +114,11 @@ export default function AdminInstitutionsPage() {
     void fetchInstitutions();
   }, [fetchInstitutions]);
 
-  const performTransition = async (institutionId: string, targetStatus: VerificationStatus, reason?: string) => {
+  const performTransition = async (
+    institutionId: string,
+    targetStatus: VerificationStatus,
+    reason?: string,
+  ) => {
     setActionLoading(true);
     try {
       const res = await fetch(`/api/admin/institutions/${institutionId}/verify`, {
@@ -153,7 +157,11 @@ export default function AdminInstitutionsPage() {
       setRejectError("Alasan penolakan wajib diisi.");
       return;
     }
-    const result = await performTransition(rejectModal.institutionId, "rejected", rejectReason.trim());
+    const result = await performTransition(
+      rejectModal.institutionId,
+      "rejected",
+      rejectReason.trim(),
+    );
     if (!result.ok) {
       setRejectError(result.message ?? "Gagal menolak institusi.");
       return;
@@ -182,16 +190,12 @@ export default function AdminInstitutionsPage() {
         );
       } else {
         setRows((prev) =>
-          prev.map((r) =>
-            r.id === rowId ? { ...r, auditExpanded: true, auditLog: [] } : r,
-          ),
+          prev.map((r) => (r.id === rowId ? { ...r, auditExpanded: true, auditLog: [] } : r)),
         );
       }
     } catch {
       setRows((prev) =>
-        prev.map((r) =>
-          r.id === rowId ? { ...r, auditExpanded: true, auditLog: [] } : r,
-        ),
+        prev.map((r) => (r.id === rowId ? { ...r, auditExpanded: true, auditLog: [] } : r)),
       );
     }
   };
@@ -199,7 +203,15 @@ export default function AdminInstitutionsPage() {
   const totalPages = Math.ceil(total / 20);
 
   return (
-    <div style={{ fontFamily: "Arial, sans-serif", maxWidth: 960, margin: "32px auto", padding: "0 16px", color: "#0f1012" }}>
+    <div
+      style={{
+        fontFamily: "Arial, sans-serif",
+        maxWidth: 960,
+        margin: "32px auto",
+        padding: "0 16px",
+        color: "#0f1012",
+      }}
+    >
       <h1 style={{ fontSize: 22, marginBottom: 4 }}>Verifikasi Institusi</h1>
       <p style={{ color: "#555", marginBottom: 20, fontSize: 14 }}>Platform Ops — Total: {total}</p>
 
@@ -208,7 +220,10 @@ export default function AdminInstitutionsPage() {
         <label style={{ fontSize: 13, color: "#444" }}>Filter status:</label>
         <select
           value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+            setPage(1);
+          }}
           style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #ccc", fontSize: 13 }}
         >
           <option value="">Semua</option>
@@ -220,7 +235,15 @@ export default function AdminInstitutionsPage() {
       </div>
 
       {error && (
-        <div style={{ background: "#f8d7da", color: "#721c24", padding: "10px 14px", borderRadius: 6, marginBottom: 16 }}>
+        <div
+          style={{
+            background: "#f8d7da",
+            color: "#721c24",
+            padding: "10px 14px",
+            borderRadius: 6,
+            marginBottom: 16,
+          }}
+        >
           {error}
         </div>
       )}
@@ -254,16 +277,20 @@ export default function AdminInstitutionsPage() {
                       <br />
                       <span style={{ color: "#888", fontSize: 11 }}>{row.slug}</span>
                     </td>
-                    <td style={{ padding: "8px 10px" }}>{row.adminEmail ?? <em style={{ color: "#aaa" }}>–</em>}</td>
                     <td style={{ padding: "8px 10px" }}>
-                      <span style={{
-                        background: STATUS_BG[row.verificationStatus],
-                        color: STATUS_COLORS[row.verificationStatus],
-                        padding: "2px 8px",
-                        borderRadius: 4,
-                        fontSize: 12,
-                        fontWeight: 600,
-                      }}>
+                      {row.adminEmail ?? <em style={{ color: "#aaa" }}>–</em>}
+                    </td>
+                    <td style={{ padding: "8px 10px" }}>
+                      <span
+                        style={{
+                          background: STATUS_BG[row.verificationStatus],
+                          color: STATUS_COLORS[row.verificationStatus],
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          fontSize: 12,
+                          fontWeight: 600,
+                        }}
+                      >
                         {STATUS_LABELS[row.verificationStatus]}
                       </span>
                       {row.rejectionReason && (
@@ -310,7 +337,14 @@ export default function AdminInstitutionsPage() {
                     <td style={{ padding: "8px 10px" }}>
                       <button
                         onClick={() => void toggleAudit(row.id, row.id)}
-                        style={{ fontSize: 12, background: "none", border: "none", color: "#355795", cursor: "pointer", textDecoration: "underline" }}
+                        style={{
+                          fontSize: 12,
+                          background: "none",
+                          border: "none",
+                          color: "#355795",
+                          cursor: "pointer",
+                          textDecoration: "underline",
+                        }}
                       >
                         {row.auditExpanded ? "Sembunyikan" : "Lihat Log"}
                       </button>
@@ -322,7 +356,9 @@ export default function AdminInstitutionsPage() {
                         {!row.auditLog || row.auditLog.length === 0 ? (
                           <em style={{ color: "#888", fontSize: 12 }}>Belum ada log audit.</em>
                         ) : (
-                          <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+                          <table
+                            style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}
+                          >
                             <thead>
                               <tr style={{ color: "#555" }}>
                                 <th style={{ textAlign: "left", padding: "4px 8px" }}>Dari</th>
@@ -335,10 +371,16 @@ export default function AdminInstitutionsPage() {
                             <tbody>
                               {row.auditLog.map((entry) => (
                                 <tr key={entry.id} style={{ borderTop: "1px solid #e8e8e8" }}>
-                                  <td style={{ padding: "4px 8px" }}>{STATUS_LABELS[entry.fromStatus]}</td>
-                                  <td style={{ padding: "4px 8px" }}>{STATUS_LABELS[entry.toStatus]}</td>
+                                  <td style={{ padding: "4px 8px" }}>
+                                    {STATUS_LABELS[entry.fromStatus]}
+                                  </td>
+                                  <td style={{ padding: "4px 8px" }}>
+                                    {STATUS_LABELS[entry.toStatus]}
+                                  </td>
                                   <td style={{ padding: "4px 8px" }}>{entry.reason ?? "–"}</td>
-                                  <td style={{ padding: "4px 8px", color: "#888" }}>{entry.actorUserId ?? "–"}</td>
+                                  <td style={{ padding: "4px 8px", color: "#888" }}>
+                                    {entry.actorUserId ?? "–"}
+                                  </td>
                                   <td style={{ padding: "4px 8px", color: "#888" }}>
                                     {new Date(entry.createdAt).toLocaleString("id-ID")}
                                   </td>
@@ -360,11 +402,31 @@ export default function AdminInstitutionsPage() {
       {/* Pagination */}
       {totalPages > 1 && (
         <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
-          <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #ccc", cursor: page <= 1 ? "not-allowed" : "pointer" }}>
+          <button
+            disabled={page <= 1}
+            onClick={() => setPage((p) => p - 1)}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 6,
+              border: "1px solid #ccc",
+              cursor: page <= 1 ? "not-allowed" : "pointer",
+            }}
+          >
             &larr; Sebelumnya
           </button>
-          <span style={{ fontSize: 13, padding: "4px 0" }}>Halaman {page} / {totalPages}</span>
-          <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #ccc", cursor: page >= totalPages ? "not-allowed" : "pointer" }}>
+          <span style={{ fontSize: 13, padding: "4px 0" }}>
+            Halaman {page} / {totalPages}
+          </span>
+          <button
+            disabled={page >= totalPages}
+            onClick={() => setPage((p) => p + 1)}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 6,
+              border: "1px solid #ccc",
+              cursor: page >= totalPages ? "not-allowed" : "pointer",
+            }}
+          >
             Berikutnya &rarr;
           </button>
         </div>
@@ -372,8 +434,26 @@ export default function AdminInstitutionsPage() {
 
       {/* Reject Modal */}
       {rejectModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-          <div style={{ background: "#fff", borderRadius: 10, padding: 24, width: 400, maxWidth: "90vw" }}>
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100,
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 10,
+              padding: 24,
+              width: 400,
+              maxWidth: "90vw",
+            }}
+          >
             <h3 style={{ margin: "0 0 8px", fontSize: 16 }}>Tolak Institusi</h3>
             <p style={{ color: "#555", fontSize: 13, margin: "0 0 14px" }}>
               <strong>{rejectModal.displayName}</strong>
@@ -385,7 +465,15 @@ export default function AdminInstitutionsPage() {
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               rows={3}
-              style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px", borderRadius: 6, border: "1px solid #ccc", fontSize: 13, resize: "vertical" }}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "6px 8px",
+                borderRadius: 6,
+                border: "1px solid #ccc",
+                fontSize: 13,
+                resize: "vertical",
+              }}
               placeholder="Masukkan alasan penolakan..."
             />
             {rejectError && (
@@ -394,14 +482,29 @@ export default function AdminInstitutionsPage() {
             <div style={{ marginTop: 16, display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button
                 onClick={() => setRejectModal(null)}
-                style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #ccc", background: "#fff", cursor: "pointer", fontSize: 13 }}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 6,
+                  border: "1px solid #ccc",
+                  background: "#fff",
+                  cursor: "pointer",
+                  fontSize: 13,
+                }}
               >
                 Batal
               </button>
               <button
                 disabled={actionLoading}
                 onClick={() => void submitReject()}
-                style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: "#355795", color: "#fff", cursor: actionLoading ? "not-allowed" : "pointer", fontSize: 13 }}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: "#355795",
+                  color: "#fff",
+                  cursor: actionLoading ? "not-allowed" : "pointer",
+                  fontSize: 13,
+                }}
               >
                 {actionLoading ? "Memproses..." : "Tolak Institusi"}
               </button>

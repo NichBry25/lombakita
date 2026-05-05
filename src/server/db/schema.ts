@@ -1,8 +1,11 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
+  check,
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -56,6 +59,17 @@ export const institutionInvitationStatusEnum = pgEnum("institution_invitation_st
   "expired",
   "cancelled",
 ]);
+
+export const competitionStatusEnum = pgEnum("competition_status", [
+  "draft",
+  "published",
+  "archived",
+]);
+
+export const competitionModeEnum = pgEnum("competition_mode", ["individual", "team", "both"]);
+
+export type CompetitionMode = (typeof competitionModeEnum.enumValues)[number];
+export type CompetitionStatus = (typeof competitionStatusEnum.enumValues)[number];
 
 export type AppUserStatus = (typeof appUserStatusEnum.enumValues)[number];
 export type InstitutionInvitationStatus =
@@ -306,6 +320,57 @@ export const institutionVerificationAudit = pgTable(
   (table) => [
     index("institution_verification_audit_institution_id_idx").on(table.institutionId),
     index("institution_verification_audit_created_at_idx").on(table.createdAt),
+  ],
+);
+
+// Step 3.1: Competition domain model.
+// Slug uniqueness is institution-scoped — UNIQUE (institution_id, slug). Two institutions may
+// reuse the same human-readable slug (e.g. "hackathon-2026") without collision.
+// Deletion model: drafts soft-delete via deleted_at. Published and archived records are not
+// deletable through DELETE — published must transition to archived first; archived is terminal.
+// Payment fields (fee_amount, fee_currency) are deferred to Phase 7 — schema-present but must
+// be null/0 in MVP flows. CHECK (fee_amount >= 0) is added in the migration.
+export const competitions = pgTable(
+  "competitions",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    institutionId: text("institution_id")
+      .notNull()
+      .references(() => institutions.id, { onDelete: "cascade" }),
+    createdByUserId: text("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    status: competitionStatusEnum("status").notNull().default("draft"),
+    category: text("category"),
+    mode: competitionModeEnum("mode"),
+    minTeamSize: integer("min_team_size"),
+    maxTeamSize: integer("max_team_size"),
+    registrationStartAt: timestamp("registration_start_at", { mode: "date", withTimezone: true }),
+    registrationEndAt: timestamp("registration_end_at", { mode: "date", withTimezone: true }),
+    eventStartAt: timestamp("event_start_at", { mode: "date", withTimezone: true }),
+    eventEndAt: timestamp("event_end_at", { mode: "date", withTimezone: true }),
+    feeAmount: numeric("fee_amount", { precision: 12, scale: 2 }),
+    feeCurrency: text("fee_currency"),
+    isFeatured: boolean("is_featured").notNull().default(false),
+    publishedAt: timestamp("published_at", { mode: "date", withTimezone: true }),
+    archivedAt: timestamp("archived_at", { mode: "date", withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("competitions_institution_id_slug_unique_idx").on(table.institutionId, table.slug),
+    index("competitions_institution_id_idx").on(table.institutionId),
+    index("competitions_status_idx").on(table.status),
+    check(
+      "competitions_fee_amount_non_negative_chk",
+      sql`${table.feeAmount} IS NULL OR ${table.feeAmount} >= 0`,
+    ),
   ],
 );
 

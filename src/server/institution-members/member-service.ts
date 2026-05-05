@@ -117,11 +117,7 @@ export const changeMemberRole = async (
         );
 
       if (admins.length <= 1) {
-        throw new MemberError(
-          "member_last_admin",
-          409,
-          "Cannot demote the last institution admin",
-        );
+        throw new MemberError("member_last_admin", 409, "Cannot demote the last institution admin");
       }
     }
 
@@ -171,7 +167,11 @@ export const removeMember = async (
     }
 
     if (target.userId === actorUserId) {
-      throw new MemberError("member_self_action", 403, "Cannot remove yourself from the institution");
+      throw new MemberError(
+        "member_self_action",
+        403,
+        "Cannot remove yourself from the institution",
+      );
     }
 
     // Last-admin guard: applies whenever the target is an institution_admin.
@@ -188,11 +188,7 @@ export const removeMember = async (
         );
 
       if (admins.length <= 1) {
-        throw new MemberError(
-          "member_last_admin",
-          409,
-          "Cannot remove the last institution admin",
-        );
+        throw new MemberError("member_last_admin", 409, "Cannot remove the last institution admin");
       }
     }
 

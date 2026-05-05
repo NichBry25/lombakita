@@ -92,11 +92,7 @@ export const parseDeclineBody = (payload: unknown): { token: string } => {
   const { token } = payload;
 
   if (typeof token !== "string" || token.length === 0) {
-    throw new InstitutionInvitationError(
-      "invitation_invalid_payload",
-      400,
-      "token is required",
-    );
+    throw new InstitutionInvitationError("invitation_invalid_payload", 400, "token is required");
   }
 
   return { token };

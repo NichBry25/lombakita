@@ -16,7 +16,9 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json(
-        { error: { code: "invitation_invalid_payload", message: "Request body must be valid JSON" } },
+        {
+          error: { code: "invitation_invalid_payload", message: "Request body must be valid JSON" },
+        },
         { status: 400 },
       );
     }

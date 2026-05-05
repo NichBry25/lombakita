@@ -75,14 +75,15 @@ export const InvitationAcceptShell = ({ token }: { token: string }) => {
   const onAccept = async () => {
     setIsActing(true);
 
-    const response = await fetch(
-      `/api/v1/auth/invitations/${encodeURIComponent(token)}/accept`,
-      { method: "POST", credentials: "include" },
-    );
+    const response = await fetch(`/api/v1/auth/invitations/${encodeURIComponent(token)}/accept`, {
+      method: "POST",
+      credentials: "include",
+    });
 
     if (response.status === 401) {
       const data = (await response.json()) as { error?: { callbackUrl?: string } };
-      const callbackUrl = data.error?.callbackUrl ?? `/invitations/${encodeURIComponent(token)}/accept`;
+      const callbackUrl =
+        data.error?.callbackUrl ?? `/invitations/${encodeURIComponent(token)}/accept`;
       router.push(`/auth/sign-in?callbackUrl=${encodeURIComponent(callbackUrl)}`);
       return;
     }

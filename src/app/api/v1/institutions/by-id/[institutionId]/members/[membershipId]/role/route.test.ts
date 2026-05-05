@@ -45,12 +45,7 @@ describe("PATCH /api/v1/institutions/by-id/[institutionId]/members/[membershipId
 
     expect(response.status).toBe(200);
     expect(body.updated).toBe(true);
-    expect(changeMemberRole).toHaveBeenCalledWith(
-      "actor_1",
-      "inst_1",
-      "m2",
-      "institution_admin",
-    );
+    expect(changeMemberRole).toHaveBeenCalledWith("actor_1", "inst_1", "m2", "institution_admin");
   });
 
   it("returns 401 when unauthenticated", async () => {

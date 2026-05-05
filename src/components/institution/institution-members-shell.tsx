@@ -117,10 +117,10 @@ export const InstitutionMembersShell = ({ institutionId, actorUserId }: Props) =
     setConfirmRemove(null);
     setFeedback(null);
 
-    const response = await fetch(
-      `${BASE_URL(institutionId)}/${encodeURIComponent(membershipId)}`,
-      { method: "DELETE", credentials: "include" },
-    );
+    const response = await fetch(`${BASE_URL(institutionId)}/${encodeURIComponent(membershipId)}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
 
     setPendingAction(null);
 
@@ -178,7 +178,10 @@ export const InstitutionMembersShell = ({ institutionId, actorUserId }: Props) =
                     member.role === "institution_admin" ? "institution_staff" : "institution_admin";
 
                   return (
-                    <tr key={member.membershipId} className="border-b border-[var(--border)] last:border-0">
+                    <tr
+                      key={member.membershipId}
+                      className="border-b border-[var(--border)] last:border-0"
+                    >
                       <td className="py-3 pr-4 font-medium">
                         {member.name ?? "—"}
                         {isSelf ? (
@@ -206,9 +209,7 @@ export const InstitutionMembersShell = ({ institutionId, actorUserId }: Props) =
                               onClick={() => void onRoleChange(member.membershipId, otherRole)}
                               type="button"
                             >
-                              {isActing
-                                ? "..."
-                                : `Jadikan ${ROLE_LABELS[otherRole]}`}
+                              {isActing ? "..." : `Jadikan ${ROLE_LABELS[otherRole]}`}
                             </button>
                             <button
                               className="text-xs text-red-600 hover:underline disabled:opacity-50"
@@ -239,8 +240,8 @@ export const InstitutionMembersShell = ({ institutionId, actorUserId }: Props) =
           <div className="glass-card w-full max-w-sm p-6 space-y-4">
             <p className="font-medium">Hapus anggota ini?</p>
             <p className="text-sm text-[var(--text-muted)]">
-              {confirmRemove.name ?? confirmRemove.email} akan dihapus dari institusi.
-              Tindakan ini tidak dapat dibatalkan.
+              {confirmRemove.name ?? confirmRemove.email} akan dihapus dari institusi. Tindakan ini
+              tidak dapat dibatalkan.
             </p>
             <div className="flex justify-end gap-3">
               <button className="action-chip text-sm" onClick={onCancelRemove} type="button">

@@ -50,10 +50,7 @@ export default async function InstitutionMembersPage() {
     .from(institutionMemberships)
     .innerJoin(institutions, eq(institutions.id, institutionMemberships.institutionId))
     .where(
-      and(
-        eq(institutionMemberships.userId, userId),
-        eq(institutionMemberships.status, "active"),
-      ),
+      and(eq(institutionMemberships.userId, userId), eq(institutionMemberships.status, "active")),
     )
     .limit(1);
 

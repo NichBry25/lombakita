@@ -276,4 +276,3 @@ export const toInstitutionWorkspaceInputErrorResponse = (
     { status: 400 },
   );
 };
-

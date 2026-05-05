@@ -30,7 +30,10 @@ describe("DELETE /api/v1/institutions/by-id/[institutionId]/members/[membershipI
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     removeMember.mockResolvedValue(undefined);
 
-    const response = await DELETE(new Request("http://localhost") as never, makeParams("inst_1", "m2"));
+    const response = await DELETE(
+      new Request("http://localhost") as never,
+      makeParams("inst_1", "m2"),
+    );
 
     expect(response.status).toBe(204);
     expect(removeMember).toHaveBeenCalledWith("actor_1", "inst_1", "m2");
@@ -41,7 +44,10 @@ describe("DELETE /api/v1/institutions/by-id/[institutionId]/members/[membershipI
       new AccessError("unauthenticated", 401, "Authentication required"),
     );
 
-    const response = await DELETE(new Request("http://localhost") as never, makeParams("inst_1", "m2"));
+    const response = await DELETE(
+      new Request("http://localhost") as never,
+      makeParams("inst_1", "m2"),
+    );
     expect(response.status).toBe(401);
   });
 
@@ -51,7 +57,10 @@ describe("DELETE /api/v1/institutions/by-id/[institutionId]/members/[membershipI
       new AccessError("forbidden", 403, "institution_admin access required"),
     );
 
-    const response = await DELETE(new Request("http://localhost") as never, makeParams("inst_other", "m2"));
+    const response = await DELETE(
+      new Request("http://localhost") as never,
+      makeParams("inst_other", "m2"),
+    );
     expect(response.status).toBe(403);
   });
 
@@ -77,7 +86,10 @@ describe("DELETE /api/v1/institutions/by-id/[institutionId]/members/[membershipI
       new MemberError("member_last_admin", 409, "Cannot remove the last institution admin"),
     );
 
-    const response = await DELETE(new Request("http://localhost") as never, makeParams("inst_1", "m1"));
+    const response = await DELETE(
+      new Request("http://localhost") as never,
+      makeParams("inst_1", "m1"),
+    );
     const body = await response.json();
 
     expect(response.status).toBe(409);
@@ -86,9 +98,7 @@ describe("DELETE /api/v1/institutions/by-id/[institutionId]/members/[membershipI
 
   it("returns 404 when member not found", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
-    removeMember.mockRejectedValue(
-      new MemberError("member_not_found", 404, "Member not found"),
-    );
+    removeMember.mockRejectedValue(new MemberError("member_not_found", 404, "Member not found"));
 
     const response = await DELETE(
       new Request("http://localhost") as never,

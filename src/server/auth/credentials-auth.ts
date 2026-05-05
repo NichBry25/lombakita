@@ -477,7 +477,6 @@ export const verifyRegistrationEmailToken = async (
   };
 };
 
-
 export const authenticateWithEmailPassword = async (
   email: string,
   password: string,

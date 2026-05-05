@@ -64,6 +64,13 @@
       "when": 1777911008568,
       "tag": "0008_romantic_hellion",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1778001779675,
+      "tag": "0009_magical_kabuki",
+      "breakpoints": true
     }
   ]
 }

@@ -47,7 +47,11 @@ const requireAdminInstitution = async (
     .limit(1);
 
   if (!row) {
-    throw new AccessError("forbidden", 403, "institution_admin access required for this institution");
+    throw new AccessError(
+      "forbidden",
+      403,
+      "institution_admin access required for this institution",
+    );
   }
 
   return row;

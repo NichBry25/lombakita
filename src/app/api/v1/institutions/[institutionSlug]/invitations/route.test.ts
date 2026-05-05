@@ -49,11 +49,10 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const body = await response.json();
 
     expect(response.status).toBe(201);
-    expect(createInstitutionInvitation).toHaveBeenCalledWith(
-      "admin_1",
-      "universitas-nusantara",
-      { invitedEmail: "staff@example.com", invitedRole: "institution_staff" },
-    );
+    expect(createInstitutionInvitation).toHaveBeenCalledWith("admin_1", "universitas-nusantara", {
+      invitedEmail: "staff@example.com",
+      invitedRole: "institution_staff",
+    });
     expect(body.invitation.invitedEmail).toBe("staff@example.com");
   });
 
@@ -149,7 +148,11 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
   it("returns 400 for invalid email", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     createInstitutionInvitation.mockRejectedValue(
-      new InstitutionInvitationError("invitation_invalid_email", 400, "invitedEmail must be a valid email address"),
+      new InstitutionInvitationError(
+        "invitation_invalid_email",
+        400,
+        "invitedEmail must be a valid email address",
+      ),
     );
 
     const request = new Request("http://localhost", {

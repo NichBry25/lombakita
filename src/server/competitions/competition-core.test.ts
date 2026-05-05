@@ -1,0 +1,162 @@
+// @vitest-environment node
+
+import { describe, expect, it } from "vitest";
+import type { CompetitionStatus } from "@/server/db/schema";
+import {
+  CompetitionError,
+  COMPETITION_STATUS_VALUES,
+  isAllowedStatusTransition,
+  normalizeCompetitionSlug,
+  parseCompetitionCreateInput,
+  parseCompetitionPatchInput,
+  parseStatusTransitionInput,
+  validatePublishChecklist,
+} from "@/server/competitions/competition-core";
+
+describe("isAllowedStatusTransition", () => {
+  const valid: [CompetitionStatus, CompetitionStatus][] = [
+    ["draft", "published"],
+    ["draft", "archived"],
+    ["published", "draft"],
+    ["published", "archived"],
+  ];
+  it.each(valid)("allows %s → %s", (from, to) => {
+    expect(isAllowedStatusTransition(from, to)).toBe(true);
+  });
+
+  const invalid: [CompetitionStatus, CompetitionStatus][] = [
+    ["draft", "draft"],
+    ["published", "published"],
+    ["archived", "draft"],
+    ["archived", "published"],
+    ["archived", "archived"],
+  ];
+  it.each(invalid)("rejects %s → %s", (from, to) => {
+    expect(isAllowedStatusTransition(from, to)).toBe(false);
+  });
+
+  it("covers every enum value", () => {
+    expect(COMPETITION_STATUS_VALUES).toEqual(["draft", "published", "archived"]);
+  });
+});
+
+describe("normalizeCompetitionSlug", () => {
+  it("lowercases and replaces spaces with hyphens", () => {
+    expect(normalizeCompetitionSlug(" Hackathon 2026 ")).toBe("hackathon-2026");
+  });
+  it("collapses repeated separators", () => {
+    expect(normalizeCompetitionSlug("a---b__c")).toBe("a-b-c");
+  });
+  it("strips diacritics", () => {
+    expect(normalizeCompetitionSlug("Lomba Cipta Karya")).toBe("lomba-cipta-karya");
+  });
+});
+
+describe("parseCompetitionCreateInput", () => {
+  it("requires institutionSlug and title", () => {
+    expect(() => parseCompetitionCreateInput({ title: "X" })).toThrow(CompetitionError);
+    expect(() => parseCompetitionCreateInput({ institutionSlug: "lk" })).toThrow(CompetitionError);
+  });
+  it("rejects protected fields", () => {
+    expect(() =>
+      parseCompetitionCreateInput({
+        institutionSlug: "lk",
+        title: "Lomba",
+        status: "published",
+      }),
+    ).toThrow(CompetitionError);
+  });
+  it("normalizes institutionSlug to lower-case trimmed", () => {
+    const result = parseCompetitionCreateInput({
+      institutionSlug: "  LK-Univ  ",
+      title: "Lomba Coding",
+    });
+    expect(result.institutionSlug).toBe("lk-univ");
+    expect(result.title).toBe("Lomba Coding");
+    expect(result.slug).toBeNull();
+  });
+  it("normalizes explicit slug input", () => {
+    const result = parseCompetitionCreateInput({
+      institutionSlug: "lk",
+      title: "Hackathon Tahun Ini",
+      slug: "Hackathon Tahun Ini",
+    });
+    expect(result.slug).toBe("hackathon-tahun-ini");
+  });
+});
+
+describe("parseCompetitionPatchInput", () => {
+  it("rejects empty payload", () => {
+    expect(() => parseCompetitionPatchInput({})).toThrow(CompetitionError);
+  });
+  it("rejects protected fields", () => {
+    expect(() => parseCompetitionPatchInput({ status: "published" })).toThrow(CompetitionError);
+    expect(() => parseCompetitionPatchInput({ feeAmount: 0 })).toThrow(CompetitionError);
+  });
+  it("rejects unknown fields", () => {
+    expect(() => parseCompetitionPatchInput({ banana: 1 })).toThrow(CompetitionError);
+  });
+  it("accepts valid date strings and null clears", () => {
+    const patch = parseCompetitionPatchInput({
+      eventStartAt: "2026-06-01T00:00:00Z",
+      registrationEndAt: null,
+    });
+    expect(patch.eventStartAt).toBeInstanceOf(Date);
+    expect(patch.registrationEndAt).toBeNull();
+  });
+  it("rejects invalid mode values", () => {
+    expect(() => parseCompetitionPatchInput({ mode: "solo" })).toThrow(CompetitionError);
+  });
+  it("accepts mode null to clear", () => {
+    const patch = parseCompetitionPatchInput({ mode: null });
+    expect(patch.mode).toBeNull();
+  });
+});
+
+describe("parseStatusTransitionInput", () => {
+  it("requires a valid targetStatus", () => {
+    expect(() => parseStatusTransitionInput({})).toThrow(CompetitionError);
+    expect(() => parseStatusTransitionInput({ targetStatus: "live" })).toThrow(CompetitionError);
+  });
+  it("accepts each enum value", () => {
+    for (const status of COMPETITION_STATUS_VALUES) {
+      expect(parseStatusTransitionInput({ targetStatus: status }).targetStatus).toBe(status);
+    }
+  });
+});
+
+describe("validatePublishChecklist", () => {
+  const base = {
+    title: "Lomba",
+    description: "Deskripsi yang panjang",
+    mode: "individual" as const,
+    registrationStartAt: null,
+    registrationEndAt: null,
+    eventStartAt: new Date(),
+    eventEndAt: null,
+  };
+
+  it("returns empty when all required fields are present", () => {
+    expect(validatePublishChecklist(base)).toEqual([]);
+  });
+  it("flags missing title", () => {
+    expect(validatePublishChecklist({ ...base, title: "" })).toContain("title");
+  });
+  it("flags missing description", () => {
+    expect(validatePublishChecklist({ ...base, description: "   " })).toContain("description");
+  });
+  it("flags missing mode", () => {
+    expect(validatePublishChecklist({ ...base, mode: null })).toContain("mode");
+  });
+  it("flags missing dates when all are null", () => {
+    expect(
+      validatePublishChecklist({
+        ...base,
+        registrationStartAt: null,
+        registrationEndAt: null,
+        eventStartAt: null,
+        eventEndAt: null,
+      }),
+    ).toContain("dates");
+  });
+});
