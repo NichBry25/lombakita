@@ -5,6 +5,7 @@ import {
   competitions,
   institutionMemberships,
   institutions,
+  type CompetitionCategory,
   type CompetitionMode,
   type CompetitionStatus,
   type InstitutionMembershipRole,
@@ -60,7 +61,7 @@ export type CompetitionRow = {
   title: string;
   description: string;
   status: CompetitionStatus;
-  category: string | null;
+  category: CompetitionCategory | null;
   mode: CompetitionMode | null;
   minTeamSize: number | null;
   maxTeamSize: number | null;

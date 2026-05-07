@@ -16,10 +16,9 @@ const { assertCompetitionAccess, assertInstitutionVerified, hasActiveRegistratio
   }));
 
 vi.mock("@/server/competitions/competition-access", async () => {
-  const actual =
-    await vi.importActual<typeof import("@/server/competitions/competition-access")>(
-      "@/server/competitions/competition-access",
-    );
+  const actual = await vi.importActual<typeof import("@/server/competitions/competition-access")>(
+    "@/server/competitions/competition-access",
+  );
   return {
     ...actual,
     assertCompetitionAccess,
@@ -94,10 +93,12 @@ describe("F2 — same-status transitions return 422", () => {
       membershipRole: "institution_admin",
     });
 
-    await expect(transitionCompetitionStatus("user_1", "comp_1", to, stubDb)).rejects.toMatchObject({
-      code: "competition_invalid_transition",
-      httpStatus: 422,
-    });
+    await expect(transitionCompetitionStatus("user_1", "comp_1", to, stubDb)).rejects.toMatchObject(
+      {
+        code: "competition_invalid_transition",
+        httpStatus: 422,
+      },
+    );
   });
 
   it("does not call assertInstitutionVerified on same-status draft → draft", async () => {
@@ -113,21 +114,23 @@ describe("F2 — same-status transitions return 422", () => {
   });
 });
 
-describe("updateCompetitionDraft — field-locking on non-draft (regression for carry-forward)", () => {
+describe("updateCompetitionDraft — draft-only mutation guard (Step 3.2)", () => {
   afterEach(() => vi.clearAllMocks());
 
   it.each(["published", "archived"] as const)(
-    "rejects PATCH on a %s competition with 409 competition_field_locked",
+    "rejects PATCH on a %s competition with 409 competition_not_draft",
     async (status) => {
       assertCompetitionAccess.mockResolvedValue({
         competition: baseCompetition({ status }),
         membershipRole: "institution_admin",
       });
-      const patch: CompetitionPatchInput = { title: "Tampered Title" };
-      await expect(updateCompetitionDraft("user_1", "comp_1", patch, stubDb)).rejects.toMatchObject({
-        code: "competition_field_locked",
-        httpStatus: 409,
-      });
+      const patch: CompetitionPatchInput = { title: "Tampered Title 2026" };
+      await expect(updateCompetitionDraft("user_1", "comp_1", patch, stubDb)).rejects.toMatchObject(
+        {
+          code: "competition_not_draft",
+          httpStatus: 409,
+        },
+      );
     },
   );
 });

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import type { CompetitionMode, CompetitionStatus } from "@/server/db/schema";
+import type { CompetitionCategory, CompetitionMode, CompetitionStatus } from "@/server/db/schema";
 
 const MIN_SLUG_LENGTH = 3;
-const MAX_SLUG_LENGTH = 64;
-const MIN_TITLE_LENGTH = 3;
+export const MAX_SLUG_LENGTH = 120;
+const MIN_TITLE_LENGTH = 5;
 const MAX_TITLE_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 10_000;
-const MAX_CATEGORY_LENGTH = 80;
+const SLUG_PATTERN = /^[a-z0-9-]+$/;
 
 export const COMPETITION_STATUS_VALUES: readonly CompetitionStatus[] = [
   "draft",
@@ -16,11 +16,25 @@ export const COMPETITION_STATUS_VALUES: readonly CompetitionStatus[] = [
 
 export const COMPETITION_MODE_VALUES: readonly CompetitionMode[] = ["individual", "team", "both"];
 
+export const COMPETITION_CATEGORY_VALUES: readonly CompetitionCategory[] = [
+  "technology",
+  "science",
+  "business",
+  "creative_arts",
+  "social_humanities",
+  "sports",
+  "academic",
+  "other",
+];
+
 export const isCompetitionStatus = (value: string): value is CompetitionStatus =>
   (COMPETITION_STATUS_VALUES as readonly string[]).includes(value);
 
 export const isCompetitionMode = (value: string): value is CompetitionMode =>
   (COMPETITION_MODE_VALUES as readonly string[]).includes(value);
+
+export const isCompetitionCategory = (value: string): value is CompetitionCategory =>
+  (COMPETITION_CATEGORY_VALUES as readonly string[]).includes(value);
 
 // Status state machine for competitions.
 // draft → published   (admin only, institution must be verified, publish-validation must pass)
@@ -45,13 +59,11 @@ export const isAllowedStatusTransition = (
 type CompetitionErrorCode =
   | "competition_invalid_payload"
   | "competition_invalid_value"
-  | "competition_invalid_fields"
-  | "competition_protected_fields"
   | "competition_not_found"
+  | "competition_not_draft"
   | "competition_invalid_transition"
   | "competition_publish_validation_failed"
   | "competition_institution_not_verified"
-  | "competition_field_locked"
   | "competition_slug_taken"
   | "competition_delete_not_allowed"
   | "competition_active_registrations";
@@ -80,6 +92,10 @@ export const toCompetitionErrorResponse = (error: CompetitionError): NextRespons
   );
 };
 
+// Title-derived slug normalizer. Used by the server when the caller does not supply an
+// explicit slug. User-supplied slugs are validated strictly (see parseSlug) \u2014 they are not
+// normalized, since the manual test contract requires rejection of uppercase, spaces, and
+// special characters with a descriptive error.
 export const normalizeCompetitionSlug = (value: string): string => {
   const normalized = value
     .normalize("NFKD")
@@ -97,18 +113,13 @@ export const normalizeCompetitionSlug = (value: string): string => {
   return normalized.slice(0, MAX_SLUG_LENGTH).replace(/-+$/g, "");
 };
 
-export type CompetitionCreateInput = {
-  institutionSlug: string;
-  title: string;
-  description: string;
-  slug: string | null;
-};
+export const SLUG_FORMAT_DESCRIPTION = `must be ${MIN_SLUG_LENGTH}\u2013${MAX_SLUG_LENGTH} characters of lowercase letters, digits, or hyphens (^[a-z0-9-]+$)`;
 
-export type CompetitionPatchInput = {
+export type CompetitionDraftFields = {
   title?: string;
   description?: string;
   slug?: string;
-  category?: string | null;
+  category?: CompetitionCategory | null;
   mode?: CompetitionMode | null;
   minTeamSize?: number | null;
   maxTeamSize?: number | null;
@@ -117,6 +128,23 @@ export type CompetitionPatchInput = {
   eventStartAt?: Date | null;
   eventEndAt?: Date | null;
 };
+
+export type CompetitionCreateInput = {
+  institutionSlug: string;
+  title: string;
+  description: string;
+  slug: string | null;
+  category?: CompetitionCategory | null;
+  mode?: CompetitionMode | null;
+  minTeamSize?: number | null;
+  maxTeamSize?: number | null;
+  registrationStartAt?: Date | null;
+  registrationEndAt?: Date | null;
+  eventStartAt?: Date | null;
+  eventEndAt?: Date | null;
+};
+
+export type CompetitionPatchInput = CompetitionDraftFields;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -142,25 +170,27 @@ const requireString = (value: unknown, field: string, min: number, max: number):
   return trimmed;
 };
 
+// Strict slug validator for user-supplied slugs. Does not normalize: rejects with a
+// descriptive error if the input contains uppercase, spaces, or non-alphanumeric/hyphen
+// characters, or violates length bounds.
 const parseSlug = (value: unknown, fieldName: string): string => {
-  if (typeof value !== "string") {
+  if (typeof value !== "string" || !SLUG_PATTERN.test(value)) {
     throw new CompetitionError(
       "competition_invalid_value",
       400,
-      `${fieldName} must be URL-safe (3 to 64 characters)`,
+      `${fieldName} ${SLUG_FORMAT_DESCRIPTION}`,
       { fields: [fieldName] },
     );
   }
-  const normalized = normalizeCompetitionSlug(value);
-  if (normalized.length < MIN_SLUG_LENGTH || normalized.length > MAX_SLUG_LENGTH) {
+  if (value.length < MIN_SLUG_LENGTH || value.length > MAX_SLUG_LENGTH) {
     throw new CompetitionError(
       "competition_invalid_value",
       400,
-      `${fieldName} must be URL-safe (3 to 64 characters)`,
+      `${fieldName} ${SLUG_FORMAT_DESCRIPTION}`,
       { fields: [fieldName] },
     );
   }
-  return normalized;
+  return value;
 };
 
 const parseOptionalDate = (value: unknown, field: string): Date | null => {
@@ -183,6 +213,31 @@ const parseOptionalDate = (value: unknown, field: string): Date | null => {
     );
   }
   return date;
+};
+
+const parseOptionalCategory = (value: unknown): CompetitionCategory | null => {
+  if (value === null) return null;
+  if (typeof value !== "string" || !isCompetitionCategory(value)) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      `category must be one of: ${COMPETITION_CATEGORY_VALUES.join(", ")}`,
+      { fields: ["category"] },
+    );
+  }
+  return value;
+};
+
+const parseOptionalDescription = (value: unknown): string => {
+  if (typeof value !== "string" || value.length > MAX_DESCRIPTION_LENGTH) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      `description must be a string up to ${MAX_DESCRIPTION_LENGTH} characters`,
+      { fields: ["description"] },
+    );
+  }
+  return value;
 };
 
 const parseOptionalInt = (value: unknown, field: string): number | null => {
@@ -211,7 +266,73 @@ const parseOptionalMode = (value: unknown): CompetitionMode | null => {
   return value;
 };
 
-const CREATE_FIELDS: readonly string[] = ["institutionSlug", "title", "description", "slug"];
+// Cross-field validation. Run on every parsed payload (create + patch). For PATCH this only
+// catches inconsistencies present together in the same request; cross-field rules that span
+// existing-row + payload (e.g. patching only one side of a date pair) are not enforced here —
+// they belong to the publish-validation checklist for now.
+const validateFieldRelations = (fields: CompetitionDraftFields): void => {
+  if (
+    fields.minTeamSize != null &&
+    fields.maxTeamSize != null &&
+    fields.minTeamSize > fields.maxTeamSize
+  ) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      "minTeamSize must be less than or equal to maxTeamSize",
+      { fields: ["minTeamSize", "maxTeamSize"] },
+    );
+  }
+  if (
+    fields.eventStartAt != null &&
+    fields.eventEndAt != null &&
+    fields.eventEndAt.getTime() <= fields.eventStartAt.getTime()
+  ) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      "eventEndAt must be after eventStartAt",
+      { fields: ["eventStartAt", "eventEndAt"] },
+    );
+  }
+  if (
+    fields.registrationStartAt != null &&
+    fields.registrationEndAt != null &&
+    fields.registrationEndAt.getTime() <= fields.registrationStartAt.getTime()
+  ) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      "registrationEndAt must be after registrationStartAt",
+      { fields: ["registrationStartAt", "registrationEndAt"] },
+    );
+  }
+  // Registration deadline must be in the future when explicitly set. Skipped when clearing
+  // (null) or when not present in the payload.
+  if (fields.registrationEndAt != null && fields.registrationEndAt.getTime() <= Date.now()) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      "registrationEndAt must be in the future",
+      { fields: ["registrationEndAt"] },
+    );
+  }
+};
+
+const CREATE_FIELDS: readonly string[] = [
+  "institutionSlug",
+  "title",
+  "description",
+  "slug",
+  "category",
+  "mode",
+  "minTeamSize",
+  "maxTeamSize",
+  "registrationStartAt",
+  "registrationEndAt",
+  "eventStartAt",
+  "eventEndAt",
+];
 export const PATCH_FIELDS: readonly string[] = [
   "title",
   "description",
@@ -225,7 +346,12 @@ export const PATCH_FIELDS: readonly string[] = [
   "eventStartAt",
   "eventEndAt",
 ];
-const PROTECTED_FIELDS: readonly string[] = [
+
+// Fields silently stripped on input. status, institutionId, etc. cannot be set by the caller;
+// they are enforced server-side. fee/featured fields are deferred (DEC-0022). Per the Step 3.2
+// contract these are stripped silently rather than rejected — preserving forward compatibility
+// for clients that read+resubmit a record.
+const SILENT_STRIP_FIELDS: readonly string[] = [
   "id",
   "institutionId",
   "createdByUserId",
@@ -240,26 +366,74 @@ const PROTECTED_FIELDS: readonly string[] = [
   "feeCurrency",
 ];
 
-const guardEditableFields = (record: Record<string, unknown>, allowed: readonly string[]): void => {
-  const keys = Object.keys(record);
-  const protectedFields = keys.filter((k) => PROTECTED_FIELDS.includes(k));
-  if (protectedFields.length > 0) {
-    throw new CompetitionError(
-      "competition_protected_fields",
-      400,
-      "Some fields cannot be modified through this endpoint",
-      { fields: protectedFields },
+const stripBlockedFields = (record: Record<string, unknown>): Record<string, unknown> => {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(record)) {
+    if (SILENT_STRIP_FIELDS.includes(k)) continue;
+    out[k] = v;
+  }
+  return out;
+};
+// Drop unrecognized keys silently (per Step 3.2 contract: "Unknown fields: strip silently").
+const filterToAllowed = (
+  record: Record<string, unknown>,
+  allowed: readonly string[],
+): Record<string, unknown> => {
+  const out: Record<string, unknown> = {};
+  for (const key of allowed) {
+    if (key in record) out[key] = record[key];
+  }
+  return out;
+};
+
+// Parses the subset of draft fields that are common to create + patch. Returns only the keys
+// present in the payload. Fields not present are not included in the returned record.
+const parseDraftFields = (
+  payload: Record<string, unknown>,
+  allowed: readonly string[],
+): CompetitionDraftFields => {
+  const fields: CompetitionDraftFields = {};
+  const filtered = filterToAllowed(payload, allowed);
+
+  if ("title" in filtered) {
+    fields.title = requireString(filtered.title, "title", MIN_TITLE_LENGTH, MAX_TITLE_LENGTH);
+  }
+  if ("description" in filtered) {
+    fields.description = parseOptionalDescription(filtered.description);
+  }
+  if ("slug" in filtered) {
+    fields.slug = parseSlug(filtered.slug, "slug");
+  }
+  if ("category" in filtered) {
+    fields.category = parseOptionalCategory(filtered.category);
+  }
+  if ("mode" in filtered) {
+    fields.mode = parseOptionalMode(filtered.mode);
+  }
+  if ("minTeamSize" in filtered) {
+    fields.minTeamSize = parseOptionalInt(filtered.minTeamSize, "minTeamSize");
+  }
+  if ("maxTeamSize" in filtered) {
+    fields.maxTeamSize = parseOptionalInt(filtered.maxTeamSize, "maxTeamSize");
+  }
+  if ("registrationStartAt" in filtered) {
+    fields.registrationStartAt = parseOptionalDate(
+      filtered.registrationStartAt,
+      "registrationStartAt",
     );
   }
-  const invalidFields = keys.filter((k) => !allowed.includes(k));
-  if (invalidFields.length > 0) {
-    throw new CompetitionError(
-      "competition_invalid_fields",
-      400,
-      "Payload contains unsupported competition fields",
-      { fields: invalidFields },
-    );
+  if ("registrationEndAt" in filtered) {
+    fields.registrationEndAt = parseOptionalDate(filtered.registrationEndAt, "registrationEndAt");
   }
+  if ("eventStartAt" in filtered) {
+    fields.eventStartAt = parseOptionalDate(filtered.eventStartAt, "eventStartAt");
+  }
+  if ("eventEndAt" in filtered) {
+    fields.eventEndAt = parseOptionalDate(filtered.eventEndAt, "eventEndAt");
+  }
+
+  validateFieldRelations(fields);
+  return fields;
 };
 
 export const parseCompetitionCreateInput = (payload: unknown): CompetitionCreateInput => {
@@ -270,39 +444,32 @@ export const parseCompetitionCreateInput = (payload: unknown): CompetitionCreate
       "Request body must be a JSON object",
     );
   }
-  guardEditableFields(payload, CREATE_FIELDS);
 
-  const institutionSlugRaw = payload.institutionSlug;
+  // Strip API-blocked + protected fields silently (status, institutionId, feeAmount, etc.)
+  const sanitized = stripBlockedFields(payload);
+
+  const institutionSlugRaw = sanitized.institutionSlug;
   if (typeof institutionSlugRaw !== "string" || institutionSlugRaw.trim().length === 0) {
     throw new CompetitionError("competition_invalid_value", 400, "institutionSlug is required", {
       fields: ["institutionSlug"],
     });
   }
 
-  const title = requireString(payload.title, "title", MIN_TITLE_LENGTH, MAX_TITLE_LENGTH);
-  let description = "";
-  if (payload.description !== undefined) {
-    if (
-      typeof payload.description !== "string" ||
-      payload.description.length > MAX_DESCRIPTION_LENGTH
-    ) {
-      throw new CompetitionError(
-        "competition_invalid_value",
-        400,
-        `description must be a string up to ${MAX_DESCRIPTION_LENGTH} characters`,
-        { fields: ["description"] },
-      );
-    }
-    description = payload.description;
+  if (sanitized.title === undefined) {
+    throw new CompetitionError("competition_invalid_value", 400, "title is required", {
+      fields: ["title"],
+    });
   }
 
-  const slug = "slug" in payload && payload.slug !== null ? parseSlug(payload.slug, "slug") : null;
+  const fields = parseDraftFields(sanitized, CREATE_FIELDS);
+  const { title, description, slug, ...rest } = fields;
 
   return {
+    ...rest,
     institutionSlug: institutionSlugRaw.trim().toLowerCase(),
-    title,
-    description,
-    slug,
+    title: title ?? "",
+    description: description ?? "",
+    slug: slug ?? null,
   };
 };
 
@@ -314,8 +481,11 @@ export const parseCompetitionPatchInput = (payload: unknown): CompetitionPatchIn
       "Request body must be a JSON object",
     );
   }
-  guardEditableFields(payload, PATCH_FIELDS);
-  if (Object.keys(payload).length === 0) {
+
+  const sanitized = stripBlockedFields(payload);
+  const fields = parseDraftFields(sanitized, PATCH_FIELDS);
+
+  if (Object.keys(fields).length === 0) {
     throw new CompetitionError(
       "competition_invalid_payload",
       400,
@@ -323,72 +493,7 @@ export const parseCompetitionPatchInput = (payload: unknown): CompetitionPatchIn
     );
   }
 
-  const patch: CompetitionPatchInput = {};
-
-  if ("title" in payload) {
-    patch.title = requireString(payload.title, "title", MIN_TITLE_LENGTH, MAX_TITLE_LENGTH);
-  }
-  if ("description" in payload) {
-    if (
-      typeof payload.description !== "string" ||
-      payload.description.length > MAX_DESCRIPTION_LENGTH
-    ) {
-      throw new CompetitionError(
-        "competition_invalid_value",
-        400,
-        `description must be a string up to ${MAX_DESCRIPTION_LENGTH} characters`,
-        { fields: ["description"] },
-      );
-    }
-    patch.description = payload.description;
-  }
-  if ("slug" in payload) {
-    patch.slug = parseSlug(payload.slug, "slug");
-  }
-  if ("category" in payload) {
-    if (payload.category === null) {
-      patch.category = null;
-    } else if (
-      typeof payload.category !== "string" ||
-      payload.category.trim().length === 0 ||
-      payload.category.length > MAX_CATEGORY_LENGTH
-    ) {
-      throw new CompetitionError(
-        "competition_invalid_value",
-        400,
-        `category must be a non-empty string up to ${MAX_CATEGORY_LENGTH} characters or null`,
-        { fields: ["category"] },
-      );
-    } else {
-      patch.category = payload.category.trim();
-    }
-  }
-  if ("mode" in payload) {
-    patch.mode = parseOptionalMode(payload.mode);
-  }
-  if ("minTeamSize" in payload) {
-    patch.minTeamSize = parseOptionalInt(payload.minTeamSize, "minTeamSize");
-  }
-  if ("maxTeamSize" in payload) {
-    patch.maxTeamSize = parseOptionalInt(payload.maxTeamSize, "maxTeamSize");
-  }
-  if ("registrationStartAt" in payload) {
-    patch.registrationStartAt = parseOptionalDate(
-      payload.registrationStartAt,
-      "registrationStartAt",
-    );
-  }
-  if ("registrationEndAt" in payload) {
-    patch.registrationEndAt = parseOptionalDate(payload.registrationEndAt, "registrationEndAt");
-  }
-  if ("eventStartAt" in payload) {
-    patch.eventStartAt = parseOptionalDate(payload.eventStartAt, "eventStartAt");
-  }
-  if ("eventEndAt" in payload) {
-    patch.eventEndAt = parseOptionalDate(payload.eventEndAt, "eventEndAt");
-  }
-
-  return patch;
+  return fields;
 };
 
 export type StatusTransitionInput = { targetStatus: CompetitionStatus };

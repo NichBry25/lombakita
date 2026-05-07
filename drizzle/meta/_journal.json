@@ -71,6 +71,13 @@
       "when": 1778001779675,
       "tag": "0009_magical_kabuki",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1778010734396,
+      "tag": "0010_flawless_whirlwind",
+      "breakpoints": true
     }
   ]
 }

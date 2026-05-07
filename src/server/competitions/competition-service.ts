@@ -12,6 +12,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import {
   CompetitionError,
   isAllowedStatusTransition,
+  MAX_SLUG_LENGTH,
   normalizeCompetitionSlug,
   PATCH_FIELDS,
   validatePublishChecklist,
@@ -35,19 +36,34 @@ const FALLBACK_SLUG_BASE = "kompetisi";
 
 const isCompetitionSlugUniqueViolation = (error: unknown): boolean => {
   if (!error || typeof error !== "object") return false;
-  const e = error as { code?: string; constraint?: string; constraint_name?: string };
+  const e = error as {
+    code?: string;
+    constraint?: string;
+    constraint_name?: string;
+    detail?: string;
+  };
   if (e.code !== "23505") return false;
-  return (
+  if (
     e.constraint === "competitions_institution_id_slug_unique_idx" ||
     e.constraint_name === "competitions_institution_id_slug_unique_idx"
-  );
+  ) {
+    return true;
+  }
+  // postgres-js does not always populate `constraint` / `constraint_name` for unique-index
+  // violations (vs unique-constraint violations). Fall back to scanning the detail message,
+  // which for a (institution_id, slug) unique-index breach reads:
+  //   "Key (institution_id, slug)=(...) already exists."
+  const detail = e.detail?.toLowerCase() ?? "";
+  return detail.includes("(institution_id, slug)") || detail.includes("(slug)");
 };
 
 const buildSlugCandidate = (base: string, attempt: number): string => {
   if (attempt === 0) return base;
   const suffix = `-${attempt + 1}`;
   const safeBase =
-    base.length > 0 ? base.slice(0, Math.max(3, 64 - suffix.length)) : FALLBACK_SLUG_BASE;
+    base.length > 0
+      ? base.slice(0, Math.max(3, MAX_SLUG_LENGTH - suffix.length))
+      : FALLBACK_SLUG_BASE;
   return `${safeBase.replace(/-+$/g, "")}${suffix}`;
 };
 
@@ -110,6 +126,14 @@ export const createCompetitionDraft = async (
           title: input.title,
           description: input.description,
           status: "draft",
+          category: input.category ?? null,
+          mode: input.mode ?? null,
+          minTeamSize: input.minTeamSize ?? null,
+          maxTeamSize: input.maxTeamSize ?? null,
+          registrationStartAt: input.registrationStartAt ?? null,
+          registrationEndAt: input.registrationEndAt ?? null,
+          eventStartAt: input.eventStartAt ?? null,
+          eventEndAt: input.eventEndAt ?? null,
         })
         .returning(PUBLIC_COMPETITION_COLUMNS);
       if (!row) {
@@ -203,11 +227,12 @@ export const updateCompetitionDraft = async (
 ): Promise<CompetitionRow> => {
   const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
 
-  // Field-lock: published competitions cannot be edited via PATCH. Archived as well — they're terminal.
+  // Draft-only mutation guard: published and archived competitions cannot be edited via PATCH.
+  // Per Step 3.2 contract, this surfaces 409 with code `competition_not_draft`.
   if (competition.status !== "draft") {
     const lockedFields = Object.keys(patch).filter((k) => PATCH_FIELDS.includes(k));
     throw new CompetitionError(
-      "competition_field_locked",
+      "competition_not_draft",
       409,
       `Cannot edit fields on a ${competition.status} competition. Transition to draft first via PATCH /status.`,
       { fields: lockedFields },

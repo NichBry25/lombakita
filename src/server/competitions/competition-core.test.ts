@@ -53,35 +53,63 @@ describe("normalizeCompetitionSlug", () => {
 });
 
 describe("parseCompetitionCreateInput", () => {
-  it("requires institutionSlug and title", () => {
-    expect(() => parseCompetitionCreateInput({ title: "X" })).toThrow(CompetitionError);
-    expect(() => parseCompetitionCreateInput({ institutionSlug: "lk" })).toThrow(CompetitionError);
+  it("requires institutionSlug", () => {
+    expect(() => parseCompetitionCreateInput({ title: "Lomba Coding 2026" })).toThrow(
+      CompetitionError,
+    );
   });
-  it("rejects protected fields", () => {
+  it("requires title (5-200 characters)", () => {
+    expect(() => parseCompetitionCreateInput({ institutionSlug: "lk" })).toThrow(CompetitionError);
+    expect(() => parseCompetitionCreateInput({ institutionSlug: "lk", title: "Hi" })).toThrow(
+      CompetitionError,
+    );
+  });
+  it("silently strips status, institutionId, and feeAmount", () => {
+    const result = parseCompetitionCreateInput({
+      institutionSlug: "lk",
+      title: "Lomba Coding 2026",
+      status: "published",
+      institutionId: "evil-institution",
+      feeAmount: 99,
+    });
+    expect(result.institutionSlug).toBe("lk");
+    expect(result.title).toBe("Lomba Coding 2026");
+    // No assertion of those stripped fields on the returned shape; the type is the contract.
+  });
+  it("strips unknown fields silently", () => {
     expect(() =>
       parseCompetitionCreateInput({
         institutionSlug: "lk",
-        title: "Lomba",
-        status: "published",
+        title: "Lomba Coding 2026",
+        banana: 1,
       }),
-    ).toThrow(CompetitionError);
+    ).not.toThrow();
   });
   it("normalizes institutionSlug to lower-case trimmed", () => {
     const result = parseCompetitionCreateInput({
       institutionSlug: "  LK-Univ  ",
-      title: "Lomba Coding",
+      title: "Lomba Coding 2026",
     });
     expect(result.institutionSlug).toBe("lk-univ");
-    expect(result.title).toBe("Lomba Coding");
+    expect(result.title).toBe("Lomba Coding 2026");
     expect(result.slug).toBeNull();
   });
-  it("normalizes explicit slug input", () => {
+  it("rejects unnormalized explicit slug (uppercase, spaces)", () => {
+    expect(() =>
+      parseCompetitionCreateInput({
+        institutionSlug: "lk",
+        title: "Hackathon Tahun Ini 2026",
+        slug: "Hackathon Tahun Ini",
+      }),
+    ).toThrow(CompetitionError);
+  });
+  it("accepts a strictly valid slug verbatim", () => {
     const result = parseCompetitionCreateInput({
       institutionSlug: "lk",
-      title: "Hackathon Tahun Ini",
-      slug: "Hackathon Tahun Ini",
+      title: "Hackathon Tahun Ini 2026",
+      slug: "hackathon-2026",
     });
-    expect(result.slug).toBe("hackathon-tahun-ini");
+    expect(result.slug).toBe("hackathon-2026");
   });
 });
 
@@ -89,12 +117,25 @@ describe("parseCompetitionPatchInput", () => {
   it("rejects empty payload", () => {
     expect(() => parseCompetitionPatchInput({})).toThrow(CompetitionError);
   });
-  it("rejects protected fields", () => {
+  it("silently strips protected/blocked fields and rejects when nothing else remains", () => {
     expect(() => parseCompetitionPatchInput({ status: "published" })).toThrow(CompetitionError);
     expect(() => parseCompetitionPatchInput({ feeAmount: 0 })).toThrow(CompetitionError);
+    expect(() => parseCompetitionPatchInput({ isFeatured: true })).toThrow(CompetitionError);
   });
-  it("rejects unknown fields", () => {
+  it("strips API-blocked fields silently when valid editable fields are also present", () => {
+    const patch = parseCompetitionPatchInput({
+      title: "Lomba Coding 2026",
+      feeAmount: 1000,
+      isFeatured: true,
+    });
+    expect(patch.title).toBe("Lomba Coding 2026");
+    expect("feeAmount" in patch).toBe(false);
+    expect("isFeatured" in patch).toBe(false);
+  });
+  it("strips unknown fields silently", () => {
     expect(() => parseCompetitionPatchInput({ banana: 1 })).toThrow(CompetitionError);
+    const patch = parseCompetitionPatchInput({ title: "Lomba Coding 2026", banana: 1 });
+    expect(patch.title).toBe("Lomba Coding 2026");
   });
   it("accepts valid date strings and null clears", () => {
     const patch = parseCompetitionPatchInput({
@@ -110,6 +151,60 @@ describe("parseCompetitionPatchInput", () => {
   it("accepts mode null to clear", () => {
     const patch = parseCompetitionPatchInput({ mode: null });
     expect(patch.mode).toBeNull();
+  });
+  it("accepts each valid category enum value", () => {
+    for (const cat of [
+      "technology",
+      "science",
+      "business",
+      "creative_arts",
+      "social_humanities",
+      "sports",
+      "academic",
+      "other",
+    ] as const) {
+      expect(parseCompetitionPatchInput({ category: cat }).category).toBe(cat);
+    }
+  });
+  it("rejects unknown category strings", () => {
+    expect(() => parseCompetitionPatchInput({ category: "robotics" })).toThrow(CompetitionError);
+  });
+  it("rejects eventEndAt before eventStartAt", () => {
+    expect(() =>
+      parseCompetitionPatchInput({
+        eventStartAt: "2027-06-01T00:00:00Z",
+        eventEndAt: "2027-05-01T00:00:00Z",
+      }),
+    ).toThrow(/eventEndAt must be after eventStartAt/);
+  });
+  it("rejects registrationEndAt before registrationStartAt", () => {
+    expect(() =>
+      parseCompetitionPatchInput({
+        registrationStartAt: "2027-06-01T00:00:00Z",
+        registrationEndAt: "2027-05-01T00:00:00Z",
+      }),
+    ).toThrow(/registrationEndAt must be after registrationStartAt/);
+  });
+  it("rejects registrationEndAt in the past", () => {
+    expect(() =>
+      parseCompetitionPatchInput({
+        registrationEndAt: "2020-01-01T00:00:00Z",
+      }),
+    ).toThrow(/registrationEndAt must be in the future/);
+  });
+  it("accepts registrationEndAt clear (null)", () => {
+    const patch = parseCompetitionPatchInput({ registrationEndAt: null });
+    expect(patch.registrationEndAt).toBeNull();
+  });
+  it("rejects minTeamSize greater than maxTeamSize", () => {
+    expect(() => parseCompetitionPatchInput({ minTeamSize: 5, maxTeamSize: 2 })).toThrow(
+      /minTeamSize must be less than or equal to maxTeamSize/,
+    );
+  });
+  it("accepts minTeamSize equal to maxTeamSize", () => {
+    const patch = parseCompetitionPatchInput({ minTeamSize: 3, maxTeamSize: 3 });
+    expect(patch.minTeamSize).toBe(3);
+    expect(patch.maxTeamSize).toBe(3);
   });
 });
 

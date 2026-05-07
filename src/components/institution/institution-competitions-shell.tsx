@@ -25,8 +25,6 @@ const extractErrorMessage = async (response: Response): Promise<string> => {
 export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionSlug: string }) => {
   const [items, setItems] = useState<Competition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [title, setTitle] = useState("");
   const [feedback, setFeedback] = useState<FeedbackState>(null);
 
   const load = useCallback(async () => {
@@ -53,61 +51,13 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
     return () => window.clearTimeout(id);
   }, [load]);
 
-  const onCreate = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!title.trim()) return;
-    setIsSubmitting(true);
-    setFeedback(null);
-    const response = await fetch("/api/v1/competitions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ institutionSlug, title: title.trim() }),
-    });
-    if (!response.ok) {
-      const message = await extractErrorMessage(response);
-      setFeedback({ type: "error", message });
-      setIsSubmitting(false);
-      return;
-    }
-    setTitle("");
-    setFeedback({ type: "success", message: "Draf kompetisi berhasil dibuat." });
-    setIsSubmitting(false);
-    void load();
-  };
-
   return (
     <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
       <h1>Kompetisi — {institutionSlug}</h1>
 
-      <section style={{ marginTop: 16, padding: 16, border: "1px solid #ccc" }}>
-        <h2>Buat Draf Baru</h2>
-        <form onSubmit={onCreate}>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Judul
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-              minLength={3}
-              maxLength={200}
-              style={{ display: "block", width: "100%" }}
-            />
-          </label>
-          <button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Menyimpan..." : "Buat draf"}
-          </button>
-        </form>
-        {feedback ? (
-          <p
-            role="status"
-            style={{ color: feedback.type === "error" ? "#b00" : "#070", marginTop: 8 }}
-          >
-            {feedback.message}
-          </p>
-        ) : null}
-      </section>
+      <p style={{ marginTop: 16 }}>
+        <Link href={`/institution/${institutionSlug}/competitions/new`}>+ Buat kompetisi baru</Link>
+      </p>
 
       <section style={{ marginTop: 24 }}>
         <h2>Daftar Kompetisi</h2>
@@ -119,13 +69,24 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
           <ul>
             {items.map((c) => (
               <li key={c.id} style={{ padding: 8, borderBottom: "1px solid #eee" }}>
-                <Link href={`/institution/${institutionSlug}/competitions/${c.id}`}>{c.title}</Link>{" "}
+                <Link href={`/institution/${institutionSlug}/competitions/${c.id}/edit`}>
+                  {c.title}
+                </Link>{" "}
                 — <strong>{c.status}</strong>
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      {feedback ? (
+        <p
+          role="status"
+          style={{ color: feedback.type === "error" ? "#b00" : "#070", marginTop: 8 }}
+        >
+          {feedback.message}
+        </p>
+      ) : null}
     </main>
   );
 };

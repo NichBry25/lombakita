@@ -47,22 +47,47 @@ describe("POST /api/v1/competitions", () => {
       id: "comp_1",
       institutionId: "inst_1",
       slug: "lomba-x",
-      title: "Lomba X",
+      title: "Lomba Coding 2026",
       status: "draft",
     });
-    const response = await POST(makePost({ institutionSlug: "lk", title: "Lomba X" }));
+    const response = await POST(makePost({ institutionSlug: "lk", title: "Lomba Coding 2026" }));
     expect(response.status).toBe(201);
     expect(createCompetitionDraft).toHaveBeenCalledWith(
       "admin_1",
-      expect.objectContaining({ institutionSlug: "lk", title: "Lomba X" }),
+      expect.objectContaining({ institutionSlug: "lk", title: "Lomba Coding 2026" }),
     );
+  });
+
+  it("silently strips status and institutionId from body on create", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    createCompetitionDraft.mockResolvedValue({
+      id: "comp_1",
+      institutionId: "inst_1",
+      slug: "lomba-x",
+      title: "Lomba Coding 2026",
+      status: "draft",
+    });
+    const response = await POST(
+      makePost({
+        institutionSlug: "lk",
+        title: "Lomba Coding 2026",
+        status: "published",
+        institutionId: "evil-inst",
+        feeAmount: 100,
+      }),
+    );
+    expect(response.status).toBe(201);
+    const arg = createCompetitionDraft.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect("status" in arg).toBe(false);
+    expect("institutionId" in arg).toBe(false);
+    expect("feeAmount" in arg).toBe(false);
   });
 
   it("returns 401 when unauthenticated", async () => {
     requireAuthenticatedSession.mockRejectedValue(
       new AccessError("unauthenticated", 401, "Authentication required"),
     );
-    const response = await POST(makePost({ institutionSlug: "lk", title: "Lomba X" }));
+    const response = await POST(makePost({ institutionSlug: "lk", title: "Lomba Coding 2026" }));
     expect(response.status).toBe(401);
   });
 
@@ -71,13 +96,13 @@ describe("POST /api/v1/competitions", () => {
     createCompetitionDraft.mockRejectedValue(
       new AccessError("forbidden", 403, "Institution member access required"),
     );
-    const response = await POST(makePost({ institutionSlug: "lk", title: "Lomba X" }));
+    const response = await POST(makePost({ institutionSlug: "lk", title: "Lomba Coding 2026" }));
     expect(response.status).toBe(403);
   });
 
   it("returns 400 when institutionSlug is missing", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
-    const response = await POST(makePost({ title: "Lomba X" }));
+    const response = await POST(makePost({ title: "Lomba Coding 2026" }));
     expect(response.status).toBe(400);
     expect(createCompetitionDraft).not.toHaveBeenCalled();
   });
@@ -100,9 +125,18 @@ describe("POST /api/v1/competitions", () => {
       new CompetitionError("competition_slug_taken", 409, "slug taken"),
     );
     const response = await POST(
-      makePost({ institutionSlug: "lk", title: "Lomba X", slug: "lomba-x" }),
+      makePost({ institutionSlug: "lk", title: "Lomba Coding 2026", slug: "lomba-x" }),
     );
     expect(response.status).toBe(409);
+  });
+
+  it("returns 400 when slug has uppercase or spaces (Step 3.2 strict format)", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    const response = await POST(
+      makePost({ institutionSlug: "lk", title: "Lomba Coding 2026", slug: "Lomba Coding" }),
+    );
+    expect(response.status).toBe(400);
+    expect(createCompetitionDraft).not.toHaveBeenCalled();
   });
 });
 

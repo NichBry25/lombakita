@@ -68,8 +68,22 @@ export const competitionStatusEnum = pgEnum("competition_status", [
 
 export const competitionModeEnum = pgEnum("competition_mode", ["individual", "team", "both"]);
 
+// Step 3.2: competition_category enum. Curated MVP set; extension in later phases must align
+// with the contract's category taxonomy. "other" is the safety-valve value.
+export const competitionCategoryEnum = pgEnum("competition_category", [
+  "technology",
+  "science",
+  "business",
+  "creative_arts",
+  "social_humanities",
+  "sports",
+  "academic",
+  "other",
+]);
+
 export type CompetitionMode = (typeof competitionModeEnum.enumValues)[number];
 export type CompetitionStatus = (typeof competitionStatusEnum.enumValues)[number];
+export type CompetitionCategory = (typeof competitionCategoryEnum.enumValues)[number];
 
 export type AppUserStatus = (typeof appUserStatusEnum.enumValues)[number];
 export type InstitutionInvitationStatus =
@@ -346,7 +360,7 @@ export const competitions = pgTable(
     title: text("title").notNull(),
     description: text("description").notNull().default(""),
     status: competitionStatusEnum("status").notNull().default("draft"),
-    category: text("category"),
+    category: competitionCategoryEnum("category"),
     mode: competitionModeEnum("mode"),
     minTeamSize: integer("min_team_size"),
     maxTeamSize: integer("max_team_size"),
