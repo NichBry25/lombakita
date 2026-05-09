@@ -8,7 +8,6 @@ import { competitions, institutions, type CompetitionCategory, type CompetitionM
 import { logger } from "@/lib/logger";
 import { getMeilisearchClient } from "@/server/search/client";
 import { isMeilisearchAvailable } from "@/server/search/availability";
-import { serverEnv } from "@/config/env.server";
 import {
   COMPETITION_INDEX_NAME,
   type CompetitionIndexDocument,
@@ -245,19 +244,11 @@ export const listPublicCompetitions = async (
 ): Promise<PublicListingResult> => {
   const useSearch = Boolean(filters.q) && isMeilisearchAvailable();
 
-  // TODO(debug): remove after diagnosing Vercel env var issue
-  const serverApiKeySet = Boolean(serverEnv.meilisearchApiKey) ? "SET" : "NOT SET";
-  console.log("[DEBUG listPublicCompetitions] q:", filters.q, "| useSearch:", useSearch, "| serverEnv.meilisearchApiKey:", serverApiKeySet, "| serverEnv.meilisearchHost:", serverEnv.meilisearchHost ?? "(unset)");
-
   if (useSearch) {
     try {
-      // TODO(debug): remove after diagnosing Vercel env var issue
-      console.log("[DEBUG listPublicCompetitions] taking MEILISEARCH path");
       return await listFromMeilisearch(filters, db);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      // TODO(debug): remove after diagnosing Vercel env var issue
-      console.log("[DEBUG listPublicCompetitions] Meilisearch threw:", errorMessage);
       // Meilisearch unavailable at runtime — degrade transparently to DB query.
       logger.warn("competition-public-listing.meilisearch-fallback", {
         reason: errorMessage,
@@ -272,9 +263,6 @@ export const listPublicCompetitions = async (
       q: filters.q,
     });
   }
-
-  // TODO(debug): remove after diagnosing Vercel env var issue
-  console.log("[DEBUG listPublicCompetitions] taking DB path");
 
   return listFromDb(filters, db);
 };
