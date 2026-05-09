@@ -244,13 +244,21 @@ export const listPublicCompetitions = async (
 ): Promise<PublicListingResult> => {
   const useSearch = Boolean(filters.q) && isMeilisearchAvailable();
 
+  // TODO(debug): remove after diagnosing Vercel env var issue
+  console.log("[DEBUG listPublicCompetitions] q:", filters.q, "| useSearch:", useSearch);
+
   if (useSearch) {
     try {
+      // TODO(debug): remove after diagnosing Vercel env var issue
+      console.log("[DEBUG listPublicCompetitions] taking MEILISEARCH path");
       return await listFromMeilisearch(filters, db);
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      // TODO(debug): remove after diagnosing Vercel env var issue
+      console.log("[DEBUG listPublicCompetitions] Meilisearch threw:", errorMessage);
       // Meilisearch unavailable at runtime — degrade transparently to DB query.
       logger.warn("competition-public-listing.meilisearch-fallback", {
-        reason: error instanceof Error ? error.message : String(error),
+        reason: errorMessage,
         q: filters.q,
       });
     }
@@ -262,6 +270,9 @@ export const listPublicCompetitions = async (
       q: filters.q,
     });
   }
+
+  // TODO(debug): remove after diagnosing Vercel env var issue
+  console.log("[DEBUG listPublicCompetitions] taking DB path");
 
   return listFromDb(filters, db);
 };

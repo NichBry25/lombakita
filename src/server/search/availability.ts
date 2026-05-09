@@ -9,5 +9,9 @@ import { serverEnv } from "@/config/env.server";
 // any Meilisearch operation. When false, the listing falls back to a DB query and the sync
 // job exits cleanly with a warning — no 500, no crash.
 export const isMeilisearchAvailable = (): boolean => {
-  return Boolean(serverEnv.meilisearchHost);
+  const host = serverEnv.meilisearchHost;
+  const keySet = Boolean(process.env.MEILISEARCH_API_KEY) ? "SET" : "NOT SET";
+  // TODO(debug): remove after diagnosing Vercel env var issue
+  console.log("[DEBUG availability] MEILISEARCH_HOST:", host ?? "(empty/unset)", "| MEILISEARCH_API_KEY:", keySet);
+  return Boolean(host);
 };
