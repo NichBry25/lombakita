@@ -85,6 +85,13 @@
       "when": 1778312617427,
       "tag": "0011_remarkable_penance",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1778335356761,
+      "tag": "0012_small_hex",
+      "breakpoints": true
     }
   ]
 }

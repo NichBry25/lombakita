@@ -4,6 +4,9 @@ import {
   getPublicCompetitionDetail,
   type PublicCompetitionDetail,
 } from "@/server/competitions/competition-public-service";
+import { getCurrentSession } from "@/server/auth/session";
+import { isSavedCompetition } from "@/server/saved-competitions/saved-competition-service";
+import { SaveButton } from "./save-button";
 
 const CATEGORY_LABELS: Record<string, string> = {
   technology: "Teknologi",
@@ -106,9 +109,17 @@ export default async function CompetitionDetailPage({
   params: Promise<{ institutionSlug: string; slug: string }>;
 }) {
   const { institutionSlug, slug } = await params;
-  const competition = await getPublicCompetitionDetail(institutionSlug, slug);
+  const [competition, session] = await Promise.all([
+    getPublicCompetitionDetail(institutionSlug, slug),
+    getCurrentSession(),
+  ]);
 
   if (!competition) notFound();
+
+  const isStudent = session?.user?.role === "student";
+  const initialSaved = isStudent
+    ? await isSavedCompetition(session!.user.id, competition.id)
+    : false;
 
   const showTeamSize =
     competition.mode !== "individual" &&
@@ -219,6 +230,20 @@ export default async function CompetitionDetailPage({
         <p style={{ fontSize: 12, color: "#888", marginTop: 8 }}>
           Fitur pendaftaran akan tersedia segera.
         </p>
+      </div>
+
+      {/* Save */}
+      <div style={{ marginTop: 8 }}>
+        {isStudent ? (
+          <SaveButton competitionId={competition.id} initialSaved={initialSaved} />
+        ) : (
+          <p style={{ fontSize: 13, color: "#888", marginTop: 16 }}>
+            <Link href="/auth/sign-in" style={{ color: "#355795" }}>
+              Masuk
+            </Link>{" "}
+            untuk menyimpan kompetisi ini.
+          </p>
+        )}
       </div>
     </main>
   );

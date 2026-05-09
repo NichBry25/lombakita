@@ -391,6 +391,27 @@ export const competitions = pgTable(
   ],
 );
 
+// Step 3.6: Student-scoped competition saves.
+// Composite PK on (user_id, competition_id) enforces the one-save-per-user-per-competition
+// invariant at the DB layer. ON DELETE CASCADE on both FKs — if a user or competition is
+// destroyed, saves are cleaned up automatically.
+export const competitionSaves = pgTable(
+  "competition_saves",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    competitionId: text("competition_id")
+      .notNull()
+      .references(() => competitions.id, { onDelete: "cascade" }),
+    savedAt: timestamp("saved_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.competitionId] }),
+    index("competition_saves_user_id_idx").on(table.userId),
+  ],
+);
+
 // Non-domain bootstrap table for validating migration workflow only.
 export const infrastructureProbe = pgTable("infrastructure_probe", {
   id: serial("id").primaryKey(),
