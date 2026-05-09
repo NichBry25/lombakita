@@ -8,7 +8,10 @@ import type { PublicCompetitionItem } from "@/server/competitions/competition-pu
 vi.mock("@/server/search/availability", () => ({ isMeilisearchAvailable: vi.fn(() => false) }));
 vi.mock("@/server/search/client", () => ({ getMeilisearchClient: vi.fn() }));
 
-import { listPublicCompetitions } from "@/server/competitions/competition-public-service";
+import {
+  listPublicCompetitions,
+  deriveCTAState,
+} from "@/server/competitions/competition-public-service";
 
 // Builds a chainable Drizzle mock where:
 //   first db.select() → resolves rows after full chain .from().innerJoin().where().orderBy().limit().offset()
@@ -193,5 +196,31 @@ describe("listPublicCompetitions — Meilisearch happy path", () => {
     expect(result.meta.searchEngine).toBe("meilisearch");
     expect(result.data).toHaveLength(1);
     expect(result.data[0]!.id).toBe("comp_2");
+  });
+});
+
+describe("deriveCTAState", () => {
+  const past = new Date("2026-04-01T00:00:00Z");
+  const future = new Date("2026-09-01T00:00:00Z");
+  const now = new Date("2026-05-09T12:00:00Z");
+
+  it("returns not_yet_open when now is before registration window", () => {
+    expect(deriveCTAState(future, new Date("2026-10-01T00:00:00Z"), now)).toBe("not_yet_open");
+  });
+
+  it("returns open when now is within registration window", () => {
+    expect(deriveCTAState(past, future, now)).toBe("open");
+  });
+
+  it("returns closed when now is after registration window", () => {
+    expect(deriveCTAState(past, new Date("2026-04-30T00:00:00Z"), now)).toBe("closed");
+  });
+
+  it("returns closed when startAt is null", () => {
+    expect(deriveCTAState(null, future, now)).toBe("closed");
+  });
+
+  it("returns closed when endAt is null", () => {
+    expect(deriveCTAState(past, null, now)).toBe("closed");
   });
 });

@@ -4,7 +4,7 @@ assertServerOnly("server/competitions/competition-public-service");
 
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
-import { competitions, institutions } from "@/server/db/schema";
+import { competitions, institutions, type CompetitionCategory, type CompetitionMode } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
 import { getMeilisearchClient } from "@/server/search/client";
 import { isMeilisearchAvailable } from "@/server/search/availability";
@@ -44,8 +44,8 @@ export type PublicCompetitionItem = {
   slug: string;
   title: string;
   description: string;
-  category: string | null;
-  mode: string | null;
+  category: CompetitionCategory | null;
+  mode: CompetitionMode | null;
   minTeamSize: number | null;
   maxTeamSize: number | null;
   registrationStartAt: Date | null;
@@ -264,4 +264,105 @@ export const listPublicCompetitions = async (
   }
 
   return listFromDb(filters, db);
+};
+
+// ── Detail ────────────────────────────────────────────────────────────────────
+
+export type RegistrationCTAState = "open" | "closed" | "not_yet_open";
+
+export const deriveCTAState = (
+  startAt: Date | null,
+  endAt: Date | null,
+  now: Date = new Date(),
+): RegistrationCTAState => {
+  if (!startAt || !endAt) return "closed";
+  if (now < startAt) return "not_yet_open";
+  if (now <= endAt) return "open";
+  return "closed";
+};
+
+const PUBLIC_DETAIL_COLUMNS = {
+  id: competitions.id,
+  slug: competitions.slug,
+  title: competitions.title,
+  description: competitions.description,
+  category: competitions.category,
+  mode: competitions.mode,
+  minTeamSize: competitions.minTeamSize,
+  maxTeamSize: competitions.maxTeamSize,
+  registrationStartAt: competitions.registrationStartAt,
+  registrationEndAt: competitions.registrationEndAt,
+  eventStartAt: competitions.eventStartAt,
+  eventEndAt: competitions.eventEndAt,
+  feeAmount: competitions.feeAmount,
+  publishedAt: competitions.publishedAt,
+  institutionSlug: institutions.slug,
+  institutionName: institutions.displayName,
+} as const;
+
+export type PublicCompetitionDetail = {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  category: CompetitionCategory | null;
+  mode: CompetitionMode | null;
+  minTeamSize: number | null;
+  maxTeamSize: number | null;
+  registrationStartAt: Date | null;
+  registrationEndAt: Date | null;
+  eventStartAt: Date | null;
+  eventEndAt: Date | null;
+  feeAmount: string | null;
+  publishedAt: Date | null;
+  organizer: {
+    slug: string;
+    name: string;
+    logoUrl: string | null;
+  };
+  ctaState: RegistrationCTAState;
+};
+
+export const getPublicCompetitionDetail = async (
+  institutionSlug: string,
+  competitionSlug: string,
+  db: Database = getDb(),
+): Promise<PublicCompetitionDetail | null> => {
+  const [row] = await db
+    .select(PUBLIC_DETAIL_COLUMNS)
+    .from(competitions)
+    .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
+    .where(
+      and(
+        eq(competitions.status, "published"),
+        isNull(competitions.deletedAt),
+        eq(competitions.slug, competitionSlug),
+        eq(institutions.slug, institutionSlug),
+      ),
+    );
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    description: row.description,
+    category: row.category,
+    mode: row.mode,
+    minTeamSize: row.minTeamSize,
+    maxTeamSize: row.maxTeamSize,
+    registrationStartAt: row.registrationStartAt,
+    registrationEndAt: row.registrationEndAt,
+    eventStartAt: row.eventStartAt,
+    eventEndAt: row.eventEndAt,
+    feeAmount: row.feeAmount,
+    publishedAt: row.publishedAt,
+    organizer: {
+      slug: row.institutionSlug,
+      name: row.institutionName,
+      logoUrl: null,
+    },
+    ctaState: deriveCTAState(row.registrationStartAt, row.registrationEndAt),
+  };
 };
