@@ -66,14 +66,29 @@ type CompetitionErrorCode =
   | "competition_institution_not_verified"
   | "competition_slug_taken"
   | "competition_delete_not_allowed"
-  | "competition_active_registrations";
+  | "competition_active_registrations"
+  | "competition_field_immutable";
+
+// Structured publish-validation failure surfaced to clients.
+// Codes: `missing` (field is null/empty) | `out_of_order` (date pair inconsistent) |
+// `not_in_future` (registration deadline in the past).
+export type PublishValidationFailure = {
+  field: string;
+  code: "missing" | "out_of_order" | "not_in_future";
+  message: string;
+};
+
+export type CompetitionErrorDetails = {
+  fields?: string[];
+  failures?: PublishValidationFailure[];
+};
 
 export class CompetitionError extends Error {
   constructor(
     public readonly code: CompetitionErrorCode,
     public readonly httpStatus: 400 | 403 | 404 | 409 | 422,
     message: string,
-    public readonly details?: { fields?: string[] },
+    public readonly details?: CompetitionErrorDetails,
   ) {
     super(message);
   }
@@ -496,34 +511,59 @@ export const parseCompetitionPatchInput = (payload: unknown): CompetitionPatchIn
   return fields;
 };
 
-export type StatusTransitionInput = { targetStatus: CompetitionStatus };
+// Field-immutability matrix for published competitions.
+//
+// Step 3.3 retains Step 3.2's broad rule (DEC-0025): PATCH /api/v1/competitions/[id] is
+// rejected entirely on non-draft records with `competition_not_draft` (409). The matrix below
+// classifies the post-publish editability of each field for the day Step 3.3 (or a later step)
+// loosens that broad rule. Until then, the unpublish→edit→republish flow is the only path to
+// modify any field on a published competition.
+//
+//   IMMUTABLE_AFTER_PUBLISH — never editable once published:
+//     mode             (registrations are anchored to the mode contract)
+//     minTeamSize      (team registration sizing locked in at publish)
+//     maxTeamSize      (team registration sizing locked in at publish)
+//
+//   RESTRICTED_AFTER_PUBLISH — editable only with intentional unpublish first:
+//     title            (title is a public identifier; changing breaks discovery + share links)
+//     slug             (URL routing handle)
+//     registrationStartAt / registrationEndAt
+//     eventStartAt / eventEndAt
+//
+//   FREELY_EDITABLE_AFTER_PUBLISH (would be safe to allow without unpublish):
+//     description
+//     category
+//
+// All three groups are blocked by the current 409 guard. The constants below are the named
+// source of truth; do not duplicate the lists in route or service files.
+export const IMMUTABLE_AFTER_PUBLISH: readonly string[] = ["mode", "minTeamSize", "maxTeamSize"];
+export const RESTRICTED_AFTER_PUBLISH: readonly string[] = [
+  "title",
+  "slug",
+  "registrationStartAt",
+  "registrationEndAt",
+  "eventStartAt",
+  "eventEndAt",
+];
+export const FREELY_EDITABLE_AFTER_PUBLISH: readonly string[] = ["description", "category"];
 
-export const parseStatusTransitionInput = (payload: unknown): StatusTransitionInput => {
-  if (!isRecord(payload)) {
-    throw new CompetitionError(
-      "competition_invalid_payload",
-      400,
-      "Request body must be a JSON object",
-    );
-  }
-  const targetStatus = payload.targetStatus;
-  if (typeof targetStatus !== "string" || !isCompetitionStatus(targetStatus)) {
-    throw new CompetitionError(
-      "competition_invalid_payload",
-      400,
-      `targetStatus must be one of: ${COMPETITION_STATUS_VALUES.join(", ")}`,
-      { fields: ["targetStatus"] },
-    );
-  }
-  return { targetStatus };
-};
-
-// Publish-validation checklist. A competition can only transition draft → published
-// if title and description are non-empty, mode is set, and at least one date field is non-null.
-// Returns the list of missing fields. Empty list means the draft is publishable.
+// Publish-validation checklist. A competition can only transition draft → published if every
+// required field is set, the registration deadline is in the future, and the date pairs are
+// strictly ordered: registrationStart < registrationEnd <= eventStart <= eventEnd.
+//
+// Eligibility note: the Step 3.3 prompt lists "at least one eligibility criterion" as a
+// required publish input. The competition schema (Step 3.1/3.2) does not yet model eligibility
+// — that schema lands at Step 4.1. Skipping this check is intentional and tracked as known
+// debt; do not invent a placeholder field.
+//
+// Returns a structured `PublishValidationResult`. `passed` reflects whether the candidate
+// could publish; `failures` lists every issue (missing fields and date-coherence breaks)
+// rather than short-circuiting on the first one — the institution should be able to fix
+// everything in one editing pass.
 export type PublishValidationCandidate = {
   title: string;
   description: string;
+  category: CompetitionCategory | null;
   mode: CompetitionMode | null;
   registrationStartAt: Date | null;
   registrationEndAt: Date | null;
@@ -531,17 +571,94 @@ export type PublishValidationCandidate = {
   eventEndAt: Date | null;
 };
 
-export const validatePublishChecklist = (candidate: PublishValidationCandidate): string[] => {
-  const missing: string[] = [];
-  if (!candidate.title || candidate.title.trim().length === 0) missing.push("title");
-  if (!candidate.description || candidate.description.trim().length === 0)
-    missing.push("description");
-  if (!candidate.mode) missing.push("mode");
-  const hasAnyDate =
-    candidate.registrationStartAt !== null ||
-    candidate.registrationEndAt !== null ||
-    candidate.eventStartAt !== null ||
-    candidate.eventEndAt !== null;
-  if (!hasAnyDate) missing.push("dates");
-  return missing;
+export type PublishValidationResult = {
+  passed: boolean;
+  failures: PublishValidationFailure[];
+};
+
+const PUBLISH_REQUIRED_DATE_FIELDS = [
+  "registrationStartAt",
+  "registrationEndAt",
+  "eventStartAt",
+  "eventEndAt",
+] as const;
+
+const isNonEmpty = (value: string | null | undefined): boolean =>
+  typeof value === "string" && value.trim().length > 0;
+
+export const validatePublishChecklist = (
+  candidate: PublishValidationCandidate,
+): PublishValidationResult => {
+  const failures: PublishValidationFailure[] = [];
+
+  if (!isNonEmpty(candidate.title)) {
+    failures.push({ field: "title", code: "missing", message: "title is required to publish" });
+  }
+  if (!isNonEmpty(candidate.description)) {
+    failures.push({
+      field: "description",
+      code: "missing",
+      message: "description is required to publish",
+    });
+  }
+  if (!candidate.mode) {
+    failures.push({ field: "mode", code: "missing", message: "mode is required to publish" });
+  }
+  if (!candidate.category) {
+    failures.push({
+      field: "category",
+      code: "missing",
+      message: "category is required to publish",
+    });
+  }
+  for (const field of PUBLISH_REQUIRED_DATE_FIELDS) {
+    if (!candidate[field]) {
+      failures.push({ field, code: "missing", message: `${field} is required to publish` });
+    }
+  }
+
+  // Date coherence — only compared when both endpoints of a pair are present so a missing
+  // field is not double-reported as out_of_order.
+  if (
+    candidate.registrationStartAt &&
+    candidate.registrationEndAt &&
+    candidate.registrationStartAt.getTime() >= candidate.registrationEndAt.getTime()
+  ) {
+    failures.push({
+      field: "registrationEndAt",
+      code: "out_of_order",
+      message: "registrationEndAt must be after registrationStartAt",
+    });
+  }
+  if (
+    candidate.registrationEndAt &&
+    candidate.eventStartAt &&
+    candidate.registrationEndAt.getTime() > candidate.eventStartAt.getTime()
+  ) {
+    failures.push({
+      field: "registrationEndAt",
+      code: "out_of_order",
+      message: "registrationEndAt must be on or before eventStartAt",
+    });
+  }
+  if (
+    candidate.eventStartAt &&
+    candidate.eventEndAt &&
+    candidate.eventStartAt.getTime() > candidate.eventEndAt.getTime()
+  ) {
+    failures.push({
+      field: "eventEndAt",
+      code: "out_of_order",
+      message: "eventEndAt must be on or after eventStartAt",
+    });
+  }
+  if (candidate.registrationEndAt && candidate.registrationEndAt.getTime() <= Date.now()) {
+    failures.push({
+      field: "registrationEndAt",
+      code: "not_in_future",
+      message: "registrationEndAt must be in the future at publish time",
+    });
+  }
+
+  return { passed: failures.length === 0, failures };
 };

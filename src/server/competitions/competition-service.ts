@@ -11,6 +11,7 @@ import { logger } from "@/lib/logger";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import {
   CompetitionError,
+  IMMUTABLE_AFTER_PUBLISH,
   isAllowedStatusTransition,
   MAX_SLUG_LENGTH,
   normalizeCompetitionSlug,
@@ -70,6 +71,36 @@ const buildSlugCandidate = (base: string, attempt: number): string => {
 const deriveSlugBaseFromTitle = (title: string): string => {
   const normalized = normalizeCompetitionSlug(title);
   return normalized.length >= 3 ? normalized : FALLBACK_SLUG_BASE;
+};
+
+// Resolves an institution by slug, then verifies that the given competition belongs to it.
+// Used by the institution-scoped publish/unpublish/archive routes to defend against URL
+// tampering (e.g. caller forges /institutions/A/competitions/B-owned-id/publish). On any
+// mismatch — institution slug unknown, competition missing/soft-deleted, or competition owned
+// by a different institution — returns 404 to avoid leaking cross-tenant existence.
+//
+// This helper does NOT enforce actor membership or role. The caller must still invoke
+// transitionCompetitionStatus (which runs assertCompetitionAccess admin) to authorize.
+export const assertCompetitionInInstitution = async (
+  institutionSlug: string,
+  competitionId: string,
+  db: Database = getDb(),
+): Promise<void> => {
+  const [row] = await db
+    .select({ institutionId: competitions.institutionId })
+    .from(competitions)
+    .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
+    .where(
+      and(
+        eq(competitions.id, competitionId),
+        isNull(competitions.deletedAt),
+        eq(institutions.slug, institutionSlug),
+      ),
+    )
+    .limit(1);
+  if (!row) {
+    throw new CompetitionError("competition_not_found", 404, "Competition not found");
+  }
 };
 
 // Verifies the actor has an active membership (admin or staff) in the institution
@@ -230,11 +261,29 @@ export const updateCompetitionDraft = async (
   // Draft-only mutation guard: published and archived competitions cannot be edited via PATCH.
   // Per Step 3.2 contract, this surfaces 409 with code `competition_not_draft`.
   if (competition.status !== "draft") {
+    // Defensive secondary check for fields that are permanently immutable after publish.
+    // These fields (mode, minTeamSize, maxTeamSize) are locked to the values that participants
+    // registered under and must never change, even after unpublish. Fire 422 (not 409) so
+    // callers can distinguish "use unpublish first" from "this field can never change".
+    const row = competition as unknown as Record<string, unknown>;
+    const patchRecord = patch as Record<string, unknown>;
+    const immutableChanged = IMMUTABLE_AFTER_PUBLISH.filter(
+      (field) => field in patchRecord && patchRecord[field] !== row[field],
+    );
+    if (immutableChanged.length > 0) {
+      throw new CompetitionError(
+        "competition_field_immutable",
+        422,
+        `Cannot modify immutable field(s) on a ${competition.status} competition: ${immutableChanged.join(", ")}`,
+        { fields: immutableChanged },
+      );
+    }
+
     const lockedFields = Object.keys(patch).filter((k) => PATCH_FIELDS.includes(k));
     throw new CompetitionError(
       "competition_not_draft",
       409,
-      `Cannot edit fields on a ${competition.status} competition. Transition to draft first via PATCH /status.`,
+      `Cannot edit fields on a ${competition.status} competition. Transition to draft first via POST /unpublish.`,
       { fields: lockedFields },
     );
   }
@@ -282,7 +331,7 @@ export const updateCompetitionDraft = async (
 };
 
 // Soft-delete a draft. Published and archived records are not deletable via DELETE —
-// published must transition to archived via PATCH /status; archived records are terminal.
+// published must transition to archived via POST /archive; archived records are terminal.
 export const softDeleteCompetitionDraft = async (
   actorUserId: string,
   competitionId: string,
@@ -326,23 +375,30 @@ export const transitionCompetitionStatus = async (
   }
 
   // Publish guards: institution must be verified, publish-validation checklist must pass.
+  // Validation runs against the merged DB row (not caller payload) so partial PATCHes that left
+  // the row internally inconsistent are caught here. This is the second gate referenced in
+  // DEC-0028 and addresses the latent material finding D5 from the Step 3.2 depth review.
   if (competition.status === "draft" && targetStatus === "published") {
     await assertInstitutionVerified(competition.institutionId, db);
-    const missing = validatePublishChecklist({
+    const result = validatePublishChecklist({
       title: competition.title,
       description: competition.description,
+      category: competition.category,
       mode: competition.mode,
       registrationStartAt: competition.registrationStartAt,
       registrationEndAt: competition.registrationEndAt,
       eventStartAt: competition.eventStartAt,
       eventEndAt: competition.eventEndAt,
     });
-    if (missing.length > 0) {
+    if (!result.passed) {
       throw new CompetitionError(
         "competition_publish_validation_failed",
         422,
-        `Cannot publish: missing required fields: ${missing.join(", ")}`,
-        { fields: missing },
+        `Cannot publish: ${result.failures.length} validation issue(s) — see details.failures`,
+        {
+          fields: result.failures.map((f) => f.field),
+          failures: result.failures,
+        },
       );
     }
   }
@@ -364,6 +420,9 @@ export const transitionCompetitionStatus = async (
     updatedAt: sql`now()`,
   };
   if (targetStatus === "published") updates.publishedAt = new Date();
+  // publishedAt is intentionally NOT cleared on unpublish (published → draft). It records the
+  // first-publication timestamp as historical metadata — useful for audit and discovery signals.
+  // DEC-0030: accepted design decision.
   if (targetStatus === "archived") updates.archivedAt = new Date();
 
   const [row] = await db

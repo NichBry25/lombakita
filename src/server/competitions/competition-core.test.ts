@@ -9,7 +9,6 @@ import {
   normalizeCompetitionSlug,
   parseCompetitionCreateInput,
   parseCompetitionPatchInput,
-  parseStatusTransitionInput,
   validatePublishChecklist,
 } from "@/server/competitions/competition-core";
 
@@ -208,50 +207,123 @@ describe("parseCompetitionPatchInput", () => {
   });
 });
 
-describe("parseStatusTransitionInput", () => {
-  it("requires a valid targetStatus", () => {
-    expect(() => parseStatusTransitionInput({})).toThrow(CompetitionError);
-    expect(() => parseStatusTransitionInput({ targetStatus: "live" })).toThrow(CompetitionError);
-  });
-  it("accepts each enum value", () => {
-    for (const status of COMPETITION_STATUS_VALUES) {
-      expect(parseStatusTransitionInput({ targetStatus: status }).targetStatus).toBe(status);
-    }
-  });
-});
-
 describe("validatePublishChecklist", () => {
-  const base = {
-    title: "Lomba",
-    description: "Deskripsi yang panjang",
-    mode: "individual" as const,
-    registrationStartAt: null,
-    registrationEndAt: null,
-    eventStartAt: new Date(),
-    eventEndAt: null,
+  // Use future dates so registrationEndAt > now() does not falsely fail.
+  const inFuture = (offsetDays: number): Date => {
+    const d = new Date();
+    d.setDate(d.getDate() + offsetDays);
+    return d;
   };
 
-  it("returns empty when all required fields are present", () => {
-    expect(validatePublishChecklist(base)).toEqual([]);
+  const passing = () => ({
+    title: "Lomba",
+    description: "Deskripsi yang panjang",
+    category: "technology" as const,
+    mode: "individual" as const,
+    registrationStartAt: inFuture(7),
+    registrationEndAt: inFuture(30),
+    eventStartAt: inFuture(40),
+    eventEndAt: inFuture(45),
   });
-  it("flags missing title", () => {
-    expect(validatePublishChecklist({ ...base, title: "" })).toContain("title");
+
+  const fields = (failures: { field: string }[]) => failures.map((f) => f.field);
+
+  it("returns passed:true when every required field is present and ordered", () => {
+    const result = validatePublishChecklist(passing());
+    expect(result.passed).toBe(true);
+    expect(result.failures).toEqual([]);
   });
-  it("flags missing description", () => {
-    expect(validatePublishChecklist({ ...base, description: "   " })).toContain("description");
+
+  it("flags missing title with code 'missing'", () => {
+    const result = validatePublishChecklist({ ...passing(), title: "" });
+    expect(result.passed).toBe(false);
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({ field: "title", code: "missing" }),
+    );
   });
-  it("flags missing mode", () => {
-    expect(validatePublishChecklist({ ...base, mode: null })).toContain("mode");
+
+  it("flags missing description (whitespace only) with code 'missing'", () => {
+    const result = validatePublishChecklist({ ...passing(), description: "   " });
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({ field: "description", code: "missing" }),
+    );
   });
-  it("flags missing dates when all are null", () => {
-    expect(
-      validatePublishChecklist({
-        ...base,
-        registrationStartAt: null,
-        registrationEndAt: null,
-        eventStartAt: null,
-        eventEndAt: null,
-      }),
-    ).toContain("dates");
+
+  it("flags missing mode and category", () => {
+    const result = validatePublishChecklist({ ...passing(), mode: null, category: null });
+    expect(fields(result.failures)).toEqual(expect.arrayContaining(["mode", "category"]));
+  });
+
+  it("flags every individually-missing date field separately (not collapsed to 'dates')", () => {
+    const result = validatePublishChecklist({
+      ...passing(),
+      registrationStartAt: null,
+      registrationEndAt: null,
+      eventStartAt: null,
+      eventEndAt: null,
+    });
+    expect(fields(result.failures)).toEqual(
+      expect.arrayContaining([
+        "registrationStartAt",
+        "registrationEndAt",
+        "eventStartAt",
+        "eventEndAt",
+      ]),
+    );
+  });
+
+  it("flags out_of_order when registrationEndAt is before registrationStartAt", () => {
+    const result = validatePublishChecklist({
+      ...passing(),
+      registrationStartAt: inFuture(30),
+      registrationEndAt: inFuture(7),
+    });
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({ field: "registrationEndAt", code: "out_of_order" }),
+    );
+  });
+
+  it("flags out_of_order when registrationEndAt is after eventStartAt", () => {
+    const result = validatePublishChecklist({
+      ...passing(),
+      registrationEndAt: inFuture(50),
+      eventStartAt: inFuture(40),
+    });
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({ field: "registrationEndAt", code: "out_of_order" }),
+    );
+  });
+
+  it("flags out_of_order when eventEndAt is before eventStartAt", () => {
+    const result = validatePublishChecklist({
+      ...passing(),
+      eventStartAt: inFuture(50),
+      eventEndAt: inFuture(40),
+    });
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({ field: "eventEndAt", code: "out_of_order" }),
+    );
+  });
+
+  it("flags not_in_future when registrationEndAt is in the past", () => {
+    const past = new Date("2020-01-01T00:00:00Z");
+    const result = validatePublishChecklist({ ...passing(), registrationEndAt: past });
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({ field: "registrationEndAt", code: "not_in_future" }),
+    );
+  });
+
+  it("aggregates multiple failures (does not short-circuit)", () => {
+    const result = validatePublishChecklist({
+      title: "",
+      description: "",
+      category: null,
+      mode: null,
+      registrationStartAt: null,
+      registrationEndAt: null,
+      eventStartAt: null,
+      eventEndAt: null,
+    });
+    expect(result.failures.length).toBeGreaterThanOrEqual(8);
   });
 });

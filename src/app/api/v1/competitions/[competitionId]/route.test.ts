@@ -101,7 +101,7 @@ describe("PATCH /api/v1/competitions/[competitionId]", () => {
         new CompetitionError(
           "competition_not_draft",
           409,
-          `Cannot edit fields on a ${status} competition. Transition to draft first via PATCH /status.`,
+          `Cannot edit fields on a ${status} competition. Transition to draft first via POST /unpublish.`,
           { fields: ["title"] },
         ),
       );

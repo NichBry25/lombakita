@@ -34,14 +34,30 @@ type Competition = {
   eventEndAt: string | null;
 };
 
-type Feedback = { type: "success" | "error"; message: string } | null;
+type PublishValidationFailure = {
+  field: string;
+  code: "missing" | "out_of_order" | "not_in_future";
+  message: string;
+};
 
-const extractErrorMessage = async (response: Response): Promise<string> => {
+type Feedback =
+  | { type: "success"; message: string }
+  | { type: "error"; message: string; failures?: PublishValidationFailure[] }
+  | null;
+
+const extractError = async (
+  response: Response,
+): Promise<{ message: string; failures?: PublishValidationFailure[] }> => {
   try {
-    const payload = (await response.json()) as { error?: { message?: string } };
-    return payload.error?.message ?? "Permintaan gagal diproses.";
+    const payload = (await response.json()) as {
+      error?: { message?: string; details?: { failures?: PublishValidationFailure[] } };
+    };
+    return {
+      message: payload.error?.message ?? "Permintaan gagal diproses.",
+      failures: payload.error?.details?.failures,
+    };
   } catch {
-    return "Permintaan gagal diproses.";
+    return { message: "Permintaan gagal diproses." };
   }
 };
 
@@ -97,7 +113,7 @@ export const InstitutionCompetitionEditShell = ({
       credentials: "include",
     });
     if (!response.ok) {
-      const message = await extractErrorMessage(response);
+      const { message } = await extractError(response);
       setFeedback({ type: "error", message });
       setIsLoading(false);
       return;
@@ -152,13 +168,29 @@ export const InstitutionCompetitionEditShell = ({
     });
 
     if (!response.ok) {
-      const message = await extractErrorMessage(response);
+      const { message } = await extractError(response);
       setFeedback({ type: "error", message });
       setIsSubmitting(false);
       return;
     }
 
     setFeedback({ type: "success", message: "Perubahan tersimpan." });
+    setIsSubmitting(false);
+    void load();
+  };
+
+  const onPublish = async () => {
+    setIsSubmitting(true);
+    setFeedback(null);
+    const url = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}/publish`;
+    const response = await fetch(url, { method: "POST", credentials: "include" });
+    if (!response.ok) {
+      const { message, failures } = await extractError(response);
+      setFeedback({ type: "error", message, failures });
+      setIsSubmitting(false);
+      return;
+    }
+    setFeedback({ type: "success", message: "Status diterbitkan (published)." });
     setIsSubmitting(false);
     void load();
   };
@@ -192,8 +224,8 @@ export const InstitutionCompetitionEditShell = ({
       {!isDraft ? (
         <p style={{ color: "#b00", marginTop: 12 }}>
           Hanya kompetisi berstatus <code>draft</code> yang dapat diubah. Status saat ini:{" "}
-          <strong>{competition.status}</strong>. Kembalikan ke draft melalui PATCH /status terlebih
-          dahulu.
+          <strong>{competition.status}</strong>. Gunakan tindakan{" "}
+          <em>Unpublish (kembali ke draft)</em> di halaman aksi status terlebih dahulu.
         </p>
       ) : (
         <form onSubmit={onSave} style={{ marginTop: 16 }}>
@@ -312,20 +344,46 @@ export const InstitutionCompetitionEditShell = ({
               style={{ display: "block" }}
             />
           </label>
-
           <button type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Menyimpan..." : "Simpan"}
+          </button>{" "}
+          <button type="button" onClick={onPublish} disabled={isSubmitting}>
+            Publish
           </button>
         </form>
       )}
 
-      {feedback ? (
-        <p
-          role="status"
-          style={{ color: feedback.type === "error" ? "#b00" : "#070", marginTop: 16 }}
+      <p style={{ marginTop: 16 }}>
+        <a
+          href={`/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(
+            competitionId,
+          )}`}
         >
-          {feedback.message}
-        </p>
+          ← Kembali ke aksi status
+        </a>
+      </p>
+
+      {feedback ? (
+        <div
+          role="status"
+          style={{
+            color: feedback.type === "error" ? "#b00" : "#070",
+            marginTop: 16,
+            padding: 8,
+            border: `1px solid ${feedback.type === "error" ? "#b00" : "#070"}`,
+          }}
+        >
+          <p style={{ margin: 0 }}>{feedback.message}</p>
+          {feedback.type === "error" && feedback.failures && feedback.failures.length > 0 ? (
+            <ul style={{ marginTop: 8, marginBottom: 0 }}>
+              {feedback.failures.map((f) => (
+                <li key={`${f.field}-${f.code}`}>
+                  <strong>{f.field}</strong> — {f.message}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
     </main>
   );

@@ -134,3 +134,32 @@ describe("updateCompetitionDraft — draft-only mutation guard (Step 3.2)", () =
     },
   );
 });
+
+describe("updateCompetitionDraft — IMMUTABLE_AFTER_PUBLISH guard (Step 3.3)", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("rejects 422 competition_field_immutable when mode changes on a published competition", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({ status: "published", mode: "individual" }),
+      membershipRole: "institution_admin",
+    });
+    const patch: CompetitionPatchInput = { mode: "team" };
+    await expect(updateCompetitionDraft("user_1", "comp_1", patch, stubDb)).rejects.toMatchObject({
+      code: "competition_field_immutable",
+      httpStatus: 422,
+    });
+  });
+
+  it("fires 409 competition_not_draft (not 422) when immutable fields are unchanged on a published competition", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({ status: "published", mode: "individual" }),
+      membershipRole: "institution_admin",
+    });
+    // mode value matches the current row — no immutable-field change, so broad 409 fires
+    const patch: CompetitionPatchInput = { mode: "individual", title: "New Title" };
+    await expect(updateCompetitionDraft("user_1", "comp_1", patch, stubDb)).rejects.toMatchObject({
+      code: "competition_not_draft",
+      httpStatus: 409,
+    });
+  });
+});
