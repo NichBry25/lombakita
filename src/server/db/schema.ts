@@ -381,6 +381,9 @@ export const competitions = pgTable(
     uniqueIndex("competitions_institution_id_slug_unique_idx").on(table.institutionId, table.slug),
     index("competitions_institution_id_idx").on(table.institutionId),
     index("competitions_status_idx").on(table.status),
+    // Composite index for the public listing query: filters by status=published and optionally
+    // by institution_id. Prevents a full-table scan when listing published competitions at scale.
+    index("competitions_institution_id_status_idx").on(table.institutionId, table.status),
     check(
       "competitions_fee_amount_non_negative_chk",
       sql`${table.feeAmount} IS NULL OR ${table.feeAmount} >= 0`,

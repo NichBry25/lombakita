@@ -30,7 +30,7 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
   const load = useCallback(async () => {
     setIsLoading(true);
     const response = await fetch(
-      `/api/v1/competitions?institutionSlug=${encodeURIComponent(institutionSlug)}`,
+      `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions`,
       { cache: "no-store", credentials: "include" },
     );
     if (!response.ok) {

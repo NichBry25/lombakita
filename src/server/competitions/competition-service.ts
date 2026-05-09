@@ -9,6 +9,7 @@ import {
 } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
+import { enqueueCompetitionSearchSync } from "@/server/async/enqueue";
 import {
   CompetitionError,
   IMMUTABLE_AFTER_PUBLISH,
@@ -302,6 +303,14 @@ export const updateCompetitionDraft = async (
   if (patch.eventStartAt !== undefined) updates.eventStartAt = patch.eventStartAt;
   if (patch.eventEndAt !== undefined) updates.eventEndAt = patch.eventEndAt;
 
+  // individual mode enforces team size of 1 regardless of what the patch submitted.
+  // Resolve effective mode: prefer the patch value, fall back to the existing row.
+  const effectiveMode = patch.mode !== undefined ? patch.mode : competition.mode;
+  if (effectiveMode === "individual") {
+    updates.minTeamSize = 1;
+    updates.maxTeamSize = 1;
+  }
+
   // Nothing besides the timestamp — no-op fast path.
   if (Object.keys(updates).length === 1) {
     return competition;
@@ -440,6 +449,18 @@ export const transitionCompetitionStatus = async (
     actorUserId,
     from: competition.status,
     to: targetStatus,
+  });
+
+  // Enqueue search index sync. publish → upsert; unpublish/archive → remove.
+  // The enqueue is fire-and-forget: a failure to enqueue (e.g. Redis unavailable) must not
+  // fail the transition itself. The sync job handles its own retry via BullMQ backoff.
+  const syncAction = targetStatus === "published" ? "upsert" : "remove";
+  enqueueCompetitionSearchSync({ competitionId, action: syncAction }).catch((err) => {
+    logger.warn("competition.search-sync.enqueue-failed", {
+      competitionId,
+      action: syncAction,
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
 
   return { competition: row };

@@ -279,7 +279,14 @@ export const InstitutionCompetitionEditShell = ({
             Mode
             <select
               value={mode}
-              onChange={(e) => setMode(e.target.value)}
+              onChange={(e) => {
+                const newMode = e.target.value;
+                setMode(newMode);
+                if (newMode === "individual") {
+                  setMinTeamSize("1");
+                  setMaxTeamSize("1");
+                }
+              }}
               style={{ display: "block" }}
             >
               <option value="">— kosong —</option>
@@ -295,6 +302,7 @@ export const InstitutionCompetitionEditShell = ({
               value={minTeamSize}
               onChange={(e) => setMinTeamSize(e.target.value)}
               min={1}
+              disabled={mode === "individual"}
               style={{ display: "block" }}
             />
           </label>
@@ -305,6 +313,7 @@ export const InstitutionCompetitionEditShell = ({
               value={maxTeamSize}
               onChange={(e) => setMaxTeamSize(e.target.value)}
               min={1}
+              disabled={mode === "individual"}
               style={{ display: "block" }}
             />
           </label>

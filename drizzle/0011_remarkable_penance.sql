@@ -1,0 +1,1 @@
+CREATE INDEX "competitions_institution_id_status_idx" ON "competitions" USING btree ("institution_id","status");

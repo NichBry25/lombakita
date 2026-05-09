@@ -3,15 +3,41 @@ import { toAccessDeniedResponse } from "@/server/auth/access-core";
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import {
   CompetitionError,
-  isCompetitionStatus,
   parseCompetitionCreateInput,
   toCompetitionErrorResponse,
 } from "@/server/competitions/competition-core";
-import {
-  createCompetitionDraft,
-  listCompetitionsForMember,
-} from "@/server/competitions/competition-service";
+import { createCompetitionDraft } from "@/server/competitions/competition-service";
+import { listPublicCompetitions } from "@/server/competitions/competition-public-service";
 
+// GET — public listing, no auth required.
+// Returns only published competitions. Supports filters: q, category, mode, institutionSlug.
+// Sorts: deadline_asc | deadline_desc | created_desc (default).
+// Pagination: page (1-indexed, default 1), limit (default 20, max 50).
+export async function GET(request: Request): Promise<Response> {
+  try {
+    const url = new URL(request.url);
+    const filters = {
+      q: url.searchParams.get("q") ?? undefined,
+      category: url.searchParams.get("category") ?? undefined,
+      mode: url.searchParams.get("mode") ?? undefined,
+      institutionSlug: url.searchParams.get("institutionSlug") ?? undefined,
+      sort: url.searchParams.get("sort") ?? undefined,
+      page: url.searchParams.has("page")
+        ? Number.parseInt(url.searchParams.get("page")!, 10)
+        : undefined,
+      limit: url.searchParams.has("limit")
+        ? Number.parseInt(url.searchParams.get("limit")!, 10)
+        : undefined,
+    };
+
+    const result = await listPublicCompetitions(filters);
+    return NextResponse.json(result);
+  } catch (error) {
+    return toAccessDeniedResponse(error);
+  }
+}
+
+// POST — create a draft competition. Auth required.
 export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireAuthenticatedSession();
@@ -28,36 +54,6 @@ export async function POST(request: Request): Promise<Response> {
     const input = parseCompetitionCreateInput(body);
     const competition = await createCompetitionDraft(session.user.id, input);
     return NextResponse.json({ competition }, { status: 201 });
-  } catch (error) {
-    if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
-    return toAccessDeniedResponse(error);
-  }
-}
-
-export async function GET(request: Request): Promise<Response> {
-  try {
-    const session = await requireAuthenticatedSession();
-    const url = new URL(request.url);
-    const institutionSlug = url.searchParams.get("institutionSlug");
-    if (!institutionSlug) {
-      throw new CompetitionError(
-        "competition_invalid_payload",
-        400,
-        "institutionSlug query parameter is required",
-        { fields: ["institutionSlug"] },
-      );
-    }
-    const statusRaw = url.searchParams.get("status");
-    const status = statusRaw && isCompetitionStatus(statusRaw) ? statusRaw : undefined;
-    const pageRaw = url.searchParams.get("page");
-    const page = pageRaw ? Number.parseInt(pageRaw, 10) : undefined;
-
-    const result = await listCompetitionsForMember(session.user.id, {
-      institutionSlug: institutionSlug.trim().toLowerCase(),
-      status,
-      page: Number.isFinite(page) ? page : undefined,
-    });
-    return NextResponse.json(result);
   } catch (error) {
     if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     return toAccessDeniedResponse(error);

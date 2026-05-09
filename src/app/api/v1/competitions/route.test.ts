@@ -4,28 +4,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 import { CompetitionError } from "@/server/competitions/competition-core";
 
-const { requireAuthenticatedSession, createCompetitionDraft, listCompetitionsForMember } =
+const { requireAuthenticatedSession, createCompetitionDraft, listPublicCompetitions } =
   vi.hoisted(() => ({
     requireAuthenticatedSession: vi.fn(),
     createCompetitionDraft: vi.fn(),
-    listCompetitionsForMember: vi.fn(),
+    listPublicCompetitions: vi.fn(),
   }));
 
 vi.mock("@/server/auth/session", () => ({ requireAuthenticatedSession }));
-vi.mock("@/server/competitions/competition-service", () => ({
-  createCompetitionDraft,
-  listCompetitionsForMember,
-}));
+vi.mock("@/server/competitions/competition-service", () => ({ createCompetitionDraft }));
+vi.mock("@/server/competitions/competition-public-service", () => ({ listPublicCompetitions }));
 
 import { GET, POST } from "@/app/api/v1/competitions/route";
 
 const adminSession = {
   user: { id: "admin_1", role: "institution_admin", email: "admin@example.com" },
-  expires: new Date(Date.now() + 60_000).toISOString(),
-};
-
-const studentSession = {
-  user: { id: "stud_1", role: "student", email: "stud@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
@@ -92,6 +85,10 @@ describe("POST /api/v1/competitions", () => {
   });
 
   it("returns 403 when student attempts to create", async () => {
+    const studentSession = {
+      user: { id: "stud_1", role: "student", email: "stud@example.com" },
+      expires: new Date(Date.now() + 60_000).toISOString(),
+    };
     requireAuthenticatedSession.mockResolvedValue(studentSession);
     createCompetitionDraft.mockRejectedValue(
       new AccessError("forbidden", 403, "Institution member access required"),
@@ -140,32 +137,30 @@ describe("POST /api/v1/competitions", () => {
   });
 });
 
-describe("GET /api/v1/competitions", () => {
+describe("GET /api/v1/competitions — public listing", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("returns 200 with list when institutionSlug present", async () => {
-    requireAuthenticatedSession.mockResolvedValue(adminSession);
-    listCompetitionsForMember.mockResolvedValue({ competitions: [], total: 0, page: 1 });
-    const response = await GET(makeGet("?institutionSlug=lk"));
-    expect(response.status).toBe(200);
-    expect(listCompetitionsForMember).toHaveBeenCalledWith(
-      "admin_1",
-      expect.objectContaining({ institutionSlug: "lk" }),
-    );
-  });
-
-  it("returns 400 when institutionSlug missing", async () => {
-    requireAuthenticatedSession.mockResolvedValue(adminSession);
+  it("returns 200 with data+meta without auth", async () => {
+    listPublicCompetitions.mockResolvedValue({
+      data: [],
+      meta: { total: 0, page: 1, limit: 20, totalPages: 0, searchEngine: "db" },
+    });
     const response = await GET(makeGet(""));
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
+    expect(requireAuthenticatedSession).not.toHaveBeenCalled();
+    const body = (await response.json()) as { data: unknown[]; meta: unknown };
+    expect(body).toHaveProperty("data");
+    expect(body).toHaveProperty("meta");
   });
 
-  it("returns 403 for non-member", async () => {
-    requireAuthenticatedSession.mockResolvedValue(studentSession);
-    listCompetitionsForMember.mockRejectedValue(
-      new AccessError("forbidden", 403, "Institution member access required"),
+  it("passes q, category, sort, page to listPublicCompetitions", async () => {
+    listPublicCompetitions.mockResolvedValue({
+      data: [],
+      meta: { total: 0, page: 2, limit: 20, totalPages: 0, searchEngine: "meilisearch" },
+    });
+    await GET(makeGet("?q=lomba&category=technology&sort=deadline_asc&page=2"));
+    expect(listPublicCompetitions).toHaveBeenCalledWith(
+      expect.objectContaining({ q: "lomba", category: "technology", sort: "deadline_asc", page: 2 }),
     );
-    const response = await GET(makeGet("?institutionSlug=lk"));
-    expect(response.status).toBe(403);
   });
 });

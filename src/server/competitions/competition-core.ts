@@ -447,6 +447,12 @@ const parseDraftFields = (
     fields.eventEndAt = parseOptionalDate(filtered.eventEndAt, "eventEndAt");
   }
 
+  // individual mode always implies a fixed team size of 1; override whatever was submitted.
+  if (fields.mode === "individual") {
+    fields.minTeamSize = 1;
+    fields.maxTeamSize = 1;
+  }
+
   validateFieldRelations(fields);
   return fields;
 };

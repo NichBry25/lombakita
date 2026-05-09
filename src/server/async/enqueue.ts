@@ -81,3 +81,19 @@ export const enqueueProbeJob = async (input: {
     },
   });
 };
+
+// Idempotency key: {competitionId}:{action} — deduplicates rapid same-action enqueues
+// for the same competition within the BullMQ job retention window.
+export const enqueueCompetitionSearchSync = async (input: {
+  competitionId: string;
+  action: "upsert" | "remove";
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.competitionSearchSync>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.competitionSearchSync,
+    idempotencyKey: `${input.competitionId}:${input.action}`,
+    payload: {
+      competitionId: input.competitionId,
+      action: input.action,
+    },
+  });
+};
