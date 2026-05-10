@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  date,
   index,
   integer,
   jsonb,
@@ -84,6 +85,30 @@ export const competitionCategoryEnum = pgEnum("competition_category", [
 export type CompetitionMode = (typeof competitionModeEnum.enumValues)[number];
 export type CompetitionStatus = (typeof competitionStatusEnum.enumValues)[number];
 export type CompetitionCategory = (typeof competitionCategoryEnum.enumValues)[number];
+
+// Step 4.1: Student eligibility primitives.
+// `student_enrollment_status` is the self-declared MVP enrollment value. `enrolled` is the only
+// status that satisfies the eligibility helper; other values produce ineligible_enrollment.
+// `unknown` is the safety-valve until the student fills the field.
+export const studentEnrollmentStatusEnum = pgEnum("student_enrollment_status", [
+  "enrolled",
+  "on_leave",
+  "graduated",
+  "unknown",
+]);
+
+// Indonesian higher-education credential levels. D3/D4 are diploma tracks; S1/S2/S3 are
+// undergraduate, master, doctoral. Curated MVP set; extension deferred to a later step.
+export const studentEducationLevelEnum = pgEnum("student_education_level", [
+  "D3",
+  "D4",
+  "S1",
+  "S2",
+  "S3",
+]);
+
+export type StudentEnrollmentStatus = (typeof studentEnrollmentStatusEnum.enumValues)[number];
+export type StudentEducationLevel = (typeof studentEducationLevelEnum.enumValues)[number];
 
 export type AppUserStatus = (typeof appUserStatusEnum.enumValues)[number];
 export type InstitutionInvitationStatus =
@@ -411,6 +436,25 @@ export const competitionSaves = pgTable(
     index("competition_saves_user_id_idx").on(table.userId),
   ],
 );
+
+// Step 4.1: Student eligibility profile.
+// Eligibility STATUS is never persisted — it is computed on demand by checkStudentEligibility
+// from the fields below plus the current server time. This table stores only the raw inputs the
+// student self-declares; the helper is the single source of truth for the derived status.
+// Separate from user_profiles because eligibility is student-only and must not be exposed via
+// the generic profile shell endpoint (see contract: forbidden_mutation_scopes).
+export const studentEligibilityProfiles = pgTable("student_eligibility_profiles", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  dateOfBirth: date("date_of_birth", { mode: "string" }),
+  enrollmentStatus: studentEnrollmentStatusEnum("enrollment_status"),
+  educationLevel: studentEducationLevelEnum("education_level"),
+  universityName: text("university_name"),
+  studentIdNumber: text("student_id_number"),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+});
 
 // Non-domain bootstrap table for validating migration workflow only.
 export const infrastructureProbe = pgTable("infrastructure_probe", {

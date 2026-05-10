@@ -92,6 +92,13 @@
       "when": 1778335356761,
       "tag": "0012_small_hex",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1778343518778,
+      "tag": "0013_slim_vance_astro",
+      "breakpoints": true
     }
   ]
 }
