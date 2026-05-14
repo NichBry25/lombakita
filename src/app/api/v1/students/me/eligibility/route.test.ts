@@ -4,13 +4,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 import { EligibilityInputError } from "@/server/eligibility/eligibility-core";
 
-const { requireSessionRole, getStudentEligibilityProfile, checkStudentEligibility, updateStudentEligibilityProfile } =
-  vi.hoisted(() => ({
-    requireSessionRole: vi.fn(),
-    getStudentEligibilityProfile: vi.fn(),
-    checkStudentEligibility: vi.fn(),
-    updateStudentEligibilityProfile: vi.fn(),
-  }));
+const {
+  requireSessionRole,
+  getStudentEligibilityProfile,
+  checkStudentEligibility,
+  updateStudentEligibilityProfile,
+} = vi.hoisted(() => ({
+  requireSessionRole: vi.fn(),
+  getStudentEligibilityProfile: vi.fn(),
+  checkStudentEligibility: vi.fn(),
+  updateStudentEligibilityProfile: vi.fn(),
+}));
 
 vi.mock("@/server/auth/session", () => ({ requireSessionRole }));
 vi.mock("@/server/eligibility/eligibility-service", () => ({
@@ -22,7 +26,7 @@ vi.mock("@/server/eligibility/eligibility-service", () => ({
 import { GET, PATCH } from "./route";
 
 const studentSession = {
-  user: { id: "stud_1", role: "student", email: "stud@example.com" },
+  user: { id: "stud_1", role: "candidate", email: "stud@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 

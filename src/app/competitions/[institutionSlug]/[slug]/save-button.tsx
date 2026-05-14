@@ -48,9 +48,7 @@ export function SaveButton({ competitionId, initialSaved }: Props) {
       >
         {loading ? "..." : saved ? "✓ Disimpan" : "Simpan"}
       </button>
-      {error && (
-        <p style={{ fontSize: 12, color: "#c0392b", marginTop: 6 }}>{error}</p>
-      )}
+      {error && <p style={{ fontSize: 12, color: "#c0392b", marginTop: 6 }}>{error}</p>}
     </div>
   );
 }

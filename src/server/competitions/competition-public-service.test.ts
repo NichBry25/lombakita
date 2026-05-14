@@ -129,15 +129,16 @@ describe("listPublicCompetitions — Meilisearch degradation", () => {
 
 // Builds a DB mock for the Meilisearch hydration path.
 // listFromMeilisearch issues a single db.select() that terminates at .where() — no orderBy/limit/offset.
-const makeHydrationDb = (rows: PublicCompetitionItem[]): Database => ({
-  select: vi.fn().mockReturnValue({
-    from: vi.fn().mockReturnValue({
-      innerJoin: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(rows),
+const makeHydrationDb = (rows: PublicCompetitionItem[]): Database =>
+  ({
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(rows),
+        }),
       }),
     }),
-  }),
-} as unknown as Database);
+  }) as unknown as Database;
 
 describe("listPublicCompetitions — Meilisearch happy path", () => {
   afterEach(() => vi.clearAllMocks());

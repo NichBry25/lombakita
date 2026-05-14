@@ -9,7 +9,7 @@ import {
   updateStudentProfileForUser,
 } from "@/server/student-profile/profile-service";
 
-export const GET = withApiRole(["student"], async (_request, session) => {
+export const GET = withApiRole(["candidate"], async (_request, session) => {
   const profile = await getStudentProfileForUser(session.user.id);
 
   return NextResponse.json({
@@ -17,7 +17,7 @@ export const GET = withApiRole(["student"], async (_request, session) => {
   });
 });
 
-export const PATCH = withApiRole(["student"], async (request, session) => {
+export const PATCH = withApiRole(["candidate"], async (request, session) => {
   try {
     const payload = await request.json();
     const profile = await updateStudentProfileForUser(session.user.id, payload);

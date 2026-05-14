@@ -23,21 +23,19 @@ describe("POST /api/v1/auth/register", () => {
     vi.clearAllMocks();
   });
 
-  it("returns registration payload for valid request", async () => {
+  it("registers a candidate when ?as=candidate is supplied", async () => {
     registerUserWithCredentials.mockResolvedValue({
-      email: "student@example.com",
+      email: "candidate@example.com",
       verificationRequired: true,
       alreadyVerified: false,
     });
 
-    const request = new Request("http://localhost/api/v1/auth/register", {
+    const request = new Request("http://localhost/api/v1/auth/register?as=candidate", {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        name: "Student",
-        email: "student@example.com",
+        name: "Candidate",
+        email: "candidate@example.com",
         password: "very-strong-password",
       }),
     });
@@ -46,7 +44,80 @@ describe("POST /api/v1/auth/register", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.registration.email).toBe("student@example.com");
+    expect(body.registration.email).toBe("candidate@example.com");
+    expect(registerUserWithCredentials).toHaveBeenCalledWith(
+      expect.objectContaining({ signupRole: "candidate" }),
+    );
+  });
+
+  it("registers a recruiter when ?as=recruiter is supplied", async () => {
+    registerUserWithCredentials.mockResolvedValue({
+      email: "recruiter@example.com",
+      verificationRequired: true,
+      alreadyVerified: false,
+    });
+
+    const request = new Request("http://localhost/api/v1/auth/register?as=recruiter", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Recruiter",
+        email: "recruiter@example.com",
+        password: "very-strong-password",
+      }),
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    expect(registerUserWithCredentials).toHaveBeenCalledWith(
+      expect.objectContaining({ signupRole: "recruiter" }),
+    );
+  });
+
+  it("rejects signup with no role declaration", async () => {
+    registerUserWithCredentials.mockRejectedValue(
+      new CredentialsAuthError(
+        "invalid_signup_role",
+        400,
+        "Signup role declaration is required: use ?as=candidate or ?as=recruiter",
+      ),
+    );
+
+    const request = new Request("http://localhost/api/v1/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Anonymous",
+        email: "anon@example.com",
+        password: "very-strong-password",
+      }),
+    });
+
+    const response = await POST(request);
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe("invalid_signup_role");
+  });
+
+  it("rejects signup with an unknown ?as= value", async () => {
+    const request = new Request("http://localhost/api/v1/auth/register?as=ghost", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Anonymous",
+        email: "anon@example.com",
+        password: "very-strong-password",
+      }),
+    });
+
+    const response = await POST(request);
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.code).toBe("invalid_signup_role");
+    expect(registerUserWithCredentials).not.toHaveBeenCalled();
   });
 
   it("maps known auth errors to response envelope", async () => {
@@ -54,14 +125,12 @@ describe("POST /api/v1/auth/register", () => {
       new CredentialsAuthError("email_exists", 409, "An account with this email already exists"),
     );
 
-    const request = new Request("http://localhost/api/v1/auth/register", {
+    const request = new Request("http://localhost/api/v1/auth/register?as=candidate", {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        name: "Student",
-        email: "student@example.com",
+        name: "Candidate",
+        email: "candidate@example.com",
         password: "very-strong-password",
       }),
     });

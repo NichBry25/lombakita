@@ -14,7 +14,7 @@ export default async function StudentProfilePage() {
 
   const normalizedRole = isAppRole(session.user.role) ? session.user.role : DEFAULT_APP_ROLE;
 
-  if (normalizedRole !== "student") {
+  if (normalizedRole !== "candidate") {
     redirect("/");
   }
 

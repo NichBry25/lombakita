@@ -22,17 +22,17 @@ import { POST as UNPUBLISH } from "@/app/api/v1/institutions/[institutionSlug]/c
 import { POST as ARCHIVE } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/archive/route";
 
 const adminSession = {
-  user: { id: "admin_1", role: "institution_admin", email: "admin@example.com" },
+  user: { id: "admin_1", role: "recruiter", email: "admin@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
 const staffSession = {
-  user: { id: "staff_1", role: "institution_staff", email: "staff@example.com" },
+  user: { id: "staff_1", role: "recruiter", email: "staff@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
 const studentSession = {
-  user: { id: "stud_1", role: "student", email: "stud@example.com" },
+  user: { id: "stud_1", role: "candidate", email: "stud@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 

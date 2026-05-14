@@ -15,7 +15,7 @@ vi.mock("@/server/institution-members/member-service", () => ({ changeMemberRole
 import { PATCH } from "@/app/api/v1/institutions/by-id/[institutionId]/members/[membershipId]/role/route";
 
 const adminSession = {
-  user: { id: "actor_1", role: "institution_admin", email: "admin@example.com" },
+  user: { id: "actor_1", role: "recruiter", email: "admin@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 

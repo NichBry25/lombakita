@@ -33,7 +33,7 @@ vi.mock("@/server/saved-competitions/saved-competition-service", () => {
 import { DELETE, POST } from "./route";
 
 const studentSession = {
-  user: { id: "stud_1", role: "student", email: "stud@example.com" },
+  user: { id: "stud_1", role: "candidate", email: "stud@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 

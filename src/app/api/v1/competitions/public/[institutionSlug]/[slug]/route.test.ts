@@ -39,9 +39,8 @@ describe("GET /api/v1/competitions/public/[institutionSlug]/[slug]", () => {
   afterEach(() => vi.clearAllMocks());
 
   it("returns 200 with competition detail for a published slug", async () => {
-    const { getPublicCompetitionDetail } = await import(
-      "@/server/competitions/competition-public-service"
-    );
+    const { getPublicCompetitionDetail } =
+      await import("@/server/competitions/competition-public-service");
     vi.mocked(getPublicCompetitionDetail).mockResolvedValue(makeDetail());
 
     const res = await GET(makeRequest() as never, makeContext());
@@ -54,9 +53,8 @@ describe("GET /api/v1/competitions/public/[institutionSlug]/[slug]", () => {
   });
 
   it("returns 404 for a draft or nonexistent slug", async () => {
-    const { getPublicCompetitionDetail } = await import(
-      "@/server/competitions/competition-public-service"
-    );
+    const { getPublicCompetitionDetail } =
+      await import("@/server/competitions/competition-public-service");
     vi.mocked(getPublicCompetitionDetail).mockResolvedValue(null);
 
     const res = await GET(makeRequest() as never, makeContext());
@@ -67,9 +65,8 @@ describe("GET /api/v1/competitions/public/[institutionSlug]/[slug]", () => {
   });
 
   it("does not expose status, institutionId, createdAt, or updatedAt", async () => {
-    const { getPublicCompetitionDetail } = await import(
-      "@/server/competitions/competition-public-service"
-    );
+    const { getPublicCompetitionDetail } =
+      await import("@/server/competitions/competition-public-service");
     vi.mocked(getPublicCompetitionDetail).mockResolvedValue(makeDetail());
 
     const res = await GET(makeRequest() as never, makeContext());

@@ -15,8 +15,10 @@ vi.mock("@/server/db/client", () => ({ getDb }));
 
 import { processCompetitionSearchSyncJob } from "@/server/async/jobs/competition-search-sync";
 
-const makeJob = (data: { competitionId: string; action: "upsert" | "remove" }): CompetitionSearchSyncJob =>
-  ({ data } as unknown as CompetitionSearchSyncJob);
+const makeJob = (data: {
+  competitionId: string;
+  action: "upsert" | "remove";
+}): CompetitionSearchSyncJob => ({ data }) as unknown as CompetitionSearchSyncJob;
 
 const publishedDbRow = {
   id: "comp_1",

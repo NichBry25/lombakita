@@ -18,7 +18,7 @@ vi.mock("@/config/env.server", () => ({
 import { POST } from "@/app/api/v1/auth/invitations/[token]/accept/route";
 
 const authenticatedSession = {
-  user: { id: "user_1", role: "student", email: "user@example.com" },
+  user: { id: "user_1", role: "candidate", email: "user@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
