@@ -13,10 +13,7 @@ import {
   COMPETITION_INDEX_NAME,
   type CompetitionIndexDocument,
 } from "@/server/search/competition-index";
-import {
-  ASYNC_JOB_NAMES,
-  type CompetitionSearchSyncPayload,
-} from "@/server/async/contracts";
+import { ASYNC_JOB_NAMES, type CompetitionSearchSyncPayload } from "@/server/async/contracts";
 
 export type CompetitionSearchSyncJob = Job<
   CompetitionSearchSyncPayload,

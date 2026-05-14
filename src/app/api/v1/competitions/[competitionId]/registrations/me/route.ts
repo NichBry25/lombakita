@@ -11,7 +11,7 @@ type RouteContext = { params: Promise<{ competitionId: string }> };
 
 export async function GET(_request: Request, context: RouteContext): Promise<Response> {
   try {
-    const session = await requireSessionRole(["student"]);
+    const session = await requireSessionRole(["candidate"]);
     const { competitionId } = await context.params;
     const registration = await getStudentRegistration(session.user.id, competitionId);
 

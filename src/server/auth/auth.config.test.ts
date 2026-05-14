@@ -64,10 +64,22 @@ describe("auth.config", () => {
     vi.resetModules();
   });
 
-  it("uses jwt session strategy for credentials flow", async () => {
+  it("uses jwt session strategy for credentials flow (DEC-0015 preserved)", async () => {
     const { authOptions } = await import("@/server/auth/auth.config");
 
     expect(authOptions.session?.strategy).toBe("jwt");
+  });
+
+  it("configures a long-lived session cookie with refresh-on-activity (DEC-0049)", async () => {
+    const { authOptions, PERSISTENT_SESSION_MAX_AGE_SECONDS } =
+      await import("@/server/auth/auth.config");
+
+    expect(PERSISTENT_SESSION_MAX_AGE_SECONDS).toBe(60 * 60 * 24 * 365);
+    expect(authOptions.session?.maxAge).toBe(PERSISTENT_SESSION_MAX_AGE_SECONDS);
+    // updateAge controls how often the cookie is rewritten on session reads; a 24h refresh
+    // window produces "session survives idle if the user returns at least once per maxAge".
+    expect(authOptions.session?.updateAge).toBe(60 * 60 * 24);
+    expect(authOptions.jwt?.maxAge).toBe(PERSISTENT_SESSION_MAX_AGE_SECONDS);
   });
 
   it("keeps adapter-backed auth persistence tables configured", async () => {

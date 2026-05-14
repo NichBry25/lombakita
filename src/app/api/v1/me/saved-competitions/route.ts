@@ -2,7 +2,7 @@ import { withApiRole } from "@/server/auth/api-guard";
 import { NextResponse } from "next/server";
 import { listSavedCompetitions } from "@/server/saved-competitions/saved-competition-service";
 
-export const GET = withApiRole(["student"], async (request, session) => {
+export const GET = withApiRole(["candidate"], async (request, session) => {
   const url = new URL(request.url);
   const page = url.searchParams.has("page")
     ? Number.parseInt(url.searchParams.get("page")!, 10)

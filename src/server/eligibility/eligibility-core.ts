@@ -327,11 +327,7 @@ const parseEducationLevelInput = (value: unknown): StudentEducationLevel | null 
   return value as StudentEducationLevel;
 };
 
-const parseOptionalText = (
-  value: unknown,
-  field: string,
-  maxLength: number,
-): string | null => {
+const parseOptionalText = (value: unknown, field: string, maxLength: number): string | null => {
   if (value === null) {
     return null;
   }

@@ -14,7 +14,7 @@ type RouteContext = {
 
 export async function DELETE(request: Request, context: RouteContext): Promise<Response> {
   try {
-    const session = await requireSessionRole(["student"]);
+    const session = await requireSessionRole(["candidate"]);
     const { competitionId, registrationId } = await context.params;
 
     // Body is optional. If supplied as empty/non-JSON, treat as no body — don't fail the

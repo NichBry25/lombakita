@@ -93,34 +93,56 @@ export default function PublicCompetitionsPage() {
     <main style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
       <h1>Kompetisi</h1>
 
-      <form onSubmit={handleSearch} style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <form
+        onSubmit={handleSearch}
+        style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap" }}
+      >
         <input
           type="search"
           placeholder="Cari kompetisi..."
           value={q}
-          onChange={(e) => { setQ(e.target.value); setPage(1); }}
-          style={{ flex: 1, minWidth: 200, padding: "6px 10px", border: "1px solid #ccc", borderRadius: 4 }}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setPage(1);
+          }}
+          style={{
+            flex: 1,
+            minWidth: 200,
+            padding: "6px 10px",
+            border: "1px solid #ccc",
+            borderRadius: 4,
+          }}
           aria-label="Cari kompetisi"
         />
         <select
           value={category}
-          onChange={(e) => { setCategory(e.target.value); setPage(1); }}
+          onChange={(e) => {
+            setCategory(e.target.value);
+            setPage(1);
+          }}
           style={{ padding: "6px 10px", border: "1px solid #ccc", borderRadius: 4 }}
           aria-label="Filter kategori"
         >
           <option value="">Semua Kategori</option>
           {Object.entries(CATEGORY_LABELS).map(([val, label]) => (
-            <option key={val} value={val}>{label}</option>
+            <option key={val} value={val}>
+              {label}
+            </option>
           ))}
         </select>
         <select
           value={sort}
-          onChange={(e) => { setSort(e.target.value); setPage(1); }}
+          onChange={(e) => {
+            setSort(e.target.value);
+            setPage(1);
+          }}
           style={{ padding: "6px 10px", border: "1px solid #ccc", borderRadius: 4 }}
           aria-label="Urutan"
         >
           {SORT_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
           ))}
         </select>
         <button type="submit" style={{ padding: "6px 16px", borderRadius: 4 }}>
@@ -132,16 +154,15 @@ export default function PublicCompetitionsPage() {
         {isLoading ? (
           <p>Memuat...</p>
         ) : error ? (
-          <p role="alert" style={{ color: "#b00" }}>{error}</p>
+          <p role="alert" style={{ color: "#b00" }}>
+            {error}
+          </p>
         ) : items.length === 0 ? (
           <p>Tidak ada kompetisi yang ditemukan.</p>
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
             {items.map((c) => (
-              <li
-                key={c.id}
-                style={{ padding: "16px 0", borderBottom: "1px solid #eee" }}
-              >
+              <li key={c.id} style={{ padding: "16px 0", borderBottom: "1px solid #eee" }}>
                 <Link
                   href={`/competitions/${c.institutionSlug}/${c.slug}`}
                   style={{ fontWeight: 600, fontSize: 16 }}

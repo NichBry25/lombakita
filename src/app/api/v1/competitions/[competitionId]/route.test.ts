@@ -26,12 +26,12 @@ vi.mock("@/server/competitions/competition-service", () => ({
 import { DELETE, GET, PATCH } from "@/app/api/v1/competitions/[competitionId]/route";
 
 const adminSession = {
-  user: { id: "admin_1", role: "institution_admin", email: "admin@example.com" },
+  user: { id: "admin_1", role: "recruiter", email: "admin@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
 const studentSession = {
-  user: { id: "stud_1", role: "student", email: "stud@example.com" },
+  user: { id: "stud_1", role: "candidate", email: "stud@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
@@ -55,7 +55,7 @@ describe("GET /api/v1/competitions/[competitionId]", () => {
     getCompetitionForReader.mockResolvedValue({ id: "comp_1", status: "draft" });
     const response = await GET(makeRequest("GET"), makeParams("comp_1"));
     expect(response.status).toBe(200);
-    expect(getCompetitionForReader).toHaveBeenCalledWith("admin_1", "institution_admin", "comp_1");
+    expect(getCompetitionForReader).toHaveBeenCalledWith("admin_1", "recruiter", "comp_1");
   });
 
   it("returns 404 when competition is missing or soft-deleted", async () => {

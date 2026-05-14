@@ -21,8 +21,13 @@ export const appRoleEnum = pgEnum("app_role", APP_ROLES);
 
 export const appUserStatusEnum = pgEnum("app_user_status", ["active", "suspended", "deactivated"]);
 
+// Rollback Step 1.3 — platform_user_role is the auxiliary user-platform-roles table enum.
+// The `student` token is renamed to `candidate` in lockstep with appRoleEnum (CCR-01).
+// `recruiter` is intentionally NOT added here yet — recruiter-side platform-role wiring is
+// Step 1.4 / Step 4.0c territory; the current consumers only need parity with the primary role
+// values that can also appear as elevated platform roles (platform_ops, finance_ops).
 export const platformUserRoleEnum = pgEnum("platform_user_role", [
-  "student",
+  "candidate",
   "platform_ops",
   "finance_ops",
 ]);
@@ -121,19 +126,43 @@ export type InstitutionVerificationStatus =
   (typeof institutionVerificationStatusEnum.enumValues)[number];
 export type PlatformUserRole = (typeof platformUserRoleEnum.enumValues)[number];
 
-export const users = pgTable("users", {
-  id: text("id")
-    .primaryKey()
-    .default(sql`gen_random_uuid()::text`),
-  name: text("name"),
-  email: text("email").notNull().unique(),
-  emailVerified: timestamp("email_verified", { mode: "date", withTimezone: true }),
-  image: text("image"),
-  role: appRoleEnum("role").notNull().default(DEFAULT_APP_ROLE),
-  status: appUserStatusEnum("status").notNull().default("active"),
-  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
-});
+// Rollback Step 1.3 — per-role verification persistence (CCR-02 / DEC-0036).
+// `candidateVerifiedAt` and `recruiterVerifiedAt` independently record whether each user-level
+// role mode has been verified for this account. Every account must hold at least one non-null
+// timestamp — enforced by a DB-level CHECK constraint (`users_one_verified_role_chk`) so the
+// invariant survives any code path that creates or modifies user rows. Tier refinement for the
+// recruiter mode (CCR-19) ships at Step 4.0c; the schema only carries the per-mode timestamp
+// today.
+export const users = pgTable(
+  "users",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    name: text("name"),
+    email: text("email").notNull().unique(),
+    emailVerified: timestamp("email_verified", { mode: "date", withTimezone: true }),
+    image: text("image"),
+    role: appRoleEnum("role").notNull().default(DEFAULT_APP_ROLE),
+    status: appUserStatusEnum("status").notNull().default("active"),
+    candidateVerifiedAt: timestamp("candidate_verified_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    recruiterVerifiedAt: timestamp("recruiter_verified_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    check(
+      "users_one_verified_role_chk",
+      sql`${table.candidateVerifiedAt} IS NOT NULL OR ${table.recruiterVerifiedAt} IS NOT NULL`,
+    ),
+  ],
+);
 
 export const userProfiles = pgTable("user_profiles", {
   userId: text("user_id")

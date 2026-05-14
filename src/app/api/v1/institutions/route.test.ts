@@ -22,7 +22,7 @@ import { POST } from "@/app/api/v1/institutions/route";
 const sessionFixture = {
   user: {
     id: "user_1",
-    role: "student",
+    role: "candidate",
     email: "owner@example.com",
   },
   expires: new Date(Date.now() + 60_000).toISOString(),

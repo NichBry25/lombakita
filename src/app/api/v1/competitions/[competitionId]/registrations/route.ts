@@ -13,7 +13,7 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
   try {
     // Auth + role=student gate before any DB access. institution_admin, institution_staff,
     // platform_ops, finance_ops all receive 403 here.
-    const session = await requireSessionRole(["student"]);
+    const session = await requireSessionRole(["candidate"]);
     const { competitionId } = await context.params;
     const registration = await createIndividualRegistration(session.user.id, competitionId);
     return NextResponse.json({ registration }, { status: 201 });
