@@ -4,13 +4,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 import { CompetitionError } from "@/server/competitions/competition-core";
 
-const { requireAuthenticatedSession, createCompetitionDraft, listPublicCompetitions } = vi.hoisted(
-  () => ({
+const { requireAuthenticatedSession, createCompetitionDraft, listPublicCompetitions } =
+  vi.hoisted(() => ({
     requireAuthenticatedSession: vi.fn(),
     createCompetitionDraft: vi.fn(),
     listPublicCompetitions: vi.fn(),
-  }),
-);
+  }));
 
 vi.mock("@/server/auth/session", () => ({ requireAuthenticatedSession }));
 vi.mock("@/server/competitions/competition-service", () => ({ createCompetitionDraft }));
@@ -19,7 +18,7 @@ vi.mock("@/server/competitions/competition-public-service", () => ({ listPublicC
 import { GET, POST } from "@/app/api/v1/competitions/route";
 
 const adminSession = {
-  user: { id: "admin_1", role: "recruiter", email: "admin@example.com" },
+  user: { id: "admin_1", role: "institution_admin", email: "admin@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
@@ -87,7 +86,7 @@ describe("POST /api/v1/competitions", () => {
 
   it("returns 403 when student attempts to create", async () => {
     const studentSession = {
-      user: { id: "stud_1", role: "candidate", email: "stud@example.com" },
+      user: { id: "stud_1", role: "student", email: "stud@example.com" },
       expires: new Date(Date.now() + 60_000).toISOString(),
     };
     requireAuthenticatedSession.mockResolvedValue(studentSession);
@@ -161,12 +160,7 @@ describe("GET /api/v1/competitions — public listing", () => {
     });
     await GET(makeGet("?q=lomba&category=technology&sort=deadline_asc&page=2"));
     expect(listPublicCompetitions).toHaveBeenCalledWith(
-      expect.objectContaining({
-        q: "lomba",
-        category: "technology",
-        sort: "deadline_asc",
-        page: 2,
-      }),
+      expect.objectContaining({ q: "lomba", category: "technology", sort: "deadline_asc", page: 2 }),
     );
   });
 });

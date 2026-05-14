@@ -26,7 +26,7 @@ import { GET, PATCH } from "@/app/api/v1/students/me/profile/route";
 const sessionFixture = {
   user: {
     id: "student_1",
-    role: "candidate",
+    role: "student",
     email: "student@example.com",
   },
   expires: new Date(Date.now() + 60_000).toISOString(),
@@ -52,7 +52,7 @@ describe("GET /api/v1/students/me/profile", () => {
     const response = await GET(new Request("http://localhost/api/v1/students/me/profile") as never);
     const body = await response.json();
 
-    expect(requireSessionRole).toHaveBeenCalledWith(["candidate"]);
+    expect(requireSessionRole).toHaveBeenCalledWith(["student"]);
     expect(getStudentProfileForUser).toHaveBeenCalledWith("student_1");
     expect(response.status).toBe(200);
     expect(body.profile.email).toBe("student@example.com");
@@ -103,7 +103,7 @@ describe("PATCH /api/v1/students/me/profile", () => {
     const response = await PATCH(request as never);
     const body = await response.json();
 
-    expect(requireSessionRole).toHaveBeenCalledWith(["candidate"]);
+    expect(requireSessionRole).toHaveBeenCalledWith(["student"]);
     expect(updateStudentProfileForUser).toHaveBeenCalledWith("student_1", {
       displayName: "Bima Pratama",
       phoneNumber: "+6282112345678",

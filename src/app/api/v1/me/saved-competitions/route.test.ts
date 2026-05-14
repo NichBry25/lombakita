@@ -16,7 +16,7 @@ vi.mock("@/server/saved-competitions/saved-competition-service", () => ({
 import { GET } from "./route";
 
 const studentSession = {
-  user: { id: "stud_1", role: "candidate", email: "stud@example.com" },
+  user: { id: "stud_1", role: "student", email: "stud@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
@@ -41,10 +41,7 @@ describe("GET /api/v1/me/saved-competitions", () => {
 
     expect(res.status).toBe(200);
     expect(body).toEqual(makeResult());
-    expect(listSavedCompetitions).toHaveBeenCalledWith("stud_1", {
-      page: undefined,
-      limit: undefined,
-    });
+    expect(listSavedCompetitions).toHaveBeenCalledWith("stud_1", { page: undefined, limit: undefined });
   });
 
   it("passes page and limit query params to service", async () => {

@@ -176,8 +176,8 @@ export const StudentEligibilityShell = () => {
     <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
       <h1 style={{ fontSize: 22, marginBottom: 12 }}>Kelayakan Mahasiswa</h1>
       <p style={{ fontSize: 13, color: "#555", marginBottom: 20 }}>
-        Lengkapi data berikut untuk mengikuti pendaftaran kompetisi. Semua data dievaluasi di server
-        saat dibutuhkan.
+        Lengkapi data berikut untuk mengikuti pendaftaran kompetisi. Semua data dievaluasi di
+        server saat dibutuhkan.
       </p>
 
       {feedback && (

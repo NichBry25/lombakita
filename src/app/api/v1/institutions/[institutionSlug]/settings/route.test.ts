@@ -28,7 +28,7 @@ import { GET, PATCH } from "@/app/api/v1/institutions/[institutionSlug]/settings
 const sessionFixture = {
   user: {
     id: "user_1",
-    role: "candidate",
+    role: "student",
     email: "owner@example.com",
   },
   expires: new Date(Date.now() + 60_000).toISOString(),

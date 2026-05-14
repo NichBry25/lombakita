@@ -48,15 +48,11 @@ export const getRegisteredQueueNames = (): AsyncQueueName[] => {
 };
 
 export const getQueueRegistrations = (queueName: AsyncQueueName): AsyncJobRegistration[] => {
-  return ASYNC_JOB_REGISTRATIONS.filter(
-    (item) => item.queueName === queueName,
-  ) as AsyncJobRegistration[];
+  return ASYNC_JOB_REGISTRATIONS.filter((item) => item.queueName === queueName) as AsyncJobRegistration[];
 };
 
 export const getRegistrationByJobName = (
   jobName: AsyncJobName,
 ): AsyncJobRegistration | undefined => {
-  return ASYNC_JOB_REGISTRATIONS.find((item) => item.jobName === jobName) as
-    | AsyncJobRegistration
-    | undefined;
+  return ASYNC_JOB_REGISTRATIONS.find((item) => item.jobName === jobName) as AsyncJobRegistration | undefined;
 };

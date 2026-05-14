@@ -10,7 +10,7 @@ import {
   updateStudentEligibilityProfile,
 } from "@/server/eligibility/eligibility-service";
 
-export const GET = withApiRole(["candidate"], async (_request, session) => {
+export const GET = withApiRole(["student"], async (_request, session) => {
   const profile = await getStudentEligibilityProfile(session.user.id);
   const eligibility = await checkStudentEligibility(session.user.id);
 
@@ -20,7 +20,7 @@ export const GET = withApiRole(["candidate"], async (_request, session) => {
   });
 });
 
-export const PATCH = withApiRole(["candidate"], async (request, session) => {
+export const PATCH = withApiRole(["student"], async (request, session) => {
   try {
     const payload = await request.json();
     const result = await updateStudentEligibilityProfile(session.user.id, payload);

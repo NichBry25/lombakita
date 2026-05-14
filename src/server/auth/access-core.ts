@@ -1,6 +1,6 @@
 import type { Session } from "next-auth";
 import { NextResponse } from "next/server";
-import { type AppRole, isAppRole } from "@/lib/access/roles";
+import { DEFAULT_APP_ROLE, type AppRole, isAppRole } from "@/lib/access/roles";
 
 export type AuthenticatedSession = Session & {
   user: NonNullable<Session["user"]> & {
@@ -24,18 +24,12 @@ export class AccessError extends Error {
   }
 }
 
-// Rollback Step 1.3 (CCR-01 / DEC-0035): a session role that is missing, empty, or carries a
-// legacy/unknown token (e.g. "student", "institution_admin", "institution_staff" from
-// pre-rollback JWTs) is rejected — NOT silently coerced to a default role. AUTH_SECRET rotation
-// at deploy invalidates pre-rollback JWTs at the signature layer; this guard is the second line
-// of defense for any token that somehow passes signature validation but does not match the new
-// user-level role set.
-export const normalizeSessionRole = (value: string | undefined | null): AppRole => {
-  if (typeof value === "string" && isAppRole(value)) {
+const normalizeSessionRole = (value: string | undefined): AppRole => {
+  if (value && isAppRole(value)) {
     return value;
   }
 
-  throw new AccessError("unauthenticated", 401, "Session role is invalid or stale");
+  return DEFAULT_APP_ROLE;
 };
 
 export const assertAuthenticatedSession = (session: Session | null): AuthenticatedSession => {

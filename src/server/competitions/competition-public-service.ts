@@ -4,12 +4,7 @@ assertServerOnly("server/competitions/competition-public-service");
 
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
-import {
-  competitions,
-  institutions,
-  type CompetitionCategory,
-  type CompetitionMode,
-} from "@/server/db/schema";
+import { competitions, institutions, type CompetitionCategory, type CompetitionMode } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
 import { getMeilisearchClient } from "@/server/search/client";
 import { isMeilisearchAvailable } from "@/server/search/availability";
@@ -17,7 +12,10 @@ import {
   COMPETITION_INDEX_NAME,
   type CompetitionIndexDocument,
 } from "@/server/search/competition-index";
-import { isCompetitionCategory, isCompetitionMode } from "@/server/competitions/competition-core";
+import {
+  isCompetitionCategory,
+  isCompetitionMode,
+} from "@/server/competitions/competition-core";
 
 // Public listing columns — includes institution display name joined from the institutions table.
 // Does not expose fee_amount, fee_currency, or is_featured (DEC-0022).
@@ -109,7 +107,10 @@ const buildDbOrderBy = (sort: PublicListingSort) => {
 };
 
 const buildDbWhere = (filters: PublicListingFilters) => {
-  const conditions = [eq(competitions.status, "published"), isNull(competitions.deletedAt)];
+  const conditions = [
+    eq(competitions.status, "published"),
+    isNull(competitions.deletedAt),
+  ];
 
   if (filters.category && isCompetitionCategory(filters.category)) {
     conditions.push(eq(competitions.category, filters.category));
@@ -208,13 +209,7 @@ const listFromMeilisearch = async (
   if (ids.length === 0) {
     return {
       data: [],
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-        searchEngine: "meilisearch",
-      },
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit), searchEngine: "meilisearch" },
     };
   }
 

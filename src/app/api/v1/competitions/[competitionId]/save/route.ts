@@ -12,7 +12,7 @@ type RouteContext = { params: Promise<{ competitionId: string }> };
 
 export async function POST(_request: Request, context: RouteContext): Promise<Response> {
   try {
-    const session = await requireSessionRole(["candidate"]);
+    const session = await requireSessionRole(["student"]);
     const { competitionId } = await context.params;
     await saveCompetition(session.user.id, competitionId);
     return NextResponse.json({ saved: true });
@@ -24,7 +24,7 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
 
 export async function DELETE(_request: Request, context: RouteContext): Promise<Response> {
   try {
-    const session = await requireSessionRole(["candidate"]);
+    const session = await requireSessionRole(["student"]);
     const { competitionId } = await context.params;
     await unsaveCompetition(session.user.id, competitionId);
     return NextResponse.json({ saved: false });

@@ -20,7 +20,7 @@ const platformOpsSession = {
 };
 
 const institutionAdminSession = {
-  user: { id: "admin_1", role: "recruiter", email: "admin@example.com" },
+  user: { id: "admin_1", role: "institution_admin", email: "admin@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 

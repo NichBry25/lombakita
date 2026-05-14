@@ -19,7 +19,7 @@ export default async function SavedCompetitionsPage({
 }) {
   const session = await getCurrentSession();
 
-  if (!session || session.user.role !== "candidate") {
+  if (!session || session.user.role !== "student") {
     redirect("/auth/sign-in");
   }
 
@@ -53,28 +53,15 @@ export default async function SavedCompetitionsPage({
                 opacity: item.savedStatus === "unavailable" ? 0.6 : 1,
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "flex-start",
-                }}
-              >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
                   <Link
                     href={`/competitions/${item.institutionSlug}/${item.slug}`}
-                    style={{
-                      fontSize: 15,
-                      fontWeight: 600,
-                      color: "#0F1012",
-                      textDecoration: "none",
-                    }}
+                    style={{ fontSize: 15, fontWeight: 600, color: "#0F1012", textDecoration: "none" }}
                   >
                     {item.title}
                   </Link>
-                  <p style={{ fontSize: 13, color: "#555", marginTop: 4 }}>
-                    {item.institutionName}
-                  </p>
+                  <p style={{ fontSize: 13, color: "#555", marginTop: 4 }}>{item.institutionName}</p>
                   {item.registrationEndAt && (
                     <p style={{ fontSize: 13, color: "#888", marginTop: 4 }}>
                       Batas pendaftaran: {formatDate(item.registrationEndAt)}
@@ -95,7 +82,10 @@ export default async function SavedCompetitionsPage({
       {result.meta.totalPages > 1 && (
         <div style={{ marginTop: 20, display: "flex", gap: 8, fontSize: 14 }}>
           {page > 1 && (
-            <Link href={`/saved?page=${page - 1}`} style={{ color: "#355795" }}>
+            <Link
+              href={`/saved?page=${page - 1}`}
+              style={{ color: "#355795" }}
+            >
               ← Sebelumnya
             </Link>
           )}
@@ -103,7 +93,10 @@ export default async function SavedCompetitionsPage({
             Halaman {result.meta.page} dari {result.meta.totalPages}
           </span>
           {page < result.meta.totalPages && (
-            <Link href={`/saved?page=${page + 1}`} style={{ color: "#355795" }}>
+            <Link
+              href={`/saved?page=${page + 1}`}
+              style={{ color: "#355795" }}
+            >
               Berikutnya →
             </Link>
           )}

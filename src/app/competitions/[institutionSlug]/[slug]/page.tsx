@@ -6,9 +6,7 @@ import {
 } from "@/server/competitions/competition-public-service";
 import { getCurrentSession } from "@/server/auth/session";
 import { isSavedCompetition } from "@/server/saved-competitions/saved-competition-service";
-import { getStudentRegistration } from "@/server/registrations/registration-service";
 import { SaveButton } from "./save-button";
-import { RegisterButton } from "./register-button";
 
 const CATEGORY_LABELS: Record<string, string> = {
   technology: "Teknologi",
@@ -51,10 +49,25 @@ function FeeDisplay({ feeAmount }: { feeAmount: string | null }) {
   );
 }
 
-// Static CTA placeholder for non-student visitors. Students see <RegisterButton /> instead,
-// which handles register/cancel and reflects the live registration state from the /me endpoint.
-function VisitorCTAButton({ ctaState }: { ctaState: PublicCompetitionDetail["ctaState"] }) {
+function CTAButton({ ctaState }: { ctaState: PublicCompetitionDetail["ctaState"] }) {
   if (ctaState === "open") {
+    return (
+      <button
+        style={{
+          padding: "10px 24px",
+          background: "#355795",
+          color: "#fff",
+          borderRadius: 6,
+          border: "none",
+          fontSize: 15,
+          cursor: "pointer",
+        }}
+      >
+        Register Now
+      </button>
+    );
+  }
+  if (ctaState === "not_yet_open") {
     return (
       <button
         disabled
@@ -68,7 +81,7 @@ function VisitorCTAButton({ ctaState }: { ctaState: PublicCompetitionDetail["cta
           cursor: "not-allowed",
         }}
       >
-        Daftar
+        Pendaftaran Belum Dibuka
       </button>
     );
   }
@@ -85,7 +98,7 @@ function VisitorCTAButton({ ctaState }: { ctaState: PublicCompetitionDetail["cta
         cursor: "not-allowed",
       }}
     >
-      {ctaState === "not_yet_open" ? "Pendaftaran Belum Dibuka" : "Pendaftaran Ditutup"}
+      Pendaftaran Ditutup
     </button>
   );
 }
@@ -103,17 +116,10 @@ export default async function CompetitionDetailPage({
 
   if (!competition) notFound();
 
-  const isStudent = session?.user?.role === "candidate";
-  const [initialSaved, initialRegistration] = isStudent
-    ? await Promise.all([
-        isSavedCompetition(session!.user.id, competition.id),
-        getStudentRegistration(session!.user.id, competition.id),
-      ])
-    : [false, null];
-
-  // Individual registration is only valid for `individual` and `both` modes. `team` is
-  // routed through Steps 4.3/4.4 (out of scope here).
-  const wrongMode = competition.mode === "team";
+  const isStudent = session?.user?.role === "student";
+  const initialSaved = isStudent
+    ? await isSavedCompetition(session!.user.id, competition.id)
+    : false;
 
   const showTeamSize =
     competition.mode !== "individual" &&
@@ -128,16 +134,7 @@ export default async function CompetitionDetailPage({
       <h1 style={{ marginTop: 16, fontSize: 24 }}>{competition.title}</h1>
 
       {/* Organizer */}
-      <div
-        style={{
-          marginTop: 8,
-          fontSize: 14,
-          color: "#555",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
-      >
+      <div style={{ marginTop: 8, fontSize: 14, color: "#555", display: "flex", alignItems: "center", gap: 6 }}>
         {competition.organizer.logoUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={competition.organizer.logoUrl} alt="" style={{ height: 20 }} />
@@ -188,7 +185,9 @@ export default async function CompetitionDetailPage({
               <td style={{ paddingBottom: 8 }}>{formatDate(competition.registrationEndAt)}</td>
             </tr>
             <tr>
-              <td style={{ paddingRight: 24, color: "#555", paddingBottom: 8 }}>Mulai kompetisi</td>
+              <td style={{ paddingRight: 24, color: "#555", paddingBottom: 8 }}>
+                Mulai kompetisi
+              </td>
               <td style={{ paddingBottom: 8 }}>{formatDate(competition.eventStartAt)}</td>
             </tr>
             <tr>
@@ -227,28 +226,10 @@ export default async function CompetitionDetailPage({
 
       {/* CTA */}
       <div style={{ marginTop: 32 }}>
-        {isStudent ? (
-          <RegisterButton
-            competitionId={competition.id}
-            ctaState={competition.ctaState}
-            initialRegistration={
-              initialRegistration
-                ? { id: initialRegistration.id, status: initialRegistration.status }
-                : null
-            }
-            wrongMode={wrongMode}
-          />
-        ) : (
-          <>
-            <VisitorCTAButton ctaState={competition.ctaState} />
-            <p style={{ fontSize: 12, color: "#888", marginTop: 8 }}>
-              <Link href="/auth/sign-in" style={{ color: "#355795" }}>
-                Masuk
-              </Link>{" "}
-              sebagai mahasiswa untuk mendaftar.
-            </p>
-          </>
-        )}
+        <CTAButton ctaState={competition.ctaState} />
+        <p style={{ fontSize: 12, color: "#888", marginTop: 8 }}>
+          Fitur pendaftaran akan tersedia segera.
+        </p>
       </div>
 
       {/* Save */}

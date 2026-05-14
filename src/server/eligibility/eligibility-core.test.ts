@@ -269,9 +269,9 @@ describe("parseEligibilityProfileUpdatePatch", () => {
   });
 
   it("rejects status field as protected", () => {
-    expect(() => parseEligibilityProfileUpdatePatch({ status: "eligible" })).toThrowError(
-      EligibilityInputError,
-    );
+    expect(() =>
+      parseEligibilityProfileUpdatePatch({ status: "eligible" }),
+    ).toThrowError(EligibilityInputError);
 
     try {
       parseEligibilityProfileUpdatePatch({ status: "eligible" });
@@ -299,9 +299,9 @@ describe("parseEligibilityProfileUpdatePatch", () => {
   });
 
   it("rejects malformed date_of_birth", () => {
-    expect(() => parseEligibilityProfileUpdatePatch({ dateOfBirth: "31-12-2000" })).toThrowError(
-      /dateOfBirth must be a YYYY-MM-DD string/,
-    );
+    expect(() =>
+      parseEligibilityProfileUpdatePatch({ dateOfBirth: "31-12-2000" }),
+    ).toThrowError(/dateOfBirth must be a YYYY-MM-DD string/);
   });
 
   it("rejects future date_of_birth", () => {
@@ -309,21 +309,21 @@ describe("parseEligibilityProfileUpdatePatch", () => {
     next.setUTCFullYear(next.getUTCFullYear() + 1);
     const futureDob = `${next.getUTCFullYear()}-01-01`;
 
-    expect(() => parseEligibilityProfileUpdatePatch({ dateOfBirth: futureDob })).toThrowError(
-      /dateOfBirth must be a YYYY-MM-DD string in the past/,
-    );
+    expect(() =>
+      parseEligibilityProfileUpdatePatch({ dateOfBirth: futureDob }),
+    ).toThrowError(/dateOfBirth must be a YYYY-MM-DD string in the past/);
   });
 
   it("rejects unknown enrollment status enum value", () => {
-    expect(() => parseEligibilityProfileUpdatePatch({ enrollmentStatus: "expelled" })).toThrowError(
-      /enrollmentStatus must be one of/,
-    );
+    expect(() =>
+      parseEligibilityProfileUpdatePatch({ enrollmentStatus: "expelled" }),
+    ).toThrowError(/enrollmentStatus must be one of/);
   });
 
   it("rejects unknown education level enum value", () => {
-    expect(() => parseEligibilityProfileUpdatePatch({ educationLevel: "PhD" })).toThrowError(
-      /educationLevel must be one of/,
-    );
+    expect(() =>
+      parseEligibilityProfileUpdatePatch({ educationLevel: "PhD" }),
+    ).toThrowError(/educationLevel must be one of/);
   });
 
   it("rejects empty payload", () => {
@@ -333,8 +333,12 @@ describe("parseEligibilityProfileUpdatePatch", () => {
   });
 
   it("rejects non-object payloads", () => {
-    expect(() => parseEligibilityProfileUpdatePatch("hello")).toThrowError(EligibilityInputError);
-    expect(() => parseEligibilityProfileUpdatePatch([1, 2, 3])).toThrowError(EligibilityInputError);
+    expect(() => parseEligibilityProfileUpdatePatch("hello")).toThrowError(
+      EligibilityInputError,
+    );
+    expect(() => parseEligibilityProfileUpdatePatch([1, 2, 3])).toThrowError(
+      EligibilityInputError,
+    );
     expect(() => parseEligibilityProfileUpdatePatch(null)).toThrowError(EligibilityInputError);
   });
 });

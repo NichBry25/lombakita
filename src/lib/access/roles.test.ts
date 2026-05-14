@@ -2,23 +2,17 @@ import { describe, expect, it } from "vitest";
 import { APP_ROLES, DEFAULT_APP_ROLE, isAppRole } from "@/lib/access/roles";
 
 describe("access roles", () => {
-  it("contains the new user-level role set after CCR-01 rebuild", () => {
-    expect(APP_ROLES).toEqual([
-      "candidate",
-      "recruiter",
-      "reviewer_or_judge",
-      "platform_ops",
-      "finance_ops",
-    ]);
-    expect(DEFAULT_APP_ROLE).toBe("candidate");
+  it("contains required baseline roles", () => {
+    expect(APP_ROLES).toContain("student");
+    expect(APP_ROLES).toContain("institution_admin");
+    expect(APP_ROLES).toContain("institution_staff");
+    expect(APP_ROLES).toContain("platform_ops");
+    expect(APP_ROLES).toContain("finance_ops");
+    expect(DEFAULT_APP_ROLE).toBe("student");
   });
 
-  it("rejects legacy and unknown role tokens", () => {
-    expect(isAppRole("candidate")).toBe(true);
-    expect(isAppRole("recruiter")).toBe(true);
-    expect(isAppRole("student")).toBe(false);
-    expect(isAppRole("institution_admin")).toBe(false);
-    expect(isAppRole("institution_staff")).toBe(false);
+  it("validates role values", () => {
+    expect(isAppRole("student")).toBe(true);
     expect(isAppRole("unknown_role")).toBe(false);
   });
 });

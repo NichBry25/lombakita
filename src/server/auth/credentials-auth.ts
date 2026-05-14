@@ -18,26 +18,11 @@ const NAME_MIN_LENGTH = 2;
 const NAME_MAX_LENGTH = 120;
 const REGISTRATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
-// Rollback Step 1.3 — CCR-03 / DEC-0037 / DEC-0058: signup role declaration. Exactly one of
-// these two values is accepted on POST /api/v1/auth/register. The declared role determines:
-//   1. The user-level `users.role` value persisted on the row.
-//   2. Which of the two per-role verification timestamps is set at account-creation time
-//      (CCR-02 / DEC-0036). The undeclared role's timestamp stays NULL.
-// Server-side enforcement: a missing / unknown `as` value is rejected with 400; the client
-// cannot fabricate the verified-role state.
-export const SIGNUP_ROLE_VALUES = ["candidate", "recruiter"] as const;
-export type SignupRole = (typeof SIGNUP_ROLE_VALUES)[number];
-
-export const isSignupRole = (value: unknown): value is SignupRole => {
-  return typeof value === "string" && (SIGNUP_ROLE_VALUES as readonly string[]).includes(value);
-};
-
 type AuthFlowErrorCode =
   | "invalid_payload"
   | "invalid_email"
   | "invalid_name"
   | "invalid_password"
-  | "invalid_signup_role"
   | "email_exists"
   | "verification_required"
   | "verification_token_invalid"
@@ -125,19 +110,6 @@ type RegistrationInput = {
   name: string;
   email: string;
   password: string;
-  signupRole: SignupRole;
-};
-
-const parseSignupRole = (value: unknown): SignupRole => {
-  if (!isSignupRole(value)) {
-    throw new CredentialsAuthError(
-      "invalid_signup_role",
-      400,
-      "Signup role declaration is required: use ?as=candidate or ?as=recruiter",
-    );
-  }
-
-  return value;
 };
 
 export const parseRegistrationInput = (payload: unknown): RegistrationInput => {
@@ -153,7 +125,6 @@ export const parseRegistrationInput = (payload: unknown): RegistrationInput => {
     name: parseName(payload.name),
     email: parseEmail(payload.email),
     password: parsePassword(payload.password),
-    signupRole: parseSignupRole(payload.signupRole ?? payload.role),
   };
 };
 
@@ -255,17 +226,6 @@ export const registerUserWithCredentials = async (
         }
       }
 
-      // Rollback Step 1.3 — write the declared user-level role and the matching
-      // *_verified_at timestamp at account-creation time. The CHECK constraint
-      // `users_one_verified_role_chk` enforces the invariant at the DB layer; the application
-      // also sets exactly one timestamp here so the constraint passes on the first INSERT.
-      // For pre-existing unverified rows (re-registration into the same email without prior
-      // email verification) we re-apply the declared role + verifiedAt to reflect the latest
-      // declaration.
-      const now = new Date();
-      const candidateVerifiedAt = input.signupRole === "candidate" ? now : null;
-      const recruiterVerifiedAt = input.signupRole === "recruiter" ? now : null;
-
       const userId =
         existingUser?.id ??
         (
@@ -274,31 +234,12 @@ export const registerUserWithCredentials = async (
             .values({
               email: input.email,
               name: input.name,
-              role: input.signupRole,
-              candidateVerifiedAt,
-              recruiterVerifiedAt,
             })
             .returning({ id: users.id })
         )[0]?.id;
 
       if (!userId) {
         throw new Error("Failed to create user account");
-      }
-
-      if (existingUser?.id) {
-        // Re-declaration on an unverified pre-existing account: re-apply the role declaration
-        // and verification timestamp so the row reflects the latest signup intent. The CHECK
-        // invariant always holds (at least one of the two timestamps is non-null on every
-        // path).
-        await tx
-          .update(users)
-          .set({
-            role: input.signupRole,
-            candidateVerifiedAt,
-            recruiterVerifiedAt,
-            updatedAt: now,
-          })
-          .where(eq(users.id, userId));
       }
 
       await tx

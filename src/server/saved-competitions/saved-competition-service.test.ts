@@ -72,10 +72,7 @@ describe("unsaveCompetition", () => {
 
 describe("isSavedCompetition", () => {
   it("returns true when save row exists", async () => {
-    const chain = {
-      from: vi.fn(),
-      where: vi.fn().mockResolvedValue([{ competitionId: "comp_1" }]),
-    };
+    const chain = { from: vi.fn(), where: vi.fn().mockResolvedValue([{ competitionId: "comp_1" }]) };
     chain.from.mockReturnValue(chain);
     const db = { select: vi.fn().mockReturnValue(chain) };
 

@@ -85,15 +85,14 @@ export const saveCompetition = async (
   }
 
   if (comp.status === "archived") {
-    throw new SavedCompetitionError(
-      "competition_not_saveable",
-      400,
-      "Competition is no longer available",
-    );
+    throw new SavedCompetitionError("competition_not_saveable", 400, "Competition is no longer available");
   }
 
   // Idempotent insert — composite PK conflict is swallowed.
-  await db.insert(competitionSaves).values({ userId, competitionId }).onConflictDoNothing();
+  await db
+    .insert(competitionSaves)
+    .values({ userId, competitionId })
+    .onConflictDoNothing();
 };
 
 export const unsaveCompetition = async (
@@ -187,7 +186,9 @@ export class SavedCompetitionError extends Error {
   }
 }
 
-export const toSavedCompetitionErrorResponse = (error: SavedCompetitionError): Response => {
+export const toSavedCompetitionErrorResponse = (
+  error: SavedCompetitionError,
+): Response => {
   return Response.json(
     { error: { code: error.code, message: error.message } },
     { status: error.status },
