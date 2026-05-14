@@ -437,6 +437,72 @@ export const competitionSaves = pgTable(
   ],
 );
 
+// Step 4.2: Competition registration enums.
+// `competition_registration_type` distinguishes individual from team registrations. Step 4.2
+// only writes `individual`; `team` is reserved for Steps 4.3/4.4.
+export const competitionRegistrationTypeEnum = pgEnum("competition_registration_type", [
+  "individual",
+  "team",
+]);
+
+// `competition_registration_status` is the state machine for a registration row.
+// `confirmed` is the only initial state in MVP — competitions are free, so registrations skip
+// payment. `cancelled` is terminal: cancelled rows cannot transition back to confirmed and
+// cannot be re-registered (Step 4.2 product simplification).
+// Phase 7: pending_payment state — not reachable in MVP. Schema-present so the state machine
+// can grow into paid registration without a destructive enum migration.
+export const competitionRegistrationStatusEnum = pgEnum("competition_registration_status", [
+  "confirmed",
+  "cancelled",
+  "pending_payment",
+]);
+
+export type CompetitionRegistrationType =
+  (typeof competitionRegistrationTypeEnum.enumValues)[number];
+export type CompetitionRegistrationStatus =
+  (typeof competitionRegistrationStatusEnum.enumValues)[number];
+
+// Step 4.2: Individual competition registration.
+// One non-cancelled row per (student_id, competition_id) — enforced by a partial unique index
+// in the migration: UNIQUE (student_id, competition_id) WHERE status != 'cancelled'. Cancelled
+// rows are retained as historical artefacts and do not block the partial unique; re-registration
+// is blocked at the application layer (a confirmed-or-cancelled row makes the student
+// "already known" to this competition for the lifetime of MVP).
+export const competitionRegistrations = pgTable(
+  "competition_registrations",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    competitionId: text("competition_id")
+      .notNull()
+      .references(() => competitions.id, { onDelete: "cascade" }),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    registrationType: competitionRegistrationTypeEnum("registration_type")
+      .notNull()
+      .default("individual"),
+    status: competitionRegistrationStatusEnum("status").notNull().default("confirmed"),
+    registeredAt: timestamp("registered_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    cancelledAt: timestamp("cancelled_at", { mode: "date", withTimezone: true }),
+    cancellationReason: text("cancellation_reason"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("competition_registrations_competition_id_idx").on(table.competitionId),
+    index("competition_registrations_student_id_idx").on(table.studentId),
+    // Partial unique index — see migration for the WHERE clause. Drizzle expresses this via the
+    // `where` option on uniqueIndex.
+    uniqueIndex("competition_registrations_student_competition_active_unique_idx")
+      .on(table.studentId, table.competitionId)
+      .where(sql`${table.status} <> 'cancelled'`),
+  ],
+);
+
 // Step 4.1: Student eligibility profile.
 // Eligibility STATUS is never persisted — it is computed on demand by checkStudentEligibility
 // from the fields below plus the current server time. This table stores only the raw inputs the
