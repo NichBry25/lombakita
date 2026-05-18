@@ -34,8 +34,9 @@ export const toMemberErrorResponse = (error: MemberError): NextResponse => {
   );
 };
 
+// institution_member excluded per CCR-09: member role has no operational write access.
 const ALLOWED_ROLES: readonly InstitutionMembershipRole[] = [
-  "institution_admin",
+  "institution_owner",
   "institution_staff",
 ];
 
@@ -57,13 +58,13 @@ export const parseRoleChangeBody = (payload: unknown): { role: InstitutionMember
   return { role: role as InstitutionMembershipRole };
 };
 
-// Pure function: returns true if the target membership is the sole remaining institution_admin.
-// Used for last-admin guard logic independently of any DB call.
+// Pure function: returns true if the target membership is the sole remaining institution_owner.
+// Used for last-owner guard logic independently of any DB call.
 export const isLastAdmin = (
   activeMemberships: { membershipId: string; role: InstitutionMembershipRole }[],
   targetMembershipId: string,
 ): boolean => {
-  const admins = activeMemberships.filter((m) => m.role === "institution_admin");
+  const admins = activeMemberships.filter((m) => m.role === "institution_owner");
   if (admins.length !== 1) return false;
   return admins[0]!.membershipId === targetMembershipId;
 };

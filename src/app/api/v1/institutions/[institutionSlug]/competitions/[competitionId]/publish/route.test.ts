@@ -129,7 +129,7 @@ describe("POST /api/v1/institutions/[institutionSlug]/competitions/[competitionI
     requireAuthenticatedSession.mockResolvedValue(staffSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
     transitionCompetitionStatus.mockRejectedValue(
-      new AccessError("forbidden", 403, "institution_admin access required"),
+      new AccessError("forbidden", 403, "institution_owner access required"),
     );
     const response = await PUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
     expect(response.status).toBe(403);
@@ -139,7 +139,7 @@ describe("POST /api/v1/institutions/[institutionSlug]/competitions/[competitionI
     requireAuthenticatedSession.mockResolvedValue(studentSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
     transitionCompetitionStatus.mockRejectedValue(
-      new AccessError("forbidden", 403, "Institution member access required"),
+      new AccessError("forbidden", 403, "Institution owner/staff access required"),
     );
     const response = await PUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
     expect(response.status).toBe(403);
@@ -187,7 +187,7 @@ describe("POST .../unpublish", () => {
     requireAuthenticatedSession.mockResolvedValue(staffSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
     transitionCompetitionStatus.mockRejectedValue(
-      new AccessError("forbidden", 403, "institution_admin access required"),
+      new AccessError("forbidden", 403, "institution_owner access required"),
     );
     const response = await UNPUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
     expect(response.status).toBe(403);
@@ -245,7 +245,7 @@ describe("POST .../archive", () => {
     requireAuthenticatedSession.mockResolvedValue(staffSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
     transitionCompetitionStatus.mockRejectedValue(
-      new AccessError("forbidden", 403, "institution_admin access required"),
+      new AccessError("forbidden", 403, "institution_owner access required"),
     );
     const response = await ARCHIVE(makeRequest(), makeParams("lk-univ", "comp_1"));
     expect(response.status).toBe(403);

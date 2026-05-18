@@ -14,7 +14,7 @@ import {
 
 const MAX_SLUG_ATTEMPTS = 20;
 const NEW_INSTITUTION_DEFAULT_STATUS = "inactive";
-const OWNER_ROLE = "institution_admin";
+const OWNER_ROLE = "institution_owner";
 const ACTIVE_MEMBERSHIP_STATUS = "active";
 
 type InstitutionWorkspaceRow = {

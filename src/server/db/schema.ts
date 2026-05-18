@@ -46,9 +46,9 @@ export const institutionVerificationStatusEnum = pgEnum("institution_verificatio
 ]);
 
 export const institutionMembershipRoleEnum = pgEnum("institution_membership_role", [
-  "institution_admin",
+  "institution_owner",
   "institution_staff",
-  "reviewer_or_judge",
+  "institution_member",
 ]);
 
 export const institutionMembershipStatusEnum = pgEnum("institution_membership_status", [

@@ -92,7 +92,7 @@ describe("POST /api/v1/competitions", () => {
     };
     requireAuthenticatedSession.mockResolvedValue(studentSession);
     createCompetitionDraft.mockRejectedValue(
-      new AccessError("forbidden", 403, "Institution member access required"),
+      new AccessError("forbidden", 403, "Institution owner/staff access required"),
     );
     const response = await POST(makePost({ institutionSlug: "lk", title: "Lomba Coding 2026" }));
     expect(response.status).toBe(403);

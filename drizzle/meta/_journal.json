@@ -113,6 +113,13 @@
       "when": 1778761089802,
       "tag": "0015_two_role_identity_rebuild",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1778947711890,
+      "tag": "0016_institution_membership_role_rebuild",
+      "breakpoints": true
     }
   ]
 }

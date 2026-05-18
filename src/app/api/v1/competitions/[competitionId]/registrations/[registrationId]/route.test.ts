@@ -74,7 +74,7 @@ describe("DELETE /api/v1/competitions/[competitionId]/registrations/[registratio
     expect(cancelRegistration).not.toHaveBeenCalled();
   });
 
-  it("returns 403 when caller is institution_admin", async () => {
+  it("returns 403 when caller is recruiter (not a candidate)", async () => {
     requireSessionRole.mockRejectedValue(new AccessError("forbidden", 403, ""));
 
     const res = await DELETE(makeRequest() as never, makeContext());

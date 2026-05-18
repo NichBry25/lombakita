@@ -17,8 +17,9 @@ import { CompetitionError } from "@/server/competitions/competition-core";
 assertServerOnly("server/competitions/competition-access");
 
 // Required-role contract for assertCompetitionAccess.
-//   "member" — any active institution_admin or institution_staff in the owning institution
-//   "admin"  — only active institution_admin in the owning institution
+//   "member" — any active institution_owner or institution_staff in the owning institution
+//   "admin"  — only active institution_owner in the owning institution
+// institution_member excluded per CCR-09: no operational access to competition surfaces.
 // Mutating routes (PATCH fields, DELETE) require "member".
 // Status transitions and publish/unpublish/archive require "admin".
 export type CompetitionAccessLevel = "member" | "admin";
@@ -81,8 +82,9 @@ export type CompetitionAccessResult = {
   membershipRole: InstitutionMembershipRole | null; // null when actor is platform_ops read
 };
 
-const MEMBER_ROLES: readonly InstitutionMembershipRole[] = [
-  "institution_admin",
+// institution_member excluded per CCR-09: member role has no operational competition access.
+export const MEMBER_ROLES: readonly InstitutionMembershipRole[] = [
+  "institution_owner",
   "institution_staff",
 ];
 
@@ -134,10 +136,10 @@ export const assertCompetitionAccess = async (
 
   const role = await findActiveMembershipRole(actorUserId, competition.institutionId, db);
   if (!role || !MEMBER_ROLES.includes(role)) {
-    throw new AccessError("forbidden", 403, "Institution member access required");
+    throw new AccessError("forbidden", 403, "Institution owner/staff access required");
   }
-  if (requiredRole === "admin" && role !== "institution_admin") {
-    throw new AccessError("forbidden", 403, "institution_admin access required");
+  if (requiredRole === "admin" && role !== "institution_owner") {
+    throw new AccessError("forbidden", 403, "institution_owner access required");
   }
 
   return { competition, membershipRole: role };
@@ -163,7 +165,7 @@ export const assertCompetitionRead = async (
 
   const role = await findActiveMembershipRole(actorUserId, competition.institutionId, db);
   if (!role || !MEMBER_ROLES.includes(role)) {
-    throw new AccessError("forbidden", 403, "Institution member access required");
+    throw new AccessError("forbidden", 403, "Institution owner/staff access required");
   }
 
   return { competition, membershipRole: role };

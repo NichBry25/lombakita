@@ -136,10 +136,10 @@ describe("institution-service", () => {
     expect(institutionRows).toHaveLength(1);
     expect(institutionRows[0]?.status).toBe("inactive");
     expect(membershipRows).toHaveLength(1);
-    expect(membershipRows[0]?.membershipRole).toBe("institution_admin");
+    expect(membershipRows[0]?.membershipRole).toBe("institution_owner");
     expect(membershipRows[0]?.status).toBe("active");
     expect(workspace.slug).toBe("universitas-nusantara-2");
-    expect(workspace.ownerMembership.membershipRole).toBe("institution_admin");
+    expect(workspace.ownerMembership.membershipRole).toBe("institution_owner");
   });
 
   it("denies settings read when user is not owner of the institution slug", async () => {

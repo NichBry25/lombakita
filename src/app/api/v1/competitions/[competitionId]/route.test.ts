@@ -70,7 +70,7 @@ describe("GET /api/v1/competitions/[competitionId]", () => {
   it("returns 403 for non-member", async () => {
     requireAuthenticatedSession.mockResolvedValue(studentSession);
     getCompetitionForReader.mockRejectedValue(
-      new AccessError("forbidden", 403, "Institution member access required"),
+      new AccessError("forbidden", 403, "Institution owner/staff access required"),
     );
     const response = await GET(makeRequest("GET"), makeParams("comp_1"));
     expect(response.status).toBe(403);
@@ -214,7 +214,7 @@ describe("DELETE /api/v1/competitions/[competitionId]", () => {
   it("returns 403 for non-member", async () => {
     requireAuthenticatedSession.mockResolvedValue(studentSession);
     softDeleteCompetitionDraft.mockRejectedValue(
-      new AccessError("forbidden", 403, "Institution member access required"),
+      new AccessError("forbidden", 403, "Institution owner/staff access required"),
     );
     const response = await DELETE(makeRequest("DELETE"), makeParams("comp_1"));
     expect(response.status).toBe(403);

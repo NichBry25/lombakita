@@ -13,7 +13,7 @@ type InstitutionSettingsResponse = {
     status: "active" | "inactive" | "suspended";
     ownerMembership: {
       membershipId: string;
-      membershipRole: "institution_admin" | "institution_staff" | "reviewer_or_judge";
+      membershipRole: "institution_owner" | "institution_staff" | "institution_member";
       membershipStatus: "invited" | "active" | "inactive" | "revoked";
       joinedAt: string;
     };

@@ -11,5 +11,9 @@ export default async function InstitutionWorkspacePage() {
     redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(INSTITUTION_WORKSPACE_PATH)}`);
   }
 
+  if (session.user.role !== "recruiter") {
+    redirect("/");
+  }
+
   return <InstitutionWorkspaceShell />;
 }

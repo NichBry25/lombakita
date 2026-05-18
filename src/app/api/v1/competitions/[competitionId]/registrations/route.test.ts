@@ -61,7 +61,7 @@ describe("POST /api/v1/competitions/[competitionId]/registrations", () => {
     expect(createIndividualRegistration).not.toHaveBeenCalled();
   });
 
-  it("returns 403 when caller is institution_admin (not a student)", async () => {
+  it("returns 403 when caller is recruiter (not a candidate)", async () => {
     requireSessionRole.mockRejectedValue(new AccessError("forbidden", 403, ""));
 
     const res = await POST(makeRequest() as never, makeContext());

@@ -90,13 +90,13 @@ export const listInstitutionsForPlatformOps = async (options: {
       rejectionReason: institutions.rejectionReason,
       createdAt: institutions.createdAt,
       // Correlated subquery guarantees exactly one email per institution row.
-      // Deterministic selection: earliest active institution_admin by membership created_at.
+      // Deterministic selection: earliest active institution_owner by membership created_at.
       adminEmail: sql<string | null>`(
         SELECT u.email
         FROM institution_memberships im
         INNER JOIN users u ON u.id = im.user_id
         WHERE im.institution_id = institutions.id
-          AND im.membership_role = 'institution_admin'
+          AND im.membership_role = 'institution_owner'
           AND im.status = 'active'
         ORDER BY im.created_at ASC
         LIMIT 1
@@ -267,7 +267,7 @@ export const verifyInstitution = async (options: {
         .where(
           and(
             eq(institutionMemberships.institutionId, options.institutionId),
-            eq(institutionMemberships.membershipRole, "institution_admin"),
+            eq(institutionMemberships.membershipRole, "institution_owner"),
             eq(institutionMemberships.status, "active"),
           ),
         )

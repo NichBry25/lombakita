@@ -90,7 +90,7 @@ describe("F2 — same-status transitions return 422", () => {
   ] as const)("rejects %s → %s with 422", async (from, to) => {
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({ status: from }),
-      membershipRole: "institution_admin",
+      membershipRole: "institution_owner",
     });
 
     await expect(transitionCompetitionStatus("user_1", "comp_1", to, stubDb)).rejects.toMatchObject(
@@ -104,7 +104,7 @@ describe("F2 — same-status transitions return 422", () => {
   it("does not call assertInstitutionVerified on same-status draft → draft", async () => {
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({ status: "draft" }),
-      membershipRole: "institution_admin",
+      membershipRole: "institution_owner",
     });
 
     await expect(
@@ -122,7 +122,7 @@ describe("updateCompetitionDraft — draft-only mutation guard (Step 3.2)", () =
     async (status) => {
       assertCompetitionAccess.mockResolvedValue({
         competition: baseCompetition({ status }),
-        membershipRole: "institution_admin",
+        membershipRole: "institution_owner",
       });
       const patch: CompetitionPatchInput = { title: "Tampered Title 2026" };
       await expect(updateCompetitionDraft("user_1", "comp_1", patch, stubDb)).rejects.toMatchObject(
@@ -141,7 +141,7 @@ describe("updateCompetitionDraft — IMMUTABLE_AFTER_PUBLISH guard (Step 3.3)", 
   it("rejects 422 competition_field_immutable when mode changes on a published competition", async () => {
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({ status: "published", mode: "individual" }),
-      membershipRole: "institution_admin",
+      membershipRole: "institution_owner",
     });
     const patch: CompetitionPatchInput = { mode: "team" };
     await expect(updateCompetitionDraft("user_1", "comp_1", patch, stubDb)).rejects.toMatchObject({
@@ -153,7 +153,7 @@ describe("updateCompetitionDraft — IMMUTABLE_AFTER_PUBLISH guard (Step 3.3)", 
   it("fires 409 competition_not_draft (not 422) when immutable fields are unchanged on a published competition", async () => {
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({ status: "published", mode: "individual" }),
-      membershipRole: "institution_admin",
+      membershipRole: "institution_owner",
     });
     // mode value matches the current row — no immutable-field change, so broad 409 fires
     const patch: CompetitionPatchInput = { mode: "individual", title: "New Title" };

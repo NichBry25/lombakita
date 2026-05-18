@@ -83,7 +83,7 @@ describe("GET /api/v1/students/me/eligibility", () => {
     expect(getStudentEligibilityProfile).not.toHaveBeenCalled();
   });
 
-  it("returns 403 when caller is institution_admin (not a student)", async () => {
+  it("returns 403 when caller is recruiter (not a candidate)", async () => {
     requireSessionRole.mockRejectedValue(new AccessError("forbidden", 403, ""));
 
     const res = await GET(makeGetRequest() as never);

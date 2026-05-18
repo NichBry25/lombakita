@@ -12,7 +12,7 @@ import { MemberError, type MemberRecord } from "@/server/institution-members/mem
 
 assertServerOnly("server/institution-members/member-service");
 
-// Verifies the calling user has an active institution_admin membership for the given institutionId.
+// Verifies the calling user has an active institution_owner membership for the given institutionId.
 // Reusable across all three member management routes.
 export const requireAdminInstitutionById = async (
   actorUserId: string,
@@ -26,14 +26,14 @@ export const requireAdminInstitutionById = async (
       and(
         eq(institutionMemberships.institutionId, institutionId),
         eq(institutionMemberships.userId, actorUserId),
-        eq(institutionMemberships.membershipRole, "institution_admin"),
+        eq(institutionMemberships.membershipRole, "institution_owner"),
         eq(institutionMemberships.status, "active"),
       ),
     )
     .limit(1);
 
   if (!row) {
-    throw new AccessError("forbidden", 403, "institution_admin access required");
+    throw new AccessError("forbidden", 403, "institution_owner access required");
   }
 };
 
@@ -103,15 +103,15 @@ export const changeMemberRole = async (
       return;
     }
 
-    // Last-admin guard: only relevant when demoting an institution_admin.
-    if (target.role === "institution_admin" && newRole !== "institution_admin") {
+    // Last-owner guard: only relevant when demoting an institution_owner.
+    if (target.role === "institution_owner" && newRole !== "institution_owner") {
       const admins = await tx
         .select({ id: institutionMemberships.id })
         .from(institutionMemberships)
         .where(
           and(
             eq(institutionMemberships.institutionId, institutionId),
-            eq(institutionMemberships.membershipRole, "institution_admin"),
+            eq(institutionMemberships.membershipRole, "institution_owner"),
             eq(institutionMemberships.status, "active"),
           ),
         );
@@ -174,15 +174,15 @@ export const removeMember = async (
       );
     }
 
-    // Last-admin guard: applies whenever the target is an institution_admin.
-    if (target.role === "institution_admin") {
+    // Last-owner guard: applies whenever the target is an institution_owner.
+    if (target.role === "institution_owner") {
       const admins = await tx
         .select({ id: institutionMemberships.id })
         .from(institutionMemberships)
         .where(
           and(
             eq(institutionMemberships.institutionId, institutionId),
-            eq(institutionMemberships.membershipRole, "institution_admin"),
+            eq(institutionMemberships.membershipRole, "institution_owner"),
             eq(institutionMemberships.status, "active"),
           ),
         );

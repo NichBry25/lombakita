@@ -1,0 +1,2 @@
+CREATE TYPE "public"."competition_category" AS ENUM('technology', 'science', 'business', 'creative_arts', 'social_humanities', 'sports', 'academic', 'other');--> statement-breakpoint
+ALTER TABLE "competitions" ALTER COLUMN "category" SET DATA TYPE "public"."competition_category" USING "category"::"public"."competition_category";

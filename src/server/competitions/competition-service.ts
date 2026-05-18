@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { AccessError } from "@/server/auth/access-core";
 import { getDb, type Database } from "@/server/db/client";
 import {
@@ -26,6 +26,7 @@ import {
   assertCompetitionRead,
   assertInstitutionVerified,
   hasActiveRegistrationsForCompetition,
+  MEMBER_ROLES,
   PUBLIC_COMPETITION_COLUMNS,
   type CompetitionRow,
 } from "@/server/competitions/competition-access";
@@ -122,13 +123,14 @@ const requireInstitutionMembershipBySlug = async (
         eq(institutionMemberships.institutionId, institutions.id),
         eq(institutionMemberships.userId, actorUserId),
         eq(institutionMemberships.status, "active"),
+        inArray(institutionMemberships.membershipRole, MEMBER_ROLES), // institution_member excluded per CCR-09 / DEC-0043
       ),
     )
     .where(eq(institutions.slug, institutionSlug))
     .limit(1);
 
   if (!row) {
-    throw new AccessError("forbidden", 403, "Institution member access required");
+    throw new AccessError("forbidden", 403, "Institution owner/staff access required");
   }
   return { institutionId: row.id };
 };
@@ -370,7 +372,7 @@ export const transitionCompetitionStatus = async (
   targetStatus: CompetitionStatus,
   db: Database = getDb(),
 ): Promise<StatusTransitionResult> => {
-  // All transitions require institution_admin.
+  // All transitions require institution_owner.
   const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "admin", db);
 
   // Same-status transitions are rejected as invalid: ALLOWED_TRANSITIONS does not contain any

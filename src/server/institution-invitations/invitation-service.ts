@@ -15,6 +15,7 @@ import {
   InstitutionInvitationError,
   maskToken,
   parseInvitationCreateInput,
+  RECRUITER_VERIFIED_ROLES,
   type InstitutionInvitationMeta,
   type InvitationCreateInput,
 } from "@/server/institution-invitations/invitation-core";
@@ -39,7 +40,7 @@ const requireAdminInstitution = async (
       and(
         eq(institutionMemberships.institutionId, institutions.id),
         eq(institutionMemberships.userId, userId),
-        eq(institutionMemberships.membershipRole, "institution_admin"),
+        eq(institutionMemberships.membershipRole, "institution_owner"),
         eq(institutionMemberships.status, "active"),
       ),
     )
@@ -50,7 +51,7 @@ const requireAdminInstitution = async (
     throw new AccessError(
       "forbidden",
       403,
-      "institution_admin access required for this institution",
+      "institution_owner access required for this institution",
     );
   }
 
@@ -173,10 +174,7 @@ export const getInvitationMetaByToken = async (
     throw new InstitutionInvitationError("invitation_not_found", 404, "Invitation not found");
   }
 
-  return {
-    ...row,
-    invitedRole: row.invitedRole as "institution_staff",
-  };
+  return row;
 };
 
 export const acceptInvitation = async (
@@ -220,6 +218,45 @@ export const acceptInvitation = async (
         410,
         "Invitation has expired",
       );
+    }
+
+    // CCR-08 / DEC-0042: Verify the accepting account has the required verification state.
+    // institution_owner and institution_staff roles require recruiter_verified_at IS NOT NULL.
+    // institution_member accepts any verified account (candidate_verified_at OR recruiter_verified_at).
+    const [acceptingUser] = await tx
+      .select({
+        candidateVerifiedAt: users.candidateVerifiedAt,
+        recruiterVerifiedAt: users.recruiterVerifiedAt,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!acceptingUser) {
+      throw new InstitutionInvitationError(
+        "invitation_role_verification_required",
+        403,
+        "Accepting this invitation requires a verified account",
+      );
+    }
+
+    if (RECRUITER_VERIFIED_ROLES.includes(invitation.invitedRole)) {
+      if (!acceptingUser.recruiterVerifiedAt) {
+        throw new InstitutionInvitationError(
+          "invitation_role_verification_required",
+          403,
+          "Accepting this invitation requires a recruiter-verified account",
+        );
+      }
+    } else {
+      // institution_member: any verified account accepted
+      if (!acceptingUser.candidateVerifiedAt && !acceptingUser.recruiterVerifiedAt) {
+        throw new InstitutionInvitationError(
+          "invitation_role_verification_required",
+          403,
+          "Accepting this invitation requires a verified account",
+        );
+      }
     }
 
     const [existingMembership] = await tx

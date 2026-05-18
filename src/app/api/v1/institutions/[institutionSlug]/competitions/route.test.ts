@@ -50,7 +50,7 @@ describe("GET /api/v1/institutions/[institutionSlug]/competitions", () => {
   it("returns 403 when caller is not an active institution member", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     listCompetitionsForMember.mockRejectedValue(
-      new AccessError("forbidden", 403, "Institution member access required"),
+      new AccessError("forbidden", 403, "Institution owner/staff access required"),
     );
     const response = await GET(makeGet("lk-univ"), makeParams("lk-univ"));
     expect(response.status).toBe(403);

@@ -18,7 +18,9 @@ type PageState =
   | { phase: "done"; type: "accepted" | "declined" };
 
 const ROLE_LABELS: Record<string, string> = {
+  institution_owner: "Pemilik Institusi",
   institution_staff: "Staf Institusi",
+  institution_member: "Anggota Institusi",
 };
 
 const formatDate = (iso: string): string => {
@@ -72,7 +74,7 @@ export const InvitationAcceptShell = ({ token }: { token: string }) => {
     void load();
   }, [token]);
 
-  const onAccept = async () => {
+  const onAccept = async (invitedRole: string) => {
     setIsActing(true);
 
     const response = await fetch(`/api/v1/auth/invitations/${encodeURIComponent(token)}/accept`, {
@@ -96,8 +98,10 @@ export const InvitationAcceptShell = ({ token }: { token: string }) => {
     }
 
     setState({ phase: "done", type: "accepted" });
+    const redirectPath =
+      invitedRole === "institution_member" ? "/" : "/institution/workspace";
     setTimeout(() => {
-      router.push("/institution/workspace");
+      router.push(redirectPath);
     }, 1500);
   };
 
@@ -136,7 +140,7 @@ export const InvitationAcceptShell = ({ token }: { token: string }) => {
             {state.type === "accepted" ? "Undangan diterima." : "Undangan ditolak."}
           </p>
           {state.type === "accepted" && (
-            <p className="text-sm text-[var(--text-muted)] mt-2">Mengalihkan ke workspace...</p>
+            <p className="text-sm text-[var(--text-muted)] mt-2">Mengalihkan...</p>
           )}
         </div>
       </main>
@@ -174,7 +178,7 @@ export const InvitationAcceptShell = ({ token }: { token: string }) => {
         <div className="flex gap-3">
           <button
             className="primary-button flex-1"
-            onClick={() => void onAccept()}
+            onClick={() => void onAccept(meta.invitedRole)}
             disabled={isActing}
           >
             {isActing ? "Memproses..." : "Terima"}

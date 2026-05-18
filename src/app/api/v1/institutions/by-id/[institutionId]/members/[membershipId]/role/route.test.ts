@@ -38,14 +38,14 @@ describe("PATCH /api/v1/institutions/by-id/[institutionId]/members/[membershipId
     changeMemberRole.mockResolvedValue(undefined);
 
     const response = await PATCH(
-      makeRequest({ role: "institution_admin" }) as never,
+      makeRequest({ role: "institution_owner" }) as never,
       makeParams("inst_1", "m2"),
     );
     const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(body.updated).toBe(true);
-    expect(changeMemberRole).toHaveBeenCalledWith("actor_1", "inst_1", "m2", "institution_admin");
+    expect(changeMemberRole).toHaveBeenCalledWith("actor_1", "inst_1", "m2", "institution_owner");
   });
 
   it("returns 401 when unauthenticated", async () => {
@@ -63,7 +63,7 @@ describe("PATCH /api/v1/institutions/by-id/[institutionId]/members/[membershipId
   it("returns 403 when called by non-admin", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     changeMemberRole.mockRejectedValue(
-      new AccessError("forbidden", 403, "institution_admin access required"),
+      new AccessError("forbidden", 403, "institution_owner access required"),
     );
 
     const response = await PATCH(
@@ -105,11 +105,11 @@ describe("PATCH /api/v1/institutions/by-id/[institutionId]/members/[membershipId
     expect(body.error.code).toBe("member_last_admin");
   });
 
-  it("returns 400 for invalid role value", async () => {
+  it("returns 400 for institution_member role (excluded by CCR-09)", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
 
     const response = await PATCH(
-      makeRequest({ role: "reviewer_or_judge" }) as never,
+      makeRequest({ role: "institution_member" }) as never,
       makeParams("inst_1", "m2"),
     );
     const body = await response.json();

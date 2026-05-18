@@ -131,4 +131,23 @@ describe("POST /api/v1/auth/invitations/[token]/accept", () => {
 
     expect(response.status).toBe(404);
   });
+
+  it("returns 403 when account does not meet role verification requirement (CCR-08)", async () => {
+    getCurrentSession.mockResolvedValue(authenticatedSession);
+    acceptInvitation.mockRejectedValue(
+      new InstitutionInvitationError(
+        "invitation_role_verification_required",
+        403,
+        "Accepting this invitation requires a recruiter-verified account",
+      ),
+    );
+
+    const response = await POST(new Request("http://localhost") as never, {
+      params: Promise.resolve({ token: RAW_TOKEN }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe("invitation_role_verification_required");
+  });
 });

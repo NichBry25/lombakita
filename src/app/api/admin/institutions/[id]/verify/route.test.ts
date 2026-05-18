@@ -78,7 +78,7 @@ describe("PATCH /api/admin/institutions/[id]/verify", () => {
     );
   });
 
-  it("returns 403 when called by institution_admin", async () => {
+  it("returns 403 when called by recruiter (not platform_ops)", async () => {
     requireAuthenticatedSession.mockResolvedValue(institutionAdminSession);
     verifyInstitution.mockRejectedValue(
       new AccessError("forbidden", 403, "platform_ops access required"),

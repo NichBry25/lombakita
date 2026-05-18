@@ -42,7 +42,7 @@ describe("POST /api/v1/institutions", () => {
       status: "inactive",
       ownerMembership: {
         membershipId: "m_1",
-        membershipRole: "institution_admin",
+        membershipRole: "institution_owner",
         membershipStatus: "active",
         joinedAt: new Date("2026-04-16T00:00:00.000Z"),
       },

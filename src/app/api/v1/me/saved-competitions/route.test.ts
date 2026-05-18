@@ -64,7 +64,7 @@ describe("GET /api/v1/me/saved-competitions", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns 403 when caller is institution_admin (not a student)", async () => {
+  it("returns 403 when caller is recruiter (not a candidate)", async () => {
     requireSessionRole.mockRejectedValue(new AccessError("forbidden", 403, ""));
 
     const res = await GET(makeRequest() as never);

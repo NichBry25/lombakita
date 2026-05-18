@@ -1,16 +1,29 @@
 import { createHash, randomBytes } from "crypto";
 import { NextResponse } from "next/server";
-import type { InstitutionInvitationStatus } from "@/server/db/schema";
+import type { InstitutionInvitationStatus, InstitutionMembershipRole } from "@/server/db/schema";
 
 export const INVITATION_EXPIRY_DAYS = 7;
-export const INVITATION_TARGET_ROLE = "institution_staff" as const;
+
+// Roles that can be targeted by the institution invitation flow (Step 1.4 / DEC-0043).
+const INVITATION_TARGET_ROLES: readonly InstitutionMembershipRole[] = [
+  "institution_owner",
+  "institution_staff",
+  "institution_member",
+];
+
+// Roles whose invites require recruiter verification on the accepting account (CCR-08 / DEC-0042).
+// institution_member invites accept any verified account (candidate_verified OR recruiter_verified).
+export const RECRUITER_VERIFIED_ROLES: readonly InstitutionMembershipRole[] = [
+  "institution_owner",
+  "institution_staff",
+];
 
 export type InstitutionInvitationMeta = {
   id: string;
   institutionId: string;
   institutionDisplayName: string;
   invitedEmail: string;
-  invitedRole: "institution_staff";
+  invitedRole: InstitutionMembershipRole;
   status: InstitutionInvitationStatus;
   expiresAt: Date;
   createdAt: Date;
@@ -18,7 +31,7 @@ export type InstitutionInvitationMeta = {
 
 export type InvitationCreateInput = {
   invitedEmail: string;
-  invitedRole: "institution_staff";
+  invitedRole: InstitutionMembershipRole;
 };
 
 type InstitutionInvitationErrorCode =
@@ -29,7 +42,8 @@ type InstitutionInvitationErrorCode =
   | "invitation_not_found"
   | "invitation_not_actionable"
   | "invitation_already_member"
-  | "invitation_forbidden";
+  | "invitation_forbidden"
+  | "invitation_role_verification_required";
 
 export class InstitutionInvitationError extends Error {
   constructor(
@@ -66,17 +80,20 @@ export const parseInvitationCreateInput = (payload: unknown): InvitationCreateIn
     );
   }
 
-  if (invitedRole !== INVITATION_TARGET_ROLE) {
+  if (
+    typeof invitedRole !== "string" ||
+    !INVITATION_TARGET_ROLES.includes(invitedRole as InstitutionMembershipRole)
+  ) {
     throw new InstitutionInvitationError(
       "invitation_invalid_role",
       400,
-      `invitedRole must be "${INVITATION_TARGET_ROLE}"`,
+      `invitedRole must be one of: ${INVITATION_TARGET_ROLES.join(", ")}`,
     );
   }
 
   return {
     invitedEmail: invitedEmail.trim().toLowerCase(),
-    invitedRole: INVITATION_TARGET_ROLE,
+    invitedRole: invitedRole as InstitutionMembershipRole,
   };
 };
 

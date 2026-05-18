@@ -27,7 +27,7 @@ export default async function InstitutionMembersPage() {
     .where(
       and(
         eq(institutionMemberships.userId, userId),
-        eq(institutionMemberships.membershipRole, "institution_admin"),
+        eq(institutionMemberships.membershipRole, "institution_owner"),
         eq(institutionMemberships.status, "active"),
       ),
     )

@@ -12,7 +12,7 @@ const membershipFixture = {
   institutionSlug: "binus",
   institutionDisplayName: "BINUS",
   institutionStatus: "active",
-  membershipRole: "institution_admin",
+  membershipRole: "institution_owner",
   membershipStatus: "active",
   joinedAt: new Date("2026-01-01T00:00:00.000Z"),
 } as const;
@@ -48,10 +48,10 @@ describe("tenant-access-core", () => {
   it("passes for allowed institution role", () => {
     const activeMembership = assertInstitutionMembership(membershipFixture);
     const verified = assertInstitutionRole(activeMembership, [
-      "institution_admin",
+      "institution_owner",
       "institution_staff",
     ]);
 
-    expect(verified.membershipRole).toBe("institution_admin");
+    expect(verified.membershipRole).toBe("institution_owner");
   });
 });

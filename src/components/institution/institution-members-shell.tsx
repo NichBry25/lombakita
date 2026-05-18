@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-type MemberRole = "institution_admin" | "institution_staff";
+type MemberRole = "institution_owner" | "institution_staff";
 
 type Member = {
   membershipId: string;
@@ -35,7 +35,7 @@ const formatDate = (iso: string): string => {
 };
 
 const ROLE_LABELS: Record<MemberRole, string> = {
-  institution_admin: "Admin",
+  institution_owner: "Owner",
   institution_staff: "Staf",
 };
 
@@ -175,7 +175,7 @@ export const InstitutionMembersShell = ({ institutionId, actorUserId }: Props) =
                   const isSelf = member.userId === actorUserId;
                   const isActing = pendingAction === member.membershipId;
                   const otherRole: MemberRole =
-                    member.role === "institution_admin" ? "institution_staff" : "institution_admin";
+                    member.role === "institution_owner" ? "institution_staff" : "institution_owner";
 
                   return (
                     <tr

@@ -7,7 +7,9 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 assertServerOnly("server/institution-invitations/invitation-email");
 
 const ROLE_LABELS: Record<string, string> = {
+  institution_owner: "Pemilik Institusi",
   institution_staff: "Staf Institusi",
+  institution_member: "Anggota Institusi",
 };
 
 const resolveBaseUrl = (): string => {

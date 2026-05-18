@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { isLastAdmin } from "@/server/institution-members/member-core";
 
-const admin = (membershipId: string) => ({ membershipId, role: "institution_admin" as const });
+const admin = (membershipId: string) => ({ membershipId, role: "institution_owner" as const });
 const staff = (membershipId: string) => ({ membershipId, role: "institution_staff" as const });
 
 describe("isLastAdmin", () => {

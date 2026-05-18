@@ -59,7 +59,7 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
   it("returns 403 for non-admin caller", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     createInstitutionInvitation.mockRejectedValue(
-      new AccessError("forbidden", 403, "institution_admin access required for this institution"),
+      new AccessError("forbidden", 403, "institution_owner access required for this institution"),
     );
 
     const request = new Request("http://localhost", {

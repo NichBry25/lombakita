@@ -24,7 +24,7 @@ const memberFixtures = [
     userId: "u1",
     name: "Alice",
     email: "alice@example.com",
-    role: "institution_admin",
+    role: "institution_owner",
     joinedAt: new Date("2026-01-01"),
   },
   {
@@ -68,7 +68,7 @@ describe("GET /api/v1/institutions/by-id/[institutionId]/members", () => {
   it("returns 403 when caller is not institution admin", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     listActiveMembers.mockRejectedValue(
-      new AccessError("forbidden", 403, "institution_admin access required"),
+      new AccessError("forbidden", 403, "institution_owner access required"),
     );
 
     const response = await GET(new Request("http://localhost") as never, makeParams("inst_other"));
