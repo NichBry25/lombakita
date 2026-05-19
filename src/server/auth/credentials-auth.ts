@@ -18,6 +18,26 @@ const NAME_MIN_LENGTH = 2;
 const NAME_MAX_LENGTH = 120;
 const REGISTRATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
+// Step 2.1 — auto-generate a username from the email prefix + random hex suffix.
+// The prefix is slugified (lowercase, non-alphanumeric → '_', consecutive underscores
+// collapsed, leading/trailing underscores stripped, capped at 20 chars).
+// The 6-char hex suffix makes collisions negligible at MVP scale. If the suffix-based
+// attempt still collides (concurrent registration), the DB unique constraint will fire
+// and the caller can retry with a new suffix. Username uniqueness at signup is enforced
+// at the application layer; the DB index is the invariant backstop.
+export const generateUsernameFromEmail = (email: string): string => {
+  const prefix =
+    (email.split("@")[0] ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 20) || "user";
+
+  const suffix = Math.random().toString(36).slice(2, 8);
+  return `${prefix}_${suffix}`;
+};
+
 // Rollback Step 1.3 — CCR-03 / DEC-0037 / DEC-0058: signup role declaration. Exactly one of
 // these two values is accepted on POST /api/v1/auth/register. The declared role determines:
 //   1. The user-level `users.role` value persisted on the row.
@@ -275,6 +295,7 @@ export const registerUserWithCredentials = async (
               email: input.email,
               name: input.name,
               role: input.signupRole,
+              username: generateUsernameFromEmail(input.email),
               candidateVerifiedAt,
               recruiterVerifiedAt,
             })

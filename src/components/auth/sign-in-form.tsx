@@ -124,7 +124,7 @@ export const SignInForm = ({
       const result = await signIn("credentials", {
         email: loginEmail.trim().toLowerCase(),
         password: loginPassword,
-        callbackUrl: callbackUrl ?? "/student/profile",
+        callbackUrl: callbackUrl ?? "/profile",
         redirect: false,
       });
 

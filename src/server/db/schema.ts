@@ -133,6 +133,10 @@ export type PlatformUserRole = (typeof platformUserRoleEnum.enumValues)[number];
 // invariant survives any code path that creates or modifies user rows. Tier refinement for the
 // recruiter mode (CCR-19) ships at Step 4.0c; the schema only carries the per-mode timestamp
 // today.
+//
+// Step 2.1 (re-execution) — `username` added as the canonical public URL handle for the user
+// profile shell. Auto-generated at account creation; editable at /profile/edit subject to
+// uniqueness + reserved-word validation. Unique index enforced at DB level.
 export const users = pgTable(
   "users",
   {
@@ -145,6 +149,7 @@ export const users = pgTable(
     image: text("image"),
     role: appRoleEnum("role").notNull().default(DEFAULT_APP_ROLE),
     status: appUserStatusEnum("status").notNull().default("active"),
+    username: text("username").notNull(),
     candidateVerifiedAt: timestamp("candidate_verified_at", {
       mode: "date",
       withTimezone: true,
@@ -157,6 +162,7 @@ export const users = pgTable(
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    uniqueIndex("users_username_unique_idx").on(table.username),
     check(
       "users_one_verified_role_chk",
       sql`${table.candidateVerifiedAt} IS NOT NULL OR ${table.recruiterVerifiedAt} IS NOT NULL`,
@@ -164,6 +170,17 @@ export const users = pgTable(
   ],
 );
 
+// Step 2.1 (re-execution) — Profile shell rebuild.
+// `summary` column is kept as-is (closing the rename debt is deferred: see CURRENT_STATE.md
+// known debt). The new user-profile API exposes it as `bio`. Old student-profile code continues
+// to reference it as `summary` → `headline` without disruption.
+// `phoneNumber` retained for backward compat with pre-rollback student-profile code.
+// New fields added:
+//   shared:           location
+//   candidate-scoped: university, major, graduation_year
+//   recruiter-scoped: role_title, organization_name, website_url
+// Field scope (shared / candidate / recruiter) is enforced at the application layer only — no
+// DB-level scope column. The scope constants live in src/server/user-profile/profile-core.ts.
 export const userProfiles = pgTable("user_profiles", {
   userId: text("user_id")
     .primaryKey()
@@ -172,6 +189,13 @@ export const userProfiles = pgTable("user_profiles", {
   phoneNumber: text("phone_number"),
   avatarUrl: text("avatar_url"),
   summary: text("summary"),
+  location: text("location"),
+  university: text("university"),
+  major: text("major"),
+  graduationYear: integer("graduation_year"),
+  roleTitle: text("role_title"),
+  organizationName: text("organization_name"),
+  websiteUrl: text("website_url"),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
 });
