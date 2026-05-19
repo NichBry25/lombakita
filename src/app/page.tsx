@@ -20,11 +20,6 @@ export default function HomePage() {
             </Link>
           </li>
           <li>
-            <Link className="underline" href="/student/profile" prefetch={false}>
-              Profil mahasiswa
-            </Link>
-          </li>
-          <li>
             <Link className="underline" href="/institution/workspace" prefetch={false}>
               Buat workspace institusi
             </Link>
