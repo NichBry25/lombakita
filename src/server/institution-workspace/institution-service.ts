@@ -47,6 +47,44 @@ const mapInstitutionWorkspace = (row: InstitutionWorkspaceRow): InstitutionWorks
   };
 };
 
+// Returns true when the user holds ANY active or invited membership for the
+// institution identified by slug. Used to distinguish a non-owner who is a member
+// (returns 403 "owner access required") from a recruiter who is unrelated to the
+// institution (returns 403 "not part of this institution"). Non-existent slugs
+// fall into the second bucket — this preserves the accepted info-hiding posture.
+const hasAnyMembershipForInstitutionSlug = async (
+  userId: string,
+  institutionSlug: string,
+  db: Database,
+): Promise<boolean> => {
+  const [row] = await db
+    .select({ membershipId: institutionMemberships.id })
+    .from(institutionMemberships)
+    .innerJoin(institutions, eq(institutions.id, institutionMemberships.institutionId))
+    .where(
+      and(eq(institutionMemberships.userId, userId), eq(institutions.slug, institutionSlug)),
+    )
+    .limit(1);
+
+  return Boolean(row);
+};
+
+const buildInstitutionWorkspaceAccessDeniedError = async (
+  userId: string,
+  institutionSlug: string,
+  db: Database,
+): Promise<AccessError> => {
+  const member = await hasAnyMembershipForInstitutionSlug(userId, institutionSlug, db);
+
+  return new AccessError(
+    "forbidden",
+    403,
+    member
+      ? "Institution owner access required"
+      : "You are not part of this institution and cannot access its settings",
+  );
+};
+
 const findInstitutionWorkspaceByOwnerAndSlug = async (
   userId: string,
   institutionSlug: string,
@@ -81,30 +119,47 @@ const findInstitutionWorkspaceByOwnerAndSlug = async (
   return row ?? null;
 };
 
+// Drizzle wraps the underlying postgres.js error: the outer object exposes `query`,
+// `params`, and `cause`, while `code` / `constraint_name` / `detail` live on `cause`.
+// We inspect both layers so the slug-collision retry loop catches the violation
+// regardless of which driver/version is in use.
 const isInstitutionSlugUniqueViolation = (error: unknown): boolean => {
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-
-  const maybeError = error as {
+  type PgErrorShape = {
     code?: string;
     constraint_name?: string;
     constraint?: string;
     detail?: string;
   };
 
-  if (maybeError.code !== "23505") {
+  const matches = (candidate: PgErrorShape | undefined): boolean => {
+    if (!candidate || candidate.code !== "23505") {
+      return false;
+    }
+
+    if (
+      candidate.constraint === "institutions_slug_unique_idx" ||
+      candidate.constraint_name === "institutions_slug_unique_idx"
+    ) {
+      return true;
+    }
+
+    return candidate.detail?.toLowerCase().includes("(slug)") ?? false;
+  };
+
+  if (!error || typeof error !== "object") {
     return false;
   }
 
-  if (
-    maybeError.constraint === "institutions_slug_unique_idx" ||
-    maybeError.constraint_name === "institutions_slug_unique_idx"
-  ) {
+  const outer = error as PgErrorShape & { cause?: unknown };
+  if (matches(outer)) {
     return true;
   }
 
-  return maybeError.detail?.toLowerCase().includes("(slug)") ?? false;
+  if (outer.cause && typeof outer.cause === "object") {
+    return matches(outer.cause as PgErrorShape);
+  }
+
+  return false;
 };
 
 export const createInstitutionWorkspaceForUser = async (
@@ -191,7 +246,7 @@ export const getInstitutionWorkspaceForOwnerBySlug = async (
   const row = await findInstitutionWorkspaceByOwnerAndSlug(userId, normalizedSlug, db);
 
   if (!row) {
-    throw new AccessError("forbidden", 403, "Institution owner access required");
+    throw await buildInstitutionWorkspaceAccessDeniedError(userId, normalizedSlug, db);
   }
 
   return mapInstitutionWorkspace(row);
@@ -208,7 +263,7 @@ export const updateInstitutionWorkspaceForOwnerBySlug = async (
   const current = await findInstitutionWorkspaceByOwnerAndSlug(userId, normalizedLookupSlug, db);
 
   if (!current) {
-    throw new AccessError("forbidden", 403, "Institution owner access required");
+    throw await buildInstitutionWorkspaceAccessDeniedError(userId, normalizedLookupSlug, db);
   }
 
   const updates: {

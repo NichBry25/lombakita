@@ -4,6 +4,7 @@ import type {
   InstitutionMembershipStatus,
   InstitutionStatus,
 } from "@/server/db/schema";
+import { RESERVED_WORDS } from "@/lib/username/reserved-words";
 
 const MIN_DISPLAY_NAME_LENGTH = 2;
 const MAX_DISPLAY_NAME_LENGTH = 160;
@@ -58,7 +59,9 @@ type InstitutionWorkspaceInputErrorCode =
   | "institution_invalid_payload"
   | "institution_invalid_fields"
   | "institution_protected_fields"
-  | "institution_invalid_value";
+  | "institution_invalid_value"
+  | "institution_slug_reserved"
+  | "institution_display_name_reserved";
 
 export class InstitutionWorkspaceInputError extends Error {
   constructor(
@@ -67,6 +70,7 @@ export class InstitutionWorkspaceInputError extends Error {
     public readonly details?: {
       fields?: string[];
     },
+    public readonly httpStatus: number = 400,
   ) {
     super(message);
   }
@@ -95,6 +99,21 @@ const parseDisplayName = (value: unknown): string => {
     );
   }
 
+  // Step 2.2 / CCR-20: reject a display name whose slug-normalized form is a reserved
+  // word (e.g. "Admin", "Settings", "API"). Without this, the auto-derivation path
+  // would either produce a reserved slug or silently substitute the fallback base —
+  // both lossy. Multi-word names like "Admin University" normalize to "admin-university"
+  // and are not affected.
+  const displayNameSlugForm = normalizeInstitutionSlug(normalized);
+  if (displayNameSlugForm.length > 0 && RESERVED_WORDS.includes(displayNameSlugForm)) {
+    throw new InstitutionWorkspaceInputError(
+      "institution_display_name_reserved",
+      "displayName resolves to a reserved word and cannot be used as an institution name",
+      { fields: ["displayName"] },
+      422,
+    );
+  }
+
   return normalized;
 };
 
@@ -114,6 +133,19 @@ const parseSlug = (value: unknown): string => {
       "institution_invalid_value",
       "slug must be a string with 3 to 64 URL-safe characters",
       { fields: ["slug"] },
+    );
+  }
+
+  // Step 2.2 / CCR-20: institution slugs share the reserved-word namespace with
+  // usernames. A user-provided slug that matches a reserved word is rejected here.
+  // Auto-generated slugs (derived from display name when the caller omits slug) bypass
+  // this check — consistent with the username auto-generation behaviour.
+  if (RESERVED_WORDS.includes(normalized)) {
+    throw new InstitutionWorkspaceInputError(
+      "institution_slug_reserved",
+      "slug is a reserved word and cannot be used as an institution slug",
+      { fields: ["slug"] },
+      422,
     );
   }
 
@@ -140,7 +172,11 @@ export const normalizeInstitutionSlug = (value: string): string => {
 export const deriveInstitutionSlugBase = (displayName: string): string => {
   const derived = normalizeInstitutionSlug(displayName);
 
-  if (derived.length >= MIN_SLUG_LENGTH) {
+  // Step 2.2 / CCR-20: the reserved-word namespace binds the slug itself, not just
+  // the input vector. When auto-derivation lands on a reserved word, silently
+  // substitute the fallback base; the numeric suffix loop in
+  // buildInstitutionSlugCandidate then yields e.g. `institusi-2`.
+  if (derived.length >= MIN_SLUG_LENGTH && !RESERVED_WORDS.includes(derived)) {
     return derived;
   }
 
@@ -273,6 +309,6 @@ export const toInstitutionWorkspaceInputErrorResponse = (
         details: error.details ?? {},
       },
     },
-    { status: 400 },
+    { status: error.httpStatus },
   );
 };
