@@ -191,14 +191,25 @@ describe("parseUsername", () => {
     expect(() => parseUsername("john__doe")).toThrowError(ProfileInputError);
   });
 
-  it("rejects reserved usernames with code profile_reserved_username", () => {
+  it("rejects reserved usernames with code profile_username_reserved", () => {
     for (const reserved of RESERVED_USERNAMES) {
       try {
         parseUsername(reserved);
         expect.fail(`Expected parseUsername('${reserved}') to throw`);
       } catch (e) {
         expect(e).toBeInstanceOf(ProfileInputError);
-        expect((e as ProfileInputError).code).toBe("profile_reserved_username");
+        expect((e as ProfileInputError).code).toBe("profile_username_reserved");
+      }
+    }
+  });
+
+  it("rejects reserved usernames case-insensitively", () => {
+    for (const value of ["ADMIN", "Admin", "admin"]) {
+      try {
+        parseUsername(value);
+        expect.fail(`Expected parseUsername('${value}') to throw`);
+      } catch (e) {
+        expect((e as ProfileInputError).code).toBe("profile_username_reserved");
       }
     }
   });

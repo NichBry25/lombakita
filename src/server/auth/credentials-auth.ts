@@ -1,4 +1,6 @@
 import { and, eq, isNull, ne } from "drizzle-orm";
+import { logger } from "@/lib/logger";
+import { generateUsername, UsernameGenerationError } from "@/lib/username/generate";
 import { getDb, type Database } from "@/server/db/client";
 import {
   userEmailVerificationTokens,
@@ -18,24 +20,15 @@ const NAME_MIN_LENGTH = 2;
 const NAME_MAX_LENGTH = 120;
 const REGISTRATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
-// Step 2.1 — auto-generate a username from the email prefix + random hex suffix.
-// The prefix is slugified (lowercase, non-alphanumeric → '_', consecutive underscores
-// collapsed, leading/trailing underscores stripped, capped at 20 chars).
-// The 6-char hex suffix makes collisions negligible at MVP scale. If the suffix-based
-// attempt still collides (concurrent registration), the DB unique constraint will fire
-// and the caller can retry with a new suffix. Username uniqueness at signup is enforced
-// at the application layer; the DB index is the invariant backstop.
-export const generateUsernameFromEmail = (email: string): string => {
-  const prefix =
-    (email.split("@")[0] ?? "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "_")
-      .replace(/_+/g, "_")
-      .replace(/^_+|_+$/g, "")
-      .slice(0, 20) || "user";
-
-  const suffix = Math.random().toString(36).slice(2, 8);
-  return `${prefix}_${suffix}`;
+// Step 2.1a / DEC-0054 — split the single `name` field into first/last name tokens
+// for username generation. The first whitespace-delimited token is the first name;
+// everything after it is the last name (may be empty for a single-word name).
+const splitName = (name: string): { firstName: string; lastName: string } => {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return {
+    firstName: parts[0] ?? "",
+    lastName: parts.slice(1).join(" "),
+  };
 };
 
 // Rollback Step 1.3 — CCR-03 / DEC-0037 / DEC-0058: signup role declaration. Exactly one of
@@ -62,7 +55,8 @@ type AuthFlowErrorCode =
   | "verification_required"
   | "verification_token_invalid"
   | "verification_token_expired"
-  | "verification_email_failed";
+  | "verification_email_failed"
+  | "username_generation_failed";
 
 export class CredentialsAuthError extends Error {
   constructor(
@@ -286,21 +280,42 @@ export const registerUserWithCredentials = async (
       const candidateVerifiedAt = input.signupRole === "candidate" ? now : null;
       const recruiterVerifiedAt = input.signupRole === "recruiter" ? now : null;
 
-      const userId =
-        existingUser?.id ??
-        (
-          await tx
-            .insert(users)
-            .values({
-              email: input.email,
-              name: input.name,
-              role: input.signupRole,
-              username: generateUsernameFromEmail(input.email),
-              candidateVerifiedAt,
-              recruiterVerifiedAt,
-            })
-            .returning({ id: users.id })
-        )[0]?.id;
+      let userId = existingUser?.id;
+
+      if (!userId) {
+        // Step 2.1a / DEC-0054 — generate a valid, unique, reserved-word-safe
+        // username before the user INSERT. Generation runs inside this
+        // transaction: the uniqueness probe sees only committed rows, and a
+        // generation failure aborts the transaction so no user row is ever
+        // persisted without a username.
+        const { firstName, lastName } = splitName(input.name);
+        const username = await generateUsername({
+          firstName,
+          lastName,
+          isAvailable: async (candidate) => {
+            const [taken] = await tx
+              .select({ id: users.id })
+              .from(users)
+              .where(eq(users.username, candidate))
+              .limit(1);
+            return !taken;
+          },
+        });
+
+        const [inserted] = await tx
+          .insert(users)
+          .values({
+            email: input.email,
+            name: input.name,
+            role: input.signupRole,
+            username,
+            candidateVerifiedAt,
+            recruiterVerifiedAt,
+          })
+          .returning({ id: users.id });
+
+        userId = inserted?.id;
+      }
 
       if (!userId) {
         throw new Error("Failed to create user account");
@@ -387,12 +402,44 @@ export const registerUserWithCredentials = async (
       throw error;
     }
 
+    // Step 2.1a / DEC-0054 — username generation exhausted its bounded retry
+    // loop. Recoverable: log it (Sentry capture deferred per the Step 2.5
+    // logger-only known debt) and surface a clean 503 instead of a raw 500.
+    if (error instanceof UsernameGenerationError) {
+      logger.error("username.generation.exhausted", { email: input.email });
+      throw new CredentialsAuthError(
+        "username_generation_failed",
+        503,
+        "Account could not be created right now. Please try again.",
+      );
+    }
+
+    // Step 2.1a / DEC-0054 — the `users` table now carries two unique
+    // constraints reachable on INSERT: `email` and `users_username_unique_idx`.
+    // A 23505 must be classified by constraint, otherwise a username collision
+    // (e.g. the bounded generation loop loses a concurrent-registration race)
+    // would be misreported to the client as `email_exists`. The constraint
+    // name is exposed as `constraint_name` (postgres.js) or `constraint`
+    // (node-postgres); `detail` is a final fallback.
     if (
       typeof error === "object" &&
       error !== null &&
       "code" in error &&
       (error as { code?: string }).code === "23505"
     ) {
+      const pgError = error as { constraint_name?: string; constraint?: string; detail?: string };
+      const constraint = pgError.constraint_name ?? pgError.constraint ?? "";
+      const detail = pgError.detail ?? "";
+
+      if (constraint.includes("username") || detail.includes("username")) {
+        logger.error("username.generation.collision", { email: input.email });
+        throw new CredentialsAuthError(
+          "username_generation_failed",
+          503,
+          "Account could not be created right now. Please try again.",
+        );
+      }
+
       throw new CredentialsAuthError(
         "email_exists",
         409,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { RESERVED_WORDS } from "@/lib/username/reserved-words";
 
 // ---------------------------------------------------------------------------
 // Field scope constants
@@ -190,39 +191,10 @@ const USERNAME_PATTERN = /^[a-z0-9][a-z0-9_]*[a-z0-9]$|^[a-z0-9]{1,2}$/;
 const USERNAME_MIN = 3;
 const USERNAME_MAX = 30;
 
-export const RESERVED_USERNAMES = new Set([
-  "admin",
-  "api",
-  "auth",
-  "profile",
-  "settings",
-  "help",
-  "about",
-  "contact",
-  "legal",
-  "privacy",
-  "terms",
-  "competition",
-  "competitions",
-  "institution",
-  "institutions",
-  "candidate",
-  "recruiter",
-  "student",
-  "saved",
-  "dashboard",
-  "search",
-  "explore",
-  "register",
-  "login",
-  "logout",
-  "signup",
-  "signin",
-  "signout",
-  "me",
-  "null",
-  "undefined",
-]);
+// Step 2.1a / DEC-0054 — the reserved-word namespace now has a single source of
+// truth in src/lib/username/reserved-words.ts. Built into a Set here for O(1)
+// membership checks; matching is case-insensitive (input is lowercased first).
+export const RESERVED_USERNAMES = new Set(RESERVED_WORDS.map((word) => word.toLowerCase()));
 
 // Validates a user-supplied username. Returns the normalized value on success.
 export const parseUsername = (value: unknown): string => {
@@ -234,10 +206,15 @@ export const parseUsername = (value: unknown): string => {
 
   const normalized = value.trim().toLowerCase();
 
+  // Step 2.1a / DEC-0054 — reserved-word check runs before the length/charset
+  // checks (and, at the route layer, before the DB uniqueness check): it is the
+  // cheapest gate, so fail fast. Rejected with 422 profile_username_reserved.
   if (RESERVED_USERNAMES.has(normalized)) {
-    throw new ProfileInputError("profile_reserved_username", "This username is not available", {
-      fields: ["username"],
-    });
+    throw new ProfileInputError(
+      "profile_username_reserved",
+      "This username is reserved and cannot be used",
+      { fields: ["username"] },
+    );
   }
 
   if (normalized.length < USERNAME_MIN || normalized.length > USERNAME_MAX) {
@@ -333,7 +310,7 @@ type ProfileInputErrorCode =
   | "profile_protected_fields"
   | "profile_scope_violation"
   | "profile_invalid_value"
-  | "profile_reserved_username"
+  | "profile_username_reserved"
   | "profile_username_taken";
 
 export class ProfileInputError extends Error {
@@ -521,7 +498,16 @@ export const parseProfilePatch = (
 };
 
 export const toProfileInputErrorResponse = (error: ProfileInputError): NextResponse => {
-  const status = error.code === "profile_scope_violation" ? 422 : 400;
+  // 422 — scope violation and reserved-word rejection (semantic input rejections,
+  //       Step 2.1a / DEC-0054).
+  // 409 — username uniqueness conflict.
+  // 400 — all other malformed-payload errors.
+  const status =
+    error.code === "profile_scope_violation" || error.code === "profile_username_reserved"
+      ? 422
+      : error.code === "profile_username_taken"
+        ? 409
+        : 400;
   return NextResponse.json(
     {
       error: {

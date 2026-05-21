@@ -159,7 +159,7 @@ describe("PATCH /api/v1/users/me/profile", () => {
     expect(body.error.code).toBe("profile_protected_fields");
   });
 
-  it("returns 400 when username is already taken (service throws)", async () => {
+  it("returns 409 when username is already taken (service throws)", async () => {
     requireAuthenticatedSession.mockResolvedValue(sessionFixture);
     getVerificationState.mockResolvedValue({ candidateVerified: true, recruiterVerified: false });
     updateOwnerProfile.mockRejectedValue(
@@ -177,8 +177,47 @@ describe("PATCH /api/v1/users/me/profile", () => {
     const res = await PATCH(req as never);
     const body = await res.json();
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(409);
     expect(body.error.code).toBe("profile_username_taken");
+  });
+
+  it("returns 422 profile_username_reserved when the submitted username is a reserved word", async () => {
+    requireAuthenticatedSession.mockResolvedValue(sessionFixture);
+    getVerificationState.mockResolvedValue({ candidateVerified: true, recruiterVerified: false });
+
+    const req = new Request("http://localhost/api/v1/users/me/profile", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "admin" }),
+    });
+
+    const res = await PATCH(req as never);
+    const body = await res.json();
+
+    expect(res.status).toBe(422);
+    expect(body.error.code).toBe("profile_username_reserved");
+    // Reserved-word rejection short-circuits before the service layer.
+    expect(updateOwnerProfile).not.toHaveBeenCalled();
+  });
+
+  it("passes a valid non-reserved username through to the service uniqueness check", async () => {
+    requireAuthenticatedSession.mockResolvedValue(sessionFixture);
+    getVerificationState.mockResolvedValue({ candidateVerified: true, recruiterVerified: false });
+    updateOwnerProfile.mockResolvedValue(ownerProfileFixture);
+
+    const req = new Request("http://localhost/api/v1/users/me/profile", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "valid_handle" }),
+    });
+
+    const res = await PATCH(req as never);
+
+    expect(res.status).toBe(200);
+    expect(updateOwnerProfile).toHaveBeenCalledWith(
+      "user_1",
+      expect.objectContaining({ username: "valid_handle" }),
+    );
   });
 
   it("returns 401 when unauthenticated", async () => {
