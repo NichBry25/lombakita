@@ -35,6 +35,7 @@ export const InstitutionTeamShell = ({ institutionSlug }: { institutionSlug: str
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [email, setEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<"institution_owner" | "institution_staff" | "institution_member">("institution_staff");
   const [feedback, setFeedback] = useState<FeedbackState>(null);
 
   const loadInvitations = useCallback(async () => {
@@ -74,7 +75,7 @@ export const InstitutionTeamShell = ({ institutionSlug }: { institutionSlug: str
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ invitedEmail: email.trim(), invitedRole: "institution_staff" }),
+        body: JSON.stringify({ invitedEmail: email.trim(), invitedRole: inviteRole }),
       },
     );
 
@@ -114,15 +115,24 @@ export const InstitutionTeamShell = ({ institutionSlug }: { institutionSlug: str
       </header>
 
       <section className="glass-card p-6 space-y-4">
-        <form className="flex gap-3" onSubmit={onInvite}>
+        <form className="flex gap-3 flex-wrap" onSubmit={onInvite}>
           <input
-            className="form-input flex-1"
+            className="form-input flex-1 min-w-0"
             type="email"
-            placeholder="Email staf"
+            placeholder="Alamat email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
           />
+          <select
+            className="form-input w-auto"
+            value={inviteRole}
+            onChange={(e) => setInviteRole(e.target.value as typeof inviteRole)}
+          >
+            <option value="institution_staff">Staf</option>
+            <option value="institution_owner">Pemilik</option>
+            <option value="institution_member">Anggota</option>
+          </select>
           <button className="primary-button" type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Mengirim..." : "Undang"}
           </button>

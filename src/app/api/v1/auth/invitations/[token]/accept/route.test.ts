@@ -18,7 +18,32 @@ vi.mock("@/config/env.server", () => ({
 import { POST } from "@/app/api/v1/auth/invitations/[token]/accept/route";
 
 const authenticatedSession = {
-  user: { id: "user_1", role: "candidate", email: "user@example.com" },
+  user: {
+    id: "user_1",
+    role: "candidate",
+    email: "user@example.com",
+    verifiedRoles: ["candidate"],
+  },
+  expires: new Date(Date.now() + 60_000).toISOString(),
+};
+
+const recruiterVerifiedSession = {
+  user: {
+    id: "user_2",
+    role: "recruiter",
+    email: "recruiter@example.com",
+    verifiedRoles: ["recruiter"],
+  },
+  expires: new Date(Date.now() + 60_000).toISOString(),
+};
+
+const dualVerifiedSession = {
+  user: {
+    id: "user_3",
+    role: "candidate",
+    email: "dual@example.com",
+    verifiedRoles: ["candidate", "recruiter"],
+  },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
@@ -52,7 +77,50 @@ describe("POST /api/v1/auth/invitations/[token]/accept", () => {
 
     expect(response.status).toBe(200);
     expect(body.accepted).toBe(true);
-    expect(acceptInvitation).toHaveBeenCalledWith(RAW_TOKEN, "user_1");
+    expect(acceptInvitation).toHaveBeenCalledWith(RAW_TOKEN, "user_1", ["candidate"]);
+  });
+
+  it("forwards recruiter verifiedRoles to acceptInvitation for a recruiter-verified session", async () => {
+    getCurrentSession.mockResolvedValue(recruiterVerifiedSession);
+    acceptInvitation.mockResolvedValue(undefined);
+
+    const response = await POST(new Request("http://localhost") as never, {
+      params: Promise.resolve({ token: RAW_TOKEN }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(acceptInvitation).toHaveBeenCalledWith(RAW_TOKEN, "user_2", ["recruiter"]);
+  });
+
+  it("forwards dual verifiedRoles to acceptInvitation for a candidate+recruiter session", async () => {
+    getCurrentSession.mockResolvedValue(dualVerifiedSession);
+    acceptInvitation.mockResolvedValue(undefined);
+
+    const response = await POST(new Request("http://localhost") as never, {
+      params: Promise.resolve({ token: RAW_TOKEN }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(acceptInvitation).toHaveBeenCalledWith(RAW_TOKEN, "user_3", [
+      "candidate",
+      "recruiter",
+    ]);
+  });
+
+  it("forwards empty array when session.user.verifiedRoles is missing (legacy JWT)", async () => {
+    const legacySession = {
+      user: { id: "legacy_1", role: "candidate", email: "legacy@example.com" },
+      expires: new Date(Date.now() + 60_000).toISOString(),
+    };
+    getCurrentSession.mockResolvedValue(legacySession);
+    acceptInvitation.mockResolvedValue(undefined);
+
+    const response = await POST(new Request("http://localhost") as never, {
+      params: Promise.resolve({ token: RAW_TOKEN }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(acceptInvitation).toHaveBeenCalledWith(RAW_TOKEN, "legacy_1", []);
   });
 
   it("returns 410 for expired token", async () => {
@@ -132,13 +200,14 @@ describe("POST /api/v1/auth/invitations/[token]/accept", () => {
     expect(response.status).toBe(404);
   });
 
-  it("returns 403 when account does not meet role verification requirement (CCR-08)", async () => {
+  it("returns 403 with redirectTo when account does not meet role verification requirement (CCR-07)", async () => {
     getCurrentSession.mockResolvedValue(authenticatedSession);
     acceptInvitation.mockRejectedValue(
       new InstitutionInvitationError(
         "invitation_role_verification_required",
         403,
         "Accepting this invitation requires a recruiter-verified account",
+        "/verify/recruiter",
       ),
     );
 
@@ -149,5 +218,6 @@ describe("POST /api/v1/auth/invitations/[token]/accept", () => {
 
     expect(response.status).toBe(403);
     expect(body.error.code).toBe("invitation_role_verification_required");
+    expect(body.error.redirectTo).toBe("/verify/recruiter");
   });
 });

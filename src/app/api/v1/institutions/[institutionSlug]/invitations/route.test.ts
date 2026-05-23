@@ -145,6 +145,48 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     expect(response.status).toBe(401);
   });
 
+  it("creates invitation with institution_owner role", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    createInstitutionInvitation.mockResolvedValue(invitationFixture);
+
+    const request = new Request("http://localhost", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ invitedEmail: "owner@example.com", invitedRole: "institution_owner" }),
+    });
+
+    const response = await POST(request as never, {
+      params: Promise.resolve({ institutionSlug: "universitas-nusantara" }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(createInstitutionInvitation).toHaveBeenCalledWith("admin_1", "universitas-nusantara", {
+      invitedEmail: "owner@example.com",
+      invitedRole: "institution_owner",
+    });
+  });
+
+  it("creates invitation with institution_member role", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    createInstitutionInvitation.mockResolvedValue(invitationFixture);
+
+    const request = new Request("http://localhost", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ invitedEmail: "member@example.com", invitedRole: "institution_member" }),
+    });
+
+    const response = await POST(request as never, {
+      params: Promise.resolve({ institutionSlug: "universitas-nusantara" }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(createInstitutionInvitation).toHaveBeenCalledWith("admin_1", "universitas-nusantara", {
+      invitedEmail: "member@example.com",
+      invitedRole: "institution_member",
+    });
+  });
+
   it("returns 400 for invalid email", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     createInstitutionInvitation.mockRejectedValue(

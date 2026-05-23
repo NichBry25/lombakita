@@ -1,4 +1,5 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import type { AppRole } from "@/lib/access/roles";
 import { AccessError } from "@/server/auth/access-core";
 import { getDb, type Database } from "@/server/db/client";
 import {
@@ -24,6 +25,8 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/institution-invitations/invitation-service");
 
+const ADMIN_ROLES = ["institution_owner", "institution_staff"] as const;
+
 const requireAdminInstitution = async (
   userId: string,
   institutionSlug: string,
@@ -40,7 +43,7 @@ const requireAdminInstitution = async (
       and(
         eq(institutionMemberships.institutionId, institutions.id),
         eq(institutionMemberships.userId, userId),
-        eq(institutionMemberships.membershipRole, "institution_owner"),
+        inArray(institutionMemberships.membershipRole, [...ADMIN_ROLES]),
         eq(institutionMemberships.status, "active"),
       ),
     )
@@ -51,7 +54,7 @@ const requireAdminInstitution = async (
     throw new AccessError(
       "forbidden",
       403,
-      "institution_owner access required for this institution",
+      "institution_owner or institution_staff access required for this institution",
     );
   }
 
@@ -180,6 +183,7 @@ export const getInvitationMetaByToken = async (
 export const acceptInvitation = async (
   rawToken: string,
   userId: string,
+  sessionVerifiedRoles: AppRole[],
   db: Database = getDb(),
 ): Promise<void> => {
   const tokenHash = hashToken(rawToken);
@@ -220,41 +224,20 @@ export const acceptInvitation = async (
       );
     }
 
-    // CCR-08 / DEC-0042: Verify the accepting account has the required verification state.
-    // institution_owner and institution_staff roles require recruiter_verified_at IS NOT NULL.
-    // institution_member accepts any verified account (candidate_verified_at OR recruiter_verified_at).
-    const [acceptingUser] = await tx
-      .select({
-        candidateVerifiedAt: users.candidateVerifiedAt,
-        recruiterVerifiedAt: users.recruiterVerifiedAt,
-      })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-
-    if (!acceptingUser) {
-      throw new InstitutionInvitationError(
-        "invitation_role_verification_required",
-        403,
-        "Accepting this invitation requires a verified account",
-      );
-    }
-
+    // CCR-07 / CCR-08 / DEC-0042: Verify the accepting account holds the required verified
+    // role, read from session.user.verifiedRoles (no DB re-query per Step 2.3 spec).
+    // institution_owner and institution_staff invites require "recruiter" in verifiedRoles —
+    // independent of the active role-mode, so an account that holds both candidate and
+    // recruiter verifications passes regardless of which mode is currently active.
+    // institution_member invites accept any authenticated account (session existence implies
+    // at least one verified role per DB CHECK users_one_verified_role_chk).
     if (RECRUITER_VERIFIED_ROLES.includes(invitation.invitedRole)) {
-      if (!acceptingUser.recruiterVerifiedAt) {
+      if (!sessionVerifiedRoles.includes("recruiter")) {
         throw new InstitutionInvitationError(
           "invitation_role_verification_required",
           403,
           "Accepting this invitation requires a recruiter-verified account",
-        );
-      }
-    } else {
-      // institution_member: any verified account accepted
-      if (!acceptingUser.candidateVerifiedAt && !acceptingUser.recruiterVerifiedAt) {
-        throw new InstitutionInvitationError(
-          "invitation_role_verification_required",
-          403,
-          "Accepting this invitation requires a verified account",
+          "/verify/recruiter",
         );
       }
     }

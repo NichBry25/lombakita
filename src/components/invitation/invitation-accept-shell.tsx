@@ -15,6 +15,7 @@ type PageState =
   | { phase: "loading" }
   | { phase: "ready"; meta: InvitationMeta }
   | { phase: "error"; message: string }
+  | { phase: "gate_error"; redirectTo: string }
   | { phase: "done"; type: "accepted" | "declined" };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -31,12 +32,14 @@ const formatDate = (iso: string): string => {
   });
 };
 
-const extractErrorMessage = async (response: Response): Promise<string> => {
+type ErrorPayload = { error?: { code?: string; message?: string; redirectTo?: string } };
+
+const extractError = async (response: Response): Promise<ErrorPayload["error"]> => {
   try {
-    const payload = (await response.json()) as { error?: { message?: string } };
-    return payload.error?.message ?? "Permintaan gagal.";
+    const payload = (await response.json()) as ErrorPayload;
+    return payload.error ?? {};
   } catch {
-    return "Permintaan gagal.";
+    return {};
   }
 };
 
@@ -52,8 +55,8 @@ export const InvitationAcceptShell = ({ token }: { token: string }) => {
       });
 
       if (!response.ok) {
-        const message = await extractErrorMessage(response);
-        setState({ phase: "error", message });
+        const err = await extractError(response);
+        setState({ phase: "error", message: err?.message ?? "Permintaan gagal." });
         return;
       }
 
@@ -91,8 +94,12 @@ export const InvitationAcceptShell = ({ token }: { token: string }) => {
     }
 
     if (!response.ok) {
-      const message = await extractErrorMessage(response);
-      setState({ phase: "error", message });
+      const err = await extractError(response);
+      if (err?.code === "invitation_role_verification_required" && err.redirectTo) {
+        setState({ phase: "gate_error", redirectTo: err.redirectTo });
+      } else {
+        setState({ phase: "error", message: err?.message ?? "Permintaan gagal." });
+      }
       setIsActing(false);
       return;
     }
@@ -115,8 +122,8 @@ export const InvitationAcceptShell = ({ token }: { token: string }) => {
     });
 
     if (!response.ok) {
-      const message = await extractErrorMessage(response);
-      setState({ phase: "error", message });
+      const err = await extractError(response);
+      setState({ phase: "error", message: err?.message ?? "Permintaan gagal." });
       setIsActing(false);
       return;
     }
@@ -142,6 +149,25 @@ export const InvitationAcceptShell = ({ token }: { token: string }) => {
           {state.type === "accepted" && (
             <p className="text-sm text-[var(--text-muted)] mt-2">Mengalihkan...</p>
           )}
+        </div>
+      </main>
+    );
+  }
+
+  if (state.phase === "gate_error") {
+    return (
+      <main className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center px-6 py-20">
+        <div className="glass-card p-8 space-y-4">
+          <p className="text-sm font-medium text-red-600">Undangan ini memerlukan akun recruiter yang telah diverifikasi.</p>
+          <p className="text-sm text-[var(--text-muted)]">
+            Lengkapi verifikasi recruiter terlebih dahulu, lalu kembali ke tautan undangan ini.
+          </p>
+          <a
+            href={state.redirectTo}
+            className="primary-button inline-block text-center w-full"
+          >
+            Verifikasi Akun Recruiter
+          </a>
         </div>
       </main>
     );

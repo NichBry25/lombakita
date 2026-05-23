@@ -38,7 +38,7 @@ export async function POST(
 
   try {
     const { token } = await context.params;
-    await acceptInvitation(token, session.user.id);
+    await acceptInvitation(token, session.user.id, session.user.verifiedRoles ?? []);
 
     return NextResponse.json({ accepted: true });
   } catch (error) {

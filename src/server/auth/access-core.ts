@@ -6,6 +6,7 @@ export type AuthenticatedSession = Session & {
   user: NonNullable<Session["user"]> & {
     id: string;
     role: AppRole;
+    verifiedRoles: AppRole[];
   };
 };
 
@@ -44,12 +45,16 @@ export const assertAuthenticatedSession = (session: Session | null): Authenticat
   }
 
   const role = normalizeSessionRole(session.user.role);
+  const verifiedRoles = Array.isArray(session.user.verifiedRoles)
+    ? session.user.verifiedRoles.filter((entry): entry is AppRole => isAppRole(entry as string))
+    : [];
 
   return {
     ...session,
     user: {
       ...session.user,
       role,
+      verifiedRoles,
     },
   } as AuthenticatedSession;
 };

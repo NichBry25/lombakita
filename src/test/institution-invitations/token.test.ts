@@ -5,8 +5,10 @@ import {
   buildInvitationExpiresAt,
   generateRawToken,
   hashToken,
+  InstitutionInvitationError,
   INVITATION_EXPIRY_DAYS,
   maskToken,
+  parseInvitationCreateInput,
 } from "@/server/institution-invitations/invitation-core";
 
 describe("generateRawToken", () => {
@@ -51,6 +53,43 @@ describe("maskToken", () => {
   it("returns first 8 chars followed by an ellipsis", () => {
     const token = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
     expect(maskToken(token)).toBe("abcdef12…");
+  });
+});
+
+describe("parseInvitationCreateInput — role validation", () => {
+  const validEmail = "staff@example.com";
+
+  it.each(["institution_owner", "institution_staff", "institution_member"])(
+    "accepts role %s",
+    (role) => {
+      const result = parseInvitationCreateInput({ invitedEmail: validEmail, invitedRole: role });
+      expect(result.invitedRole).toBe(role);
+    },
+  );
+
+  it("rejects legacy institution_admin value with invitation_invalid_role", () => {
+    expect(() =>
+      parseInvitationCreateInput({ invitedEmail: validEmail, invitedRole: "institution_admin" }),
+    ).toThrow(InstitutionInvitationError);
+
+    try {
+      parseInvitationCreateInput({ invitedEmail: validEmail, invitedRole: "institution_admin" });
+    } catch (err) {
+      expect((err as InstitutionInvitationError).code).toBe("invitation_invalid_role");
+      expect((err as InstitutionInvitationError).httpStatus).toBe(400);
+    }
+  });
+
+  it("rejects an unknown role value", () => {
+    expect(() =>
+      parseInvitationCreateInput({ invitedEmail: validEmail, invitedRole: "super_admin" }),
+    ).toThrow(InstitutionInvitationError);
+  });
+
+  it("rejects a missing role field", () => {
+    expect(() =>
+      parseInvitationCreateInput({ invitedEmail: validEmail }),
+    ).toThrow(InstitutionInvitationError);
   });
 });
 

@@ -55,34 +55,113 @@ const makeDb = (tx: ReturnType<typeof makeTx>) => ({
   transaction: vi.fn().mockImplementation((cb: (tx: unknown) => Promise<void>) => cb(tx)),
 });
 
-describe("CCR-08 — acceptInvitation verification gate", () => {
-  it("rejects a candidate-only account accepting an institution_staff invite", async () => {
-    const invitation = baseInvitation("institution_staff");
-    const tx = makeTx([
-      [invitation], // invitation lookup
-      [{ candidateVerifiedAt: new Date(), recruiterVerifiedAt: null }], // user lookup
-    ]);
+describe("CCR-07/CCR-08 — acceptInvitation verifiedRoles gate", () => {
+  it("blocks a candidate-only account from accepting an institution_staff invite", async () => {
+    const tx = makeTx([[baseInvitation("institution_staff")]]);
     const db = makeDb(tx);
 
     await expect(
-      acceptInvitation(RAW_TOKEN, "user_1", db as never),
+      acceptInvitation(RAW_TOKEN, "user_1", ["candidate"], db as never),
     ).rejects.toMatchObject({
       code: "invitation_role_verification_required",
       httpStatus: 403,
+      redirectTo: "/verify/recruiter",
     });
   });
 
-  it("accepts a candidate-only account for an institution_member invite", async () => {
-    const invitation = baseInvitation("institution_member");
+  it("blocks a candidate-only account from accepting an institution_owner invite", async () => {
+    const tx = makeTx([[baseInvitation("institution_owner")]]);
+    const db = makeDb(tx);
+
+    await expect(
+      acceptInvitation(RAW_TOKEN, "user_1", ["candidate"], db as never),
+    ).rejects.toMatchObject({
+      code: "invitation_role_verification_required",
+      httpStatus: 403,
+      redirectTo: "/verify/recruiter",
+    });
+  });
+
+  it("blocks an account with empty verifiedRoles from accepting an institution_staff invite", async () => {
+    const tx = makeTx([[baseInvitation("institution_staff")]]);
+    const db = makeDb(tx);
+
+    await expect(acceptInvitation(RAW_TOKEN, "user_1", [], db as never)).rejects.toMatchObject({
+      code: "invitation_role_verification_required",
+      httpStatus: 403,
+      redirectTo: "/verify/recruiter",
+    });
+  });
+
+  it("passes a recruiter-verified account for an institution_staff invite", async () => {
     const tx = makeTx([
-      [invitation], // invitation lookup
-      [{ candidateVerifiedAt: new Date(), recruiterVerifiedAt: null }], // user lookup
+      [baseInvitation("institution_staff")], // invitation lookup
       [], // existing membership check (none found)
     ]);
     const db = makeDb(tx);
 
     await expect(
-      acceptInvitation(RAW_TOKEN, "user_1", db as never),
+      acceptInvitation(RAW_TOKEN, "user_1", ["recruiter"], db as never),
+    ).resolves.toBeUndefined();
+  });
+
+  it("passes a recruiter-verified account for an institution_owner invite", async () => {
+    const tx = makeTx([
+      [baseInvitation("institution_owner")], // invitation lookup
+      [], // existing membership check (none found)
+    ]);
+    const db = makeDb(tx);
+
+    await expect(
+      acceptInvitation(RAW_TOKEN, "user_1", ["recruiter"], db as never),
+    ).resolves.toBeUndefined();
+  });
+
+  it("passes a dual-verified account (candidate + recruiter) for an institution_owner invite", async () => {
+    const tx = makeTx([
+      [baseInvitation("institution_owner")], // invitation lookup
+      [], // existing membership check (none found)
+    ]);
+    const db = makeDb(tx);
+
+    await expect(
+      acceptInvitation(RAW_TOKEN, "user_1", ["candidate", "recruiter"], db as never),
+    ).resolves.toBeUndefined();
+  });
+
+  it("passes a dual-verified account (candidate + recruiter) for an institution_staff invite", async () => {
+    const tx = makeTx([
+      [baseInvitation("institution_staff")], // invitation lookup
+      [], // existing membership check (none found)
+    ]);
+    const db = makeDb(tx);
+
+    await expect(
+      acceptInvitation(RAW_TOKEN, "user_1", ["candidate", "recruiter"], db as never),
+    ).resolves.toBeUndefined();
+  });
+
+  it("passes a candidate-only account for an institution_member invite", async () => {
+    const tx = makeTx([
+      [baseInvitation("institution_member")], // invitation lookup
+      [], // existing membership check (none found)
+    ]);
+    const db = makeDb(tx);
+
+    await expect(
+      acceptInvitation(RAW_TOKEN, "user_1", ["candidate"], db as never),
+    ).resolves.toBeUndefined();
+  });
+
+  it("passes a recruiter-verified account for an institution_member invite", async () => {
+    const tx = makeTx([
+      [baseInvitation("institution_member")], // invitation lookup
+      [], // existing membership check (none found)
+    ]);
+    const db = makeDb(tx);
+
+    await expect(
+      acceptInvitation(RAW_TOKEN, "user_1", ["recruiter"], db as never),
     ).resolves.toBeUndefined();
   });
 });

@@ -9,6 +9,7 @@ export const GET = withApiAuth(async (_request, session) => {
       id: session.user.id,
       email: session.user.email,
       role: session.user.role,
+      verifiedRoles: session.user.verifiedRoles,
     },
     access: buildAccessContext(session),
   });

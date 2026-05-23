@@ -1,9 +1,10 @@
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
+import { eq } from "drizzle-orm";
 import type { NextAuthOptions } from "next-auth";
 import type { Adapter } from "next-auth/adapters";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { assertRuntimeEnv, serverEnv } from "@/config/env.server";
-import { isAppRole } from "@/lib/access/roles";
+import { type AppRole, isAppRole } from "@/lib/access/roles";
 import { logger } from "@/lib/logger";
 import { authenticateWithEmailPassword } from "@/server/auth/credentials-auth";
 import { getDb } from "@/server/db/client";
@@ -33,6 +34,44 @@ const authAdapter: Adapter | undefined = isAuthPersistenceConfigured
 // remains "jwt" per DEC-0015 (explicitly preserved). Termination on explicit logout, password
 // change, or server-initiated invalidation is provided by next-auth + AUTH_SECRET rotation.
 export const PERSISTENT_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+
+// CCR-02 / CCR-04 — per-mode verification state, surfaced as the verifiedRoles array on the
+// session. A role is in verifiedRoles iff its corresponding *_verified_at timestamp on the user
+// row is non-null (the Step 1.3 schema: users.candidateVerifiedAt, users.recruiterVerifiedAt;
+// DB CHECK users_one_verified_role_chk guarantees at least one is non-null per account).
+// Reads are bounded — populated on sign-in, on next-auth update trigger, and once for any
+// pre-existing JWT that does not yet carry the field. Degrades to an empty array on DB error
+// so a transient DB hiccup never breaks session resolution.
+const loadVerifiedRoles = async (userId: string): Promise<AppRole[]> => {
+  try {
+    const [row] = await getDb()
+      .select({
+        candidateVerifiedAt: users.candidateVerifiedAt,
+        recruiterVerifiedAt: users.recruiterVerifiedAt,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!row) return [];
+
+    const roles: AppRole[] = [];
+    if (row.candidateVerifiedAt) roles.push("candidate");
+    if (row.recruiterVerifiedAt) roles.push("recruiter");
+    return roles;
+  } catch (error) {
+    logger.error("auth.verifiedRoles.load_failed", {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+};
+
+const sanitizeVerifiedRoles = (value: unknown): AppRole[] => {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is AppRole => typeof entry === "string" && isAppRole(entry));
+};
 
 export const authOptions: NextAuthOptions = {
   adapter: authAdapter,
@@ -88,7 +127,7 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    jwt({ token, user, trigger }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         // Authorize() returns the DB row's user-level role. We only write it into the token if
         // it matches the current AppRole set; otherwise we omit it so the session callback
@@ -108,6 +147,16 @@ export const authOptions: NextAuthOptions = {
         // refresh branch consistent with the sign-in branch above; `normalizeSessionRole`
         // remains the final fail-clean gate, but no longer the only one.
         delete token.role;
+      }
+
+      // CCR-02 / CCR-04 — populate verifiedRoles. Read DB on sign-in (user present), on
+      // explicit session update (trigger==="update"), and once for any legacy JWT that does
+      // not yet carry the field. Steady-state requests reuse the cached array without a DB hit.
+      const userIdForLoad = typeof user?.id === "string" ? user.id : token.sub;
+      const needsVerifiedRolesLoad =
+        Boolean(user) || trigger === "update" || !Array.isArray(token.verifiedRoles);
+      if (needsVerifiedRolesLoad && typeof userIdForLoad === "string") {
+        token.verifiedRoles = await loadVerifiedRoles(userIdForLoad);
       }
 
       // CCR-15 / DEC-0049 — refresh on activity. `trigger === "update"` fires when the session
@@ -140,6 +189,8 @@ export const authOptions: NextAuthOptions = {
       if (tokenRole && isAppRole(tokenRole)) {
         session.user.role = tokenRole;
       }
+
+      session.user.verifiedRoles = sanitizeVerifiedRoles(token?.verifiedRoles);
 
       return session;
     },

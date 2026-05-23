@@ -50,6 +50,7 @@ export class InstitutionInvitationError extends Error {
     public readonly code: InstitutionInvitationErrorCode,
     public readonly httpStatus: 400 | 403 | 404 | 409 | 410,
     message: string,
+    public readonly redirectTo?: string,
   ) {
     super(message);
   }
@@ -137,8 +138,7 @@ export const buildInvitationExpiresAt = (from: Date = new Date()): Date => {
 export const toInstitutionInvitationErrorResponse = (
   error: InstitutionInvitationError,
 ): NextResponse => {
-  return NextResponse.json(
-    { error: { code: error.code, message: error.message } },
-    { status: error.httpStatus },
-  );
+  const body: Record<string, unknown> = { code: error.code, message: error.message };
+  if (error.redirectTo) body.redirectTo = error.redirectTo;
+  return NextResponse.json({ error: body }, { status: error.httpStatus });
 };
