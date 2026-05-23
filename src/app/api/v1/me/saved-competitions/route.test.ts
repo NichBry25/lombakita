@@ -15,7 +15,7 @@ vi.mock("@/server/saved-competitions/saved-competition-service", () => ({
 
 import { GET } from "./route";
 
-const studentSession = {
+const candidateSession = {
   user: { id: "stud_1", role: "candidate", email: "stud@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
@@ -32,8 +32,8 @@ const makeResult = (overrides = {}) => ({
 describe("GET /api/v1/me/saved-competitions", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("returns 200 with saved competitions list for an authenticated student", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+  it("returns 200 with saved competitions list for an authenticated candidate", async () => {
+    requireSessionRole.mockResolvedValue(candidateSession);
     listSavedCompetitions.mockResolvedValue(makeResult());
 
     const res = await GET(makeRequest() as never);
@@ -48,7 +48,7 @@ describe("GET /api/v1/me/saved-competitions", () => {
   });
 
   it("passes page and limit query params to service", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     listSavedCompetitions.mockResolvedValue(makeResult());
 
     const res = await GET(makeRequest("?page=2&limit=10") as never);
@@ -72,7 +72,7 @@ describe("GET /api/v1/me/saved-competitions", () => {
   });
 
   it("returns empty data array with correct meta when no saves exist", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     listSavedCompetitions.mockResolvedValue(makeResult());
 
     const res = await GET(makeRequest() as never);

@@ -51,7 +51,7 @@ function FeeDisplay({ feeAmount }: { feeAmount: string | null }) {
   );
 }
 
-// Static CTA placeholder for non-student visitors. Students see <RegisterButton /> instead,
+// Static CTA placeholder for non-candidate visitors. Candidates see <RegisterButton /> instead,
 // which handles register/cancel and reflects the live registration state from the /me endpoint.
 function VisitorCTAButton({ ctaState }: { ctaState: PublicCompetitionDetail["ctaState"] }) {
   if (ctaState === "open") {
@@ -103,8 +103,8 @@ export default async function CompetitionDetailPage({
 
   if (!competition) notFound();
 
-  const isStudent = session?.user?.role === "candidate";
-  const [initialSaved, initialRegistration] = isStudent
+  const isCandidate = session?.user?.role === "candidate";
+  const [initialSaved, initialRegistration] = isCandidate
     ? await Promise.all([
         isSavedCompetition(session!.user.id, competition.id),
         getStudentRegistration(session!.user.id, competition.id),
@@ -227,7 +227,7 @@ export default async function CompetitionDetailPage({
 
       {/* CTA */}
       <div style={{ marginTop: 32 }}>
-        {isStudent ? (
+        {isCandidate ? (
           <RegisterButton
             competitionId={competition.id}
             ctaState={competition.ctaState}
@@ -253,7 +253,7 @@ export default async function CompetitionDetailPage({
 
       {/* Save */}
       <div style={{ marginTop: 8 }}>
-        {isStudent ? (
+        {isCandidate ? (
           <SaveButton competitionId={competition.id} initialSaved={initialSaved} />
         ) : (
           <p style={{ fontSize: 13, color: "#888", marginTop: 16 }}>

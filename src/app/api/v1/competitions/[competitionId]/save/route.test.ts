@@ -32,7 +32,7 @@ vi.mock("@/server/saved-competitions/saved-competition-service", () => {
 
 import { DELETE, POST } from "./route";
 
-const studentSession = {
+const candidateSession = {
   user: { id: "stud_1", role: "candidate", email: "stud@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
@@ -47,8 +47,8 @@ const makeRequest = (method: "POST" | "DELETE") =>
 describe("POST /api/v1/competitions/[competitionId]/save", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("returns 200 { saved: true } for an authenticated student", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+  it("returns 200 { saved: true } for an authenticated candidate", async () => {
+    requireSessionRole.mockResolvedValue(candidateSession);
     saveCompetition.mockResolvedValue(undefined);
 
     const res = await POST(makeRequest("POST") as never, makeContext());
@@ -60,7 +60,7 @@ describe("POST /api/v1/competitions/[competitionId]/save", () => {
   });
 
   it("returns 200 { saved: true } on duplicate save (idempotent)", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     saveCompetition.mockResolvedValue(undefined); // onConflictDoNothing swallows dup
 
     const res = await POST(makeRequest("POST") as never, makeContext());
@@ -75,7 +75,7 @@ describe("POST /api/v1/competitions/[competitionId]/save", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns 403 when caller is platform_ops (not a student)", async () => {
+  it("returns 403 when caller is platform_ops (not a candidate)", async () => {
     requireSessionRole.mockRejectedValue(new AccessError("forbidden", 403, ""));
 
     const res = await POST(makeRequest("POST") as never, makeContext());
@@ -83,7 +83,7 @@ describe("POST /api/v1/competitions/[competitionId]/save", () => {
   });
 
   it("returns 404 when competition does not exist", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     saveCompetition.mockRejectedValue(
       new SavedCompetitionError("competition_not_found", 404, "Competition not found"),
     );
@@ -99,8 +99,8 @@ describe("POST /api/v1/competitions/[competitionId]/save", () => {
 describe("DELETE /api/v1/competitions/[competitionId]/save", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("returns 200 { saved: false } for an authenticated student", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+  it("returns 200 { saved: false } for an authenticated candidate", async () => {
+    requireSessionRole.mockResolvedValue(candidateSession);
     unsaveCompetition.mockResolvedValue(undefined);
 
     const res = await DELETE(makeRequest("DELETE") as never, makeContext());
@@ -112,7 +112,7 @@ describe("DELETE /api/v1/competitions/[competitionId]/save", () => {
   });
 
   it("returns 200 { saved: false } when competition was not saved (idempotent)", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     unsaveCompetition.mockResolvedValue(undefined); // plain delete always resolves
 
     const res = await DELETE(makeRequest("DELETE") as never, makeContext());
