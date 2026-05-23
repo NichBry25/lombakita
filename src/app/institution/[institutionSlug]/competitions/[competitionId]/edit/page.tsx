@@ -15,6 +15,9 @@ export default async function InstitutionCompetitionEditPage({ params }: Props) 
   if (!session?.user?.id) {
     redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(path)}`);
   }
+  if (session.user.role !== "recruiter") {
+    redirect("/");
+  }
 
   try {
     await getCompetitionForReader(session.user.id, session.user.role, competitionId);

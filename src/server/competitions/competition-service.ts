@@ -436,14 +436,20 @@ export const transitionCompetitionStatus = async (
   // DEC-0030: accepted design decision.
   if (targetStatus === "archived") updates.archivedAt = new Date();
 
+  // CAS guard: WHERE also checks current status equals the snapshot status to prevent
+  // concurrent transitions from landing on top of each other (3.3-D12 resolution).
   const [row] = await db
     .update(competitions)
     .set(updates)
-    .where(eq(competitions.id, competitionId))
+    .where(and(eq(competitions.id, competitionId), eq(competitions.status, competition.status)))
     .returning(PUBLIC_COMPETITION_COLUMNS);
 
   if (!row) {
-    throw new CompetitionError("competition_not_found", 404, "Competition not found");
+    throw new CompetitionError(
+      "competition_invalid_transition",
+      422,
+      "Competition status was modified concurrently — reload and retry the transition",
+    );
   }
 
   logger.info("competition.status.transitioned", {
