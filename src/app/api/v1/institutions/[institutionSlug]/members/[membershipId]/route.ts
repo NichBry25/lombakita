@@ -6,12 +6,12 @@ import { removeMember } from "@/server/institution-members/member-service";
 
 export async function DELETE(
   _request: Request,
-  context: { params: Promise<{ institutionId: string; membershipId: string }> },
+  context: { params: Promise<{ institutionSlug: string; membershipId: string }> },
 ): Promise<Response> {
   try {
     const session = await requireAuthenticatedSession();
-    const { institutionId, membershipId } = await context.params;
-    await removeMember(session.user.id, institutionId, membershipId);
+    const { institutionSlug, membershipId } = await context.params;
+    await removeMember(session.user.id, institutionSlug, membershipId);
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {

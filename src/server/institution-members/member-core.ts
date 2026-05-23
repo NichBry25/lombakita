@@ -15,12 +15,14 @@ type MemberErrorCode =
   | "member_self_action"
   | "member_last_admin"
   | "member_invalid_role"
-  | "member_invalid_payload";
+  | "member_invalid_payload"
+  | "role_escalation_forbidden"
+  | "last_owner_demotion_forbidden";
 
 export class MemberError extends Error {
   constructor(
     public readonly code: MemberErrorCode,
-    public readonly httpStatus: 400 | 403 | 404 | 409,
+    public readonly httpStatus: 400 | 403 | 404 | 409 | 422,
     message: string,
   ) {
     super(message);
@@ -34,10 +36,14 @@ export const toMemberErrorResponse = (error: MemberError): NextResponse => {
   );
 };
 
-// institution_member excluded per CCR-09: member role has no operational write access.
+// All three membership roles are valid assignment targets.
+// Promotion to institution_owner or institution_staff requires recruiter verification
+// on the target account (CCR-08) — enforced in the service layer, not here.
+// institution_member is a valid demotion target for any account type.
 const ALLOWED_ROLES: readonly InstitutionMembershipRole[] = [
   "institution_owner",
   "institution_staff",
+  "institution_member",
 ];
 
 export const parseRoleChangeBody = (payload: unknown): { role: InstitutionMembershipRole } => {

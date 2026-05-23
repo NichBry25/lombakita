@@ -1,5 +1,6 @@
 import { InstitutionSettingsShell } from "@/components/institution/institution-settings-shell";
 import { getCurrentSession } from "@/server/auth/session";
+import { isInstitutionOwnerBySlug } from "@/server/institution-members/member-service";
 import { redirect } from "next/navigation";
 
 type InstitutionSettingsPageProps = {
@@ -18,9 +19,14 @@ export default async function InstitutionSettingsPage({ params }: InstitutionSet
   }
 
   // CCR-05 / CCR-09: only recruiter-verified accounts can ever own or staff an institution.
-  // A candidate-only session has no path to institution settings, so we redirect away rather
-  // than render an empty "no access" frame.
   if (session.user.role !== "recruiter") {
+    redirect("/");
+  }
+
+  // Settings is owner-only per institution_workspace_shell_step_2_2.settings_authorization_rule.
+  // Redirect non-owners (including staff and recruiters from other institutions) before render.
+  const isOwner = await isInstitutionOwnerBySlug(session.user.id, institutionSlug);
+  if (!isOwner) {
     redirect("/");
   }
 

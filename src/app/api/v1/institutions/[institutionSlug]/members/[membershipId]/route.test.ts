@@ -12,31 +12,31 @@ const { requireAuthenticatedSession, removeMember } = vi.hoisted(() => ({
 vi.mock("@/server/auth/session", () => ({ requireAuthenticatedSession }));
 vi.mock("@/server/institution-members/member-service", () => ({ removeMember }));
 
-import { DELETE } from "@/app/api/v1/institutions/by-id/[institutionId]/members/[membershipId]/route";
+import { DELETE } from "@/app/api/v1/institutions/[institutionSlug]/members/[membershipId]/route";
 
-const adminSession = {
-  user: { id: "actor_1", role: "recruiter", email: "admin@example.com" },
+const ownerSession = {
+  user: { id: "actor_1", role: "recruiter", email: "owner@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
-const makeParams = (institutionId: string, membershipId: string) => ({
-  params: Promise.resolve({ institutionId, membershipId }),
+const makeParams = (institutionSlug: string, membershipId: string) => ({
+  params: Promise.resolve({ institutionSlug, membershipId }),
 });
 
-describe("DELETE /api/v1/institutions/by-id/[institutionId]/members/[membershipId]", () => {
+describe("DELETE /api/v1/institutions/[institutionSlug]/members/[membershipId]", () => {
   afterEach(() => vi.clearAllMocks());
 
   it("removes member and returns 204", async () => {
-    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    requireAuthenticatedSession.mockResolvedValue(ownerSession);
     removeMember.mockResolvedValue(undefined);
 
     const response = await DELETE(
       new Request("http://localhost") as never,
-      makeParams("inst_1", "m2"),
+      makeParams("test-org", "m2"),
     );
 
     expect(response.status).toBe(204);
-    expect(removeMember).toHaveBeenCalledWith("actor_1", "inst_1", "m2");
+    expect(removeMember).toHaveBeenCalledWith("actor_1", "test-org", "m2");
   });
 
   it("returns 401 when unauthenticated", async () => {
@@ -46,33 +46,37 @@ describe("DELETE /api/v1/institutions/by-id/[institutionId]/members/[membershipI
 
     const response = await DELETE(
       new Request("http://localhost") as never,
-      makeParams("inst_1", "m2"),
+      makeParams("test-org", "m2"),
     );
     expect(response.status).toBe(401);
   });
 
-  it("returns 403 when caller is not institution admin", async () => {
-    requireAuthenticatedSession.mockResolvedValue(adminSession);
+  it("returns 403 when caller is not institution owner or staff", async () => {
+    requireAuthenticatedSession.mockResolvedValue(ownerSession);
     removeMember.mockRejectedValue(
-      new AccessError("forbidden", 403, "institution_owner access required"),
+      new AccessError(
+        "forbidden",
+        403,
+        "institution_owner or institution_staff access required",
+      ),
     );
 
     const response = await DELETE(
       new Request("http://localhost") as never,
-      makeParams("inst_other", "m2"),
+      makeParams("other-org", "m2"),
     );
     expect(response.status).toBe(403);
   });
 
   it("returns 403 on self-removal attempt", async () => {
-    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    requireAuthenticatedSession.mockResolvedValue(ownerSession);
     removeMember.mockRejectedValue(
       new MemberError("member_self_action", 403, "Cannot remove yourself from the institution"),
     );
 
     const response = await DELETE(
       new Request("http://localhost") as never,
-      makeParams("inst_1", "m_self"),
+      makeParams("test-org", "m_self"),
     );
     const body = await response.json();
 
@@ -81,14 +85,14 @@ describe("DELETE /api/v1/institutions/by-id/[institutionId]/members/[membershipI
   });
 
   it("returns 409 when removing last admin", async () => {
-    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    requireAuthenticatedSession.mockResolvedValue(ownerSession);
     removeMember.mockRejectedValue(
       new MemberError("member_last_admin", 409, "Cannot remove the last institution admin"),
     );
 
     const response = await DELETE(
       new Request("http://localhost") as never,
-      makeParams("inst_1", "m1"),
+      makeParams("test-org", "m1"),
     );
     const body = await response.json();
 
@@ -97,12 +101,12 @@ describe("DELETE /api/v1/institutions/by-id/[institutionId]/members/[membershipI
   });
 
   it("returns 404 when member not found", async () => {
-    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    requireAuthenticatedSession.mockResolvedValue(ownerSession);
     removeMember.mockRejectedValue(new MemberError("member_not_found", 404, "Member not found"));
 
     const response = await DELETE(
       new Request("http://localhost") as never,
-      makeParams("inst_1", "m_unknown"),
+      makeParams("test-org", "m_unknown"),
     );
     const body = await response.json();
 

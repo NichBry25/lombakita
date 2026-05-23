@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-type MemberRole = "institution_owner" | "institution_staff";
+type MemberRole = "institution_owner" | "institution_staff" | "institution_member";
+
+const ROLE_OPTIONS: readonly MemberRole[] = [
+  "institution_owner",
+  "institution_staff",
+  "institution_member",
+];
 
 type Member = {
   membershipId: string;
@@ -37,18 +43,18 @@ const formatDate = (iso: string): string => {
 const ROLE_LABELS: Record<MemberRole, string> = {
   institution_owner: "Owner",
   institution_staff: "Staf",
+  institution_member: "Member",
 };
 
-const BASE_URL = (institutionId: string) =>
-  `/api/v1/institutions/by-id/${encodeURIComponent(institutionId)}/members`;
+const BASE_URL = (institutionSlug: string) =>
+  `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/members`;
 
 type Props = {
-  institutionId: string;
   institutionSlug: string;
   actorUserId: string;
 };
 
-export const InstitutionMembersShell = ({ institutionId, actorUserId }: Props) => {
+export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props) => {
   const [members, setMembers] = useState<Member[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
@@ -57,7 +63,7 @@ export const InstitutionMembersShell = ({ institutionId, actorUserId }: Props) =
 
   const loadMembers = useCallback(async () => {
     setIsLoading(true);
-    const response = await fetch(BASE_URL(institutionId), {
+    const response = await fetch(BASE_URL(institutionSlug), {
       cache: "no-store",
       credentials: "include",
     });
@@ -70,7 +76,7 @@ export const InstitutionMembersShell = ({ institutionId, actorUserId }: Props) =
     const data = (await response.json()) as { members: Member[] };
     setMembers(data.members);
     setIsLoading(false);
-  }, [institutionId]);
+  }, [institutionSlug]);
 
   useEffect(() => {
     const id = window.setTimeout(() => void loadMembers(), 0);
@@ -82,7 +88,7 @@ export const InstitutionMembersShell = ({ institutionId, actorUserId }: Props) =
     setFeedback(null);
 
     const response = await fetch(
-      `${BASE_URL(institutionId)}/${encodeURIComponent(membershipId)}/role`,
+      `${BASE_URL(institutionSlug)}/${encodeURIComponent(membershipId)}/role`,
       {
         method: "PATCH",
         headers: { "content-type": "application/json" },
@@ -117,10 +123,13 @@ export const InstitutionMembersShell = ({ institutionId, actorUserId }: Props) =
     setConfirmRemove(null);
     setFeedback(null);
 
-    const response = await fetch(`${BASE_URL(institutionId)}/${encodeURIComponent(membershipId)}`, {
-      method: "DELETE",
-      credentials: "include",
-    });
+    const response = await fetch(
+      `${BASE_URL(institutionSlug)}/${encodeURIComponent(membershipId)}`,
+      {
+        method: "DELETE",
+        credentials: "include",
+      },
+    );
 
     setPendingAction(null);
 
@@ -174,8 +183,7 @@ export const InstitutionMembersShell = ({ institutionId, actorUserId }: Props) =
                 {members.map((member) => {
                   const isSelf = member.userId === actorUserId;
                   const isActing = pendingAction === member.membershipId;
-                  const otherRole: MemberRole =
-                    member.role === "institution_owner" ? "institution_staff" : "institution_owner";
+                  const otherRoles = ROLE_OPTIONS.filter((role) => role !== member.role);
 
                   return (
                     <tr
@@ -202,15 +210,18 @@ export const InstitutionMembersShell = ({ institutionId, actorUserId }: Props) =
                       </td>
                       <td className="py-3">
                         {isSelf ? null : (
-                          <div className="flex items-center gap-2">
-                            <button
-                              className="action-chip text-xs"
-                              disabled={isActing}
-                              onClick={() => void onRoleChange(member.membershipId, otherRole)}
-                              type="button"
-                            >
-                              {isActing ? "..." : `Jadikan ${ROLE_LABELS[otherRole]}`}
-                            </button>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {otherRoles.map((role) => (
+                              <button
+                                key={role}
+                                className="action-chip text-xs"
+                                disabled={isActing}
+                                onClick={() => void onRoleChange(member.membershipId, role)}
+                                type="button"
+                              >
+                                {isActing ? "..." : `Jadikan ${ROLE_LABELS[role]}`}
+                              </button>
+                            ))}
                             <button
                               className="text-xs text-red-600 hover:underline disabled:opacity-50"
                               disabled={isActing}

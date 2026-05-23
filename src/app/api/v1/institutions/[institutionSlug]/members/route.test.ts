@@ -11,10 +11,10 @@ const { requireAuthenticatedSession, listActiveMembers } = vi.hoisted(() => ({
 vi.mock("@/server/auth/session", () => ({ requireAuthenticatedSession }));
 vi.mock("@/server/institution-members/member-service", () => ({ listActiveMembers }));
 
-import { GET } from "@/app/api/v1/institutions/by-id/[institutionId]/members/route";
+import { GET } from "@/app/api/v1/institutions/[institutionSlug]/members/route";
 
-const adminSession = {
-  user: { id: "actor_1", role: "recruiter", email: "admin@example.com" },
+const ownerSession = {
+  user: { id: "actor_1", role: "recruiter", email: "owner@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
@@ -37,23 +37,23 @@ const memberFixtures = [
   },
 ];
 
-const makeParams = (institutionId: string) => ({
-  params: Promise.resolve({ institutionId }),
+const makeParams = (institutionSlug: string) => ({
+  params: Promise.resolve({ institutionSlug }),
 });
 
-describe("GET /api/v1/institutions/by-id/[institutionId]/members", () => {
+describe("GET /api/v1/institutions/[institutionSlug]/members", () => {
   afterEach(() => vi.clearAllMocks());
 
   it("returns active members for institution admin", async () => {
-    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    requireAuthenticatedSession.mockResolvedValue(ownerSession);
     listActiveMembers.mockResolvedValue(memberFixtures);
 
-    const response = await GET(new Request("http://localhost") as never, makeParams("inst_1"));
+    const response = await GET(new Request("http://localhost") as never, makeParams("test-org"));
     const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(body.members).toHaveLength(2);
-    expect(listActiveMembers).toHaveBeenCalledWith("actor_1", "inst_1");
+    expect(listActiveMembers).toHaveBeenCalledWith("actor_1", "test-org");
   });
 
   it("returns 401 when unauthenticated", async () => {
@@ -61,17 +61,17 @@ describe("GET /api/v1/institutions/by-id/[institutionId]/members", () => {
       new AccessError("unauthenticated", 401, "Authentication required"),
     );
 
-    const response = await GET(new Request("http://localhost") as never, makeParams("inst_1"));
+    const response = await GET(new Request("http://localhost") as never, makeParams("test-org"));
     expect(response.status).toBe(401);
   });
 
-  it("returns 403 when caller is not institution admin", async () => {
-    requireAuthenticatedSession.mockResolvedValue(adminSession);
+  it("returns 403 when caller is not institution owner or staff", async () => {
+    requireAuthenticatedSession.mockResolvedValue(ownerSession);
     listActiveMembers.mockRejectedValue(
-      new AccessError("forbidden", 403, "institution_owner access required"),
+      new AccessError("forbidden", 403, "institution_owner or institution_staff access required"),
     );
 
-    const response = await GET(new Request("http://localhost") as never, makeParams("inst_other"));
+    const response = await GET(new Request("http://localhost") as never, makeParams("other-org"));
     expect(response.status).toBe(403);
   });
 });
