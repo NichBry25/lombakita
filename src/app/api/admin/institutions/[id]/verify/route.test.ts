@@ -19,7 +19,7 @@ const platformOpsSession = {
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
-const institutionAdminSession = {
+const recruiterSession = {
   user: { id: "admin_1", role: "recruiter", email: "admin@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
@@ -79,7 +79,7 @@ describe("PATCH /api/admin/institutions/[id]/verify", () => {
   });
 
   it("returns 403 when called by recruiter (not platform_ops)", async () => {
-    requireAuthenticatedSession.mockResolvedValue(institutionAdminSession);
+    requireAuthenticatedSession.mockResolvedValue(recruiterSession);
     verifyInstitution.mockRejectedValue(
       new AccessError("forbidden", 403, "platform_ops access required"),
     );
