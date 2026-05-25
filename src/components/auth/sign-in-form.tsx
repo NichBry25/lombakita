@@ -124,7 +124,10 @@ export const SignInForm = ({
       const result = await signIn("credentials", {
         email: loginEmail.trim().toLowerCase(),
         password: loginPassword,
-        callbackUrl: callbackUrl ?? "/profile",
+        // Step 4.0b — route through the post-login decision page so single-role accounts hit
+        // the second-role prompt before reaching a dashboard. The decision page redirects on
+        // to the right destination based on live verification state.
+        callbackUrl: callbackUrl ?? "/auth/post-login",
         redirect: false,
       });
 

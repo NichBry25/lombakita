@@ -127,7 +127,7 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user, trigger }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         // Authorize() returns the DB row's user-level role. We only write it into the token if
         // it matches the current AppRole set; otherwise we omit it so the session callback
@@ -164,6 +164,26 @@ export const authOptions: NextAuthOptions = {
       // sliding expiry. The token's `iat` / `exp` are managed by next-auth based on maxAge.
       if (trigger === "update") {
         token.lastActiveAt = Math.floor(Date.now() / 1000);
+
+        // Step 4.0b — second-role prompt dismissal. Caller passes
+        // `update({ secondRolePromptDismissed: true })` from "Skip for now". The flag is
+        // session-scoped: it lives on the JWT and clears naturally on next sign-in because a
+        // fresh JWT is minted. We accept only a boolean and only the dismissal-true case; no
+        // other client-controlled token fields can be written through update().
+        if (
+          typeof session === "object" &&
+          session !== null &&
+          "secondRolePromptDismissed" in session &&
+          (session as { secondRolePromptDismissed?: unknown }).secondRolePromptDismissed === true
+        ) {
+          token.secondRolePromptDismissed = true;
+        }
+      }
+
+      // Fresh sign-in mints a new JWT — explicitly clear any carried dismissal so a previous
+      // login session's "Skip for now" does not silently suppress the prompt on the next login.
+      if (user) {
+        delete token.secondRolePromptDismissed;
       }
 
       return token;
@@ -191,6 +211,12 @@ export const authOptions: NextAuthOptions = {
       }
 
       session.user.verifiedRoles = sanitizeVerifiedRoles(token?.verifiedRoles);
+
+      // Step 4.0b — surface the session-scoped dismissal flag so server components can decide
+      // whether to render the post-login interstitial without an extra DB round-trip.
+      if (token?.secondRolePromptDismissed === true) {
+        session.secondRolePromptDismissed = true;
+      }
 
       return session;
     },
