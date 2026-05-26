@@ -3,13 +3,13 @@ import { DEFAULT_APP_ROLE, isAppRole } from "@/lib/access/roles";
 import { StudentEligibilityShell } from "@/components/student/student-eligibility-shell";
 import { getCurrentSession } from "@/server/auth/session";
 
-const STUDENT_ELIGIBILITY_PATH = "/student/eligibility";
+const ELIGIBILITY_PATH = "/candidate-dashboard/eligibility";
 
-export default async function StudentEligibilityPage() {
+export default async function CandidateEligibilityPage() {
   const session = await getCurrentSession();
 
   if (!session?.user?.id) {
-    redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(STUDENT_ELIGIBILITY_PATH)}`);
+    redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(ELIGIBILITY_PATH)}`);
   }
 
   const normalizedRole = isAppRole(session.user.role) ? session.user.role : DEFAULT_APP_ROLE;

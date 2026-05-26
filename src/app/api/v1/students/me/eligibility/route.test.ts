@@ -25,7 +25,7 @@ vi.mock("@/server/eligibility/eligibility-service", () => ({
 
 import { GET, PATCH } from "./route";
 
-const studentSession = {
+const candidateSession = {
   user: { id: "stud_1", role: "candidate", email: "stud@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
@@ -61,7 +61,7 @@ describe("GET /api/v1/students/me/eligibility", () => {
   afterEach(() => vi.clearAllMocks());
 
   it("returns 200 with profile and eligibility for an authenticated student", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     getStudentEligibilityProfile.mockResolvedValue(profileShell);
     checkStudentEligibility.mockResolvedValue(eligibilityResult);
 
@@ -99,7 +99,7 @@ describe("GET /api/v1/students/me/eligibility", () => {
   });
 
   it("scopes the eligibility query to the session user — never accepts userId from elsewhere", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     getStudentEligibilityProfile.mockResolvedValue(profileShell);
     checkStudentEligibility.mockResolvedValue(eligibilityResult);
 
@@ -114,7 +114,7 @@ describe("PATCH /api/v1/students/me/eligibility", () => {
   afterEach(() => vi.clearAllMocks());
 
   it("returns 200 with the updated profile and fresh eligibility on success", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     updateStudentEligibilityProfile.mockResolvedValue({
       profile: profileShell,
       eligibility: eligibilityResult,
@@ -137,7 +137,7 @@ describe("PATCH /api/v1/students/me/eligibility", () => {
   });
 
   it("returns 400 when payload includes the protected status field", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     updateStudentEligibilityProfile.mockRejectedValue(
       new EligibilityInputError(
         "eligibility_protected_fields",
@@ -154,7 +154,7 @@ describe("PATCH /api/v1/students/me/eligibility", () => {
   });
 
   it("returns 400 on invalid JSON body", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
 
     const res = await PATCH(makePatchRequest("{not json") as never);
     const body = await res.json();
