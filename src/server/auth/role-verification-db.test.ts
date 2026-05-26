@@ -153,4 +153,38 @@ describe("markRoleAsVerifiedStub", () => {
       RoleVerificationError,
     );
   });
+
+  // Step 4.0c (4.0c-T3) — When the second-role stub flips recruiter to verified, the
+  // recruiter_verification_tier must be lifted to 'minimal' in the SAME UPDATE statement.
+  // Otherwise the row would land at recruiter_verified_at IS NOT NULL AND tier='unverified',
+  // which is the 4.0c-M1 inconsistency now prevented by both the application fix and the
+  // users_recruiter_tier_consistency_chk DB constraint.
+  it("sets recruiterVerificationTier='minimal' atomically when flipping recruiter to verified (4.0c-M1 fix)", async () => {
+    const { db, updateChain } = buildTxDb({
+      candidateVerifiedAt: new Date(),
+      recruiterVerifiedAt: null,
+    });
+
+    await markRoleAsVerifiedStub("u1", "recruiter", db as never);
+
+    // Both writes must land in a single .set() call — the helper only invokes update().set()
+    // once per call, so the assertion below confirms both fields ride the same statement.
+    expect(updateChain.set).toHaveBeenCalledTimes(1);
+    const setArg = updateChain.set.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(setArg).toHaveProperty("recruiterVerifiedAt");
+    expect(setArg).toHaveProperty("recruiterVerificationTier", "minimal");
+  });
+
+  it("does NOT touch recruiterVerificationTier when flipping candidate to verified", async () => {
+    const { db, updateChain } = buildTxDb({
+      candidateVerifiedAt: null,
+      recruiterVerifiedAt: new Date(),
+    });
+
+    await markRoleAsVerifiedStub("u1", "candidate", db as never);
+
+    const setArg = updateChain.set.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(setArg).toHaveProperty("candidateVerifiedAt");
+    expect(setArg).not.toHaveProperty("recruiterVerificationTier");
+  });
 });

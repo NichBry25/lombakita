@@ -276,9 +276,16 @@ export const registerUserWithCredentials = async (
       // For pre-existing unverified rows (re-registration into the same email without prior
       // email verification) we re-apply the declared role + verifiedAt to reflect the latest
       // declaration.
+      //
+      // Step 4.0c (CCR-19 / DEC-0053) — recruiter signup auto-grants the `minimal` tier in the
+      // same INSERT/UPDATE statement so tier and recruiterVerifiedAt land atomically. Candidate
+      // signups leave the tier at the column default ('unverified'); the tier is only meaningful
+      // once the account verifies the recruiter mode.
       const now = new Date();
       const candidateVerifiedAt = input.signupRole === "candidate" ? now : null;
       const recruiterVerifiedAt = input.signupRole === "recruiter" ? now : null;
+      const recruiterVerificationTier =
+        input.signupRole === "recruiter" ? ("minimal" as const) : ("unverified" as const);
 
       let userId = existingUser?.id;
 
@@ -311,6 +318,7 @@ export const registerUserWithCredentials = async (
             username,
             candidateVerifiedAt,
             recruiterVerifiedAt,
+            recruiterVerificationTier,
           })
           .returning({ id: users.id });
 
@@ -332,6 +340,7 @@ export const registerUserWithCredentials = async (
             role: input.signupRole,
             candidateVerifiedAt,
             recruiterVerifiedAt,
+            recruiterVerificationTier,
             updatedAt: now,
           })
           .where(eq(users.id, userId));

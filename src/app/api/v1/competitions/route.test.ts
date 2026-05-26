@@ -1,20 +1,49 @@
 // @vitest-environment node
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 import { CompetitionError } from "@/server/competitions/competition-core";
 
-const { requireAuthenticatedSession, createCompetitionDraft, listPublicCompetitions } = vi.hoisted(
-  () => ({
+const {
+  requireAuthenticatedSession,
+  createCompetitionDraft,
+  listPublicCompetitions,
+  assertRecruiterTier,
+  RecruiterTierError,
+} = vi.hoisted(() => {
+  class RecruiterTierError extends Error {
+    constructor(
+      public readonly code:
+        | "recruiter_role_not_verified"
+        | "recruiter_tier_insufficient",
+      public readonly status: 403,
+      message: string,
+      public readonly details?: Record<string, unknown>,
+    ) {
+      super(message);
+    }
+  }
+  return {
     requireAuthenticatedSession: vi.fn(),
     createCompetitionDraft: vi.fn(),
     listPublicCompetitions: vi.fn(),
-  }),
-);
+    assertRecruiterTier: vi.fn(),
+    RecruiterTierError,
+  };
+});
 
 vi.mock("@/server/auth/session", () => ({ requireAuthenticatedSession }));
 vi.mock("@/server/competitions/competition-service", () => ({ createCompetitionDraft }));
 vi.mock("@/server/competitions/competition-public-service", () => ({ listPublicCompetitions }));
+vi.mock("@/server/auth/recruiter-tier", () => ({
+  assertRecruiterTier,
+  OPPORTUNITY_CREATION_MIN_TIER: "minimal",
+  RecruiterTierError,
+}));
+
+beforeEach(() => {
+  assertRecruiterTier.mockResolvedValue(undefined);
+});
 
 import { GET, POST } from "@/app/api/v1/competitions/route";
 
@@ -135,6 +164,58 @@ describe("POST /api/v1/competitions", () => {
     );
     expect(response.status).toBe(400);
     expect(createCompetitionDraft).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 when recruiter tier is unverified (Step 4.0c gate)", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    assertRecruiterTier.mockRejectedValue(
+      new RecruiterTierError(
+        "recruiter_role_not_verified",
+        403,
+        "Recruiter role verification is required",
+        { requiredTier: "minimal" },
+      ),
+    );
+    const response = await POST(
+      makePost({ institutionSlug: "lk", title: "Lomba Coding 2026" }),
+    );
+    const body = await response.json();
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe("recruiter_role_not_verified");
+    expect(createCompetitionDraft).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 when recruiter tier is below threshold", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    assertRecruiterTier.mockRejectedValue(
+      new RecruiterTierError(
+        "recruiter_tier_insufficient",
+        403,
+        "Recruiter tier 'minimal' is required",
+        { requiredTier: "minimal", currentTier: "unverified" },
+      ),
+    );
+    const response = await POST(
+      makePost({ institutionSlug: "lk", title: "Lomba Coding 2026" }),
+    );
+    const body = await response.json();
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe("recruiter_tier_insufficient");
+    expect(body.error.details.currentTier).toBe("unverified");
+    expect(createCompetitionDraft).not.toHaveBeenCalled();
+  });
+
+  it("calls assertRecruiterTier with OPPORTUNITY_CREATION_MIN_TIER (minimal)", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    createCompetitionDraft.mockResolvedValue({
+      id: "comp_1",
+      institutionId: "inst_1",
+      slug: "lomba-x",
+      title: "Lomba Coding 2026",
+      status: "draft",
+    });
+    await POST(makePost({ institutionSlug: "lk", title: "Lomba Coding 2026" }));
+    expect(assertRecruiterTier).toHaveBeenCalledWith(adminSession, "minimal");
   });
 });
 

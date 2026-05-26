@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import {
+  assertRecruiterTier,
+  OPPORTUNITY_CREATION_MIN_TIER,
+  RecruiterTierError,
+} from "@/server/auth/recruiter-tier";
+import {
   CompetitionError,
   parseCompetitionCreateInput,
   toCompetitionErrorResponse,
@@ -38,9 +43,14 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 // POST — create a draft competition. Auth required.
+// Step 4.0c (CCR-19 / DEC-0053) — recruiter tier gate: the caller must hold the
+// OPPORTUNITY_CREATION_MIN_TIER threshold (currently `minimal`). The tier check runs after
+// session resolution and before any DB write. Institution membership is validated downstream
+// inside createCompetitionDraft.
 export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireAuthenticatedSession();
+    await assertRecruiterTier(session, OPPORTUNITY_CREATION_MIN_TIER);
     let body: unknown;
     try {
       body = await request.json();
@@ -55,6 +65,12 @@ export async function POST(request: Request): Promise<Response> {
     const competition = await createCompetitionDraft(session.user.id, input);
     return NextResponse.json({ competition }, { status: 201 });
   } catch (error) {
+    if (error instanceof RecruiterTierError) {
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message, details: error.details } },
+        { status: error.status },
+      );
+    }
     if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     return toAccessDeniedResponse(error);
   }

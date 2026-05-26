@@ -66,6 +66,24 @@ export const institutionInvitationStatusEnum = pgEnum("institution_invitation_st
   "cancelled",
 ]);
 
+// Step 4.0c (CCR-19 / DEC-0053) — Recruiter verification tier.
+// Per-account tier dimension that refines the recruiter role's capability surface. Auto-granted
+// to `minimal` at recruiter signup; only `platform_ops` can lift an account to `elevated` (manual
+// review at launch — mechanical verification flow deferred per CCR-19). Tier is monotonically
+// increasing at launch — no downgrade path.
+//   unverified — schema default for backfilled rows + non-recruiter accounts. Not reachable
+//                naturally for recruiter signups (signup auto-grants `minimal` atomically).
+//   minimal    — auto-granted on `?as=recruiter` signup. Satisfies the opportunity-creation gate.
+//   elevated   — manually granted by platform_ops via PATCH /api/platform-ops/accounts/[id]/recruiter-tier.
+export const recruiterVerificationTierEnum = pgEnum("recruiter_verification_tier", [
+  "unverified",
+  "minimal",
+  "elevated",
+]);
+
+export type RecruiterVerificationTier =
+  (typeof recruiterVerificationTierEnum.enumValues)[number];
+
 export const competitionStatusEnum = pgEnum("competition_status", [
   "draft",
   "published",
@@ -158,6 +176,13 @@ export const users = pgTable(
       mode: "date",
       withTimezone: true,
     }),
+    // Step 4.0c (CCR-19 / DEC-0053) — recruiter tier dimension. Placed on `users` (not a
+    // parallel table) so it sits adjacent to the per-role verification timestamps and shares
+    // their lifecycle. Non-null with default `unverified`; recruiter signup writes `minimal`
+    // atomically alongside `recruiterVerifiedAt`. See `assertRecruiterTier` for the read path.
+    recruiterVerificationTier: recruiterVerificationTierEnum("recruiter_verification_tier")
+      .notNull()
+      .default("unverified"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
@@ -166,6 +191,16 @@ export const users = pgTable(
     check(
       "users_one_verified_role_chk",
       sql`${table.candidateVerifiedAt} IS NOT NULL OR ${table.recruiterVerifiedAt} IS NOT NULL`,
+    ),
+    // Step 4.0c (Sch4.0c-M2) — recruiter tier consistency invariant. Any row holding a non-null
+    // recruiterVerifiedAt must also hold a tier above 'unverified'. Enforced at the DB so any
+    // write path that forgets to set the tier (e.g. a future verification flow) is rejected at
+    // INSERT/UPDATE time rather than silently producing an inconsistent row. The application
+    // already writes 'minimal' atomically at signup (credentials-auth.ts) and at the second-role
+    // stub (role-verification.ts); this CHECK is the safety net.
+    check(
+      "users_recruiter_tier_consistency_chk",
+      sql`${table.recruiterVerifiedAt} IS NULL OR ${table.recruiterVerificationTier} <> 'unverified'`,
     ),
   ],
 );

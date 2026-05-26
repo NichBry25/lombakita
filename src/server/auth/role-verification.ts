@@ -138,14 +138,23 @@ export const markRoleAsVerifiedStub = async (
       );
     }
 
-    const column =
+    // Step 4.0c (4.0c-M1 fix) — when the recruiter mode is flipped to verified, the recruiter
+    // verification tier must be auto-granted to `minimal` in the SAME UPDATE statement. This
+    // mirrors the credentials-auth signup path (`?as=recruiter`) and preserves the invariant
+    // that any row holding `recruiterVerifiedAt IS NOT NULL` also holds tier >= `minimal`.
+    // Without this atomic write, the second-role verification path leaves the user stranded at
+    // tier='unverified' and locked out of opportunity creation.
+    const verificationColumns =
       role === "candidate"
         ? { candidateVerifiedAt: sql`now()` }
-        : { recruiterVerifiedAt: sql`now()` };
+        : {
+            recruiterVerifiedAt: sql`now()`,
+            recruiterVerificationTier: "minimal" as const,
+          };
 
     await tx
       .update(users)
-      .set({ ...column, updatedAt: sql`now()` })
+      .set({ ...verificationColumns, updatedAt: sql`now()` })
       .where(eq(users.id, userId));
 
     logger.info("role_verification.stub_completed", { userId, role });
