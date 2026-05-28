@@ -13,12 +13,12 @@ vi.mock("@/server/registrations/registration-service", () => ({ getStudentRegist
 
 import { GET } from "./route";
 
-const studentSession = {
+const candidateSession = {
   user: { id: "stud_1", role: "candidate", email: "stud@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
-const otherStudentSession = {
+const otherCandidateSession = {
   user: { id: "stud_2", role: "candidate", email: "stud2@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
@@ -33,8 +33,8 @@ const makeRequest = () =>
 describe("GET /api/v1/competitions/[competitionId]/registrations/me", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("returns the calling student's registration when one exists", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+  it("returns the calling candidate's registration when one exists", async () => {
+    requireSessionRole.mockResolvedValue(candidateSession);
     getStudentRegistration.mockResolvedValue({
       id: "reg_1",
       competitionId: "comp_1",
@@ -50,8 +50,8 @@ describe("GET /api/v1/competitions/[competitionId]/registrations/me", () => {
     expect(getStudentRegistration).toHaveBeenCalledWith("stud_1", "comp_1");
   });
 
-  it("returns 404 when no registration exists for the calling student", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+  it("returns 404 when no registration exists for the calling candidate", async () => {
+    requireSessionRole.mockResolvedValue(candidateSession);
     getStudentRegistration.mockResolvedValue(null);
 
     const res = await GET(makeRequest() as never, makeContext());
@@ -60,8 +60,8 @@ describe("GET /api/v1/competitions/[competitionId]/registrations/me", () => {
     expect(body.error.code).toBe("registration_not_found");
   });
 
-  it("scopes the lookup to the calling session user — never another student", async () => {
-    requireSessionRole.mockResolvedValue(otherStudentSession);
+  it("scopes the lookup to the calling session user — never another candidate", async () => {
+    requireSessionRole.mockResolvedValue(otherCandidateSession);
     getStudentRegistration.mockResolvedValue(null);
 
     await GET(makeRequest() as never, makeContext());
@@ -76,7 +76,7 @@ describe("GET /api/v1/competitions/[competitionId]/registrations/me", () => {
     expect(getStudentRegistration).not.toHaveBeenCalled();
   });
 
-  it("returns 403 when caller is platform_ops (not a student)", async () => {
+  it("returns 403 when caller is platform_ops (not a candidate)", async () => {
     requireSessionRole.mockRejectedValue(new AccessError("forbidden", 403, ""));
 
     const res = await GET(makeRequest() as never, makeContext());

@@ -25,7 +25,7 @@ const REGISTRATION_COLUMNS = {
 } as const;
 
 // Pure read for downstream steps (4.5 dashboard, 4.6 submission intake).
-// Returns the student's most recent registration row for this competition (any status), or
+// Returns the candidate's most recent registration row for this competition (any status), or
 // null when no row exists. Callers must scope `studentId` to the authenticated session — this
 // helper performs no authorization of its own.
 export const getStudentRegistration = async (
@@ -92,7 +92,7 @@ const findAnyExistingRegistration = async (
   return row ?? null;
 };
 
-// Create an individual registration for the calling student.
+// Create an individual registration for the calling candidate.
 // Enforcement order matches the contract:
 //   (a) competition exists (and is not soft-deleted)
 //   (b) competition.status === 'published'
@@ -100,7 +100,7 @@ const findAnyExistingRegistration = async (
 //   (d) registration_deadline (registrationEndAt) not yet passed
 //   (e) eligibility helper returns eligible
 //   (f) no existing registration row (confirmed OR cancelled — re-registration is blocked)
-// The route layer already enforces (auth + role=student). This helper does not re-check role
+// The route layer already enforces (auth + role=candidate). This helper does not re-check role
 // because it requires `studentId` as input — callers must pass session.user.id.
 export const createIndividualRegistration = async (
   studentId: string,
@@ -220,10 +220,10 @@ const loadRegistrationById = async (
   return row ?? null;
 };
 
-// Cancel a registration owned by the calling student.
+// Cancel a registration owned by the calling candidate.
 // Enforcement order:
 //   (a) registration exists for this id
-//   (b) registration belongs to this student (ownership)
+//   (b) registration belongs to this candidate (ownership)
 //   (c) registration matches the URL competitionId
 //   (d) registration.status === 'confirmed' (cancelled is terminal; pending_payment is Phase 7)
 //   (e) competition.registration_deadline not yet passed

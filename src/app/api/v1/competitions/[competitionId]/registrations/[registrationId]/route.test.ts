@@ -13,7 +13,7 @@ vi.mock("@/server/registrations/registration-service", () => ({ cancelRegistrati
 
 import { DELETE } from "./route";
 
-const studentSession = {
+const candidateSession = {
   user: { id: "stud_1", role: "candidate", email: "stud@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
@@ -46,7 +46,7 @@ describe("DELETE /api/v1/competitions/[competitionId]/registrations/[registratio
   };
 
   it("returns 200 with the updated record on success (no body)", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     cancelRegistration.mockResolvedValue(cancelledRow);
 
     const res = await DELETE(makeRequest() as never, makeContext());
@@ -58,7 +58,7 @@ describe("DELETE /api/v1/competitions/[competitionId]/registrations/[registratio
   });
 
   it("forwards an optional cancellationReason from the body", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     cancelRegistration.mockResolvedValue({ ...cancelledRow, cancellationReason: "changed mind" });
 
     await DELETE(makeRequest({ cancellationReason: "changed mind" }) as never, makeContext());
@@ -81,8 +81,8 @@ describe("DELETE /api/v1/competitions/[competitionId]/registrations/[registratio
     expect(res.status).toBe(403);
   });
 
-  it("returns 403 with registration_not_owner when registration belongs to another student", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+  it("returns 403 with registration_not_owner when registration belongs to another candidate", async () => {
+    requireSessionRole.mockResolvedValue(candidateSession);
     const { RegistrationError } = await import("@/server/registrations/registration-core");
     cancelRegistration.mockRejectedValue(
       new RegistrationError("registration_not_owner", "Not owner"),
@@ -95,7 +95,7 @@ describe("DELETE /api/v1/competitions/[competitionId]/registrations/[registratio
   });
 
   it("returns 409 with registration_wrong_status when already cancelled", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     const { RegistrationError } = await import("@/server/registrations/registration-core");
     cancelRegistration.mockRejectedValue(
       new RegistrationError("registration_wrong_status", "Already cancelled"),
@@ -106,7 +106,7 @@ describe("DELETE /api/v1/competitions/[competitionId]/registrations/[registratio
   });
 
   it("returns 409 with registration_deadline_passed after deadline", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     const { RegistrationError } = await import("@/server/registrations/registration-core");
     cancelRegistration.mockRejectedValue(
       new RegistrationError("registration_deadline_passed", "Past deadline"),
@@ -117,7 +117,7 @@ describe("DELETE /api/v1/competitions/[competitionId]/registrations/[registratio
   });
 
   it("returns 400 when JSON body is malformed", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
 
     const req = new Request("http://localhost/api/v1/competitions/comp_1/registrations/reg_1", {
       method: "DELETE",

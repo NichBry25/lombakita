@@ -339,7 +339,7 @@ describe("cancelRegistration enforcement chain", () => {
     ).rejects.toMatchObject({ code: "registration_not_found" });
   });
 
-  it("rejects with registration_not_owner when caller is not the student on the row", async () => {
+  it("rejects with registration_not_owner when caller is not the candidate on the row", async () => {
     const reg = baseRegistration({ studentId: "other_student" });
     const { db } = makeQueuedDb([[reg]]);
 

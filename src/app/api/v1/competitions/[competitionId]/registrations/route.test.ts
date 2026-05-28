@@ -13,7 +13,7 @@ vi.mock("@/server/registrations/registration-service", () => ({ createIndividual
 
 import { POST } from "./route";
 
-const studentSession = {
+const candidateSession = {
   user: { id: "stud_1", role: "candidate", email: "stud@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
@@ -42,7 +42,7 @@ describe("POST /api/v1/competitions/[competitionId]/registrations", () => {
   };
 
   it("returns 201 with registration on success", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     createIndividualRegistration.mockResolvedValue(sampleRegistration);
 
     const res = await POST(makeRequest() as never, makeContext());
@@ -70,7 +70,7 @@ describe("POST /api/v1/competitions/[competitionId]/registrations", () => {
   });
 
   it("forwards RegistrationError with correct status (404 competition_not_found)", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     const { RegistrationError } = await import("@/server/registrations/registration-core");
     createIndividualRegistration.mockRejectedValue(
       new RegistrationError("competition_not_found", "Competition not found"),
@@ -83,7 +83,7 @@ describe("POST /api/v1/competitions/[competitionId]/registrations", () => {
   });
 
   it("forwards RegistrationError with correct status (422 ineligible)", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     const { RegistrationError } = await import("@/server/registrations/registration-core");
     createIndividualRegistration.mockRejectedValue(
       new RegistrationError("registration_ineligible", "Not eligible", {
@@ -99,7 +99,7 @@ describe("POST /api/v1/competitions/[competitionId]/registrations", () => {
   });
 
   it("forwards RegistrationError with correct status (409 already exists)", async () => {
-    requireSessionRole.mockResolvedValue(studentSession);
+    requireSessionRole.mockResolvedValue(candidateSession);
     const { RegistrationError } = await import("@/server/registrations/registration-core");
     createIndividualRegistration.mockRejectedValue(
       new RegistrationError("registration_already_exists", "Already registered"),
