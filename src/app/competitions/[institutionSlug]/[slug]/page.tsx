@@ -6,9 +6,7 @@ import {
 } from "@/server/competitions/competition-public-service";
 import { getCurrentSession } from "@/server/auth/session";
 import { isSavedCompetition } from "@/server/saved-competitions/saved-competition-service";
-import { getStudentRegistration } from "@/server/registrations/registration-service";
 import { SaveButton } from "./save-button";
-import { RegisterButton } from "./register-button";
 
 const CATEGORY_LABELS: Record<string, string> = {
   technology: "Teknologi",
@@ -42,7 +40,6 @@ function FeeDisplay({ feeAmount }: { feeAmount: string | null }) {
     return <p style={{ fontSize: 14, color: "#2d7a2d", fontWeight: 600 }}>Gratis</p>;
   }
   // "Rp" is hardcoded as IDR — Indonesia-first MVP assumption.
-  // feeCurrency is excluded from the public API per DEC-0022; currency formatting is a deferred UX concern.
   return (
     <>
       <p style={{ fontSize: 14 }}>Rp {amount.toLocaleString("id-ID")}</p>
@@ -51,10 +48,37 @@ function FeeDisplay({ feeAmount }: { feeAmount: string | null }) {
   );
 }
 
-// Static CTA placeholder for non-candidate visitors. Candidates see <RegisterButton /> instead,
-// which handles register/cancel and reflects the live registration state from the /me endpoint.
-function VisitorCTAButton({ ctaState }: { ctaState: PublicCompetitionDetail["ctaState"] }) {
-  if (ctaState === "open") {
+// CTA button on the detail page is a *navigation link*, not a mutation. Clicking takes the
+// candidate to the dedicated `/registration` subpage where the actual register/team flows live.
+// This keeps the read surface (this page) cleanly separated from the act surface (registration).
+function CTANavLink({
+  ctaState,
+  registrationPath,
+  isCandidate,
+}: {
+  ctaState: PublicCompetitionDetail["ctaState"];
+  registrationPath: string;
+  isCandidate: boolean;
+}) {
+  if (ctaState === "open" && isCandidate) {
+    return (
+      <Link
+        href={registrationPath}
+        style={{
+          display: "inline-block",
+          padding: "10px 24px",
+          background: "#355795",
+          color: "#fff",
+          borderRadius: 6,
+          fontSize: 15,
+          textDecoration: "none",
+        }}
+      >
+        Daftar
+      </Link>
+    );
+  }
+  if (ctaState === "open" && !isCandidate) {
     return (
       <button
         disabled
@@ -104,16 +128,11 @@ export default async function CompetitionDetailPage({
   if (!competition) notFound();
 
   const isCandidate = session?.user?.role === "candidate";
-  const [initialSaved, initialRegistration] = isCandidate
-    ? await Promise.all([
-        isSavedCompetition(session!.user.id, competition.id),
-        getStudentRegistration(session!.user.id, competition.id),
-      ])
-    : [false, null];
+  const initialSaved = isCandidate
+    ? await isSavedCompetition(session!.user.id, competition.id)
+    : false;
 
-  // Individual registration is only valid for `individual` and `both` modes. `team` is
-  // routed through Steps 4.3/4.4 (out of scope here).
-  const wrongMode = competition.mode === "team";
+  const registrationPath = `/competitions/${institutionSlug}/${slug}/registration`;
 
   const showTeamSize =
     competition.mode !== "individual" &&
@@ -225,36 +244,36 @@ export default async function CompetitionDetailPage({
         <p style={{ fontSize: 14, color: "#555" }}>Mahasiswa aktif usia 18–32 tahun.</p>
       </section>
 
-      {/* CTA */}
+      {/* CTA — navigation only. The actual register/team flow lives at /registration. */}
       <div style={{ marginTop: 32 }}>
-        {isCandidate ? (
-          <RegisterButton
-            competitionId={competition.id}
-            ctaState={competition.ctaState}
-            initialRegistration={
-              initialRegistration
-                ? { id: initialRegistration.id, status: initialRegistration.status }
-                : null
-            }
-            wrongMode={wrongMode}
-          />
-        ) : (
-          <>
-            <VisitorCTAButton ctaState={competition.ctaState} />
-            <p style={{ fontSize: 12, color: "#888", marginTop: 8 }}>
-              <Link href="/auth/sign-in" style={{ color: "#355795" }}>
-                Masuk
-              </Link>{" "}
-              sebagai mahasiswa untuk mendaftar.
-            </p>
-          </>
+        <CTANavLink
+          ctaState={competition.ctaState}
+          registrationPath={registrationPath}
+          isCandidate={isCandidate}
+        />
+        {!session?.user && (
+          <p style={{ fontSize: 12, color: "#888", marginTop: 8 }}>
+            <Link href="/auth/sign-in" style={{ color: "#355795" }}>
+              Masuk
+            </Link>{" "}
+            sebagai mahasiswa untuk mendaftar.
+          </p>
+        )}
+        {session?.user && !isCandidate && (
+          <p style={{ fontSize: 12, color: "#888", marginTop: 8 }}>
+            Hanya akun kandidat yang dapat mendaftar.
+          </p>
         )}
       </div>
 
       {/* Save */}
       <div style={{ marginTop: 8 }}>
         {isCandidate ? (
-          <SaveButton competitionId={competition.id} initialSaved={initialSaved} />
+          <SaveButton
+            competitionId={competition.id}
+            initialSaved={initialSaved}
+            expectedUserId={session!.user.id}
+          />
         ) : (
           <p style={{ fontSize: 13, color: "#888", marginTop: 16 }}>
             <Link href="/auth/sign-in" style={{ color: "#355795" }}>

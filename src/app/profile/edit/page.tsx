@@ -15,7 +15,7 @@ export default async function ProfileEditPage() {
   return (
     <main style={{ maxWidth: 640, margin: "0 auto", padding: "2rem 1rem" }}>
       <h1 style={{ marginBottom: "1.5rem" }}>Edit Profil</h1>
-      <ProfileEditShell profile={profile} />
+      <ProfileEditShell profile={profile} expectedUserId={session.user.id} />
     </main>
   );
 }

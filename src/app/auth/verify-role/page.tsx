@@ -22,7 +22,7 @@ export default async function VerifyRolePage(props: {
 }) {
   const session = await getCurrentSession();
   if (!session?.user?.id) {
-    redirect("/auth/sign-in?callbackUrl=/auth/post-login");
+    redirect("/auth/sign-in?callbackUrl=/");
   }
 
   const searchParams = await props.searchParams;
@@ -37,7 +37,7 @@ export default async function VerifyRolePage(props: {
           <code>?as=candidate</code> atau <code>?as=recruiter</code>.
         </p>
         <p style={{ marginTop: "1rem" }}>
-          <Link href="/auth/post-login">Kembali</Link>
+          <Link href="/">Kembali</Link>
         </p>
       </main>
     );
@@ -79,7 +79,7 @@ export default async function VerifyRolePage(props: {
       <StubCompleteButton role={role} />
 
       <p style={{ marginTop: "1.5rem", fontSize: "0.85rem" }}>
-        <Link href="/auth/post-login">Batal — kembali</Link>
+        <Link href="/">Batal — kembali</Link>
       </p>
     </main>
   );

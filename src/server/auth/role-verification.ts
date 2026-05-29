@@ -172,33 +172,3 @@ export const dashboardPathForRole = (role: VerifiableRole): string => {
   return role === "candidate" ? "/candidate-dashboard" : "/recruiter-dashboard";
 };
 
-// Pure decision function — given a verification state and the session's dismissal flag, returns
-// where the post-login flow should land. Pulled out as a pure function so unit tests do not
-// need a database. The caller is responsible for the DB read.
-export const decidePostLoginDestination = (
-  state: VerificationState,
-  dismissedThisSession: boolean,
-): string => {
-  const verifiedCount =
-    Number(state.candidateVerified) + Number(state.recruiterVerified);
-
-  if (verifiedCount === 0) {
-    // Should not happen — DB CHECK users_one_verified_role_chk guarantees at least one verified
-    // role per account. Fail-closed by routing back to sign-in.
-    return "/auth/sign-in";
-  }
-
-  if (verifiedCount === 2) {
-    return "/candidate-dashboard";
-  }
-
-  // Single-role: candidate gets candidate dashboard, recruiter gets recruiter dashboard. If the
-  // post-login prompt has not been dismissed this session, send through the interstitial first.
-  const soleRole: VerifiableRole = state.candidateVerified ? "candidate" : "recruiter";
-
-  if (!dismissedThisSession) {
-    return "/auth/second-role-prompt";
-  }
-
-  return dashboardPathForRole(soleRole);
-};

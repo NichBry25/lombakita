@@ -556,6 +556,13 @@ export type CompetitionRegistrationStatus =
 // rows are retained as historical artefacts and do not block the partial unique; re-registration
 // is blocked at the application layer (a confirmed-or-cancelled row makes the student
 // "already known" to this competition for the lifetime of MVP).
+//
+// Step 4.4: `team_id` joins a registration row to a `teams` row when registration_type='team'.
+// The DB CHECK `competition_registrations_type_team_id_chk` enforces co-presence: a 'team' row
+// must carry team_id non-null; an 'individual' row must carry team_id null. The partial unique
+// on (student_id, competition_id) WHERE status<>'cancelled' covers both individual and team
+// registrations — a candidate cannot hold a confirmed individual registration and a confirmed
+// team membership for the same competition simultaneously.
 export const competitionRegistrations = pgTable(
   "competition_registrations",
   {
@@ -568,6 +575,7 @@ export const competitionRegistrations = pgTable(
     studentId: text("student_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    teamId: text("team_id").references(() => teams.id, { onDelete: "cascade" }),
     registrationType: competitionRegistrationTypeEnum("registration_type")
       .notNull()
       .default("individual"),
@@ -583,11 +591,17 @@ export const competitionRegistrations = pgTable(
   (table) => [
     index("competition_registrations_competition_id_idx").on(table.competitionId),
     index("competition_registrations_student_id_idx").on(table.studentId),
+    index("competition_registrations_team_id_idx").on(table.teamId),
     // Partial unique index — see migration for the WHERE clause. Drizzle expresses this via the
     // `where` option on uniqueIndex.
     uniqueIndex("competition_registrations_student_competition_active_unique_idx")
       .on(table.studentId, table.competitionId)
       .where(sql`${table.status} <> 'cancelled'`),
+    // Step 4.4 — co-presence invariant: registration_type and team_id must agree.
+    check(
+      "competition_registrations_type_team_id_chk",
+      sql`(${table.registrationType} = 'team' AND ${table.teamId} IS NOT NULL) OR (${table.registrationType} = 'individual' AND ${table.teamId} IS NULL)`,
+    ),
   ],
 );
 

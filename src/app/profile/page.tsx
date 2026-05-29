@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentSession } from "@/server/auth/session";
 import { getOwnerProfile } from "@/server/user-profile/profile-service";
 import type { ProfileFieldValue } from "@/server/user-profile/profile-core";
+import { VerifyOtherRoleButton } from "./verify-other-role-button";
 
 function FieldRow({
   label,
@@ -69,7 +70,7 @@ export default async function OwnerProfilePage() {
         </Link>
       </div>
 
-      <p style={{ color: "#555", marginBottom: "1.5rem" }}>
+      <p style={{ color: "#555", marginBottom: "0.5rem" }}>
         @{profile.username}
         {" · "}
         <span style={{ fontSize: "0.85rem" }}>
@@ -83,6 +84,15 @@ export default async function OwnerProfilePage() {
           )}
         </span>
       </p>
+
+      {/* Re-open the second-role-prompt modal. Only when exactly one role is verified. */}
+      {profile.candidateVerified !== profile.recruiterVerified && (
+        <div style={{ marginBottom: "1.5rem" }}>
+          <VerifyOtherRoleButton
+            unverifiedRoleLabel={profile.candidateVerified ? "rekruter" : "kandidat"}
+          />
+        </div>
+      )}
 
       <table style={{ borderCollapse: "collapse", width: "100%", marginBottom: "1.5rem" }}>
         <tbody>

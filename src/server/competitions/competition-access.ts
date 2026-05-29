@@ -1,7 +1,8 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import { AccessError } from "@/server/auth/access-core";
 import { getDb, type Database } from "@/server/db/client";
 import {
+  competitionRegistrations,
   competitions,
   institutionMemberships,
   institutions,
@@ -197,14 +198,22 @@ export const assertInstitutionVerified = async (
   return row;
 };
 
-// Stub guard — registrations are not implemented until Phase 4. Always returns false.
-// The transition logic (published → draft) calls this so the wiring exists when registration
-// data ships. When that happens, replace the body with a real query against the registrations
-// table and return true if any active registration exists for the given competition.
+// Step 4.4 (DEC-0023 closed) — Activated guard for the published → draft unpublish transition.
+// Counts any non-cancelled competition_registrations row for the given competition; since both
+// individual (Step 4.2) and team (Step 4.4) registrations write to this table, no type
+// discrimination is needed here.
 export const hasActiveRegistrationsForCompetition = async (
-  _competitionId: string,
+  competitionId: string,
   db: Database = getDb(),
 ): Promise<boolean> => {
-  void db;
-  return false;
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        eq(competitionRegistrations.competitionId, competitionId),
+        ne(competitionRegistrations.status, "cancelled"),
+      ),
+    );
+  return (row?.count ?? 0) > 0;
 };

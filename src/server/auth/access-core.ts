@@ -17,13 +17,45 @@ export type AccessContext = {
 
 export class AccessError extends Error {
   constructor(
-    public readonly code: "unauthenticated" | "forbidden",
-    public readonly status: 401 | 403,
+    public readonly code: "unauthenticated" | "forbidden" | "session_user_mismatch",
+    public readonly status: 401 | 403 | 409,
     message: string,
   ) {
     super(message);
   }
 }
+
+// Cross-session form submission guard.
+// When the user has more than one account active in the same browser (different tabs, recently
+// signed-in/out, multi-account add-on), a form rendered for Account A can be submitted while the
+// active cookie has flipped to Account B. The server-side enforcement that derives `userId` from
+// `session.user.id` would then silently mutate Account B's data instead of Account A's.
+//
+// Defense: every form rendered for a specific user attaches the rendered-for user id to outgoing
+// mutation requests via the `X-Expected-User-Id` request header. This helper compares that header
+// to the session that the server actually resolved. Mismatch → 409 `session_user_mismatch`,
+// caller is told to reload.
+//
+// Endpoints that target the calling user's OWN data (profile, eligibility, saved competitions,
+// individual registration, team registration) should call this immediately after their session
+// gate. Endpoints that target a different user's data (admin tooling, member admin) must NOT
+// call this — they have their own authorization model and would always 409 here.
+export const assertSessionMatchesExpectedUser = (
+  request: Request,
+  session: AuthenticatedSession,
+): void => {
+  const expected = request.headers.get("x-expected-user-id");
+  // The header is optional for backward compatibility — older clients that don't send it pass
+  // through. Once every user-owned form is wired we can flip this to required.
+  if (!expected) return;
+  if (expected !== session.user.id) {
+    throw new AccessError(
+      "session_user_mismatch",
+      409,
+      "Session changed since this page was rendered — reload the page and try again",
+    );
+  }
+};
 
 // Rollback Step 1.3 (CCR-01 / DEC-0035): a session role that is missing, empty, or carries a
 // legacy/unknown token (e.g. "student", "institution_admin", "institution_staff" from

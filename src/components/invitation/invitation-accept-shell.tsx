@@ -15,6 +15,7 @@ type PageState =
   | { phase: "loading" }
   | { phase: "ready"; meta: InvitationMeta }
   | { phase: "error"; message: string }
+  | { phase: "info"; message: string }
   | { phase: "gate_error"; redirectTo: string }
   | { phase: "done"; type: "accepted" | "declined" };
 
@@ -64,10 +65,20 @@ export const InvitationAcceptShell = ({ token }: { token: string }) => {
       const { invitation } = data;
 
       if (invitation.status !== "pending") {
-        setState({
-          phase: "error",
-          message: `Undangan ini sudah ${invitation.status === "accepted" ? "diterima" : invitation.status === "declined" ? "ditolak" : invitation.status === "expired" ? "kedaluwarsa" : "dibatalkan"}.`,
-        });
+        // `accepted` is a benign terminal state — render as info (green), not error (red).
+        // `declined`/`expired`/`cancelled` remain neutral/red since they imply an unactionable
+        // invitation.
+        if (invitation.status === "accepted") {
+          setState({
+            phase: "info",
+            message: "Undangan ini sudah diterima.",
+          });
+        } else {
+          setState({
+            phase: "error",
+            message: `Undangan ini sudah ${invitation.status === "declined" ? "ditolak" : invitation.status === "expired" ? "kedaluwarsa" : "dibatalkan"}.`,
+          });
+        }
         return;
       }
 
@@ -168,6 +179,16 @@ export const InvitationAcceptShell = ({ token }: { token: string }) => {
           >
             Verifikasi Akun Recruiter
           </a>
+        </div>
+      </main>
+    );
+  }
+
+  if (state.phase === "info") {
+    return (
+      <main className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center px-6 py-20">
+        <div className="glass-card p-8 text-center">
+          <p className="text-sm text-green-700">{state.message}</p>
         </div>
       </main>
     );

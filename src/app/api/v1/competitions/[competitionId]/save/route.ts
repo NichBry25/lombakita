@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { toAccessDeniedResponse } from "@/server/auth/access-core";
+import {
+  assertSessionMatchesExpectedUser,
+  toAccessDeniedResponse,
+} from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
 import {
   saveCompetition,
@@ -10,9 +13,10 @@ import {
 
 type RouteContext = { params: Promise<{ competitionId: string }> };
 
-export async function POST(_request: Request, context: RouteContext): Promise<Response> {
+export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireSessionRole(["candidate"]);
+    assertSessionMatchesExpectedUser(request, session);
     const { competitionId } = await context.params;
     await saveCompetition(session.user.id, competitionId);
     return NextResponse.json({ saved: true });
@@ -22,9 +26,10 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
   }
 }
 
-export async function DELETE(_request: Request, context: RouteContext): Promise<Response> {
+export async function DELETE(request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireSessionRole(["candidate"]);
+    assertSessionMatchesExpectedUser(request, session);
     const { competitionId } = await context.params;
     await unsaveCompetition(session.user.id, competitionId);
     return NextResponse.json({ saved: false });

@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { toAccessDeniedResponse } from "@/server/auth/access-core";
+import {
+  assertSessionMatchesExpectedUser,
+  toAccessDeniedResponse,
+} from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
 import {
   parseCancelPayload,
@@ -15,6 +18,7 @@ type RouteContext = {
 export async function DELETE(request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireSessionRole(["candidate"]);
+    assertSessionMatchesExpectedUser(request, session);
     const { competitionId, registrationId } = await context.params;
 
     // Body is optional. If supplied as empty/non-JSON, treat as no body — don't fail the

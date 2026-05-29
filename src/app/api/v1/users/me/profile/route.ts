@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertSessionMatchesExpectedUser } from "@/server/auth/access-core";
 import { withApiAuth } from "@/server/auth/api-guard";
 import {
   parseProfilePatch,
@@ -25,6 +26,9 @@ export const GET = withApiAuth(async (_request, session) => {
 // Returns 422 with profile_scope_violation for any scope violation.
 export const PATCH = withApiAuth(async (request, session) => {
   try {
+    // Cross-session form-submission guard. See assertSessionMatchesExpectedUser doc.
+    assertSessionMatchesExpectedUser(request, session);
+
     // Fetch verification state from DB — session token does not carry these timestamps.
     const verificationState = await getVerificationState(session.user.id);
 

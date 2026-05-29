@@ -1,6 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import {
+  readErrorCode,
+  SESSION_MISMATCH_CODE,
+  SESSION_MISMATCH_MESSAGE,
+  sessionFetch,
+} from "@/lib/session/session-fetch";
 
 type EnrollmentStatus = "enrolled" | "on_leave" | "graduated" | "unknown";
 type EducationLevel = "D3" | "D4" | "S1" | "S2" | "S3";
@@ -88,7 +94,9 @@ const extractErrorMessage = async (response: Response): Promise<string> => {
 
 type Feedback = { type: "success" | "error"; message: string } | null;
 
-export const StudentEligibilityShell = () => {
+type ShellProps = { expectedUserId: string };
+
+export const StudentEligibilityShell = ({ expectedUserId }: ShellProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
@@ -153,15 +161,19 @@ export const StudentEligibilityShell = () => {
       studentIdNumber: form.studentIdNumber.trim() === "" ? null : form.studentIdNumber.trim(),
     };
 
-    const response = await fetch("/api/v1/students/me/eligibility", {
+    const response = await sessionFetch(expectedUserId, "/api/v1/students/me/eligibility", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      credentials: "include",
       body: JSON.stringify(body),
     });
 
     if (!response.ok) {
-      setFeedback({ type: "error", message: await extractErrorMessage(response) });
+      const code = await readErrorCode(response);
+      if (code === SESSION_MISMATCH_CODE) {
+        setFeedback({ type: "error", message: SESSION_MISMATCH_MESSAGE });
+      } else {
+        setFeedback({ type: "error", message: await extractErrorMessage(response) });
+      }
       setIsSaving(false);
       return;
     }

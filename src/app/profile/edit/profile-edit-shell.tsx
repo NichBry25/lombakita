@@ -3,9 +3,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { OwnerProfileResponse, ProfileFieldValue } from "@/server/user-profile/profile-core";
+import {
+  SESSION_MISMATCH_CODE,
+  SESSION_MISMATCH_MESSAGE,
+  sessionFetch,
+} from "@/lib/session/session-fetch";
 
 type Props = {
   profile: OwnerProfileResponse;
+  expectedUserId: string;
 };
 
 const fieldValue = (f: ProfileFieldValue<string | number>): string => {
@@ -89,7 +95,7 @@ function FieldInput({
   );
 }
 
-export function ProfileEditShell({ profile }: Props) {
+export function ProfileEditShell({ profile, expectedUserId }: Props) {
   const router = useRouter();
 
   const [username, setUsername] = useState(profile.username);
@@ -138,7 +144,7 @@ export function ProfileEditShell({ profile }: Props) {
     }
 
     try {
-      const res = await fetch("/api/v1/users/me/profile", {
+      const res = await sessionFetch(expectedUserId, "/api/v1/users/me/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -151,7 +157,9 @@ export function ProfileEditShell({ profile }: Props) {
         const errMsg: string = data?.error?.message ?? "Terjadi kesalahan saat menyimpan profil.";
         const details: { fields?: string[] } = data?.error?.details ?? {};
 
-        if (errCode === "profile_username_taken") {
+        if (errCode === SESSION_MISMATCH_CODE) {
+          setError(SESSION_MISMATCH_MESSAGE);
+        } else if (errCode === "profile_username_taken") {
           setFieldErrors({ username: "Username sudah dipakai akun lain." });
         } else if (errCode === "profile_reserved_username") {
           setFieldErrors({ username: "Username ini tidak tersedia." });
@@ -174,6 +182,7 @@ export function ProfileEditShell({ profile }: Props) {
       setSaving(false);
     }
   };
+
 
   return (
     <form onSubmit={handleSubmit}>

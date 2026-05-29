@@ -18,5 +18,5 @@ export default async function CandidateEligibilityPage() {
     redirect("/");
   }
 
-  return <StudentEligibilityShell />;
+  return <StudentEligibilityShell expectedUserId={session.user.id} />;
 }

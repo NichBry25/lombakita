@@ -1,0 +1,4 @@
+ALTER TABLE "competition_registrations" ADD COLUMN "team_id" text;--> statement-breakpoint
+ALTER TABLE "competition_registrations" ADD CONSTRAINT "competition_registrations_team_id_teams_id_fk" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "competition_registrations_team_id_idx" ON "competition_registrations" USING btree ("team_id");--> statement-breakpoint
+ALTER TABLE "competition_registrations" ADD CONSTRAINT "competition_registrations_type_team_id_chk" CHECK (("competition_registrations"."registration_type" = 'team' AND "competition_registrations"."team_id" IS NOT NULL) OR ("competition_registrations"."registration_type" = 'individual' AND "competition_registrations"."team_id" IS NULL));

@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   AccessError,
   assertAuthenticatedSession,
+  assertSessionMatchesExpectedUser,
   assertSessionRole,
   normalizeSessionRole,
+  type AuthenticatedSession,
 } from "@/server/auth/access-core";
 
 const buildSession = (overrides?: Partial<Session>): Session => {
@@ -93,5 +95,54 @@ describe("normalizeSessionRole — Rollback Step 1.3 fail-clean behaviour", () =
     } as unknown as Session;
 
     expect(() => assertAuthenticatedSession(session)).toThrowError(AccessError);
+  });
+});
+
+describe("assertSessionMatchesExpectedUser — cross-session form-submission guard", () => {
+  const buildAuthSession = (userId: string): AuthenticatedSession =>
+    assertAuthenticatedSession(
+      buildSession({ user: { id: userId, role: "candidate" } as Session["user"] }),
+    );
+
+  const makeRequest = (header?: string): Request => {
+    const headers = new Headers();
+    if (header !== undefined) {
+      headers.set("X-Expected-User-Id", header);
+    }
+    return new Request("http://localhost/api/v1/students/me/eligibility", {
+      method: "PATCH",
+      headers,
+    });
+  };
+
+  it("passes when header matches session.user.id", () => {
+    const session = buildAuthSession("user_match");
+    const request = makeRequest("user_match");
+    expect(() => assertSessionMatchesExpectedUser(request, session)).not.toThrow();
+  });
+
+  it("throws session_user_mismatch (409) when header differs from session", () => {
+    const session = buildAuthSession("user_session");
+    const request = makeRequest("user_different");
+    try {
+      assertSessionMatchesExpectedUser(request, session);
+      expect.fail("expected AccessError");
+    } catch (err) {
+      expect(err).toBeInstanceOf(AccessError);
+      expect((err as AccessError).code).toBe("session_user_mismatch");
+      expect((err as AccessError).status).toBe(409);
+    }
+  });
+
+  it("passes when header is absent (backward compatibility with older clients)", () => {
+    const session = buildAuthSession("user_no_header");
+    const request = makeRequest(undefined);
+    expect(() => assertSessionMatchesExpectedUser(request, session)).not.toThrow();
+  });
+
+  it("passes when header is empty string (treated as absent)", () => {
+    const session = buildAuthSession("user_empty_header");
+    const request = makeRequest("");
+    expect(() => assertSessionMatchesExpectedUser(request, session)).not.toThrow();
   });
 });

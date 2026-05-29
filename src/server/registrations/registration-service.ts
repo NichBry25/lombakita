@@ -131,7 +131,14 @@ export const createIndividualRegistration = async (
     );
   }
 
-  // (d) registration deadline not passed (server time only — never trust client)
+  // (d) registration deadline not passed (server time only — never trust client).
+  // DEBT (4.4-D2 carry-forward): this individual-registration path enforces only the END
+  // bound of the registration window. The Step 4.4 team-submission path enforces BOTH start
+  // and end (registration_not_yet_open vs registration_window_closed as distinct codes). A
+  // candidate registering individually before `registrationStartAt` currently succeeds. This
+  // is documented as a Phase 4 cleanup target — either add `registration_not_yet_open` here
+  // for parity, or downgrade the team-side enforcement. Decision deferred until the contract
+  // pass.
   if (!competition.registrationEndAt || competition.registrationEndAt.getTime() <= now.getTime()) {
     throw new RegistrationError("registration_deadline_passed", "Registration deadline has passed");
   }

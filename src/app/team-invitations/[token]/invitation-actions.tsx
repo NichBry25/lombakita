@@ -73,8 +73,7 @@ export function InvitationActions(props: Props) {
     return (
       <div style={{ marginTop: 16 }}>
         <p>
-          Silakan masuk dengan akun yang sesuai untuk menerima undangan ini (
-          <strong>{props.invitedEmail}</strong>).
+          Silakan masuk dengan akun yang sesuai untuk menerima undangan ini.
         </p>
         <a
           href={`/auth/sign-in?callbackUrl=${encodeURIComponent(callbackUrl)}`}
@@ -124,11 +123,14 @@ export function InvitationActions(props: Props) {
   }
 
   if (props.sessionEmail !== null && props.sessionEmail !== props.invitedEmail) {
+    // Privacy: do NOT reveal the invited email here. The recipient already knows the address
+    // their invite landed at (it's the inbox they opened the link from); a logged-in attacker
+    // who guessed a token must not learn the target identity.
     return (
       <div style={{ marginTop: 16 }}>
         <p style={{ color: "#a23" }}>
-          Undangan ini ditujukan kepada <strong>{props.invitedEmail}</strong>, sedangkan Anda
-          masuk sebagai <strong>{props.sessionEmail}</strong>.
+          Undangan ini ditujukan untuk alamat email lain. Anda saat ini masuk sebagai{" "}
+          <strong>{props.sessionEmail}</strong>.
         </p>
         <p style={{ marginTop: 8, fontSize: 13, color: "#555" }}>
           Keluar dan masuk dengan akun yang sesuai untuk menerima undangan.

@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { signIn } from "next-auth/react";
+import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
 
 type SignInFormProps = {
   verificationEnabled: boolean;
@@ -124,14 +125,21 @@ export const SignInForm = ({
       const result = await signIn("credentials", {
         email: loginEmail.trim().toLowerCase(),
         password: loginPassword,
-        // Step 4.0b — route through the post-login decision page so single-role accounts hit
-        // the second-role prompt before reaching a dashboard. The decision page redirects on
-        // to the right destination based on live verification state.
-        callbackUrl: callbackUrl ?? "/auth/post-login",
+        // After sign-in, land on the homepage. The second-role-prompt modal (mounted globally
+        // in providers.tsx) decides on its own whether to surface based on live session state.
+        callbackUrl: callbackUrl ?? "/",
         redirect: false,
       });
 
       if (result?.ok && result.url) {
+        // Mark this sign-in as "fresh" so the second-role-prompt modal knows to open exactly
+        // once on the destination page. Already-logged-in users opening the app don't set
+        // this flag and therefore don't see the modal automatically.
+        try {
+          window.sessionStorage.setItem(PENDING_PROMPT_KEY, "1");
+        } catch {
+          /* sessionStorage unavailable — modal will simply not auto-open this session */
+        }
         window.location.assign(result.url);
         return;
       }

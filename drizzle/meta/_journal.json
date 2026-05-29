@@ -148,6 +148,13 @@
       "when": 1779989881439,
       "tag": "0020_lean_supreme_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1780043886399,
+      "tag": "0021_many_alex_power",
+      "breakpoints": true
     }
   ]
 }

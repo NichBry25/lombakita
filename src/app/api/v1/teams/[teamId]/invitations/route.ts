@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { toAccessDeniedResponse } from "@/server/auth/access-core";
+import {
+  assertSessionMatchesExpectedUser,
+  toAccessDeniedResponse,
+} from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
 import { TeamError, toTeamErrorResponse } from "@/server/teams/team-core";
 import { inviteTeamMember } from "@/server/teams/team-service";
@@ -21,6 +24,7 @@ const parseJsonBody = async (request: Request): Promise<unknown> => {
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireSessionRole(["candidate"]);
+    assertSessionMatchesExpectedUser(request, session);
     const { teamId } = await context.params;
     const payload = await parseJsonBody(request);
     const invitation = await inviteTeamMember(session.user.id, teamId, payload);

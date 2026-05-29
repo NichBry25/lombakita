@@ -1,13 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import {
+  SESSION_MISMATCH_CODE,
+  SESSION_MISMATCH_MESSAGE,
+  sessionFetch,
+} from "@/lib/session/session-fetch";
 
 type Props = {
   competitionId: string;
   initialSaved: boolean;
+  expectedUserId: string;
 };
 
-export function SaveButton({ competitionId, initialSaved }: Props) {
+export function SaveButton({ competitionId, initialSaved, expectedUserId }: Props) {
   const [saved, setSaved] = useState(initialSaved);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -17,10 +23,18 @@ export function SaveButton({ competitionId, initialSaved }: Props) {
     setError(null);
     const method = saved ? "DELETE" : "POST";
     try {
-      const res = await fetch(`/api/v1/competitions/${competitionId}/save`, { method });
+      const res = await sessionFetch(
+        expectedUserId,
+        `/api/v1/competitions/${competitionId}/save`,
+        { method },
+      );
       if (!res.ok) {
         const body = (await res.json()) as { error?: { code?: string } };
-        setError(body.error?.code ?? "Terjadi kesalahan. Coba lagi.");
+        if (body.error?.code === SESSION_MISMATCH_CODE) {
+          setError(SESSION_MISMATCH_MESSAGE);
+        } else {
+          setError(body.error?.code ?? "Terjadi kesalahan. Coba lagi.");
+        }
       } else {
         setSaved(!saved);
       }

@@ -24,6 +24,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 };
 
 // Error codes are namespaced under `team_*` so callers can route on prefix.
+// Step 4.4 adds the submission/cancellation error family. Codes are returned with the same
+// `details` envelope as the rest of the team error surface.
 export type TeamErrorCode =
   | "team_invalid_payload"
   | "team_invalid_name"
@@ -46,7 +48,22 @@ export type TeamErrorCode =
   | "team_captain_cannot_leave"
   | "team_not_captain"
   | "team_member_not_in_team"
-  | "team_forbidden";
+  | "team_forbidden"
+  // Step 4.4 — team registration submission and cancellation.
+  | "team_registration_not_allowed"
+  | "registration_window_closed"
+  | "registration_not_yet_open"
+  | "team_size_insufficient"
+  | "team_size_exceeded"
+  | "team_member_ineligible"
+  | "team_member_already_registered"
+  | "team_not_submitted"
+  | "team_state_conflict"
+  // Schema-invariant violation backstop — fires only if a code path writes a row that
+  // violates `competition_registrations_type_team_id_chk` (registration_type + team_id
+  // co-presence). All current code paths write the pair atomically, so this is a
+  // defense-in-depth code that surfaces a typed 422 instead of a raw 500.
+  | "team_registration_invariant_violation";
 
 const STATUS_BY_CODE: Record<TeamErrorCode, number> = {
   team_invalid_payload: 400,
@@ -71,6 +88,17 @@ const STATUS_BY_CODE: Record<TeamErrorCode, number> = {
   team_not_captain: 403,
   team_member_not_in_team: 404,
   team_forbidden: 403,
+  // Step 4.4 — submission/cancellation gates.
+  team_registration_not_allowed: 422,
+  registration_window_closed: 422,
+  registration_not_yet_open: 422,
+  team_size_insufficient: 422,
+  team_size_exceeded: 422,
+  team_member_ineligible: 422,
+  team_member_already_registered: 409,
+  team_not_submitted: 409,
+  team_state_conflict: 409,
+  team_registration_invariant_violation: 422,
 };
 
 export class TeamError extends Error {
