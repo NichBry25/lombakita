@@ -610,6 +610,126 @@ export const studentEligibilityProfiles = pgTable("student_eligibility_profiles"
   updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
 });
 
+// Step 4.3: Team lifecycle enums + tables.
+// `team_status` is the team-level lifecycle. Step 4.3 writes only `forming` and `cancelled`.
+// `submitted` is reserved for Step 4.4 (team registration submission) — schema-present so the
+// state machine can grow without a destructive enum migration.
+export const teamStatusEnum = pgEnum("team_status", ["forming", "submitted", "cancelled"]);
+
+// `team_membership_role` distinguishes the captain seat from regular member seats. Captain
+// counts toward the size total just like any other seat.
+export const teamMembershipRoleEnum = pgEnum("team_membership_role", ["captain", "member"]);
+
+// `team_membership_status` is the per-member lifecycle. `removed` is terminal — a removed row
+// is retained as a historical artefact and does not block re-invitation (the partial unique
+// index filters it out).
+export const teamMembershipStatusEnum = pgEnum("team_membership_status", ["active", "removed"]);
+
+// `team_invitation_status` mirrors the institution_invitation_status shape but excludes
+// `expired` as an explicit terminal — expired invitations are detected at accept-time against
+// the row's expires_at column and transitioned to `cancelled` (operationally equivalent for
+// MVP).
+export const teamInvitationStatusEnum = pgEnum("team_invitation_status", [
+  "pending",
+  "accepted",
+  "declined",
+  "cancelled",
+]);
+
+export type TeamStatus = (typeof teamStatusEnum.enumValues)[number];
+export type TeamMembershipRole = (typeof teamMembershipRoleEnum.enumValues)[number];
+export type TeamMembershipStatus = (typeof teamMembershipStatusEnum.enumValues)[number];
+export type TeamInvitationStatus = (typeof teamInvitationStatusEnum.enumValues)[number];
+
+// Step 4.3 — Team entity. Captain is tracked via a FK to users on the team row (for fast lookup
+// and disambiguation), and also via a team_memberships row with role=captain inserted in the
+// same transaction as team creation. The two views must stay consistent — the team_memberships
+// row is the source of truth for the roster.
+export const teams = pgTable(
+  "teams",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    competitionId: text("competition_id")
+      .notNull()
+      .references(() => competitions.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    captainId: text("captain_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: teamStatusEnum("status").notNull().default("forming"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("teams_competition_id_name_unique_idx").on(table.competitionId, table.name),
+    index("teams_competition_id_idx").on(table.competitionId),
+    index("teams_captain_id_idx").on(table.captainId),
+  ],
+);
+
+// Step 4.3 — Team membership roster row. Captain holds a row with role=captain inserted in the
+// same transaction as the team. Members accept invitations to land here.
+// One active row per (team_id, user_id) — enforced by a partial unique index in the migration.
+// Removed rows are retained but excluded from the unique scope.
+// A candidate's at-most-one-active-membership-per-competition invariant is enforced at the
+// service layer (the partial unique covers only the per-team scope).
+export const teamMemberships = pgTable(
+  "team_memberships",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: teamMembershipRoleEnum("role").notNull(),
+    status: teamMembershipStatusEnum("status").notNull().default("active"),
+    joinedAt: timestamp("joined_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("team_memberships_team_id_idx").on(table.teamId),
+    index("team_memberships_user_id_idx").on(table.userId),
+    uniqueIndex("team_memberships_team_user_active_unique_idx")
+      .on(table.teamId, table.userId)
+      .where(sql`${table.status} = 'active'`),
+  ],
+);
+
+// Step 4.3 — Team invitation. SHA-256 token hash pattern mirrors institution_invitations.
+// Raw token is generated in memory, emailed via Resend, and discarded — only the hash is
+// persisted. invited_email is normalized to lowercase on insert.
+export const teamInvitations = pgTable(
+  "team_invitations",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    invitedEmail: text("invited_email").notNull(),
+    invitedByUserId: text("invited_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    tokenHash: text("token_hash").notNull(),
+    status: teamInvitationStatusEnum("status").notNull().default("pending"),
+    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("team_invitations_token_hash_unique_idx").on(table.tokenHash),
+    index("team_invitations_team_id_idx").on(table.teamId),
+    index("team_invitations_status_idx").on(table.status),
+  ],
+);
+
 // Non-domain bootstrap table for validating migration workflow only.
 export const infrastructureProbe = pgTable("infrastructure_probe", {
   id: serial("id").primaryKey(),

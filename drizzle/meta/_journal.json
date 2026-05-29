@@ -141,6 +141,13 @@
       "when": 1779708122384,
       "tag": "0019_tense_magus",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1779989881439,
+      "tag": "0020_lean_supreme_intelligence",
+      "breakpoints": true
     }
   ]
 }
