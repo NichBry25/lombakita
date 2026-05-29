@@ -44,7 +44,6 @@ export type SavedCompetitionsResult = {
 };
 
 const DEFAULT_PAGE_SIZE = 20;
-const MAX_PAGE_SIZE = 50;
 
 const resolvePage = (raw: number | undefined): number => {
   if (!raw || !Number.isFinite(raw) || raw < 1) return 1;
@@ -53,7 +52,7 @@ const resolvePage = (raw: number | undefined): number => {
 
 const resolveLimit = (raw: number | undefined): number => {
   if (!raw || !Number.isFinite(raw) || raw < 1) return DEFAULT_PAGE_SIZE;
-  return Math.min(raw, MAX_PAGE_SIZE);
+  return raw;
 };
 
 const SAVED_COLUMNS = {
