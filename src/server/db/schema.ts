@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   check,
   date,
@@ -743,6 +744,49 @@ export const teamInvitations = pgTable(
     index("team_invitations_status_idx").on(table.status),
   ],
 );
+
+// Step 4.6 — Competition submission intake.
+// One submission row per registration — enforced by a UNIQUE constraint on registration_id at
+// the DB layer (not just application-layer). Replace semantics: a candidate may overwrite their
+// submission (incrementing `version`) until they finalize it; `finalized_at` non-null locks the
+// row. The finalized guard lives in the DB WHERE clause of the replace upsert and the finalize
+// UPDATE — a read-before-write check is not sufficient under concurrency.
+// Only file metadata is stored. The file itself lives in Cloudflare R2, addressed by `file_key`.
+// We do not verify the object exists in R2 — key-prefix validation (submissions/{registrationId}/)
+// is the MVP security boundary. Download (presigned GET) is deferred to a later step.
+export const competitionSubmissions = pgTable(
+  "competition_submissions",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    registrationId: text("registration_id")
+      .notNull()
+      .references(() => competitionRegistrations.id, { onDelete: "cascade" }),
+    submittedById: text("submitted_by_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    fileKey: text("file_key").notNull(),
+    fileName: text("file_name").notNull(),
+    fileSizeBytes: bigint("file_size_bytes", { mode: "number" }),
+    fileMimeType: text("file_mime_type"),
+    version: integer("version").notNull().default(1),
+    finalizedAt: timestamp("finalized_at", { mode: "date", withTimezone: true }),
+    submittedAt: timestamp("submitted_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // Exactly one submission per registration — the one-active-submission invariant.
+    uniqueIndex("competition_submissions_registration_id_unique_idx").on(table.registrationId),
+    index("competition_submissions_submitted_by_id_idx").on(table.submittedById),
+  ],
+);
+
+export type SubmissionRecord = typeof competitionSubmissions.$inferSelect;
 
 // Non-domain bootstrap table for validating migration workflow only.
 export const infrastructureProbe = pgTable("infrastructure_probe", {
