@@ -12,7 +12,7 @@ export default async function InstitutionCompetitionsPage({ params }: Props) {
   if (!session?.user?.id) {
     redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(path)}`);
   }
-  if (session.user.role !== "recruiter") {
+  if (!session.user.verifiedRoles.includes("recruiter")) {
     redirect("/");
   }
   // Competition admin is owner-or-staff per competition_step_3_1.role_enforcement.list.

@@ -12,7 +12,7 @@ export default async function InstitutionCompetitionDetailPage({ params }: Props
   if (!session?.user?.id) {
     redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(path)}`);
   }
-  if (session.user.role !== "recruiter") {
+  if (!session.user.verifiedRoles.includes("recruiter")) {
     redirect("/");
   }
   const isAdmin = await isInstitutionAdminBySlug(session.user.id, institutionSlug);

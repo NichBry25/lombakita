@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/competitions/competition-public-service");
 
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitions,
@@ -111,6 +111,10 @@ const buildDbOrderBy = (sort: PublicListingSort) => {
 const buildDbWhere = (filters: PublicListingFilters) => {
   const conditions = [eq(competitions.status, "published"), isNull(competitions.deletedAt)];
 
+  if (filters.q?.trim()) {
+    const term = `%${filters.q.trim()}%`;
+    conditions.push(or(ilike(competitions.title, term), ilike(competitions.description, term))!);
+  }
   if (filters.category && isCompetitionCategory(filters.category)) {
     conditions.push(eq(competitions.category, filters.category));
   }
@@ -251,18 +255,19 @@ export const listPublicCompetitions = async (
 
   if (useSearch) {
     try {
-      return await listFromMeilisearch(filters, db);
+      const meiliResult = await listFromMeilisearch(filters, db);
+      // Only trust Meilisearch results when the index actually returned hits.
+      // An empty result here usually means the index is stale (e.g. competitions published
+      // before the BullMQ worker ran). Fall through to DB ILIKE search in that case.
+      if (meiliResult.meta.total > 0) return meiliResult;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      // Meilisearch unavailable at runtime — degrade transparently to DB query.
       logger.warn("competition-public-listing.meilisearch-fallback", {
         reason: errorMessage,
         q: filters.q,
       });
     }
   } else if (filters.q && !isMeilisearchAvailable()) {
-    // q was supplied but Meilisearch is not configured — degrade transparently to DB query.
-    // Log so the missing credentials are observable.
     logger.warn("competition-public-listing.meilisearch-unavailable", {
       reason: "MEILISEARCH_HOST not configured",
       q: filters.q,

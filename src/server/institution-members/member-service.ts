@@ -27,7 +27,7 @@ const RECRUITER_REQUIRED_ROLES: readonly InstitutionMembershipRole[] = [
 // institution_owner or institution_staff membership for it. Returns the resolved
 // institutionId for downstream use. 403 on slug-not-found or insufficient role
 // (identical message — accepted info-hiding trade-off per 2.3-D1).
-const requireAdminInstitutionBySlug = async (
+export const requireAdminInstitutionBySlug = async (
   actorUserId: string,
   institutionSlug: string,
   db: Database,

@@ -19,7 +19,7 @@ export default async function InstitutionSettingsPage({ params }: InstitutionSet
   }
 
   // CCR-05 / CCR-09: only recruiter-verified accounts can ever own or staff an institution.
-  if (session.user.role !== "recruiter") {
+  if (!session.user.verifiedRoles.includes("recruiter")) {
     redirect("/");
   }
 

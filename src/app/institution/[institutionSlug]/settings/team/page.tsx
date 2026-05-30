@@ -16,7 +16,7 @@ export default async function InstitutionTeamPage({ params }: InstitutionTeamPag
     redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(teamPath)}`);
   }
 
-  if (session.user.role !== "recruiter") {
+  if (!session.user.verifiedRoles.includes("recruiter")) {
     redirect("/");
   }
 
