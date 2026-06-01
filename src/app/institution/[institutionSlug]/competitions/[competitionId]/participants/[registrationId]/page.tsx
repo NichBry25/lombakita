@@ -4,7 +4,9 @@ import { getCurrentSession } from "@/server/auth/session";
 import { getDb } from "@/server/db/client";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { getRegistrationReview } from "@/server/participants/review-service";
+import { getResultForInstitution } from "@/server/participants/result-service";
 import { ReviewForm } from "./review-form";
+import { ResultForm } from "./result-form";
 
 type Props = {
   params: Promise<{ institutionSlug: string; competitionId: string; registrationId: string }>;
@@ -38,23 +40,36 @@ export default async function RegistrationReviewPage({ params }: Props) {
   }
 
   // Cross-institution competition/registration collapses to null → 404 (no info leak).
-  const review = await getRegistrationReview(institutionId, competitionId, registrationId, db);
+  const [review, resultCtx] = await Promise.all([
+    getRegistrationReview(institutionId, competitionId, registrationId, db),
+    getResultForInstitution(institutionId, competitionId, registrationId, db),
+  ]);
   if (!review) {
     notFound();
   }
 
-  const apiPath = `/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/registrations/${registrationId}/review`;
+  const reviewApiPath = `/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/registrations/${registrationId}/review`;
+  const resultApiBase = `/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/registrations/${registrationId}/result`;
 
   return (
     <main style={{ padding: 24, maxWidth: 640, margin: "0 auto" }}>
-      <h1>Tinjauan peserta</h1>
+      <h1>Detail peserta</h1>
       <p>
         <a href={listPath}>← Kembali ke daftar peserta</a>
       </p>
       <ReviewForm
-        apiPath={apiPath}
+        apiPath={reviewApiPath}
         initialStatus={review.internalReviewStatus}
         initialNotes={review.internalNotes}
+        registrationType={review.registrationType}
+        teamName={review.teamName}
+        activeMemberCount={review.activeMemberCount}
+      />
+      <ResultForm
+        apiBasePath={resultApiBase}
+        initialStatus={resultCtx?.resultStatus ?? "draft"}
+        initialLabel={resultCtx?.resultLabel ?? null}
+        initialNotes={resultCtx?.resultNotes ?? null}
         registrationType={review.registrationType}
         teamName={review.teamName}
         activeMemberCount={review.activeMemberCount}

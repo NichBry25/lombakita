@@ -12,6 +12,7 @@ import {
 } from "@/server/async/contracts";
 import { processProbeJob } from "@/server/async/jobs/probe";
 import { processCompetitionSearchSyncJob } from "@/server/async/jobs/competition-search-sync";
+import { processResultPublishedJob } from "@/server/async/jobs/result-published";
 
 export type AsyncJobProcessor<Name extends AsyncJobName = AsyncJobName> = (
   job: Job<AsyncJobPayloadByName[Name], void, Name>,
@@ -37,6 +38,7 @@ const defineAsyncJob = <Name extends AsyncJobName>(
 export const ASYNC_JOB_REGISTRATIONS = [
   defineAsyncJob(ASYNC_JOB_NAMES.probePing, processProbeJob),
   defineAsyncJob(ASYNC_JOB_NAMES.competitionSearchSync, processCompetitionSearchSyncJob),
+  defineAsyncJob(ASYNC_JOB_NAMES.resultPublished, processResultPublishedJob),
 ] as const;
 
 const getUniqueQueueNames = (): AsyncQueueName[] => {

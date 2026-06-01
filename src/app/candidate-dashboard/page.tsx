@@ -153,6 +153,21 @@ export default async function CandidateDashboardPage() {
         )}
       </section>
 
+      {/* Results */}
+      <section style={{ marginBottom: "2rem" }}>
+        <h2 style={{ fontSize: "1.1rem", marginBottom: "0.75rem", borderBottom: "1px solid #ddd", paddingBottom: "0.4rem" }}>
+          Hasil Kompetisi
+        </h2>
+        <p style={{ color: "#777", marginBottom: "0.5rem" }}>
+          Lihat hasil kompetisi yang telah dipublikasikan oleh penyelenggara.
+        </p>
+        <p>
+          <Link href="/candidate-dashboard/results" style={{ color: "#355795", fontSize: "0.9em" }}>
+            Lihat semua hasil →
+          </Link>
+        </p>
+      </section>
+
       {/* Saved Competitions Preview */}
       <section style={{ marginBottom: "2rem" }}>
         <h2 style={{ fontSize: "1.1rem", marginBottom: "0.75rem", borderBottom: "1px solid #ddd", paddingBottom: "0.4rem" }}>

@@ -97,3 +97,24 @@ export const enqueueCompetitionSearchSync = async (input: {
     },
   });
 };
+
+// Idempotency key: registrationId for individual; {competitionId}__{teamId} for team.
+// Fire-and-forget from the publish path — callers must catch errors.
+export const enqueueResultPublished = async (input: {
+  registrationId: string;
+  competitionId: string;
+  teamId?: string;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.resultPublished>> => {
+  const idempotencyKey = input.teamId
+    ? `${input.competitionId}__${input.teamId}`
+    : input.registrationId;
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.resultPublished,
+    idempotencyKey,
+    payload: {
+      registrationId: input.registrationId,
+      competitionId: input.competitionId,
+      ...(input.teamId ? { teamId: input.teamId } : {}),
+    },
+  });
+};

@@ -804,6 +804,53 @@ export const competitionSubmissions = pgTable(
 
 export type SubmissionRecord = typeof competitionSubmissions.$inferSelect;
 
+// Step 5.3 — Competition result publication.
+// One result row per registration — UNIQUE on registration_id. Result state is either draft
+// (institution-internal, not visible to candidate) or published (visible to candidate as
+// result_label + result_notes only). published_at must be null when draft — enforced by a
+// DB CHECK constraint. Publishing one team member's registration publishes all member rows
+// for the same team_id + competition_id atomically.
+export const competitionResultStatusEnum = pgEnum("competition_result_status", [
+  "draft",
+  "published",
+]);
+
+export type CompetitionResultStatus = (typeof competitionResultStatusEnum.enumValues)[number];
+
+export const competitionResults = pgTable(
+  "competition_results",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    registrationId: text("registration_id")
+      .notNull()
+      .references(() => competitionRegistrations.id, { onDelete: "cascade" }),
+    competitionId: text("competition_id")
+      .notNull()
+      .references(() => competitions.id, { onDelete: "cascade" }),
+    resultStatus: competitionResultStatusEnum("result_status").notNull().default("draft"),
+    resultLabel: text("result_label"),
+    resultNotes: text("result_notes"),
+    publishedAt: timestamp("published_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("competition_results_registration_id_unique_idx").on(table.registrationId),
+    index("competition_results_competition_id_status_idx").on(
+      table.competitionId,
+      table.resultStatus,
+    ),
+    check(
+      "competition_results_published_at_status_chk",
+      sql`${table.publishedAt} IS NULL OR ${table.resultStatus} = 'published'`,
+    ),
+  ],
+);
+
+export type CompetitionResultRecord = typeof competitionResults.$inferSelect;
+
 // Non-domain bootstrap table for validating migration workflow only.
 export const infrastructureProbe = pgTable("infrastructure_probe", {
   id: serial("id").primaryKey(),

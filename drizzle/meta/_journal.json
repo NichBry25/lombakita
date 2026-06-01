@@ -169,6 +169,13 @@
       "when": 1780165675068,
       "tag": "0023_wise_loners",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1780320570660,
+      "tag": "0024_chubby_warpath",
+      "breakpoints": true
     }
   ]
 }
