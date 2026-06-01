@@ -485,6 +485,7 @@ export const competitions = pgTable(
     feeAmount: numeric("fee_amount", { precision: 12, scale: 2 }),
     feeCurrency: text("fee_currency"),
     isFeatured: boolean("is_featured").notNull().default(false),
+    featuredOrder: integer("featured_order"),
     publishedAt: timestamp("published_at", { mode: "date", withTimezone: true }),
     archivedAt: timestamp("archived_at", { mode: "date", withTimezone: true }),
     deletedAt: timestamp("deleted_at", { mode: "date", withTimezone: true }),

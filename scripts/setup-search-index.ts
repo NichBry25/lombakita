@@ -117,6 +117,8 @@ async function main() {
       mode: competitions.mode,
       registrationEndAt: competitions.registrationEndAt,
       createdAt: competitions.createdAt,
+      isFeatured: competitions.isFeatured,
+      featuredOrder: competitions.featuredOrder,
       institutionSlug: institutions.slug,
       institutionName: institutions.displayName,
     })
@@ -135,6 +137,8 @@ async function main() {
       mode: r.mode ?? null,
       deadline: r.registrationEndAt?.toISOString() ?? null,
       createdAt: r.createdAt.toISOString(),
+      isFeatured: r.isFeatured,
+      featuredOrder: r.featuredOrder ?? null,
       institutionSlug: r.institutionSlug,
       institutionName: r.institutionName,
       status: "published",

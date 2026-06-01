@@ -34,6 +34,8 @@ const loadPublishedCompetitionForIndex = async (
       mode: competitions.mode,
       registrationEndAt: competitions.registrationEndAt,
       createdAt: competitions.createdAt,
+      isFeatured: competitions.isFeatured,
+      featuredOrder: competitions.featuredOrder,
       institutionSlug: institutions.slug,
       institutionName: institutions.displayName,
     })
@@ -58,6 +60,8 @@ const loadPublishedCompetitionForIndex = async (
     mode: row.mode ?? null,
     deadline: row.registrationEndAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
+    isFeatured: row.isFeatured,
+    featuredOrder: row.featuredOrder ?? null,
     institutionSlug: row.institutionSlug,
     institutionName: row.institutionName,
     status: "published",

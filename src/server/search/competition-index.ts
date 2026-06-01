@@ -18,6 +18,8 @@ export const COMPETITION_INDEX_NAME = "competitions" as const;
 //   competitions.mode              → mode
 //   competitions.registration_end_at → deadline (more query-friendly name)
 //   competitions.created_at        → createdAt
+//   competitions.is_featured       → isFeatured
+//   competitions.featured_order    → featuredOrder
 //   institutions.slug              → institutionSlug
 //   institutions.display_name      → institutionName
 export type CompetitionIndexDocument = {
@@ -28,6 +30,8 @@ export type CompetitionIndexDocument = {
   mode: string | null;
   deadline: string | null; // registrationEndAt as ISO-8601 string; null if not yet set
   createdAt: string; // ISO-8601 string
+  isFeatured: boolean;
+  featuredOrder: number | null;
   institutionSlug: string;
   institutionName: string;
   status: "published"; // only published records belong in the index
@@ -38,8 +42,14 @@ export const COMPETITION_INDEX_FILTERABLE_ATTRIBUTES = [
   "mode",
   "status",
   "institutionSlug",
+  "isFeatured",
 ] as const;
 
-export const COMPETITION_INDEX_SORTABLE_ATTRIBUTES = ["deadline", "createdAt"] as const;
+export const COMPETITION_INDEX_SORTABLE_ATTRIBUTES = [
+  "deadline",
+  "createdAt",
+  "isFeatured",
+  "featuredOrder",
+] as const;
 
 export const COMPETITION_INDEX_SEARCHABLE_ATTRIBUTES = ["title", "institutionName"] as const;

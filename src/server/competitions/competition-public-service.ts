@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/competitions/competition-public-service");
 
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitions,
@@ -20,7 +20,7 @@ import {
 import { isCompetitionCategory, isCompetitionMode } from "@/server/competitions/competition-core";
 
 // Public listing columns — includes institution display name joined from the institutions table.
-// Does not expose fee_amount, fee_currency, or is_featured (DEC-0022).
+// Does not expose fee_amount or fee_currency (DEC-0022). isFeatured is exposed for placement UI.
 const PUBLIC_LISTING_COLUMNS = {
   id: competitions.id,
   slug: competitions.slug,
@@ -37,6 +37,7 @@ const PUBLIC_LISTING_COLUMNS = {
   publishedAt: competitions.publishedAt,
   createdAt: competitions.createdAt,
   updatedAt: competitions.updatedAt,
+  isFeatured: competitions.isFeatured,
   institutionSlug: institutions.slug,
   institutionName: institutions.displayName,
 } as const;
@@ -57,6 +58,7 @@ export type PublicCompetitionItem = {
   publishedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  isFeatured: boolean;
   institutionSlug: string;
   institutionName: string;
 };
@@ -102,10 +104,19 @@ const resolvePage = (raw: number | undefined): number => {
   return Math.floor(raw);
 };
 
+// Featured-first sort: applies to all sort modes so featured competitions are always
+// visually prominent regardless of the secondary sort criterion chosen by the caller.
+const FEATURED_SORT_EXPRS = [
+  desc(competitions.isFeatured),
+  sql`${competitions.featuredOrder} ASC NULLS LAST`,
+] as const;
+
 const buildDbOrderBy = (sort: PublicListingSort) => {
-  if (sort === "deadline_asc") return asc(competitions.registrationEndAt);
-  if (sort === "deadline_desc") return desc(competitions.registrationEndAt);
-  return desc(competitions.createdAt); // created_desc default
+  if (sort === "deadline_asc")
+    return [...FEATURED_SORT_EXPRS, sql`${competitions.registrationEndAt} ASC NULLS LAST`];
+  if (sort === "deadline_desc")
+    return [...FEATURED_SORT_EXPRS, desc(competitions.registrationEndAt)];
+  return [...FEATURED_SORT_EXPRS, desc(competitions.createdAt)]; // created_desc default
 };
 
 const buildDbWhere = (filters: PublicListingFilters) => {
@@ -145,7 +156,7 @@ const listFromDb = async (
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
     .where(where)
-    .orderBy(orderBy)
+    .orderBy(...orderBy)
     .limit(limit)
     .offset(offset);
 
@@ -193,11 +204,14 @@ const listFromMeilisearch = async (
     filterParts.push(`institutionSlug = "${filters.institutionSlug.trim().toLowerCase()}"`);
   }
 
-  // Build Meilisearch sort expression
-  let meiliSort: string[] | undefined;
-  if (sort === "deadline_asc") meiliSort = ["deadline:asc"];
-  else if (sort === "deadline_desc") meiliSort = ["deadline:desc"];
-  else meiliSort = ["createdAt:desc"];
+  // Build Meilisearch sort expression — featured-first prepended to all sort modes.
+  const meiliSecondary =
+    sort === "deadline_asc"
+      ? "deadline:asc"
+      : sort === "deadline_desc"
+        ? "deadline:desc"
+        : "createdAt:desc";
+  const meiliSort = ["isFeatured:desc", "featuredOrder:asc", meiliSecondary];
 
   const searchResult = await index.search(filters.q ?? "", {
     filter: filterParts.join(" AND "),

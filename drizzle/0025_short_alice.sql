@@ -1,0 +1,1 @@
+ALTER TABLE "competitions" ADD COLUMN "featured_order" integer;

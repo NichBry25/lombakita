@@ -52,6 +52,7 @@ const makeRow = (overrides: Partial<PublicCompetitionItem> = {}): PublicCompetit
   publishedAt: new Date("2026-05-01"),
   createdAt: new Date("2026-05-01"),
   updatedAt: new Date("2026-05-01"),
+  isFeatured: false,
   institutionSlug: "lk-univ",
   institutionName: "Universitas LK",
   ...overrides,
@@ -223,5 +224,29 @@ describe("deriveCTAState", () => {
 
   it("returns closed when endAt is null", () => {
     expect(deriveCTAState(past, null, now)).toBe("closed");
+  });
+});
+
+describe("listPublicCompetitions — featured sort", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("returns isFeatured field on each item", async () => {
+    const featuredRow = makeRow({ id: "comp_f", isFeatured: true });
+    const regularRow = makeRow({ id: "comp_r", isFeatured: false });
+    const db = makeDb([featuredRow, regularRow], 2);
+    const result = await listPublicCompetitions({}, db);
+    expect(result.data.at(0)?.isFeatured).toBe(true);
+    expect(result.data.at(1)?.isFeatured).toBe(false);
+  });
+
+  it("featured row appears before non-featured in DB result order", async () => {
+    const featuredRow = makeRow({ id: "comp_f", title: "Unggulan", isFeatured: true });
+    const regularRow = makeRow({ id: "comp_r", title: "Biasa", isFeatured: false });
+    // DB mock returns rows in the order the service query would produce:
+    // featured rows first (service passes isFeatured DESC as first orderBy).
+    const db = makeDb([featuredRow, regularRow], 2);
+    const result = await listPublicCompetitions({}, db);
+    expect(result.data.at(0)?.id).toBe("comp_f");
+    expect(result.data.at(1)?.id).toBe("comp_r");
   });
 });
