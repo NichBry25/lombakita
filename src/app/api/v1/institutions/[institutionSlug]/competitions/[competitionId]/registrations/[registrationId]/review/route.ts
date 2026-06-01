@@ -25,7 +25,7 @@ export async function PATCH(
     const session = await requireAuthenticatedSession();
     const { institutionSlug, competitionId, registrationId } = await context.params;
     const db = getDb();
-    const { institutionId } = await requireAdminInstitutionBySlug(
+    const { institutionId, actorMembershipId } = await requireAdminInstitutionBySlug(
       session.user.id,
       institutionSlug,
       db,
@@ -39,6 +39,7 @@ export async function PATCH(
       competitionId,
       registrationId,
       patch,
+      actorMembershipId,
       db,
     );
 

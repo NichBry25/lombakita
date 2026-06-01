@@ -87,6 +87,30 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
         <a href={`/institution/${institutionSlug}/competitions`}>← Kembali ke kompetisi</a>
       </p>
 
+      <section style={{ marginTop: 16, display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <a
+          href={`/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/export/registrants`}
+          download
+          style={{ fontSize: "0.9em" }}
+        >
+          Export Registrants
+        </a>
+        <a
+          href={`/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/export/submissions`}
+          download
+          style={{ fontSize: "0.9em" }}
+        >
+          Export Submissions
+        </a>
+        <a
+          href={`/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/export/results`}
+          download
+          style={{ fontSize: "0.9em" }}
+        >
+          Export Results
+        </a>
+      </section>
+
       <section style={{ marginTop: 16, display: "flex", gap: 16, flexWrap: "wrap" }}>
         <span>
           Total: <strong>{result.counts.total}</strong>

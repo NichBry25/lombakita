@@ -31,9 +31,9 @@ export const requireAdminInstitutionBySlug = async (
   actorUserId: string,
   institutionSlug: string,
   db: Database,
-): Promise<{ institutionId: string }> => {
+): Promise<{ institutionId: string; actorMembershipId: string }> => {
   const [row] = await db
-    .select({ institutionId: institutions.id })
+    .select({ institutionId: institutions.id, actorMembershipId: institutionMemberships.id })
     .from(institutions)
     .innerJoin(
       institutionMemberships,

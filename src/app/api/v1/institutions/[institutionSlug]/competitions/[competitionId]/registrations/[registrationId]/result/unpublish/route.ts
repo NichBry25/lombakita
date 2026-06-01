@@ -15,13 +15,13 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
     const session = await requireAuthenticatedSession();
     const { institutionSlug, competitionId, registrationId } = await context.params;
     const db = getDb();
-    const { institutionId } = await requireAdminInstitutionBySlug(
+    const { institutionId, actorMembershipId } = await requireAdminInstitutionBySlug(
       session.user.id,
       institutionSlug,
       db,
     );
 
-    const result = await unpublishResult(institutionId, competitionId, registrationId, db);
+    const result = await unpublishResult(institutionId, competitionId, registrationId, actorMembershipId, db);
     return NextResponse.json({ result });
   } catch (error) {
     if (error instanceof ResultError) return toResultErrorResponse(error);

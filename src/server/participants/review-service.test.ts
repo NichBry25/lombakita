@@ -13,7 +13,8 @@ import {
 } from "./review-service";
 
 // db mock: select() chains end in .limit() (resolves next selects entry); update() chains
-// end in .returning() (resolves next updates entry). Queues consumed FIFO in call order.
+// end in .returning() (resolves next updates entry). insert() chains support .values()
+// awaitable for audit log writes. transaction() calls the callback with the same mock.
 function createDbMock(opts: { selects?: unknown[][]; updates?: unknown[][] }) {
   const selects = [...(opts.selects ?? [])];
   const updates = [...(opts.updates ?? [])];
@@ -24,7 +25,6 @@ function createDbMock(opts: { selects?: unknown[][]; updates?: unknown[][] }) {
     c.leftJoin = () => c;
     c.where = () => c;
     c.limit = () => Promise.resolve(result);
-    // Thenable so queries ending in .where() (e.g. member count) can be awaited directly.
     c.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
       Promise.resolve(result).then(resolve, reject);
     return c;
@@ -36,11 +36,24 @@ function createDbMock(opts: { selects?: unknown[][]; updates?: unknown[][] }) {
     c.returning = () => Promise.resolve(result);
     return c;
   };
+  const insertChain = () => {
+    const c: Record<string, unknown> = {};
+    c.values = () => c;
+    c.onConflictDoUpdate = () => c;
+    c.returning = () => Promise.resolve([]);
+    c.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
+      Promise.resolve([]).then(resolve, reject);
+    return c;
+  };
 
-  return {
+  const db: Record<string, unknown> = {
     select: () => selectChain(selects.shift() ?? []),
     update: () => updateChain(updates.shift() ?? []),
-  } as never;
+    insert: () => insertChain(),
+  };
+  db.transaction = async (fn: (tx: unknown) => Promise<unknown>) => fn(db);
+
+  return db as never;
 }
 
 const catchReview = (fn: () => unknown): ReviewError => {
@@ -111,6 +124,7 @@ describe("updateRegistrationReview", () => {
       "comp_1",
       "reg_1",
       { internalReviewStatus: "shortlisted" },
+      "user_1",
       db,
     );
     expect(result.internalReviewStatus).toBe("shortlisted");
@@ -126,6 +140,7 @@ describe("updateRegistrationReview", () => {
       "comp_1",
       "reg_1",
       { internalNotes: "catatan" },
+      "user_1",
       db,
     );
     expect(result.internalNotes).toBe("catatan");
@@ -141,6 +156,7 @@ describe("updateRegistrationReview", () => {
       "comp_1",
       "reg_1",
       { internalReviewStatus: "rejected", internalNotes: "no" },
+      "user_1",
       db,
     );
     expect(result).toEqual({ internalReviewStatus: "rejected", internalNotes: "no" });
@@ -154,6 +170,7 @@ describe("updateRegistrationReview", () => {
         "comp_other",
         "reg_1",
         { internalReviewStatus: "rejected" },
+        "user_1",
         db,
       ),
     ).rejects.toMatchObject({ code: "review_registration_not_found", httpStatus: 404 });
@@ -170,6 +187,7 @@ describe("updateRegistrationReview", () => {
         "comp_1",
         "reg_unknown",
         { internalReviewStatus: "rejected" },
+        "user_1",
         db,
       ),
     ).rejects.toMatchObject({ code: "review_registration_not_found", httpStatus: 404 });
@@ -185,9 +203,56 @@ describe("updateRegistrationReview", () => {
       "comp_1",
       "reg_captain",
       { internalReviewStatus: "shortlisted" },
+      "user_1",
       db,
     );
     expect(result.internalReviewStatus).toBe("shortlisted");
+  });
+
+  it("(g) audit write — insert is called inside the transaction with review_status_changed action", async () => {
+    let capturedInsertValues: unknown = null;
+    const selects = [
+      [{ id: "comp_1" }],
+      [{ registrationType: "individual", teamId: null }],
+    ];
+    const db: Record<string, unknown> = {
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(db),
+      select: () => {
+        const result = selects.shift() ?? [];
+        const c: Record<string, unknown> = {
+          from: () => c, leftJoin: () => c, where: () => c,
+          limit: () => Promise.resolve(result),
+          then: (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve),
+        };
+        return c;
+      },
+      update: () => {
+        const c: Record<string, unknown> = {
+          set: () => c, where: () => c,
+          returning: () => Promise.resolve([{ internalReviewStatus: "shortlisted", internalNotes: null }]),
+        };
+        return c;
+      },
+      insert: () => {
+        const c: Record<string, unknown> = {
+          values: (vals: unknown) => { capturedInsertValues = vals; return c; },
+          then: (resolve: (v: unknown) => unknown) => Promise.resolve([]).then(resolve),
+        };
+        return c;
+      },
+    };
+
+    await updateRegistrationReview(
+      "inst_1", "comp_1", "reg_1", { internalReviewStatus: "shortlisted" }, "mem_1", db as never,
+    );
+
+    expect(capturedInsertValues).not.toBeNull();
+    const vals = capturedInsertValues as Record<string, unknown>;
+    expect(vals.action).toBe("review_status_changed");
+    expect(vals.targetMembershipId).toBe("mem_1");
+    expect(vals.institutionId).toBe("inst_1");
+    const metadata = vals.metadata as Record<string, unknown>;
+    expect(metadata.newStatus).toBe("shortlisted");
   });
 });
 

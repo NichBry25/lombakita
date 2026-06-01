@@ -17,6 +17,7 @@ import {
   competitions,
   competitionRegistrations,
   competitionResults,
+  institutionAuditLogs,
   institutions,
   teams,
   type CompetitionResultStatus,
@@ -313,12 +314,14 @@ export const upsertResultDraft = async (
  * Validates result_label is non-null/non-blank before commit.
  * For team registrations, bulk-updates all member rows under team_id + competition_id
  * in the same transaction.
+ * Writes a result_published audit log entry inside the same transaction (5.4 / 5.3-D4).
  * Returns the updated result row for the given registrationId.
  */
 export const publishResult = async (
   institutionId: string,
   competitionId: string,
   registrationId: string,
+  actorMembershipId: string,
   db: Database = getDb(),
 ): Promise<{ result: ResultInstitutionView; teamId: string | null }> => {
   if (!(await ownsCompetition(institutionId, competitionId, db))) {
@@ -352,6 +355,7 @@ export const publishResult = async (
       );
     }
 
+    let rows;
     if (meta.teamId) {
       // Fetch all team member registration IDs, then upsert a published result row
       // for each — this creates rows for members who have no result row yet
@@ -366,7 +370,7 @@ export const publishResult = async (
           ),
         );
 
-      return tx
+      rows = await tx
         .insert(competitionResults)
         .values(
           memberRegs.map((r) => ({
@@ -392,7 +396,7 @@ export const publishResult = async (
         })
         .returning();
     } else {
-      return tx
+      rows = await tx
         .update(competitionResults)
         .set({ resultStatus: "published", publishedAt: now, updatedAt: now })
         .where(
@@ -403,6 +407,21 @@ export const publishResult = async (
         )
         .returning();
     }
+
+    await tx.insert(institutionAuditLogs).values({
+      institutionId,
+      targetMembershipId: actorMembershipId,
+      action: "result_published",
+      metadata: {
+        competitionId,
+        registrationId,
+        resultLabel: existing.resultLabel,
+        registrationType: meta.registrationType,
+        ...(meta.teamId ? { teamId: meta.teamId } : {}),
+      },
+    });
+
+    return rows;
   });
 
   const row = updatedRows.find((r) => r.registrationId === registrationId) ?? updatedRows[0];
@@ -416,11 +435,13 @@ export const publishResult = async (
 /**
  * Transition result published → draft for a registration.
  * Nulls published_at. Mirrors publishResult's team bulk-update pattern.
+ * Writes a result_unpublished audit log entry inside the same transaction (5.4 / 5.3-D4).
  */
 export const unpublishResult = async (
   institutionId: string,
   competitionId: string,
   registrationId: string,
+  actorMembershipId: string,
   db: Database = getDb(),
 ): Promise<ResultInstitutionView> => {
   if (!(await ownsCompetition(institutionId, competitionId, db))) {
@@ -435,8 +456,9 @@ export const unpublishResult = async (
   const now = new Date();
 
   const updatedRows = await db.transaction(async (tx) => {
+    let rows;
     if (meta.teamId) {
-      return tx
+      rows = await tx
         .update(competitionResults)
         .set({ resultStatus: "draft", publishedAt: null, updatedAt: now })
         .where(
@@ -450,7 +472,7 @@ export const unpublishResult = async (
         )
         .returning();
     } else {
-      return tx
+      rows = await tx
         .update(competitionResults)
         .set({ resultStatus: "draft", publishedAt: null, updatedAt: now })
         .where(
@@ -461,6 +483,15 @@ export const unpublishResult = async (
         )
         .returning();
     }
+
+    await tx.insert(institutionAuditLogs).values({
+      institutionId,
+      targetMembershipId: actorMembershipId,
+      action: "result_unpublished",
+      metadata: { competitionId, registrationId },
+    });
+
+    return rows;
   });
 
   const row = updatedRows.find((r) => r.registrationId === registrationId) ?? updatedRows[0];

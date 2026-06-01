@@ -14,6 +14,7 @@ import {
   competitions,
   competitionRegistrations,
   competitionRegistrationReviewStatusEnum,
+  institutionAuditLogs,
   teams,
   teamMemberships,
   type CompetitionRegistrationReviewStatus,
@@ -212,12 +213,14 @@ export const getRegistrationReview = async (
  * ownership of the competition and that the registration belongs to that
  * competition; either mismatch throws review_registration_not_found (404). Never
  * modifies the candidate-visible `status` column.
+ * Writes a review_status_changed audit log entry inside the same transaction (5.4 / 5.2-D3).
  */
 export const updateRegistrationReview = async (
   institutionId: string,
   competitionId: string,
   registrationId: string,
   patch: ReviewUpdatePatch,
+  actorMembershipId: string,
   db: Database = getDb(),
 ): Promise<RegistrationReviewFields> => {
   if (!(await ownsCompetition(institutionId, competitionId, db))) {
@@ -257,19 +260,36 @@ export const updateRegistrationReview = async (
         eq(competitionRegistrations.competitionId, competitionId),
       )!;
 
-  const updated = await db
-    .update(competitionRegistrations)
-    .set({ ...patch, updatedAt: new Date() })
-    .where(targetWhere)
-    .returning({
-      internalReviewStatus: competitionRegistrations.internalReviewStatus,
-      internalNotes: competitionRegistrations.internalNotes,
+  const row = await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(competitionRegistrations)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(targetWhere)
+      .returning({
+        internalReviewStatus: competitionRegistrations.internalReviewStatus,
+        internalNotes: competitionRegistrations.internalNotes,
+      });
+
+    const result = updated[0];
+    if (!result) {
+      throw new ReviewError("review_registration_not_found", 404, "Registration not found");
+    }
+
+    await tx.insert(institutionAuditLogs).values({
+      institutionId,
+      targetMembershipId: actorMembershipId,
+      action: "review_status_changed",
+      metadata: {
+        competitionId,
+        registrationId,
+        registrationType: reg.registrationType,
+        newStatus: patch.internalReviewStatus ?? null,
+        ...(reg.teamId ? { teamId: reg.teamId } : {}),
+      },
     });
 
-  const row = updated[0];
-  if (!row) {
-    throw new ReviewError("review_registration_not_found", 404, "Registration not found");
-  }
+    return result;
+  });
 
   return row;
 };

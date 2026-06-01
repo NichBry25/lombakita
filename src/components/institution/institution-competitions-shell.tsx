@@ -55,8 +55,9 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
     <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
       <h1>Kompetisi — {institutionSlug}</h1>
 
-      <p style={{ marginTop: 16 }}>
+      <p style={{ marginTop: 16, display: "flex", gap: 16 }}>
         <Link href={`/institution/${institutionSlug}/competitions/new`}>+ Buat kompetisi baru</Link>
+        <Link href={`/institution/${institutionSlug}/audit-log`}>Log Audit</Link>
       </p>
 
       <section style={{ marginTop: 24 }}>

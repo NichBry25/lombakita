@@ -155,7 +155,7 @@ describe("publishResult", () => {
       updates: [[resultRow]], // publish update
     });
 
-    const { result } = await publishResult("inst_1", "comp_1", "reg_1", db);
+    const { result } = await publishResult("inst_1", "comp_1", "reg_1", "user_1", db);
     expect(result.resultStatus).toBe("published");
     expect(result.resultLabel).toBe("Juara 1");
   });
@@ -169,7 +169,7 @@ describe("publishResult", () => {
       ],
     });
 
-    const err = await catchResultAsync(() => publishResult("inst_1", "comp_1", "reg_1", db));
+    const err = await catchResultAsync(() => publishResult("inst_1", "comp_1", "reg_1", "user_1", db));
     expect(err.code).toBe("result_label_required");
     expect(err.httpStatus).toBe(422);
   });
@@ -183,7 +183,7 @@ describe("publishResult", () => {
       ],
     });
 
-    const err = await catchResultAsync(() => publishResult("inst_1", "comp_1", "reg_1", db));
+    const err = await catchResultAsync(() => publishResult("inst_1", "comp_1", "reg_1", "user_1", db));
     expect(err.code).toBe("result_label_required");
     expect(err.httpStatus).toBe(422);
   });
@@ -211,7 +211,7 @@ describe("publishResult", () => {
       inserts: [[memberRow1, memberRow2]], // upsert returns all member rows
     });
 
-    const { result, teamId } = await publishResult("inst_1", "comp_1", "reg_1", db);
+    const { result, teamId } = await publishResult("inst_1", "comp_1", "reg_1", "user_1", db);
     expect(result.resultStatus).toBe("published");
     expect(teamId).toBe("team_1");
   });
@@ -219,7 +219,7 @@ describe("publishResult", () => {
   it("(e) cross-institution registration → 404", async () => {
     const db = createDbMock({ selects: [[]] }); // ownsCompetition returns empty
 
-    const err = await catchResultAsync(() => publishResult("inst_X", "comp_1", "reg_1", db));
+    const err = await catchResultAsync(() => publishResult("inst_X", "comp_1", "reg_1", "user_1", db));
     expect(err.code).toBe("result_registration_not_found");
     expect(err.httpStatus).toBe(404);
   });
@@ -256,22 +256,29 @@ describe("publishResult", () => {
       },
       insert: () => {
         const c: Record<string, unknown> = {
-          values: (vals: typeof capturedValues) => {
-            capturedValues = vals;
+          // Capture array args (result rows); skip object args (audit log insert).
+          values: (vals: unknown) => {
+            if (Array.isArray(vals)) capturedValues = vals as typeof capturedValues;
             return c;
           },
           onConflictDoUpdate: () => c,
           returning: () =>
-            Promise.resolve([
-              { id: "r1", registrationId: "reg_captain", competitionId: "comp_1", resultStatus: "published", resultLabel: "Juara 1", resultNotes: null, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() },
-              { id: "r2", registrationId: "reg_member_2", competitionId: "comp_1", resultStatus: "published", resultLabel: "Juara 1", resultNotes: null, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() },
-            ]),
+            Promise.resolve(
+              capturedValues.length > 0
+                ? [
+                    { id: "r1", registrationId: "reg_captain", competitionId: "comp_1", resultStatus: "published", resultLabel: "Juara 1", resultNotes: null, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() },
+                    { id: "r2", registrationId: "reg_member_2", competitionId: "comp_1", resultStatus: "published", resultLabel: "Juara 1", resultNotes: null, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() },
+                  ]
+                : [],
+            ),
+          then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
+            Promise.resolve([]).then(resolve, reject),
         };
         return c;
       },
     };
 
-    await publishResult("inst_1", "comp_1", "reg_captain", db as never);
+    await publishResult("inst_1", "comp_1", "reg_captain", "user_1", db as never);
 
     const regIds = capturedValues.map((v) => v.registrationId);
     expect(regIds).toContain("reg_captain");
@@ -281,6 +288,61 @@ describe("publishResult", () => {
       expect(v.resultStatus).toBe("published");
       expect(v.resultLabel).toBe("Juara 1");
     });
+  });
+
+  it("(g) audit write — insert is called inside the transaction with result_published action", async () => {
+    let capturedAuditValues: unknown = null;
+    let insertCallCount = 0;
+
+    const selectResults: unknown[][] = [
+      [{ id: "comp_1" }],
+      [{ registrationType: "individual", teamId: null, teamName: null }],
+      [{ resultLabel: "Juara 1", resultNotes: null }],
+    ];
+    const db: Record<string, unknown> = {
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(db),
+      select: () => {
+        const result = selectResults.shift() ?? [];
+        const c: Record<string, unknown> = {
+          from: () => c, innerJoin: () => c, leftJoin: () => c, where: () => c,
+          limit: () => Promise.resolve(result),
+          then: (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve),
+        };
+        return c;
+      },
+      update: () => {
+        const resultRow = { id: "res_1", registrationId: "reg_1", competitionId: "comp_1", resultStatus: "published", resultLabel: "Juara 1", resultNotes: null, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() };
+        const c: Record<string, unknown> = {
+          set: () => c, where: () => c,
+          returning: () => Promise.resolve([resultRow]),
+        };
+        return c;
+      },
+      insert: () => {
+        insertCallCount++;
+        const c: Record<string, unknown> = {
+          // Individual publish uses UPDATE for the result row; the INSERT is the audit log.
+          values: (vals: unknown) => {
+            if (insertCallCount === 1) capturedAuditValues = vals;
+            return c;
+          },
+          onConflictDoUpdate: () => c,
+          returning: () => Promise.resolve([]),
+          then: (resolve: (v: unknown) => unknown) => Promise.resolve([]).then(resolve),
+        };
+        return c;
+      },
+    };
+
+    await publishResult("inst_1", "comp_1", "reg_1", "mem_1", db as never);
+
+    expect(capturedAuditValues).not.toBeNull();
+    const vals = capturedAuditValues as Record<string, unknown>;
+    expect(vals.action).toBe("result_published");
+    expect(vals.targetMembershipId).toBe("mem_1");
+    expect(vals.institutionId).toBe("inst_1");
+    const metadata = vals.metadata as Record<string, unknown>;
+    expect(metadata.resultLabel).toBe("Juara 1");
   });
 });
 
@@ -309,7 +371,7 @@ describe("unpublishResult", () => {
       updates: [[draftRow]],
     });
 
-    const result = await unpublishResult("inst_1", "comp_1", "reg_1", db);
+    const result = await unpublishResult("inst_1", "comp_1", "reg_1", "user_1", db);
     expect(result.resultStatus).toBe("draft");
     expect(result.publishedAt).toBeNull();
   });
@@ -317,7 +379,7 @@ describe("unpublishResult", () => {
   it("cross-institution registration → 404", async () => {
     const db = createDbMock({ selects: [[]] });
 
-    const err = await catchResultAsync(() => unpublishResult("inst_X", "comp_1", "reg_1", db));
+    const err = await catchResultAsync(() => unpublishResult("inst_X", "comp_1", "reg_1", "user_1", db));
     expect(err.code).toBe("result_registration_not_found");
     expect(err.httpStatus).toBe(404);
   });
