@@ -546,10 +546,21 @@ export const competitionRegistrationStatusEnum = pgEnum("competition_registratio
   "pending_payment",
 ]);
 
+// Step 5.2: institution-internal review state on a registration. Distinct from the
+// candidate-visible `status` lifecycle above — this value is never exposed through any
+// candidate-facing response and never alters `status`. Free transitions between all values
+// at MVP (no state-machine guard).
+export const competitionRegistrationReviewStatusEnum = pgEnum(
+  "competition_registration_review_status",
+  ["pending_review", "under_review", "shortlisted", "rejected"],
+);
+
 export type CompetitionRegistrationType =
   (typeof competitionRegistrationTypeEnum.enumValues)[number];
 export type CompetitionRegistrationStatus =
   (typeof competitionRegistrationStatusEnum.enumValues)[number];
+export type CompetitionRegistrationReviewStatus =
+  (typeof competitionRegistrationReviewStatusEnum.enumValues)[number];
 
 // Step 4.2: Individual competition registration.
 // One non-cancelled row per (student_id, competition_id) — enforced by a partial unique index
@@ -586,6 +597,11 @@ export const competitionRegistrations = pgTable(
       .notNull(),
     cancelledAt: timestamp("cancelled_at", { mode: "date", withTimezone: true }),
     cancellationReason: text("cancellation_reason"),
+    // Institution-internal review (Step 5.2) — not candidate-visible.
+    internalReviewStatus: competitionRegistrationReviewStatusEnum("internal_review_status")
+      .notNull()
+      .default("pending_review"),
+    internalNotes: text("internal_notes"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },

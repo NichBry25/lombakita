@@ -1,0 +1,3 @@
+CREATE TYPE "public"."competition_registration_review_status" AS ENUM('pending_review', 'under_review', 'shortlisted', 'rejected');--> statement-breakpoint
+ALTER TABLE "competition_registrations" ADD COLUMN "internal_review_status" "competition_registration_review_status" DEFAULT 'pending_review' NOT NULL;--> statement-breakpoint
+ALTER TABLE "competition_registrations" ADD COLUMN "internal_notes" text;

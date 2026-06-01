@@ -15,7 +15,7 @@ import { listCompetitionParticipants } from "./participant-service";
 //   1 — page data query (first in inner async IIFE, first in inner Promise.all)
 //   2 — page count query (second in inner async IIFE, second in inner Promise.all)
 //   3 — aggregate counts query (second arg of outer Promise.all, after IIFE starts)
-//   4 — batch team member count (only when page contains team rows)
+//   4 — batch team member details (only when page contains team rows)
 function createDbMock(results: unknown[][]) {
   let callIndex = 0;
   const makeChain = (resultIndex: number) => {
@@ -51,6 +51,8 @@ const individualRow = {
   candidateUsername: "andi",
   teamName: null,
   captainDisplayName: null,
+  internalReviewStatus: "pending_review",
+  internalNotes: null,
   submissionRegistrationId: null,
   submissionFinalizedAt: null,
   submissionSubmittedAt: null,
@@ -67,10 +69,16 @@ const teamRow = {
   candidateUsername: "captain_andi",
   teamName: "Alpha Team",
   captainDisplayName: "Budi Santoso",
+  internalReviewStatus: "pending_review",
+  internalNotes: null,
   submissionRegistrationId: null,
   submissionFinalizedAt: null,
   submissionSubmittedAt: null,
 };
+
+// Member detail rows returned by the batch member-details query (Query 4).
+const cap1Member = { teamId: "team_1", userId: "cap_1", displayName: "Budi Santoso", username: "captain_andi", captainId: "cap_1" };
+const mem2Member = { teamId: "team_1", userId: "mem_2", displayName: "Siti Rahayu", username: "siti", captainId: "cap_1" };
 
 const oneConfirmedAgg = {
   total: 1,
@@ -114,13 +122,13 @@ describe("listCompetitionParticipants", () => {
     expect(p.status).toBe("confirmed");
   });
 
-  it("(b) returns correct team participant row with correct shape", async () => {
+  it("(b) returns correct team participant row with correct shape including members", async () => {
     const { db } = createDbMock([
       [{ id: "comp_1" }],
       [teamRow],
       [{ count: 1 }],
       [oneConfirmedAgg],
-      [{ teamId: "team_1", count: 3 }],
+      [cap1Member, mem2Member],
     ]);
     const result = await listCompetitionParticipants("inst_1", "comp_1", defaultFilters, db);
     expect(result.participants).toHaveLength(1);
@@ -129,20 +137,28 @@ describe("listCompetitionParticipants", () => {
     expect(p.team).not.toBeNull();
     expect(p.team?.teamName).toBe("Alpha Team");
     expect(p.team?.captainDisplayName).toBe("Budi Santoso");
-    expect(p.team?.activeMemberCount).toBe(3);
+    expect(p.team?.activeMemberCount).toBe(2);
+    expect(p.team?.members).toHaveLength(2);
+    expect(p.team?.members.find((m) => m.isCaptain)?.displayName).toBe("Budi Santoso");
     expect(p.candidate).toBeNull();
   });
 
-  it("(c) team rows include activeMemberCount from batched team_members query", async () => {
+  it("(c) team rows include all members from batched member-details query", async () => {
+    const threeMembers = [
+      cap1Member,
+      mem2Member,
+      { teamId: "team_1", userId: "mem_3", displayName: "Rizki Maulana", username: "rizki", captainId: "cap_1" },
+    ];
     const { db } = createDbMock([
       [{ id: "comp_1" }],
       [teamRow],
       [{ count: 1 }],
       [oneConfirmedAgg],
-      [{ teamId: "team_1", count: 5 }],
+      threeMembers,
     ]);
     const result = await listCompetitionParticipants("inst_1", "comp_1", defaultFilters, db);
-    expect(result.participants[0]!.team?.activeMemberCount).toBe(5);
+    expect(result.participants[0]!.team?.activeMemberCount).toBe(3);
+    expect(result.participants[0]!.team?.members).toHaveLength(3);
   });
 
   it("(d) cross-institution competitionId returns empty result with zero counts", async () => {
@@ -177,7 +193,7 @@ describe("listCompetitionParticipants", () => {
       [teamRow],
       [{ count: 1 }],
       [oneConfirmedAgg],
-      [{ teamId: "team_1", count: 2 }],
+      [cap1Member, mem2Member],
     ]);
     const result = await listCompetitionParticipants(
       "inst_1",

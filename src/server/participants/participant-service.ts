@@ -6,7 +6,7 @@
 // Cross-institution competitionId (IDOR) collapses to an empty result — same no-leak pattern as
 // assertCompetitionInInstitution in competition-service.ts.
 
-import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { getDb, type Database } from "@/server/db/client";
 import {
@@ -17,6 +17,7 @@ import {
   teamMemberships,
   userProfiles,
   users,
+  type CompetitionRegistrationReviewStatus,
 } from "@/server/db/schema";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
@@ -53,8 +54,12 @@ export type ParticipantRecord = {
     teamName: string;
     captainDisplayName: string | null;
     activeMemberCount: number;
+    members: Array<{ userId: string; displayName: string | null; username: string; isCaptain: boolean }>;
   } | null;
   submission: SubmissionView | null;
+  // Institution-internal review state (Step 5.2) — never returned to candidates.
+  internalReviewStatus: CompetitionRegistrationReviewStatus;
+  internalNotes: string | null;
 };
 
 export type ParticipantListFilters = {
@@ -131,6 +136,13 @@ export const listCompetitionParticipants = async (
   if (filters.type && filters.type !== "all") {
     conditions.push(eq(competitionRegistrations.registrationType, filters.type));
   }
+  // For team registrations, surface only the captain's row so each team appears once.
+  // Individual rows are always included; team rows only when student_id = teams.captain_id.
+  const captainOnlyForTeams = or(
+    eq(competitionRegistrations.registrationType, "individual"),
+    eq(competitionRegistrations.studentId, teams.captainId),
+  );
+  if (captainOnlyForTeams) conditions.push(captainOnlyForTeams);
   const whereClause = and(...conditions)!;
 
   // Aliases for the two user + profile joins (candidate and captain).
@@ -152,6 +164,8 @@ export const listCompetitionParticipants = async (
             registrationType: competitionRegistrations.registrationType,
             status: competitionRegistrations.status,
             registeredAt: competitionRegistrations.registeredAt,
+            internalReviewStatus: competitionRegistrations.internalReviewStatus,
+            internalNotes: competitionRegistrations.internalNotes,
             teamId: competitionRegistrations.teamId,
             candidateUserId: candidateUser.id,
             candidateDisplayName: candidateProfile.displayName,
@@ -180,6 +194,7 @@ export const listCompetitionParticipants = async (
         db
           .select({ count: sql<number>`COUNT(*)::int` })
           .from(competitionRegistrations)
+          .leftJoin(teams, eq(teams.id, competitionRegistrations.teamId))
           .where(whereClause),
       ]);
       return { dataRows, totalCount: dataRows.length > 0 ? (countRows[0]?.count ?? 0) : 0 };
@@ -206,25 +221,39 @@ export const listCompetitionParticipants = async (
   const { dataRows, totalCount } = pageResult;
   const countsRow = countsRows[0];
 
-  // Batch-fetch active team member counts — one query for all team_id values on this page.
+  // Batch-fetch active team members with user info — one query for all teams on this page.
   const teamIds = dataRows
     .filter((r) => r.registrationType === "team" && r.teamId != null)
     .map((r) => r.teamId as string);
 
-  const memberCountMap = new Map<string, number>();
+  type TeamMemberRow = { teamId: string; userId: string; displayName: string | null; username: string; isCaptain: boolean };
+  const membersByTeam = new Map<string, TeamMemberRow[]>();
   if (teamIds.length > 0) {
-    const memberCounts = await db
+    const memberRows = await db
       .select({
         teamId: teamMemberships.teamId,
-        count: sql<number>`COUNT(*)::int`,
+        userId: users.id,
+        displayName: userProfiles.displayName,
+        username: users.username,
+        captainId: teams.captainId,
       })
       .from(teamMemberships)
+      .innerJoin(users, eq(users.id, teamMemberships.userId))
+      .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
+      .innerJoin(teams, eq(teams.id, teamMemberships.teamId))
       .where(
         and(inArray(teamMemberships.teamId, teamIds), eq(teamMemberships.status, "active")),
-      )
-      .groupBy(teamMemberships.teamId);
-    for (const row of memberCounts) {
-      memberCountMap.set(row.teamId, row.count ?? 0);
+      );
+    for (const m of memberRows) {
+      const list = membersByTeam.get(m.teamId) ?? [];
+      list.push({
+        teamId: m.teamId,
+        userId: m.userId,
+        displayName: m.displayName ?? null,
+        username: m.username ?? "",
+        isCaptain: m.userId === m.captainId,
+      });
+      membersByTeam.set(m.teamId, list);
     }
   }
 
@@ -241,6 +270,7 @@ export const listCompetitionParticipants = async (
         : null;
 
     if (row.registrationType === "team") {
+      const members = membersByTeam.get(row.teamId!) ?? [];
       return {
         registrationId: row.registrationId,
         registrationType: "team",
@@ -251,9 +281,12 @@ export const listCompetitionParticipants = async (
           teamId: row.teamId!,
           teamName: row.teamName ?? "",
           captainDisplayName: row.captainDisplayName ?? null,
-          activeMemberCount: memberCountMap.get(row.teamId!) ?? 0,
+          activeMemberCount: members.length,
+          members,
         },
         submission,
+        internalReviewStatus: row.internalReviewStatus,
+        internalNotes: row.internalNotes,
       };
     }
 
@@ -269,6 +302,8 @@ export const listCompetitionParticipants = async (
       },
       team: null,
       submission,
+      internalReviewStatus: row.internalReviewStatus,
+      internalNotes: row.internalNotes,
     };
   });
 

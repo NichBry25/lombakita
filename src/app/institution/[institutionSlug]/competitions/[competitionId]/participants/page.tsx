@@ -8,6 +8,7 @@ import {
   listCompetitionParticipants,
   type ParticipantRecord,
 } from "@/server/participants/participant-service";
+import { REVIEW_STATUS_LABELS } from "./review-status-labels";
 
 type Props = {
   params: Promise<{ institutionSlug: string; competitionId: string }>;
@@ -131,7 +132,13 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
                 Submission
               </th>
               <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
+                Tinjauan
+              </th>
+              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
                 Terdaftar
+              </th>
+              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
+                Aksi
               </th>
             </tr>
           </thead>
@@ -142,11 +149,23 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
                   {p.registrationType === "team" ? "Tim" : "Individu"}
                 </td>
                 <td style={{ padding: 8 }}>
-                  {p.registrationType === "individual" && p.candidate
-                    ? (p.candidate.displayName ?? p.candidate.username)
-                    : p.team
-                      ? `${p.team.teamName} (Kapten: ${p.team.captainDisplayName ?? "—"})`
-                      : "—"}
+                  {p.registrationType === "individual" && p.candidate ? (
+                    p.candidate.displayName ?? p.candidate.username
+                  ) : p.team ? (
+                    <details>
+                      <summary style={{ cursor: "pointer" }}>
+                        {p.team.teamName} ({p.team.activeMemberCount} anggota)
+                      </summary>
+                      <ul style={{ margin: "4px 0 0 16px", padding: 0, listStyle: "none", fontSize: "0.9em" }}>
+                        {p.team.members.map((m) => (
+                          <li key={m.userId}>
+                            {m.displayName ?? m.username}
+                            {m.isCaptain ? " (Kapten)" : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  ) : "—"}
                 </td>
                 <td style={{ padding: 8 }}>{p.status}</td>
                 <td style={{ padding: 8 }}>
@@ -160,7 +179,23 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
                       : "Diunggah"}
                 </td>
                 <td style={{ padding: 8 }}>
+                  <span
+                    style={{
+                      display: "inline-block",
+                      padding: "2px 6px",
+                      border: "1px solid #ccc",
+                      borderRadius: 4,
+                      fontSize: "0.85em",
+                    }}
+                  >
+                    {REVIEW_STATUS_LABELS[p.internalReviewStatus]}
+                  </span>
+                </td>
+                <td style={{ padding: 8 }}>
                   {new Date(p.registeredAt).toLocaleDateString("id-ID")}
+                </td>
+                <td style={{ padding: 8 }}>
+                  <a href={`${path}/${p.registrationId}`}>Tinjau</a>
                 </td>
               </tr>
             ))}
