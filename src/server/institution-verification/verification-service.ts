@@ -288,7 +288,6 @@ export const verifyInstitution = async (options: {
               });
 
         emailTask.catch((err: unknown) => {
-          // Sentry SDK is scaffolded but not yet initialized — log only until Phase 6.3.
           logger.error("institution.verification.email_failed", {
             institutionId: options.institutionId,
             targetStatus: options.targetStatus,
@@ -297,7 +296,6 @@ export const verifyInstitution = async (options: {
         });
       }
     } catch (err: unknown) {
-      // Sentry SDK is scaffolded but not yet initialized — log only until Phase 6.3.
       logger.error("institution.verification.post_commit_lookup_failed", {
         institutionId: options.institutionId,
         targetStatus: options.targetStatus,

@@ -130,6 +130,7 @@ function NotesPanel({ target }: { target: { targetUserId?: string; targetInstitu
         <input
           style={{ ...input, width: 360 }}
           placeholder="Tambah catatan…"
+          aria-label="Tambah catatan internal"
           value={noteInput}
           onChange={(e) => setNoteInput(e.target.value)}
         />{" "}
@@ -170,6 +171,7 @@ function ActionForm({
       <input
         style={{ ...input, width: 220 }}
         placeholder="Alasan…"
+        aria-label={`Alasan — ${buttonLabel}`}
         value={reason}
         onChange={(e) => setReason(e.target.value)}
       />{" "}
@@ -239,8 +241,9 @@ function UserPanel() {
     <section style={box}>
       <h2 style={{ fontSize: 16, marginTop: 0 }}>Pengguna</h2>
       <div>
-        <span style={label}>Email</span>
+        <label htmlFor="user-lookup-email" style={label}>Email</label>
         <input
+          id="user-lookup-email"
           style={{ ...input, width: 260 }}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -343,8 +346,9 @@ function InstitutionPanel() {
     <section style={box}>
       <h2 style={{ fontSize: 16, marginTop: 0 }}>Institusi</h2>
       <div>
-        <span style={label}>Slug</span>
+        <label htmlFor="institution-lookup-slug" style={label}>Slug</label>
         <input
+          id="institution-lookup-slug"
           style={{ ...input, width: 260 }}
           value={slug}
           onChange={(e) => setSlug(e.target.value)}

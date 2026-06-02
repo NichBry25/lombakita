@@ -412,8 +412,7 @@ export const registerUserWithCredentials = async (
     }
 
     // Step 2.1a / DEC-0054 — username generation exhausted its bounded retry
-    // loop. Recoverable: log it (Sentry capture deferred per the Step 2.5
-    // logger-only known debt) and surface a clean 503 instead of a raw 500.
+    // loop. Recoverable: log and surface a clean 503 instead of a raw 500.
     if (error instanceof UsernameGenerationError) {
       logger.error("username.generation.exhausted", { email: input.email });
       throw new CredentialsAuthError(

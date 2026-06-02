@@ -72,6 +72,8 @@ export const setFeaturedPlacement = async (
     })
     .where(eq(competitions.id, competitionId));
 
+  logger.info("featured_placement.set", { competitionId, isFeatured: input.isFeatured });
+
   // Fire-and-forget search sync — enqueue failure must not block the DB write.
   try {
     await enqueueCompetitionSearchSync({ competitionId, action: "upsert" });

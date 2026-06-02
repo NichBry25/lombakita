@@ -21,6 +21,7 @@ import {
   finalizeSubmission,
   generateSubmissionUploadUrl,
   getSubmission,
+  getSubmissionViewForRegistration,
   resolveSubmissionAccess,
 } from "./submission-service";
 
@@ -354,5 +355,40 @@ describe("generateSubmissionUploadUrl", () => {
       "submission_window_closed",
       422,
     );
+  });
+});
+
+// Step 6.3 — 4.6-D3: getSubmissionViewForRegistration no-submission sentinel test.
+describe("getSubmissionViewForRegistration", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("returns view with null submission when registration exists but has no submission row", async () => {
+    // Query 0: loadRegistrationWithCompetition → [row]
+    // Query 1: getSubmissionRow → [] (no submission)
+    const { db } = createDbMock([[individualRegRow], []]);
+    const view = await getSubmissionViewForRegistration("reg_1", "stud_1", db, NOW_IN_WINDOW);
+    expect(view).not.toBeNull();
+    expect(view?.submission).toBeNull();
+    expect(view?.competitionId).toBe("comp_1");
+  });
+
+  it("returns null when the registration does not exist (no access)", async () => {
+    const { db } = createDbMock([[]]);
+    const view = await getSubmissionViewForRegistration("reg_x", "stud_1", db, NOW_IN_WINDOW);
+    expect(view).toBeNull();
+  });
+
+  it("returns null when the caller is not the registrant (IDOR guard)", async () => {
+    // Individual registration belongs to stud_1 — stud_other is the stranger.
+    // loadRegistrationWithCompetition → [row], then canAccessRegistration → false (no DB call for individual).
+    // getSubmissionViewForRegistration must return null.
+    const { db } = createDbMock([[individualRegRow]]);
+    const view = await getSubmissionViewForRegistration(
+      "reg_1",
+      "stud_other",
+      db,
+      NOW_IN_WINDOW,
+    );
+    expect(view).toBeNull();
   });
 });

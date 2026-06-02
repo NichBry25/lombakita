@@ -217,8 +217,9 @@ export default function AdminInstitutionsPage() {
 
       {/* Filter */}
       <div style={{ marginBottom: 16, display: "flex", gap: 8, alignItems: "center" }}>
-        <label style={{ fontSize: 13, color: "#444" }}>Filter status:</label>
+        <label htmlFor="institution-status-filter" style={{ fontSize: 13, color: "#444" }}>Filter status:</label>
         <select
+          id="institution-status-filter"
           value={statusFilter}
           onChange={(e) => {
             setStatusFilter(e.target.value);
@@ -458,10 +459,11 @@ export default function AdminInstitutionsPage() {
             <p style={{ color: "#555", fontSize: 13, margin: "0 0 14px" }}>
               <strong>{rejectModal.displayName}</strong>
             </p>
-            <label style={{ fontSize: 13, color: "#333", display: "block", marginBottom: 6 }}>
+            <label htmlFor="reject-reason-textarea" style={{ fontSize: 13, color: "#333", display: "block", marginBottom: 6 }}>
               Alasan penolakan <span style={{ color: "#d00" }}>*</span>
             </label>
             <textarea
+              id="reject-reason-textarea"
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               rows={3}

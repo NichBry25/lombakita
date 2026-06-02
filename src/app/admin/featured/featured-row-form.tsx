@@ -70,6 +70,7 @@ export function FeaturedRowForm({
         value={featuredOrder}
         onChange={(e) => setFeaturedOrder(e.target.value)}
         placeholder="Urutan"
+        aria-label="Urutan unggulan"
         style={{ width: 70, padding: "3px 6px", borderRadius: 4, border: "1px solid #ccc", fontSize: 12 }}
       />
       <button

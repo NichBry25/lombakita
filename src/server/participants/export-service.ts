@@ -20,6 +20,7 @@ import {
   userProfiles,
   users,
 } from "@/server/db/schema";
+import { logger } from "@/lib/logger";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/participants/export-service");
@@ -147,7 +148,9 @@ export const exportRegistrantsAsCsv = async (
     ]);
   });
 
-  return CSV_BOM + [header, ...dataRows].join("\n");
+  const csv = CSV_BOM + [header, ...dataRows].join("\n");
+  logger.info("export.registrants", { competitionId, rowCount: dataRows.length });
+  return csv;
 };
 
 // ─── Submissions export ───────────────────────────────────────────────────────
@@ -212,7 +215,9 @@ export const exportSubmissionsAsCsv = async (
     ]),
   );
 
-  return CSV_BOM + [header, ...dataRows].join("\n");
+  const csv = CSV_BOM + [header, ...dataRows].join("\n");
+  logger.info("export.submissions", { competitionId, rowCount: dataRows.length });
+  return csv;
 };
 
 // ─── Results export ───────────────────────────────────────────────────────────
@@ -278,5 +283,7 @@ export const exportResultsAsCsv = async (
     ]),
   );
 
-  return CSV_BOM + [header, ...dataRows].join("\n");
+  const csv = CSV_BOM + [header, ...dataRows].join("\n");
+  logger.info("export.results", { competitionId, rowCount: dataRows.length });
+  return csv;
 };
