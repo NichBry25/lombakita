@@ -52,6 +52,31 @@ describe("access-core", () => {
 
     expect(guarded.user.role).toBe("platform_ops");
   });
+
+  // Step 6.2 — suspension gate.
+  it("throws account_suspended (403) when session.user.suspendedAt is set, before any role check", () => {
+    const suspended = buildSession({
+      user: {
+        id: "user_123",
+        role: "candidate",
+        suspendedAt: "2026-06-02T00:00:00.000Z",
+      } as Session["user"],
+    });
+
+    try {
+      assertAuthenticatedSession(suspended);
+      throw new Error("expected AccessError");
+    } catch (e) {
+      expect(e).toBeInstanceOf(AccessError);
+      expect((e as AccessError).code).toBe("account_suspended");
+      expect((e as AccessError).status).toBe(403);
+    }
+  });
+
+  it("does not block when suspendedAt is absent", () => {
+    const session = assertAuthenticatedSession(buildSession());
+    expect(session.user.id).toBe("user_123");
+  });
 });
 
 describe("normalizeSessionRole — Rollback Step 1.3 fail-clean behaviour", () => {

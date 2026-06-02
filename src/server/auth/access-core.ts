@@ -17,7 +17,11 @@ export type AccessContext = {
 
 export class AccessError extends Error {
   constructor(
-    public readonly code: "unauthenticated" | "forbidden" | "session_user_mismatch",
+    public readonly code:
+      | "unauthenticated"
+      | "forbidden"
+      | "session_user_mismatch"
+      | "account_suspended",
     public readonly status: 401 | 403 | 409,
     message: string,
   ) {
@@ -74,6 +78,14 @@ export const normalizeSessionRole = (value: string | undefined | null): AppRole 
 export const assertAuthenticatedSession = (session: Session | null): AuthenticatedSession => {
   if (!session?.user || !session.user.id) {
     throw new AccessError("unauthenticated", 401, "Authentication required");
+  }
+
+  // Step 6.2 — suspension gate. Runs before any role check and applies uniformly to all roles.
+  // The session callback sets `suspendedAt` from a live DB read, so a suspended account is blocked
+  // on its next authenticated request (immediate effect). platform_ops accounts cannot be
+  // suspended (enforced at the moderation service layer), so this should never fire for them.
+  if (session.user.suspendedAt) {
+    throw new AccessError("account_suspended", 403, "This account has been suspended");
   }
 
   const role = normalizeSessionRole(session.user.role);

@@ -198,6 +198,33 @@ export const assertInstitutionVerified = async (
   return row;
 };
 
+// Step 6.2 — operational suspension gate, parallel to assertInstitutionVerified. Throws
+// CompetitionError 403 institution_suspended when the institution's suspended_at is non-null.
+// Loads the row itself (mirrors assertInstitutionVerified) so it wires cleanly into both the
+// create path (which has no verification call) and the publish path. Suspension is independent of
+// verification_status: a verified institution may be suspended and is blocked here regardless.
+export const assertInstitutionNotSuspended = async (
+  institutionId: string,
+  db: Database = getDb(),
+): Promise<void> => {
+  const [row] = await db
+    .select({ suspendedAt: institutions.suspendedAt })
+    .from(institutions)
+    .where(eq(institutions.id, institutionId))
+    .limit(1);
+
+  if (!row) {
+    throw new CompetitionError("competition_not_found", 404, "Institution not found");
+  }
+  if (row.suspendedAt) {
+    throw new CompetitionError(
+      "institution_suspended",
+      403,
+      "This institution has been suspended by platform ops",
+    );
+  }
+};
+
 // Step 4.4 (DEC-0023 closed) — Activated guard for the published → draft unpublish transition.
 // Counts any non-cancelled competition_registrations row for the given competition; since both
 // individual (Step 4.2) and team (Step 4.4) registrations write to this table, no type

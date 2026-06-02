@@ -64,6 +64,7 @@ type CompetitionErrorCode =
   | "competition_invalid_transition"
   | "competition_publish_validation_failed"
   | "competition_institution_not_verified"
+  | "institution_suspended"
   | "competition_slug_taken"
   | "competition_delete_not_allowed"
   | "competition_active_registrations"

@@ -7,6 +7,9 @@ declare module "next-auth" {
       id: string;
       role: AppRole;
       verifiedRoles: AppRole[];
+      // Step 6.2 — ISO timestamp set by the session callback when the user's suspended_at is
+      // non-null. Read by assertAuthenticatedSession to block the account (403 account_suspended).
+      suspendedAt?: string;
     };
     // Step 4.0b — JWT-carried flag set via useSession().update() when the user clicks
     // "Skip for now" on the post-login second-role prompt. Clears naturally on next sign-in
@@ -22,5 +25,8 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
   interface JWT {
     secondRolePromptDismissed?: boolean;
+    // Step 6.2 — declared for type completeness. Suspension is resolved per-request in the
+    // session callback via a live DB read (not carried on the JWT), so this is not populated.
+    suspendedAt?: string;
   }
 }

@@ -25,6 +25,7 @@ import {
   assertCompetitionAccess,
   assertCompetitionRead,
   assertInstitutionVerified,
+  assertInstitutionNotSuspended,
   hasActiveRegistrationsForCompetition,
   MEMBER_ROLES,
   PUBLIC_COMPETITION_COLUMNS,
@@ -145,6 +146,9 @@ export const createCompetitionDraft = async (
     input.institutionSlug,
     db,
   );
+
+  // Step 6.2 — a suspended institution cannot author new competition drafts.
+  await assertInstitutionNotSuspended(institutionId, db);
 
   const baseSlug = input.slug ?? deriveSlugBaseFromTitle(input.title);
 
@@ -391,6 +395,8 @@ export const transitionCompetitionStatus = async (
   // DEC-0028 and addresses the latent material finding D5 from the Step 3.2 depth review.
   if (competition.status === "draft" && targetStatus === "published") {
     await assertInstitutionVerified(competition.institutionId, db);
+    // Step 6.2 — both guards must pass: verified AND not suspended.
+    await assertInstitutionNotSuspended(competition.institutionId, db);
     const result = validatePublishChecklist({
       title: competition.title,
       description: competition.description,

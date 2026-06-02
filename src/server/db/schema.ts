@@ -184,6 +184,12 @@ export const users = pgTable(
     recruiterVerificationTier: recruiterVerificationTierEnum("recruiter_verification_tier")
       .notNull()
       .default("unverified"),
+    // Step 6.2 — platform ops moderation. Suspension is an operational gate distinct from the
+    // user-level `status` enum and from per-role verification. A non-null `suspendedAt` blocks the
+    // account on its next authenticated request via the session-callback DB check (immediate
+    // effect, not deferred to JWT rotation). `suspensionReason` records the ops actor's reason.
+    suspendedAt: timestamp("suspended_at", { mode: "date", withTimezone: true }),
+    suspensionReason: text("suspension_reason"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
@@ -297,6 +303,12 @@ export const institutions = pgTable(
     verifiedAt: timestamp("verified_at", { mode: "date", withTimezone: true }),
     rejectedAt: timestamp("rejected_at", { mode: "date", withTimezone: true }),
     rejectionReason: text("rejection_reason"),
+    // Step 6.2 — platform ops moderation. Suspension is a separate operational axis from
+    // `verificationStatus`: a verified institution can be suspended, and reinstatement restores
+    // operations without touching verification_status. `assertInstitutionNotSuspended` reads this
+    // alongside `assertInstitutionVerified` on the competition create/publish paths.
+    suspendedAt: timestamp("suspended_at", { mode: "date", withTimezone: true }),
+    suspensionReason: text("suspension_reason"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
@@ -448,6 +460,70 @@ export const institutionVerificationAudit = pgTable(
   (table) => [
     index("institution_verification_audit_institution_id_idx").on(table.institutionId),
     index("institution_verification_audit_created_at_idx").on(table.createdAt),
+  ],
+);
+
+// Step 6.2 — platform ops internal notes. A note targets exactly one of a user OR an institution
+// (the DB CHECK enforces the XOR). Notes are support context only — never surfaced to the target.
+// FKs to the target are ON DELETE CASCADE so notes do not outlive a hard-deleted target;
+// `createdById` (the ops actor) has no cascade so the authoring identity is preserved.
+export const platformOpsNotes = pgTable(
+  "platform_ops_notes",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    targetUserId: text("target_user_id").references(() => users.id, { onDelete: "cascade" }),
+    targetInstitutionId: text("target_institution_id").references(() => institutions.id, {
+      onDelete: "cascade",
+    }),
+    note: text("note").notNull(),
+    createdById: text("created_by_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("platform_ops_notes_target_user_id_idx").on(table.targetUserId),
+    index("platform_ops_notes_target_institution_id_idx").on(table.targetInstitutionId),
+    // Exactly one target: user XOR institution.
+    check(
+      "platform_ops_notes_single_target_chk",
+      sql`(${table.targetUserId} IS NOT NULL AND ${table.targetInstitutionId} IS NULL) OR (${table.targetUserId} IS NULL AND ${table.targetInstitutionId} IS NOT NULL)`,
+    ),
+  ],
+);
+
+// Step 6.2 — append-only platform ops moderation audit trail. Distinct from
+// `institution_audit_logs` (institution-scoped, member-level events): this table records
+// platform-level actor events (user/institution suspension, reinstatement) keyed on the acting
+// platform_ops user. At least one of the two target columns is non-null (DB CHECK).
+export const platformOpsAuditLogs = pgTable(
+  "platform_ops_audit_logs",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => users.id),
+    // No ON DELETE behaviour (restrict): hard deletion of users/institutions is out of scope for
+    // this step, and an append-only audit trail must keep its target reference valid — a SET NULL
+    // would violate the target_present CHECK for a single-target row.
+    targetUserId: text("target_user_id").references(() => users.id),
+    targetInstitutionId: text("target_institution_id").references(() => institutions.id),
+    eventType: text("event_type").notNull(),
+    reason: text("reason"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("platform_ops_audit_logs_target_user_id_idx").on(table.targetUserId),
+    index("platform_ops_audit_logs_target_institution_id_idx").on(table.targetInstitutionId),
+    check(
+      "platform_ops_audit_logs_target_present_chk",
+      sql`${table.targetUserId} IS NOT NULL OR ${table.targetInstitutionId} IS NOT NULL`,
+    ),
   ],
 );
 

@@ -73,6 +73,29 @@ const sanitizeVerifiedRoles = (value: unknown): AppRole[] => {
   return value.filter((entry): entry is AppRole => typeof entry === "string" && isAppRole(entry));
 };
 
+// Step 6.2 — platform ops moderation. Immediate suspension effect requires reading the live
+// `suspended_at` value on every session resolution rather than waiting for JWT rotation (cookie
+// maxAge is one year; updateAge 24h). This adds ONE indexed-PK SELECT per session read — the
+// accepted MVP trade-off for blocking a suspended account on its very next request. Degrades to
+// "not suspended" on DB error (mirrors loadVerifiedRoles) so a transient DB hiccup never locks
+// every user out of session resolution; the access-layer gate re-checks on the next request.
+const loadSuspendedAt = async (userId: string): Promise<Date | null> => {
+  try {
+    const [row] = await getDb()
+      .select({ suspendedAt: users.suspendedAt })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    return row?.suspendedAt ?? null;
+  } catch (error) {
+    logger.error("auth.suspendedAt.load_failed", {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+};
+
 export const authOptions: NextAuthOptions = {
   adapter: authAdapter,
   session: {
@@ -188,7 +211,7 @@ export const authOptions: NextAuthOptions = {
 
       return token;
     },
-    session({ session, token }) {
+    async session({ session, token }) {
       if (!session.user) {
         return session;
       }
@@ -201,6 +224,14 @@ export const authOptions: NextAuthOptions = {
       }
 
       session.user.id = userId;
+
+      // Step 6.2 — per-request suspension check. A non-null suspended_at is surfaced as an ISO
+      // string; the access layer (assertAuthenticatedSession) turns this into a 403
+      // account_suspended on the next guarded request. See loadSuspendedAt for the trade-off note.
+      const suspendedAt = await loadSuspendedAt(userId);
+      if (suspendedAt) {
+        session.user.suspendedAt = suspendedAt.toISOString();
+      }
       // Surface the token's role only if it still matches the current AppRole set.
       // access-core.normalizeSessionRole is the second-line gate on every guarded request and
       // rejects invalid/stale role tokens with AccessError 401. Together this means: a stale
