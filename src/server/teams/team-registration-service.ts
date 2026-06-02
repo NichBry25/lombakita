@@ -6,6 +6,10 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
 import {
+  enqueueRegistrationConfirmed,
+  enqueueRegistrationCancelled,
+} from "@/server/async/enqueue";
+import {
   competitionRegistrations,
   competitions,
   teamMemberships,
@@ -244,8 +248,9 @@ export const submitTeamRegistration = async (
   // Atomic write: insert one registration per active member with type='team', flip the team
   // status to submitted. The team UPDATE WHERE clause re-checks status='forming' (TOCTOU
   // backstop) — zero rows changed means a concurrent disband/submit landed first.
+  let submitResult: TeamRegistrationResult;
   try {
-    return await db.transaction(async (tx) => {
+    submitResult = await db.transaction(async (tx) => {
       const insertedRows = await tx
         .insert(competitionRegistrations)
         .values(
@@ -315,6 +320,22 @@ export const submitTeamRegistration = async (
     }
     throw error;
   }
+
+  for (const reg of submitResult.registrations) {
+    enqueueRegistrationConfirmed({
+      registrationId: reg.id,
+      studentId: reg.studentId,
+      competitionId,
+      registrationType: "team",
+    }).catch((err: unknown) => {
+      logger.warn("registration.confirmed.enqueue_failed", {
+        registrationId: reg.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
+  return submitResult;
 };
 
 // Step 4.4 — Captain reverts a submitted team back to forming by cancelling every team-typed
@@ -340,7 +361,7 @@ export const cancelTeamRegistration = async (
     );
   }
 
-  return await db.transaction(async (tx) => {
+  const cancelResult = await db.transaction(async (tx) => {
     const cancelled = await tx
       .update(competitionRegistrations)
       .set({
@@ -385,4 +406,20 @@ export const cancelTeamRegistration = async (
       registrations: cancelled,
     };
   });
+
+  for (const reg of cancelResult.registrations) {
+    enqueueRegistrationCancelled({
+      registrationId: reg.id,
+      studentId: reg.studentId,
+      competitionId,
+      registrationType: "team",
+    }).catch((err: unknown) => {
+      logger.warn("registration.cancelled.enqueue_failed", {
+        registrationId: reg.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
+  return cancelResult;
 };

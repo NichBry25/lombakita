@@ -98,6 +98,66 @@ export const enqueueCompetitionSearchSync = async (input: {
   });
 };
 
+// Idempotency key: registrationId — deduplicates repeated confirmed events for the same row.
+// Fire-and-forget — callers must catch errors.
+export const enqueueRegistrationConfirmed = async (input: {
+  registrationId: string;
+  studentId: string;
+  competitionId: string;
+  registrationType: "individual" | "team";
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.registrationConfirmed>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.registrationConfirmed,
+    idempotencyKey: input.registrationId,
+    payload: {
+      registrationId: input.registrationId,
+      studentId: input.studentId,
+      competitionId: input.competitionId,
+      registrationType: input.registrationType,
+    },
+  });
+};
+
+// Idempotency key: registrationId — one cancellation email per registration row.
+// Fire-and-forget — callers must catch errors.
+export const enqueueRegistrationCancelled = async (input: {
+  registrationId: string;
+  studentId: string;
+  competitionId: string;
+  registrationType: "individual" | "team";
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.registrationCancelled>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.registrationCancelled,
+    idempotencyKey: input.registrationId,
+    payload: {
+      registrationId: input.registrationId,
+      studentId: input.studentId,
+      competitionId: input.competitionId,
+      registrationType: input.registrationType,
+    },
+  });
+};
+
+// Idempotency key: registrationId — one finalization email per submission (UNIQUE on registrationId).
+// Fire-and-forget — callers must catch errors.
+export const enqueueSubmissionFinalized = async (input: {
+  submissionId: string;
+  registrationId: string;
+  studentId: string;
+  competitionId: string;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.submissionFinalized>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.submissionFinalized,
+    idempotencyKey: input.registrationId,
+    payload: {
+      submissionId: input.submissionId,
+      registrationId: input.registrationId,
+      studentId: input.studentId,
+      competitionId: input.competitionId,
+    },
+  });
+};
+
 // Idempotency key: registrationId for individual; {competitionId}__{teamId} for team.
 // Fire-and-forget from the publish path — callers must catch errors.
 export const enqueueResultPublished = async (input: {

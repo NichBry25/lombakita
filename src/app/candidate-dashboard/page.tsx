@@ -99,6 +99,10 @@ export default async function CandidateDashboardPage() {
                   <Link href={`/competitions/${reg.institutionSlug}/${reg.competitionSlug}/registration/`} style={{ fontSize: "0.9em", color: "#355795" }}>
                     Detail
                   </Link>
+                  {" · "}
+                  <Link href={`/candidate-dashboard/registrations/${reg.id}`} style={{ fontSize: "0.9em", color: "#355795" }}>
+                    Submission
+                  </Link>
                 </li>
               );
             })}
@@ -145,6 +149,10 @@ export default async function CandidateDashboardPage() {
                   {" · "}
                   <Link href={`/competitions/${reg.institutionSlug}/${reg.competitionSlug}/registration/`} style={{ fontSize: "0.9em", color: "#355795" }}>
                     Detail
+                  </Link>
+                  {" · "}
+                  <Link href={`/candidate-dashboard/registrations/${reg.id}`} style={{ fontSize: "0.9em", color: "#355795" }}>
+                    Submission
                   </Link>
                 </li>
               );

@@ -10,8 +10,8 @@ import {
 } from "@/server/async/registry";
 
 describe("async queue registration baseline", () => {
-  it("registers probe job, competition search sync job, and result published job", () => {
-    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(3);
+  it("registers all expected jobs across infrastructure, competition, results, and notifications queues", () => {
+    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(6);
 
     const probe = getRegistrationByJobName(ASYNC_JOB_NAMES.probePing);
     expect(probe).toBeDefined();
@@ -24,6 +24,18 @@ describe("async queue registration baseline", () => {
     const resultJob = getRegistrationByJobName(ASYNC_JOB_NAMES.resultPublished);
     expect(resultJob).toBeDefined();
     expect(resultJob?.queueName).toBe(ASYNC_QUEUE_NAMES.results);
+
+    const confirmedJob = getRegistrationByJobName(ASYNC_JOB_NAMES.registrationConfirmed);
+    expect(confirmedJob).toBeDefined();
+    expect(confirmedJob?.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
+
+    const cancelledJob = getRegistrationByJobName(ASYNC_JOB_NAMES.registrationCancelled);
+    expect(cancelledJob).toBeDefined();
+    expect(cancelledJob?.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
+
+    const finalizedJob = getRegistrationByJobName(ASYNC_JOB_NAMES.submissionFinalized);
+    expect(finalizedJob).toBeDefined();
+    expect(finalizedJob?.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
   });
 
   it("exposes queue-level processor registrations", () => {
@@ -32,10 +44,12 @@ describe("async queue registration baseline", () => {
         ASYNC_QUEUE_NAMES.infrastructure,
         ASYNC_QUEUE_NAMES.competition,
         ASYNC_QUEUE_NAMES.results,
+        ASYNC_QUEUE_NAMES.notifications,
       ]),
     );
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.infrastructure)).toHaveLength(1);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.competition)).toHaveLength(1);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.results)).toHaveLength(1);
+    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.notifications)).toHaveLength(3);
   });
 });

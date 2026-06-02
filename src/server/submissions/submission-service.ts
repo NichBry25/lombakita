@@ -22,6 +22,8 @@ import {
   SUBMISSIONS_KEY_PREFIX,
   SUBMISSIONS_UPLOAD_EXPIRY_SECONDS,
 } from "@/server/submissions/submission-constants";
+import { logger } from "@/lib/logger";
+import { enqueueSubmissionFinalized } from "@/server/async/enqueue";
 
 // ── Access resolution ───────────────────────────────────────────────────────
 
@@ -373,6 +375,18 @@ export const finalizeSubmission = async (
   if (!row) {
     throw new SubmissionError("submission_finalized", "Submission has already been finalized");
   }
+
+  enqueueSubmissionFinalized({
+    submissionId: row.id,
+    registrationId,
+    studentId: userId,
+    competitionId,
+  }).catch((err: unknown) => {
+    logger.warn("submission.finalized.enqueue_failed", {
+      registrationId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 
   return row;
 };

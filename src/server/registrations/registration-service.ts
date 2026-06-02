@@ -10,6 +10,11 @@ import {
   RegistrationError,
   type RegistrationRecord,
 } from "@/server/registrations/registration-core";
+import { logger } from "@/lib/logger";
+import {
+  enqueueRegistrationConfirmed,
+  enqueueRegistrationCancelled,
+} from "@/server/async/enqueue";
 
 const REGISTRATION_COLUMNS = {
   id: competitionRegistrations.id,
@@ -191,6 +196,18 @@ export const createIndividualRegistration = async (
       );
     }
 
+    enqueueRegistrationConfirmed({
+      registrationId: inserted.id,
+      studentId,
+      competitionId,
+      registrationType: "individual",
+    }).catch((err: unknown) => {
+      logger.warn("registration.confirmed.enqueue_failed", {
+        registrationId: inserted.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
     return inserted;
   } catch (error) {
     if (error instanceof RegistrationError) {
@@ -290,6 +307,18 @@ export const cancelRegistration = async (
   if (!updated) {
     throw new RegistrationError("registration_not_found", "Registration not found");
   }
+
+  enqueueRegistrationCancelled({
+    registrationId: updated.id,
+    studentId,
+    competitionId,
+    registrationType: "individual",
+  }).catch((err: unknown) => {
+    logger.warn("registration.cancelled.enqueue_failed", {
+      registrationId: updated.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 
   return updated;
 };
