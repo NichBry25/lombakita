@@ -626,6 +626,7 @@ export const authenticateWithEmailPassword = async (
       };
     }
   | { status: "email_not_verified" }
+  | { status: "account_suspended" }
   | { status: "invalid_credentials" }
 > => {
   const normalizedEmail = parseEmail(email);
@@ -637,6 +638,10 @@ export const authenticateWithEmailPassword = async (
       email: users.email,
       role: users.role,
       emailVerified: users.emailVerified,
+      // Step 6.5c — suspension is read from this same row used for password verification. No
+      // independent suspension query is issued at authorize time, so there is no separate lookup
+      // that could fail and force a fail-open/fail-closed decision here.
+      suspendedAt: users.suspendedAt,
       passwordHash: userPasswordCredentials.passwordHash,
     })
     .from(users)
@@ -655,6 +660,21 @@ export const authenticateWithEmailPassword = async (
   if (!verified) {
     return {
       status: "invalid_credentials",
+    };
+  }
+
+  // Step 6.5c — login-time suspension block (the server-side guarantee point). This is evaluated
+  // only AFTER the password is confirmed correct: a wrong password for a suspended account falls
+  // through the `!verified` branch above and returns the generic `invalid_credentials`, so the
+  // suspended signal is never observable to anyone who did not supply the correct password
+  // (account-enumeration safety). A non-null `suspended_at` aborts the login before any user
+  // object is returned to authorize, so no JWT/session is ever issued. platform_ops accounts are
+  // protected from suspension at the service layer (Step 6.2), so their `suspended_at` is always
+  // null and this uniform check passes them without role special-casing. The existing per-request
+  // `account_suspended` 403 in assertAuthenticatedSession remains as defense in depth.
+  if (userRecord.suspendedAt) {
+    return {
+      status: "account_suspended",
     };
   }
 

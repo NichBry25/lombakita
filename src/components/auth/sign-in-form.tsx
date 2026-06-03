@@ -137,6 +137,16 @@ export const SignInForm = ({
         redirect: false,
       });
 
+      // Step 6.5c — a suspended login is blocked server-side (no session is ever issued). The
+      // auth layer emits the distinct ACCOUNT_SUSPENDED signal; route it to the public /suspended
+      // page. This runs before the generic error mapping below and never sets the second-role
+      // prompt flag. The redirect is UX only — the block itself lives in the credentials authorize
+      // path, so a client that ignores this signal still obtains no session.
+      if (result?.error?.toUpperCase().includes("ACCOUNT_SUSPENDED")) {
+        window.location.assign("/suspended");
+        return;
+      }
+
       if (result?.ok && result.url) {
         // Mark this sign-in as "fresh" so the second-role-prompt modal knows to open exactly
         // once on the destination page. Already-logged-in users opening the app don't set

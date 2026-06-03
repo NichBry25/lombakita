@@ -133,6 +133,16 @@ export const authOptions: NextAuthOptions = {
           throw new Error("INVALID_CREDENTIALS");
         });
 
+        // Step 6.5c — suspended accounts are blocked here, after the credentials service has
+        // confirmed the password. Throwing aborts authorize without returning a user object, so
+        // next-auth issues no JWT/session. The thrown message propagates verbatim to the client
+        // via next-auth v4's credentials error path (core/routes/callback.js → redirect
+        // `?error=<message>` → react signIn `result.error`); the sign-in form maps this distinct
+        // signal to a /suspended redirect. OAuth suspension blocking is deferred to Step 6.5d.
+        if (result.status === "account_suspended") {
+          throw new Error("ACCOUNT_SUSPENDED");
+        }
+
         if (result.status === "email_not_verified") {
           throw new Error("EMAIL_NOT_VERIFIED");
         }
