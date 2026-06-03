@@ -16,7 +16,7 @@ export const COMPETITION_INDEX_NAME = "competitions" as const;
 //   competitions.slug              → slug
 //   competitions.category          → category
 //   competitions.mode              → mode
-//   competitions.registration_end_at → deadline (more query-friendly name)
+//   competitions.registration_end_at → deadline (UNIX epoch seconds; numeric for range filter support)
 //   competitions.created_at        → createdAt
 //   competitions.is_featured       → isFeatured
 //   competitions.featured_order    → featuredOrder
@@ -28,7 +28,7 @@ export type CompetitionIndexDocument = {
   slug: string;
   category: string | null;
   mode: string | null;
-  deadline: string | null; // registrationEndAt as ISO-8601 string; null if not yet set
+  deadline: number | null; // registrationEndAt as UNIX epoch seconds; null = no deadline (never closes)
   createdAt: string; // ISO-8601 string
   isFeatured: boolean;
   featuredOrder: number | null;
@@ -43,6 +43,7 @@ export const COMPETITION_INDEX_FILTERABLE_ATTRIBUTES = [
   "status",
   "institutionSlug",
   "isFeatured",
+  "deadline",
 ] as const;
 
 export const COMPETITION_INDEX_SORTABLE_ATTRIBUTES = [

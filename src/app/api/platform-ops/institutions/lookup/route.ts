@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
-import { lookupInstitutionBySlug } from "@/server/moderation/lookup-service";
+import { lookupInstitutionBySlugOrName } from "@/server/moderation/lookup-service";
 
-// Platform ops support lookup: resolve an institution by slug. platform_ops only.
+// Platform ops support lookup: resolve an institution by slug or display name. platform_ops only.
 export async function GET(request: Request): Promise<Response> {
   try {
     await requireSessionRole(["platform_ops"]);
@@ -16,10 +16,10 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    const result = await lookupInstitutionBySlug(slug.trim());
+    const result = await lookupInstitutionBySlugOrName(slug.trim());
     if (!result) {
       return NextResponse.json(
-        { error: { code: "institution_not_found", message: "No institution matches that slug" } },
+        { error: { code: "institution_not_found", message: "No institution matches that slug or name" } },
         { status: 404 },
       );
     }

@@ -346,13 +346,14 @@ function InstitutionPanel() {
     <section style={box}>
       <h2 style={{ fontSize: 16, marginTop: 0 }}>Institusi</h2>
       <div>
-        <label htmlFor="institution-lookup-slug" style={label}>Slug</label>
+        <label htmlFor="institution-lookup-slug" style={label}>Slug / Nama</label>
         <input
           id="institution-lookup-slug"
           style={{ ...input, width: 260 }}
           value={slug}
           onChange={(e) => setSlug(e.target.value)}
-          placeholder="nama-institusi"
+          placeholder="nama-institusi atau Nama Institusi"
+          aria-label="Cari institusi berdasarkan slug atau nama"
         />{" "}
         <button style={btn} onClick={() => void lookup()}>
           Cari

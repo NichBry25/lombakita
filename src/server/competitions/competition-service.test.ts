@@ -29,6 +29,7 @@ vi.mock("@/server/competitions/competition-access", async () => {
 
 import type { Database } from "@/server/db/client";
 import {
+  createCompetitionDraft,
   transitionCompetitionStatus,
   updateCompetitionDraft,
 } from "@/server/competitions/competition-service";
@@ -161,5 +162,63 @@ describe("updateCompetitionDraft — IMMUTABLE_AFTER_PUBLISH guard (Step 3.3)", 
       code: "competition_not_draft",
       httpStatus: 409,
     });
+  });
+});
+
+describe("F14 — createCompetitionDraft defaults mode to individual", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  const makeCreateDb = () => {
+    // Track what values are passed to db.insert().values()
+    let capturedValues: Record<string, unknown> = {};
+
+    const selectChain = {
+      from: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue([{ id: "inst_1" }]),
+    };
+
+    const insertChain = {
+      values: vi.fn((vals: Record<string, unknown>) => {
+        capturedValues = vals;
+        return {
+          returning: vi.fn().mockResolvedValue([
+            { ...baseCompetition(), mode: vals.mode ?? null },
+          ]),
+        };
+      }),
+    };
+
+    const db = {
+      select: vi.fn().mockReturnValue(selectChain),
+      insert: vi.fn().mockReturnValue(insertChain),
+    } as unknown as Database;
+
+    return { db, getInsertedValues: () => capturedValues };
+  };
+
+  it("sets mode to individual when no mode is supplied in the input", async () => {
+    const { db, getInsertedValues } = makeCreateDb();
+
+    await createCompetitionDraft(
+      "user_1",
+      { institutionSlug: "test-inst", title: "Lomba Test", description: "Deskripsi", slug: null },
+      db,
+    );
+
+    expect(getInsertedValues().mode).toBe("individual");
+  });
+
+  it("respects an explicit mode override when provided", async () => {
+    const { db, getInsertedValues } = makeCreateDb();
+
+    await createCompetitionDraft(
+      "user_1",
+      { institutionSlug: "test-inst", title: "Lomba Tim", description: "Deskripsi", slug: null, mode: "team" },
+      db,
+    );
+
+    expect(getInsertedValues().mode).toBe("team");
   });
 });

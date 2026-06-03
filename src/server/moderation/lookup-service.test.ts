@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
 
-import { lookupInstitutionBySlug, lookupUserByEmail } from "./lookup-service";
+import { lookupInstitutionBySlug, lookupInstitutionBySlugOrName, lookupUserByEmail } from "./lookup-service";
 import type { Database } from "@/server/db/client";
 
 const makeDb = (row: Record<string, unknown> | null) =>
@@ -62,5 +62,37 @@ describe("lookupInstitutionBySlug", () => {
     };
     const res = await lookupInstitutionBySlug("inst", makeDb(row));
     expect(res?.ownerEmail).toBe("owner@b.com");
+  });
+});
+
+describe("F20 — lookupInstitutionBySlugOrName", () => {
+  const institutionRow = {
+    id: "i2",
+    name: "Universitas Nusantara",
+    slug: "universitas-nusantara",
+    verificationStatus: "verified",
+    verifiedAt: new Date(),
+    suspendedAt: null,
+    suspensionReason: null,
+    createdAt: new Date(),
+    ownerEmail: "rektor@nusantara.ac.id",
+    ownerName: "Rektor",
+  };
+
+  it("returns null when no slug or name matches", async () => {
+    const res = await lookupInstitutionBySlugOrName("tidak-ada", makeDb(null));
+    expect(res).toBeNull();
+  });
+
+  it("resolves when matched by slug", async () => {
+    const res = await lookupInstitutionBySlugOrName("universitas-nusantara", makeDb(institutionRow));
+    expect(res?.id).toBe("i2");
+    expect(res?.slug).toBe("universitas-nusantara");
+  });
+
+  it("resolves when matched by display name", async () => {
+    const res = await lookupInstitutionBySlugOrName("Universitas Nusantara", makeDb(institutionRow));
+    expect(res?.id).toBe("i2");
+    expect(res?.name).toBe("Universitas Nusantara");
   });
 });

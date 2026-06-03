@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useModal } from "@/components/ui/primitives";
 
 const CATEGORY_OPTIONS = [
   "technology",
@@ -45,6 +47,20 @@ type Feedback =
   | { type: "error"; message: string; failures?: PublishValidationFailure[] }
   | null;
 
+type FormSnapshot = {
+  title: string;
+  slug: string;
+  description: string;
+  category: string;
+  mode: string;
+  minTeamSize: string;
+  maxTeamSize: string;
+  regStart: string;
+  regEnd: string;
+  evtStart: string;
+  evtEnd: string;
+};
+
 const extractError = async (
   response: Response,
 ): Promise<{ message: string; failures?: PublishValidationFailure[] }> => {
@@ -82,6 +98,19 @@ const intOrNull = (value: string): number | null => {
   return Number.isInteger(n) && n >= 1 ? n : null;
 };
 
+const snapshotEquals = (a: FormSnapshot, b: FormSnapshot): boolean =>
+  a.title === b.title &&
+  a.slug === b.slug &&
+  a.description === b.description &&
+  a.category === b.category &&
+  a.mode === b.mode &&
+  a.minTeamSize === b.minTeamSize &&
+  a.maxTeamSize === b.maxTeamSize &&
+  a.regStart === b.regStart &&
+  a.regEnd === b.regEnd &&
+  a.evtStart === b.evtStart &&
+  a.evtEnd === b.evtEnd;
+
 export const InstitutionCompetitionEditShell = ({
   institutionSlug,
   competitionId,
@@ -89,6 +118,9 @@ export const InstitutionCompetitionEditShell = ({
   institutionSlug: string;
   competitionId: string;
 }) => {
+  const router = useRouter();
+  const { openModal } = useModal();
+
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -106,6 +138,18 @@ export const InstitutionCompetitionEditShell = ({
   const [evtStart, setEvtStart] = useState("");
   const [evtEnd, setEvtEnd] = useState("");
 
+  // F13: track the last-saved snapshot as state (not a ref) so comparisons are safe during render.
+  const [savedSnapshot, setSavedSnapshot] = useState<FormSnapshot | null>(null);
+
+  const currentSnapshot = (): FormSnapshot => ({
+    title, slug, description, category, mode,
+    minTeamSize, maxTeamSize, regStart, regEnd, evtStart, evtEnd,
+  });
+
+  const isDirty =
+    savedSnapshot !== null &&
+    !snapshotEquals(currentSnapshot(), savedSnapshot);
+
   const load = useCallback(async () => {
     setIsLoading(true);
     const response = await fetch(`/api/v1/competitions/${encodeURIComponent(competitionId)}`, {
@@ -120,17 +164,36 @@ export const InstitutionCompetitionEditShell = ({
     }
     const data = (await response.json()) as { competition: Competition };
     setCompetition(data.competition);
-    setTitle(data.competition.title);
-    setSlug(data.competition.slug);
-    setDescription(data.competition.description ?? "");
-    setCategory(data.competition.category ?? "");
-    setMode(data.competition.mode ?? "");
-    setMinTeamSize(data.competition.minTeamSize?.toString() ?? "");
-    setMaxTeamSize(data.competition.maxTeamSize?.toString() ?? "");
-    setRegStart(toDateTimeInput(data.competition.registrationStartAt));
-    setRegEnd(toDateTimeInput(data.competition.registrationEndAt));
-    setEvtStart(toDateTimeInput(data.competition.eventStartAt));
-    setEvtEnd(toDateTimeInput(data.competition.eventEndAt));
+    const loadedTitle = data.competition.title;
+    const loadedSlug = data.competition.slug;
+    const loadedDescription = data.competition.description ?? "";
+    const loadedCategory = data.competition.category ?? "";
+    const loadedMode = data.competition.mode ?? "";
+    const loadedMinTeamSize = data.competition.minTeamSize?.toString() ?? "";
+    const loadedMaxTeamSize = data.competition.maxTeamSize?.toString() ?? "";
+    const loadedRegStart = toDateTimeInput(data.competition.registrationStartAt);
+    const loadedRegEnd = toDateTimeInput(data.competition.registrationEndAt);
+    const loadedEvtStart = toDateTimeInput(data.competition.eventStartAt);
+    const loadedEvtEnd = toDateTimeInput(data.competition.eventEndAt);
+
+    setTitle(loadedTitle);
+    setSlug(loadedSlug);
+    setDescription(loadedDescription);
+    setCategory(loadedCategory);
+    setMode(loadedMode);
+    setMinTeamSize(loadedMinTeamSize);
+    setMaxTeamSize(loadedMaxTeamSize);
+    setRegStart(loadedRegStart);
+    setRegEnd(loadedRegEnd);
+    setEvtStart(loadedEvtStart);
+    setEvtEnd(loadedEvtEnd);
+
+    setSavedSnapshot({
+      title: loadedTitle, slug: loadedSlug, description: loadedDescription,
+      category: loadedCategory, mode: loadedMode, minTeamSize: loadedMinTeamSize,
+      maxTeamSize: loadedMaxTeamSize, regStart: loadedRegStart, regEnd: loadedRegEnd,
+      evtStart: loadedEvtStart, evtEnd: loadedEvtEnd,
+    });
     setIsLoading(false);
   }, [competitionId]);
 
@@ -140,6 +203,14 @@ export const InstitutionCompetitionEditShell = ({
     }, 0);
     return () => window.clearTimeout(id);
   }, [load]);
+
+  // F13: warn browser on page unload/refresh when form is dirty.
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
 
   const onSave = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -193,6 +264,35 @@ export const InstitutionCompetitionEditShell = ({
     setFeedback({ type: "success", message: "Status diterbitkan (published)." });
     setIsSubmitting(false);
     void load();
+  };
+
+  // F13: intercept in-app back navigation when form is dirty.
+  const backUrl = `/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}`;
+
+  const handleBack = () => {
+    if (!isDirty) {
+      router.push(backUrl);
+      return;
+    }
+    openModal({
+      title: "Perubahan belum tersimpan",
+      body: "Anda memiliki perubahan yang belum disimpan. Yakin ingin meninggalkan halaman ini?",
+      closeable: true,
+      actions: [
+        {
+          label: "Tinggalkan",
+          variant: "danger",
+          autoClose: true,
+          onClick: () => { router.push(backUrl); },
+        },
+        {
+          label: "Tetap di sini",
+          variant: "secondary",
+          autoClose: true,
+          onClick: () => {},
+        },
+      ],
+    });
   };
 
   if (isLoading) {
@@ -363,13 +463,13 @@ export const InstitutionCompetitionEditShell = ({
       )}
 
       <p style={{ marginTop: 16 }}>
-        <a
-          href={`/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(
-            competitionId,
-          )}`}
+        <button
+          type="button"
+          onClick={handleBack}
+          style={{ background: "none", border: "none", color: "#355795", cursor: "pointer", padding: 0, fontSize: "inherit" }}
         >
           ← Kembali ke aksi status
-        </a>
+        </button>
       </p>
 
       {feedback ? (

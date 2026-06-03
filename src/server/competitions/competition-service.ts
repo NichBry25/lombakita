@@ -165,7 +165,7 @@ export const createCompetitionDraft = async (
           description: input.description,
           status: "draft",
           category: input.category ?? null,
-          mode: input.mode ?? null,
+          mode: input.mode ?? "individual",
           minTeamSize: input.minTeamSize ?? null,
           maxTeamSize: input.maxTeamSize ?? null,
           registrationStartAt: input.registrationStartAt ?? null,

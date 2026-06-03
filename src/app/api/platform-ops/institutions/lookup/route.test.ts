@@ -3,13 +3,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 
-const { requireSessionRole, lookupInstitutionBySlug } = vi.hoisted(() => ({
+const { requireSessionRole, lookupInstitutionBySlugOrName } = vi.hoisted(() => ({
   requireSessionRole: vi.fn(),
-  lookupInstitutionBySlug: vi.fn(),
+  lookupInstitutionBySlugOrName: vi.fn(),
 }));
 
 vi.mock("@/server/auth/session", () => ({ requireSessionRole }));
-vi.mock("@/server/moderation/lookup-service", () => ({ lookupInstitutionBySlug }));
+vi.mock("@/server/moderation/lookup-service", () => ({ lookupInstitutionBySlugOrName }));
 
 import { GET } from "./route";
 
@@ -19,7 +19,7 @@ const req = (qs: string) =>
 
 beforeEach(() => {
   requireSessionRole.mockResolvedValue(opsSession);
-  lookupInstitutionBySlug.mockResolvedValue({ id: "i1", slug: "inst" });
+  lookupInstitutionBySlugOrName.mockResolvedValue({ id: "i1", slug: "inst" });
 });
 afterEach(() => vi.clearAllMocks());
 
@@ -35,7 +35,7 @@ describe("GET /api/platform-ops/institutions/lookup", () => {
   });
 
   it("returns 404 when no institution matches", async () => {
-    lookupInstitutionBySlug.mockResolvedValueOnce(null);
+    lookupInstitutionBySlugOrName.mockResolvedValueOnce(null);
     const res = await GET(req("?slug=nope"));
     expect(res.status).toBe(404);
   });

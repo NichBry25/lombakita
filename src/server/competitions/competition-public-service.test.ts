@@ -250,3 +250,49 @@ describe("listPublicCompetitions — featured sort", () => {
     expect(result.data.at(1)?.id).toBe("comp_r");
   });
 });
+
+describe("F15 — deadline filter on Meilisearch path", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("passes a deadline filter expression to Meilisearch search()", async () => {
+    const { isMeilisearchAvailable } = await import("@/server/search/availability");
+    vi.mocked(isMeilisearchAvailable).mockReturnValue(true);
+
+    const searchFn = vi.fn().mockResolvedValue({ hits: [{ id: "comp_1" }], estimatedTotalHits: 1 });
+    const { getMeilisearchClient } = await import("@/server/search/client");
+    vi.mocked(getMeilisearchClient).mockReturnValue({
+      index: () => ({ search: searchFn }),
+    } as unknown as ReturnType<typeof getMeilisearchClient>);
+
+    const db = makeHydrationDb([makeRow()]);
+    await listPublicCompetitions({ q: "lomba" }, db);
+
+    const [, searchOptions] = searchFn.mock.calls[0] as [unknown, { filter: string }];
+    // Filter string must reference deadline with a numeric (unquoted) epoch comparison
+    // and a null guard so past-deadline and no-deadline competitions are handled correctly.
+    expect(searchOptions.filter).toContain("deadline");
+    expect(searchOptions.filter).toContain("IS NULL");
+    // Deadline stored as epoch seconds — comparison must be unquoted numeric, not ISO string.
+    expect(searchOptions.filter).toMatch(/deadline >= \d+/);
+  });
+
+  it("featured-but-past-deadline: hydration DB re-check still applies deadline guard", async () => {
+    const { isMeilisearchAvailable } = await import("@/server/search/availability");
+    vi.mocked(isMeilisearchAvailable).mockReturnValue(true);
+
+    // Meilisearch returned a featured competition (stale index, deadline already passed).
+    const { getMeilisearchClient } = await import("@/server/search/client");
+    vi.mocked(getMeilisearchClient).mockReturnValue({
+      index: () => ({
+        search: vi.fn().mockResolvedValue({ hits: [{ id: "comp_featured_stale" }], estimatedTotalHits: 1 }),
+      }),
+    } as unknown as ReturnType<typeof getMeilisearchClient>);
+
+    // DB hydration returns empty — competition was filtered out by the deadline guard.
+    const db = makeHydrationDb([]);
+    const result = await listPublicCompetitions({ q: "unggulan" }, db);
+
+    // Although Meilisearch reported 1 hit, the DB hydration deadline-guard removes it.
+    expect(result.data).toHaveLength(0);
+  });
+});

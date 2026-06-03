@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   readErrorCode,
@@ -8,6 +8,7 @@ import {
   SESSION_MISMATCH_MESSAGE,
   sessionFetch,
 } from "@/lib/session/session-fetch";
+import { useModal, useToast } from "@/components/ui/primitives";
 
 type EligibilityStatus = "eligible" | "ineligible_age" | "ineligible_enrollment" | "incomplete";
 
@@ -191,6 +192,8 @@ function CreateTeamForm(props: Props) {
 
 function TeamRoster(props: Props & { team: TeamSnapshot }) {
   const router = useRouter();
+  const { openModal } = useModal();
+  const { addToast } = useToast();
   const { team } = props;
   const isCaptain = team.captainId === props.expectedUserId;
   const status = team.status;
@@ -298,6 +301,56 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       { method: "DELETE" },
       "Batalkan pendaftaran tim? Tim akan kembali ke status 'forming'.",
     );
+
+  // F16: warn on hard navigation (URL change, tab close, refresh) when team is incomplete.
+  useEffect(() => {
+    if (!sizeBelowMin || status !== "forming") return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [sizeBelowMin, status]);
+
+  // F16: offer to save the competition as a bookmark when backing out with an incomplete team.
+  const handleBackOut = () => {
+    if (!sizeBelowMin || status !== "forming") {
+      router.back();
+      return;
+    }
+    const saveAndBack = async () => {
+      try {
+        await sessionFetch(
+          props.expectedUserId,
+          `/api/v1/competitions/${props.competitionId}/save`,
+          { method: "POST" },
+        );
+      } catch {
+        addToast({ type: "error", message: "Gagal menyimpan kompetisi. Silakan coba lagi." });
+      }
+      router.back();
+    };
+    openModal({
+      title: "Tim belum lengkap",
+      body: "Tim Anda belum memiliki cukup anggota. Simpan kompetisi ini ke daftar simpanan sebelum keluar?",
+      closeable: true,
+      actions: [
+        {
+          label: "Simpan & Keluar",
+          variant: "primary",
+          autoClose: true,
+          onClick: () => { void saveAndBack(); },
+        },
+        {
+          label: "Keluar tanpa menyimpan",
+          variant: "secondary",
+          autoClose: true,
+          onClick: () => { router.back(); },
+        },
+      ],
+    });
+  };
 
   const ownMembership = props.initialMembers.find((m) => m.userId === props.expectedUserId);
 
@@ -512,6 +565,26 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
       {isCaptain && submitDisabledReason && status === "forming" && (
         <p style={{ fontSize: 12, color: "#a23", marginTop: 8 }}>{submitDisabledReason}</p>
+      )}
+
+      {/* F16: back-out with save-progress option when team is incomplete */}
+      {sizeBelowMin && status === "forming" && (
+        <div style={{ marginTop: 16 }}>
+          <button
+            type="button"
+            onClick={handleBackOut}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#355795",
+              cursor: "pointer",
+              fontSize: 13,
+              padding: 0,
+            }}
+          >
+            ← Kembali ke detail kompetisi
+          </button>
+        </div>
       )}
 
       {!isCaptain && ownMembership && (

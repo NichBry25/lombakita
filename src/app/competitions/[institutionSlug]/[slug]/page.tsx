@@ -7,6 +7,7 @@ import {
 import { getCurrentSession } from "@/server/auth/session";
 import { isSavedCompetition } from "@/server/saved-competitions/saved-competition-service";
 import { SaveButton } from "./save-button";
+import { formatTeamSizeText } from "./team-size-utils";
 
 const CATEGORY_LABELS: Record<string, string> = {
   technology: "Teknologi",
@@ -33,6 +34,19 @@ const formatDate = (d: Date | string | null) =>
         year: "numeric",
       })
     : "—";
+
+// F4: Registration window dates include HH:MM so candidates can read exact close time.
+const formatDateTime = (d: Date | string | null) =>
+  d
+    ? new Date(d).toLocaleString("id-ID", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
+
 
 function FeeDisplay({ feeAmount }: { feeAmount: string | null }) {
   const amount = feeAmount ? parseFloat(feeAmount) : 0;
@@ -198,13 +212,13 @@ export default async function CompetitionDetailPage({
               <td style={{ paddingRight: 24, color: "#555", paddingBottom: 8 }}>
                 Pendaftaran dibuka
               </td>
-              <td style={{ paddingBottom: 8 }}>{formatDate(competition.registrationStartAt)}</td>
+              <td style={{ paddingBottom: 8 }}>{formatDateTime(competition.registrationStartAt)}</td>
             </tr>
             <tr>
               <td style={{ paddingRight: 24, color: "#555", paddingBottom: 8 }}>
                 Batas pendaftaran
               </td>
-              <td style={{ paddingBottom: 8 }}>{formatDate(competition.registrationEndAt)}</td>
+              <td style={{ paddingBottom: 8 }}>{formatDateTime(competition.registrationEndAt)}</td>
             </tr>
             <tr>
               <td style={{ paddingRight: 24, color: "#555", paddingBottom: 8 }}>Mulai kompetisi</td>
@@ -223,11 +237,7 @@ export default async function CompetitionDetailPage({
         <section style={{ marginTop: 20 }}>
           <h2 style={{ fontSize: 16, marginBottom: 8 }}>Ukuran Tim</h2>
           <p style={{ fontSize: 14 }}>
-            {competition.minTeamSize !== null && competition.maxTeamSize !== null
-              ? `${competition.minTeamSize}–${competition.maxTeamSize} orang`
-              : competition.minTeamSize !== null
-                ? `Min. ${competition.minTeamSize} orang`
-                : `Maks. ${competition.maxTeamSize} orang`}
+            {formatTeamSizeText(competition.minTeamSize, competition.maxTeamSize)}
           </p>
         </section>
       )}

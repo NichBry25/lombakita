@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/competitions/competition-public-service");
 
-import { and, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitions,
@@ -120,7 +120,12 @@ const buildDbOrderBy = (sort: PublicListingSort) => {
 };
 
 const buildDbWhere = (filters: PublicListingFilters) => {
-  const conditions = [eq(competitions.status, "published"), isNull(competitions.deletedAt)];
+  const conditions = [
+    eq(competitions.status, "published"),
+    isNull(competitions.deletedAt),
+    // F15: hide competitions whose registration deadline has passed. Null deadline = no deadline.
+    or(isNull(competitions.registrationEndAt), gte(competitions.registrationEndAt, sql`now()`))!,
+  ];
 
   if (filters.q?.trim()) {
     const term = `%${filters.q.trim()}%`;
@@ -193,7 +198,13 @@ const listFromMeilisearch = async (
   const index = client.index<CompetitionIndexDocument>(COMPETITION_INDEX_NAME);
 
   // Build Meilisearch filter expression
-  const filterParts: string[] = ['status = "published"'];
+  // Epoch seconds — deadline field stored as UNIX epoch; unquoted numeric comparison required.
+  const epochNow = Math.floor(Date.now() / 1000);
+  const filterParts: string[] = [
+    'status = "published"',
+    // F15: hide competitions whose registration deadline has passed. Null deadline = no deadline.
+    `(deadline >= ${epochNow} OR deadline IS NULL)`,
+  ];
   if (filters.category && isCompetitionCategory(filters.category)) {
     filterParts.push(`category = "${filters.category}"`);
   }
@@ -236,9 +247,9 @@ const listFromMeilisearch = async (
     };
   }
 
-  // Hydrate from DB — re-apply status = published guard so Meilisearch results are not
-  // trusted as the source of truth for status. A competition unpublished between indexing
-  // and query execution will be filtered out here.
+  // Hydrate from DB — re-apply status = published + deadline guards so Meilisearch results
+  // are not trusted as the source of truth. Competitions unpublished or whose deadline
+  // passed between indexing and query execution are filtered out here.
   const rows = await db
     .select(PUBLIC_LISTING_COLUMNS)
     .from(competitions)
@@ -248,6 +259,7 @@ const listFromMeilisearch = async (
         eq(competitions.status, "published"),
         isNull(competitions.deletedAt),
         inArray(competitions.id, ids),
+        or(isNull(competitions.registrationEndAt), gte(competitions.registrationEndAt, sql`now()`))!,
       ),
     );
 

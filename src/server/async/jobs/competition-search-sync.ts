@@ -58,7 +58,7 @@ const loadPublishedCompetitionForIndex = async (
     slug: row.slug,
     category: row.category ?? null,
     mode: row.mode ?? null,
-    deadline: row.registrationEndAt?.toISOString() ?? null,
+    deadline: row.registrationEndAt ? Math.floor(row.registrationEndAt.getTime() / 1000) : null,
     createdAt: row.createdAt.toISOString(),
     isFeatured: row.isFeatured,
     featuredOrder: row.featuredOrder ?? null,

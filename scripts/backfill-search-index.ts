@@ -73,7 +73,7 @@ async function main() {
     slug: r.slug,
     category: r.category ?? null,
     mode: r.mode ?? null,
-    deadline: r.registrationEndAt?.toISOString() ?? null,
+    deadline: r.registrationEndAt ? Math.floor(r.registrationEndAt.getTime() / 1000) : null,
     createdAt: r.createdAt.toISOString(),
     isFeatured: r.isFeatured,
     featuredOrder: r.featuredOrder ?? null,
