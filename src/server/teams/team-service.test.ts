@@ -11,6 +11,7 @@ vi.mock("@/server/teams/team-email", () => ({ sendTeamInvitationEmail: vi.fn() }
 
 import {
   acceptTeamInvitation,
+  cancelTeamInvitationByToken,
   createTeam,
   declineTeamInvitation,
   disbandTeam,
@@ -528,5 +529,39 @@ describe("disbandTeam invariants", () => {
   it("disbands a forming team owned by the caller", async () => {
     const { db } = makeDb([[baseTeam()]]);
     await expect(disbandTeam("cand_captain", "team_1", db as never, NOW)).resolves.toBeUndefined();
+  });
+});
+
+// G6 — cancelTeamInvitationByToken (token-keyed cancel, Step 6.5b)
+describe("cancelTeamInvitationByToken", () => {
+  it("cancels a pending invitation looked up by tokenHash", async () => {
+    const { db } = makeDb(
+      [[baseTeam()], [baseInvitation()]],
+      { updateReturning: [] },
+    );
+    await expect(
+      cancelTeamInvitationByToken("cand_captain", "team_1", TOKEN_HASH, db as never),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects with team_invite_not_found when tokenHash has no match", async () => {
+    const { db } = makeDb([[baseTeam()], []]);
+    await expect(
+      cancelTeamInvitationByToken("cand_captain", "team_1", "no-match-hash", db as never),
+    ).rejects.toMatchObject({ code: "team_invite_not_found" });
+  });
+
+  it("rejects with team_invite_not_actionable when invitation is already accepted", async () => {
+    const { db } = makeDb([[baseTeam()], [baseInvitation({ status: "accepted" })]]);
+    await expect(
+      cancelTeamInvitationByToken("cand_captain", "team_1", TOKEN_HASH, db as never),
+    ).rejects.toMatchObject({ code: "team_invite_not_actionable" });
+  });
+
+  it("rejects with team_not_forming when team is cancelled", async () => {
+    const { db } = makeDb([[baseTeam({ status: "cancelled" })]]);
+    await expect(
+      cancelTeamInvitationByToken("cand_captain", "team_1", TOKEN_HASH, db as never),
+    ).rejects.toMatchObject({ code: "team_not_forming" });
   });
 });

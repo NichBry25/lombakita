@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
 
-import { addNote, listNotes } from "./notes-service";
+import { addNote, editNote, listNotes } from "./notes-service";
 import type { Database } from "@/server/db/client";
 
 const makeInsertDb = () => {
@@ -74,6 +74,56 @@ describe("addNote target invariant", () => {
       targetInstitutionId: null,
       note: "flagged",
       createdById: "ops1",
+    });
+  });
+});
+
+// F21 — in-place note editing (Step 6.5b)
+describe("editNote", () => {
+  const makeEditDb = (noteExists: boolean, newText = "updated text") => {
+    const db = {
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue(
+              noteExists ? [{ id: "n1", createdById: "ops1" }] : [],
+            ),
+          }),
+        }),
+      }),
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([
+              { id: "n1", note: newText, createdById: "ops1", createdAt: new Date() },
+            ]),
+          }),
+        }),
+      }),
+    } as unknown as Database;
+    return { db };
+  };
+
+  it("returns updated note on success", async () => {
+    const { db } = makeEditDb(true, "corrected note");
+    const res = await editNote("ops1", "n1", "corrected note", db);
+    expect(res.note).toBe("corrected note");
+    expect(res.id).toBe("n1");
+  });
+
+  it("throws note_not_found when the note does not exist", async () => {
+    const { db } = makeEditDb(false);
+    await expect(editNote("ops1", "missing", "new text", db)).rejects.toMatchObject({
+      code: "note_not_found",
+      status: 404,
+    });
+  });
+
+  it("throws note_required when text is blank", async () => {
+    const { db } = makeEditDb(true);
+    await expect(editNote("ops1", "n1", "   ", db)).rejects.toMatchObject({
+      code: "note_required",
+      status: 400,
     });
   });
 });

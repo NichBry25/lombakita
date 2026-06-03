@@ -15,7 +15,7 @@ export default function HomePage() {
         <h2 className="mb-3 text-lg font-medium">Mulai</h2>
         <ul className="space-y-1 text-sm text-zinc-700">
           <li>
-            <Link className="underline" href="/auth/sign-in">
+            <Link className="underline" href="/auth/login">
               Login atau daftar akun
             </Link>
           </li>

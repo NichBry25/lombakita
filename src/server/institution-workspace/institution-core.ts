@@ -55,13 +55,18 @@ export type InstitutionWorkspaceSettingsPatch = {
   slug?: string;
 };
 
+// Maximum number of institutions a single recruiter account may own. Shared constant —
+// never inline this value in route or service code.
+export const MAX_INSTITUTIONS_PER_RECRUITER = 3;
+
 type InstitutionWorkspaceInputErrorCode =
   | "institution_invalid_payload"
   | "institution_invalid_fields"
   | "institution_protected_fields"
   | "institution_invalid_value"
   | "institution_slug_reserved"
-  | "institution_display_name_reserved";
+  | "institution_display_name_reserved"
+  | "recruiter_institution_limit_reached";
 
 export class InstitutionWorkspaceInputError extends Error {
   constructor(

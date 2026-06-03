@@ -10,7 +10,7 @@ export default async function InstitutionCompetitionCreatePage({ params }: Props
   const { institutionSlug } = await params;
   const path = `/institution/${institutionSlug}/competitions/new`;
   if (!session?.user?.id) {
-    redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(path)}`);
+    redirect(`/auth/login?callbackUrl=${encodeURIComponent(path)}`);
   }
   if (!session.user.verifiedRoles.includes("recruiter")) {
     redirect("/");

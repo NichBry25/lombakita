@@ -178,7 +178,7 @@ export const InstitutionCompetitionDetailShell = ({
         <p style={{ marginTop: 8 }}>
           <a
             href={`/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(
-              competitionId,
+              competition.slug,
             )}/edit`}
           >
             Edit field draf →

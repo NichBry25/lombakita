@@ -15,7 +15,7 @@ export default async function InstitutionSettingsPage({ params }: InstitutionSet
   const settingsPath = `/institution/${institutionSlug}/settings`;
 
   if (!session?.user?.id) {
-    redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(settingsPath)}`);
+    redirect(`/auth/login?callbackUrl=${encodeURIComponent(settingsPath)}`);
   }
 
   // CCR-05 / CCR-09: only recruiter-verified accounts can ever own or staff an institution.

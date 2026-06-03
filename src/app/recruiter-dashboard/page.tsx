@@ -9,7 +9,7 @@ import { getUnverifiedRoles } from "@/server/auth/role-verification";
 export default async function RecruiterDashboardPage() {
   const session = await getCurrentSession();
   if (!session?.user?.id) {
-    redirect("/auth/sign-in?callbackUrl=/recruiter-dashboard");
+    redirect("/auth/login?callbackUrl=/recruiter-dashboard");
   }
 
   const unverified = await getUnverifiedRoles(session.user.id);

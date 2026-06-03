@@ -1,9 +1,10 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import { AccessError } from "@/server/auth/access-core";
 import { getDb, type Database } from "@/server/db/client";
 import { institutionMemberships, institutions } from "@/server/db/schema";
 import {
   InstitutionWorkspaceInputError,
+  MAX_INSTITUTIONS_PER_RECRUITER,
   buildInstitutionSlugCandidate,
   deriveInstitutionSlugBase,
   parseInstitutionSlugParam,
@@ -167,6 +168,29 @@ export const createInstitutionWorkspaceForUser = async (
   payload: unknown,
   db: Database = getDb(),
 ): Promise<InstitutionWorkspaceShell> => {
+  // F7 (Step 6.5b): count active institution_owner memberships for this recruiter. Scoped to
+  // this user only — another recruiter at their limit is unaffected.
+  const countRows = await db
+    .select({ value: count() })
+    .from(institutionMemberships)
+    .where(
+      and(
+        eq(institutionMemberships.userId, userId),
+        eq(institutionMemberships.membershipRole, OWNER_ROLE),
+        eq(institutionMemberships.status, ACTIVE_MEMBERSHIP_STATUS),
+      ),
+    );
+  const ownedCount = countRows[0]?.value ?? 0;
+
+  if (ownedCount >= MAX_INSTITUTIONS_PER_RECRUITER) {
+    throw new InstitutionWorkspaceInputError(
+      "recruiter_institution_limit_reached",
+      `Recruiter may own at most ${MAX_INSTITUTIONS_PER_RECRUITER} institutions`,
+      undefined,
+      409,
+    );
+  }
+
   const input = parseInstitutionWorkspaceCreateInput(payload);
   const baseSlug = input.slug ?? deriveInstitutionSlugBase(input.displayName);
 

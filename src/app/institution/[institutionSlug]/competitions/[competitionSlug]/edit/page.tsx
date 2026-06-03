@@ -4,28 +4,29 @@ import { InstitutionCompetitionEditShell } from "@/components/institution/instit
 import { AccessError } from "@/server/auth/access-core";
 import { getCurrentSession } from "@/server/auth/session";
 import { CompetitionError } from "@/server/competitions/competition-core";
-import { getCompetitionForReader } from "@/server/competitions/competition-service";
+import {
+  getCompetitionIdByInstitutionAndSlug,
+} from "@/server/competitions/competition-service";
 
-type Props = { params: Promise<{ institutionSlug: string; competitionId: string }> };
+type Props = { params: Promise<{ institutionSlug: string; competitionSlug: string }> };
 
 export default async function InstitutionCompetitionEditPage({ params }: Props) {
   const session = await getCurrentSession();
-  const { institutionSlug, competitionId } = await params;
-  const path = `/institution/${institutionSlug}/competitions/${competitionId}/edit`;
+  const { institutionSlug, competitionSlug } = await params;
+  const path = `/institution/${institutionSlug}/competitions/${competitionSlug}/edit`;
   if (!session?.user?.id) {
-    redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(path)}`);
+    redirect(`/auth/login?callbackUrl=${encodeURIComponent(path)}`);
   }
   if (!session.user.verifiedRoles.includes("recruiter")) {
     redirect("/");
   }
 
+  let competitionId: string;
   try {
-    await getCompetitionForReader(session.user.id, session.user.role, competitionId);
+    competitionId = await getCompetitionIdByInstitutionAndSlug(institutionSlug, competitionSlug);
   } catch (error) {
     if (isRedirectError(error)) throw error;
-    if (error instanceof CompetitionError || error instanceof AccessError) {
-      notFound();
-    }
+    if (error instanceof CompetitionError || error instanceof AccessError) notFound();
     throw error;
   }
 

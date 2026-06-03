@@ -46,7 +46,7 @@ export default async function OwnerProfilePage() {
   const session = await getCurrentSession();
 
   if (!session?.user?.id) {
-    redirect("/auth/sign-in?callbackUrl=/profile");
+    redirect("/auth/login?callbackUrl=/profile");
   }
 
   const profile = await getOwnerProfile(session.user.id);

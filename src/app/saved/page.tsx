@@ -20,7 +20,7 @@ export default async function SavedCompetitionsPage({
   const session = await getCurrentSession();
 
   if (!session || session.user.role !== "candidate") {
-    redirect("/auth/sign-in");
+    redirect("/auth/login");
   }
 
   const { page: pageParam } = await searchParams;

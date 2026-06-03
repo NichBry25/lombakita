@@ -1,7 +1,10 @@
 import { notFound, redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { AccessError } from "@/server/auth/access-core";
 import { getCurrentSession } from "@/server/auth/session";
 import { getDb } from "@/server/db/client";
+import { CompetitionError } from "@/server/competitions/competition-core";
+import { getCompetitionIdByInstitutionAndSlug } from "@/server/competitions/competition-service";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { getRegistrationReview } from "@/server/participants/review-service";
 import { getResultForInstitution } from "@/server/participants/result-service";
@@ -9,18 +12,18 @@ import { ReviewForm } from "./review-form";
 import { ResultForm } from "./result-form";
 
 type Props = {
-  params: Promise<{ institutionSlug: string; competitionId: string; registrationId: string }>;
+  params: Promise<{ institutionSlug: string; competitionSlug: string; registrationId: string }>;
 };
 
 export default async function RegistrationReviewPage({ params }: Props) {
-  const { institutionSlug, competitionId, registrationId } = await params;
+  const { institutionSlug, competitionSlug, registrationId } = await params;
   const session = await getCurrentSession();
 
-  const listPath = `/institution/${institutionSlug}/competitions/${competitionId}/participants`;
+  const listPath = `/institution/${institutionSlug}/competitions/${competitionSlug}/participants`;
   const selfPath = `${listPath}/${registrationId}`;
 
   if (!session?.user?.id) {
-    redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(selfPath)}`);
+    redirect(`/auth/login?callbackUrl=${encodeURIComponent(selfPath)}`);
   }
   if (!session.user.verifiedRoles.includes("recruiter")) {
     redirect("/");
@@ -37,6 +40,15 @@ export default async function RegistrationReviewPage({ params }: Props) {
   } catch (e) {
     if (e instanceof AccessError) redirect("/");
     throw e;
+  }
+
+  let competitionId: string;
+  try {
+    competitionId = await getCompetitionIdByInstitutionAndSlug(institutionSlug, competitionSlug, db);
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    if (error instanceof CompetitionError) notFound();
+    throw error;
   }
 
   // Cross-institution competition/registration collapses to null → 404 (no info leak).

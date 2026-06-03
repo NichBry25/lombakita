@@ -266,8 +266,9 @@ export const InstitutionCompetitionEditShell = ({
     void load();
   };
 
-  // F13: intercept in-app back navigation when form is dirty.
-  const backUrl = `/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}`;
+  // F13: intercept in-app back navigation when form is dirty. Use competition slug for the
+  // back URL (G6 page routes are slug-keyed); fall back to competitionId while data loads.
+  const backUrl = `/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competition?.slug ?? competitionId)}`;
 
   const handleBack = () => {
     if (!isDirty) {
@@ -382,9 +383,21 @@ export const InstitutionCompetitionEditShell = ({
               onChange={(e) => {
                 const newMode = e.target.value;
                 setMode(newMode);
+                // F5 (Step 6.5b) — mode-driven team-size behaviour:
+                //   individual → fixed 1/1, both fields disabled
+                //   team       → default 2/2, both fields editable
+                //   both       → min fixed at 1 (disabled), max editable (default 2)
                 if (newMode === "individual") {
                   setMinTeamSize("1");
                   setMaxTeamSize("1");
+                } else if (newMode === "team") {
+                  setMinTeamSize("2");
+                  setMaxTeamSize("2");
+                } else if (newMode === "both") {
+                  setMinTeamSize("1");
+                  if (!maxTeamSize || Number.parseInt(maxTeamSize, 10) < 1) {
+                    setMaxTeamSize("2");
+                  }
                 }
               }}
               style={{ display: "block" }}
@@ -401,8 +414,9 @@ export const InstitutionCompetitionEditShell = ({
               type="number"
               value={minTeamSize}
               onChange={(e) => setMinTeamSize(e.target.value)}
-              min={1}
-              disabled={mode === "individual"}
+              min={mode === "team" ? 2 : 1}
+              // Min is fixed for individual (1) and both (1); only team allows editing min.
+              disabled={mode === "individual" || mode === "both"}
               style={{ display: "block" }}
             />
           </label>
@@ -413,6 +427,7 @@ export const InstitutionCompetitionEditShell = ({
               value={maxTeamSize}
               onChange={(e) => setMaxTeamSize(e.target.value)}
               min={1}
+              // Max is fixed for individual (1); team and both allow editing max.
               disabled={mode === "individual"}
               style={{ display: "block" }}
             />

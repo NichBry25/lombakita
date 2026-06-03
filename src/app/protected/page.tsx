@@ -15,7 +15,7 @@ export default async function ProtectedPage() {
   const session = await getCurrentSession();
 
   if (!session?.user?.id) {
-    redirect("/auth/sign-in?callbackUrl=%2Fprotected");
+    redirect("/auth/login?callbackUrl=%2Fprotected");
   }
 
   const authenticatedSession = assertAuthenticatedSession(session);

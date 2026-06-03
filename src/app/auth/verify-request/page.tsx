@@ -8,7 +8,7 @@ export default function VerifyRequestPage() {
         If you just registered, we have sent an account verification email.
       </p>
       <p className="text-sm text-zinc-600">
-        <Link className="underline" href="/auth/sign-in">
+        <Link className="underline" href="/auth/login">
           Back to sign in
         </Link>
       </p>

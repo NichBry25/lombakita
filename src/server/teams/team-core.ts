@@ -224,6 +224,7 @@ export type TeamRosterEntry = {
 
 export type TeamInvitationEntry = {
   id: string;
+  tokenHash: string;
   invitedEmail: string;
   status: TeamInvitationStatus;
   expiresAt: Date;

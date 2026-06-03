@@ -22,7 +22,7 @@ export default async function VerifyRolePage(props: {
 }) {
   const session = await getCurrentSession();
   if (!session?.user?.id) {
-    redirect("/auth/sign-in?callbackUrl=/");
+    redirect("/auth/login?callbackUrl=/");
   }
 
   const searchParams = await props.searchParams;

@@ -4,8 +4,8 @@ export default async function ActivatedPage(props: { searchParams?: Promise<{ em
   const searchParams = await props.searchParams;
   const email = searchParams?.email;
   const signInHref = email
-    ? `/auth/sign-in?verified=1&email=${encodeURIComponent(email)}`
-    : "/auth/sign-in?verified=1";
+    ? `/auth/login?verified=1&email=${encodeURIComponent(email)}`
+    : "/auth/login?verified=1";
 
   return (
     <main className="mx-auto flex min-h-[76vh] w-full max-w-3xl flex-1 items-center justify-center px-6 py-12">

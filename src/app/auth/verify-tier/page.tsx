@@ -10,7 +10,7 @@ export default async function VerifyTierPage(props: {
 }) {
   const session = await getCurrentSession();
   if (!session?.user?.id) {
-    redirect("/auth/sign-in?callbackUrl=/auth/verify-tier?target=elevated");
+    redirect("/auth/login?callbackUrl=/auth/verify-tier?target=elevated");
   }
 
   const searchParams = await props.searchParams;

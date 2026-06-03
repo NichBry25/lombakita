@@ -5,6 +5,7 @@ import type { CompetitionStatus } from "@/server/db/schema";
 import {
   CompetitionError,
   COMPETITION_STATUS_VALUES,
+  TEAM_MODE_MIN_SIZE,
   isAllowedStatusTransition,
   normalizeCompetitionSlug,
   parseCompetitionCreateInput,
@@ -325,5 +326,118 @@ describe("validatePublishChecklist", () => {
       eventEndAt: null,
     });
     expect(result.failures.length).toBeGreaterThanOrEqual(8);
+  });
+});
+
+// F5: mode → size auto-set + floor validation (Step 6.5b)
+describe("F5 — mode auto-set (parseCompetitionPatchInput)", () => {
+  it("auto-sets min=2 max=2 when mode switches to team without explicit sizes", () => {
+    const patch = parseCompetitionPatchInput({ mode: "team" });
+    expect(patch.minTeamSize).toBe(TEAM_MODE_MIN_SIZE);
+    expect(patch.maxTeamSize).toBe(TEAM_MODE_MIN_SIZE);
+  });
+
+  it("auto-sets min=1 max=2 when mode switches to both without explicit sizes", () => {
+    const patch = parseCompetitionPatchInput({ mode: "both" });
+    expect(patch.minTeamSize).toBe(1);
+    expect(patch.maxTeamSize).toBe(2);
+  });
+
+  it("respects explicit sizes when supplied alongside mode=team", () => {
+    const patch = parseCompetitionPatchInput({ mode: "team", minTeamSize: 3, maxTeamSize: 5 });
+    expect(patch.minTeamSize).toBe(3);
+    expect(patch.maxTeamSize).toBe(5);
+  });
+
+  it("rejects team mode with min < 2 when both are explicit", () => {
+    expect(() =>
+      parseCompetitionPatchInput({ mode: "team", minTeamSize: 1, maxTeamSize: 3 }),
+    ).toThrow(/minTeamSize >= 2/);
+  });
+
+  it("rejects team mode with min < 2 when only min is explicit (floor still enforced)", () => {
+    expect(() =>
+      parseCompetitionPatchInput({ mode: "team", minTeamSize: 1 }),
+    ).toThrow(/minTeamSize >= 2/);
+  });
+
+  it("auto-sets max=min when min is explicit and min > default max (no clobber)", () => {
+    // mode=team, min=3 explicit, max absent: max auto-set to max(3, 2) = 3
+    const patch = parseCompetitionPatchInput({ mode: "team", minTeamSize: 3 });
+    expect(patch.minTeamSize).toBe(3);
+    expect(patch.maxTeamSize).toBe(3);
+  });
+
+  it("auto-sets max=default when min is explicit and min <= default max", () => {
+    // mode=team, min=2 explicit, max absent: max auto-set to max(2, 2) = 2
+    const patch = parseCompetitionPatchInput({ mode: "team", minTeamSize: 2 });
+    expect(patch.minTeamSize).toBe(2);
+    expect(patch.maxTeamSize).toBe(2);
+  });
+
+  it("rejects when max < min (existing rule, still enforced)", () => {
+    expect(() =>
+      parseCompetitionPatchInput({ minTeamSize: 3, maxTeamSize: 2 }),
+    ).toThrow(/less than or equal to/);
+  });
+});
+
+describe("F5 — mode floor at publish time (validatePublishChecklist)", () => {
+  const inFuture = (d: number): Date => {
+    const dt = new Date();
+    dt.setDate(dt.getDate() + d);
+    return dt;
+  };
+  const base = () => ({
+    title: "Lomba",
+    description: "Desc",
+    category: "technology" as const,
+    registrationStartAt: inFuture(7),
+    registrationEndAt: inFuture(30),
+    eventStartAt: inFuture(40),
+    eventEndAt: inFuture(45),
+  });
+
+  it("passes team mode with minTeamSize=2", () => {
+    const r = validatePublishChecklist({
+      ...base(),
+      mode: "team",
+      minTeamSize: 2,
+      maxTeamSize: 4,
+    });
+    expect(r.passed).toBe(true);
+  });
+
+  it("fails team mode with minTeamSize<2", () => {
+    const r = validatePublishChecklist({
+      ...base(),
+      mode: "team",
+      minTeamSize: 1,
+      maxTeamSize: 4,
+    });
+    expect(r.passed).toBe(false);
+    expect(r.failures.some((f) => f.field === "minTeamSize")).toBe(true);
+  });
+
+  it("fails team mode with minTeamSize null (treated as 0)", () => {
+    const r = validatePublishChecklist({
+      ...base(),
+      mode: "team",
+      minTeamSize: null,
+      maxTeamSize: 4,
+    });
+    expect(r.passed).toBe(false);
+    expect(r.failures.some((f) => f.field === "minTeamSize")).toBe(true);
+  });
+
+  it("fails when minTeamSize > maxTeamSize at publish time", () => {
+    const r = validatePublishChecklist({
+      ...base(),
+      mode: "both",
+      minTeamSize: 5,
+      maxTeamSize: 3,
+    });
+    expect(r.passed).toBe(false);
+    expect(r.failures.some((f) => f.field === "maxTeamSize")).toBe(true);
   });
 });

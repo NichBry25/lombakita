@@ -7,7 +7,7 @@ export default async function ProfileEditPage() {
   const session = await getCurrentSession();
 
   if (!session?.user?.id) {
-    redirect("/auth/sign-in?callbackUrl=/profile/edit");
+    redirect("/auth/login?callbackUrl=/profile/edit");
   }
 
   const profile = await getOwnerProfile(session.user.id);

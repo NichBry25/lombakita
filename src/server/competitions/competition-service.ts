@@ -17,6 +17,8 @@ import {
   MAX_SLUG_LENGTH,
   normalizeCompetitionSlug,
   PATCH_FIELDS,
+  resolveTeamSizesForMode,
+  TEAM_MODE_MIN_SIZE,
   validatePublishChecklist,
   type CompetitionCreateInput,
   type CompetitionPatchInput,
@@ -106,6 +108,35 @@ export const assertCompetitionInInstitution = async (
   }
 };
 
+// Resolves a competition by institution slug + competition slug (both scoped together).
+// This is the page-level slug lookup for G6 institution-side routes. Institution-scoped:
+// the same competition slug under two different institutions resolves independently with no
+// cross-tenant leak. Returns the competitionId for downstream service calls, or throws 404.
+export const getCompetitionIdByInstitutionAndSlug = async (
+  institutionSlug: string,
+  competitionSlug: string,
+  db: Database = getDb(),
+): Promise<string> => {
+  const [row] = await db
+    .select({ id: competitions.id })
+    .from(competitions)
+    .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
+    .where(
+      and(
+        eq(institutions.slug, institutionSlug),
+        eq(competitions.slug, competitionSlug),
+        isNull(competitions.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!row) {
+    throw new CompetitionError("competition_not_found", 404, "Competition not found");
+  }
+
+  return row.id;
+};
+
 // Verifies the actor has an active membership (admin or staff) in the institution
 // and resolves the institution row. Used by the create path which receives institutionSlug
 // from the request body. Reused mutating helpers for the existing-competition routes use
@@ -152,6 +183,16 @@ export const createCompetitionDraft = async (
 
   const baseSlug = input.slug ?? deriveSlugBaseFromTitle(input.title);
 
+  // F5/F14 (Step 6.5b) — mode defaults to individual when unspecified; team sizes are then
+  // normalized to that mode so a freshly created draft never persists null/inconsistent sizes
+  // (e.g. an individual competition must store 1/1, not null/null).
+  const effectiveMode = input.mode ?? "individual";
+  const { minTeamSize, maxTeamSize } = resolveTeamSizesForMode(
+    effectiveMode,
+    input.minTeamSize ?? null,
+    input.maxTeamSize ?? null,
+  );
+
   for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
     const candidate = buildSlugCandidate(baseSlug, attempt);
     try {
@@ -165,9 +206,9 @@ export const createCompetitionDraft = async (
           description: input.description,
           status: "draft",
           category: input.category ?? null,
-          mode: input.mode ?? "individual",
-          minTeamSize: input.minTeamSize ?? null,
-          maxTeamSize: input.maxTeamSize ?? null,
+          mode: effectiveMode,
+          minTeamSize,
+          maxTeamSize,
           registrationStartAt: input.registrationStartAt ?? null,
           registrationEndAt: input.registrationEndAt ?? null,
           eventStartAt: input.eventStartAt ?? null,
@@ -309,12 +350,32 @@ export const updateCompetitionDraft = async (
   if (patch.eventStartAt !== undefined) updates.eventStartAt = patch.eventStartAt;
   if (patch.eventEndAt !== undefined) updates.eventEndAt = patch.eventEndAt;
 
-  // individual mode enforces team size of 1 regardless of what the patch submitted.
-  // Resolve effective mode: prefer the patch value, fall back to the existing row.
+  // F5 — normalize team sizes to the effective mode whenever the patch touches mode or a size
+  // field. Resolve effective mode/sizes from the patch where present, falling back to the
+  // existing row. This catches cross-field cases parse-time validation cannot see (e.g. patching
+  // only minTeamSize while the row already has mode=team) and keeps individual/both fixed values
+  // consistent. An explicit sub-floor team min is rejected here rather than silently raised.
   const effectiveMode = patch.mode !== undefined ? patch.mode : competition.mode;
-  if (effectiveMode === "individual") {
-    updates.minTeamSize = 1;
-    updates.maxTeamSize = 1;
+  const patchTouchesSizeOrMode =
+    patch.mode !== undefined ||
+    patch.minTeamSize !== undefined ||
+    patch.maxTeamSize !== undefined;
+  if (effectiveMode && patchTouchesSizeOrMode) {
+    const effectiveMin =
+      patch.minTeamSize !== undefined ? patch.minTeamSize : competition.minTeamSize;
+    const effectiveMax =
+      patch.maxTeamSize !== undefined ? patch.maxTeamSize : competition.maxTeamSize;
+    if (effectiveMode === "team" && effectiveMin !== null && effectiveMin < TEAM_MODE_MIN_SIZE) {
+      throw new CompetitionError(
+        "competition_invalid_value",
+        400,
+        `team mode requires minTeamSize >= ${TEAM_MODE_MIN_SIZE}`,
+        { fields: ["minTeamSize"] },
+      );
+    }
+    const resolved = resolveTeamSizesForMode(effectiveMode, effectiveMin, effectiveMax);
+    updates.minTeamSize = resolved.minTeamSize;
+    updates.maxTeamSize = resolved.maxTeamSize;
   }
 
   // Nothing besides the timestamp — no-op fast path.
@@ -402,6 +463,8 @@ export const transitionCompetitionStatus = async (
       description: competition.description,
       category: competition.category,
       mode: competition.mode,
+      minTeamSize: competition.minTeamSize,
+      maxTeamSize: competition.maxTeamSize,
       registrationStartAt: competition.registrationStartAt,
       registrationEndAt: competition.registrationEndAt,
       eventStartAt: competition.eventStartAt,

@@ -13,7 +13,7 @@ export default async function InstitutionTeamPage({ params }: InstitutionTeamPag
   const teamPath = `/institution/${institutionSlug}/settings/team`;
 
   if (!session?.user?.id) {
-    redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(teamPath)}`);
+    redirect(`/auth/login?callbackUrl=${encodeURIComponent(teamPath)}`);
   }
 
   if (!session.user.verifiedRoles.includes("recruiter")) {

@@ -9,6 +9,10 @@ import {
   getInstitutionWorkspaceForOwnerBySlug,
   updateInstitutionWorkspaceForOwnerBySlug,
 } from "@/server/institution-workspace/institution-service";
+import {
+  InstitutionWorkspaceInputError,
+  MAX_INSTITUTIONS_PER_RECRUITER,
+} from "@/server/institution-workspace/institution-core";
 
 type CreationConflictShape = "outer" | "wrapped";
 
@@ -111,6 +115,12 @@ const createDbMockForCreation = (options: {
 
   return {
     db: {
+      // F7: count query returns 0 (under limit) so existing creation tests pass through.
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => Promise.resolve([{ value: 0 }])),
+        })),
+      })),
       transaction: vi.fn(async (callback: (context: typeof tx) => Promise<unknown>) =>
         callback(tx),
       ),
@@ -209,6 +219,97 @@ describe("institution-service", () => {
     await expect(
       getInstitutionWorkspaceForOwnerBySlug("user_1", "kampus-a", db),
     ).rejects.toThrow(/not part of this institution/i);
+  });
+
+  // F7 — institution creation limit (Step 6.5b)
+  const createDbMockWithOwnerCount = (ownedCount: number) => {
+    let selectCalls = 0;
+    const tx = {
+      insert: vi.fn((table: unknown) => {
+        if (table === institutions) {
+          return {
+            values: (values: { displayName: string; slug: string; status: string }) => ({
+              returning: async () => [
+                {
+                  institutionId: "inst_new",
+                  institutionDisplayName: values.displayName,
+                  institutionSlug: values.slug,
+                  institutionStatus: values.status,
+                  institutionCreatedAt: new Date("2026-06-04T00:00:00.000Z"),
+                  institutionUpdatedAt: new Date("2026-06-04T00:00:00.000Z"),
+                },
+              ],
+            }),
+          };
+        }
+        if (table === institutionMemberships) {
+          return {
+            values: (values: { institutionId: string; userId: string; membershipRole: string; status: string }) => ({
+              returning: async () => [
+                {
+                  membershipId: "mem_new",
+                  membershipRole: values.membershipRole,
+                  membershipStatus: values.status,
+                  membershipJoinedAt: new Date("2026-06-04T00:00:00.000Z"),
+                },
+              ],
+            }),
+          };
+        }
+        throw new Error("Unexpected table");
+      }),
+    };
+    return {
+      db: {
+        select: vi.fn(() => {
+          selectCalls += 1;
+          return {
+            from: vi.fn(() => ({
+              where: vi.fn(() =>
+                Promise.resolve([{ value: ownedCount }]),
+              ),
+            })),
+          };
+        }),
+        transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx)),
+      } as unknown as Database,
+      getSelectCalls: () => selectCalls,
+    };
+  };
+
+  it("F7: blocks creation when recruiter already owns MAX_INSTITUTIONS_PER_RECRUITER institutions", async () => {
+    const { db } = createDbMockWithOwnerCount(MAX_INSTITUTIONS_PER_RECRUITER);
+    await expect(
+      createInstitutionWorkspaceForUser("user_at_limit", { displayName: "Kampus Baru" }, db),
+    ).rejects.toThrow(InstitutionWorkspaceInputError);
+
+    await createInstitutionWorkspaceForUser("user_at_limit", { displayName: "Kampus Baru" }, db).catch(
+      (err: unknown) => {
+        expect(err).toBeInstanceOf(InstitutionWorkspaceInputError);
+        expect((err as InstitutionWorkspaceInputError).code).toBe("recruiter_institution_limit_reached");
+        expect((err as InstitutionWorkspaceInputError).httpStatus).toBe(409);
+      },
+    );
+  });
+
+  it("F7: allows creation when recruiter is one below the limit", async () => {
+    const { db } = createDbMockWithOwnerCount(MAX_INSTITUTIONS_PER_RECRUITER - 1);
+    await expect(
+      createInstitutionWorkspaceForUser("user_below_limit", { displayName: "Kampus Baru" }, db),
+    ).resolves.toMatchObject({ ownerMembership: { membershipRole: "institution_owner" } });
+  });
+
+  it("F7: count is scoped to the requesting user — different users are independent", async () => {
+    const dbA = createDbMockWithOwnerCount(MAX_INSTITUTIONS_PER_RECRUITER).db;
+    const dbB = createDbMockWithOwnerCount(0).db;
+
+    await expect(
+      createInstitutionWorkspaceForUser("user_A_at_limit", { displayName: "Kampus A" }, dbA),
+    ).rejects.toBeInstanceOf(InstitutionWorkspaceInputError);
+
+    await expect(
+      createInstitutionWorkspaceForUser("user_B_at_zero", { displayName: "Kampus B" }, dbB),
+    ).resolves.toBeDefined();
   });
 
   it("retries on slug collision when the postgres error is wrapped under .cause (Drizzle shape)", async () => {

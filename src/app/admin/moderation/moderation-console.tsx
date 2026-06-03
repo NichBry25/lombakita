@@ -72,6 +72,74 @@ async function readError(res: Response): Promise<string> {
   }
 }
 
+function NoteRow({ note, onSaved }: { note: NoteItem; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(note.note);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/platform-ops/notes/${encodeURIComponent(note.id)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ note: editText }),
+      });
+      if (!res.ok) {
+        setError(await readError(res));
+        return;
+      }
+      setEditing(false);
+      onSaved();
+    } catch {
+      setError("Kesalahan jaringan saat menyimpan.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <li style={{ marginBottom: 6, fontSize: 12 }}>
+      {editing ? (
+        <span>
+          <input
+            style={{ ...input, width: 300 }}
+            aria-label="Edit catatan"
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+          />{" "}
+          <button style={btn} disabled={busy} onClick={() => void save()}>
+            Simpan
+          </button>{" "}
+          <button
+            style={{ ...btn, background: "#888" }}
+            onClick={() => { setEditing(false); setEditText(note.note); setError(null); }}
+          >
+            Batal
+          </button>
+          {error && <span style={{ ...errStyle, marginLeft: 6 }}>{error}</span>}
+        </span>
+      ) : (
+        <span>
+          {note.note}{" "}
+          <span style={{ color: "#999" }}>
+            — {note.createdByName ?? note.createdById} · {new Date(note.createdAt).toLocaleString()}
+          </span>{" "}
+          <button
+            style={{ fontSize: 11, cursor: "pointer", border: "none", background: "none", color: "#355795", textDecoration: "underline" }}
+            onClick={() => setEditing(true)}
+            aria-label="Edit catatan ini"
+          >
+            Edit
+          </button>
+        </span>
+      )}
+    </li>
+  );
+}
+
 function NotesPanel({ target }: { target: { targetUserId?: string; targetInstitutionId?: string } }) {
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [noteInput, setNoteInput] = useState("");
@@ -144,12 +212,7 @@ function NotesPanel({ target }: { target: { targetUserId?: string; targetInstitu
       ) : (
         <ul style={{ fontSize: 12, paddingLeft: 18 }}>
           {notes.map((n) => (
-            <li key={n.id} style={{ marginBottom: 4 }}>
-              {n.note}{" "}
-              <span style={{ color: "#999" }}>
-                — {n.createdByName ?? n.createdById} · {new Date(n.createdAt).toLocaleString()}
-              </span>
-            </li>
+            <NoteRow key={n.id} note={n} onSaved={() => void load()} />
           ))}
         </ul>
       )}

@@ -282,6 +282,45 @@ const parseOptionalMode = (value: unknown): CompetitionMode | null => {
   return value;
 };
 
+// Minimum team size by mode. team requires ≥ 2; individual and both require ≥ 1 (already
+// enforced by parseOptionalInt). The floor for team is stricter than the general positive-int
+// check, so it needs an explicit rule.
+export const TEAM_MODE_MIN_SIZE = 2;
+export const BOTH_MODE_MIN_SIZE = 1;
+export const TEAM_MODE_DEFAULT_MAX_SIZE = 2;
+export const BOTH_MODE_DEFAULT_MAX_SIZE = 2;
+
+// F5 (Step 6.5b) — canonical team-size resolution for a given mode. This is the single source
+// of truth for mode→size normalization, applied on every write path (create + patch) so a
+// competition can never persist a mode that is inconsistent with its team-size columns.
+//
+//   individual → fixed 1/1 (no team concept)
+//   both       → min is always 1 (an entrant may register solo); max is the team cap
+//   team       → min/max preserved when supplied; null values filled with team defaults
+//
+// Keyed on null (not field-absence) so the edit form — which always sends every field, emitting
+// null for an empty input — gets the same normalization as a partial create payload. This
+// preserves explicitly-supplied values and only fills the nulls; it never silently raises an
+// explicit team min below the floor (that is rejected by validateFieldRelations instead).
+export const resolveTeamSizesForMode = (
+  mode: CompetitionMode,
+  min: number | null,
+  max: number | null,
+): { minTeamSize: number; maxTeamSize: number } => {
+  if (mode === "individual") {
+    return { minTeamSize: 1, maxTeamSize: 1 };
+  }
+  if (mode === "both") {
+    return { minTeamSize: BOTH_MODE_MIN_SIZE, maxTeamSize: max ?? BOTH_MODE_DEFAULT_MAX_SIZE };
+  }
+  // team
+  const resolvedMin = min ?? TEAM_MODE_MIN_SIZE;
+  // Fill an absent max with max(resolvedMin, default) so an explicit min > default does not
+  // produce a max below it.
+  const resolvedMax = max ?? Math.max(resolvedMin, TEAM_MODE_DEFAULT_MAX_SIZE);
+  return { minTeamSize: resolvedMin, maxTeamSize: resolvedMax };
+};
+
 // Cross-field validation. Run on every parsed payload (create + patch). For PATCH this only
 // catches inconsistencies present together in the same request; cross-field rules that span
 // existing-row + payload (e.g. patching only one side of a date pair) are not enforced here —
@@ -297,6 +336,16 @@ const validateFieldRelations = (fields: CompetitionDraftFields): void => {
       400,
       "minTeamSize must be less than or equal to maxTeamSize",
       { fields: ["minTeamSize", "maxTeamSize"] },
+    );
+  }
+  // Mode-aware floor: team requires minTeamSize ≥ 2. (both/individual: parseOptionalInt
+  // already guarantees ≥ 1, which covers their floor.)
+  if (fields.mode === "team" && fields.minTeamSize != null && fields.minTeamSize < TEAM_MODE_MIN_SIZE) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      `team mode requires minTeamSize >= ${TEAM_MODE_MIN_SIZE}`,
+      { fields: ["minTeamSize"] },
     );
   }
   if (
@@ -448,10 +497,18 @@ const parseDraftFields = (
     fields.eventEndAt = parseOptionalDate(filtered.eventEndAt, "eventEndAt");
   }
 
-  // individual mode always implies a fixed team size of 1; override whatever was submitted.
-  if (fields.mode === "individual") {
-    fields.minTeamSize = 1;
-    fields.maxTeamSize = 1;
+  // F5 — when the payload sets mode, normalize team sizes to that mode. Fills null/absent sizes
+  // with mode defaults and forces fixed values (individual 1/1, both min=1) so the stored row is
+  // always internally consistent. Explicit values are preserved; an explicit sub-floor team min
+  // survives here and is rejected below by validateFieldRelations.
+  if (fields.mode) {
+    const resolved = resolveTeamSizesForMode(
+      fields.mode,
+      fields.minTeamSize ?? null,
+      fields.maxTeamSize ?? null,
+    );
+    fields.minTeamSize = resolved.minTeamSize;
+    fields.maxTeamSize = resolved.maxTeamSize;
   }
 
   validateFieldRelations(fields);
@@ -572,6 +629,8 @@ export type PublishValidationCandidate = {
   description: string;
   category: CompetitionCategory | null;
   mode: CompetitionMode | null;
+  minTeamSize?: number | null;
+  maxTeamSize?: number | null;
   registrationStartAt: Date | null;
   registrationEndAt: Date | null;
   eventStartAt: Date | null;
@@ -610,6 +669,25 @@ export const validatePublishChecklist = (
   }
   if (!candidate.mode) {
     failures.push({ field: "mode", code: "missing", message: "mode is required to publish" });
+  }
+  // Mode-aware size floor validation at publish time.
+  if (candidate.mode === "team" && (candidate.minTeamSize ?? 0) < TEAM_MODE_MIN_SIZE) {
+    failures.push({
+      field: "minTeamSize",
+      code: "missing",
+      message: `team mode requires minTeamSize >= ${TEAM_MODE_MIN_SIZE}`,
+    });
+  }
+  if (
+    candidate.minTeamSize != null &&
+    candidate.maxTeamSize != null &&
+    candidate.minTeamSize > candidate.maxTeamSize
+  ) {
+    failures.push({
+      field: "maxTeamSize",
+      code: "out_of_order",
+      message: "minTeamSize must be less than or equal to maxTeamSize",
+    });
   }
   if (!candidate.category) {
     failures.push({

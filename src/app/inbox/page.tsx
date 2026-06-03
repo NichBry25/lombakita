@@ -36,7 +36,7 @@ const KIND_LABEL: Record<InboxItem["kind"], string> = {
 export default async function InboxPage() {
   const session = await getCurrentSession();
   if (!session?.user?.id) {
-    redirect("/auth/sign-in?callbackUrl=/inbox");
+    redirect("/auth/login?callbackUrl=/inbox");
   }
 
   const db = getDb();

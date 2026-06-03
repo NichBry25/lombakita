@@ -263,7 +263,7 @@ export default async function CompetitionDetailPage({
         />
         {!session?.user && (
           <p style={{ fontSize: 12, color: "#888", marginTop: 8 }}>
-            <Link href="/auth/sign-in" style={{ color: "#355795" }}>
+            <Link href="/auth/login" style={{ color: "#355795" }}>
               Masuk
             </Link>{" "}
             sebagai mahasiswa untuk mendaftar.
@@ -286,7 +286,7 @@ export default async function CompetitionDetailPage({
           />
         ) : (
           <p style={{ fontSize: 13, color: "#888", marginTop: 16 }}>
-            <Link href="/auth/sign-in" style={{ color: "#355795" }}>
+            <Link href="/auth/login" style={{ color: "#355795" }}>
               Masuk
             </Link>{" "}
             untuk menyimpan kompetisi ini.

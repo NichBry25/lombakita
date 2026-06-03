@@ -168,7 +168,7 @@ export const SignupForm = ({ signupRole, verificationEnabled }: SignupFormProps)
       ) : null}
 
       <p style={{ marginTop: "1.5rem", fontSize: "0.75rem", color: "#71717a" }}>
-        <Link href="/auth/signup" style={{ textDecoration: "underline" }}>
+        <Link href="/auth/register" style={{ textDecoration: "underline" }}>
           ← Kembali ke pilihan peran
         </Link>
       </p>

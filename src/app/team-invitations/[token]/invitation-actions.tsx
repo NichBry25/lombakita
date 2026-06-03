@@ -76,7 +76,7 @@ export function InvitationActions(props: Props) {
           Silakan masuk dengan akun yang sesuai untuk menerima undangan ini.
         </p>
         <a
-          href={`/auth/sign-in?callbackUrl=${encodeURIComponent(callbackUrl)}`}
+          href={`/auth/login?callbackUrl=${encodeURIComponent(callbackUrl)}`}
           style={{
             display: "inline-block",
             marginTop: 8,

@@ -142,4 +142,29 @@ describe("POST /api/v1/institutions", () => {
     expect(body.error.code).toBe("institution_invalid_value");
     expect(body.error.details.fields).toContain("displayName");
   });
+
+  // F7 (Step 6.5b) — recruiter institution-creation limit surfaced at the route layer.
+  it("returns 409 recruiter_institution_limit_reached when the recruiter is at the limit", async () => {
+    requireSessionRole.mockResolvedValue(recruiterSessionFixture);
+    createInstitutionWorkspaceForUser.mockRejectedValue(
+      new InstitutionWorkspaceInputError(
+        "recruiter_institution_limit_reached",
+        "Recruiter may own at most 3 institutions",
+        undefined,
+        409,
+      ),
+    );
+
+    const request = new Request("http://localhost/api/v1/institutions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ displayName: "Kampus Keempat" }),
+    });
+
+    const response = await POST(request as never);
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("recruiter_institution_limit_reached");
+  });
 });

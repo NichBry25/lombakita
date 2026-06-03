@@ -15,7 +15,7 @@ export default async function InstitutionMembersPage({ params }: InstitutionMemb
   const membersPath = `/institution/${institutionSlug}/members`;
 
   if (!session?.user?.id) {
-    redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(membersPath)}`);
+    redirect(`/auth/login?callbackUrl=${encodeURIComponent(membersPath)}`);
   }
 
   if (!session.user.verifiedRoles.includes("recruiter")) {

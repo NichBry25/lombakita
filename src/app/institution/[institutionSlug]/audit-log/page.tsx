@@ -19,7 +19,7 @@ export default async function AuditLogPage({ params, searchParams }: Props) {
   const path = `/institution/${institutionSlug}/audit-log`;
 
   if (!session?.user?.id) {
-    redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(path)}`);
+    redirect(`/auth/login?callbackUrl=${encodeURIComponent(path)}`);
   }
   if (!session.user.verifiedRoles.includes("recruiter")) {
     redirect("/");

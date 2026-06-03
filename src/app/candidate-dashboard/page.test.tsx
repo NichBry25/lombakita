@@ -136,7 +136,8 @@ describe("Step 9 & 10 — Session guard redirects", () => {
     mockRedirect.mockImplementation(() => { throw new Error("NEXT_REDIRECT"); });
 
     await expect(CandidateDashboardPage()).rejects.toThrow("NEXT_REDIRECT");
-    expect(mockRedirect).toHaveBeenCalledWith(expect.stringContaining("/auth/sign-in"));
+    // F2 (Step 6.5b): unauthenticated guards send users to the login view at /auth/login.
+    expect(mockRedirect).toHaveBeenCalledWith(expect.stringContaining("/auth/login"));
   });
 
   it("Step 9 — redirects recruiter-only session (unverified candidate) to verify-role", async () => {

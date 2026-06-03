@@ -100,7 +100,7 @@ export const InvitationAcceptShell = ({ token }: { token: string }) => {
       const data = (await response.json()) as { error?: { callbackUrl?: string } };
       const callbackUrl =
         data.error?.callbackUrl ?? `/invitations/${encodeURIComponent(token)}/accept`;
-      router.push(`/auth/sign-in?callbackUrl=${encodeURIComponent(callbackUrl)}`);
+      router.push(`/auth/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
       return;
     }
 

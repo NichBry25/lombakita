@@ -8,12 +8,17 @@ import {
 import { PUBLIC_COMPETITION_COLUMNS } from "@/server/competitions/competition-access";
 import type { CompetitionRow } from "@/server/competitions/competition-access";
 
-const { assertCompetitionAccess, assertInstitutionVerified, hasActiveRegistrationsForCompetition } =
-  vi.hoisted(() => ({
-    assertCompetitionAccess: vi.fn(),
-    assertInstitutionVerified: vi.fn(),
-    hasActiveRegistrationsForCompetition: vi.fn(),
-  }));
+const {
+  assertCompetitionAccess,
+  assertInstitutionVerified,
+  assertInstitutionNotSuspended,
+  hasActiveRegistrationsForCompetition,
+} = vi.hoisted(() => ({
+  assertCompetitionAccess: vi.fn(),
+  assertInstitutionVerified: vi.fn(),
+  assertInstitutionNotSuspended: vi.fn(),
+  hasActiveRegistrationsForCompetition: vi.fn(),
+}));
 
 vi.mock("@/server/competitions/competition-access", async () => {
   const actual = await vi.importActual<typeof import("@/server/competitions/competition-access")>(
@@ -23,6 +28,7 @@ vi.mock("@/server/competitions/competition-access", async () => {
     ...actual,
     assertCompetitionAccess,
     assertInstitutionVerified,
+    assertInstitutionNotSuspended,
     hasActiveRegistrationsForCompetition,
   };
 });
@@ -30,6 +36,7 @@ vi.mock("@/server/competitions/competition-access", async () => {
 import type { Database } from "@/server/db/client";
 import {
   createCompetitionDraft,
+  getCompetitionIdByInstitutionAndSlug,
   transitionCompetitionStatus,
   updateCompetitionDraft,
 } from "@/server/competitions/competition-service";
@@ -165,6 +172,102 @@ describe("updateCompetitionDraft — IMMUTABLE_AFTER_PUBLISH guard (Step 3.3)", 
   });
 });
 
+// F5-5 — publish floor: a team competition with min < 2 must be rejected at publish even when
+//        every other publish field is valid (API path: transitionCompetitionStatus → publish).
+describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6.5b)", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  const future = (days: number): Date => {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d;
+  };
+
+  it("throws competition_publish_validation_failed with a minTeamSize failure", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({
+        status: "draft",
+        mode: "team",
+        minTeamSize: 1,
+        maxTeamSize: 4,
+        title: "Lomba Tim",
+        description: "Deskripsi lengkap",
+        category: "technology",
+        registrationStartAt: future(2),
+        registrationEndAt: future(10),
+        eventStartAt: future(20),
+        eventEndAt: future(25),
+      }),
+      membershipRole: "institution_owner",
+    });
+    assertInstitutionVerified.mockResolvedValue(undefined);
+    assertInstitutionNotSuspended.mockResolvedValue(undefined);
+
+    await expect(
+      transitionCompetitionStatus("user_1", "comp_1", "published", stubDb),
+    ).rejects.toMatchObject({
+      code: "competition_publish_validation_failed",
+      httpStatus: 422,
+      details: { fields: expect.arrayContaining(["minTeamSize"]) },
+    });
+  });
+
+  it("validatePublishChecklist passes for an otherwise-identical team competition with minTeamSize=2", async () => {
+    // Proves the rejection above is attributable to the floor, not another field — same valid
+    // dates/title/category, only minTeamSize differs. Checked at the pure-validation layer so the
+    // test takes no dependency on the DB-update / search-sync tail of the publish path.
+    const { validatePublishChecklist } = await import("@/server/competitions/competition-core");
+    const result = validatePublishChecklist({
+      title: "Lomba Tim",
+      description: "Deskripsi lengkap",
+      category: "technology",
+      mode: "team",
+      minTeamSize: 2,
+      maxTeamSize: 4,
+      registrationStartAt: future(2),
+      registrationEndAt: future(10),
+      eventStartAt: future(20),
+      eventEndAt: future(25),
+    });
+    expect(result.passed).toBe(true);
+  });
+});
+
+// F5 — secondary floor check in updateCompetitionDraft (cross-field: patch only minTeamSize
+//      while existing row has mode=team)
+describe("F5 — updateCompetitionDraft secondary floor (Step 6.5b)", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("rejects patching minTeamSize=1 on a team-mode draft competition", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({ status: "draft", mode: "team", minTeamSize: 2, maxTeamSize: 4 }),
+      membershipRole: "institution_owner",
+    });
+    await expect(
+      updateCompetitionDraft("user_1", "comp_1", { minTeamSize: 1 }, stubDb),
+    ).rejects.toMatchObject({ code: "competition_invalid_value", httpStatus: 400 });
+  });
+
+  it("allows patching minTeamSize=3 on a team-mode draft competition", async () => {
+    const updatedRow = baseCompetition({ status: "draft", mode: "team", minTeamSize: 3, maxTeamSize: 4 });
+    const db = {
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([updatedRow]),
+          }),
+        }),
+      }),
+    } as unknown as Database;
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({ status: "draft", mode: "team", minTeamSize: 2, maxTeamSize: 4 }),
+      membershipRole: "institution_owner",
+    });
+    const result = await updateCompetitionDraft("user_1", "comp_1", { minTeamSize: 3 }, db);
+    expect(result.minTeamSize).toBe(3);
+  });
+});
+
 describe("F14 — createCompetitionDraft defaults mode to individual", () => {
   afterEach(() => vi.clearAllMocks());
 
@@ -220,5 +323,46 @@ describe("F14 — createCompetitionDraft defaults mode to individual", () => {
     );
 
     expect(getInsertedValues().mode).toBe("team");
+  });
+});
+
+// G6 — institution-scoped competition slug lookup (Step 6.5b)
+describe("getCompetitionIdByInstitutionAndSlug", () => {
+  const makeSlugDb = (rows: Array<{ id: string }>) => ({
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue(rows),
+          }),
+        }),
+      }),
+    }),
+  }) as unknown as Database;
+
+  it("returns the competitionId when institution+slug match", async () => {
+    const db = makeSlugDb([{ id: "comp_abc" }]);
+    const result = await getCompetitionIdByInstitutionAndSlug("inst-a", "my-comp", db);
+    expect(result).toBe("comp_abc");
+  });
+
+  it("throws competition_not_found when no match exists", async () => {
+    const db = makeSlugDb([]);
+    await expect(
+      getCompetitionIdByInstitutionAndSlug("inst-a", "unknown-slug", db),
+    ).rejects.toMatchObject({ code: "competition_not_found" });
+  });
+
+  it("same slug under different institutions resolves independently (no cross-tenant leak)", async () => {
+    // Inst A returns comp_1, inst B returns comp_2 for the same slug "shared-slug".
+    const dbA = makeSlugDb([{ id: "comp_1" }]);
+    const dbB = makeSlugDb([{ id: "comp_2" }]);
+
+    const idA = await getCompetitionIdByInstitutionAndSlug("inst-a", "shared-slug", dbA);
+    const idB = await getCompetitionIdByInstitutionAndSlug("inst-b", "shared-slug", dbB);
+
+    expect(idA).toBe("comp_1");
+    expect(idB).toBe("comp_2");
+    expect(idA).not.toBe(idB);
   });
 });

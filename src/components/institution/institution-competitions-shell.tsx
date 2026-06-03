@@ -70,10 +70,10 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
           <ul>
             {items.map((c) => (
               <li key={c.id} style={{ padding: 8, borderBottom: "1px solid #eee" }}>
-                <Link href={`/institution/${institutionSlug}/competitions/${c.id}`}>{c.title}</Link>{" "}
+                <Link href={`/institution/${institutionSlug}/competitions/${c.slug}`}>{c.title}</Link>{" "}
                 — <strong>{c.status}</strong>{" "}
                 |{" "}
-                <Link href={`/institution/${institutionSlug}/competitions/${c.id}/participants`}>Peserta</Link>
+                <Link href={`/institution/${institutionSlug}/competitions/${c.slug}/participants`}>Peserta</Link>
               </li>
             ))}
           </ul>

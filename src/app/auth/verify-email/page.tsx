@@ -65,7 +65,7 @@ export default async function VerifyEmailPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const state = await resolveState(searchParams?.token);
-  const signInHref = "/auth/sign-in";
+  const signInHref = "/auth/login";
 
   if (state.status === "success" && state.email) {
     redirect(`/auth/activated?email=${encodeURIComponent(state.email)}`);

@@ -166,11 +166,12 @@ const loadPendingInvitations = async (
   teamId: string,
   db: Database,
 ): Promise<
-  { id: string; invitedEmail: string; status: "pending"; expiresAt: Date; createdAt: Date }[]
+  { id: string; tokenHash: string; invitedEmail: string; status: "pending"; expiresAt: Date; createdAt: Date }[]
 > => {
   const rows = await db
     .select({
       id: teamInvitations.id,
+      tokenHash: teamInvitations.tokenHash,
       invitedEmail: teamInvitations.invitedEmail,
       status: teamInvitations.status,
       expiresAt: teamInvitations.expiresAt,
@@ -567,6 +568,44 @@ export const cancelTeamInvitation = async (
     .update(teamInvitations)
     .set({ status: "cancelled" })
     .where(eq(teamInvitations.id, invitationId));
+};
+
+// Captain cancels a pending invitation by tokenHash (the value stored in the DB). This is the
+// token-keyed variant (G6): aligns the cancel route with the accept/decline routes under
+// /api/v1/team-invitations/[token]/*.
+export const cancelTeamInvitationByToken = async (
+  userId: string,
+  teamId: string,
+  tokenHash: string,
+  db: Database = getDb(),
+): Promise<void> => {
+  const team = await loadTeamById(teamId, db);
+  if (!team) throw new TeamError("team_not_found", "Team not found");
+  assertCaptain(team, userId);
+  assertTeamForming(team);
+
+  const [invitation] = await db
+    .select({ id: teamInvitations.id, status: teamInvitations.status })
+    .from(teamInvitations)
+    .where(
+      and(eq(teamInvitations.tokenHash, tokenHash), eq(teamInvitations.teamId, teamId)),
+    )
+    .limit(1);
+
+  if (!invitation) {
+    throw new TeamError("team_invite_not_found", "Team invitation not found");
+  }
+  if (invitation.status !== "pending") {
+    throw new TeamError(
+      "team_invite_not_actionable",
+      `Invitation is ${invitation.status} and cannot be cancelled`,
+    );
+  }
+
+  await db
+    .update(teamInvitations)
+    .set({ status: "cancelled" })
+    .where(eq(teamInvitations.id, invitation.id));
 };
 
 // Unauthenticated metadata read. Returns team name, competition title, inviter display name

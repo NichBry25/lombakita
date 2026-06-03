@@ -26,6 +26,7 @@ type Member = {
 
 type PendingInvitation = {
   id: string;
+  tokenHash: string;
   invitedEmail: string;
   expiresAt: string;
 };
@@ -257,10 +258,10 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     setInviteEmail("");
   };
 
-  const onCancelInvite = (invitationId: string) =>
+  const onCancelInvite = (tokenHash: string) =>
     action(
       "membatalkan undangan",
-      `/api/v1/teams/${team.id}/invitations/${invitationId}`,
+      `/api/v1/teams/${team.id}/invitations/${tokenHash}`,
       { method: "DELETE" },
     );
 
@@ -449,7 +450,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
                 <span>{p.invitedEmail}</span>
                 {isCaptain && status === "forming" && (
                   <button
-                    onClick={() => onCancelInvite(p.id)}
+                    onClick={() => onCancelInvite(p.tokenHash)}
                     disabled={busy}
                     style={removeButtonStyle(busy)}
                   >

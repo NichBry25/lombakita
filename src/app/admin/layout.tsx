@@ -8,7 +8,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   const session = await getCurrentSession();
 
   if (!session?.user?.id) {
-    redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(PAGE_PATH)}`);
+    redirect(`/auth/login?callbackUrl=${encodeURIComponent(PAGE_PATH)}`);
   }
 
   if (session.user.role !== "platform_ops") {

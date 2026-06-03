@@ -8,7 +8,7 @@ type SignOutButtonProps = {
 
 export const SignOutButton = ({ className }: SignOutButtonProps) => {
   const onClick = async (): Promise<void> => {
-    await signOut({ callbackUrl: "/auth/sign-in" });
+    await signOut({ callbackUrl: "/auth/login" });
   };
 
   return (

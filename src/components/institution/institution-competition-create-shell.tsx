@@ -61,8 +61,10 @@ export const InstitutionCompetitionCreateShell = ({
       return;
     }
 
-    const data = (await response.json()) as { competition: { id: string } };
-    window.location.href = `/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(data.competition.id)}/edit`;
+    // G6 (Step 6.5b): institution-side competition pages are slug-keyed. Navigate to the edit
+    // page by the competition's slug, not its internal id, or the [competitionSlug] route 404s.
+    const data = (await response.json()) as { competition: { id: string; slug: string } };
+    window.location.href = `/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(data.competition.slug)}/edit`;
   };
 
   return (

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
 
@@ -9,6 +10,9 @@ type SignInFormProps = {
   initialEmail?: string;
   verified?: boolean;
   callbackUrl?: string;
+  // F2 (Step 6.5b): which view this mount renders. /auth/login → "login", /auth/register →
+  // "register". The toggle navigates between the two routes so the URL always reflects the view.
+  initialMode?: "login" | "register";
 };
 
 type AuthApiError = {
@@ -91,8 +95,14 @@ export const SignInForm = ({
   initialEmail,
   verified,
   callbackUrl,
+  initialMode,
 }: SignInFormProps) => {
-  const [mode, setMode] = useState<"login" | "register">(verified ? "login" : "register");
+  // The view is fixed by the route that rendered this form (/auth/login vs /auth/register).
+  // Switching views is a URL navigation via the toggle links below, not local state.
+  const mode: "login" | "register" = initialMode ?? (verified ? "login" : "register");
+  const cbSuffix = callbackUrl ? `?callbackUrl=${encodeURIComponent(callbackUrl)}` : "";
+  const loginHref = `/auth/login${cbSuffix}`;
+  const registerHref = `/auth/register${cbSuffix}`;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(
@@ -105,10 +115,6 @@ export const SignInForm = ({
 
   const [loginEmail, setLoginEmail] = useState(initialEmail ?? "");
   const [loginPassword, setLoginPassword] = useState("");
-
-  const [registerName, setRegisterName] = useState("");
-  const [registerEmail, setRegisterEmail] = useState(initialEmail ?? "");
-  const [registerPassword, setRegisterPassword] = useState("");
 
   const onSubmitLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -153,72 +159,6 @@ export const SignInForm = ({
     } catch {
       setErrorMessage(
         "Login gagal karena gangguan koneksi atau server. Periksa internet Anda lalu coba kembali.",
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const onSubmitRegister = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (!verificationEnabled) {
-      setErrorMessage(
-        "Pendaftaran sementara tidak tersedia karena konfigurasi verifikasi email belum lengkap.",
-      );
-      return;
-    }
-
-    setIsSubmitting(true);
-    setStatusMessage(null);
-    setErrorMessage(null);
-
-    try {
-      const response = await fetch("/api/v1/auth/register", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          name: registerName,
-          email: registerEmail,
-          password: registerPassword,
-        }),
-      });
-
-      if (!response.ok) {
-        const apiError = await parseApiError(response);
-        setErrorMessage(mapApiErrorToMessage(apiError));
-        return;
-      }
-
-      const payload = (await response.json()) as {
-        registration: {
-          email: string;
-          verificationRequired: boolean;
-          alreadyVerified: boolean;
-        };
-      };
-
-      setPendingVerificationEmail(payload.registration.email);
-      setLoginEmail(payload.registration.email);
-      setRegisterEmail(payload.registration.email);
-      setRegisterPassword("");
-
-      if (payload.registration.alreadyVerified) {
-        setMode("login");
-        setStatusMessage(
-          "Email ini sudah pernah diverifikasi. Password telah diperbarui, silakan login.",
-        );
-        return;
-      }
-
-      setStatusMessage(
-        "Pendaftaran berhasil. Kami telah mengirim email verifikasi melalui Resend. Buka inbox Anda untuk aktivasi akun.",
-      );
-    } catch {
-      setErrorMessage(
-        "Pendaftaran gagal karena gangguan koneksi atau server. Periksa internet Anda lalu coba lagi.",
       );
     } finally {
       setIsSubmitting(false);
@@ -311,90 +251,61 @@ export const SignInForm = ({
             role="group"
             aria-label="Auth mode toggle"
           >
-            <button
-              type="button"
-              onClick={() => setMode("register")}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+            <Link
+              href={registerHref}
+              className={`rounded-full px-4 py-2 text-center text-sm font-medium transition-colors ${
                 mode === "register" ? "bg-white text-[#2336c7]" : "text-white/85 hover:text-white"
               }`}
-              aria-pressed={mode === "register"}
+              aria-current={mode === "register" ? "page" : undefined}
             >
               Register
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("login")}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+            </Link>
+            <Link
+              href={loginHref}
+              className={`rounded-full px-4 py-2 text-center text-sm font-medium transition-colors ${
                 mode === "login" ? "bg-white text-[#2336c7]" : "text-white/85 hover:text-white"
               }`}
-              aria-pressed={mode === "login"}
+              aria-current={mode === "login" ? "page" : undefined}
             >
               Login
-            </button>
+            </Link>
           </div>
         </div>
       </aside>
 
       <section className="flex min-h-[460px] flex-col rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
         {mode === "register" ? (
-          <form onSubmit={onSubmitRegister} className="flex h-full flex-col">
-            <h2 className="text-xl font-semibold text-zinc-900">Buat akun mahasiswa</h2>
+          <div className="flex h-full flex-col">
+            <h2 className="text-xl font-semibold text-zinc-900">Buat akun baru</h2>
+            <p className="mt-2 text-sm text-zinc-500">Pilih peran untuk mendaftar.</p>
 
-            <div className="mt-3 space-y-3">
-              <label className="block text-sm font-medium" htmlFor="register-name">
-                Nama lengkap
-              </label>
-              <input
-                id="register-name"
-                name="name"
-                type="text"
-                required
-                value={registerName}
-                onChange={(event) => setRegisterName(event.target.value)}
-                className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm"
-                placeholder="Contoh: Nadya Kartika"
-              />
-
-              <label className="block text-sm font-medium" htmlFor="register-email">
-                Email
-              </label>
-              <input
-                id="register-email"
-                name="email"
-                type="email"
-                required
-                value={registerEmail}
-                onChange={(event) => setRegisterEmail(event.target.value)}
-                className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm"
-                placeholder="you@university.ac.id"
-              />
-
-              <label className="block text-sm font-medium" htmlFor="register-password">
-                Password
-              </label>
-              <input
-                id="register-password"
-                name="password"
-                type="password"
-                required
-                minLength={8}
-                value={registerPassword}
-                onChange={(event) => setRegisterPassword(event.target.value)}
-                className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm"
-                placeholder="Minimal 8 karakter"
-              />
-            </div>
-
-            <div className="mt-auto flex justify-end pt-4">
-              <button
-                type="submit"
-                disabled={isSubmitting || !verificationEnabled}
-                className="rounded-full bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+            <div className="mt-6 space-y-3">
+              <Link
+                href="/auth/register?as=candidate"
+                className="block rounded-xl border border-zinc-200 p-4 text-sm font-medium text-zinc-900 hover:border-zinc-400"
               >
-                {isSubmitting ? "Memproses..." : "Daftar"}
-              </button>
+                Daftar sebagai Kandidat
+                <span className="mt-0.5 block text-xs font-normal text-zinc-500">
+                  Mahasiswa atau lulusan yang mencari kompetisi, beasiswa, dan peluang lain.
+                </span>
+              </Link>
+              <Link
+                href="/auth/register?as=recruiter"
+                className="block rounded-xl border border-zinc-200 p-4 text-sm font-medium text-zinc-900 hover:border-zinc-400"
+              >
+                Daftar sebagai Recruiter
+                <span className="mt-0.5 block text-xs font-normal text-zinc-500">
+                  Perwakilan institusi yang ingin menerbitkan dan mengelola peluang.
+                </span>
+              </Link>
             </div>
-          </form>
+
+            {!verificationEnabled ? (
+              <p className="mt-4 text-xs text-amber-700">
+                Resend belum lengkap (`RESEND_API_KEY`, `AUTH_EMAIL_FROM`).
+              </p>
+            ) : null}
+          </div>
         ) : (
           <form onSubmit={onSubmitLogin} className="flex h-full flex-col">
             <h2 className="text-xl font-semibold text-zinc-900">Login akun</h2>

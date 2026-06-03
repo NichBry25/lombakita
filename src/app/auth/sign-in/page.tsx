@@ -1,52 +1,16 @@
-import { SignInForm } from "@/components/auth/sign-in-form";
-import { isEmailAuthConfigured } from "@/server/auth/auth.config";
+import { redirect } from "next/navigation";
 
-const mapSignInPageError = (error: string): string => {
-  if (error.includes("EMAIL_NOT_VERIFIED")) {
-    return "Login ditolak karena email belum diverifikasi. Cek inbox/spam lalu klik tautan verifikasi.";
-  }
-
-  if (error.includes("INVALID_CREDENTIALS") || error === "CredentialsSignin") {
-    return "Login gagal karena email atau password tidak cocok. Periksa kembali data login Anda.";
-  }
-
-  if (error === "AccessDenied") {
-    return "Akses ditolak karena sesi Anda tidak valid. Login ulang dengan akun yang benar.";
-  }
-
-  if (error === "Configuration") {
-    return "Login gagal karena konfigurasi autentikasi belum lengkap. Hubungi admin sistem.";
-  }
-
-  return `Login gagal karena ${error}. Coba ulang atau hubungi admin jika masalah berlanjut.`;
-};
-
-export default async function SignInPage(props: {
-  searchParams?: Promise<{
-    error?: string;
-    verified?: string;
-    email?: string;
-    callbackUrl?: string;
-  }>;
+// F2 (Step 6.5b): /auth/sign-in is the legacy login entry — redirect to /auth/login.
+// Preserves any callbackUrl, error, verified, and email query params.
+export default async function SignInRedirectPage(props: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const searchParams = await props.searchParams;
-  const error = searchParams?.error;
-  const verified = searchParams?.verified === "1";
-  const email = searchParams?.email;
-  const callbackUrl = searchParams?.callbackUrl;
-
-  return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-12">
-      <section className="rounded-2xl border border-zinc-200 bg-white p-5 md:p-6">
-        <SignInForm
-          verificationEnabled={isEmailAuthConfigured}
-          verified={verified}
-          initialEmail={email}
-          callbackUrl={callbackUrl}
-        />
-
-        {error ? <p className="mt-4 text-xs text-rose-700">{mapSignInPageError(error)}</p> : null}
-      </section>
-    </main>
-  );
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(searchParams ?? {})) {
+    const val = Array.isArray(v) ? v[0] : v;
+    if (val !== undefined) params.set(k, val);
+  }
+  const qs = params.toString();
+  redirect(`/auth/login${qs ? `?${qs}` : ""}`);
 }

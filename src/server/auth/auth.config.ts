@@ -112,7 +112,7 @@ export const authOptions: NextAuthOptions = {
   },
   secret: serverEnv.authSecret,
   pages: {
-    signIn: "/auth/sign-in",
+    signIn: "/auth/login",
   },
   providers: [
     CredentialsProvider({

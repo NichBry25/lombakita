@@ -13,7 +13,7 @@ import { listSavedCompetitions } from "@/server/saved-competitions/saved-competi
 export default async function CandidateDashboardPage() {
   const session = await getCurrentSession();
   if (!session?.user?.id) {
-    redirect("/auth/sign-in?callbackUrl=/candidate-dashboard");
+    redirect("/auth/login?callbackUrl=/candidate-dashboard");
   }
 
   const unverified = await getUnverifiedRoles(session.user.id);

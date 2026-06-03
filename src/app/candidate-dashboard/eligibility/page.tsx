@@ -9,7 +9,7 @@ export default async function CandidateEligibilityPage() {
   const session = await getCurrentSession();
 
   if (!session?.user?.id) {
-    redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(ELIGIBILITY_PATH)}`);
+    redirect(`/auth/login?callbackUrl=${encodeURIComponent(ELIGIBILITY_PATH)}`);
   }
 
   const normalizedRole = isAppRole(session.user.role) ? session.user.role : DEFAULT_APP_ROLE;

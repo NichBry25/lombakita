@@ -12,7 +12,7 @@ export default async function SubmissionPage({
 }) {
   const session = await getCurrentSession();
   if (!session?.user?.id) {
-    redirect("/auth/sign-in?callbackUrl=/candidate-dashboard");
+    redirect("/auth/login?callbackUrl=/candidate-dashboard");
   }
 
   // DEC-0060 — candidate capability is derived per-request from verification state.

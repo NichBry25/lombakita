@@ -1,8 +1,11 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { ParticipantsFilterForm } from "./filter-form";
 import { AccessError } from "@/server/auth/access-core";
 import { getCurrentSession } from "@/server/auth/session";
 import { getDb } from "@/server/db/client";
+import { CompetitionError } from "@/server/competitions/competition-core";
+import { getCompetitionIdByInstitutionAndSlug } from "@/server/competitions/competition-service";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import {
   listCompetitionParticipants,
@@ -11,19 +14,19 @@ import {
 import { REVIEW_STATUS_LABELS } from "./review-status-labels";
 
 type Props = {
-  params: Promise<{ institutionSlug: string; competitionId: string }>;
+  params: Promise<{ institutionSlug: string; competitionSlug: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export default async function ParticipantsPage({ params, searchParams }: Props) {
   const session = await getCurrentSession();
-  const { institutionSlug, competitionId } = await params;
+  const { institutionSlug, competitionSlug } = await params;
   const sp = await searchParams;
 
-  const path = `/institution/${institutionSlug}/competitions/${competitionId}/participants`;
+  const path = `/institution/${institutionSlug}/competitions/${competitionSlug}/participants`;
 
   if (!session?.user?.id) {
-    redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(path)}`);
+    redirect(`/auth/login?callbackUrl=${encodeURIComponent(path)}`);
   }
   if (!session.user.verifiedRoles.includes("recruiter")) {
     redirect("/");
@@ -40,6 +43,15 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
   } catch (e) {
     if (e instanceof AccessError) redirect("/");
     throw e;
+  }
+
+  let competitionId: string;
+  try {
+    competitionId = await getCompetitionIdByInstitutionAndSlug(institutionSlug, competitionSlug, db);
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    if (error instanceof CompetitionError) notFound();
+    throw error;
   }
 
   const resolveParam = (val: string | string[] | undefined, fallback: string): string => {
@@ -82,7 +94,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
 
   return (
     <main style={{ padding: 24, maxWidth: 960, margin: "0 auto" }}>
-      <h1>Peserta — {competitionId}</h1>
+      <h1>Peserta — {competitionSlug}</h1>
       <p>
         <a href={`/institution/${institutionSlug}/competitions`}>← Kembali ke kompetisi</a>
       </p>

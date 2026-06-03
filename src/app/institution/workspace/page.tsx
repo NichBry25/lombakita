@@ -8,7 +8,7 @@ export default async function InstitutionWorkspacePage() {
   const session = await getCurrentSession();
 
   if (!session?.user?.id) {
-    redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(INSTITUTION_WORKSPACE_PATH)}`);
+    redirect(`/auth/login?callbackUrl=${encodeURIComponent(INSTITUTION_WORKSPACE_PATH)}`);
   }
 
   if (!session.user.verifiedRoles.includes("recruiter")) {

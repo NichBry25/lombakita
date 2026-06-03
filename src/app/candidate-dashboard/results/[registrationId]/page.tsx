@@ -14,7 +14,7 @@ type Props = {
 export default async function CandidateResultDetailPage({ params }: Props) {
   const session = await getCurrentSession();
   if (!session?.user?.id) {
-    redirect("/auth/sign-in?callbackUrl=/candidate-dashboard/results");
+    redirect("/auth/login?callbackUrl=/candidate-dashboard/results");
   }
 
   const unverified = await getUnverifiedRoles(session.user.id);

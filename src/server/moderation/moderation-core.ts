@@ -13,7 +13,8 @@ export type ModerationErrorCode =
   | "institution_already_suspended"
   | "institution_not_suspended"
   | "invalid_note_target"
-  | "note_required";
+  | "note_required"
+  | "note_not_found";
 
 export class ModerationError extends Error {
   constructor(

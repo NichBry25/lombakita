@@ -22,7 +22,7 @@ export default async function CompetitionRegistrationPage({
   const registrationPath = `${detailPath}/registration`;
 
   if (!session?.user) {
-    redirect(`/auth/sign-in?callbackUrl=${encodeURIComponent(registrationPath)}`);
+    redirect(`/auth/login?callbackUrl=${encodeURIComponent(registrationPath)}`);
   }
 
   if (session.user.role !== "candidate") {
@@ -76,6 +76,7 @@ export default async function CompetitionRegistrationPage({
   const teamPendingInvitations = teamSnapshot
     ? teamSnapshot.pendingInvitations.map((p) => ({
         id: p.id,
+        tokenHash: p.tokenHash,
         invitedEmail: p.invitedEmail,
         expiresAt: p.expiresAt.toISOString(),
       }))
