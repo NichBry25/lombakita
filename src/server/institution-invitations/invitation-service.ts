@@ -119,6 +119,18 @@ export const createInstitutionInvitation = async (
   const tokenHash = hashToken(rawToken);
   const expiresAt = buildInvitationExpiresAt();
 
+  // Step 6.5.1 (minimal resolution pulled forward from 6.5e): resolve the invited email to an
+  // existing account so the invitation surfaces in that user's in-app inbox immediately. The inbox
+  // reads invitations by `target_user_id` only. `invitedEmail` is lowercased at parse and
+  // `users.email` is stored lowercase, so an exact match is correct. No matching account → null
+  // (invitation stays inbox-invisible until the recipient exists). Full username-based resolution
+  // and the `pending_claim` non-user flow remain Step 6.5e.
+  const [targetUser] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, input.invitedEmail))
+    .limit(1);
+
   const [invitation] = await db
     .insert(institutionInvitations)
     .values({
@@ -128,6 +140,7 @@ export const createInstitutionInvitation = async (
       tokenHash,
       status: "pending",
       invitedByUserId: userId,
+      targetUserId: targetUser?.id ?? null,
       expiresAt,
     })
     .returning({

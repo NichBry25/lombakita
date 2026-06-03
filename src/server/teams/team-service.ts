@@ -474,6 +474,17 @@ export const inviteTeamMember = async (
   const tokenHash = hashToken(rawToken);
   const expiresAt = buildInvitationExpiresAt(now);
 
+  // Step 6.5.1 (minimal resolution pulled forward from 6.5e): resolve the invited email to an
+  // existing account so the team invitation surfaces in that user's in-app inbox immediately. The
+  // inbox reads invitations by `target_user_id` only. `invitedEmail` is lowercased at parse and
+  // `users.email` is stored lowercase, so an exact match is correct. No matching account → null.
+  // Full username-based resolution and the `pending_claim` non-user flow remain Step 6.5e.
+  const [targetUser] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, invitedEmail))
+    .limit(1);
+
   const [invitation] = await db
     .insert(teamInvitations)
     .values({
@@ -482,6 +493,7 @@ export const inviteTeamMember = async (
       invitedByUserId: userId,
       tokenHash,
       status: "pending",
+      targetUserId: targetUser?.id ?? null,
       expiresAt,
     })
     .returning({

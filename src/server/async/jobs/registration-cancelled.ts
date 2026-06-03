@@ -9,6 +9,8 @@ import { competitions, userProfiles, users } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
 import { ASYNC_JOB_NAMES, type RegistrationCancelledPayload } from "@/server/async/contracts";
 import { sendRegistrationCancelledEmail } from "@/server/notifications/notification-email";
+import { writeInboxNotificationSafely } from "@/server/notifications/inbox-write";
+import { NOTIFICATION_TYPES } from "@/server/notifications/notification-types";
 
 export type RegistrationCancelledJob = Job<
   RegistrationCancelledPayload,
@@ -56,6 +58,19 @@ export const processRegistrationCancelledJob = async (
     });
     return;
   }
+
+  // Dual-channel (DEC-0076): in-app notification row written FIRST, isolated/swallowed; the email
+  // block below keeps its rethrow-for-retry semantics. In-app row lands regardless of email outcome.
+  await writeInboxNotificationSafely(
+    db,
+    {
+      userId: studentId,
+      type: NOTIFICATION_TYPES.registrationCancelled,
+      title: "Pendaftaran Dibatalkan",
+      body: `Pendaftaranmu untuk kompetisi "${competition.title}" telah dibatalkan.`,
+    },
+    { event: "registration.cancelled", jobId: job.id ?? undefined },
+  );
 
   try {
     await sendRegistrationCancelledEmail({

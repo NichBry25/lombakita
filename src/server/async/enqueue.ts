@@ -158,16 +158,51 @@ export const enqueueSubmissionFinalized = async (input: {
   });
 };
 
-// Idempotency key: registrationId for individual; {competitionId}__{teamId} for team.
+// Step 6.5.1 — competition lifecycle fan-out. Idempotency key: competitionId, so the resulting
+// job id is `competition.edited__{competitionId}`. The worker fans out to all confirmed
+// registrations. No callers yet — wired into the competition service in Step 6.5f.
+// Fire-and-forget — callers must catch errors.
+export const enqueueCompetitionEdited = async (
+  competitionId: string,
+): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.competitionEdited>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.competitionEdited,
+    idempotencyKey: competitionId,
+    payload: {
+      competitionId,
+    },
+  });
+};
+
+// Idempotency key: competitionId → job id `competition.cancelled__{competitionId}`.
+// Fire-and-forget — callers (Step 6.5f) must catch errors.
+export const enqueueCompetitionCancelled = async (
+  competitionId: string,
+): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.competitionCancelled>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.competitionCancelled,
+    idempotencyKey: competitionId,
+    payload: {
+      competitionId,
+    },
+  });
+};
+
+// Idempotency key: includes the publish-event timestamp so each genuine publish (including an
+// unpublish→republish) is a distinct job that fires, while a true double-enqueue of the SAME
+// publish event dedups on the identical timestamp. Base: registrationId for individual,
+// {competitionId}__{teamId} for team; suffixed with __{publishedAtEpoch}.
 // Fire-and-forget from the publish path — callers must catch errors.
 export const enqueueResultPublished = async (input: {
   registrationId: string;
   competitionId: string;
   teamId?: string;
+  publishedAt: Date;
 }): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.resultPublished>> => {
-  const idempotencyKey = input.teamId
+  const base = input.teamId
     ? `${input.competitionId}__${input.teamId}`
     : input.registrationId;
+  const idempotencyKey = `${base}__${input.publishedAt.getTime()}`;
   return enqueueAsyncJob({
     jobName: ASYNC_JOB_NAMES.resultPublished,
     idempotencyKey,

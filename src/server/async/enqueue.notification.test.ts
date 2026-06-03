@@ -13,6 +13,7 @@ import {
   enqueueRegistrationConfirmed,
   enqueueRegistrationCancelled,
   enqueueSubmissionFinalized,
+  enqueueResultPublished,
 } from "@/server/async/enqueue";
 
 const makeQueue = () => ({
@@ -85,6 +86,73 @@ describe("enqueueRegistrationCancelled", () => {
       { jobId: "registration.cancelled__reg_xyz" },
     );
     expect(result.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
+  });
+});
+
+describe("enqueueResultPublished", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const PUBLISHED_AT = new Date("2026-06-03T06:20:57.000Z"); // epoch 1780467657000
+
+  it("includes the publish timestamp in the team idempotency key (results queue)", async () => {
+    const queue = makeQueue();
+    getAsyncQueue.mockReturnValue(queue);
+
+    await enqueueResultPublished({
+      registrationId: "reg_1",
+      competitionId: "comp_1",
+      teamId: "team_1",
+      publishedAt: PUBLISHED_AT,
+    });
+
+    const expectedId = `result.published__comp_1__team_1__${PUBLISHED_AT.getTime()}`;
+    expect(getAsyncQueue).toHaveBeenCalledWith(ASYNC_QUEUE_NAMES.results);
+    expect(queue.getJob).toHaveBeenCalledWith(expectedId);
+    expect(queue.add).toHaveBeenCalledWith(
+      ASYNC_JOB_NAMES.resultPublished,
+      expect.objectContaining({ competitionId: "comp_1", teamId: "team_1" }),
+      { jobId: expectedId },
+    );
+  });
+
+  it("includes the publish timestamp in the individual idempotency key", async () => {
+    const queue = makeQueue();
+    getAsyncQueue.mockReturnValue(queue);
+
+    await enqueueResultPublished({
+      registrationId: "reg_1",
+      competitionId: "comp_1",
+      publishedAt: PUBLISHED_AT,
+    });
+
+    expect(queue.getJob).toHaveBeenCalledWith(
+      `result.published__reg_1__${PUBLISHED_AT.getTime()}`,
+    );
+  });
+
+  it("produces a DISTINCT job id for a later re-publish so it is not deduped", async () => {
+    const queue = makeQueue();
+    getAsyncQueue.mockReturnValue(queue);
+
+    await enqueueResultPublished({
+      registrationId: "reg_1",
+      competitionId: "comp_1",
+      teamId: "team_1",
+      publishedAt: PUBLISHED_AT,
+    });
+    await enqueueResultPublished({
+      registrationId: "reg_1",
+      competitionId: "comp_1",
+      teamId: "team_1",
+      publishedAt: new Date(PUBLISHED_AT.getTime() + 60_000), // a later republish
+    });
+
+    const jobIdOf = (call: unknown[] | undefined) =>
+      (call?.[2] as { jobId?: string } | undefined)?.jobId;
+    const firstId = jobIdOf(queue.add.mock.calls[0]);
+    const secondId = jobIdOf(queue.add.mock.calls[1]);
+    expect(firstId).toBeDefined();
+    expect(firstId).not.toBe(secondId);
   });
 });
 

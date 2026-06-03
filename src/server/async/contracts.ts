@@ -18,6 +18,8 @@ export const ASYNC_JOB_NAMES = {
   registrationConfirmed: "registration.confirmed",
   registrationCancelled: "registration.cancelled",
   submissionFinalized: "submission.finalized",
+  competitionEdited: "competition.edited",
+  competitionCancelled: "competition.cancelled",
 } as const;
 
 export type AsyncJobName = (typeof ASYNC_JOB_NAMES)[keyof typeof ASYNC_JOB_NAMES];
@@ -64,6 +66,17 @@ export type SubmissionFinalizedPayload = {
   competitionId: string;
 };
 
+// Step 6.5.1 — competition lifecycle fan-out events. The worker resolves all confirmed
+// registrations for the competition and writes one in-app notification row per recipient (plus a
+// stub email dispatch). Callers in the competition service are added in Step 6.5f — no callers yet.
+export type CompetitionEditedPayload = {
+  competitionId: string;
+};
+
+export type CompetitionCancelledPayload = {
+  competitionId: string;
+};
+
 export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.probePing]: AsyncProbeJobPayload;
   [ASYNC_JOB_NAMES.competitionSearchSync]: CompetitionSearchSyncPayload;
@@ -71,6 +84,8 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.registrationConfirmed]: RegistrationConfirmedPayload;
   [ASYNC_JOB_NAMES.registrationCancelled]: RegistrationCancelledPayload;
   [ASYNC_JOB_NAMES.submissionFinalized]: SubmissionFinalizedPayload;
+  [ASYNC_JOB_NAMES.competitionEdited]: CompetitionEditedPayload;
+  [ASYNC_JOB_NAMES.competitionCancelled]: CompetitionCancelledPayload;
 };
 
 export const ASYNC_JOB_QUEUE_BY_NAME = {
@@ -80,4 +95,6 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   [ASYNC_JOB_NAMES.registrationConfirmed]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.registrationCancelled]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.submissionFinalized]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.competitionEdited]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.competitionCancelled]: ASYNC_QUEUE_NAMES.notifications,
 } as const satisfies Record<AsyncJobName, AsyncQueueName>;

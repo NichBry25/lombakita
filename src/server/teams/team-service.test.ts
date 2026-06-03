@@ -131,7 +131,7 @@ const makeDb = (
     return cb(tx);
   });
 
-  return { db: { select, insert, update, transaction }, tx };
+  return { db: { select, insert, update, transaction }, tx, insertValues };
 };
 
 const baseCompetition = (overrides: Record<string, unknown> = {}) => ({
@@ -301,6 +301,61 @@ describe("inviteTeamMember invariants", () => {
         NOW,
       ),
     ).rejects.toMatchObject({ code: "team_competition_registration_closed" });
+  });
+
+  // Step 6.5.1 — invite-time target_user_id resolution (pulled forward from 6.5e).
+  it("resolves target_user_id when the invited email matches an existing account", async () => {
+    // selectQueue order: team, competition, activeCount, pendingCount, existingActiveMember,
+    // existingPending, targetUser resolution.
+    const { db, insertValues } = makeDb(
+      [
+        [baseTeam()],
+        [baseCompetition()],
+        [{ count: 1 }],
+        [{ count: 0 }],
+        [], // existingActiveMember — none
+        [], // existingPending — none
+        [{ id: "user_target" }], // targetUser resolution — match
+      ],
+      { insertReturning: [baseInvitation()] },
+    );
+
+    await inviteTeamMember(
+      "cand_captain",
+      "team_1",
+      { invitedEmail: "invitee@example.com" },
+      db as never,
+      NOW,
+    );
+
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ targetUserId: "user_target" }),
+    );
+  });
+
+  it("leaves target_user_id null when the invited email has no account", async () => {
+    const { db, insertValues } = makeDb(
+      [
+        [baseTeam()],
+        [baseCompetition()],
+        [{ count: 1 }],
+        [{ count: 0 }],
+        [],
+        [],
+        [], // targetUser resolution — no match
+      ],
+      { insertReturning: [baseInvitation()] },
+    );
+
+    await inviteTeamMember(
+      "cand_captain",
+      "team_1",
+      { invitedEmail: "nobody@example.com" },
+      db as never,
+      NOW,
+    );
+
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({ targetUserId: null }));
   });
 });
 

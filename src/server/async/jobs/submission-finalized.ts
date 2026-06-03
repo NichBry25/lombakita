@@ -9,6 +9,8 @@ import { competitions, competitionSubmissions, userProfiles, users } from "@/ser
 import { logger } from "@/lib/logger";
 import { ASYNC_JOB_NAMES, type SubmissionFinalizedPayload } from "@/server/async/contracts";
 import { sendSubmissionFinalizedEmail } from "@/server/notifications/notification-email";
+import { writeInboxNotificationSafely } from "@/server/notifications/inbox-write";
+import { NOTIFICATION_TYPES } from "@/server/notifications/notification-types";
 
 export type SubmissionFinalizedJob = Job<
   SubmissionFinalizedPayload,
@@ -63,6 +65,19 @@ export const processSubmissionFinalizedJob = async (
   }
 
   const finalizedAt = submission?.finalizedAt ?? new Date();
+
+  // Dual-channel (DEC-0076): in-app notification row written FIRST, isolated/swallowed; the email
+  // block below keeps its rethrow-for-retry semantics. In-app row lands regardless of email outcome.
+  await writeInboxNotificationSafely(
+    db,
+    {
+      userId: studentId,
+      type: NOTIFICATION_TYPES.submissionFinalized,
+      title: "Pengiriman Dikunci",
+      body: `Pengirimanmu untuk kompetisi "${competition.title}" telah dikunci dan tidak dapat diubah.`,
+    },
+    { event: "submission.finalized", jobId: job.id ?? undefined },
+  );
 
   try {
     await sendSubmissionFinalizedEmail({

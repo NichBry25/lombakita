@@ -408,6 +408,12 @@ export const institutionInvitations = pgTable(
     invitedByUserId: text("invited_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    // Step 6.5.1 — recipient resolution for the in-app inbox. Backfilled (migration 0027) by
+    // matching invited_email to an existing user; populated at invite time / claim-at-signup in
+    // Step 6.5e. ON DELETE SET NULL: the invitation row outlives a deleted target user.
+    // The inbox queries ONLY by target_user_id — invitations with a null value are invisible
+    // until 6.5e's claim flow lands. invited_email remains the token-based acceptance anchor.
+    targetUserId: text("target_user_id").references(() => users.id, { onDelete: "set null" }),
     expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
     acceptedAt: timestamp("accepted_at", { mode: "date", withTimezone: true }),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
@@ -416,6 +422,7 @@ export const institutionInvitations = pgTable(
     uniqueIndex("institution_invitations_token_hash_unique_idx").on(table.tokenHash),
     index("institution_invitations_institution_id_idx").on(table.institutionId),
     index("institution_invitations_status_idx").on(table.status),
+    index("institution_invitations_target_user_id_idx").on(table.targetUserId),
   ],
 );
 
@@ -827,6 +834,10 @@ export const teamInvitations = pgTable(
     }),
     tokenHash: text("token_hash").notNull(),
     status: teamInvitationStatusEnum("status").notNull().default("pending"),
+    // Step 6.5.1 — recipient resolution for the in-app inbox. Mirrors institution_invitations:
+    // backfilled (migration 0027) from invited_email, ON DELETE SET NULL, inbox queries by
+    // target_user_id only. See the institution_invitations.target_user_id note above.
+    targetUserId: text("target_user_id").references(() => users.id, { onDelete: "set null" }),
     expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
     acceptedAt: timestamp("accepted_at", { mode: "date", withTimezone: true }),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
@@ -835,6 +846,7 @@ export const teamInvitations = pgTable(
     uniqueIndex("team_invitations_token_hash_unique_idx").on(table.tokenHash),
     index("team_invitations_team_id_idx").on(table.teamId),
     index("team_invitations_status_idx").on(table.status),
+    index("team_invitations_target_user_id_idx").on(table.targetUserId),
   ],
 );
 
@@ -927,6 +939,39 @@ export const competitionResults = pgTable(
 );
 
 export type CompetitionResultRecord = typeof competitionResults.$inferSelect;
+
+// Step 6.5.1 — In-app notification storage (the dual-channel half of DEC-0076: every
+// participant-facing event fires a Resend email AND writes a row here). This PostgreSQL table
+// shares the name `notifications` with the BullMQ queue of the same name — they are different
+// systems in different runtimes; the collision is intentional and must not be renamed.
+// `type` is stored as free text (validated against the NotificationType union at the application
+// layer) so new event types can ship without an enum migration.
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    readAt: timestamp("read_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    // Inbox listing: per-user newest-first.
+    index("notifications_user_id_created_at_idx").on(table.userId, table.createdAt.desc()),
+    // Unread count: partial index over only the unread rows per user.
+    index("notifications_user_id_unread_idx")
+      .on(table.userId)
+      .where(sql`${table.readAt} IS NULL`),
+  ],
+);
+
+export type NotificationRecord = typeof notifications.$inferSelect;
 
 // Non-domain bootstrap table for validating migration workflow only.
 export const infrastructureProbe = pgTable("infrastructure_probe", {

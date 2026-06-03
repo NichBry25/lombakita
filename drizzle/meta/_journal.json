@@ -190,6 +190,13 @@
       "when": 1780380922165,
       "tag": "0026_cloudy_ben_grimm",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1780460777073,
+      "tag": "0027_graceful_zodiak",
+      "breakpoints": true
     }
   ]
 }

@@ -25,13 +25,20 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
       db,
     );
 
-    const { result, teamId } = await publishResult(institutionId, competitionId, registrationId, actorMembershipId, db);
+    const { result, teamId, publishedAt } = await publishResult(
+      institutionId,
+      competitionId,
+      registrationId,
+      actorMembershipId,
+      db,
+    );
 
     // Fire-and-forget notification trigger. Failure must not block the publish response.
     enqueueResultPublished({
       registrationId,
       competitionId,
       teamId: teamId ?? undefined,
+      publishedAt,
     }).catch((err: unknown) => {
       logger.error("result.published.enqueue_failed", {
         registrationId,

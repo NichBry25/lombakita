@@ -9,6 +9,8 @@ import { competitions, competitionRegistrations, competitionResults, userProfile
 import { logger } from "@/lib/logger";
 import { ASYNC_JOB_NAMES, type ResultPublishedPayload } from "@/server/async/contracts";
 import { sendResultPublishedEmail } from "@/server/notifications/notification-email";
+import { writeInboxNotificationSafely } from "@/server/notifications/inbox-write";
+import { NOTIFICATION_TYPES } from "@/server/notifications/notification-types";
 
 export type ResultPublishedJob = Job<
   ResultPublishedPayload,
@@ -109,6 +111,21 @@ export const processResultPublishedJob = async (job: ResultPublishedJob): Promis
 
   const errors: string[] = [];
   for (const recipient of recipients) {
+    // Dual-channel (DEC-0076): one in-app notification row per confirmed recipient, written FIRST.
+    // Isolated from the per-recipient email attempt below — its failure is swallowed and does not
+    // affect the email error accounting or the all-failed BullMQ retry decision. Writing before the
+    // email guarantees the in-app row lands regardless of email outcome.
+    await writeInboxNotificationSafely(
+      db,
+      {
+        userId: recipient.userId,
+        type: NOTIFICATION_TYPES.resultPublished,
+        title: "Hasil Diumumkan",
+        body: `Hasil kompetisi "${competition.title}" telah diumumkan.`,
+      },
+      { event: "result.published", jobId: job.id ?? undefined },
+    );
+
     try {
       await sendResultPublishedEmail({
         toEmail: recipient.email,

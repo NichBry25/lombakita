@@ -161,3 +161,65 @@ export const sendResultPublishedEmail = async (options: {
     recipientId: options.recipientId,
   });
 };
+
+// Step 6.5.1 — competition lifecycle email STUBS. The send PATH is wired now (Resend dispatch +
+// success/failure logging) so Step 6.5f only has to refine the template/copy, not stand up a new
+// delivery path. Callers (the competition-edited/cancelled workers) invoke these fire-and-forget
+// and warn-log on failure rather than rethrowing.
+export const sendCompetitionEditedEmail = async (options: {
+  toEmail: string;
+  recipientId: string;
+  competitionTitle: string;
+}): Promise<void> => {
+  const { apiKey, from } = assertResendConfigured();
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from,
+    to: options.toEmail,
+    subject: `Kompetisi diperbarui — ${options.competitionTitle}`,
+    text: [
+      `Kompetisi "${options.competitionTitle}" yang kamu daftarkan baru saja diperbarui oleh penyelenggara.`,
+      "",
+      `Cek perubahannya di ${resolveBaseUrl()}.`,
+    ].join("\n"),
+  });
+
+  if (error) {
+    throw new Error(`Resend competition edited email dispatch failed: ${error.message}`);
+  }
+
+  logger.info("notification.sent", {
+    event: "competition.edited",
+    recipientId: options.recipientId,
+  });
+};
+
+export const sendCompetitionCancelledEmail = async (options: {
+  toEmail: string;
+  recipientId: string;
+  competitionTitle: string;
+}): Promise<void> => {
+  const { apiKey, from } = assertResendConfigured();
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from,
+    to: options.toEmail,
+    subject: `Kompetisi dibatalkan — ${options.competitionTitle}`,
+    text: [
+      `Kompetisi "${options.competitionTitle}" yang kamu daftarkan telah dibatalkan oleh penyelenggara.`,
+      "",
+      `Lihat kompetisi lainnya di ${resolveBaseUrl()}.`,
+    ].join("\n"),
+  });
+
+  if (error) {
+    throw new Error(`Resend competition cancelled email dispatch failed: ${error.message}`);
+  }
+
+  logger.info("notification.sent", {
+    event: "competition.cancelled",
+    recipientId: options.recipientId,
+  });
+};

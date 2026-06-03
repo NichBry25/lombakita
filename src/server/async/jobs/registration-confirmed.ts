@@ -9,6 +9,8 @@ import { competitions, competitionRegistrations, userProfiles, users } from "@/s
 import { logger } from "@/lib/logger";
 import { ASYNC_JOB_NAMES, type RegistrationConfirmedPayload } from "@/server/async/contracts";
 import { sendRegistrationConfirmedEmail } from "@/server/notifications/notification-email";
+import { writeInboxNotificationSafely } from "@/server/notifications/inbox-write";
+import { NOTIFICATION_TYPES } from "@/server/notifications/notification-types";
 
 export type RegistrationConfirmedJob = Job<
   RegistrationConfirmedPayload,
@@ -63,6 +65,21 @@ export const processRegistrationConfirmedJob = async (
   }
 
   const registeredAt = registration?.[0]?.registeredAt ?? new Date();
+
+  // Dual-channel (DEC-0076): write the in-app notification row FIRST, in its own isolated
+  // try/catch (the helper swallows failure, warns notification.inbox.failed, never rethrows).
+  // Writing before the email dispatch guarantees the in-app row lands regardless of the email
+  // outcome; the email block below keeps its rethrow-for-BullMQ-retry semantics unchanged.
+  await writeInboxNotificationSafely(
+    db,
+    {
+      userId: studentId,
+      type: NOTIFICATION_TYPES.registrationConfirmed,
+      title: "Pendaftaran Dikonfirmasi",
+      body: `Pendaftaranmu untuk kompetisi "${competition.title}" telah dikonfirmasi.`,
+    },
+    { event: "registration.confirmed", jobId: job.id ?? undefined },
+  );
 
   try {
     await sendRegistrationConfirmedEmail({

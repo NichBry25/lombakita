@@ -323,7 +323,7 @@ export const publishResult = async (
   registrationId: string,
   actorMembershipId: string,
   db: Database = getDb(),
-): Promise<{ result: ResultInstitutionView; teamId: string | null }> => {
+): Promise<{ result: ResultInstitutionView; teamId: string | null; publishedAt: Date }> => {
   if (!(await ownsCompetition(institutionId, competitionId, db))) {
     throw new ResultError("result_registration_not_found", 404, "Registration not found");
   }
@@ -333,6 +333,10 @@ export const publishResult = async (
     throw new ResultError("result_registration_not_found", 404, "Registration not found");
   }
 
+  // `now` is the publish-event timestamp written to every member row's published_at. It is also
+  // returned so the caller can fold it into the result.published idempotency key — each genuine
+  // publish (including an unpublish→republish) is then a distinct BullMQ job that fires, while a
+  // true double-enqueue of the SAME publish event still dedups on the identical timestamp.
   const now = new Date();
 
   const updatedRows = await db.transaction(async (tx) => {
@@ -429,7 +433,7 @@ export const publishResult = async (
     throw new ResultError("result_registration_not_found", 404, "Registration not found");
   }
 
-  return { result: row, teamId: meta.teamId };
+  return { result: row, teamId: meta.teamId, publishedAt: now };
 };
 
 /**
