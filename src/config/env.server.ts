@@ -112,6 +112,12 @@ export const buildServerEnv = (env: NodeJS.ProcessEnv) => {
     authUrl: read(env.AUTH_URL) ?? appBaseUrl,
     authSecret: read(env.AUTH_SECRET),
     authEmailFrom: read(env.AUTH_EMAIL_FROM),
+    // Step 6.5d — Google OAuth sign-in. Both must be present for the Google provider to be
+    // registered (see auth.config.ts isGoogleAuthConfigured). Absent locally → Google sign-in is
+    // simply unavailable; credentials sign-in is unaffected. No graceful runtime degradation is
+    // needed beyond not rendering the provider.
+    googleClientId: read(env.GOOGLE_CLIENT_ID),
+    googleClientSecret: read(env.GOOGLE_CLIENT_SECRET),
     redisUrl: read(env.REDIS_URL),
     meilisearchHost: read(env.MEILISEARCH_HOST),
     meilisearchApiKey: read(env.MEILISEARCH_API_KEY),

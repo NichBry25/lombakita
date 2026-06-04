@@ -1,10 +1,19 @@
 import { redirect } from "next/navigation";
 
-// F2 (Step 6.5b): /auth/signup redirects to /auth/register, preserving the ?as= param.
+// Step 6.5d.1 — legacy signup entry. Redirects to the single method-first `/auth/login`
+// (previously redirected to /auth/register, which itself now redirects here). Preserves any
+// query params for continuity.
 export default async function SignupRedirectPage(props: {
-  searchParams?: Promise<{ as?: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const searchParams = await props.searchParams;
-  const asParam = searchParams?.as;
-  redirect(asParam ? `/auth/register?as=${encodeURIComponent(asParam)}` : "/auth/register");
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams ?? {})) {
+    const single = Array.isArray(value) ? value[0] : value;
+    if (single !== undefined) {
+      params.set(key, single);
+    }
+  }
+  const qs = params.toString();
+  redirect(`/auth/login${qs ? `?${qs}` : ""}`);
 }

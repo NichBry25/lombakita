@@ -3,10 +3,17 @@ import { eq } from "drizzle-orm";
 import type { NextAuthOptions } from "next-auth";
 import type { Adapter } from "next-auth/adapters";
 import CredentialsProvider from "next-auth/providers/credentials";
+import GoogleProvider from "next-auth/providers/google";
 import { assertRuntimeEnv, serverEnv } from "@/config/env.server";
 import { type AppRole, isAppRole } from "@/lib/access/roles";
 import { logger } from "@/lib/logger";
 import { authenticateWithEmailPassword } from "@/server/auth/credentials-auth";
+import {
+  authorizeOAuthFinalize,
+  GOOGLE_PROVIDER_ID,
+  OAUTH_FINALIZE_PROVIDER_ID,
+  resolveGoogleOAuthSignIn,
+} from "@/server/auth/oauth-account";
 import { getDb } from "@/server/db/client";
 import { accounts, sessions, users, verificationTokens } from "@/server/db/schema";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
@@ -16,6 +23,12 @@ assertServerOnly("server/auth/auth.config");
 assertRuntimeEnv("web");
 
 export const isEmailAuthConfigured = Boolean(serverEnv.resendApiKey && serverEnv.authEmailFrom);
+
+// Step 6.5d — the Google provider is registered only when both OAuth credentials are present.
+// Absent locally → "Sign in with Google" is simply unavailable; credentials sign-in is unaffected.
+export const isGoogleAuthConfigured = Boolean(
+  serverEnv.googleClientId && serverEnv.googleClientSecret,
+);
 
 export const isAuthPersistenceConfigured = Boolean(serverEnv.databaseUrl);
 
@@ -158,8 +171,88 @@ export const authOptions: NextAuthOptions = {
         };
       },
     }),
+    // Step 6.5d — OAuth finalization provider. A brand-new Google user is routed to the role
+    // picker (the signIn callback returns a redirect, so no users row is created by the OAuth
+    // adapter). Once a role is declared, the client calls signIn("oauth-finalize", { carrier, role
+    // }); authorize verifies the integrity-protected carrier, creates the account transactionally,
+    // and returns the user — next-auth then mints a JWT session indistinguishable from a
+    // credentials session. This provider performs no password check: its trust anchor is the
+    // HMAC-signed carrier, which only our signIn callback can issue after Google authenticated the
+    // identity. Kept AFTER the email-password provider so providers[0] remains the credentials
+    // login provider for existing tests/integrations.
+    CredentialsProvider({
+      id: OAUTH_FINALIZE_PROVIDER_ID,
+      name: "oauth-finalize",
+      credentials: {
+        carrier: { label: "Carrier", type: "text" },
+        role: { label: "Role", type: "text" },
+      },
+      async authorize(credentials) {
+        const finalized = await authorizeOAuthFinalize(credentials).catch((error: unknown) => {
+          // Surface a distinct, non-leaking signal for the client; the message propagates via
+          // next-auth's credentials error path (same mechanism as the email-password provider).
+          const code =
+            error instanceof Error && error.message ? error.message : "OAUTH_FINALIZE_FAILED";
+          throw new Error(code);
+        });
+
+        return {
+          id: finalized.id,
+          email: finalized.email,
+          role: finalized.role,
+        };
+      },
+    }),
+    // Step 6.5d — Google OAuth sign-in. allowDangerousEmailAccountLinking is intentionally TRUE:
+    // it is the only way next-auth v4 will link a Google identity into an existing same-email
+    // account during a fresh (unauthenticated) sign-in. The danger it names — auto-linking on an
+    // unverified email match — is neutralized by the signIn callback's safe-link gate, which lets
+    // the link proceed ONLY when both sides are positively email-verified (Google email_verified
+    // AND the existing account's own emailVerified) and otherwise fails closed. The gate, not the
+    // provider flag, is what makes linking safe (see resolveGoogleSignIn).
+    ...(isGoogleAuthConfigured
+      ? [
+          GoogleProvider({
+            clientId: serverEnv.googleClientId as string,
+            clientSecret: serverEnv.googleClientSecret as string,
+            allowDangerousEmailAccountLinking: true,
+          }),
+        ]
+      : []),
   ],
   callbacks: {
+    // Step 6.5d — Google sign-in interception. Fires BEFORE the adapter createUser/linkAccount
+    // (next-auth@4.24.13, core/routes/callback.js). For the credentials and oauth-finalize
+    // providers this is a pass-through (their authorize already gated the sign-in). For Google we
+    // delegate to resolveGoogleOAuthSignIn, which returns `true` to proceed (existing-linked or
+    // safe-link) or a redirect string that aborts the flow with zero DB writes (suspended →
+    // /suspended, fail-closed deny, or brand-new user → role picker carrying the signed identity).
+    async signIn({ account, profile, user }) {
+      if (account?.provider !== GOOGLE_PROVIDER_ID) {
+        return true;
+      }
+
+      // `profile` is the raw Google OAuthProfile (sub, email, email_verified, name, picture).
+      const googleProfile = (profile ?? {}) as {
+        email?: string;
+        email_verified?: boolean;
+        name?: string;
+        picture?: string;
+      };
+
+      const providerAccountId = account.providerAccountId;
+      if (!providerAccountId) {
+        return false;
+      }
+
+      return resolveGoogleOAuthSignIn({
+        providerAccountId,
+        email: googleProfile.email ?? (typeof user?.email === "string" ? user.email : null),
+        googleEmailVerified: googleProfile.email_verified === true,
+        name: googleProfile.name ?? (typeof user?.name === "string" ? user.name : null),
+        image: googleProfile.picture ?? null,
+      });
+    },
     async jwt({ token, user, trigger, session }) {
       if (user) {
         // Authorize() returns the DB row's user-level role. We only write it into the token if

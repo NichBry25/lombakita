@@ -1,6 +1,10 @@
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { logger } from "@/lib/logger";
-import { generateUsername, UsernameGenerationError } from "@/lib/username/generate";
+import {
+  generateUsername,
+  type UsernameAvailabilityCheck,
+  UsernameGenerationError,
+} from "@/lib/username/generate";
 import { getDb, type Database } from "@/server/db/client";
 import {
   userEmailVerificationTokens,
@@ -43,6 +47,45 @@ export type SignupRole = (typeof SIGNUP_ROLE_VALUES)[number];
 
 export const isSignupRole = (value: unknown): value is SignupRole => {
   return typeof value === "string" && (SIGNUP_ROLE_VALUES as readonly string[]).includes(value);
+};
+
+// Step 6.5d — shared signup primitives, extracted so the Google-OAuth finalization path
+// (`finalizeOAuthSignup` in oauth-account.ts) creates a users row through the SAME role/tier
+// derivation and username generation as the credentials registration transaction, rather than
+// duplicating the logic. Both call sites must agree byte-for-byte on:
+//   - which per-role verification timestamp is set for a declared role, and
+//   - that recruiter signup atomically grants the `minimal` tier (Step 4.0c / DEC-0053),
+//     keeping `users_recruiter_tier_consistency_chk` satisfied.
+
+// The exact column set written to `users` for a declared signup role. The undeclared role's
+// timestamp stays null; the DB CHECK `users_one_verified_role_chk` is satisfied because the
+// declared role always sets one timestamp. Verification is sourced from the role DECLARATION, never
+// from an OAuth provider's email_verified.
+export const deriveSignupRoleColumns = (
+  signupRole: SignupRole,
+  now: Date,
+): {
+  role: SignupRole;
+  candidateVerifiedAt: Date | null;
+  recruiterVerifiedAt: Date | null;
+  recruiterVerificationTier: "minimal" | "unverified";
+} => ({
+  role: signupRole,
+  candidateVerifiedAt: signupRole === "candidate" ? now : null,
+  recruiterVerifiedAt: signupRole === "recruiter" ? now : null,
+  recruiterVerificationTier: signupRole === "recruiter" ? "minimal" : "unverified",
+});
+
+// Generates a unique, reserved-word-safe username from a display name, probing availability inside
+// the caller's transaction. Wraps the Step 2.1a generator + name split so both signup paths share
+// one implementation. Throws UsernameGenerationError if the bounded retry loop is exhausted; both
+// callers translate that into a clean 503.
+export const generateUniqueUsernameForName = async (
+  name: string,
+  isAvailable: UsernameAvailabilityCheck,
+): Promise<string> => {
+  const { firstName, lastName } = splitName(name);
+  return generateUsername({ firstName, lastName, isAvailable });
 };
 
 type AuthFlowErrorCode =
@@ -253,20 +296,26 @@ export const registerUserWithCredentials = async (
         .where(eq(users.email, input.email))
         .limit(1);
 
+      // Step 6.5d.1 (M1) — duplicate-account guard. This fires for ANY verified account, whether
+      // it authenticates by password OR by a linked OAuth identity. Google-only accounts (Step
+      // 6.5d) have `emailVerified` set but NO `user_password_credentials` row; the prior guard only
+      // threw when a password row existed, so a Google-only account fell through and this PUBLIC
+      // endpoint would write an attacker-supplied password (and re-apply an attacker-declared role)
+      // onto it — a silent, unauthenticated account takeover. A verified account is already a real
+      // identity; re-registration over it via this public endpoint is never legitimate (adding a
+      // password to an OAuth account belongs in a separate authenticated flow, not here). The throw
+      // occurs BEFORE any mutation below (username INSERT, role-flip UPDATE, password upsert), so no
+      // write lands. The unverified re-registration path is unaffected — this guard keys on
+      // `emailVerified`, and a verified row always pre-exists, so there is no create-race window:
+      // a concurrent same-email creation collapses to the 23505 → `email_exists` branch below, and
+      // the role-flip UPDATE / password upsert only ever target an unverified-existing or brand-new
+      // row (never a verified one, which threw here).
       if (existingUser?.emailVerified) {
-        const [existingCredential] = await tx
-          .select({ userId: userPasswordCredentials.userId })
-          .from(userPasswordCredentials)
-          .where(eq(userPasswordCredentials.userId, existingUser.id))
-          .limit(1);
-
-        if (existingCredential) {
-          throw new CredentialsAuthError(
-            "email_exists",
-            409,
-            "An account with this email already exists",
-          );
-        }
+        throw new CredentialsAuthError(
+          "email_exists",
+          409,
+          "An account with this email already exists",
+        );
       }
 
       // Rollback Step 1.3 — write the declared user-level role and the matching
@@ -282,10 +331,7 @@ export const registerUserWithCredentials = async (
       // signups leave the tier at the column default ('unverified'); the tier is only meaningful
       // once the account verifies the recruiter mode.
       const now = new Date();
-      const candidateVerifiedAt = input.signupRole === "candidate" ? now : null;
-      const recruiterVerifiedAt = input.signupRole === "recruiter" ? now : null;
-      const recruiterVerificationTier =
-        input.signupRole === "recruiter" ? ("minimal" as const) : ("unverified" as const);
+      const roleColumns = deriveSignupRoleColumns(input.signupRole, now);
 
       let userId = existingUser?.id;
 
@@ -295,18 +341,13 @@ export const registerUserWithCredentials = async (
         // transaction: the uniqueness probe sees only committed rows, and a
         // generation failure aborts the transaction so no user row is ever
         // persisted without a username.
-        const { firstName, lastName } = splitName(input.name);
-        const username = await generateUsername({
-          firstName,
-          lastName,
-          isAvailable: async (candidate) => {
-            const [taken] = await tx
-              .select({ id: users.id })
-              .from(users)
-              .where(eq(users.username, candidate))
-              .limit(1);
-            return !taken;
-          },
+        const username = await generateUniqueUsernameForName(input.name, async (candidate) => {
+          const [taken] = await tx
+            .select({ id: users.id })
+            .from(users)
+            .where(eq(users.username, candidate))
+            .limit(1);
+          return !taken;
         });
 
         const [inserted] = await tx
@@ -314,11 +355,8 @@ export const registerUserWithCredentials = async (
           .values({
             email: input.email,
             name: input.name,
-            role: input.signupRole,
             username,
-            candidateVerifiedAt,
-            recruiterVerifiedAt,
-            recruiterVerificationTier,
+            ...roleColumns,
           })
           .returning({ id: users.id });
 
@@ -337,10 +375,7 @@ export const registerUserWithCredentials = async (
         await tx
           .update(users)
           .set({
-            role: input.signupRole,
-            candidateVerifiedAt,
-            recruiterVerifiedAt,
-            recruiterVerificationTier,
+            ...roleColumns,
             updatedAt: now,
           })
           .where(eq(users.id, userId));
@@ -610,6 +645,44 @@ export const verifyRegistrationEmailToken = async (
     email: tokenRecord.email,
     status: "verified",
   };
+};
+
+// Step 6.5d.1 — method-first credentials entry. The single `/auth/login` page asks for email +
+// password, then must branch existing-vs-new BEFORE deciding whether to attempt a password
+// sign-in, show an "email not verified" notice, or offer the role picker. Credentials is
+// email-first (unlike OAuth, where the provider resolves identity), so we classify by email:
+//   - `none`       — no account; the page offers the role picker (signup).
+//   - `unverified` — an account exists but email is not yet verified; the page shows the
+//                    verify notice + resend, and must NOT offer signup (insert would hit 23505).
+//   - `verified`   — an account exists and is verified (incl. a Google-only account, which has
+//                    emailVerified set but no password); the page attempts the password sign-in,
+//                    where a wrong/absent password collapses to the generic invalid-credentials
+//                    response (no Google hint — design-pass only).
+//
+// Enumeration note (flagged for security review): branching existing-vs-new inherently reveals
+// whether an email has an account — this is intrinsic to the owner-approved method-first UX. It
+// exposes nothing the existing register endpoint does not already leak (register returns 409
+// `email_exists` for a taken, verified email). Server-side rate-limiting is a future hardening
+// item (6.5d.1 debt), not added here.
+export type EmailLoginState = "none" | "unverified" | "verified";
+
+export const classifyEmailForLogin = async (
+  emailInput: unknown,
+  db: Database = getDb(),
+): Promise<{ state: EmailLoginState }> => {
+  const email = parseEmail(emailInput);
+
+  const [row] = await db
+    .select({ id: users.id, emailVerified: users.emailVerified })
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+
+  if (!row) {
+    return { state: "none" };
+  }
+
+  return { state: row.emailVerified ? "verified" : "unverified" };
 };
 
 export const authenticateWithEmailPassword = async (
