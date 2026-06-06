@@ -216,6 +216,14 @@ export const authOptions: NextAuthOptions = {
             clientId: serverEnv.googleClientId as string,
             clientSecret: serverEnv.googleClientSecret as string,
             allowDangerousEmailAccountLinking: true,
+            // Force Google's account picker on every sign-in attempt. Without this, Google
+            // silently returns the single account currently signed into the browser, which
+            // produces a wrong-account sign-in when the operator's intent does not match the
+            // browser-cached identity. Pairs with the cross-session takeover guard in
+            // resolveGoogleOAuthSignIn (oauth-account.ts): the picker prevents silent
+            // identity selection, and the guard prevents silent identity linking to a
+            // different active session.
+            authorization: { params: { prompt: "select_account" } },
           }),
         ]
       : []),

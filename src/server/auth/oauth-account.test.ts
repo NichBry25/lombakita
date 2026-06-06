@@ -19,6 +19,34 @@ vi.mock("@/config/env.server", () => ({
 }));
 vi.mock("@/server/db/client", () => ({ getDb: vi.fn(() => ({ db: "unused" })) }));
 
+// Cross-session takeover guard (post-incident fix). The signIn flow reads the live JWT cookie
+// via cookies() + decode() to detect when an active session belongs to a different user than the
+// OAuth identity would resolve to. Tests below stub these to simulate "no session", "matching
+// session", and "different active user". Default = no session → all pre-existing tests unaffected.
+/* eslint-disable @typescript-eslint/no-unused-vars */
+const { cookieStore, decodeMock } = vi.hoisted(() => ({
+  cookieStore: { get: vi.fn((_name: string) => undefined as { value: string } | undefined) },
+  decodeMock: vi.fn(async (_args: unknown) => null as { sub?: string } | null),
+}));
+/* eslint-enable @typescript-eslint/no-unused-vars */
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(async () => cookieStore),
+}));
+vi.mock("next-auth/jwt", () => ({
+  decode: decodeMock,
+}));
+const setActiveSession = (userId: string | null) => {
+  if (userId === null) {
+    cookieStore.get.mockReturnValue(undefined);
+    decodeMock.mockResolvedValue(null);
+    return;
+  }
+  cookieStore.get.mockImplementation((name: string) =>
+    name === "next-auth.session-token" ? { value: "fake-jwt" } : undefined,
+  );
+  decodeMock.mockResolvedValue({ sub: userId });
+};
+
 // Step 6.5e — claim-at-signup runs inside the finalize transaction. Mock it so the finalize tx stub
 // (which has no .update) is unaffected, and assert the wiring separately.
 const { claimPendingInvitationsForUser } = vi.hoisted(() => ({
@@ -87,6 +115,7 @@ const googleClaims: GoogleIdentityClaims = {
 
 afterEach(() => {
   vi.clearAllMocks();
+  setActiveSession(null);
 });
 
 describe("resolveGoogleSignIn — three OAuth cases + safe-link", () => {
@@ -237,6 +266,130 @@ describe("resolveGoogleOAuthSignIn — signIn-callback outcome", () => {
     );
     expect(outcome).toBe("http://localhost:3000/auth/login?error=oauth_link_denied");
     expect(insertCalled()).toBe(false);
+  });
+});
+
+// Regression coverage for the cross-session takeover incident.
+//
+// Repro of the original defect: user A had an active JWT cookie. User picked B's Google account
+// in the picker. Our resolver returned link_existing (target = B). signIn returned true. next-
+// auth's callback-handler.js (lines 135-150) saw the active session as A, found B's Google sub
+// unlinked, and called linkAccount({sub_B, userId: A.id}) — silently attaching B's Google sub
+// to A's row. The next time B tried Google sign-in, getUserByAccount(sub_B) returned A, and B
+// was signed in as A. Fix: refuse the OAuth flow whenever the active session user does not
+// equal the resolver's target user, AND refuse a new-user signup while any session is active.
+describe("resolveGoogleOAuthSignIn — cross-session takeover guard", () => {
+  it("link_existing while a DIFFERENT user is signed in → refuse, do not proceed", async () => {
+    setActiveSession("u-attacker");
+    const { db } = makeReadDb(
+      [],
+      // Same-email account; both sides verified → resolver picks link_existing for u-victim.
+      [{ id: "u-victim", emailVerified: new Date(), suspendedAt: null }],
+    );
+    const outcome = await resolveGoogleOAuthSignIn(
+      {
+        providerAccountId: "google-sub-victim",
+        email: "victim@example.com",
+        googleEmailVerified: true,
+        name: null,
+        image: null,
+      },
+      db as never,
+    );
+    expect(outcome).toBe("http://localhost:3000/auth/login?error=oauth_session_mismatch");
+  });
+
+  it("existing_linked while a DIFFERENT user is signed in → refuse, do not proceed", async () => {
+    setActiveSession("u-other");
+    const { db } = makeReadDb(
+      [{ userId: "u-owner" }],
+      [{ id: "u-owner", suspendedAt: null }],
+    );
+    const outcome = await resolveGoogleOAuthSignIn(
+      {
+        providerAccountId: "google-sub-1",
+        email: "owner@example.com",
+        googleEmailVerified: true,
+        name: null,
+        image: null,
+      },
+      db as never,
+    );
+    expect(outcome).toBe("http://localhost:3000/auth/login?error=oauth_session_mismatch");
+  });
+
+  it("existing_linked while the SAME user is signed in → proceeds (true)", async () => {
+    setActiveSession("u-same");
+    const { db } = makeReadDb([{ userId: "u-same" }], [{ id: "u-same", suspendedAt: null }]);
+    const outcome = await resolveGoogleOAuthSignIn(
+      {
+        providerAccountId: "google-sub-1",
+        email: "same@example.com",
+        googleEmailVerified: true,
+        name: null,
+        image: null,
+      },
+      db as never,
+    );
+    expect(outcome).toBe(true);
+  });
+
+  it("link_existing while the SAME user is signed in → proceeds (true)", async () => {
+    setActiveSession("u-same");
+    const { db } = makeReadDb(
+      [],
+      [{ id: "u-same", emailVerified: new Date(), suspendedAt: null }],
+    );
+    const outcome = await resolveGoogleOAuthSignIn(
+      {
+        providerAccountId: "google-sub-1",
+        email: "same@example.com",
+        googleEmailVerified: true,
+        name: null,
+        image: null,
+      },
+      db as never,
+    );
+    expect(outcome).toBe(true);
+  });
+
+  it("new_user while ANY session is active → refuse (would surprise the operator)", async () => {
+    setActiveSession("u-signed-in");
+    const { db, insertCalled } = makeReadDb([], []);
+    const outcome = await resolveGoogleOAuthSignIn(
+      {
+        providerAccountId: "google-sub-new",
+        email: "new@example.com",
+        googleEmailVerified: true,
+        name: "New User",
+        image: null,
+      },
+      db as never,
+    );
+    expect(outcome).toBe("http://localhost:3000/auth/login?error=oauth_session_mismatch");
+    expect(insertCalled()).toBe(false);
+  });
+
+  it("suspended target takes precedence over session-mismatch redirect", async () => {
+    // A suspended owner must always be routed to /suspended, regardless of active-session
+    // state — masking suspension behind a generic mismatch error would invite confusion and
+    // potentially leak the wrong remedy hint.
+    setActiveSession("u-other");
+    const { db } = makeReadDb(
+      [{ userId: "u-owner" }],
+      [{ id: "u-owner", suspendedAt: new Date() }],
+    );
+    const outcome = await resolveGoogleOAuthSignIn(
+      {
+        providerAccountId: "google-sub-1",
+        email: "owner@example.com",
+        googleEmailVerified: true,
+        name: null,
+        image: null,
+      },
+      db as never,
+    );
+    expect(outcome).toBe("http://localhost:3000/suspended");
   });
 });
 

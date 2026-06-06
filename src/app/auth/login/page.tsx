@@ -20,6 +20,9 @@ const mapSignInPageError = (error: string): string => {
   if (error === "oauth_link_denied") {
     return "Masuk dengan Google tidak dapat diselesaikan untuk email ini. Jika Anda sudah punya akun, masuk dengan metode yang terdaftar (mis. email & password).";
   }
+  if (error === "oauth_session_mismatch") {
+    return "Anda sudah masuk dengan akun lain. Keluar dulu lalu coba lagi masuk dengan Google.";
+  }
   if (error.includes("EMAIL_NOT_VERIFIED")) {
     return "Login ditolak karena email belum diverifikasi. Cek inbox/spam lalu klik tautan verifikasi.";
   }

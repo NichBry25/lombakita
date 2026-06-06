@@ -1,4 +1,6 @@
 import { and, eq } from "drizzle-orm";
+import { cookies } from "next/headers";
+import { decode as decodeNextAuthJwt } from "next-auth/jwt";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
@@ -28,6 +30,19 @@ export const OAUTH_FINALIZE_PROVIDER_ID = "oauth-finalize";
 // non-leaking notice for this `?error` value (it does not reveal whether an account exists or why
 // linking was refused).
 export const OAUTH_LINK_DENIED_ERROR = "oauth_link_denied";
+
+// Critical defense against an upstream next-auth v4 footgun. When an OAuth callback arrives WITH
+// a live JWT cookie present, next-auth's callback-handler.js loads `user = session.sub` and, for
+// any OAuth account whose providerAccountId is not yet linked, runs `linkAccount({...account,
+// userId: user.id})` BEFORE its own email lookup — silently attaching the new Google sub to
+// whoever is currently signed in, regardless of the Google profile's email. That collapses into
+// a permanent silent account takeover the next time the legitimate owner of that Google sub
+// tries to sign in (the linked account now resolves to the attacker / wrong user).
+//
+// Our signIn callback intercepts first, so we refuse any OAuth flow whose resolved owner differs
+// from the active session. The user is asked to sign out and retry. The login page renders a
+// non-leaking notice for this `?error` value.
+export const OAUTH_SESSION_MISMATCH_ERROR = "oauth_session_mismatch";
 
 // Step 6.5d — controlled Google sign-in decision.
 //
@@ -326,11 +341,59 @@ const toRedirect = (path: string): string => {
 
 const SUSPENDED_REDIRECT = "/suspended";
 const LINK_DENIED_REDIRECT = `/auth/login?error=${OAUTH_LINK_DENIED_ERROR}`;
+const SESSION_MISMATCH_REDIRECT = `/auth/login?error=${OAUTH_SESSION_MISMATCH_ERROR}`;
 // Step 6.5d.1 — the brand-new-Google-user role picker now lives on the single method-first
 // `/auth/login` page (the `/auth/register` route was merged into it). `/auth/login?oauth=<carrier>`
 // renders the OAuth role picker server-side after verifying the carrier.
 const rolePickerRedirect = (carrier: string): string =>
   `/auth/login?oauth=${encodeURIComponent(carrier)}`;
+
+// next-auth v4 cookie names. Dev (http) writes `next-auth.session-token`; production (https)
+// writes `__Secure-next-auth.session-token`. We check both rather than branching on env so a
+// misconfigured runtime (e.g. NEXTAUTH_URL mismatch) cannot accidentally skip the gate.
+const NEXTAUTH_SESSION_COOKIE_NAMES = [
+  "__Secure-next-auth.session-token",
+  "next-auth.session-token",
+] as const;
+
+// Returns the user id encoded in the live JWT session cookie, or null when:
+//   - no session cookie is present
+//   - the cookie cannot be decoded (signature mismatch / expired / malformed)
+//   - the decoded token has no `sub`
+// We fail-open on decode error: an undecodable cookie is treated as "no session" because we
+// cannot attribute it to any specific user. The downstream OAuth flow remains safe — if no
+// active session is detectable, next-auth's callback-handler will fall through to its
+// email-match path, which our signIn callback already governs via resolveGoogleSignIn.
+export const readActiveSessionUserId = async (): Promise<string | null> => {
+  let cookieStore: Awaited<ReturnType<typeof cookies>>;
+  try {
+    cookieStore = await cookies();
+  } catch {
+    // cookies() throws when invoked outside a Next.js request scope (e.g. unit tests). The
+    // caller treats null as "no session" — safe because tests stub readActiveSessionUserId
+    // explicitly when they want to exercise the active-session branches.
+    return null;
+  }
+
+  const secret = serverEnv.authSecret;
+  if (!secret) {
+    return null;
+  }
+
+  for (const name of NEXTAUTH_SESSION_COOKIE_NAMES) {
+    const value = cookieStore.get(name)?.value;
+    if (!value) continue;
+    try {
+      const token = await decodeNextAuthJwt({ token: value, secret });
+      if (token && typeof token.sub === "string" && token.sub.length > 0) {
+        return token.sub;
+      }
+    } catch {
+      // Try the next candidate cookie name; if all fail we return null.
+    }
+  }
+  return null;
+};
 
 export type GoogleOAuthSignInParams = {
   providerAccountId: string;
@@ -344,6 +407,13 @@ export type GoogleOAuthSignInParams = {
 // (establish the session for an existing linked account or safe-link an existing same-email
 // account), or a redirect string that ABORTS the flow before any DB write (suspended → /suspended,
 // fail-closed deny → login notice, brand-new user → role picker carrying the signed identity).
+//
+// Cross-session takeover guard: if a JWT session is already present in the browser, returning
+// `true` for the OAuth flow lets next-auth's callback-handler.js silently link the new
+// providerAccountId to the CURRENT session user (instead of the email-matched user), permanently
+// hijacking the Google identity. We therefore refuse the flow whenever the resolved owner differs
+// from the active session, and ALSO refuse new-user signup while any session is active (to avoid
+// confusing implicit account-switch UX).
 export const resolveGoogleOAuthSignIn = async (
   params: GoogleOAuthSignInParams,
   db: Database = getDb(),
@@ -354,22 +424,53 @@ export const resolveGoogleOAuthSignIn = async (
     return toRedirect(LINK_DENIED_REDIRECT);
   }
 
-  const decision = await resolveGoogleSignIn(
-    {
-      providerAccountId: params.providerAccountId,
-      email: params.email,
-      googleEmailVerified: params.googleEmailVerified,
-    },
-    db,
-  );
+  const [decision, activeUserId] = await Promise.all([
+    resolveGoogleSignIn(
+      {
+        providerAccountId: params.providerAccountId,
+        email: params.email,
+        googleEmailVerified: params.googleEmailVerified,
+      },
+      db,
+    ),
+    readActiveSessionUserId(),
+  ]);
 
   switch (decision.kind) {
     case "existing_linked":
-    case "link_existing":
-      return decision.suspended ? toRedirect(SUSPENDED_REDIRECT) : true;
+    case "link_existing": {
+      if (decision.suspended) {
+        return toRedirect(SUSPENDED_REDIRECT);
+      }
+      // If a different user is already signed in, REFUSE. Allowing the flow lets next-auth's
+      // callback-handler attach the new providerAccountId to the active user when the link is
+      // not yet established (link_existing), or throw AccountNotLinkedError when it is
+      // (existing_linked with mismatched session). Either way the user is confused; we surface
+      // a clean "sign out first" instruction.
+      if (activeUserId && activeUserId !== decision.userId) {
+        logger.warn("oauth.signin.session_user_mismatch", {
+          activeUserId,
+          targetUserId: decision.userId,
+          providerAccountId: params.providerAccountId,
+        });
+        return toRedirect(SESSION_MISMATCH_REDIRECT);
+      }
+      return true;
+    }
     case "link_denied":
       return toRedirect(LINK_DENIED_REDIRECT);
     case "new_user": {
+      // Brand-new-user signup while another session is active would surprise the operator
+      // (Google picker auto-selected an unexpected identity while signed in). Refuse and ask
+      // them to sign out first; this is the same UX guarantee as the link_existing branch
+      // above and avoids implicit account-switching.
+      if (activeUserId) {
+        logger.warn("oauth.signin.new_user_blocked_by_active_session", {
+          activeUserId,
+          providerAccountId: params.providerAccountId,
+        });
+        return toRedirect(SESSION_MISMATCH_REDIRECT);
+      }
       const carrier = signGoogleIdentityCarrier({
         provider: "google",
         providerAccountId: params.providerAccountId,
