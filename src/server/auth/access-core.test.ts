@@ -53,6 +53,56 @@ describe("access-core", () => {
     expect(guarded.user.role).toBe("platform_ops");
   });
 
+  // DEC-0060 capability model — a dual-verified self-service account signed in under one role
+  // still satisfies a gate for its other verified role.
+  it("allows a candidate gate for a recruiter-active account that also has candidate verified", () => {
+    const session = assertAuthenticatedSession(
+      buildSession({
+        user: {
+          id: "dual_1",
+          role: "recruiter",
+          verifiedRoles: ["candidate", "recruiter"],
+        } as Session["user"],
+      }),
+    );
+
+    expect(() => assertSessionRole(session, ["candidate"])).not.toThrow();
+    expect(() => assertSessionRole(session, ["recruiter"])).not.toThrow();
+  });
+
+  it("forbids a recruiter gate for a candidate-only account", () => {
+    const session = assertAuthenticatedSession(
+      buildSession({
+        user: { id: "cand_only", role: "candidate", verifiedRoles: ["candidate"] } as Session["user"],
+      }),
+    );
+
+    expect(() => assertSessionRole(session, ["recruiter"])).toThrowError(
+      /Insufficient role permissions/i,
+    );
+  });
+
+  // No privilege widening: an operational account whose candidate_verified_at is a migration
+  // CHECK-satisfier (surfaced as verifiedRoles: ["candidate"]) must NOT gain candidate access,
+  // because its active role is not self-service.
+  it("forbids a candidate gate for a platform_ops account even when verifiedRoles contains candidate", () => {
+    const session = assertAuthenticatedSession(
+      buildSession({
+        user: {
+          id: "ops_backfill",
+          role: "platform_ops",
+          verifiedRoles: ["candidate"],
+        } as Session["user"],
+      }),
+    );
+
+    expect(() => assertSessionRole(session, ["candidate"])).toThrowError(
+      /Insufficient role permissions/i,
+    );
+    // its own operational gate still passes
+    expect(() => assertSessionRole(session, ["platform_ops"])).not.toThrow();
+  });
+
   // Step 6.2 — suspension gate.
   it("throws account_suspended (403) when session.user.suspendedAt is set, before any role check", () => {
     const suspended = buildSession({

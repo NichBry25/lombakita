@@ -174,7 +174,10 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
         }
       } else {
         setSuccess(true);
+        // On a successful save, return to the owner profile view. router.refresh() first so the
+        // /profile server component re-fetches the just-saved values rather than a cached render.
         router.refresh();
+        router.push("/profile");
       }
     } catch {
       setError("Gagal terhubung ke server. Coba lagi.");

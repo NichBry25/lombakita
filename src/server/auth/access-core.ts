@@ -1,6 +1,6 @@
 import type { Session } from "next-auth";
 import { NextResponse } from "next/server";
-import { type AppRole, isAppRole } from "@/lib/access/roles";
+import { type AppRole, isAppRole, sessionHasRole } from "@/lib/access/roles";
 
 export type AuthenticatedSession = Session & {
   user: NonNullable<Session["user"]> & {
@@ -107,7 +107,13 @@ export const assertSessionRole = (
   session: AuthenticatedSession,
   allowedRoles: readonly AppRole[],
 ): AuthenticatedSession => {
-  if (!allowedRoles.includes(session.user.role)) {
+  // Capability-based match (DEC-0060): a dual-verified self-service account signed in under one
+  // role still satisfies a gate for its other verified role. Operational-role gates remain matched
+  // on the single active role. See sessionHasRole.
+  const permitted = allowedRoles.some((role) =>
+    sessionHasRole(session.user.role, session.user.verifiedRoles, role),
+  );
+  if (!permitted) {
     throw new AccessError("forbidden", 403, "Insufficient role permissions");
   }
 

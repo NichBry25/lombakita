@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { sessionHasRole } from "@/lib/access/roles";
 import { getCurrentSession } from "@/server/auth/session";
 import { listSavedCompetitions } from "@/server/saved-competitions/saved-competition-service";
 
@@ -19,7 +20,7 @@ export default async function SavedCompetitionsPage({
 }) {
   const session = await getCurrentSession();
 
-  if (!session || session.user.role !== "candidate") {
+  if (!session || !sessionHasRole(session.user.role, session.user.verifiedRoles, "candidate")) {
     redirect("/auth/login");
   }
 

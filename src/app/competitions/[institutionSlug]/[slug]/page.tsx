@@ -4,6 +4,7 @@ import {
   getPublicCompetitionDetail,
   type PublicCompetitionDetail,
 } from "@/server/competitions/competition-public-service";
+import { sessionHasRole } from "@/lib/access/roles";
 import { getCurrentSession } from "@/server/auth/session";
 import { isSavedCompetition } from "@/server/saved-competitions/saved-competition-service";
 import { SaveButton } from "./save-button";
@@ -141,7 +142,7 @@ export default async function CompetitionDetailPage({
 
   if (!competition) notFound();
 
-  const isCandidate = session?.user?.role === "candidate";
+  const isCandidate = sessionHasRole(session?.user?.role, session?.user?.verifiedRoles, "candidate");
   const initialSaved = isCandidate
     ? await isSavedCompetition(session!.user.id, competition.id)
     : false;

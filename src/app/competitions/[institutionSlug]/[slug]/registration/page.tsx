@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { sessionHasRole } from "@/lib/access/roles";
 import { getCurrentSession } from "@/server/auth/session";
 import { getPublicCompetitionDetail } from "@/server/competitions/competition-public-service";
 import { checkStudentEligibility } from "@/server/eligibility/eligibility-service";
@@ -25,7 +26,7 @@ export default async function CompetitionRegistrationPage({
     redirect(`/auth/login?callbackUrl=${encodeURIComponent(registrationPath)}`);
   }
 
-  if (session.user.role !== "candidate") {
+  if (!sessionHasRole(session.user.role, session.user.verifiedRoles, "candidate")) {
     return (
       <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
         <Link href={detailPath} style={{ fontSize: 14, color: "#555" }}>

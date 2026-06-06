@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { DEFAULT_APP_ROLE, isAppRole } from "@/lib/access/roles";
+import { sessionHasRole } from "@/lib/access/roles";
 import { StudentEligibilityShell } from "@/components/student/student-eligibility-shell";
 import { getCurrentSession } from "@/server/auth/session";
 
@@ -12,9 +12,7 @@ export default async function CandidateEligibilityPage() {
     redirect(`/auth/login?callbackUrl=${encodeURIComponent(ELIGIBILITY_PATH)}`);
   }
 
-  const normalizedRole = isAppRole(session.user.role) ? session.user.role : DEFAULT_APP_ROLE;
-
-  if (normalizedRole !== "candidate") {
+  if (!sessionHasRole(session.user.role, session.user.verifiedRoles, "candidate")) {
     redirect("/");
   }
 

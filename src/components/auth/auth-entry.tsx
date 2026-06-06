@@ -383,6 +383,7 @@ export const AuthEntry = ({
             id="auth-name"
             name="name"
             type="text"
+            autoComplete="off"
             value={name}
             onChange={(event) => setName(event.target.value)}
             className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm"
@@ -396,6 +397,7 @@ export const AuthEntry = ({
             id="auth-confirm-password"
             name="confirmPassword"
             type="password"
+            autoComplete="new-password"
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
             className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm"
