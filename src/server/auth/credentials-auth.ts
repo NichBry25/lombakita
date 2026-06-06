@@ -19,6 +19,7 @@ import {
   verifyPassword,
 } from "@/server/auth/password";
 import { sendRegistrationVerificationEmail } from "@/server/auth/email-verification";
+import { claimPendingInvitationsForUser } from "@/server/invitations/claim-service";
 
 const NAME_MIN_LENGTH = 2;
 const NAME_MAX_LENGTH = 120;
@@ -639,6 +640,13 @@ export const verifyRegistrationEmailToken = async (
           ne(userEmailVerificationTokens.id, tokenRecord.id),
         ),
       );
+
+    // Step 6.5e — claim-at-signup. Now that this account's email is verified, attach every
+    // `pending_claim` invitation addressed to it (target_user_id IS NULL) across both invitation
+    // systems and flip them to `pending`. Runs in the SAME transaction as the verification flip so a
+    // half-claimed state cannot occur. Claim fires ONLY on verified-email match — an unverified
+    // signup never reaches here.
+    await claimPendingInvitationsForUser(tokenRecord.userId, tokenRecord.email, tx, now);
   });
 
   return {

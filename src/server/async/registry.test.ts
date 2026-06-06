@@ -11,8 +11,9 @@ import {
 
 describe("async queue registration baseline", () => {
   it("registers all expected jobs across infrastructure, competition, results, and notifications queues", () => {
-    // Step 6.5.1 added competition.edited + competition.cancelled to the notifications queue.
-    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(8);
+    // Step 6.5.1 added competition.edited + competition.cancelled; Step 6.5e added
+    // institution.invitation.dispatch + team.invitation.dispatch — all on the notifications queue.
+    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(10);
 
     const probe = getRegistrationByJobName(ASYNC_JOB_NAMES.probePing);
     expect(probe).toBeDefined();
@@ -45,6 +46,14 @@ describe("async queue registration baseline", () => {
     const competitionCancelledJob = getRegistrationByJobName(ASYNC_JOB_NAMES.competitionCancelled);
     expect(competitionCancelledJob).toBeDefined();
     expect(competitionCancelledJob?.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
+
+    const instInviteJob = getRegistrationByJobName(ASYNC_JOB_NAMES.institutionInvitationDispatch);
+    expect(instInviteJob).toBeDefined();
+    expect(instInviteJob?.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
+
+    const teamInviteJob = getRegistrationByJobName(ASYNC_JOB_NAMES.teamInvitationDispatch);
+    expect(teamInviteJob).toBeDefined();
+    expect(teamInviteJob?.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
   });
 
   it("exposes queue-level processor registrations", () => {
@@ -59,6 +68,6 @@ describe("async queue registration baseline", () => {
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.infrastructure)).toHaveLength(1);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.competition)).toHaveLength(1);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.results)).toHaveLength(1);
-    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.notifications)).toHaveLength(5);
+    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.notifications)).toHaveLength(7);
   });
 });

@@ -9,6 +9,7 @@ import {
 } from "@/server/notifications/inbox-service";
 import { MarkReadButton } from "./mark-read-button";
 import { DeleteNotificationButton } from "./delete-notification-button";
+import { InboxInviteActions } from "./invite-actions";
 
 const formatDate = (value: Date): string =>
   value.toLocaleString("id-ID", {
@@ -105,16 +106,19 @@ export default async function InboxPage() {
                   </div>
                 ) : item.kind === "institution_invite" ? (
                   <div>
-                    {/* TODO 6.5e: wire in-app accept/decline once session-based acceptance is implemented */}
                     <div style={{ fontWeight: 600 }}>{item.institutionName}</div>
                     <div style={{ color: "#444", marginTop: 4 }}>Peran: {item.invitedRole}</div>
                     <div style={{ marginTop: 6, fontSize: "0.8em", color: "#888" }}>
                       Kedaluwarsa: {formatDate(item.expiresAt)}
                     </div>
+                    <InboxInviteActions
+                      kind="institution"
+                      invitationId={item.id}
+                      expectedUserId={session.user.id}
+                    />
                   </div>
                 ) : (
                   <div>
-                    {/* TODO 6.5e: wire in-app accept/decline once session-based acceptance is implemented */}
                     <div style={{ fontWeight: 600 }}>{item.teamName}</div>
                     <div style={{ color: "#444", marginTop: 4 }}>
                       Kompetisi: {item.competitionTitle}
@@ -122,6 +126,11 @@ export default async function InboxPage() {
                     <div style={{ marginTop: 6, fontSize: "0.8em", color: "#888" }}>
                       Kedaluwarsa: {formatDate(item.expiresAt)}
                     </div>
+                    <InboxInviteActions
+                      kind="team"
+                      invitationId={item.id}
+                      expectedUserId={session.user.id}
+                    />
                   </div>
                 )}
               </li>

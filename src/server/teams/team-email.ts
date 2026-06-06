@@ -10,9 +10,14 @@ const resolveBaseUrl = (): string => {
   return serverEnv.authUrl ?? serverEnv.appBaseUrl ?? publicEnv.appUrl ?? "http://localhost:3000";
 };
 
-const buildInviteUrl = (rawToken: string): string => {
-  const baseUrl = resolveBaseUrl();
-  const url = new URL(`/team-invitations/${encodeURIComponent(rawToken)}`, baseUrl);
+// Step 6.5e — mirrors institution-invitations/invitation-email.ts. Acceptance is in-app
+// (session-id matched), so the email links to the inbox (targeted) or to the method-first signup
+// carrying ?invite=<rawToken> (claim). Direct /auth/login link avoids the DEC-0084 param-drop.
+const buildInboxUrl = (): string => new URL("/inbox", resolveBaseUrl()).toString();
+
+const buildClaimSignupUrl = (rawToken: string): string => {
+  const url = new URL("/auth/login", resolveBaseUrl());
+  url.searchParams.set("invite", rawToken);
   return url.toString();
 };
 
@@ -24,21 +29,35 @@ const formatExpiryDate = (expiresAt: Date): string => {
   });
 };
 
+export type TeamInvitationEmailMode = "targeted" | "claim";
+
 export const sendTeamInvitationEmail = async (options: {
   toEmail: string;
   teamName: string;
   competitionTitle: string;
   inviterDisplayName: string | null;
-  rawToken: string;
   expiresAt: Date;
+  mode: TeamInvitationEmailMode;
+  // Required for `claim` mode (the signup link); ignored for `targeted`.
+  rawToken?: string;
 }): Promise<void> => {
   if (!serverEnv.resendApiKey || !serverEnv.authEmailFrom) {
     throw new Error("Resend team invitation email provider is not fully configured");
   }
 
-  const inviteUrl = buildInviteUrl(options.rawToken);
+  if (options.mode === "claim" && !options.rawToken) {
+    throw new Error("claim-mode team invitation email requires a rawToken");
+  }
+
   const expiryFormatted = formatExpiryDate(options.expiresAt);
   const inviterLabel = options.inviterDisplayName ?? "Kapten tim";
+
+  const isClaim = options.mode === "claim";
+  const actionUrl = isClaim ? buildClaimSignupUrl(options.rawToken as string) : buildInboxUrl();
+  const ctaLabel = isClaim ? "Daftar untuk Menerima" : "Buka Kotak Masuk";
+  const leadLine = isClaim
+    ? "Buat akun Lombakita dengan email ini untuk menerima atau menolak undangan."
+    : "Buka kotak masuk Anda di Lombakita untuk menerima atau menolak undangan.";
 
   const resend = new Resend(serverEnv.resendApiKey);
 
@@ -50,8 +69,8 @@ export const sendTeamInvitationEmail = async (options: {
       `${inviterLabel} mengundang Anda untuk bergabung dengan tim ${options.teamName}`,
       `pada kompetisi ${options.competitionTitle} di Lombakita.`,
       "",
-      "Buka tautan berikut untuk menerima atau menolak undangan:",
-      inviteUrl,
+      leadLine,
+      actionUrl,
       "",
       `Undangan ini berlaku hingga ${expiryFormatted}.`,
       "",
@@ -65,14 +84,15 @@ export const sendTeamInvitationEmail = async (options: {
           <strong>${options.teamName}</strong> pada kompetisi
           <strong>${options.competitionTitle}</strong>.
         </p>
+        <p style="margin: 0 0 16px;">${leadLine}</p>
         <p style="margin: 0 0 16px;">
-          <a href="${inviteUrl}" style="background: #355795; color: #f4f8ff; text-decoration: none; padding: 10px 16px; border-radius: 8px; display: inline-block;">
-            Lihat Undangan
+          <a href="${actionUrl}" style="background: #355795; color: #f4f8ff; text-decoration: none; padding: 10px 16px; border-radius: 8px; display: inline-block;">
+            ${ctaLabel}
           </a>
         </p>
         <p style="margin: 0 0 10px;">Atau gunakan tautan ini:</p>
         <p style="word-break: break-all; margin: 0 0 12px;">
-          <a href="${inviteUrl}">${inviteUrl}</a>
+          <a href="${actionUrl}">${actionUrl}</a>
         </p>
         <p style="margin: 0; color: #4a5565;">Undangan ini berlaku hingga ${expiryFormatted}.</p>
       </div>
@@ -83,9 +103,10 @@ export const sendTeamInvitationEmail = async (options: {
     throw new Error(`Resend team invite email dispatch failed: ${error.message}`);
   }
 
-  logger.info("team_invitation.created", {
+  logger.info("team_invitation.email_sent", {
     teamName: options.teamName,
     competitionTitle: options.competitionTitle,
+    mode: options.mode,
     toEmail: options.toEmail,
   });
 };

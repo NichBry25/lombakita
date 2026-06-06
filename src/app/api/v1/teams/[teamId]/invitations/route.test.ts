@@ -34,7 +34,7 @@ describe("POST /api/v1/teams/[teamId]/invitations", () => {
       invitedEmail: "i@example.com",
       expiresAt: new Date(),
     });
-    const res = await POST(makeJsonRequest({ invitedEmail: "i@example.com" }), makeContext());
+    const res = await POST(makeJsonRequest({ invitedIdentifier: "i@example.com" }), makeContext());
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.invitation.id).toBe("inv_1");
@@ -43,7 +43,7 @@ describe("POST /api/v1/teams/[teamId]/invitations", () => {
   it("returns 422 with team_at_capacity when full", async () => {
     requireSessionRole.mockResolvedValue(candidateSession);
     inviteTeamMember.mockRejectedValue(new TeamError("team_at_capacity", "full"));
-    const res = await POST(makeJsonRequest({ invitedEmail: "i@example.com" }), makeContext());
+    const res = await POST(makeJsonRequest({ invitedIdentifier: "i@example.com" }), makeContext());
     expect(res.status).toBe(422);
     const body = await res.json();
     expect(body.error.code).toBe("team_at_capacity");
@@ -52,7 +52,7 @@ describe("POST /api/v1/teams/[teamId]/invitations", () => {
   it("returns 403 with team_not_captain when caller is not captain", async () => {
     requireSessionRole.mockResolvedValue(candidateSession);
     inviteTeamMember.mockRejectedValue(new TeamError("team_not_captain", "not captain"));
-    const res = await POST(makeJsonRequest({ invitedEmail: "i@example.com" }), makeContext());
+    const res = await POST(makeJsonRequest({ invitedIdentifier: "i@example.com" }), makeContext());
     expect(res.status).toBe(403);
   });
 });

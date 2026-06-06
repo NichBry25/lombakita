@@ -40,7 +40,7 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedEmail: "staff@example.com", invitedRole: "institution_staff" }),
+      body: JSON.stringify({ invitedIdentifier: "staff@example.com", invitedRole: "institution_staff" }),
     });
 
     const response = await POST(request as never, {
@@ -50,7 +50,7 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
 
     expect(response.status).toBe(201);
     expect(createInstitutionInvitation).toHaveBeenCalledWith("admin_1", "universitas-nusantara", {
-      invitedEmail: "staff@example.com",
+      invitedIdentifier: "staff@example.com",
       invitedRole: "institution_staff",
     });
     expect(body.invitation.invitedEmail).toBe("staff@example.com");
@@ -65,7 +65,7 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedEmail: "staff@example.com", invitedRole: "institution_staff" }),
+      body: JSON.stringify({ invitedIdentifier: "staff@example.com", invitedRole: "institution_staff" }),
     });
 
     const response = await POST(request as never, {
@@ -90,7 +90,7 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedEmail: "staff@example.com", invitedRole: "institution_staff" }),
+      body: JSON.stringify({ invitedIdentifier: "staff@example.com", invitedRole: "institution_staff" }),
     });
 
     const response = await POST(request as never, {
@@ -115,7 +115,7 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedEmail: "staff@example.com", invitedRole: "institution_staff" }),
+      body: JSON.stringify({ invitedIdentifier: "staff@example.com", invitedRole: "institution_staff" }),
     });
 
     const response = await POST(request as never, {
@@ -135,7 +135,7 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedEmail: "staff@example.com", invitedRole: "institution_staff" }),
+      body: JSON.stringify({ invitedIdentifier: "staff@example.com", invitedRole: "institution_staff" }),
     });
 
     const response = await POST(request as never, {
@@ -152,7 +152,7 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedEmail: "owner@example.com", invitedRole: "institution_owner" }),
+      body: JSON.stringify({ invitedIdentifier: "owner@example.com", invitedRole: "institution_owner" }),
     });
 
     const response = await POST(request as never, {
@@ -161,7 +161,7 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
 
     expect(response.status).toBe(201);
     expect(createInstitutionInvitation).toHaveBeenCalledWith("admin_1", "universitas-nusantara", {
-      invitedEmail: "owner@example.com",
+      invitedIdentifier: "owner@example.com",
       invitedRole: "institution_owner",
     });
   });
@@ -173,7 +173,7 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedEmail: "member@example.com", invitedRole: "institution_member" }),
+      body: JSON.stringify({ invitedIdentifier: "member@example.com", invitedRole: "institution_member" }),
     });
 
     const response = await POST(request as never, {
@@ -182,25 +182,25 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
 
     expect(response.status).toBe(201);
     expect(createInstitutionInvitation).toHaveBeenCalledWith("admin_1", "universitas-nusantara", {
-      invitedEmail: "member@example.com",
+      invitedIdentifier: "member@example.com",
       invitedRole: "institution_member",
     });
   });
 
-  it("returns 400 for invalid email", async () => {
+  it("returns 400 for invalid identifier", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     createInstitutionInvitation.mockRejectedValue(
       new InstitutionInvitationError(
-        "invitation_invalid_email",
+        "invitation_invalid_identifier",
         400,
-        "invitedEmail must be a valid email address",
+        "invitedIdentifier must be a valid username or email address",
       ),
     );
 
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedEmail: "not-an-email", invitedRole: "institution_staff" }),
+      body: JSON.stringify({ invitedIdentifier: "!!", invitedRole: "institution_staff" }),
     });
 
     const response = await POST(request as never, {

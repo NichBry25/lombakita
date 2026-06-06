@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/teams/team-service");
 
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
 import {
@@ -17,17 +17,19 @@ import {
   buildInvitationExpiresAt,
   generateRawToken,
   hashToken,
-  maskToken,
   parseTeamCreateInput,
   parseTeamInviteCreateInput,
   parseTeamUpdateInput,
   TeamError,
-  type TeamInvitationMeta,
   type TeamRecord,
   type TeamRosterEntry,
   type TeamWithRoster,
 } from "@/server/teams/team-core";
-import { sendTeamInvitationEmail } from "@/server/teams/team-email";
+import {
+  classifyInviteIdentifier,
+  resolveInviteRecipient,
+} from "@/server/invitations/invite-resolution";
+import { enqueueTeamInvitationDispatch } from "@/server/async/enqueue";
 
 // Postgres error code extraction. drizzle-orm wraps the underlying postgres error in a
 // DrizzleQueryError whose `.cause` carries the pg error fields, so reading `.code` directly off
@@ -166,7 +168,14 @@ const loadPendingInvitations = async (
   teamId: string,
   db: Database,
 ): Promise<
-  { id: string; tokenHash: string; invitedEmail: string; status: "pending"; expiresAt: Date; createdAt: Date }[]
+  {
+    id: string;
+    tokenHash: string;
+    invitedEmail: string;
+    status: "pending" | "pending_claim";
+    expiresAt: Date;
+    createdAt: Date;
+  }[]
 > => {
   const rows = await db
     .select({
@@ -178,10 +187,19 @@ const loadPendingInvitations = async (
       createdAt: teamInvitations.createdAt,
     })
     .from(teamInvitations)
-    .where(and(eq(teamInvitations.teamId, teamId), eq(teamInvitations.status, "pending")))
+    // Both live states — a pending_claim seat is shown to the captain (and counts toward capacity).
+    .where(
+      and(
+        eq(teamInvitations.teamId, teamId),
+        inArray(teamInvitations.status, ["pending", "pending_claim"]),
+      ),
+    )
     .orderBy(teamInvitations.createdAt);
 
-  return rows.map((row) => ({ ...row, status: "pending" as const }));
+  return rows.map((row) => ({
+    ...row,
+    status: row.status as "pending" | "pending_claim",
+  }));
 };
 
 // Create a team for the calling candidate. Inserts the team row and the captain's
@@ -322,7 +340,10 @@ export const disbandTeam = async (
       .update(teamInvitations)
       .set({ status: "cancelled" })
       .where(
-        and(eq(teamInvitations.teamId, teamId), eq(teamInvitations.status, "pending")),
+        and(
+          eq(teamInvitations.teamId, teamId),
+          inArray(teamInvitations.status, ["pending", "pending_claim"]),
+        ),
       );
 
     await tx
@@ -401,7 +422,7 @@ export const inviteTeamMember = async (
   db: Database = getDb(),
   now: Date = new Date(),
 ): Promise<{ id: string; invitedEmail: string; expiresAt: Date }> => {
-  const { invitedEmail } = parseTeamInviteCreateInput(payload);
+  const { invitedIdentifier } = parseTeamInviteCreateInput(payload);
 
   const team = await loadTeamById(teamId, db);
   if (!team) throw new TeamError("team_not_found", "Team not found");
@@ -413,6 +434,25 @@ export const inviteTeamMember = async (
     now,
   );
 
+  // Step 6.5e — classify (username/email) and resolve via the shared resolver (extends DEC-0082).
+  const classified = classifyInviteIdentifier(invitedIdentifier);
+  if (!classified) {
+    throw new TeamError(
+      "team_invalid_identifier",
+      "invitedIdentifier must be a valid username or email address",
+    );
+  }
+
+  const resolution = await resolveInviteRecipient(classified, db);
+  if (resolution.mode === "username_not_found") {
+    throw new TeamError("team_invite_recipient_not_found", "No account exists for that username");
+  }
+
+  const invitedEmail = resolution.invitedEmail;
+  const targetUserId = resolution.mode === "targeted" ? resolution.targetUserId : null;
+  const status = resolution.mode === "targeted" ? "pending" : "pending_claim";
+
+  // Capacity counts an in-flight invite seat in EITHER live state (pending or pending_claim).
   if (competition.maxTeamSize !== null) {
     const [activeCountRow] = await db
       .select({ count: sql<number>`count(*)::int` })
@@ -421,7 +461,12 @@ export const inviteTeamMember = async (
     const [pendingCountRow] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(teamInvitations)
-      .where(and(eq(teamInvitations.teamId, teamId), eq(teamInvitations.status, "pending")));
+      .where(
+        and(
+          eq(teamInvitations.teamId, teamId),
+          inArray(teamInvitations.status, ["pending", "pending_claim"]),
+        ),
+      );
 
     const used = (activeCountRow?.count ?? 0) + (pendingCountRow?.count ?? 0);
     if (used >= competition.maxTeamSize) {
@@ -459,7 +504,7 @@ export const inviteTeamMember = async (
       and(
         eq(teamInvitations.teamId, teamId),
         eq(teamInvitations.invitedEmail, invitedEmail),
-        eq(teamInvitations.status, "pending"),
+        inArray(teamInvitations.status, ["pending", "pending_claim"]),
       ),
     )
     .limit(1);
@@ -475,17 +520,6 @@ export const inviteTeamMember = async (
   const tokenHash = hashToken(rawToken);
   const expiresAt = buildInvitationExpiresAt(now);
 
-  // Step 6.5.1 (minimal resolution pulled forward from 6.5e): resolve the invited email to an
-  // existing account so the team invitation surfaces in that user's in-app inbox immediately. The
-  // inbox reads invitations by `target_user_id` only. `invitedEmail` is lowercased at parse and
-  // `users.email` is stored lowercase, so an exact match is correct. No matching account → null.
-  // Full username-based resolution and the `pending_claim` non-user flow remain Step 6.5e.
-  const [targetUser] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.email, invitedEmail))
-    .limit(1);
-
   const [invitation] = await db
     .insert(teamInvitations)
     .values({
@@ -493,8 +527,8 @@ export const inviteTeamMember = async (
       invitedEmail,
       invitedByUserId: userId,
       tokenHash,
-      status: "pending",
-      targetUserId: targetUser?.id ?? null,
+      status,
+      targetUserId,
       expiresAt,
     })
     .returning({
@@ -507,29 +541,16 @@ export const inviteTeamMember = async (
     throw new TeamError("team_invalid_payload", "Failed to create team invitation");
   }
 
-  // Dispatch the email post-commit. Failure is logged but does not fail the API call — the
-  // token is still valid and can be retrieved by other means (operator support, log of token
-  // prefix).
+  // Dual-channel send: in-app inbox entry is already live (target_user_id) for targeted invites;
+  // the email is the second channel via a queued BullMQ job. Fire-and-forget — an enqueue failure
+  // never blocks invite creation.
   try {
-    const [inviter] = await db
-      .select({ displayName: userProfiles.displayName })
-      .from(userProfiles)
-      .where(eq(userProfiles.userId, userId))
-      .limit(1);
-
-    await sendTeamInvitationEmail({
-      toEmail: invitedEmail,
-      teamName: team.name,
-      competitionTitle: competition.title,
-      inviterDisplayName: inviter?.displayName ?? null,
-      rawToken,
-      expiresAt,
-    });
-  } catch (emailError) {
-    logger.error("team_invitation.email_failed", {
+    await enqueueTeamInvitationDispatch({ invitationId: invitation.id, rawToken });
+  } catch (enqueueError) {
+    logger.warn("team_invitation.dispatch.enqueue_failed", {
       teamId,
-      tokenPrefix: maskToken(rawToken),
-      error: emailError instanceof Error ? emailError.message : String(emailError),
+      invitationId: invitation.id,
+      error: enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
     });
   }
 
@@ -557,7 +578,9 @@ export const cancelTeamInvitation = async (
   if (!invitation) {
     throw new TeamError("team_invite_not_found", "Team invitation not found");
   }
-  if (invitation.status !== "pending") {
+  // A pending OR pending_claim invite can be cancelled by the captain (the dedup + capacity guards
+  // span both states, so cancel must too).
+  if (invitation.status !== "pending" && invitation.status !== "pending_claim") {
     throw new TeamError(
       "team_invite_not_actionable",
       `Invitation is ${invitation.status} and cannot be cancelled`,
@@ -571,8 +594,8 @@ export const cancelTeamInvitation = async (
 };
 
 // Captain cancels a pending invitation by tokenHash (the value stored in the DB). This is the
-// token-keyed variant (G6): aligns the cancel route with the accept/decline routes under
-// /api/v1/team-invitations/[token]/*.
+// token-keyed variant (G6). Step 6.5e moved recipient accept/decline in-app (session-id matched);
+// this captain-side cancel is unchanged.
 export const cancelTeamInvitationByToken = async (
   userId: string,
   teamId: string,
@@ -595,7 +618,9 @@ export const cancelTeamInvitationByToken = async (
   if (!invitation) {
     throw new TeamError("team_invite_not_found", "Team invitation not found");
   }
-  if (invitation.status !== "pending") {
+  // A pending OR pending_claim invite can be cancelled by the captain (the dedup + capacity guards
+  // span both states, so cancel must too).
+  if (invitation.status !== "pending" && invitation.status !== "pending_claim") {
     throw new TeamError(
       "team_invite_not_actionable",
       `Invitation is ${invitation.status} and cannot be cancelled`,
@@ -608,62 +633,25 @@ export const cancelTeamInvitationByToken = async (
     .where(eq(teamInvitations.id, invitation.id));
 };
 
-// Unauthenticated metadata read. Returns team name, competition title, inviter display name
-// (best-effort), and the invite status/expiry. Does NOT expose the roster.
-export const getTeamInvitationMetaByToken = async (
-  rawToken: string,
-  db: Database = getDb(),
-): Promise<TeamInvitationMeta> => {
-  const tokenHash = hashToken(rawToken);
-
-  const [row] = await db
-    .select({
-      id: teamInvitations.id,
-      teamId: teamInvitations.teamId,
-      teamName: teams.name,
-      competitionId: teams.competitionId,
-      competitionTitle: competitions.title,
-      invitedEmail: teamInvitations.invitedEmail,
-      inviterDisplayName: userProfiles.displayName,
-      status: teamInvitations.status,
-      expiresAt: teamInvitations.expiresAt,
-      createdAt: teamInvitations.createdAt,
-    })
-    .from(teamInvitations)
-    .innerJoin(teams, eq(teams.id, teamInvitations.teamId))
-    .innerJoin(competitions, eq(competitions.id, teams.competitionId))
-    .leftJoin(userProfiles, eq(userProfiles.userId, teamInvitations.invitedByUserId))
-    .where(eq(teamInvitations.tokenHash, tokenHash))
-    .limit(1);
-
-  if (!row) throw new TeamError("team_invite_not_found", "Team invitation not found");
-  return row;
-};
-
-// Authenticated candidate accepts the invitation. All six steps in one transaction:
-//   (a) lookup by hash
-//   (b) status=pending + not expired
-//   (c) resolve invited_email to a user row → 404 if no candidate account exists
-//   (d) email of resolved user must equal session user's email (the route layer passes the
-//       session user id; we re-load to compare emails inside the transaction)
-//   (e) no existing active team membership for this competition for this user
-//   (f) insert team_memberships row + update invitation row
-export const acceptTeamInvitation = async (
-  rawToken: string,
+// Step 6.5e — in-app, session-id-matched acceptance. The invitation is addressed by id (from the
+// recipient's inbox) and accepted ONLY when session.user.id === target_user_id. A `pending_claim`
+// invite has a null target and is therefore unacceptable until claim-at-signup attaches it. A
+// non-leaking 404 collapses "does not exist" and "addressed to a different user". Team membership is
+// candidate-scoped, so the candidate-verification gate fires here at the accept mutation.
+export const acceptTeamInvitationForUser = async (
+  invitationId: string,
   sessionUserId: string,
   db: Database = getDb(),
   now: Date = new Date(),
 ): Promise<{ teamId: string }> => {
-  const tokenHash = hashToken(rawToken);
-
   return await db.transaction(async (tx) => {
     const [invitation] = await tx
       .select()
       .from(teamInvitations)
-      .where(eq(teamInvitations.tokenHash, tokenHash))
+      .where(eq(teamInvitations.id, invitationId))
       .limit(1);
 
-    if (!invitation) {
+    if (!invitation || invitation.targetUserId !== sessionUserId) {
       throw new TeamError("team_invite_not_found", "Team invitation not found");
     }
 
@@ -700,38 +688,18 @@ export const acceptTeamInvitation = async (
       throw new TeamError("team_not_forming", "Team is no longer accepting members");
     }
 
-    // Step (c) per contract: resolve invited_email to a *candidate* user row. A recruiter-only
-    // account with no candidateVerifiedAt is treated as non-existent here — same external error
-    // code as the no-account branch so the two cases are indistinguishable to the caller.
-    const [resolvedByEmail] = await tx
-      .select({ id: users.id, email: users.email })
-      .from(users)
-      .where(and(eq(users.email, invitation.invitedEmail), isNotNull(users.candidateVerifiedAt)))
-      .limit(1);
-
-    if (!resolvedByEmail) {
-      throw new TeamError(
-        "team_invite_account_not_found",
-        "No candidate account exists for the invited email",
-      );
-    }
-
+    // Candidate-verification gate (team membership is candidate-scoped). The accepting account IS
+    // the resolved target; it must hold candidate verification. Non-leaking 403.
     const [sessionUser] = await tx
-      .select({ id: users.id, email: users.email })
+      .select({ id: users.id, candidateVerifiedAt: users.candidateVerifiedAt })
       .from(users)
       .where(eq(users.id, sessionUserId))
       .limit(1);
 
-    // Normalize both sides before comparison. invitation.invitedEmail is lowercased at parse;
-    // users.email is lowercased at signup, but normalizing here keeps the assertion robust if any
-    // future write path stores a mixed-case email.
-    if (
-      !sessionUser ||
-      sessionUser.email.toLowerCase() !== invitation.invitedEmail.toLowerCase()
-    ) {
+    if (!sessionUser || sessionUser.candidateVerifiedAt === null) {
       throw new TeamError(
-        "team_invite_email_mismatch",
-        "This invitation was sent to a different email address",
+        "team_invite_candidate_required",
+        "Accepting this invitation requires a candidate-verified account",
       );
     }
 
@@ -784,26 +752,24 @@ export const acceptTeamInvitation = async (
   });
 };
 
-// Unauthenticated decline. Sets the invitation to declined; returns nothing observable beyond
-// success/failure. Does not reveal team or roster data.
-export const declineTeamInvitation = async (
-  rawToken: string,
+// Step 6.5e — in-app decline, session-id matched. Same ownership/non-leak model as accept. Only a
+// live `pending` invite addressed to the caller can be declined.
+export const declineTeamInvitationForUser = async (
+  invitationId: string,
+  sessionUserId: string,
   db: Database = getDb(),
-  now: Date = new Date(),
 ): Promise<void> => {
-  const tokenHash = hashToken(rawToken);
-
   const [invitation] = await db
     .select({
       id: teamInvitations.id,
       status: teamInvitations.status,
-      expiresAt: teamInvitations.expiresAt,
+      targetUserId: teamInvitations.targetUserId,
     })
     .from(teamInvitations)
-    .where(eq(teamInvitations.tokenHash, tokenHash))
+    .where(eq(teamInvitations.id, invitationId))
     .limit(1);
 
-  if (!invitation) {
+  if (!invitation || invitation.targetUserId !== sessionUserId) {
     throw new TeamError("team_invite_not_found", "Team invitation not found");
   }
 
@@ -814,20 +780,12 @@ export const declineTeamInvitation = async (
     );
   }
 
-  if (invitation.expiresAt < now) {
-    await db
-      .update(teamInvitations)
-      .set({ status: "cancelled" })
-      .where(eq(teamInvitations.id, invitation.id));
-    throw new TeamError("team_invite_not_actionable", "Invitation has expired");
-  }
-
   await db
     .update(teamInvitations)
     .set({ status: "declined" })
     .where(eq(teamInvitations.id, invitation.id));
 
-  logger.info("team_invitation.declined", { tokenPrefix: maskToken(rawToken) });
+  logger.info("team_invitation.declined", { invitationId: invitation.id });
 };
 
 // Remove a member from the team. The caller is either:

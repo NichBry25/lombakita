@@ -34,7 +34,8 @@ export const InstitutionTeamShell = ({ institutionSlug }: { institutionSlug: str
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [email, setEmail] = useState("");
+  // Step 6.5e — a username OR an email; resolved server-side.
+  const [identifier, setIdentifier] = useState("");
   const [inviteRole, setInviteRole] = useState<"institution_owner" | "institution_staff" | "institution_member">("institution_staff");
   const [feedback, setFeedback] = useState<FeedbackState>(null);
 
@@ -64,7 +65,7 @@ export const InstitutionTeamShell = ({ institutionSlug }: { institutionSlug: str
 
   const onInvite = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!email.trim()) return;
+    if (!identifier.trim()) return;
 
     setIsSubmitting(true);
     setFeedback(null);
@@ -75,7 +76,7 @@ export const InstitutionTeamShell = ({ institutionSlug }: { institutionSlug: str
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ invitedEmail: email.trim(), invitedRole: inviteRole }),
+        body: JSON.stringify({ invitedIdentifier: identifier.trim(), invitedRole: inviteRole }),
       },
     );
 
@@ -86,7 +87,7 @@ export const InstitutionTeamShell = ({ institutionSlug }: { institutionSlug: str
       return;
     }
 
-    setEmail("");
+    setIdentifier("");
     setFeedback({ type: "success", message: "Undangan berhasil dikirim." });
     setIsSubmitting(false);
     void loadInvitations();
@@ -118,10 +119,10 @@ export const InstitutionTeamShell = ({ institutionSlug }: { institutionSlug: str
         <form className="flex gap-3 flex-wrap" onSubmit={onInvite}>
           <input
             className="form-input flex-1 min-w-0"
-            type="email"
-            placeholder="Alamat email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            type="text"
+            placeholder="Username atau email"
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
             required
           />
           <select

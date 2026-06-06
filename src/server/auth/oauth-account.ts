@@ -16,6 +16,7 @@ import {
   verifyGoogleIdentityCarrier,
 } from "@/server/auth/oauth-identity-carrier";
 import { UsernameGenerationError } from "@/lib/username/generate";
+import { claimPendingInvitationsForUser } from "@/server/invitations/claim-service";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/auth/oauth-account");
@@ -251,6 +252,16 @@ export const finalizeOAuthSignup = async (
           providerAccountId: claims.providerAccountId,
         })
         .onConflictDoNothing();
+
+      // Step 6.5e — claim-at-signup for a brand-new Google user, gated on POSITIVE email
+      // verification (6.5e-D1). Claim fires ONLY when Google asserts `email_verified` — the same
+      // verified-email-ownership boundary the credentials path enforces (an unverified email never
+      // claims). When Google returns email_verified=false the account is created with
+      // `users.emailVerified` null (line above) and no invite is attached. Runs inside the same
+      // transaction that finalizes the account (no half-claimed state).
+      if (claims.emailVerified) {
+        await claimPendingInvitationsForUser(userId, email, tx, now);
+      }
 
       logger.info("oauth.signup.finalized", { userId, role: signupRole });
 

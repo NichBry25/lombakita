@@ -201,7 +201,8 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
   const [error, setError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
+  // Step 6.5e — a username OR an email; resolved server-side.
+  const [inviteIdentifier, setInviteIdentifier] = useState("");
 
   const seatsUsed = props.initialMembers.length + props.initialPendingInvitations.length;
   const atCapacity = props.maxTeamSize !== null && seatsUsed >= props.maxTeamSize;
@@ -252,10 +253,10 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ invitedEmail: inviteEmail }),
+        body: JSON.stringify({ invitedIdentifier: inviteIdentifier }),
       },
     );
-    setInviteEmail("");
+    setInviteIdentifier("");
   };
 
   const onCancelInvite = (tokenHash: string) =>
@@ -468,10 +469,10 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
           <h3 style={{ fontSize: 14, marginTop: 20, marginBottom: 4 }}>Undang anggota</h3>
           <form onSubmit={onInvite} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <input
-              type="email"
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="email@example.com"
+              type="text"
+              value={inviteIdentifier}
+              onChange={(e) => setInviteIdentifier(e.target.value)}
+              placeholder="Username atau email"
               required
               disabled={busy || atCapacity}
               style={{

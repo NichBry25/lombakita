@@ -65,6 +65,11 @@ export const institutionInvitationStatusEnum = pgEnum("institution_invitation_st
   "declined",
   "expired",
   "cancelled",
+  // Step 6.5e — invited address has no account yet (target_user_id IS NULL). The invite is
+  // inbox-invisible until the invited email registers and verifies, at which point claim-at-signup
+  // attaches it to the new user and flips it to `pending`. `pending` always means
+  // invited-with-account, awaiting accept.
+  "pending_claim",
 ]);
 
 // Step 4.0c (CCR-19 / DEC-0053) — Recruiter verification tier.
@@ -749,6 +754,9 @@ export const teamInvitationStatusEnum = pgEnum("team_invitation_status", [
   "accepted",
   "declined",
   "cancelled",
+  // Step 6.5e — parallels institution_invitation_status.pending_claim: invited email has no
+  // account yet (target_user_id IS NULL), inbox-invisible, claimed at verified signup → `pending`.
+  "pending_claim",
 ]);
 
 export type TeamStatus = (typeof teamStatusEnum.enumValues)[number];

@@ -7,13 +7,17 @@ vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn(
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock("@/server/teams/team-email", () => ({ sendTeamInvitationEmail: vi.fn() }));
+
+const { enqueueTeamInvitationDispatch } = vi.hoisted(() => ({
+  enqueueTeamInvitationDispatch: vi.fn(),
+}));
+vi.mock("@/server/async/enqueue", () => ({ enqueueTeamInvitationDispatch }));
 
 import {
-  acceptTeamInvitation,
+  acceptTeamInvitationForUser,
   cancelTeamInvitationByToken,
   createTeam,
-  declineTeamInvitation,
+  declineTeamInvitationForUser,
   disbandTeam,
   inviteTeamMember,
   removeTeamMember,
@@ -238,53 +242,64 @@ describe("createTeam invariants", () => {
 });
 
 describe("inviteTeamMember invariants", () => {
+  it("rejects with team_invalid_identifier when the identifier is empty", async () => {
+    const { db } = makeDb([]);
+    await expect(
+      inviteTeamMember("cand_captain", "team_1", { invitedIdentifier: "  " }, db as never, NOW),
+    ).rejects.toMatchObject({ code: "team_invalid_identifier" });
+  });
+
   it("rejects with team_not_captain when caller is not the captain", async () => {
     const { db } = makeDb([[baseTeam({ captainId: "other" })]]);
     await expect(
-      inviteTeamMember("cand_imposter", "team_1", { invitedEmail: "x@y.io" }, db as never, NOW),
+      inviteTeamMember("cand_imposter", "team_1", { invitedIdentifier: "x@y.io" }, db as never, NOW),
     ).rejects.toMatchObject({ code: "team_not_captain" });
   });
 
   it("rejects with team_not_forming when team status is cancelled", async () => {
     const { db } = makeDb([[baseTeam({ status: "cancelled" })]]);
     await expect(
-      inviteTeamMember("cand_captain", "team_1", { invitedEmail: "x@y.io" }, db as never, NOW),
+      inviteTeamMember("cand_captain", "team_1", { invitedIdentifier: "x@y.io" }, db as never, NOW),
     ).rejects.toMatchObject({ code: "team_not_forming" });
   });
 
+  it("rejects with team_invite_recipient_not_found when a username resolves to no account", async () => {
+    // selectQueue order: team, competition, resolution(username) — no match.
+    const { db } = makeDb([[baseTeam()], [baseCompetition()], []]);
+    await expect(
+      inviteTeamMember("cand_captain", "team_1", { invitedIdentifier: "ghost_user" }, db as never, NOW),
+    ).rejects.toMatchObject({ code: "team_invite_recipient_not_found" });
+  });
+
   it("rejects with team_at_capacity when seats used >= maxTeamSize (captain counts)", async () => {
-    // selectQueue order: team, competition, activeCount, pendingCount
+    // selectQueue order: team, competition, resolution, activeCount, pendingCount
     const { db } = makeDb([
       [baseTeam()],
       [baseCompetition({ maxTeamSize: 2 })],
+      [{ id: "user_target" }], // resolution — existing verified account
       [{ count: 1 }], // active members (captain)
-      [{ count: 1 }], // pending invites (one outstanding)
+      [{ count: 1 }], // pending invites (one outstanding; incl. pending_claim)
     ]);
     await expect(
-      inviteTeamMember(
-        "cand_captain",
-        "team_1",
-        { invitedEmail: "fourth@y.io" },
-        db as never,
-        NOW,
-      ),
+      inviteTeamMember("cand_captain", "team_1", { invitedIdentifier: "fourth@y.io" }, db as never, NOW),
     ).rejects.toMatchObject({ code: "team_at_capacity" });
   });
 
-  it("rejects with team_invite_already_pending when a pending invite for that email exists", async () => {
+  it("rejects with team_invite_already_pending when a live invite for that email exists", async () => {
     const { db } = makeDb([
       [baseTeam()],
       [baseCompetition()],
+      [{ id: "user_target" }], // resolution
       [{ count: 1 }],
       [{ count: 0 }],
       [], // existingActiveMember check
-      [baseInvitation()], // existingPending — found
+      [baseInvitation()], // existingPending (pending OR pending_claim) — found
     ]);
     await expect(
       inviteTeamMember(
         "cand_captain",
         "team_1",
-        { invitedEmail: "invitee@example.com" },
+        { invitedIdentifier: "invitee@example.com" },
         db as never,
         NOW,
       ),
@@ -297,26 +312,24 @@ describe("inviteTeamMember invariants", () => {
       inviteTeamMember(
         "cand_captain",
         "team_1",
-        { invitedEmail: "invitee@example.com" },
+        { invitedIdentifier: "invitee@example.com" },
         db as never,
         NOW,
       ),
     ).rejects.toMatchObject({ code: "team_competition_registration_closed" });
   });
 
-  // Step 6.5.1 — invite-time target_user_id resolution (pulled forward from 6.5e).
-  it("resolves target_user_id when the invited email matches an existing account", async () => {
-    // selectQueue order: team, competition, activeCount, pendingCount, existingActiveMember,
-    // existingPending, targetUser resolution.
+  // Step 6.5e — resolution: existing verified email → targeted (pending + target_user_id set).
+  it("sets target_user_id + status=pending when the email matches a verified account", async () => {
     const { db, insertValues } = makeDb(
       [
         [baseTeam()],
         [baseCompetition()],
+        [{ id: "user_target" }], // resolution — verified account
         [{ count: 1 }],
         [{ count: 0 }],
         [], // existingActiveMember — none
         [], // existingPending — none
-        [{ id: "user_target" }], // targetUser resolution — match
       ],
       { insertReturning: [baseInvitation()] },
     );
@@ -324,141 +337,192 @@ describe("inviteTeamMember invariants", () => {
     await inviteTeamMember(
       "cand_captain",
       "team_1",
-      { invitedEmail: "invitee@example.com" },
+      { invitedIdentifier: "invitee@example.com" },
       db as never,
       NOW,
     );
 
     expect(insertValues).toHaveBeenCalledWith(
-      expect.objectContaining({ targetUserId: "user_target" }),
+      expect.objectContaining({ targetUserId: "user_target", status: "pending" }),
     );
   });
 
-  it("leaves target_user_id null when the invited email has no account", async () => {
+  // Step 6.5e — resolution: email with no verified account → pending_claim (null target).
+  it("creates a pending_claim row (null target) when the email has no verified account", async () => {
     const { db, insertValues } = makeDb(
       [
         [baseTeam()],
         [baseCompetition()],
+        [], // resolution — no verified account
         [{ count: 1 }],
         [{ count: 0 }],
         [],
         [],
-        [], // targetUser resolution — no match
       ],
-      { insertReturning: [baseInvitation()] },
+      { insertReturning: [baseInvitation({ status: "pending_claim", targetUserId: null })] },
     );
 
     await inviteTeamMember(
       "cand_captain",
       "team_1",
-      { invitedEmail: "nobody@example.com" },
+      { invitedIdentifier: "nobody@example.com" },
       db as never,
       NOW,
     );
 
-    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({ targetUserId: null }));
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ targetUserId: null, status: "pending_claim" }),
+    );
+  });
+
+  // Step 6.5e — dual-channel enqueue failure must NOT block invite creation.
+  it("still returns the invitation when the dispatch enqueue throws", async () => {
+    enqueueTeamInvitationDispatch.mockRejectedValueOnce(new Error("redis down"));
+    const { db } = makeDb(
+      [
+        [baseTeam()],
+        [baseCompetition()],
+        [{ id: "user_target" }],
+        [{ count: 1 }],
+        [{ count: 0 }],
+        [],
+        [],
+      ],
+      { insertReturning: [baseInvitation()] },
+    );
+
+    const result = await inviteTeamMember(
+      "cand_captain",
+      "team_1",
+      { invitedIdentifier: "invitee@example.com" },
+      db as never,
+      NOW,
+    );
+
+    expect(result.id).toBe("inv_1");
   });
 });
 
-describe("acceptTeamInvitation invariants", () => {
-  it("rejects with team_invite_not_found when token does not match any row", async () => {
+describe("acceptTeamInvitationForUser — session-id match + candidate gate", () => {
+  const targetInvitation = (overrides: Record<string, unknown> = {}) =>
+    baseInvitation({ targetUserId: "cand_invitee", ...overrides });
+
+  it("rejects 404 (non-leaking) when the caller is NOT the target user", async () => {
+    const { db } = makeDb([], {
+      transactionSelectQueue: [[targetInvitation()]],
+    });
+    await expect(
+      acceptTeamInvitationForUser("inv_1", "cand_other", db as never, NOW),
+    ).rejects.toMatchObject({ code: "team_invite_not_found" });
+  });
+
+  it("rejects 404 when the invitation does not exist", async () => {
     const { db } = makeDb([], { transactionSelectQueue: [[]] });
-    await expect(acceptTeamInvitation(RAW_TOKEN, "cand_1", db as never, NOW)).rejects.toMatchObject(
-      { code: "team_invite_not_found" },
-    );
+    await expect(
+      acceptTeamInvitationForUser("inv_1", "cand_invitee", db as never, NOW),
+    ).rejects.toMatchObject({ code: "team_invite_not_found" });
+  });
+
+  it("a pending_claim row (null target) is unacceptable — 404", async () => {
+    const { db } = makeDb([], {
+      transactionSelectQueue: [[baseInvitation({ status: "pending_claim", targetUserId: null })]],
+    });
+    await expect(
+      acceptTeamInvitationForUser("inv_1", "cand_invitee", db as never, NOW),
+    ).rejects.toMatchObject({ code: "team_invite_not_found" });
   });
 
   it("rejects with team_invite_not_actionable when expired", async () => {
     const { db } = makeDb([], {
-      transactionSelectQueue: [[baseInvitation({ expiresAt: PAST })]],
+      transactionSelectQueue: [[targetInvitation({ expiresAt: PAST })]],
     });
-    await expect(acceptTeamInvitation(RAW_TOKEN, "cand_1", db as never, NOW)).rejects.toMatchObject(
-      { code: "team_invite_not_actionable" },
-    );
-  });
-
-  it("rejects with team_invite_not_actionable when status is declined", async () => {
-    const { db } = makeDb([], {
-      transactionSelectQueue: [[baseInvitation({ status: "declined" })]],
-    });
-    await expect(acceptTeamInvitation(RAW_TOKEN, "cand_1", db as never, NOW)).rejects.toMatchObject(
-      { code: "team_invite_not_actionable" },
-    );
+    await expect(
+      acceptTeamInvitationForUser("inv_1", "cand_invitee", db as never, NOW),
+    ).rejects.toMatchObject({ code: "team_invite_not_actionable" });
   });
 
   it("rejects with team_not_forming when team is cancelled", async () => {
     const { db } = makeDb([], {
-      transactionSelectQueue: [
-        [baseInvitation()],
-        [baseTeam({ status: "cancelled" })],
-      ],
+      transactionSelectQueue: [[targetInvitation()], [baseTeam({ status: "cancelled" })]],
     });
-    await expect(acceptTeamInvitation(RAW_TOKEN, "cand_1", db as never, NOW)).rejects.toMatchObject(
-      { code: "team_not_forming" },
-    );
+    await expect(
+      acceptTeamInvitationForUser("inv_1", "cand_invitee", db as never, NOW),
+    ).rejects.toMatchObject({ code: "team_not_forming" });
   });
 
-  it("rejects with team_invite_account_not_found when no account matches invited_email", async () => {
+  it("rejects with team_invite_candidate_required when the accepting account is not candidate-verified", async () => {
     const { db } = makeDb([], {
       transactionSelectQueue: [
-        [baseInvitation()],
+        [targetInvitation()],
         [baseTeam()],
-        [], // resolveByEmail — none
-      ],
-    });
-    await expect(acceptTeamInvitation(RAW_TOKEN, "cand_1", db as never, NOW)).rejects.toMatchObject(
-      { code: "team_invite_account_not_found" },
-    );
-  });
-
-  it("rejects with team_invite_email_mismatch when session email differs from invited_email", async () => {
-    const { db } = makeDb([], {
-      transactionSelectQueue: [
-        [baseInvitation()], // invitedEmail = invitee@example.com
-        [baseTeam()],
-        [{ id: "cand_invitee", email: "invitee@example.com" }],
-        [{ id: "cand_other", email: "other@example.com" }], // session user — wrong email
+        [{ id: "cand_invitee", candidateVerifiedAt: null }], // session user — not candidate-verified
       ],
     });
     await expect(
-      acceptTeamInvitation(RAW_TOKEN, "cand_other", db as never, NOW),
-    ).rejects.toMatchObject({ code: "team_invite_email_mismatch" });
+      acceptTeamInvitationForUser("inv_1", "cand_invitee", db as never, NOW),
+    ).rejects.toMatchObject({ code: "team_invite_candidate_required" });
   });
 
   it("rejects with team_candidate_already_member when caller already has a team for this competition", async () => {
     const { db } = makeDb([], {
       transactionSelectQueue: [
-        [baseInvitation()],
+        [targetInvitation()],
         [baseTeam()],
-        [{ id: "cand_invitee", email: "invitee@example.com" }],
-        [{ id: "cand_invitee", email: "invitee@example.com" }],
+        [{ id: "cand_invitee", candidateVerifiedAt: NOW }],
         [{ teamId: "other_team_for_same_competition" }],
       ],
     });
     await expect(
-      acceptTeamInvitation(RAW_TOKEN, "cand_invitee", db as never, NOW),
+      acceptTeamInvitationForUser("inv_1", "cand_invitee", db as never, NOW),
     ).rejects.toMatchObject({ code: "team_candidate_already_member" });
+  });
+
+  it("accepts when caller is the candidate-verified target and not already on a team", async () => {
+    const { db } = makeDb(
+      [],
+      {
+        transactionSelectQueue: [
+          [targetInvitation()],
+          [baseTeam()],
+          [{ id: "cand_invitee", candidateVerifiedAt: NOW }],
+          [], // no existing team for competition
+        ],
+        transactionInsertReturning: [{ id: "mem_1" }],
+      },
+    );
+    await expect(
+      acceptTeamInvitationForUser("inv_1", "cand_invitee", db as never, NOW),
+    ).resolves.toMatchObject({ teamId: "team_1" });
   });
 });
 
-describe("declineTeamInvitation", () => {
-  it("rejects with team_invite_not_found when no row matches", async () => {
+describe("declineTeamInvitationForUser — session-id match", () => {
+  it("rejects 404 when no row matches", async () => {
     const { db } = makeDb([[]]);
-    await expect(declineTeamInvitation(RAW_TOKEN, db as never, NOW)).rejects.toMatchObject({
-      code: "team_invite_not_found",
-    });
+    await expect(
+      declineTeamInvitationForUser("inv_1", "cand_invitee", db as never),
+    ).rejects.toMatchObject({ code: "team_invite_not_found" });
+  });
+
+  it("rejects 404 when the caller is not the target user", async () => {
+    const { db } = makeDb([[baseInvitation({ targetUserId: "someone_else" })]]);
+    await expect(
+      declineTeamInvitationForUser("inv_1", "cand_invitee", db as never),
+    ).rejects.toMatchObject({ code: "team_invite_not_found" });
   });
 
   it("rejects with team_invite_not_actionable when already accepted", async () => {
-    const { db } = makeDb([[baseInvitation({ status: "accepted" })]]);
-    await expect(declineTeamInvitation(RAW_TOKEN, db as never, NOW)).rejects.toMatchObject({
-      code: "team_invite_not_actionable",
-    });
+    const { db } = makeDb([[baseInvitation({ status: "accepted", targetUserId: "cand_invitee" })]]);
+    await expect(
+      declineTeamInvitationForUser("inv_1", "cand_invitee", db as never),
+    ).rejects.toMatchObject({ code: "team_invite_not_actionable" });
   });
 
-  it("declines a pending invitation", async () => {
-    const { db } = makeDb([[baseInvitation()]]);
-    await expect(declineTeamInvitation(RAW_TOKEN, db as never, NOW)).resolves.toBeUndefined();
+  it("declines a pending invitation addressed to the caller", async () => {
+    const { db } = makeDb([[baseInvitation({ targetUserId: "cand_invitee" })]]);
+    await expect(
+      declineTeamInvitationForUser("inv_1", "cand_invitee", db as never),
+    ).resolves.toBeUndefined();
   });
 });
 

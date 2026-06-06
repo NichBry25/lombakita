@@ -188,6 +188,39 @@ export const enqueueCompetitionCancelled = async (
   });
 };
 
+// Step 6.5e — queued invite send (dual-channel). Idempotency key: invitationId, so a re-invite
+// (which creates a NEW invitation row + id) is a distinct job while a double-enqueue of the same
+// invitation dedups. Fire-and-forget from the invite-creation path — callers MUST catch errors so
+// an enqueue failure never blocks invite creation (the in-app inbox entry is already live via
+// target_user_id; the email is the second channel).
+export const enqueueInstitutionInvitationDispatch = async (input: {
+  invitationId: string;
+  rawToken: string;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.institutionInvitationDispatch>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.institutionInvitationDispatch,
+    idempotencyKey: input.invitationId,
+    payload: {
+      invitationId: input.invitationId,
+      rawToken: input.rawToken,
+    },
+  });
+};
+
+export const enqueueTeamInvitationDispatch = async (input: {
+  invitationId: string;
+  rawToken: string;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.teamInvitationDispatch>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.teamInvitationDispatch,
+    idempotencyKey: input.invitationId,
+    payload: {
+      invitationId: input.invitationId,
+      rawToken: input.rawToken,
+    },
+  });
+};
+
 // Idempotency key: includes the publish-event timestamp so each genuine publish (including an
 // unpublish→republish) is a distinct job that fires, while a true double-enqueue of the SAME
 // publish event dedups on the identical timestamp. Base: registrationId for individual,

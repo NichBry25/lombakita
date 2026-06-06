@@ -30,14 +30,17 @@ export type InstitutionInvitationMeta = {
 };
 
 export type InvitationCreateInput = {
-  invitedEmail: string;
+  // Step 6.5e — a username OR an email. Classified + resolved in the service via
+  // `resolveInviteRecipient`. Kept as a raw (trimmed) string here so the core stays db-free.
+  invitedIdentifier: string;
   invitedRole: InstitutionMembershipRole;
 };
 
 type InstitutionInvitationErrorCode =
   | "invitation_invalid_payload"
-  | "invitation_invalid_email"
+  | "invitation_invalid_identifier"
   | "invitation_invalid_role"
+  | "invitation_recipient_not_found"
   | "invitation_already_pending"
   | "invitation_not_found"
   | "invitation_not_actionable"
@@ -56,8 +59,6 @@ export class InstitutionInvitationError extends Error {
   }
 }
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
@@ -71,13 +72,15 @@ export const parseInvitationCreateInput = (payload: unknown): InvitationCreateIn
     );
   }
 
-  const { invitedEmail, invitedRole } = payload;
+  const { invitedIdentifier, invitedRole } = payload;
 
-  if (typeof invitedEmail !== "string" || !EMAIL_PATTERN.test(invitedEmail.trim())) {
+  // Step 6.5e — accept a username OR an email. Format-classification (and the email/username split)
+  // happens in the service via `classifyInviteIdentifier`; here we only require a non-empty string.
+  if (typeof invitedIdentifier !== "string" || invitedIdentifier.trim().length === 0) {
     throw new InstitutionInvitationError(
-      "invitation_invalid_email",
+      "invitation_invalid_identifier",
       400,
-      "invitedEmail must be a valid email address",
+      "invitedIdentifier (a username or email) is required",
     );
   }
 
@@ -93,7 +96,7 @@ export const parseInvitationCreateInput = (payload: unknown): InvitationCreateIn
   }
 
   return {
-    invitedEmail: invitedEmail.trim().toLowerCase(),
+    invitedIdentifier: invitedIdentifier.trim(),
     invitedRole: invitedRole as InstitutionMembershipRole,
   };
 };

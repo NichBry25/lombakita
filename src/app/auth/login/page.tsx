@@ -3,6 +3,8 @@ import { AuthEntry } from "@/components/auth/auth-entry";
 import { OAuthRolePicker } from "@/components/auth/oauth-role-picker";
 import { isEmailAuthConfigured, isGoogleAuthConfigured } from "@/server/auth/auth.config";
 import { verifyGoogleIdentityCarrier } from "@/server/auth/oauth-identity-carrier";
+import { resolveClaimInviteEmailByToken } from "@/server/invitations/invite-resolution";
+import { getDb } from "@/server/db/client";
 
 // Step 6.5d.1 — single method-first auth entry. `/auth/login` is the one canonical entry point;
 // `/auth/register`, `/auth/signup`, and `/auth/sign-in` all redirect here. Auth.js `pages.signIn`
@@ -40,6 +42,7 @@ export default async function LoginPage(props: {
     email?: string;
     callbackUrl?: string;
     oauth?: string;
+    invite?: string;
   }>;
 }) {
   const searchParams = await props.searchParams;
@@ -73,8 +76,19 @@ export default async function LoginPage(props: {
 
   const error = searchParams?.error;
   const verified = searchParams?.verified === "1";
-  const email = searchParams?.email;
   const callbackUrl = searchParams?.callbackUrl;
+
+  // Step 6.5e — claim-signup link (?invite=<rawToken> from a pending_claim invite email). Resolve
+  // the token to the invited email server-side and prefill it, so the new account is created with
+  // the exact address claim-at-signup matches. Falls back to ?email= when no invite token is given.
+  // Only `pending_claim` invites resolve here — a token never reveals an existing user's email.
+  let email = searchParams?.email;
+  if (searchParams?.invite) {
+    const invitedEmail = await resolveClaimInviteEmailByToken(searchParams.invite, getDb());
+    if (invitedEmail) {
+      email = invitedEmail;
+    }
+  }
 
   return (
     <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-6 px-6 py-12">

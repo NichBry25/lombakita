@@ -14,13 +14,15 @@ import {
   generateRawToken,
   hashToken,
   InstitutionInvitationError,
-  maskToken,
   parseInvitationCreateInput,
   RECRUITER_VERIFIED_ROLES,
-  type InstitutionInvitationMeta,
   type InvitationCreateInput,
 } from "@/server/institution-invitations/invitation-core";
-import { sendInstitutionInvitationEmail } from "@/server/institution-invitations/invitation-email";
+import {
+  classifyInviteIdentifier,
+  resolveInviteRecipient,
+} from "@/server/invitations/invite-resolution";
+import { enqueueInstitutionInvitationDispatch } from "@/server/async/enqueue";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/institution-invitations/invitation-service");
@@ -68,11 +70,34 @@ export const createInstitutionInvitation = async (
   db: Database = getDb(),
 ): Promise<{ id: string; invitedEmail: string; expiresAt: Date }> => {
   const input: InvitationCreateInput = parseInvitationCreateInput(payload);
-  const { institutionId, institutionDisplayName } = await requireAdminInstitution(
-    userId,
-    institutionSlug,
-    db,
-  );
+  const { institutionId } = await requireAdminInstitution(userId, institutionSlug, db);
+
+  // Step 6.5e — classify the identifier (username or email) and resolve the recipient. This is the
+  // shared resolver (extends DEC-0082); the service never builds its own.
+  const classified = classifyInviteIdentifier(input.invitedIdentifier);
+  if (!classified) {
+    throw new InstitutionInvitationError(
+      "invitation_invalid_identifier",
+      400,
+      "invitedIdentifier must be a valid username or email address",
+    );
+  }
+
+  const resolution = await resolveInviteRecipient(classified, db);
+  if (resolution.mode === "username_not_found") {
+    throw new InstitutionInvitationError(
+      "invitation_recipient_not_found",
+      404,
+      "No account exists for that username",
+    );
+  }
+
+  // After resolution we always have a canonical lowercased email to dedup and store against.
+  const invitedEmail = resolution.invitedEmail;
+  const targetUserId = resolution.mode === "targeted" ? resolution.targetUserId : null;
+  // `pending` once an account exists (inbox-visible); `pending_claim` for a not-yet-registered
+  // email (inbox-invisible until claim-at-signup attaches it).
+  const status = resolution.mode === "targeted" ? "pending" : "pending_claim";
 
   const [existingMember] = await db
     .select({ membershipId: institutionMemberships.id })
@@ -81,7 +106,7 @@ export const createInstitutionInvitation = async (
     .where(
       and(
         eq(institutionMemberships.institutionId, institutionId),
-        eq(users.email, input.invitedEmail),
+        eq(users.email, invitedEmail),
         eq(institutionMemberships.status, "active"),
       ),
     )
@@ -95,14 +120,16 @@ export const createInstitutionInvitation = async (
     );
   }
 
+  // Dedup guard spans BOTH live states: an existing pending OR pending_claim invite to the same
+  // email for this institution blocks a duplicate.
   const [existingPending] = await db
     .select({ id: institutionInvitations.id })
     .from(institutionInvitations)
     .where(
       and(
         eq(institutionInvitations.institutionId, institutionId),
-        eq(institutionInvitations.invitedEmail, input.invitedEmail),
-        eq(institutionInvitations.status, "pending"),
+        eq(institutionInvitations.invitedEmail, invitedEmail),
+        inArray(institutionInvitations.status, ["pending", "pending_claim"]),
       ),
     )
     .limit(1);
@@ -119,28 +146,16 @@ export const createInstitutionInvitation = async (
   const tokenHash = hashToken(rawToken);
   const expiresAt = buildInvitationExpiresAt();
 
-  // Step 6.5.1 (minimal resolution pulled forward from 6.5e): resolve the invited email to an
-  // existing account so the invitation surfaces in that user's in-app inbox immediately. The inbox
-  // reads invitations by `target_user_id` only. `invitedEmail` is lowercased at parse and
-  // `users.email` is stored lowercase, so an exact match is correct. No matching account → null
-  // (invitation stays inbox-invisible until the recipient exists). Full username-based resolution
-  // and the `pending_claim` non-user flow remain Step 6.5e.
-  const [targetUser] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.email, input.invitedEmail))
-    .limit(1);
-
   const [invitation] = await db
     .insert(institutionInvitations)
     .values({
       institutionId,
-      invitedEmail: input.invitedEmail,
+      invitedEmail,
       invitedRole: input.invitedRole,
       tokenHash,
-      status: "pending",
+      status,
       invitedByUserId: userId,
-      targetUserId: targetUser?.id ?? null,
+      targetUserId,
       expiresAt,
     })
     .returning({
@@ -153,69 +168,47 @@ export const createInstitutionInvitation = async (
     throw new Error("Failed to create invitation record");
   }
 
-  await sendInstitutionInvitationEmail({
-    toEmail: input.invitedEmail,
-    institutionDisplayName,
-    invitedRole: input.invitedRole,
-    rawToken,
-    expiresAt,
-  });
+  // Dual-channel send: the in-app inbox entry is already live for `targeted` invites (target_user_id
+  // set); the email is the second channel via a queued BullMQ job. Fire-and-forget — an enqueue
+  // failure NEVER blocks invite creation.
+  try {
+    await enqueueInstitutionInvitationDispatch({ invitationId: invitation.id, rawToken });
+  } catch (enqueueError) {
+    logger.warn("invitation.dispatch.enqueue_failed", {
+      invitationId: invitation.id,
+      error: enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
+    });
+  }
 
   return invitation;
 };
 
-export const getInvitationMetaByToken = async (
-  rawToken: string,
-  db: Database = getDb(),
-): Promise<InstitutionInvitationMeta> => {
-  const tokenHash = hashToken(rawToken);
-
-  const [row] = await db
-    .select({
-      id: institutionInvitations.id,
-      institutionId: institutionInvitations.institutionId,
-      institutionDisplayName: institutions.displayName,
-      invitedEmail: institutionInvitations.invitedEmail,
-      invitedRole: institutionInvitations.invitedRole,
-      status: institutionInvitations.status,
-      expiresAt: institutionInvitations.expiresAt,
-      createdAt: institutionInvitations.createdAt,
-    })
-    .from(institutionInvitations)
-    .innerJoin(institutions, eq(institutions.id, institutionInvitations.institutionId))
-    .where(eq(institutionInvitations.tokenHash, tokenHash))
-    .limit(1);
-
-  if (!row) {
-    throw new InstitutionInvitationError("invitation_not_found", 404, "Invitation not found");
-  }
-
-  return row;
-};
-
-export const acceptInvitation = async (
-  rawToken: string,
+// Step 6.5e — in-app, session-id-matched acceptance. Acceptance is no longer token-in-URL: the
+// invitation is addressed by id (from the recipient's inbox) and accepted ONLY when
+// session.user.id === target_user_id. A `pending_claim` invite has a null target and is therefore
+// unacceptable by anyone until claim-at-signup attaches it. A non-leaking 404 collapses
+// "invitation does not exist" and "addressed to a different user" so a caller cannot probe.
+//
+// The verification gate (CCR-08 / DEC-0042) fires HERE, at the accept mutation, not at display.
+export const acceptInstitutionInvitationForUser = async (
+  invitationId: string,
   userId: string,
   sessionVerifiedRoles: AppRole[],
   db: Database = getDb(),
 ): Promise<void> => {
-  const tokenHash = hashToken(rawToken);
-
   await db.transaction(async (tx) => {
     const [invitation] = await tx
       .select()
       .from(institutionInvitations)
-      .where(eq(institutionInvitations.tokenHash, tokenHash))
+      .where(eq(institutionInvitations.id, invitationId))
       .limit(1);
 
-    if (!invitation) {
+    // Existence + ownership collapse to one non-leaking 404 (mirrors the inbox notification guard).
+    if (!invitation || invitation.targetUserId !== userId) {
       throw new InstitutionInvitationError("invitation_not_found", 404, "Invitation not found");
     }
 
     if (invitation.status !== "pending") {
-      if (invitation.status === "accepted") {
-        logger.info("invitation.already_accepted", { tokenPrefix: maskToken(rawToken) });
-      }
       throw new InstitutionInvitationError(
         "invitation_not_actionable",
         410,
@@ -229,7 +222,6 @@ export const acceptInvitation = async (
         .update(institutionInvitations)
         .set({ status: "expired" })
         .where(eq(institutionInvitations.id, invitation.id));
-      logger.info("invitation.expired_on_attempt", { tokenPrefix: maskToken(rawToken) });
       throw new InstitutionInvitationError(
         "invitation_not_actionable",
         410,
@@ -237,13 +229,10 @@ export const acceptInvitation = async (
       );
     }
 
-    // CCR-07 / CCR-08 / DEC-0042: Verify the accepting account holds the required verified
-    // role, read from session.user.verifiedRoles (no DB re-query per Step 2.3 spec).
-    // institution_owner and institution_staff invites require "recruiter" in verifiedRoles —
-    // independent of the active role-mode, so an account that holds both candidate and
-    // recruiter verifications passes regardless of which mode is currently active.
-    // institution_member invites accept any authenticated account (session existence implies
-    // at least one verified role per DB CHECK users_one_verified_role_chk).
+    // CCR-07 / CCR-08 / DEC-0042: institution_owner and institution_staff invites require the
+    // accepting account to hold "recruiter" in its verified roles; institution_member invites accept
+    // any authenticated account. Enforced server-side at the accept moment — the inbox may render
+    // the card, but the server is the gate.
     if (RECRUITER_VERIFIED_ROLES.includes(invitation.invitedRole)) {
       if (!sessionVerifiedRoles.includes("recruiter")) {
         throw new InstitutionInvitationError(
@@ -294,23 +283,24 @@ export const acceptInvitation = async (
   });
 };
 
-export const declineInvitation = async (
-  rawToken: string,
+// Step 6.5e — in-app decline, session-id matched. Same ownership/non-leak model as accept. Only a
+// live `pending` invite addressed to the caller can be declined.
+export const declineInstitutionInvitationForUser = async (
+  invitationId: string,
+  userId: string,
   db: Database = getDb(),
 ): Promise<void> => {
-  const tokenHash = hashToken(rawToken);
-
   const [invitation] = await db
     .select({
       id: institutionInvitations.id,
       status: institutionInvitations.status,
-      expiresAt: institutionInvitations.expiresAt,
+      targetUserId: institutionInvitations.targetUserId,
     })
     .from(institutionInvitations)
-    .where(eq(institutionInvitations.tokenHash, tokenHash))
+    .where(eq(institutionInvitations.id, invitationId))
     .limit(1);
 
-  if (!invitation) {
+  if (!invitation || invitation.targetUserId !== userId) {
     throw new InstitutionInvitationError("invitation_not_found", 404, "Invitation not found");
   }
 
@@ -322,25 +312,12 @@ export const declineInvitation = async (
     );
   }
 
-  const now = new Date();
-  if (invitation.expiresAt < now) {
-    await db
-      .update(institutionInvitations)
-      .set({ status: "expired" })
-      .where(eq(institutionInvitations.id, invitation.id));
-    throw new InstitutionInvitationError(
-      "invitation_not_actionable",
-      410,
-      "Invitation has expired",
-    );
-  }
-
   await db
     .update(institutionInvitations)
     .set({ status: "declined" })
     .where(eq(institutionInvitations.id, invitation.id));
 
-  logger.info("invitation.declined", { tokenPrefix: maskToken(rawToken) });
+  logger.info("invitation.declined", { invitationId: invitation.id });
 };
 
 export const cancelInvitation = async (
@@ -366,7 +343,9 @@ export const cancelInvitation = async (
     throw new InstitutionInvitationError("invitation_not_found", 404, "Invitation not found");
   }
 
-  if (invitation.status !== "pending") {
+  // A pending OR pending_claim invite can be cancelled by the issuing admin (the dedup guard spans
+  // both states, so cancel must too — otherwise a pending_claim blocks re-invite until expiry).
+  if (invitation.status !== "pending" && invitation.status !== "pending_claim") {
     throw new InstitutionInvitationError(
       "invitation_not_actionable",
       410,
@@ -409,7 +388,8 @@ export const listPendingInvitations = async (
     .where(
       and(
         eq(institutionInvitations.institutionId, institutionId),
-        eq(institutionInvitations.status, "pending"),
+        // Show both live states so the admin can see (and cancel) a not-yet-claimed invite.
+        inArray(institutionInvitations.status, ["pending", "pending_claim"]),
       ),
     )
     .orderBy(institutionInvitations.createdAt);

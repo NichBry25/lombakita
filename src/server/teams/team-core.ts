@@ -15,10 +15,6 @@ export const TEAM_INVITATION_EXPIRY_DAYS = 7;
 const TEAM_NAME_MIN = 2;
 const TEAM_NAME_MAX = 80;
 
-// Email pattern mirrors institution-invitations/invitation-core.ts so the regex behaviour stays
-// consistent across the platform.
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
@@ -29,7 +25,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 export type TeamErrorCode =
   | "team_invalid_payload"
   | "team_invalid_name"
-  | "team_invalid_email"
+  | "team_invalid_identifier"
+  | "team_invite_recipient_not_found"
   | "team_competition_not_found"
   | "team_competition_not_published"
   | "team_competition_mode_not_allowed"
@@ -44,6 +41,9 @@ export type TeamErrorCode =
   | "team_invite_not_actionable"
   | "team_invite_account_not_found"
   | "team_invite_email_mismatch"
+  // Step 6.5e — the accepting (target) account must be candidate-verified; team membership is
+  // candidate-scoped. Non-leaking 403 enforced at the accept mutation.
+  | "team_invite_candidate_required"
   | "team_membership_not_found"
   | "team_captain_cannot_leave"
   | "team_not_captain"
@@ -68,7 +68,8 @@ export type TeamErrorCode =
 const STATUS_BY_CODE: Record<TeamErrorCode, number> = {
   team_invalid_payload: 400,
   team_invalid_name: 400,
-  team_invalid_email: 400,
+  team_invalid_identifier: 400,
+  team_invite_recipient_not_found: 404,
   team_competition_not_found: 404,
   team_competition_not_published: 422,
   team_competition_mode_not_allowed: 422,
@@ -83,6 +84,7 @@ const STATUS_BY_CODE: Record<TeamErrorCode, number> = {
   team_invite_not_actionable: 410,
   team_invite_account_not_found: 404,
   team_invite_email_mismatch: 403,
+  team_invite_candidate_required: 403,
   team_membership_not_found: 404,
   team_captain_cannot_leave: 422,
   team_not_captain: 403,
@@ -130,7 +132,8 @@ export const toTeamErrorResponse = (error: TeamError): NextResponse => {
 
 export type TeamCreateInput = { name: string };
 export type TeamUpdateInput = { name: string };
-export type TeamInviteCreateInput = { invitedEmail: string };
+// Step 6.5e — a username OR an email; classified + resolved in the service.
+export type TeamInviteCreateInput = { invitedIdentifier: string };
 
 export const parseTeamCreateInput = (payload: unknown): TeamCreateInput => {
   if (!isRecord(payload)) {
@@ -155,13 +158,18 @@ export const parseTeamInviteCreateInput = (payload: unknown): TeamInviteCreateIn
     throw new TeamError("team_invalid_payload", "Request body must be a JSON object");
   }
 
-  const { invitedEmail } = payload;
+  const { invitedIdentifier } = payload;
 
-  if (typeof invitedEmail !== "string" || !EMAIL_PATTERN.test(invitedEmail.trim())) {
-    throw new TeamError("team_invalid_email", "invitedEmail must be a valid email address");
+  // Format classification (email vs username) happens in the service via classifyInviteIdentifier;
+  // here we only require a non-empty string.
+  if (typeof invitedIdentifier !== "string" || invitedIdentifier.trim().length === 0) {
+    throw new TeamError(
+      "team_invalid_identifier",
+      "invitedIdentifier (a username or email) is required",
+    );
   }
 
-  return { invitedEmail: invitedEmail.trim().toLowerCase() };
+  return { invitedIdentifier: invitedIdentifier.trim() };
 };
 
 const validateTeamName = (raw: unknown): string => {

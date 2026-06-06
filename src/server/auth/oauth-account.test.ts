@@ -19,6 +19,16 @@ vi.mock("@/config/env.server", () => ({
 }));
 vi.mock("@/server/db/client", () => ({ getDb: vi.fn(() => ({ db: "unused" })) }));
 
+// Step 6.5e — claim-at-signup runs inside the finalize transaction. Mock it so the finalize tx stub
+// (which has no .update) is unaffected, and assert the wiring separately.
+const { claimPendingInvitationsForUser } = vi.hoisted(() => ({
+  claimPendingInvitationsForUser: vi.fn().mockResolvedValue({
+    institutionInvitationsClaimed: 0,
+    teamInvitationsClaimed: 0,
+  }),
+}));
+vi.mock("@/server/invitations/claim-service", () => ({ claimPendingInvitationsForUser }));
+
 import { accounts as accountsRef, users as usersRef } from "@/server/db/schema";
 import {
   authorizeOAuthFinalize,
@@ -308,6 +318,23 @@ describe("finalizeOAuthSignup — transactional creation, verification never fro
     expect(u?.recruiterVerificationTier).toBe("minimal");
     expect(u?.candidateVerifiedAt).toBeNull();
     expect(u?.role).toBe("recruiter");
+  });
+
+  it("Step 6.5e — claims pending invitations inside the finalize transaction (Google pre-verified)", async () => {
+    const { db } = makeFinalizeDb();
+    await finalizeOAuthSignup(googleClaims, "candidate", db as never);
+    expect(claimPendingInvitationsForUser).toHaveBeenCalledWith(
+      "new-oauth-id",
+      "user@example.com",
+      expect.anything(),
+      expect.any(Date),
+    );
+  });
+
+  it("Step 6.5e (D1) — does NOT claim when Google email_verified is false (verified-email boundary)", async () => {
+    const { db } = makeFinalizeDb();
+    await finalizeOAuthSignup({ ...googleClaims, emailVerified: false }, "candidate", db as never);
+    expect(claimPendingInvitationsForUser).not.toHaveBeenCalled();
   });
 });
 

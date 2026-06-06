@@ -16,6 +16,9 @@
 # next.js
 /.next/
 /out/
+# Finder-duplicated build folders (e.g. ".next 2", ".next 3")
+/.next [0-9]*/
+/out [0-9]*/
 
 # production
 /build

@@ -18,6 +18,8 @@ import { processRegistrationCancelledJob } from "@/server/async/jobs/registratio
 import { processSubmissionFinalizedJob } from "@/server/async/jobs/submission-finalized";
 import { processCompetitionEditedJob } from "@/server/async/jobs/competition-edited";
 import { processCompetitionCancelledJob } from "@/server/async/jobs/competition-cancelled";
+import { processInstitutionInvitationDispatchJob } from "@/server/async/jobs/institution-invitation-dispatch";
+import { processTeamInvitationDispatchJob } from "@/server/async/jobs/team-invitation-dispatch";
 
 export type AsyncJobProcessor<Name extends AsyncJobName = AsyncJobName> = (
   job: Job<AsyncJobPayloadByName[Name], void, Name>,
@@ -49,6 +51,11 @@ export const ASYNC_JOB_REGISTRATIONS = [
   defineAsyncJob(ASYNC_JOB_NAMES.submissionFinalized, processSubmissionFinalizedJob),
   defineAsyncJob(ASYNC_JOB_NAMES.competitionEdited, processCompetitionEditedJob),
   defineAsyncJob(ASYNC_JOB_NAMES.competitionCancelled, processCompetitionCancelledJob),
+  defineAsyncJob(
+    ASYNC_JOB_NAMES.institutionInvitationDispatch,
+    processInstitutionInvitationDispatchJob,
+  ),
+  defineAsyncJob(ASYNC_JOB_NAMES.teamInvitationDispatch, processTeamInvitationDispatchJob),
 ] as const;
 
 const getUniqueQueueNames = (): AsyncQueueName[] => {

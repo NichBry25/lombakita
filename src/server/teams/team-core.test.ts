@@ -49,18 +49,18 @@ describe("parseTeamUpdateInput", () => {
 });
 
 describe("parseTeamInviteCreateInput", () => {
-  it("accepts a valid email and lowercases it", () => {
-    expect(parseTeamInviteCreateInput({ invitedEmail: "User@Example.com" })).toEqual({
-      invitedEmail: "user@example.com",
+  it("accepts an identifier and trims it (classification happens in the service)", () => {
+    expect(parseTeamInviteCreateInput({ invitedIdentifier: "  Budi_Santoso  " })).toEqual({
+      invitedIdentifier: "Budi_Santoso",
     });
   });
 
-  it("rejects an invalid email", () => {
-    expect(() => parseTeamInviteCreateInput({ invitedEmail: "not-an-email" })).toThrow(TeamError);
+  it("rejects an empty/whitespace identifier", () => {
+    expect(() => parseTeamInviteCreateInput({ invitedIdentifier: "  " })).toThrow(TeamError);
   });
 
-  it("rejects a non-string email", () => {
-    expect(() => parseTeamInviteCreateInput({ invitedEmail: null })).toThrow(TeamError);
+  it("rejects a non-string identifier", () => {
+    expect(() => parseTeamInviteCreateInput({ invitedIdentifier: null })).toThrow(TeamError);
   });
 });
 

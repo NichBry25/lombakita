@@ -20,6 +20,8 @@ export const ASYNC_JOB_NAMES = {
   submissionFinalized: "submission.finalized",
   competitionEdited: "competition.edited",
   competitionCancelled: "competition.cancelled",
+  institutionInvitationDispatch: "institution.invitation.dispatch",
+  teamInvitationDispatch: "team.invitation.dispatch",
 } as const;
 
 export type AsyncJobName = (typeof ASYNC_JOB_NAMES)[keyof typeof ASYNC_JOB_NAMES];
@@ -77,6 +79,21 @@ export type CompetitionCancelledPayload = {
   competitionId: string;
 };
 
+// Step 6.5e — queued dual-channel invite send. The worker derives the email variant from the
+// invitation's CURRENT status (pending → "you have an invite, open your inbox"; pending_claim →
+// "create an account to accept", linking /auth/login?invite=<rawToken>). The raw token is carried
+// here because only its SHA-256 hash is persisted; it grants no acceptance (acceptance is in-app,
+// session-id matched) — its sole use is the claim-signup link's invited-email prefill.
+export type InstitutionInvitationDispatchPayload = {
+  invitationId: string;
+  rawToken: string;
+};
+
+export type TeamInvitationDispatchPayload = {
+  invitationId: string;
+  rawToken: string;
+};
+
 export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.probePing]: AsyncProbeJobPayload;
   [ASYNC_JOB_NAMES.competitionSearchSync]: CompetitionSearchSyncPayload;
@@ -86,6 +103,8 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.submissionFinalized]: SubmissionFinalizedPayload;
   [ASYNC_JOB_NAMES.competitionEdited]: CompetitionEditedPayload;
   [ASYNC_JOB_NAMES.competitionCancelled]: CompetitionCancelledPayload;
+  [ASYNC_JOB_NAMES.institutionInvitationDispatch]: InstitutionInvitationDispatchPayload;
+  [ASYNC_JOB_NAMES.teamInvitationDispatch]: TeamInvitationDispatchPayload;
 };
 
 export const ASYNC_JOB_QUEUE_BY_NAME = {
@@ -97,4 +116,6 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   [ASYNC_JOB_NAMES.submissionFinalized]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.competitionEdited]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.competitionCancelled]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.institutionInvitationDispatch]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.teamInvitationDispatch]: ASYNC_QUEUE_NAMES.notifications,
 } as const satisfies Record<AsyncJobName, AsyncQueueName>;
