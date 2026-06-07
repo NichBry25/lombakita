@@ -570,6 +570,12 @@ export const competitions = pgTable(
     registrationEndAt: timestamp("registration_end_at", { mode: "date", withTimezone: true }),
     eventStartAt: timestamp("event_start_at", { mode: "date", withTimezone: true }),
     eventEndAt: timestamp("event_end_at", { mode: "date", withTimezone: true }),
+    // Candidate-cancellation policy (Step 6.5f / F12). allow_cancellation is the institution
+    // opt-in toggle; cancellation_cutoff_days is the number of days before event_start_at after
+    // which self-cancellation is closed. cutoff is only meaningful when allow_cancellation is true
+    // (enforced by competitions_cancellation_policy_chk below).
+    allowCancellation: boolean("allow_cancellation").notNull().default(false),
+    cancellationCutoffDays: integer("cancellation_cutoff_days"),
     feeAmount: numeric("fee_amount", { precision: 12, scale: 2 }),
     feeCurrency: text("fee_currency"),
     isFeatured: boolean("is_featured").notNull().default(false),
@@ -590,6 +596,11 @@ export const competitions = pgTable(
     check(
       "competitions_fee_amount_non_negative_chk",
       sql`${table.feeAmount} IS NULL OR ${table.feeAmount} >= 0`,
+    ),
+    // F12 — cutoff is required (and non-negative) when cancellation is allowed; ignored otherwise.
+    check(
+      "competitions_cancellation_policy_chk",
+      sql`${table.allowCancellation} = false OR (${table.cancellationCutoffDays} IS NOT NULL AND ${table.cancellationCutoffDays} >= 0)`,
     ),
   ],
 );

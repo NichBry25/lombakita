@@ -18,6 +18,15 @@ import {
 } from "@/server/db/schema";
 import { checkStudentEligibility } from "@/server/eligibility/eligibility-service";
 import { TeamError } from "@/server/teams/team-core";
+import { MAX_CANCELLATION_REASON_LENGTH } from "@/server/registrations/registration-core";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const isPaidCompetition = (feeAmount: string | null): boolean => {
+  if (feeAmount === null) return false;
+  const n = Number.parseFloat(feeAmount);
+  return Number.isFinite(n) && n > 0;
+};
 
 // Postgres error code extraction — mirrors the pattern used in team-service.ts. Drizzle wraps
 // the underlying pg error in a DrizzleQueryError; read both shapes (direct + cause).
@@ -38,6 +47,10 @@ type CompetitionSnapshot = {
   maxTeamSize: number | null;
   registrationStartAt: Date | null;
   registrationEndAt: Date | null;
+  eventStartAt: Date | null;
+  allowCancellation: boolean;
+  cancellationCutoffDays: number | null;
+  feeAmount: string | null;
 };
 
 type TeamSnapshot = {
@@ -80,6 +93,10 @@ const loadCompetition = async (
       maxTeamSize: competitions.maxTeamSize,
       registrationStartAt: competitions.registrationStartAt,
       registrationEndAt: competitions.registrationEndAt,
+      eventStartAt: competitions.eventStartAt,
+      allowCancellation: competitions.allowCancellation,
+      cancellationCutoffDays: competitions.cancellationCutoffDays,
+      feeAmount: competitions.feeAmount,
     })
     .from(competitions)
     .where(and(eq(competitions.id, competitionId), isNull(competitions.deletedAt)))
@@ -338,12 +355,16 @@ export const submitTeamRegistration = async (
   return submitResult;
 };
 
-// Step 4.4 — Captain reverts a submitted team back to forming by cancelling every team-typed
-// registration row. No deadline check in MVP — captains may cancel a submitted team at any time.
+// Step 4.4 / 6.5f — Captain reverts a submitted team back to forming by cancelling every team-typed
+// registration row. F12 applies the same candidate-cancellation policy as the individual path:
+// reason required, paid block (Phase 7 placeholder), institution allow toggle, and the cutoff
+// window measured against event_start_at. Gate order is fail-closed: captain + submitted-status
+// (ownership/state) before any reason or policy error.
 export const cancelTeamRegistration = async (
   callerUserId: string,
   competitionId: string,
   teamId: string,
+  cancellationReason: string | null,
   db: Database = getDb(),
   now: Date = new Date(),
 ): Promise<TeamRegistrationResult> => {
@@ -361,12 +382,55 @@ export const cancelTeamRegistration = async (
     );
   }
 
+  // Reason required + bounded (after captain + status gates).
+  if (cancellationReason === null || cancellationReason.length === 0) {
+    throw new TeamError("cancellation_reason_required", "A cancellation reason is required");
+  }
+  if (cancellationReason.length > MAX_CANCELLATION_REASON_LENGTH) {
+    throw new TeamError(
+      "cancellation_reason_too_long",
+      `Cancellation reason must be at most ${MAX_CANCELLATION_REASON_LENGTH} characters`,
+    );
+  }
+
+  const competition = await loadCompetition(competitionId, db);
+  if (!competition) {
+    throw new TeamError("team_competition_not_found", "Competition not found");
+  }
+
+  // Paid block — paid cancellation lands in Phase 7. TODO Phase 7 (DEC-0073).
+  if (isPaidCompetition(competition.feeAmount)) {
+    throw new TeamError(
+      "cancellation_not_supported_for_paid",
+      "Paid registrations cannot be cancelled yet",
+    );
+  }
+
+  // Institution must allow cancellation.
+  if (!competition.allowCancellation) {
+    throw new TeamError(
+      "cancellation_disabled_by_institution",
+      "Cancellation is not enabled for this competition",
+    );
+  }
+
+  // Cutoff window: allowed only up to (event_start_at - cutoff days). Missing event start / cutoff
+  // fails closed (the DB CHECK guarantees a cutoff when allow=true).
+  const cutoffDays = competition.cancellationCutoffDays;
+  if (!competition.eventStartAt || cutoffDays === null) {
+    throw new TeamError("cancellation_window_closed", "The cancellation window is closed");
+  }
+  if (now.getTime() > competition.eventStartAt.getTime() - cutoffDays * DAY_MS) {
+    throw new TeamError("cancellation_window_closed", "The cancellation window has closed");
+  }
+
   const cancelResult = await db.transaction(async (tx) => {
     const cancelled = await tx
       .update(competitionRegistrations)
       .set({
         status: "cancelled",
         cancelledAt: now,
+        cancellationReason,
         updatedAt: sql`now()`,
       })
       .where(

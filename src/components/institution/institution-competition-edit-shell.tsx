@@ -34,6 +34,8 @@ type Competition = {
   registrationEndAt: string | null;
   eventStartAt: string | null;
   eventEndAt: string | null;
+  allowCancellation: boolean;
+  cancellationCutoffDays: number | null;
 };
 
 type PublishValidationFailure = {
@@ -59,22 +61,53 @@ type FormSnapshot = {
   regEnd: string;
   evtStart: string;
   evtEnd: string;
+  allowCancellation: boolean;
+  cutoffDays: string;
 };
 
 const extractError = async (
   response: Response,
-): Promise<{ message: string; failures?: PublishValidationFailure[] }> => {
+): Promise<{
+  message: string;
+  code?: string;
+  failures?: PublishValidationFailure[];
+  blockedFields?: string[];
+}> => {
   try {
     const payload = (await response.json()) as {
-      error?: { message?: string; details?: { failures?: PublishValidationFailure[] } };
+      error?: {
+        code?: string;
+        message?: string;
+        details?: { failures?: PublishValidationFailure[]; blockedFields?: string[] };
+      };
     };
     return {
       message: payload.error?.message ?? "Permintaan gagal diproses.",
+      code: payload.error?.code,
       failures: payload.error?.details?.failures,
+      blockedFields: payload.error?.details?.blockedFields,
     };
   } catch {
     return { message: "Permintaan gagal diproses." };
   }
+};
+
+// Bahasa labels for the post-publish blocked/immutable field names, so the modal names the offending
+// field with its bucket context rather than a raw column name.
+const FIELD_LABEL: Record<string, string> = {
+  mode: "Format peserta (mode)",
+  minTeamSize: "Minimum anggota tim",
+  maxTeamSize: "Maksimum anggota tim",
+  eventStartAt: "Tanggal mulai acara",
+  feeAmount: "Biaya",
+};
+
+const labelForField = (field: string): string => FIELD_LABEL[field] ?? field;
+
+const cutoffOrNull = (value: string): number | null => {
+  if (value.trim() === "") return null;
+  const n = Number.parseInt(value, 10);
+  return Number.isInteger(n) && n >= 0 ? n : null;
 };
 
 const toDateTimeInput = (iso: string | null): string => {
@@ -109,7 +142,9 @@ const snapshotEquals = (a: FormSnapshot, b: FormSnapshot): boolean =>
   a.regStart === b.regStart &&
   a.regEnd === b.regEnd &&
   a.evtStart === b.evtStart &&
-  a.evtEnd === b.evtEnd;
+  a.evtEnd === b.evtEnd &&
+  a.allowCancellation === b.allowCancellation &&
+  a.cutoffDays === b.cutoffDays;
 
 export const InstitutionCompetitionEditShell = ({
   institutionSlug,
@@ -137,6 +172,8 @@ export const InstitutionCompetitionEditShell = ({
   const [regEnd, setRegEnd] = useState("");
   const [evtStart, setEvtStart] = useState("");
   const [evtEnd, setEvtEnd] = useState("");
+  const [allowCancellation, setAllowCancellation] = useState(false);
+  const [cutoffDays, setCutoffDays] = useState("");
 
   // F13: track the last-saved snapshot as state (not a ref) so comparisons are safe during render.
   const [savedSnapshot, setSavedSnapshot] = useState<FormSnapshot | null>(null);
@@ -144,6 +181,7 @@ export const InstitutionCompetitionEditShell = ({
   const currentSnapshot = (): FormSnapshot => ({
     title, slug, description, category, mode,
     minTeamSize, maxTeamSize, regStart, regEnd, evtStart, evtEnd,
+    allowCancellation, cutoffDays,
   });
 
   const isDirty =
@@ -175,6 +213,8 @@ export const InstitutionCompetitionEditShell = ({
     const loadedRegEnd = toDateTimeInput(data.competition.registrationEndAt);
     const loadedEvtStart = toDateTimeInput(data.competition.eventStartAt);
     const loadedEvtEnd = toDateTimeInput(data.competition.eventEndAt);
+    const loadedAllowCancellation = data.competition.allowCancellation ?? false;
+    const loadedCutoffDays = data.competition.cancellationCutoffDays?.toString() ?? "";
 
     setTitle(loadedTitle);
     setSlug(loadedSlug);
@@ -187,12 +227,15 @@ export const InstitutionCompetitionEditShell = ({
     setRegEnd(loadedRegEnd);
     setEvtStart(loadedEvtStart);
     setEvtEnd(loadedEvtEnd);
+    setAllowCancellation(loadedAllowCancellation);
+    setCutoffDays(loadedCutoffDays);
 
     setSavedSnapshot({
       title: loadedTitle, slug: loadedSlug, description: loadedDescription,
       category: loadedCategory, mode: loadedMode, minTeamSize: loadedMinTeamSize,
       maxTeamSize: loadedMaxTeamSize, regStart: loadedRegStart, regEnd: loadedRegEnd,
       evtStart: loadedEvtStart, evtEnd: loadedEvtEnd,
+      allowCancellation: loadedAllowCancellation, cutoffDays: loadedCutoffDays,
     });
     setIsLoading(false);
   }, [competitionId]);
@@ -229,6 +272,8 @@ export const InstitutionCompetitionEditShell = ({
       registrationEndAt: fromDateTimeInput(regEnd),
       eventStartAt: fromDateTimeInput(evtStart),
       eventEndAt: fromDateTimeInput(evtEnd),
+      allowCancellation,
+      cancellationCutoffDays: allowCancellation ? cutoffOrNull(cutoffDays) : null,
     };
 
     const response = await fetch(`/api/v1/competitions/${encodeURIComponent(competitionId)}`, {
@@ -239,7 +284,41 @@ export const InstitutionCompetitionEditShell = ({
     });
 
     if (!response.ok) {
-      const { message } = await extractError(response);
+      const { message, code, blockedFields } = await extractError(response);
+      // F17 — a post-publish blocked or immutable-field edit is surfaced in a modal naming the
+      // offending field(s) and why, per the shared-primitive rule.
+      if (code === "competition_post_publish_blocked" || code === "competition_field_immutable") {
+        const fields = blockedFields ?? [];
+        openModal({
+          title:
+            code === "competition_field_immutable"
+              ? "Bidang tidak dapat diubah"
+              : "Perubahan ditolak",
+          closeable: true,
+          body: (
+            <div>
+              <p style={{ marginTop: 0 }}>
+                {code === "competition_field_immutable"
+                  ? "Bidang berikut tidak dapat diubah setelah kompetisi diterbitkan:"
+                  : "Perubahan berikut akan membatalkan pendaftaran yang sudah ada, jadi tidak dapat disimpan:"}
+              </p>
+              <ul>
+                {fields.map((f) => (
+                  <li key={f}>{labelForField(f)}</li>
+                ))}
+              </ul>
+              <p style={{ marginBottom: 0, fontSize: 13, color: "#555" }}>
+                Untuk mengubah bidang ini, batalkan publikasi kompetisi terlebih dahulu (ini akan
+                membatalkan semua pendaftaran yang ada).
+              </p>
+            </div>
+          ),
+          actions: [{ label: "Mengerti", variant: "primary", autoClose: true, onClick: () => {} }],
+        });
+        setFeedback({ type: "error", message });
+        setIsSubmitting(false);
+        return;
+      }
       setFeedback({ type: "error", message });
       setIsSubmitting(false);
       return;
@@ -313,20 +392,29 @@ export const InstitutionCompetitionEditShell = ({
   }
 
   const isDraft = competition.status === "draft";
+  const isEditable = competition.status === "draft" || competition.status === "published";
+  // F17 — mode and team sizes are immutable once published; enforce at the field (disabled), with
+  // the server 422 as a backstop.
+  const isPublished = competition.status === "published";
 
   return (
     <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
-      <h1>Edit Draf — {competition.title}</h1>
+      <h1>Edit Kompetisi — {competition.title}</h1>
       <p>
         Status: <strong>{competition.status}</strong> · Slug: <code>{competition.slug}</code> ·
         Institusi: <code>{institutionSlug}</code>
       </p>
 
-      {!isDraft ? (
+      {competition.status === "published" ? (
+        <p style={{ color: "#555", marginTop: 12, fontSize: 13 }}>
+          Kompetisi ini sudah terbit. Perubahan yang memengaruhi peserta akan mengirim notifikasi.
+          Perubahan yang membatalkan pendaftaran yang ada akan ditolak.
+        </p>
+      ) : null}
+
+      {!isEditable ? (
         <p style={{ color: "#b00", marginTop: 12 }}>
-          Hanya kompetisi berstatus <code>draft</code> yang dapat diubah. Status saat ini:{" "}
-          <strong>{competition.status}</strong>. Gunakan tindakan{" "}
-          <em>Unpublish (kembali ke draft)</em> di halaman aksi status terlebih dahulu.
+          Kompetisi berstatus <code>{competition.status}</code> tidak dapat diubah.
         </p>
       ) : (
         <form onSubmit={onSave} style={{ marginTop: 16 }}>
@@ -376,10 +464,16 @@ export const InstitutionCompetitionEditShell = ({
               ))}
             </select>
           </label>
+          {isPublished ? (
+            <p style={{ fontSize: 12, color: "#888", marginTop: 12, marginBottom: 4 }}>
+              Format peserta dan ukuran tim tidak dapat diubah setelah kompetisi terbit.
+            </p>
+          ) : null}
           <label style={{ display: "block", marginBottom: 8 }}>
             Mode
             <select
               value={mode}
+              disabled={isPublished}
               onChange={(e) => {
                 const newMode = e.target.value;
                 setMode(newMode);
@@ -416,7 +510,8 @@ export const InstitutionCompetitionEditShell = ({
               onChange={(e) => setMinTeamSize(e.target.value)}
               min={mode === "team" ? 2 : 1}
               // Min is fixed for individual (1) and both (1); only team allows editing min.
-              disabled={mode === "individual" || mode === "both"}
+              // Immutable once published.
+              disabled={isPublished || mode === "individual" || mode === "both"}
               style={{ display: "block" }}
             />
           </label>
@@ -428,7 +523,8 @@ export const InstitutionCompetitionEditShell = ({
               onChange={(e) => setMaxTeamSize(e.target.value)}
               min={1}
               // Max is fixed for individual (1); team and both allow editing max.
-              disabled={mode === "individual"}
+              // Immutable once published.
+              disabled={isPublished || mode === "individual"}
               style={{ display: "block" }}
             />
           </label>
@@ -468,12 +564,38 @@ export const InstitutionCompetitionEditShell = ({
               style={{ display: "block" }}
             />
           </label>
+
+          <fieldset style={{ marginTop: 16, marginBottom: 12, padding: 12 }}>
+            <legend>Kebijakan pembatalan peserta</legend>
+            <label style={{ display: "block", marginBottom: 8 }}>
+              <input
+                type="checkbox"
+                checked={allowCancellation}
+                onChange={(e) => setAllowCancellation(e.target.checked)}
+              />{" "}
+              Izinkan peserta membatalkan pendaftaran sendiri
+            </label>
+            <label style={{ display: "block", marginBottom: 8 }}>
+              Batas pembatalan (hari sebelum acara mulai)
+              <input
+                type="number"
+                value={cutoffDays}
+                onChange={(e) => setCutoffDays(e.target.value)}
+                min={0}
+                disabled={!allowCancellation}
+                style={{ display: "block" }}
+              />
+            </label>
+          </fieldset>
+
           <button type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Menyimpan..." : "Simpan"}
           </button>{" "}
-          <button type="button" onClick={onPublish} disabled={isSubmitting}>
-            Publish
-          </button>
+          {isDraft ? (
+            <button type="button" onClick={onPublish} disabled={isSubmitting}>
+              Publish
+            </button>
+          ) : null}
         </form>
       )}
 

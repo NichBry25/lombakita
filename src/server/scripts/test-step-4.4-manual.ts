@@ -632,8 +632,17 @@ const run = async (): Promise<void> => {
     );
 
     // Items 23, 24: cancel registration → team reverts to forming, regs flip to cancelled
+    // Step 6.5f — cancelTeamRegistration now takes a required cancellation reason and enforces the
+    // F12 policy; the competition under test must have allow_cancellation enabled for this to pass.
     await expectOk("M23", "cancelTeamRegistration succeeds on submitted team", () =>
-      teamRegService.cancelTeamRegistration(captainId, compTeamNormalId, timUji.id, db, NOW),
+      teamRegService.cancelTeamRegistration(
+        captainId,
+        compTeamNormalId,
+        timUji.id,
+        "uji pembatalan",
+        db,
+        NOW,
+      ),
     );
 
     const [postCancelTeam] = await db

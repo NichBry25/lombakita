@@ -68,7 +68,8 @@ type CompetitionErrorCode =
   | "competition_slug_taken"
   | "competition_delete_not_allowed"
   | "competition_active_registrations"
-  | "competition_field_immutable";
+  | "competition_field_immutable"
+  | "competition_post_publish_blocked";
 
 // Structured publish-validation failure surfaced to clients.
 // Codes: `missing` (field is null/empty) | `out_of_order` (date pair inconsistent) |
@@ -82,6 +83,9 @@ export type PublishValidationFailure = {
 export type CompetitionErrorDetails = {
   fields?: string[];
   failures?: PublishValidationFailure[];
+  // Step 6.5f — the post-publish edit fields whose change would invalidate existing
+  // registrations. Surfaced so the editor can name the offending field(s) in a modal.
+  blockedFields?: string[];
 };
 
 export class CompetitionError extends Error {
@@ -143,6 +147,8 @@ export type CompetitionDraftFields = {
   registrationEndAt?: Date | null;
   eventStartAt?: Date | null;
   eventEndAt?: Date | null;
+  allowCancellation?: boolean;
+  cancellationCutoffDays?: number | null;
 };
 
 export type CompetitionCreateInput = {
@@ -158,6 +164,8 @@ export type CompetitionCreateInput = {
   registrationEndAt?: Date | null;
   eventStartAt?: Date | null;
   eventEndAt?: Date | null;
+  allowCancellation?: boolean;
+  cancellationCutoffDays?: number | null;
 };
 
 export type CompetitionPatchInput = CompetitionDraftFields;
@@ -269,6 +277,30 @@ const parseOptionalInt = (value: unknown, field: string): number | null => {
   return value;
 };
 
+// Cancellation cutoff: nullable integer >= 0 (0 means "until the event starts"). Distinct from
+// parseOptionalInt, which floors at 1.
+const parseOptionalCutoffDays = (value: unknown): number | null => {
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      "cancellationCutoffDays must be a non-negative integer or null",
+      { fields: ["cancellationCutoffDays"] },
+    );
+  }
+  return value;
+};
+
+const parseBoolean = (value: unknown, field: string): boolean => {
+  if (typeof value !== "boolean") {
+    throw new CompetitionError("competition_invalid_value", 400, `${field} must be a boolean`, {
+      fields: [field],
+    });
+  }
+  return value;
+};
+
 const parseOptionalMode = (value: unknown): CompetitionMode | null => {
   if (value === null) return null;
   if (typeof value !== "string" || !isCompetitionMode(value)) {
@@ -319,6 +351,24 @@ export const resolveTeamSizesForMode = (
   // produce a max below it.
   const resolvedMax = max ?? Math.max(resolvedMin, TEAM_MODE_DEFAULT_MAX_SIZE);
   return { minTeamSize: resolvedMin, maxTeamSize: resolvedMax };
+};
+
+// Effective-state validator for the cancellation policy pair, mirroring the DB CHECK
+// (competitions_cancellation_policy_chk). Called by the service against the merged row so a
+// partial PATCH that flips allowCancellation on without supplying a cutoff is rejected with a
+// clean 400 instead of a raw constraint violation.
+export const validateCancellationPolicy = (
+  allowCancellation: boolean,
+  cancellationCutoffDays: number | null,
+): void => {
+  if (allowCancellation && (cancellationCutoffDays === null || cancellationCutoffDays < 0)) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      "cancellationCutoffDays must be a non-negative integer when allowCancellation is true",
+      { fields: ["cancellationCutoffDays"] },
+    );
+  }
 };
 
 // Cross-field validation. Run on every parsed payload (create + patch). For PATCH this only
@@ -397,6 +447,8 @@ const CREATE_FIELDS: readonly string[] = [
   "registrationEndAt",
   "eventStartAt",
   "eventEndAt",
+  "allowCancellation",
+  "cancellationCutoffDays",
 ];
 export const PATCH_FIELDS: readonly string[] = [
   "title",
@@ -410,6 +462,8 @@ export const PATCH_FIELDS: readonly string[] = [
   "registrationEndAt",
   "eventStartAt",
   "eventEndAt",
+  "allowCancellation",
+  "cancellationCutoffDays",
 ];
 
 // Fields silently stripped on input. status, institutionId, etc. cannot be set by the caller;
@@ -496,6 +550,12 @@ const parseDraftFields = (
   if ("eventEndAt" in filtered) {
     fields.eventEndAt = parseOptionalDate(filtered.eventEndAt, "eventEndAt");
   }
+  if ("allowCancellation" in filtered) {
+    fields.allowCancellation = parseBoolean(filtered.allowCancellation, "allowCancellation");
+  }
+  if ("cancellationCutoffDays" in filtered) {
+    fields.cancellationCutoffDays = parseOptionalCutoffDays(filtered.cancellationCutoffDays);
+  }
 
   // F5 — when the payload sets mode, normalize team sizes to that mode. Fills null/absent sizes
   // with mode defaults and forces fixed values (individual 1/1, both min=1) so the stored row is
@@ -575,41 +635,20 @@ export const parseCompetitionPatchInput = (payload: unknown): CompetitionPatchIn
   return fields;
 };
 
-// Field-immutability matrix for published competitions.
+// Hard-immutable fields on a published competition.
 //
-// Step 3.3 retains Step 3.2's broad rule (DEC-0025): PATCH /api/v1/competitions/[id] is
-// rejected entirely on non-draft records with `competition_not_draft` (409). The matrix below
-// classifies the post-publish editability of each field for the day Step 3.3 (or a later step)
-// loosens that broad rule. Until then, the unpublish→edit→republish flow is the only path to
-// modify any field on a published competition.
+// A published competition is editable in place (the update service routes it through the
+// data-aware edit classifier, which decides per field whether a change is refused, notifies
+// participants, or is silent). These three fields sit OUTSIDE that classifier: they are the
+// participant contract participants registered under and can never change while published.
+// The update service enforces this as the outer layer (422 competition_field_immutable) before
+// the classifier runs. Draft competitions edit all fields freely; archived competitions are
+// terminal and reject edits with competition_not_draft.
 //
-//   IMMUTABLE_AFTER_PUBLISH — never editable once published:
-//     mode             (registrations are anchored to the mode contract)
-//     minTeamSize      (team registration sizing locked in at publish)
-//     maxTeamSize      (team registration sizing locked in at publish)
-//
-//   RESTRICTED_AFTER_PUBLISH — editable only with intentional unpublish first:
-//     title            (title is a public identifier; changing breaks discovery + share links)
-//     slug             (URL routing handle)
-//     registrationStartAt / registrationEndAt
-//     eventStartAt / eventEndAt
-//
-//   FREELY_EDITABLE_AFTER_PUBLISH (would be safe to allow without unpublish):
-//     description
-//     category
-//
-// All three groups are blocked by the current 409 guard. The constants below are the named
-// source of truth; do not duplicate the lists in route or service files.
+//   mode             (registrations are anchored to the mode contract)
+//   minTeamSize      (team registration sizing locked in at publish)
+//   maxTeamSize      (team registration sizing locked in at publish)
 export const IMMUTABLE_AFTER_PUBLISH: readonly string[] = ["mode", "minTeamSize", "maxTeamSize"];
-export const RESTRICTED_AFTER_PUBLISH: readonly string[] = [
-  "title",
-  "slug",
-  "registrationStartAt",
-  "registrationEndAt",
-  "eventStartAt",
-  "eventEndAt",
-];
-export const FREELY_EDITABLE_AFTER_PUBLISH: readonly string[] = ["description", "category"];
 
 // Publish-validation checklist. A competition can only transition draft → published if every
 // required field is set, the registration deadline is in the future, and the date pairs are

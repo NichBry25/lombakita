@@ -18,7 +18,13 @@ export type RegistrationErrorCode =
   | "registration_already_exists"
   | "registration_not_found"
   | "registration_not_owner"
-  | "registration_wrong_status";
+  | "registration_wrong_status"
+  // Step 6.5f / F12 — candidate cancellation policy gates.
+  | "cancellation_reason_required"
+  | "cancellation_reason_too_long"
+  | "cancellation_not_supported_for_paid"
+  | "cancellation_disabled_by_institution"
+  | "cancellation_window_closed";
 
 const STATUS_BY_CODE: Record<RegistrationErrorCode, number> = {
   registration_invalid_payload: 400,
@@ -31,7 +37,14 @@ const STATUS_BY_CODE: Record<RegistrationErrorCode, number> = {
   registration_not_found: 404,
   registration_not_owner: 403,
   registration_wrong_status: 409,
+  cancellation_reason_required: 422,
+  cancellation_reason_too_long: 422,
+  cancellation_not_supported_for_paid: 422,
+  cancellation_disabled_by_institution: 422,
+  cancellation_window_closed: 422,
 };
+
+export const MAX_CANCELLATION_REASON_LENGTH = 500;
 
 export class RegistrationError extends Error {
   constructor(
@@ -74,14 +87,14 @@ export type RegistrationRecord = {
   updatedAt: Date;
 };
 
-const MAX_CANCELLATION_REASON_LENGTH = 500;
-
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
-// Cancel-payload parser. Body is optional; if present, it may carry `cancellationReason`.
-// Anything else is rejected with `registration_invalid_payload` to keep the surface tight.
+// Cancel-payload parser. Performs STRUCTURAL validation only (object shape, string type, no
+// unknown keys) and returns the trimmed reason or null. The required-and-length business rules
+// (F12) are enforced in the cancelRegistration service AFTER the ownership and status gates so the
+// documented check order holds (a non-owner never sees a reason-validation error).
 export const parseCancelPayload = (payload: unknown): { cancellationReason: string | null } => {
   if (payload === undefined || payload === null) {
     return { cancellationReason: null };
@@ -117,17 +130,5 @@ export const parseCancelPayload = (payload: unknown): { cancellationReason: stri
   }
 
   const trimmed = payload.cancellationReason.trim();
-
-  if (trimmed.length === 0) {
-    return { cancellationReason: null };
-  }
-
-  if (trimmed.length > MAX_CANCELLATION_REASON_LENGTH) {
-    throw new RegistrationError(
-      "registration_invalid_payload",
-      `cancellationReason must be at most ${MAX_CANCELLATION_REASON_LENGTH} characters`,
-    );
-  }
-
-  return { cancellationReason: trimmed };
+  return { cancellationReason: trimmed.length === 0 ? null : trimmed };
 };

@@ -191,9 +191,67 @@ function CreateTeamForm(props: Props) {
   );
 }
 
+// Self-contained modal body: required cancellation reason + its own confirm/cancel buttons.
+function TeamCancelReasonForm({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: (reason: string) => void;
+  onCancel: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const trimmed = reason.trim();
+  return (
+    <div>
+      <p style={{ marginTop: 0, fontSize: 14 }}>
+        Tim akan kembali ke status &apos;forming&apos; dan semua pendaftaran tim dibatalkan.
+        Tuliskan alasan pembatalan (wajib diisi).
+      </p>
+      <textarea
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        rows={4}
+        maxLength={500}
+        placeholder="Alasan pembatalan"
+        aria-label="Alasan pembatalan"
+        style={{ display: "block", width: "100%" }}
+      />
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+        <button type="button" onClick={onCancel}>
+          Kembali
+        </button>
+        <button
+          type="button"
+          disabled={trimmed.length === 0}
+          onClick={() => onConfirm(trimmed)}
+          style={{
+            background: trimmed.length === 0 ? "#f0f0f0" : "#c0392b",
+            color: trimmed.length === 0 ? "#999" : "#fff",
+            border: "1px solid #c0392b",
+            borderRadius: 6,
+            padding: "6px 14px",
+            cursor: trimmed.length === 0 ? "not-allowed" : "pointer",
+          }}
+        >
+          Batalkan Pendaftaran Tim
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const TEAM_CANCEL_MESSAGE: Record<string, string> = {
+  cancellation_reason_required: "Alasan pembatalan wajib diisi.",
+  cancellation_reason_too_long: "Alasan pembatalan terlalu panjang (maksimal 500 karakter).",
+  cancellation_not_supported_for_paid: "Pendaftaran berbayar belum dapat dibatalkan.",
+  cancellation_disabled_by_institution:
+    "Penyelenggara tidak mengizinkan pembatalan untuk kompetisi ini.",
+  cancellation_window_closed: "Batas waktu pembatalan telah terlewat.",
+};
+
 function TeamRoster(props: Props & { team: TeamSnapshot }) {
   const router = useRouter();
-  const { openModal } = useModal();
+  const { openModal, closeModal } = useModal();
   const { addToast } = useToast();
   const { team } = props;
   const isCaptain = team.captainId === props.expectedUserId;
@@ -296,13 +354,41 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       { method: "POST" },
     );
 
+  const submitTeamCancel = async (reason: string) => {
+    closeModal();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await sessionFetch(
+        props.expectedUserId,
+        `/api/v1/competitions/${props.competitionId}/teams/${team.id}/registrations`,
+        {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ cancellationReason: reason }),
+        },
+      );
+      if (!res.ok) {
+        const e = await handleError(res);
+        addToast({ type: "error", message: TEAM_CANCEL_MESSAGE[e.code] ?? e.message });
+        return;
+      }
+      addToast({ type: "success", message: "Pendaftaran tim dibatalkan." });
+      router.refresh();
+    } catch {
+      addToast({ type: "error", message: "Terjadi kesalahan jaringan. Coba lagi." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onCancelSubmission = () =>
-    action(
-      "membatalkan pendaftaran tim",
-      `/api/v1/competitions/${props.competitionId}/teams/${team.id}/registrations`,
-      { method: "DELETE" },
-      "Batalkan pendaftaran tim? Tim akan kembali ke status 'forming'.",
-    );
+    openModal({
+      title: "Batalkan Pendaftaran Tim",
+      closeable: true,
+      actions: [],
+      body: <TeamCancelReasonForm onConfirm={submitTeamCancel} onCancel={closeModal} />,
+    });
 
   // F16: warn on hard navigation (URL change, tab close, refresh) when team is incomplete.
   useEffect(() => {

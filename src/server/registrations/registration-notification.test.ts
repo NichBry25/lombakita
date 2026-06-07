@@ -157,13 +157,24 @@ describe("cancelRegistration — notification enqueue", () => {
     const db = makeDb(
       [
         [confirmedReg],
-        [{ id: "comp_1", status: "published", mode: "individual", registrationEndAt: FUTURE }],
+        [
+          {
+            id: "comp_1",
+            status: "published",
+            mode: "individual",
+            registrationEndAt: FUTURE,
+            eventStartAt: FUTURE,
+            allowCancellation: true,
+            cancellationCutoffDays: 0,
+            feeAmount: null,
+          },
+        ],
       ],
       { updateReturn: [cancelledReg] },
     );
     mockGetDb.mockReturnValue(db);
 
-    await cancelRegistration("stud_1", "comp_1", "reg_1", null, db as never, NOW);
+    await cancelRegistration("stud_1", "comp_1", "reg_1", "ganti rencana", db as never, NOW);
 
     expect(enqueueRegistrationCancelled).toHaveBeenCalledOnce();
     expect(enqueueRegistrationCancelled).toHaveBeenCalledWith(
@@ -188,14 +199,25 @@ describe("cancelRegistration — notification enqueue", () => {
     const db = makeDb(
       [
         [confirmedReg],
-        [{ id: "comp_1", status: "published", mode: "individual", registrationEndAt: FUTURE }],
+        [
+          {
+            id: "comp_1",
+            status: "published",
+            mode: "individual",
+            registrationEndAt: FUTURE,
+            eventStartAt: FUTURE,
+            allowCancellation: true,
+            cancellationCutoffDays: 0,
+            feeAmount: null,
+          },
+        ],
       ],
       { updateReturn: [cancelledReg] },
     );
     mockGetDb.mockReturnValue(db);
 
     const result = await cancelRegistration(
-      "stud_1", "comp_1", "reg_1", null, db as never, NOW,
+      "stud_1", "comp_1", "reg_1", "ganti rencana", db as never, NOW,
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
 

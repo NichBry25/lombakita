@@ -162,16 +162,23 @@ export const sendResultPublishedEmail = async (options: {
   });
 };
 
-// Step 6.5.1 — competition lifecycle email STUBS. The send PATH is wired now (Resend dispatch +
-// success/failure logging) so Step 6.5f only has to refine the template/copy, not stand up a new
-// delivery path. Callers (the competition-edited/cancelled workers) invoke these fire-and-forget
-// and warn-log on failure rather than rethrowing.
+// Step 6.5f — competition lifecycle emails. The copy lists broad change categories (schedule /
+// fees / rules) and never the old/new field values; the listing page is the source of truth.
+// Callers (the competition-edited/cancelled workers) invoke these fire-and-forget and warn-log on
+// failure rather than rethrowing.
 export const sendCompetitionEditedEmail = async (options: {
   toEmail: string;
   recipientId: string;
   competitionTitle: string;
+  changeCategories?: string[];
 }): Promise<void> => {
   const { apiKey, from } = assertResendConfigured();
+
+  const categories = options.changeCategories ?? [];
+  const changeLine =
+    categories.length > 0
+      ? `Bagian yang berubah: ${categories.join(", ")}.`
+      : "Beberapa detail kompetisi diperbarui.";
 
   const resend = new Resend(apiKey);
   const { error } = await resend.emails.send({
@@ -179,7 +186,9 @@ export const sendCompetitionEditedEmail = async (options: {
     to: options.toEmail,
     subject: `Kompetisi diperbarui — ${options.competitionTitle}`,
     text: [
-      `Kompetisi "${options.competitionTitle}" yang kamu daftarkan baru saja diperbarui oleh penyelenggara.`,
+      `Kompetisi "${options.competitionTitle}" yang kamu daftarkan diperbarui oleh penyelenggara.`,
+      "",
+      changeLine,
       "",
       `Cek perubahannya di ${resolveBaseUrl()}.`,
     ].join("\n"),

@@ -8,6 +8,7 @@ import { getDb } from "@/server/db/client";
 import { competitions, competitionRegistrations, users } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
 import { ASYNC_JOB_NAMES, type CompetitionCancelledPayload } from "@/server/async/contracts";
+import { INSTITUTION_CANCELLATION_REASON } from "@/server/competitions/competition-lifecycle";
 import { sendCompetitionCancelledEmail } from "@/server/notifications/notification-email";
 import { writeInboxNotificationSafely } from "@/server/notifications/inbox-write";
 import { NOTIFICATION_TYPES } from "@/server/notifications/notification-types";
@@ -18,10 +19,13 @@ export type CompetitionCancelledJob = Job<
   typeof ASYNC_JOB_NAMES.competitionCancelled
 >;
 
-// Step 6.5.1 — fan-out worker for "competition cancelled". Mirrors competition-edited: resolves
-// every confirmed registration and notifies each participant via stub Resend email + in-app
-// notification row (DEC-0076). No callers yet — wired in Step 6.5f. Both delivery paths isolated;
-// the worker never rethrows.
+// Step 6.5f — fan-out worker for "competition cancelled" (institution unpublish-as-cancellation).
+// Recipients are re-derived AT JOB-RUN TIME from the rows the cascade cancelled, identified by
+// cancellation_reason = INSTITUTION_CANCELLATION_REASON. This is deliberately NOT "status !=
+// cancelled": by the time this worker runs the cascade has already cancelled every participant, so
+// the just-cancelled rows ARE the recipient set. Filtering by the institution reason also
+// correctly excludes candidates who self-cancelled earlier (they carry a different reason).
+// Dual-channel (DEC-0076): in-app row first (isolated/swallowed), then email; never rethrows.
 export const processCompetitionCancelledJob = async (
   job: CompetitionCancelledJob,
 ): Promise<void> => {
@@ -52,14 +56,15 @@ export const processCompetitionCancelledJob = async (
     .where(
       and(
         eq(competitionRegistrations.competitionId, competitionId),
-        eq(competitionRegistrations.status, "confirmed"),
+        eq(competitionRegistrations.status, "cancelled"),
+        eq(competitionRegistrations.cancellationReason, INSTITUTION_CANCELLATION_REASON),
       ),
     );
 
   if (recipients.length === 0) {
     logger.warn("notification.skipped", {
       event: "competition.cancelled",
-      reason: "no_confirmed_recipients",
+      reason: "no_institution_cancelled_recipients",
       jobId: job.id,
       competitionId,
     });

@@ -46,6 +46,8 @@ export const PUBLIC_COMPETITION_COLUMNS = {
   registrationEndAt: competitions.registrationEndAt,
   eventStartAt: competitions.eventStartAt,
   eventEndAt: competitions.eventEndAt,
+  allowCancellation: competitions.allowCancellation,
+  cancellationCutoffDays: competitions.cancellationCutoffDays,
   publishedAt: competitions.publishedAt,
   archivedAt: competitions.archivedAt,
   deletedAt: competitions.deletedAt,
@@ -71,6 +73,8 @@ export type CompetitionRow = {
   registrationEndAt: Date | null;
   eventStartAt: Date | null;
   eventEndAt: Date | null;
+  allowCancellation: boolean;
+  cancellationCutoffDays: number | null;
   publishedAt: Date | null;
   archivedAt: Date | null;
   deletedAt: Date | null;

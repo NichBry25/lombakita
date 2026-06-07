@@ -7,7 +7,7 @@ import {
 } from "@/server/competitions/competition-core";
 import {
   assertCompetitionInInstitution,
-  transitionCompetitionStatus,
+  unpublishCompetition,
 } from "@/server/competitions/competition-service";
 
 export async function POST(
@@ -18,7 +18,7 @@ export async function POST(
     const session = await requireAuthenticatedSession();
     const { institutionSlug, competitionId } = await context.params;
     await assertCompetitionInInstitution(institutionSlug.trim().toLowerCase(), competitionId);
-    const result = await transitionCompetitionStatus(session.user.id, competitionId, "draft");
+    const result = await unpublishCompetition(session.user.id, competitionId);
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);

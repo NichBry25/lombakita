@@ -1,15 +1,20 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { AccessError } from "@/server/auth/access-core";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitions,
+  competitionRegistrations,
   institutionMemberships,
   institutions,
   type CompetitionStatus,
 } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
-import { enqueueCompetitionSearchSync } from "@/server/async/enqueue";
+import {
+  enqueueCompetitionCancelled,
+  enqueueCompetitionEdited,
+  enqueueCompetitionSearchSync,
+} from "@/server/async/enqueue";
 import {
   CompetitionError,
   IMMUTABLE_AFTER_PUBLISH,
@@ -19,16 +24,22 @@ import {
   PATCH_FIELDS,
   resolveTeamSizesForMode,
   TEAM_MODE_MIN_SIZE,
+  validateCancellationPolicy,
   validatePublishChecklist,
   type CompetitionCreateInput,
   type CompetitionPatchInput,
 } from "@/server/competitions/competition-core";
 import {
+  classifyCompetitionEdit,
+  type ClassifiableCompetition,
+  type EditClassificationSnapshot,
+} from "@/server/competitions/edit-classification";
+import { INSTITUTION_CANCELLATION_REASON } from "@/server/competitions/competition-lifecycle";
+import {
   assertCompetitionAccess,
   assertCompetitionRead,
   assertInstitutionVerified,
   assertInstitutionNotSuspended,
-  hasActiveRegistrationsForCompetition,
   MEMBER_ROLES,
   PUBLIC_COMPETITION_COLUMNS,
   type CompetitionRow,
@@ -193,6 +204,12 @@ export const createCompetitionDraft = async (
     input.maxTeamSize ?? null,
   );
 
+  // F12 — effective cancellation policy; reject allow=true with no cutoff before any DB write
+  // (mirrors competitions_cancellation_policy_chk).
+  const allowCancellation = input.allowCancellation ?? false;
+  const cancellationCutoffDays = input.cancellationCutoffDays ?? null;
+  validateCancellationPolicy(allowCancellation, cancellationCutoffDays);
+
   for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
     const candidate = buildSlugCandidate(baseSlug, attempt);
     try {
@@ -213,6 +230,8 @@ export const createCompetitionDraft = async (
           registrationEndAt: input.registrationEndAt ?? null,
           eventStartAt: input.eventStartAt ?? null,
           eventEndAt: input.eventEndAt ?? null,
+          allowCancellation,
+          cancellationCutoffDays,
         })
         .returning(PUBLIC_COMPETITION_COLUMNS);
       if (!row) {
@@ -298,6 +317,196 @@ export const getCompetitionForReader = async (
   return competition;
 };
 
+// Maps the simple (non-normalized) patch columns onto an update record. Shared by the draft and
+// published edit paths. Team-size normalization is layered on top by the draft path only.
+const applySimplePatchColumns = (
+  updates: Record<string, unknown>,
+  patch: CompetitionPatchInput,
+): void => {
+  if (patch.title !== undefined) updates.title = patch.title;
+  if (patch.description !== undefined) updates.description = patch.description;
+  if (patch.slug !== undefined) updates.slug = patch.slug;
+  if (patch.category !== undefined) updates.category = patch.category;
+  if (patch.mode !== undefined) updates.mode = patch.mode;
+  if (patch.minTeamSize !== undefined) updates.minTeamSize = patch.minTeamSize;
+  if (patch.maxTeamSize !== undefined) updates.maxTeamSize = patch.maxTeamSize;
+  if (patch.registrationStartAt !== undefined)
+    updates.registrationStartAt = patch.registrationStartAt;
+  if (patch.registrationEndAt !== undefined) updates.registrationEndAt = patch.registrationEndAt;
+  if (patch.eventStartAt !== undefined) updates.eventStartAt = patch.eventStartAt;
+  if (patch.eventEndAt !== undefined) updates.eventEndAt = patch.eventEndAt;
+  if (patch.allowCancellation !== undefined) updates.allowCancellation = patch.allowCancellation;
+  if (patch.cancellationCutoffDays !== undefined)
+    updates.cancellationCutoffDays = patch.cancellationCutoffDays;
+};
+
+const toClassifiable = (row: CompetitionRow): ClassifiableCompetition => ({
+  title: row.title,
+  slug: row.slug,
+  description: row.description,
+  category: row.category,
+  mode: row.mode,
+  minTeamSize: row.minTeamSize,
+  maxTeamSize: row.maxTeamSize,
+  registrationStartAt: row.registrationStartAt,
+  registrationEndAt: row.registrationEndAt,
+  eventStartAt: row.eventStartAt,
+  eventEndAt: row.eventEndAt,
+  allowCancellation: row.allowCancellation,
+  cancellationCutoffDays: row.cancellationCutoffDays,
+  // feeAmount intentionally omitted — API-blocked on edit (DEC-0022); the classifier skips it.
+});
+
+const mergeForClassification = (
+  row: CompetitionRow,
+  patch: CompetitionPatchInput,
+): ClassifiableCompetition => {
+  const merged = toClassifiable(row);
+  if (patch.title !== undefined) merged.title = patch.title;
+  if (patch.slug !== undefined) merged.slug = patch.slug;
+  if (patch.description !== undefined) merged.description = patch.description;
+  if (patch.category !== undefined) merged.category = patch.category;
+  if (patch.mode !== undefined) merged.mode = patch.mode;
+  if (patch.minTeamSize !== undefined) merged.minTeamSize = patch.minTeamSize;
+  if (patch.maxTeamSize !== undefined) merged.maxTeamSize = patch.maxTeamSize;
+  if (patch.registrationStartAt !== undefined)
+    merged.registrationStartAt = patch.registrationStartAt;
+  if (patch.registrationEndAt !== undefined) merged.registrationEndAt = patch.registrationEndAt;
+  if (patch.eventStartAt !== undefined) merged.eventStartAt = patch.eventStartAt;
+  if (patch.eventEndAt !== undefined) merged.eventEndAt = patch.eventEndAt;
+  if (patch.allowCancellation !== undefined) merged.allowCancellation = patch.allowCancellation;
+  if (patch.cancellationCutoffDays !== undefined)
+    merged.cancellationCutoffDays = patch.cancellationCutoffDays;
+  return merged;
+};
+
+// Loads the non-cancelled registration snapshot used by the post-publish edit classifier. Team
+// sizes are the per-team count of non-cancelled team-typed rows (each member holds one row).
+const loadEditClassificationSnapshot = async (
+  competitionId: string,
+  db: Database,
+): Promise<EditClassificationSnapshot> => {
+  const rows = await db
+    .select({
+      registrationType: competitionRegistrations.registrationType,
+      teamId: competitionRegistrations.teamId,
+    })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        eq(competitionRegistrations.competitionId, competitionId),
+        ne(competitionRegistrations.status, "cancelled"),
+      ),
+    );
+
+  const teamCounts = new Map<string, number>();
+  let hasActiveIndividual = false;
+  let hasActiveTeam = false;
+  for (const row of rows) {
+    if (row.registrationType === "team" && row.teamId) {
+      hasActiveTeam = true;
+      teamCounts.set(row.teamId, (teamCounts.get(row.teamId) ?? 0) + 1);
+    } else {
+      hasActiveIndividual = true;
+    }
+  }
+
+  return {
+    nonCancelledCount: rows.length,
+    hasActiveIndividual,
+    hasActiveTeam,
+    activeTeamSizes: [...teamCounts.values()],
+    // MVP competitions are free (fee deferred, DEC-0022): any non-cancelled registration is free.
+    hasActiveFree: rows.length > 0,
+  };
+};
+
+// F17 / F6 — post-publish edit path. Two layers:
+//   outer (locked, Step 3.3): IMMUTABLE_AFTER_PUBLISH fields can never change → 422.
+//   inner (data-aware, F17): classify the remaining changes against existing registrations.
+// blocked → refuse; notify → persist + fan out competition.edited; trivial → persist silently.
+const updatePublishedCompetition = async (
+  competition: CompetitionRow,
+  patch: CompetitionPatchInput,
+  db: Database,
+): Promise<CompetitionRow> => {
+  const row = competition as unknown as Record<string, unknown>;
+  const patchRecord = patch as Record<string, unknown>;
+  const immutableChanged = IMMUTABLE_AFTER_PUBLISH.filter(
+    (field) => field in patchRecord && patchRecord[field] !== row[field],
+  );
+  if (immutableChanged.length > 0) {
+    throw new CompetitionError(
+      "competition_field_immutable",
+      422,
+      `Cannot modify immutable field(s) on a published competition: ${immutableChanged.join(", ")}`,
+      { fields: immutableChanged },
+    );
+  }
+
+  const merged = mergeForClassification(competition, patch);
+  validateCancellationPolicy(merged.allowCancellation, merged.cancellationCutoffDays);
+
+  const snapshot = await loadEditClassificationSnapshot(competition.id, db);
+  const classification = classifyCompetitionEdit(toClassifiable(competition), merged, snapshot);
+
+  if (classification.blocked.length > 0) {
+    throw new CompetitionError(
+      "competition_post_publish_blocked",
+      422,
+      `Cannot apply edit: ${classification.blocked.join(", ")} would invalidate existing registrations`,
+      { fields: classification.blocked, blockedFields: classification.blocked },
+    );
+  }
+
+  const updates: Record<string, unknown> = { updatedAt: sql`now()` };
+  applySimplePatchColumns(updates, patch);
+
+  if (Object.keys(updates).length === 1) {
+    return competition;
+  }
+
+  let updated: CompetitionRow;
+  try {
+    const [persisted] = await db
+      .update(competitions)
+      .set(updates)
+      .where(eq(competitions.id, competition.id))
+      .returning(PUBLIC_COMPETITION_COLUMNS);
+    if (!persisted) {
+      throw new CompetitionError("competition_not_found", 404, "Competition not found");
+    }
+    updated = persisted;
+  } catch (error) {
+    if (isCompetitionSlugUniqueViolation(error)) {
+      throw new CompetitionError(
+        "competition_slug_taken",
+        409,
+        "slug is already used by another competition in this institution",
+        { fields: ["slug"] },
+      );
+    }
+    throw error;
+  }
+
+  // Notify-bucket change → dual-channel fan-out. Fire-and-forget with an epoch idempotency key;
+  // an enqueue failure must not fail the edit (DEC-0076 isolation).
+  if (classification.notify.length > 0) {
+    enqueueCompetitionEdited({
+      competitionId: competition.id,
+      changedFields: classification.notify,
+      epoch: Date.now(),
+    }).catch((err) => {
+      logger.warn("competition.edited.enqueue-failed", {
+        competitionId: competition.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
+  return updated;
+};
+
 export const updateCompetitionDraft = async (
   actorUserId: string,
   competitionId: string,
@@ -306,13 +515,14 @@ export const updateCompetitionDraft = async (
 ): Promise<CompetitionRow> => {
   const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
 
-  // Draft-only mutation guard: published and archived competitions cannot be edited via PATCH.
-  // Per Step 3.2 contract, this surfaces 409 with code `competition_not_draft`.
+  // F6 — published competitions are editable in place via the data-aware classifier path.
+  if (competition.status === "published") {
+    return updatePublishedCompetition(competition, patch, db);
+  }
+
+  // Archived (and any non-draft, non-published) competitions remain non-editable. Defensive
+  // immutable-field check first so callers distinguish "never editable" from "terminal state".
   if (competition.status !== "draft") {
-    // Defensive secondary check for fields that are permanently immutable after publish.
-    // These fields (mode, minTeamSize, maxTeamSize) are locked to the values that participants
-    // registered under and must never change, even after unpublish. Fire 422 (not 409) so
-    // callers can distinguish "use unpublish first" from "this field can never change".
     const row = competition as unknown as Record<string, unknown>;
     const patchRecord = patch as Record<string, unknown>;
     const immutableChanged = IMMUTABLE_AFTER_PUBLISH.filter(
@@ -331,24 +541,22 @@ export const updateCompetitionDraft = async (
     throw new CompetitionError(
       "competition_not_draft",
       409,
-      `Cannot edit fields on a ${competition.status} competition. Transition to draft first via POST /unpublish.`,
+      `Cannot edit fields on a ${competition.status} competition.`,
       { fields: lockedFields },
     );
   }
 
   const updates: Record<string, unknown> = { updatedAt: sql`now()` };
-  if (patch.title !== undefined) updates.title = patch.title;
-  if (patch.description !== undefined) updates.description = patch.description;
-  if (patch.slug !== undefined) updates.slug = patch.slug;
-  if (patch.category !== undefined) updates.category = patch.category;
-  if (patch.mode !== undefined) updates.mode = patch.mode;
-  if (patch.minTeamSize !== undefined) updates.minTeamSize = patch.minTeamSize;
-  if (patch.maxTeamSize !== undefined) updates.maxTeamSize = patch.maxTeamSize;
-  if (patch.registrationStartAt !== undefined)
-    updates.registrationStartAt = patch.registrationStartAt;
-  if (patch.registrationEndAt !== undefined) updates.registrationEndAt = patch.registrationEndAt;
-  if (patch.eventStartAt !== undefined) updates.eventStartAt = patch.eventStartAt;
-  if (patch.eventEndAt !== undefined) updates.eventEndAt = patch.eventEndAt;
+  applySimplePatchColumns(updates, patch);
+
+  // F12 — validate the effective cancellation policy across patch + existing row.
+  const effectiveAllowCancellation =
+    patch.allowCancellation !== undefined ? patch.allowCancellation : competition.allowCancellation;
+  const effectiveCutoffDays =
+    patch.cancellationCutoffDays !== undefined
+      ? patch.cancellationCutoffDays
+      : competition.cancellationCutoffDays;
+  validateCancellationPolicy(effectiveAllowCancellation, effectiveCutoffDays);
 
   // F5 — normalize team sizes to the effective mode whenever the patch touches mode or a size
   // field. Resolve effective mode/sizes from the patch where present, falling back to the
@@ -483,17 +691,10 @@ export const transitionCompetitionStatus = async (
     }
   }
 
-  // Unpublish guard: stub returns false until Phase 4 registration logic exists.
-  if (competition.status === "published" && targetStatus === "draft") {
-    const blocked = await hasActiveRegistrationsForCompetition(competitionId, db);
-    if (blocked) {
-      throw new CompetitionError(
-        "competition_active_registrations",
-        409,
-        "Cannot unpublish: this competition has active registrations",
-      );
-    }
-  }
+  // Unpublish (published → draft) is no longer reached through this generic primitive — it is
+  // owned by unpublishCompetition (Step 6.5f), which cancels every active registration inside one
+  // transaction. The route layer calls that function directly; this path remains valid for the
+  // publish and archive transitions only.
 
   const updates: Record<string, unknown> = {
     status: targetStatus,
@@ -541,4 +742,92 @@ export const transitionCompetitionStatus = async (
   });
 
   return { competition: row };
+};
+
+export type UnpublishCompetitionResult = {
+  competition: CompetitionRow;
+  cancelledCount: number;
+};
+
+// F6 — unpublish-as-cancellation. Transitions a published competition back to draft AND cancels
+// every non-cancelled registration in one transaction (DEC-0070: rows are never hard-deleted,
+// status='cancelled' is terminal). publishedAt is preserved (DEC-0030). After commit, fans out the
+// competition.cancelled dual-channel notice (recipients re-derived at job-run from the institution
+// cancellation reason) and removes the competition from the search index. The competition row
+// remains queryable to platform_ops; this is not a soft-delete of the competition.
+export const unpublishCompetition = async (
+  actorUserId: string,
+  competitionId: string,
+  db: Database = getDb(),
+): Promise<UnpublishCompetitionResult> => {
+  const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "admin", db);
+
+  if (competition.status !== "published") {
+    throw new CompetitionError(
+      "competition_invalid_transition",
+      422,
+      `Cannot unpublish a competition in '${competition.status}' status`,
+    );
+  }
+
+  const now = new Date();
+  const result = await db.transaction(async (tx) => {
+    // CAS: re-check status='published' in the WHERE so a concurrent transition rolls this back.
+    const [statusRow] = await tx
+      .update(competitions)
+      .set({ status: "draft", updatedAt: now })
+      .where(and(eq(competitions.id, competitionId), eq(competitions.status, "published")))
+      .returning(PUBLIC_COMPETITION_COLUMNS);
+
+    if (!statusRow) {
+      throw new CompetitionError(
+        "competition_invalid_transition",
+        422,
+        "Competition status was modified concurrently — reload and retry the unpublish",
+      );
+    }
+
+    // Cancel every non-cancelled registration (individual + team member rows are flat, so a single
+    // UPDATE covers both). Already-cancelled rows are left untouched, preserving their own reason.
+    const cancelledRows = await tx
+      .update(competitionRegistrations)
+      .set({
+        status: "cancelled",
+        cancellationReason: INSTITUTION_CANCELLATION_REASON,
+        cancelledAt: now,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(competitionRegistrations.competitionId, competitionId),
+          ne(competitionRegistrations.status, "cancelled"),
+        ),
+      )
+      .returning({ id: competitionRegistrations.id });
+
+    return { competition: statusRow, cancelledCount: cancelledRows.length };
+  });
+
+  logger.info("competition.unpublished", {
+    competitionId,
+    actorUserId,
+    cancelledRegistrations: result.cancelledCount,
+  });
+
+  // Fire-and-forget post-commit dispatch — neither enqueue failure may fail the unpublish.
+  enqueueCompetitionSearchSync({ competitionId, action: "remove" }).catch((err) => {
+    logger.warn("competition.search-sync.enqueue-failed", {
+      competitionId,
+      action: "remove",
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+  enqueueCompetitionCancelled({ competitionId, epoch: Date.now() }).catch((err) => {
+    logger.warn("competition.cancelled.enqueue-failed", {
+      competitionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+
+  return result;
 };

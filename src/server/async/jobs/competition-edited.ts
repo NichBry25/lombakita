@@ -2,13 +2,14 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/async/jobs/competition-edited");
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import type { Job } from "bullmq";
 import { getDb } from "@/server/db/client";
 import { competitions, competitionRegistrations, users } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
 import { ASYNC_JOB_NAMES, type CompetitionEditedPayload } from "@/server/async/contracts";
 import { sendCompetitionEditedEmail } from "@/server/notifications/notification-email";
+import { summarizeChangeCategories } from "@/server/notifications/competition-change-summary";
 import { writeInboxNotificationSafely } from "@/server/notifications/inbox-write";
 import { NOTIFICATION_TYPES } from "@/server/notifications/notification-types";
 
@@ -18,13 +19,14 @@ export type CompetitionEditedJob = Job<
   typeof ASYNC_JOB_NAMES.competitionEdited
 >;
 
-// Step 6.5.1 — fan-out worker for "competition edited". Resolves every confirmed registration on
-// the competition and notifies each participant. Dual-channel (DEC-0076): stub Resend email +
-// in-app notification row per recipient. No callers yet — wired in Step 6.5f. Both delivery paths
-// are isolated: a failure in either never blocks the other and the worker never rethrows
-// (notification.inbox.failed is swallowed; the stub email failure is warn-logged, not retried).
+// Step 6.5f — fan-out worker for "competition edited". Re-derives every non-cancelled registration
+// on the competition AT JOB-RUN TIME (never a stale enqueue-site list) and notifies each
+// participant. Dual-channel (DEC-0076): in-app notification row written first (isolated/swallowed),
+// then Resend email. Both delivery paths are isolated: a failure in either never blocks the other
+// and the worker never rethrows. The copy names broad change categories (schedule / fees / rules /
+// etc), never the old/new field values — the listing page is the source of truth.
 export const processCompetitionEditedJob = async (job: CompetitionEditedJob): Promise<void> => {
-  const { competitionId } = job.data;
+  const { competitionId, changedFields } = job.data;
 
   const db = getDb();
 
@@ -51,40 +53,44 @@ export const processCompetitionEditedJob = async (job: CompetitionEditedJob): Pr
     .where(
       and(
         eq(competitionRegistrations.competitionId, competitionId),
-        eq(competitionRegistrations.status, "confirmed"),
+        ne(competitionRegistrations.status, "cancelled"),
       ),
     );
 
   if (recipients.length === 0) {
     logger.warn("notification.skipped", {
       event: "competition.edited",
-      reason: "no_confirmed_recipients",
+      reason: "no_active_recipients",
       jobId: job.id,
       competitionId,
     });
     return;
   }
 
+  const categories = summarizeChangeCategories(changedFields ?? []);
+  const categoryText = categories.length > 0 ? categories.join(", ") : "detail";
+
   for (const recipient of recipients) {
     // In-app notification row written FIRST (isolated/swallowed), so it lands regardless of the
-    // stub email outcome.
+    // email outcome.
     await writeInboxNotificationSafely(
       db,
       {
         userId: recipient.userId,
         type: NOTIFICATION_TYPES.competitionEdited,
         title: "Kompetisi Diperbarui",
-        body: `"${competition.title}" yang kamu daftarkan baru saja diperbarui oleh penyelenggara.`,
+        body: `"${competition.title}" yang kamu daftarkan diperbarui oleh penyelenggara. Bagian yang berubah: ${categoryText}.`,
       },
       { event: "competition.edited", jobId: job.id ?? undefined },
     );
 
-    // Stub email dispatch — fire-and-forget, warn on failure (no rethrow). Step 6.5f refines copy.
+    // Email dispatch — fire-and-forget, warn on failure (no rethrow).
     try {
       await sendCompetitionEditedEmail({
         toEmail: recipient.email,
         recipientId: recipient.userId,
         competitionTitle: competition.title,
+        changeCategories: categories,
       });
     } catch (error) {
       logger.warn("notification.failed", {

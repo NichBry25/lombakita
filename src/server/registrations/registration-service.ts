@@ -7,6 +7,7 @@ import { getDb, type Database } from "@/server/db/client";
 import { competitionRegistrations, competitions } from "@/server/db/schema";
 import { checkStudentEligibility } from "@/server/eligibility/eligibility-service";
 import {
+  MAX_CANCELLATION_REASON_LENGTH,
   RegistrationError,
   type RegistrationRecord,
 } from "@/server/registrations/registration-core";
@@ -58,6 +59,10 @@ type CompetitionGuardSnapshot = {
   status: "draft" | "published" | "archived";
   mode: "individual" | "team" | "both" | null;
   registrationEndAt: Date | null;
+  eventStartAt: Date | null;
+  allowCancellation: boolean;
+  cancellationCutoffDays: number | null;
+  feeAmount: string | null;
 };
 
 const loadCompetitionForRegistration = async (
@@ -70,6 +75,10 @@ const loadCompetitionForRegistration = async (
       status: competitions.status,
       mode: competitions.mode,
       registrationEndAt: competitions.registrationEndAt,
+      eventStartAt: competitions.eventStartAt,
+      allowCancellation: competitions.allowCancellation,
+      cancellationCutoffDays: competitions.cancellationCutoffDays,
+      feeAmount: competitions.feeAmount,
     })
     .from(competitions)
     .where(and(eq(competitions.id, competitionId), isNull(competitions.deletedAt)))
@@ -244,14 +253,23 @@ const loadRegistrationById = async (
   return row ?? null;
 };
 
-// Cancel a registration owned by the calling candidate.
-// Enforcement order:
-//   (a) registration exists for this id
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const isPaidCompetition = (feeAmount: string | null): boolean => {
+  if (feeAmount === null) return false;
+  const n = Number.parseFloat(feeAmount);
+  return Number.isFinite(n) && n > 0;
+};
+
+// Cancel an individual registration owned by the calling candidate (F12).
+// Enforcement order (fail-closed, ownership before any policy or reason error):
+//   (a) registration exists and matches the URL competitionId
 //   (b) registration belongs to this candidate (ownership)
-//   (c) registration matches the URL competitionId
-//   (d) registration.status === 'confirmed' (cancelled is terminal; pending_payment is Phase 7)
-//   (e) competition.registration_deadline not yet passed
-// `cancellationReason` is optional and stored as-is when provided.
+//   (c) registration.status === 'confirmed' (cancelled terminal; pending_payment is Phase 7)
+//   (d) cancellationReason required (non-empty, <= 500 chars)
+//   (e) competition is free, not paid (paid cancellation is Phase 7 — DEC-0073)
+//   (f) institution allows cancellation (allow_cancellation = true)
+//   (g) within the cancellation window: now <= event_start_at - cutoff days
 export const cancelRegistration = async (
   studentId: string,
   competitionId: string,
@@ -281,6 +299,21 @@ export const cancelRegistration = async (
     );
   }
 
+  // (d) reason is required and bounded. Enforced here (after ownership + status) so a non-owner
+  // never sees a reason-validation error.
+  if (cancellationReason === null || cancellationReason.length === 0) {
+    throw new RegistrationError(
+      "cancellation_reason_required",
+      "A cancellation reason is required",
+    );
+  }
+  if (cancellationReason.length > MAX_CANCELLATION_REASON_LENGTH) {
+    throw new RegistrationError(
+      "cancellation_reason_too_long",
+      `Cancellation reason must be at most ${MAX_CANCELLATION_REASON_LENGTH} characters`,
+    );
+  }
+
   const competition = await loadCompetitionForRegistration(competitionId, db);
 
   if (!competition) {
@@ -289,8 +322,38 @@ export const cancelRegistration = async (
     throw new RegistrationError("competition_not_found", "Competition not found");
   }
 
-  if (!competition.registrationEndAt || competition.registrationEndAt.getTime() <= now.getTime()) {
-    throw new RegistrationError("registration_deadline_passed", "Registration deadline has passed");
+  // (e) paid registrations cannot self-cancel in MVP.
+  // TODO Phase 7 (DEC-0073): paid cancellation + Xendit refund path lands here.
+  if (isPaidCompetition(competition.feeAmount)) {
+    throw new RegistrationError(
+      "cancellation_not_supported_for_paid",
+      "Paid registrations cannot be cancelled yet",
+    );
+  }
+
+  // (f) institution must allow cancellation at all.
+  if (!competition.allowCancellation) {
+    throw new RegistrationError(
+      "cancellation_disabled_by_institution",
+      "Cancellation is not enabled for this competition",
+    );
+  }
+
+  // (g) cutoff window: cancellation allowed only up to (event_start_at - cutoff days). A missing
+  // event_start_at or cutoff fails closed. (The DB CHECK guarantees a cutoff when allow=true.)
+  const cutoffDays = competition.cancellationCutoffDays;
+  if (!competition.eventStartAt || cutoffDays === null) {
+    throw new RegistrationError(
+      "cancellation_window_closed",
+      "The cancellation window is closed",
+    );
+  }
+  const windowEnd = competition.eventStartAt.getTime() - cutoffDays * DAY_MS;
+  if (now.getTime() > windowEnd) {
+    throw new RegistrationError(
+      "cancellation_window_closed",
+      "The cancellation window has closed",
+    );
   }
 
   const [updated] = await db

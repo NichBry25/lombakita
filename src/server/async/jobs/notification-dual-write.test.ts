@@ -12,12 +12,14 @@ const {
   mockWriteNotification,
   mockSendRegistrationConfirmedEmail,
   mockSendCompetitionEditedEmail,
+  mockSendCompetitionCancelledEmail,
   mockSendResultPublishedEmail,
 } = vi.hoisted(() => ({
   mockGetDb: vi.fn(),
   mockWriteNotification: vi.fn(),
   mockSendRegistrationConfirmedEmail: vi.fn(),
   mockSendCompetitionEditedEmail: vi.fn(),
+  mockSendCompetitionCancelledEmail: vi.fn(),
   mockSendResultPublishedEmail: vi.fn(),
 }));
 
@@ -31,6 +33,7 @@ vi.mock("@/server/notifications/notification-service", () => ({
 vi.mock("@/server/notifications/notification-email", () => ({
   sendRegistrationConfirmedEmail: mockSendRegistrationConfirmedEmail,
   sendCompetitionEditedEmail: mockSendCompetitionEditedEmail,
+  sendCompetitionCancelledEmail: mockSendCompetitionCancelledEmail,
   sendResultPublishedEmail: mockSendResultPublishedEmail,
 }));
 
@@ -42,6 +45,10 @@ import {
   processCompetitionEditedJob,
   type CompetitionEditedJob,
 } from "./competition-edited";
+import {
+  processCompetitionCancelledJob,
+  type CompetitionCancelledJob,
+} from "./competition-cancelled";
 import { processResultPublishedJob, type ResultPublishedJob } from "./result-published";
 
 // Chain mock — each select() shifts the next canned result; thenable so where-terminated queries
@@ -80,11 +87,17 @@ const confirmedJob = (): RegistrationConfirmedJob =>
     },
   }) as unknown as RegistrationConfirmedJob;
 
-const editedJob = (): CompetitionEditedJob =>
+const editedJob = (changedFields: string[] = ["eventStartAt"]): CompetitionEditedJob =>
   ({
     id: "job_e",
-    data: { competitionId: "comp_1" },
+    data: { competitionId: "comp_1", changedFields, epoch: 1_700_000_000_000 },
   }) as unknown as CompetitionEditedJob;
+
+const cancelledJob = (): CompetitionCancelledJob =>
+  ({
+    id: "job_c",
+    data: { competitionId: "comp_1", epoch: 1_700_000_000_000 },
+  }) as unknown as CompetitionCancelledJob;
 
 const resultJob = (): ResultPublishedJob =>
   ({
@@ -154,6 +167,75 @@ describe("competition-edited fan-out", () => {
       "Kompetisi Diperbarui",
       expect.stringContaining("Hackathon 2026"),
     );
+  });
+
+  it("summarizes the changed fields into a broad category in the notification body", async () => {
+    mockGetDb.mockReturnValue(
+      makeDb([[COMP_ROW], [{ userId: "u_1", email: "a@test.com" }]]),
+    );
+    mockSendCompetitionEditedEmail.mockResolvedValue(undefined);
+    mockWriteNotification.mockResolvedValue(undefined);
+
+    await processCompetitionEditedJob(editedJob(["eventStartAt", "registrationEndAt"]));
+
+    // "jadwal" is the schedule category; old/new values are never leaked.
+    expect(mockWriteNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      "u_1",
+      "competition_edited",
+      "Kompetisi Diperbarui",
+      expect.stringContaining("jadwal"),
+    );
+    expect(mockSendCompetitionEditedEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ changeCategories: ["jadwal"] }),
+    );
+  });
+
+  it("does not rethrow when the notification write fails but the email succeeds", async () => {
+    mockGetDb.mockReturnValue(
+      makeDb([[COMP_ROW], [{ userId: "u_1", email: "a@test.com" }]]),
+    );
+    mockWriteNotification.mockRejectedValue(new Error("notifications table gone"));
+    mockSendCompetitionEditedEmail.mockResolvedValue(undefined);
+
+    await expect(processCompetitionEditedJob(editedJob())).resolves.toBeUndefined();
+    expect(mockSendCompetitionEditedEmail).toHaveBeenCalledOnce();
+  });
+});
+
+describe("competition-cancelled fan-out", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("writes one notification per institution-cancelled recipient", async () => {
+    const recipients = [
+      { userId: "u_1", email: "a@test.com" },
+      { userId: "u_2", email: "b@test.com" },
+    ];
+    mockGetDb.mockReturnValue(makeDb([[COMP_ROW], recipients]));
+    mockSendCompetitionCancelledEmail.mockResolvedValue(undefined);
+    mockWriteNotification.mockResolvedValue(undefined);
+
+    await processCompetitionCancelledJob(cancelledJob());
+
+    expect(mockWriteNotification).toHaveBeenCalledTimes(2);
+    expect(mockWriteNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      "u_1",
+      "competition_cancelled",
+      "Kompetisi Dibatalkan",
+      expect.stringContaining("Hackathon 2026"),
+    );
+  });
+
+  it("does not rethrow when the notification write fails but the email succeeds", async () => {
+    mockGetDb.mockReturnValue(
+      makeDb([[COMP_ROW], [{ userId: "u_1", email: "a@test.com" }]]),
+    );
+    mockWriteNotification.mockRejectedValue(new Error("notifications table gone"));
+    mockSendCompetitionCancelledEmail.mockResolvedValue(undefined);
+
+    await expect(processCompetitionCancelledJob(cancelledJob())).resolves.toBeUndefined();
+    expect(mockSendCompetitionCancelledEmail).toHaveBeenCalledOnce();
   });
 });
 

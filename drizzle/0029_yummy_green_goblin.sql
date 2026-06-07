@@ -1,0 +1,3 @@
+ALTER TABLE "competitions" ADD COLUMN "allow_cancellation" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "competitions" ADD COLUMN "cancellation_cutoff_days" integer;--> statement-breakpoint
+ALTER TABLE "competitions" ADD CONSTRAINT "competitions_cancellation_policy_chk" CHECK ("competitions"."allow_cancellation" = false OR ("competitions"."cancellation_cutoff_days" IS NOT NULL AND "competitions"."cancellation_cutoff_days" >= 0));

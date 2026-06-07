@@ -4,16 +4,22 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 import { CompetitionError } from "@/server/competitions/competition-core";
 
-const { requireAuthenticatedSession, transitionCompetitionStatus, assertCompetitionInInstitution } =
-  vi.hoisted(() => ({
-    requireAuthenticatedSession: vi.fn(),
-    transitionCompetitionStatus: vi.fn(),
-    assertCompetitionInInstitution: vi.fn(),
-  }));
+const {
+  requireAuthenticatedSession,
+  transitionCompetitionStatus,
+  unpublishCompetition,
+  assertCompetitionInInstitution,
+} = vi.hoisted(() => ({
+  requireAuthenticatedSession: vi.fn(),
+  transitionCompetitionStatus: vi.fn(),
+  unpublishCompetition: vi.fn(),
+  assertCompetitionInInstitution: vi.fn(),
+}));
 
 vi.mock("@/server/auth/session", () => ({ requireAuthenticatedSession }));
 vi.mock("@/server/competitions/competition-service", () => ({
   transitionCompetitionStatus,
+  unpublishCompetition,
   assertCompetitionInInstitution,
 }));
 
@@ -158,25 +164,26 @@ describe("POST /api/v1/institutions/[institutionSlug]/competitions/[competitionI
 describe("POST .../unpublish", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("returns 200 on published → draft", async () => {
+  it("returns 200 on published → draft (cascade-cancel)", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
-    transitionCompetitionStatus.mockResolvedValue({
-      competition: { ...baseCompetition, status: "draft", publishedAt: null },
+    unpublishCompetition.mockResolvedValue({
+      competition: { ...baseCompetition, status: "draft" },
+      cancelledCount: 3,
     });
     const response = await UNPUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
     expect(response.status).toBe(200);
-    expect(transitionCompetitionStatus).toHaveBeenCalledWith("admin_1", "comp_1", "draft");
+    expect(unpublishCompetition).toHaveBeenCalledWith("admin_1", "comp_1");
   });
 
   it("returns 422 on illegal archived → draft transition", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
-    transitionCompetitionStatus.mockRejectedValue(
+    unpublishCompetition.mockRejectedValue(
       new CompetitionError(
         "competition_invalid_transition",
         422,
-        "Cannot transition competition from 'archived' to 'draft'",
+        "Cannot unpublish a competition in 'archived' status",
       ),
     );
     const response = await UNPUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
@@ -186,7 +193,7 @@ describe("POST .../unpublish", () => {
   it("returns 403 when institution_staff attempts to unpublish", async () => {
     requireAuthenticatedSession.mockResolvedValue(staffSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
-    transitionCompetitionStatus.mockRejectedValue(
+    unpublishCompetition.mockRejectedValue(
       new AccessError("forbidden", 403, "institution_owner access required"),
     );
     const response = await UNPUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));

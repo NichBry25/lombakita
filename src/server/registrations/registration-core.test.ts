@@ -69,9 +69,11 @@ describe("parseCancelPayload", () => {
     expect(() => parseCancelPayload({ cancellationReason: 42 })).toThrow(RegistrationError);
   });
 
-  it("rejects reason longer than 500 chars", () => {
-    expect(() => parseCancelPayload({ cancellationReason: "a".repeat(501) })).toThrow(
-      RegistrationError,
-    );
+  it("returns an over-length reason verbatim (length enforced in the service, F12)", () => {
+    // parseCancelPayload now does STRUCTURAL validation only; the required-and-length business
+    // rules moved into cancelRegistration so the documented check order (ownership → status →
+    // reason) holds. The parser returns the trimmed value untouched.
+    const long = "a".repeat(501);
+    expect(parseCancelPayload({ cancellationReason: long })).toEqual({ cancellationReason: long });
   });
 });

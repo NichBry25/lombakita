@@ -158,32 +158,38 @@ export const enqueueSubmissionFinalized = async (input: {
   });
 };
 
-// Step 6.5.1 — competition lifecycle fan-out. Idempotency key: competitionId, so the resulting
-// job id is `competition.edited__{competitionId}`. The worker fans out to all confirmed
-// registrations. No callers yet — wired into the competition service in Step 6.5f.
-// Fire-and-forget — callers must catch errors.
-export const enqueueCompetitionEdited = async (
-  competitionId: string,
-): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.competitionEdited>> => {
+// Step 6.5f — competition edited fan-out. Idempotency key includes the edit epoch (DEC-0081):
+// job id `competition.edited__{competitionId}__{epoch}`. Each genuine edit (distinct epoch) is a
+// fresh job that fires; a true same-epoch double-enqueue dedups. The worker re-derives recipients
+// from current DB state. Fire-and-forget — callers must catch errors.
+export const enqueueCompetitionEdited = async (input: {
+  competitionId: string;
+  changedFields: string[];
+  epoch: number;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.competitionEdited>> => {
   return enqueueAsyncJob({
     jobName: ASYNC_JOB_NAMES.competitionEdited,
-    idempotencyKey: competitionId,
+    idempotencyKey: `${input.competitionId}__${input.epoch}`,
     payload: {
-      competitionId,
+      competitionId: input.competitionId,
+      changedFields: input.changedFields,
+      epoch: input.epoch,
     },
   });
 };
 
-// Idempotency key: competitionId → job id `competition.cancelled__{competitionId}`.
-// Fire-and-forget — callers (Step 6.5f) must catch errors.
-export const enqueueCompetitionCancelled = async (
-  competitionId: string,
-): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.competitionCancelled>> => {
+// Idempotency key includes the unpublish epoch (DEC-0081): job id
+// `competition.cancelled__{competitionId}__{epoch}`. Fire-and-forget — callers must catch errors.
+export const enqueueCompetitionCancelled = async (input: {
+  competitionId: string;
+  epoch: number;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.competitionCancelled>> => {
   return enqueueAsyncJob({
     jobName: ASYNC_JOB_NAMES.competitionCancelled,
-    idempotencyKey: competitionId,
+    idempotencyKey: `${input.competitionId}__${input.epoch}`,
     payload: {
-      competitionId,
+      competitionId: input.competitionId,
+      epoch: input.epoch,
     },
   });
 };

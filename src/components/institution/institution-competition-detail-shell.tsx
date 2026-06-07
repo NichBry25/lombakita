@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useModal } from "@/components/ui/primitives";
 
 type CompetitionStatus = "draft" | "published" | "archived";
 type CompetitionMode = "individual" | "team" | "both";
@@ -59,7 +60,7 @@ type ActionKind = "publish" | "unpublish" | "archive";
 
 const actionLabel: Record<ActionKind, string> = {
   publish: "Status diterbitkan (published).",
-  unpublish: "Status dikembalikan ke draft.",
+  unpublish: "Kompetisi ditarik ke draft dan semua pendaftaran dibatalkan.",
   archive: "Kompetisi diarsipkan.",
 };
 
@@ -70,6 +71,7 @@ export const InstitutionCompetitionDetailShell = ({
   institutionSlug: string;
   competitionId: string;
 }) => {
+  const { openModal } = useModal();
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -203,8 +205,29 @@ export const InstitutionCompetitionDetailShell = ({
         ) : null}
         {isPublished ? (
           <>
-            <button onClick={() => onAction("unpublish")} disabled={isSubmitting} type="button">
-              Unpublish (kembali ke draft)
+            <button
+              onClick={() =>
+                openModal({
+                  title: "Tarik publikasi kompetisi?",
+                  closeable: true,
+                  body: "Menarik publikasi akan membatalkan SEMUA pendaftaran peserta untuk kompetisi ini. Tindakan ini tidak dapat dibatalkan.",
+                  actions: [
+                    { label: "Batal", variant: "secondary", autoClose: true, onClick: () => {} },
+                    {
+                      label: "Tarik publikasi & batalkan pendaftaran",
+                      variant: "danger",
+                      autoClose: true,
+                      onClick: () => {
+                        void onAction("unpublish");
+                      },
+                    },
+                  ],
+                })
+              }
+              disabled={isSubmitting}
+              type="button"
+            >
+              Unpublish (batalkan semua pendaftaran)
             </button>{" "}
             <button onClick={() => onAction("archive")} disabled={isSubmitting} type="button">
               Arsipkan

@@ -68,15 +68,21 @@ export type SubmissionFinalizedPayload = {
   competitionId: string;
 };
 
-// Step 6.5.1 — competition lifecycle fan-out events. The worker resolves all confirmed
-// registrations for the competition and writes one in-app notification row per recipient (plus a
-// stub email dispatch). Callers in the competition service are added in Step 6.5f — no callers yet.
+// Step 6.5.1 / 6.5f — competition lifecycle fan-out events. The worker re-derives all
+// non-cancelled registrations for the competition at job-run time and writes one in-app
+// notification row + one email per recipient (DEC-0076). `epoch` is the enqueue-time timestamp
+// folded into the idempotency key (DEC-0081) so a genuine re-fire produces a fresh notification
+// batch while a same-epoch double-enqueue dedups. `changedFields` carries the notify-bucket field
+// names so the worker can summarise the change category without leaking old/new values.
 export type CompetitionEditedPayload = {
   competitionId: string;
+  changedFields: string[];
+  epoch: number;
 };
 
 export type CompetitionCancelledPayload = {
   competitionId: string;
+  epoch: number;
 };
 
 // Step 6.5e — queued dual-channel invite send. The worker derives the email variant from the

@@ -23,6 +23,10 @@ type CompetitionRow = {
   status: "draft" | "published" | "archived";
   mode: "individual" | "team" | "both" | null;
   registrationEndAt: Date | null;
+  eventStartAt: Date | null;
+  allowCancellation: boolean;
+  cancellationCutoffDays: number | null;
+  feeAmount: string | null;
 };
 
 type RegistrationRow = {
@@ -47,6 +51,10 @@ const baseCompetition = (overrides: Partial<CompetitionRow> = {}): CompetitionRo
   status: "published",
   mode: "individual",
   registrationEndAt: FUTURE,
+  eventStartAt: FUTURE,
+  allowCancellation: false,
+  cancellationCutoffDays: null,
+  feeAmount: null,
   ...overrides,
 });
 
@@ -299,16 +307,20 @@ describe("createIndividualRegistration enforcement chain", () => {
 describe("cancelRegistration enforcement chain", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("cancels a confirmed registration before deadline", async () => {
+  it("cancels a confirmed registration within the cancellation window (F12)", async () => {
     const reg = baseRegistration();
     const updated = baseRegistration({
       status: "cancelled",
       cancelledAt: NOW,
       cancellationReason: "test",
     });
-    const { db, spies } = makeQueuedDb([[reg], [baseCompetition()]], {
-      updateReturning: [updated],
-    });
+    const { db, spies } = makeQueuedDb(
+      [
+        [reg],
+        [baseCompetition({ allowCancellation: true, cancellationCutoffDays: 7, eventStartAt: FUTURE })],
+      ],
+      { updateReturning: [updated] },
+    );
 
     const result = await cancelRegistration("stud_1", "comp_1", "reg_1", "test", db as never, NOW);
 
@@ -357,13 +369,71 @@ describe("cancelRegistration enforcement chain", () => {
     ).rejects.toMatchObject({ code: "registration_wrong_status" });
   });
 
-  it("rejects with registration_deadline_passed when deadline has passed", async () => {
+  it("rejects with cancellation_reason_required when reason is missing (after ownership + status)", async () => {
     const reg = baseRegistration();
-    const { db } = makeQueuedDb([[reg], [baseCompetition({ registrationEndAt: PAST })]]);
+    // Only the registration is loaded — the reason gate fires before the competition is read.
+    const { db } = makeQueuedDb([[reg]]);
 
     await expect(
       cancelRegistration("stud_1", "comp_1", "reg_1", null, db as never, NOW),
-    ).rejects.toMatchObject({ code: "registration_deadline_passed" });
+    ).rejects.toMatchObject({ code: "cancellation_reason_required" });
+  });
+
+  it("rejects with cancellation_reason_too_long when reason exceeds 500 chars", async () => {
+    const reg = baseRegistration();
+    const { db } = makeQueuedDb([[reg]]);
+
+    await expect(
+      cancelRegistration("stud_1", "comp_1", "reg_1", "a".repeat(501), db as never, NOW),
+    ).rejects.toMatchObject({ code: "cancellation_reason_too_long" });
+  });
+
+  it("rejects with cancellation_not_supported_for_paid for a paid competition", async () => {
+    const reg = baseRegistration();
+    const { db } = makeQueuedDb([
+      [reg],
+      [
+        baseCompetition({
+          feeAmount: "50000",
+          allowCancellation: true,
+          cancellationCutoffDays: 0,
+          eventStartAt: FUTURE,
+        }),
+      ],
+    ]);
+
+    await expect(
+      cancelRegistration("stud_1", "comp_1", "reg_1", "ganti rencana", db as never, NOW),
+    ).rejects.toMatchObject({ code: "cancellation_not_supported_for_paid" });
+  });
+
+  it("rejects with cancellation_disabled_by_institution when allow_cancellation is false", async () => {
+    const reg = baseRegistration();
+    const { db } = makeQueuedDb([[reg], [baseCompetition({ allowCancellation: false })]]);
+
+    await expect(
+      cancelRegistration("stud_1", "comp_1", "reg_1", "ganti rencana", db as never, NOW),
+    ).rejects.toMatchObject({ code: "cancellation_disabled_by_institution" });
+  });
+
+  it("rejects with cancellation_window_closed past the cutoff", async () => {
+    const reg = baseRegistration();
+    // Event starts 2 days after NOW; a 7-day cutoff puts the window end before NOW.
+    const eventSoon = new Date(NOW.getTime() + 2 * 24 * 60 * 60 * 1000);
+    const { db } = makeQueuedDb([
+      [reg],
+      [
+        baseCompetition({
+          allowCancellation: true,
+          cancellationCutoffDays: 7,
+          eventStartAt: eventSoon,
+        }),
+      ],
+    ]);
+
+    await expect(
+      cancelRegistration("stud_1", "comp_1", "reg_1", "ganti rencana", db as never, NOW),
+    ).rejects.toMatchObject({ code: "cancellation_window_closed" });
   });
 });
 

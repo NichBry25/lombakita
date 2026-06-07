@@ -100,6 +100,10 @@ const competition = (over: Record<string, unknown> = {}) => ({
   maxTeamSize: 4,
   registrationStartAt: PAST,
   registrationEndAt: FUTURE,
+  eventStartAt: FUTURE,
+  allowCancellation: true,
+  cancellationCutoffDays: 7,
+  feeAmount: null,
   ...over,
 });
 
@@ -460,34 +464,72 @@ describe("cancelTeamRegistration", () => {
   it("rejects team_not_found when team is missing", async () => {
     const { db } = makeDb([[]]);
     await expect(
-      cancelTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW),
+      cancelTeamRegistration("cap_1", "comp_1", "team_1", "alasan", db as never, NOW),
     ).rejects.toMatchObject({ code: "team_not_found" });
   });
 
   it("returns 404 (team_not_found) when teamId belongs to another competition", async () => {
     const { db } = makeDb([[team({ competitionId: "comp_OTHER", status: "submitted" })]]);
     await expect(
-      cancelTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW),
+      cancelTeamRegistration("cap_1", "comp_1", "team_1", "alasan", db as never, NOW),
     ).rejects.toMatchObject({ code: "team_not_found" });
   });
 
   it("returns 403 (team_not_captain) when caller is not the captain", async () => {
     const { db } = makeDb([[team({ status: "submitted" })]]);
     await expect(
-      cancelTeamRegistration("not_cap", "comp_1", "team_1", db as never, NOW),
+      cancelTeamRegistration("not_cap", "comp_1", "team_1", "alasan", db as never, NOW),
     ).rejects.toMatchObject({ code: "team_not_captain" });
   });
 
   it("rejects team_not_submitted when status is forming", async () => {
     const { db } = makeDb([[team({ status: "forming" })]]);
     await expect(
-      cancelTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW),
+      cancelTeamRegistration("cap_1", "comp_1", "team_1", "alasan", db as never, NOW),
     ).rejects.toMatchObject({ code: "team_not_submitted" });
+  });
+
+  it("rejects cancellation_reason_required when reason is missing (after captain + status gates)", async () => {
+    const { db } = makeDb([[team({ status: "submitted" })]]);
+    await expect(
+      cancelTeamRegistration("cap_1", "comp_1", "team_1", null, db as never, NOW),
+    ).rejects.toMatchObject({ code: "cancellation_reason_required" });
+  });
+
+  it("rejects cancellation_disabled_by_institution when allow_cancellation is false", async () => {
+    const { db } = makeDb([
+      [team({ status: "submitted" })],
+      [competition({ allowCancellation: false })],
+    ]);
+    await expect(
+      cancelTeamRegistration("cap_1", "comp_1", "team_1", "alasan", db as never, NOW),
+    ).rejects.toMatchObject({ code: "cancellation_disabled_by_institution" });
+  });
+
+  it("rejects cancellation_not_supported_for_paid for a paid competition", async () => {
+    const { db } = makeDb([
+      [team({ status: "submitted" })],
+      [competition({ feeAmount: "50000" })],
+    ]);
+    await expect(
+      cancelTeamRegistration("cap_1", "comp_1", "team_1", "alasan", db as never, NOW),
+    ).rejects.toMatchObject({ code: "cancellation_not_supported_for_paid" });
+  });
+
+  it("rejects cancellation_window_closed past the cutoff", async () => {
+    const eventSoon = new Date(NOW.getTime() + 2 * 24 * 60 * 60 * 1000);
+    const { db } = makeDb([
+      [team({ status: "submitted" })],
+      [competition({ cancellationCutoffDays: 7, eventStartAt: eventSoon })],
+    ]);
+    await expect(
+      cancelTeamRegistration("cap_1", "comp_1", "team_1", "alasan", db as never, NOW),
+    ).rejects.toMatchObject({ code: "cancellation_window_closed" });
   });
 
   it("cancels registrations and reverts team to forming on happy path", async () => {
     // tx.update is called twice (registrations cancel, then team revert). Both need returning().
-    const { db } = makeDb([[team({ status: "submitted" })]]);
+    const { db } = makeDb([[team({ status: "submitted" })], [competition()]]);
     db.transaction = vi.fn().mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
       const updateCalls: number[] = [];
       const tx = {
@@ -520,7 +562,14 @@ describe("cancelTeamRegistration", () => {
       return cb(tx);
     });
 
-    const result = await cancelTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW);
+    const result = await cancelTeamRegistration(
+      "cap_1",
+      "comp_1",
+      "team_1",
+      "berhalangan hadir",
+      db as never,
+      NOW,
+    );
     expect(result.status).toBe("forming");
     expect(result.registrations).toEqual([
       { id: "reg_1", studentId: "u_cap", status: "cancelled" },
@@ -528,7 +577,7 @@ describe("cancelTeamRegistration", () => {
   });
 
   it("throws team_state_conflict when team CAS UPDATE returns 0 rows", async () => {
-    const { db } = makeDb([[team({ status: "submitted" })]]);
+    const { db } = makeDb([[team({ status: "submitted" })], [competition()]]);
     db.transaction = vi.fn().mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
       const updateCalls: number[] = [];
       const tx = {
@@ -556,7 +605,7 @@ describe("cancelTeamRegistration", () => {
     });
 
     await expect(
-      cancelTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW),
+      cancelTeamRegistration("cap_1", "comp_1", "team_1", "alasan", db as never, NOW),
     ).rejects.toMatchObject({ code: "team_state_conflict" });
   });
 });

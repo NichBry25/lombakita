@@ -12,12 +12,10 @@ const {
   assertCompetitionAccess,
   assertInstitutionVerified,
   assertInstitutionNotSuspended,
-  hasActiveRegistrationsForCompetition,
 } = vi.hoisted(() => ({
   assertCompetitionAccess: vi.fn(),
   assertInstitutionVerified: vi.fn(),
   assertInstitutionNotSuspended: vi.fn(),
-  hasActiveRegistrationsForCompetition: vi.fn(),
 }));
 
 vi.mock("@/server/competitions/competition-access", async () => {
@@ -29,7 +27,6 @@ vi.mock("@/server/competitions/competition-access", async () => {
     assertCompetitionAccess,
     assertInstitutionVerified,
     assertInstitutionNotSuspended,
-    hasActiveRegistrationsForCompetition,
   };
 });
 
@@ -61,6 +58,8 @@ const baseCompetition = (overrides: Partial<CompetitionRow> = {}): CompetitionRo
   registrationEndAt: null,
   eventStartAt: null,
   eventEndAt: null,
+  allowCancellation: false,
+  cancellationCutoffDays: null,
   publishedAt: null,
   archivedAt: null,
   deletedAt: null,
@@ -122,25 +121,22 @@ describe("F2 — same-status transitions return 422", () => {
   });
 });
 
-describe("updateCompetitionDraft — draft-only mutation guard (Step 3.2)", () => {
+describe("updateCompetitionDraft — non-editable status guard", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it.each(["published", "archived"] as const)(
-    "rejects PATCH on a %s competition with 409 competition_not_draft",
-    async (status) => {
-      assertCompetitionAccess.mockResolvedValue({
-        competition: baseCompetition({ status }),
-        membershipRole: "institution_owner",
-      });
-      const patch: CompetitionPatchInput = { title: "Tampered Title 2026" };
-      await expect(updateCompetitionDraft("user_1", "comp_1", patch, stubDb)).rejects.toMatchObject(
-        {
-          code: "competition_not_draft",
-          httpStatus: 409,
-        },
-      );
-    },
-  );
+  // Archived (terminal) competitions remain non-editable. Published is editable in place via the
+  // Step 6.5f post-publish path — covered in competition-service.published-edit.test.ts.
+  it("rejects PATCH on an archived competition with 409 competition_not_draft", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({ status: "archived" }),
+      membershipRole: "institution_owner",
+    });
+    const patch: CompetitionPatchInput = { title: "Tampered Title 2026" };
+    await expect(updateCompetitionDraft("user_1", "comp_1", patch, stubDb)).rejects.toMatchObject({
+      code: "competition_not_draft",
+      httpStatus: 409,
+    });
+  });
 });
 
 describe("updateCompetitionDraft — IMMUTABLE_AFTER_PUBLISH guard (Step 3.3)", () => {
@@ -155,19 +151,6 @@ describe("updateCompetitionDraft — IMMUTABLE_AFTER_PUBLISH guard (Step 3.3)", 
     await expect(updateCompetitionDraft("user_1", "comp_1", patch, stubDb)).rejects.toMatchObject({
       code: "competition_field_immutable",
       httpStatus: 422,
-    });
-  });
-
-  it("fires 409 competition_not_draft (not 422) when immutable fields are unchanged on a published competition", async () => {
-    assertCompetitionAccess.mockResolvedValue({
-      competition: baseCompetition({ status: "published", mode: "individual" }),
-      membershipRole: "institution_owner",
-    });
-    // mode value matches the current row — no immutable-field change, so broad 409 fires
-    const patch: CompetitionPatchInput = { mode: "individual", title: "New Title" };
-    await expect(updateCompetitionDraft("user_1", "comp_1", patch, stubDb)).rejects.toMatchObject({
-      code: "competition_not_draft",
-      httpStatus: 409,
     });
   });
 });

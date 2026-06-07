@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useModal, useToast } from "@/components/ui/primitives";
 import {
   SESSION_MISMATCH_CODE,
   SESSION_MISMATCH_MESSAGE,
@@ -37,11 +38,66 @@ const ERROR_MESSAGES: Record<string, string> = {
   registration_not_found: "Pendaftaran tidak ditemukan.",
   registration_not_owner: "Anda tidak dapat membatalkan pendaftaran orang lain.",
   registration_wrong_status: "Pendaftaran ini sudah dibatalkan.",
+  cancellation_reason_required: "Alasan pembatalan wajib diisi.",
+  cancellation_reason_too_long: "Alasan pembatalan terlalu panjang (maksimal 500 karakter).",
+  cancellation_not_supported_for_paid: "Pendaftaran berbayar belum dapat dibatalkan.",
+  cancellation_disabled_by_institution:
+    "Penyelenggara tidak mengizinkan pembatalan untuk kompetisi ini.",
+  cancellation_window_closed: "Batas waktu pembatalan telah terlewat.",
   [SESSION_MISMATCH_CODE]: SESSION_MISMATCH_MESSAGE,
 };
 
 const messageFor = (code: string | undefined): string =>
   (code && ERROR_MESSAGES[code]) ?? "Terjadi kesalahan. Coba lagi.";
+
+// Self-contained modal body: collects the required cancellation reason and renders its own
+// confirm/cancel buttons (the modal is opened with no footer actions).
+function CancelReasonForm({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: (reason: string) => void;
+  onCancel: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const trimmed = reason.trim();
+  return (
+    <div>
+      <p style={{ marginTop: 0, fontSize: 14 }}>
+        Tuliskan alasan pembatalan pendaftaran Anda. Alasan wajib diisi.
+      </p>
+      <textarea
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        rows={4}
+        maxLength={500}
+        placeholder="Alasan pembatalan"
+        aria-label="Alasan pembatalan"
+        style={{ display: "block", width: "100%" }}
+      />
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+        <button type="button" onClick={onCancel}>
+          Kembali
+        </button>
+        <button
+          type="button"
+          disabled={trimmed.length === 0}
+          onClick={() => onConfirm(trimmed)}
+          style={{
+            background: trimmed.length === 0 ? "#f0f0f0" : "#c0392b",
+            color: trimmed.length === 0 ? "#999" : "#fff",
+            border: "1px solid #c0392b",
+            borderRadius: 6,
+            padding: "6px 14px",
+            cursor: trimmed.length === 0 ? "not-allowed" : "pointer",
+          }}
+        >
+          Batalkan Pendaftaran
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function IndividualRegistrationSection({
   competitionId,
@@ -51,6 +107,8 @@ export function IndividualRegistrationSection({
   modeLabel,
 }: Props) {
   const router = useRouter();
+  const { openModal, closeModal } = useModal();
+  const { addToast } = useToast();
   const [registration, setRegistration] = useState<Registration | null>(initialRegistration);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,32 +136,47 @@ export function IndividualRegistrationSection({
     }
   };
 
-  const handleCancel = async () => {
+  const submitCancel = async (reason: string) => {
     if (!registration) return;
-    if (!window.confirm("Batalkan pendaftaran Anda untuk kompetisi ini?")) return;
+    closeModal();
     setLoading(true);
     setError(null);
     try {
       const res = await sessionFetch(
         expectedUserId,
         `/api/v1/competitions/${competitionId}/registrations/${registration.id}`,
-        { method: "DELETE" },
+        {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ cancellationReason: reason }),
+        },
       );
       const body = (await res.json()) as {
         registration?: Registration;
         error?: { code?: string };
       };
       if (!res.ok || !body.registration) {
-        setError(messageFor(body.error?.code));
+        addToast({ type: "error", message: messageFor(body.error?.code) });
       } else {
         setRegistration(body.registration);
+        addToast({ type: "success", message: "Pendaftaran dibatalkan." });
         router.refresh();
       }
     } catch {
-      setError("Terjadi kesalahan jaringan. Coba lagi.");
+      addToast({ type: "error", message: "Terjadi kesalahan jaringan. Coba lagi." });
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCancel = () => {
+    if (!registration) return;
+    openModal({
+      title: "Batalkan Pendaftaran",
+      closeable: true,
+      actions: [],
+      body: <CancelReasonForm onConfirm={submitCancel} onCancel={closeModal} />,
+    });
   };
 
   return (
@@ -136,25 +209,22 @@ export function IndividualRegistrationSection({
           <div style={{ marginTop: 12 }}>
             <button
               onClick={handleCancel}
-              disabled={loading || ctaState !== "open"}
+              disabled={loading}
               style={{
                 padding: "6px 14px",
-                background: ctaState === "open" ? "#fff" : "#f0f0f0",
-                color: ctaState === "open" ? "#c0392b" : "#999",
+                background: "#fff",
+                color: "#c0392b",
                 border: "1px solid #c0392b",
                 borderRadius: 6,
                 fontSize: 13,
-                cursor:
-                  loading ? "wait" : ctaState === "open" ? "pointer" : "not-allowed",
+                cursor: loading ? "wait" : "pointer",
               }}
             >
               {loading ? "..." : "Batalkan Pendaftaran"}
             </button>
-            {ctaState !== "open" && (
-              <p style={{ fontSize: 12, color: "#888", marginTop: 6 }}>
-                Pembatalan tidak tersedia di luar jendela pendaftaran.
-              </p>
-            )}
+            <p style={{ fontSize: 12, color: "#888", marginTop: 6 }}>
+              Pembatalan tunduk pada kebijakan penyelenggara.
+            </p>
           </div>
         </>
       ) : registration && registration.status === "cancelled" ? (

@@ -59,6 +59,13 @@ export type TeamErrorCode =
   | "team_member_already_registered"
   | "team_not_submitted"
   | "team_state_conflict"
+  // Step 6.5f — F12 candidate-cancellation policy applied to the captain's team cancellation.
+  // Same code strings as the individual cancel path (registration-core) for client parity.
+  | "cancellation_reason_required"
+  | "cancellation_reason_too_long"
+  | "cancellation_not_supported_for_paid"
+  | "cancellation_disabled_by_institution"
+  | "cancellation_window_closed"
   // Schema-invariant violation backstop — fires only if a code path writes a row that
   // violates `competition_registrations_type_team_id_chk` (registration_type + team_id
   // co-presence). All current code paths write the pair atomically, so this is a
@@ -101,6 +108,11 @@ const STATUS_BY_CODE: Record<TeamErrorCode, number> = {
   team_not_submitted: 409,
   team_state_conflict: 409,
   team_registration_invariant_violation: 422,
+  cancellation_reason_required: 422,
+  cancellation_reason_too_long: 422,
+  cancellation_not_supported_for_paid: 422,
+  cancellation_disabled_by_institution: 422,
+  cancellation_window_closed: 422,
 };
 
 export class TeamError extends Error {
