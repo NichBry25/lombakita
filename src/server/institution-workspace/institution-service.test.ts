@@ -816,6 +816,7 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
   it("still applies a slug patch on a full institution", async () => {
     const { db, captured } = makeSettingsDb([
       [ownerRow({ institutionType: null, institutionSlug: "kampus-lama", institutionDisplayName: "Kampus Lama" })],
+      [], // Fix D: institutionSlugCollidesWithUsername("kampus-baru") → no colliding username
       [], // UPDATE resolve
       [ownerRow({ institutionType: null, institutionSlug: "kampus-baru", institutionDisplayName: "Kampus Lama" })],
     ]);
@@ -830,6 +831,93 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
     expect(captured.updateCalls).toBe(1);
     expect(captured.updatedSlug).toBe("kampus-baru");
     expect(result.slug).toBe("kampus-baru");
+  });
+
+  // Fix D (audit follow-up, F1-D3): the full-institution slug-change path validates the proposed slug
+  // against existing usernames via the Fix C helper. Closes the gap where a settings rename could
+  // create a slug==username collision the create-path check did not cover.
+  it("Fix D: rejects a full-institution slug change that collides with an existing username", async () => {
+    const { db, captured } = makeSettingsDb([
+      [ownerRow({ institutionType: null, institutionSlug: "kampus-lama", institutionDisplayName: "Kampus Lama" })],
+      [{ id: "user_alice" }], // Fix D probe: username "alice" already occupies this slot
+    ]);
+
+    await expect(
+      updateInstitutionWorkspaceForOwnerBySlug("user_1", "kampus-lama", { slug: "alice" }, db),
+    ).rejects.toMatchObject({ code: "institution_slug_conflicts_with_username", httpStatus: 409 });
+
+    // The slug must NOT have been written.
+    expect(captured.updateCalls).toBe(0);
+    expect(captured.updatedSlug).toBeNull();
+  });
+
+  it("Fix D: rejects via the `-`→`_` bijection (slug `alice-bob` resolves to username `alice_bob`)", async () => {
+    // The helper's slug→username normalization is unit-proven in the "institutionSlugCollidesWithUsername
+    // (Fix C)" describe; here we confirm the settings path wires it so a hyphenated slug matching an
+    // underscore username is rejected.
+    const { db, captured } = makeSettingsDb([
+      [ownerRow({ institutionType: null, institutionSlug: "kampus-lama", institutionDisplayName: "Kampus Lama" })],
+      [{ id: "user_alice_bob" }], // username "alice_bob" occupies the slot slug "alice-bob" maps to
+    ]);
+
+    await expect(
+      updateInstitutionWorkspaceForOwnerBySlug("user_1", "kampus-lama", { slug: "alice-bob" }, db),
+    ).rejects.toMatchObject({ code: "institution_slug_conflicts_with_username", httpStatus: 409 });
+    expect(captured.updateCalls).toBe(0);
+  });
+
+  it("Fix D: reserved-word slug rejection still fires on settings slug-change (parse layer intact)", async () => {
+    // parseInstitutionWorkspaceSettingsPatch rejects a reserved slug before any DB read; the new Fix D
+    // probe must not displace it. No owner row is consulted.
+    const { db, captured } = makeSettingsDb([]);
+
+    await expect(
+      updateInstitutionWorkspaceForOwnerBySlug("user_1", "kampus-lama", { slug: "admin" }, db),
+    ).rejects.toMatchObject({ code: "institution_slug_reserved", httpStatus: 422 });
+    expect(captured.updateCalls).toBe(0);
+  });
+
+  it("Fix D: institutions.slug uniqueness rejection still fires (unique-violation catch intact)", async () => {
+    // Full institution, slug clears the username check, but the UPDATE hits institutions_slug_unique_idx
+    // (another institution holds the slug). The existing catch maps it to institution_invalid_value.
+    let idx = 0;
+    const ownerSeed = {
+      institutionId: "inst_1",
+      institutionDisplayName: "Kampus Lama",
+      institutionSlug: "kampus-lama",
+      institutionStatus: "inactive",
+      institutionType: null,
+      institutionCreatedAt: new Date("2026-06-08T00:00:00.000Z"),
+      institutionUpdatedAt: new Date("2026-06-08T00:00:00.000Z"),
+      membershipId: "mem_1",
+      membershipRole: "institution_owner",
+      membershipStatus: "active",
+      membershipJoinedAt: new Date("2026-06-08T00:00:00.000Z"),
+      ownerUsername: "owner",
+    };
+    const selectResults: unknown[][] = [[ownerSeed], []]; // owner lookup; Fix D probe → no username collision
+    const node = (): Record<string, unknown> => {
+      const n: Record<string, unknown> = {};
+      for (const m of ["from", "innerJoin", "leftJoin", "where", "limit"]) {
+        n[m] = () => node();
+      }
+      n.then = (resolve: (v: unknown) => void) => resolve(selectResults[idx++] ?? []);
+      return n;
+    };
+    const db = {
+      select: () => node(),
+      update: () => ({
+        set: () => ({
+          where: () => {
+            throw { code: "23505", constraint: "institutions_slug_unique_idx" };
+          },
+        }),
+      }),
+    } as unknown as Database;
+
+    await expect(
+      updateInstitutionWorkspaceForOwnerBySlug("user_1", "kampus-lama", { slug: "kampus-baru" }, db),
+    ).rejects.toMatchObject({ code: "institution_invalid_value", details: { fields: ["slug"] } });
   });
 });
 
@@ -975,5 +1063,99 @@ describe("createInstitutionWorkspaceForUser — Fix C username-collision gate", 
       createInstitutionWorkspaceForUser("user_1", { displayName: "Kampus", slug: "personal" }, db),
     ).rejects.toMatchObject({ code: "institution_slug_reserved", httpStatus: 422 });
     expect(transaction).not.toHaveBeenCalled();
+  });
+});
+
+// Fix E (audit follow-up) — the slug-collision suffix loop re-checks each SUFFIXED candidate against
+// usernames, not only the base slug. Scenario: institution slug `target` is taken (forces a suffix
+// bump), and username `target_2` exists (occupies slug `target-2`), so the loop must skip `target-2`
+// and land on `target-3`. This is the rare two-collision sequence; the base-slug check at the top of
+// createInstitutionWorkspaceForUser handles the common case.
+describe("createInstitutionWorkspaceForUser — Fix E suffixed-slug username re-check", () => {
+  it("bumps past a suffixed candidate that collides with a username", async () => {
+    const attemptedInstitutionSlugs: string[] = [];
+    // Ordered read results:
+    //   1 owner count → 0; 2 base Fix-C probe ("target") → none; 3 Fix-E attempt0 ("target") → none;
+    //   4 Fix-E attempt1 ("target-2") → username "target_2" collides; 5 Fix-E attempt2 ("target-3") → none.
+    const selectResults: unknown[][] = [
+      [{ value: 0 }],
+      [],
+      [],
+      [{ id: "user_target_2" }],
+      [],
+    ];
+    let selectIdx = 0;
+
+    const makeSeqNode = (result: unknown[]) => {
+      const node: Record<string, unknown> = {};
+      for (const m of ["from", "innerJoin", "where", "limit"]) {
+        node[m] = () => node;
+      }
+      node.then = (resolve: (v: unknown) => void) => resolve(result);
+      return node;
+    };
+
+    const transaction = vi.fn(async (cb: (t: unknown) => Promise<unknown>) => {
+      const tx = {
+        insert: vi.fn((table: unknown) => {
+          if (table === institutions) {
+            return {
+              values: (values: { displayName: string | null; slug: string; status: string }) => {
+                attemptedInstitutionSlugs.push(values.slug);
+                return {
+                  returning: async () => {
+                    // institutions.slug `target` is already taken — force the suffix bump.
+                    if (values.slug === "target") {
+                      throw { code: "23505", constraint: "institutions_slug_unique_idx" };
+                    }
+                    return [
+                      {
+                        institutionId: "inst_new",
+                        institutionDisplayName: values.displayName,
+                        institutionSlug: values.slug,
+                        institutionStatus: values.status,
+                        institutionCreatedAt: new Date("2026-06-09T00:00:00.000Z"),
+                        institutionUpdatedAt: new Date("2026-06-09T00:00:00.000Z"),
+                      },
+                    ];
+                  },
+                };
+              },
+            };
+          }
+          return {
+            values: (values: { membershipRole: string; status: string }) => ({
+              returning: async () => [
+                {
+                  membershipId: "mem_new",
+                  membershipRole: values.membershipRole,
+                  membershipStatus: values.status,
+                  membershipJoinedAt: new Date("2026-06-09T00:00:00.000Z"),
+                },
+              ],
+            }),
+          };
+        }),
+      };
+      return cb(tx);
+    });
+
+    const db = {
+      select: vi.fn(() => makeSeqNode(selectResults[selectIdx++] ?? [])),
+      transaction,
+    } as unknown as Database;
+
+    const workspace = await createInstitutionWorkspaceForUser(
+      "user_1",
+      { displayName: "Target" },
+      db,
+    );
+
+    // Final slug skips the username-colliding `target-2` and lands on `target-3`.
+    expect(workspace.slug).toBe("target-3");
+    // `target` was attempted (slug-unique violation) and `target-3` succeeded; `target-2` never
+    // reached insert because Fix E skipped it on the username collision.
+    expect(attemptedInstitutionSlugs).toEqual(["target", "target-3"]);
+    expect(transaction).toHaveBeenCalledTimes(2);
   });
 });

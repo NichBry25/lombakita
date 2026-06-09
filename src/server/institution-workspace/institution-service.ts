@@ -222,6 +222,16 @@ const insertInstitutionWithOwner = async (
   for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
     const candidateSlug = buildInstitutionSlugCandidate(baseSlug, attempt);
 
+    // Flat-namespace guard (Fix C extended to the suffixed candidate). createInstitutionWorkspaceForUser
+    // already checked the BASE slug against usernames; this re-checks each SUFFIXED candidate the slug
+    // collision retry produces (e.g. a username `acme_2` would occupy slug `acme-2`). Bump the suffix on a
+    // username collision so the loop converges on a slug clear of both institutions.slug AND users.username.
+    // Skipped on the personal path: a personal slug derives from the owner's OWN username and would always
+    // match itself. Exhaustion falls through to the shared "slug is not available" throw below.
+    if (!isPersonalInstitutionType(institutionType) && (await institutionSlugCollidesWithUsername(candidateSlug, db))) {
+      continue;
+    }
+
     try {
       return await db.transaction(async (tx) => {
         const [institutionRow] = await tx
@@ -768,6 +778,20 @@ export const updateInstitutionWorkspaceForOwnerBySlug = async (
 
   if (Object.keys(updates).length === 0) {
     return mapInstitutionWorkspace(current, current.ownerUsername);
+  }
+
+  // Flat-namespace guard (Fix C extended to the slug-change path): a full institution's new slug must
+  // not collide with an existing user's username. No exclusion carve-out — renaming this institution
+  // moves no existing name onto a user, so any username match is a real conflict. Unreachable on the
+  // personal path (slug is never patched there). Sits alongside the reserved-word check (in parseSlug)
+  // and the institutions.slug uniqueness retry (the catch below); order among the three is functional-only.
+  if (updates.slug !== undefined && (await institutionSlugCollidesWithUsername(updates.slug, db))) {
+    throw new InstitutionWorkspaceInputError(
+      "institution_slug_conflicts_with_username",
+      "This slug is already used as another user's username and cannot be used for an institution",
+      { fields: ["slug"] },
+      409,
+    );
   }
 
   updates.updatedAt = sql`now()`;
