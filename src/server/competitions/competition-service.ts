@@ -40,6 +40,8 @@ import {
   assertCompetitionRead,
   assertInstitutionVerified,
   assertInstitutionNotSuspended,
+  assertPersonalCompetitionPublishable,
+  assertPersonalInstitutionIndividualMode,
   MEMBER_ROLES,
   PUBLIC_COMPETITION_COLUMNS,
   type CompetitionRow,
@@ -198,6 +200,11 @@ export const createCompetitionDraft = async (
   // normalized to that mode so a freshly created draft never persists null/inconsistent sizes
   // (e.g. an individual competition must store 1/1, not null/null).
   const effectiveMode = input.mode ?? "individual";
+
+  // Step 6.5f.1 — a personal institution can only run individual-mode competitions. No-op for full
+  // or legacy institutions; throws 422 competition_personal_individual_only for personal + team/both.
+  await assertPersonalInstitutionIndividualMode(institutionId, effectiveMode, db);
+
   const { minTeamSize, maxTeamSize } = resolveTeamSizesForMode(
     effectiveMode,
     input.minTeamSize ?? null,
@@ -546,6 +553,12 @@ export const updateCompetitionDraft = async (
     );
   }
 
+  // Step 6.5f.1 — a draft edit may not move a personal-owned competition off individual mode.
+  // Only checked when the patch actually touches mode (no-op for full/legacy institutions).
+  if (patch.mode !== undefined) {
+    await assertPersonalInstitutionIndividualMode(competition.institutionId, patch.mode, db);
+  }
+
   const updates: Record<string, unknown> = { updatedAt: sql`now()` };
   applySimplePatchColumns(updates, patch);
 
@@ -689,6 +702,14 @@ export const transitionCompetitionStatus = async (
         },
       );
     }
+
+    // Step 6.5f.1 — personal-institution reach cap: at most MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL
+    // competitions may be in published status at once, and the mode must be individual. No-op for
+    // full or legacy institutions.
+    await assertPersonalCompetitionPublishable(
+      { id: competition.id, institutionId: competition.institutionId, mode: competition.mode },
+      db,
+    );
   }
 
   // Unpublish (published → draft) is no longer reached through this generic primitive — it is

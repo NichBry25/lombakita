@@ -1,0 +1,2 @@
+CREATE TYPE "public"."institution_type" AS ENUM('personal', 'company', 'foundation', 'university', 'campus_organization');--> statement-breakpoint
+ALTER TABLE "institutions" ADD COLUMN "institution_type" "institution_type";

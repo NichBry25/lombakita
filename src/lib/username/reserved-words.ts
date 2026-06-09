@@ -45,6 +45,12 @@ export const RESERVED_WORDS: readonly string[] = [
   // routable — added per the same-commit convention (Step 2.1a depth review).
   "invitations",
   "protected",
+  // Static create-action segments under /institution/ that must never be claimed as an institution
+  // slug, or the static route would shadow /institution/<slug> and make that institution
+  // unreachable. Personal institutions share the flat /institution/<slug> namespace (Step 6.5f.1),
+  // so reserving these keeps the create surfaces collision-free.
+  "personal",
+  "workspace",
 
   // --- Carried forward from the Step 2.1 RESERVED_USERNAMES set ---
   // Kept so centralising the list does not regress the username namespace.

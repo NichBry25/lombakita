@@ -311,7 +311,8 @@ type ProfileInputErrorCode =
   | "profile_scope_violation"
   | "profile_invalid_value"
   | "profile_username_reserved"
-  | "profile_username_taken";
+  | "profile_username_taken"
+  | "profile_username_conflicts_with_institution";
 
 export class ProfileInputError extends Error {
   constructor(
@@ -500,12 +501,13 @@ export const parseProfilePatch = (
 export const toProfileInputErrorResponse = (error: ProfileInputError): NextResponse => {
   // 422 — scope violation and reserved-word rejection (semantic input rejections,
   //       Step 2.1a / DEC-0054).
-  // 409 — username uniqueness conflict.
+  // 409 — username uniqueness conflict (against another account or an institution slug).
   // 400 — all other malformed-payload errors.
   const status =
     error.code === "profile_scope_violation" || error.code === "profile_username_reserved"
       ? 422
-      : error.code === "profile_username_taken"
+      : error.code === "profile_username_taken" ||
+          error.code === "profile_username_conflicts_with_institution"
         ? 409
         : 400;
   return NextResponse.json(

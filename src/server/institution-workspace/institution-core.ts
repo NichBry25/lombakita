@@ -3,6 +3,7 @@ import type {
   InstitutionMembershipRole,
   InstitutionMembershipStatus,
   InstitutionStatus,
+  InstitutionType,
 } from "@/server/db/schema";
 import { RESERVED_WORDS } from "@/lib/username/reserved-words";
 
@@ -35,6 +36,9 @@ export type InstitutionWorkspaceShell = {
   displayName: string;
   slug: string;
   status: InstitutionStatus;
+  // Step 6.5f.1 — null for a legacy/undeclared full institution; "personal" for the capped
+  // single-member type; a full subtype once declared via F10 (Step 6.5g).
+  institutionType: InstitutionType | null;
   ownerMembership: {
     membershipId: string;
     membershipRole: InstitutionMembershipRole;
@@ -66,7 +70,12 @@ type InstitutionWorkspaceInputErrorCode =
   | "institution_invalid_value"
   | "institution_slug_reserved"
   | "institution_display_name_reserved"
-  | "recruiter_institution_limit_reached";
+  | "recruiter_institution_limit_reached"
+  // Step 6.5f.1 — a recruiter may hold at most one personal institution.
+  | "personal_institution_already_exists"
+  // A full institution's slug shares one flat namespace with usernames; it may not take a slug an
+  // existing user's username already occupies.
+  | "institution_slug_conflicts_with_username";
 
 export class InstitutionWorkspaceInputError extends Error {
   constructor(

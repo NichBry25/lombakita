@@ -14,6 +14,7 @@ import {
   type InstitutionStatus,
   type PlatformUserRole,
 } from "@/server/db/schema";
+import { getInstitutionDisplayName } from "@/server/institution-workspace/institution-display-name";
 
 assertServerOnly("server/user-domain/context");
 
@@ -59,16 +60,27 @@ const listMembershipsForUser = async (
       institutionId: institutionMemberships.institutionId,
       institutionSlug: institutions.slug,
       institutionDisplayName: institutions.displayName,
+      institutionType: institutions.institutionType,
       institutionStatus: institutions.status,
       membershipRole: institutionMemberships.membershipRole,
       membershipStatus: institutionMemberships.status,
       joinedAt: institutionMemberships.joinedAt,
+      // The membership's own user — for a personal institution this is the owner, whose username
+      // resolves the derived display name. Full institutions ignore this (stored name authoritative).
+      memberUsername: users.username,
     })
     .from(institutionMemberships)
     .innerJoin(institutions, eq(institutions.id, institutionMemberships.institutionId))
+    .innerJoin(users, eq(users.id, institutionMemberships.userId))
     .where(whereClause);
 
-  return rows;
+  return rows.map(({ institutionType, memberUsername, ...rest }) => ({
+    ...rest,
+    institutionDisplayName: getInstitutionDisplayName(
+      { displayName: rest.institutionDisplayName, institutionType },
+      { username: memberUsername },
+    ),
+  }));
 };
 
 export const getInstitutionMembershipForUser = async (

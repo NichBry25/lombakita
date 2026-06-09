@@ -52,6 +52,23 @@ export const institutionMembershipRoleEnum = pgEnum("institution_membership_role
   "institution_member",
 ]);
 
+// Step 6.5f.1 — institution type taxonomy. The column is nullable: a NULL value is a legacy
+// full/standard institution whose concrete subtype was never declared (all rows created before
+// this step backfill to NULL). `personal` is the lightweight, single-member, capped institution
+// a minimal-tier recruiter can self-create. The four full subtypes
+// (company|foundation|university|campus_organization) are declared through the F10 verification
+// flow (Step 6.5g). Predicate convention: "is personal" is `institution_type = 'personal'`;
+// "is full/standard" treats NULL as full via `institution_type IS DISTINCT FROM 'personal'`.
+// `community` is intentionally absent (deferred post-Beta). The enum is forward-compatible with
+// Phase 8 opportunity types — no jobs/internship wiring is added here.
+export const institutionTypeEnum = pgEnum("institution_type", [
+  "personal",
+  "company",
+  "foundation",
+  "university",
+  "campus_organization",
+]);
+
 export const institutionMembershipStatusEnum = pgEnum("institution_membership_status", [
   "invited",
   "active",
@@ -146,6 +163,7 @@ export type InstitutionMembershipRole = (typeof institutionMembershipRoleEnum.en
 export type InstitutionMembershipStatus =
   (typeof institutionMembershipStatusEnum.enumValues)[number];
 export type InstitutionStatus = (typeof institutionStatusEnum.enumValues)[number];
+export type InstitutionType = (typeof institutionTypeEnum.enumValues)[number];
 export type InstitutionVerificationStatus =
   (typeof institutionVerificationStatusEnum.enumValues)[number];
 export type PlatformUserRole = (typeof platformUserRoleEnum.enumValues)[number];
@@ -299,9 +317,19 @@ export const institutions = pgTable(
     id: text("id")
       .primaryKey()
       .default(sql`gen_random_uuid()::text`),
-    displayName: text("display_name").notNull(),
+    // Nullable: a personal institution stores NULL here and derives its user-facing name from the
+    // owner's current username at read time. Full/legacy institutions (type !== 'personal') store a
+    // non-null value, enforced at the service layer (createInstitutionWorkspaceForUser). ALWAYS read
+    // a user-facing institution name through getInstitutionDisplayName (institution-display-name.ts)
+    // — never read this column raw on any surface that shows a name to a user.
+    displayName: text("display_name"),
     slug: text("slug").notNull(),
     status: institutionStatusEnum("status").notNull().default("active"),
+    // Step 6.5f.1 — institution type. Nullable on purpose: NULL = legacy full institution,
+    // subtype undeclared. `personal` rows are capped (≤2 published competitions, individual-only,
+    // no featured placement, no staff/member invites); full subtypes are unconstrained by those
+    // caps. See institution-type.ts for the predicates and the type-transition state machine.
+    institutionType: institutionTypeEnum("institution_type"),
     verificationStatus: institutionVerificationStatusEnum("verification_status")
       .notNull()
       .default("pending_verification"),

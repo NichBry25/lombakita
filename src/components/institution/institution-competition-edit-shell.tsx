@@ -149,9 +149,14 @@ const snapshotEquals = (a: FormSnapshot, b: FormSnapshot): boolean =>
 export const InstitutionCompetitionEditShell = ({
   institutionSlug,
   competitionId,
+  isPersonal = false,
 }: {
   institutionSlug: string;
   competitionId: string;
+  // Step 6.5f.1 — a personal institution may only run individual-mode competitions. When true the
+  // mode selector offers individual only (no team/both); the server guard
+  // (assertPersonalInstitutionIndividualMode, 422) remains the authoritative enforcement.
+  isPersonal?: boolean;
 }) => {
   const router = useRouter();
   const { openModal } = useModal();
@@ -469,6 +474,11 @@ export const InstitutionCompetitionEditShell = ({
               Format peserta dan ukuran tim tidak dapat diubah setelah kompetisi terbit.
             </p>
           ) : null}
+          {isPersonal ? (
+            <p style={{ fontSize: 12, color: "#888", marginTop: 12, marginBottom: 4 }}>
+              Institusi personal hanya dapat menjalankan kompetisi mode individu.
+            </p>
+          ) : null}
           <label style={{ display: "block", marginBottom: 8 }}>
             Mode
             <select
@@ -498,8 +508,9 @@ export const InstitutionCompetitionEditShell = ({
             >
               <option value="">— kosong —</option>
               <option value="individual">individual</option>
-              <option value="team">team</option>
-              <option value="both">both</option>
+              {/* Step 6.5f.1 — team/both are hidden for a personal institution (individual-only). */}
+              {isPersonal ? null : <option value="team">team</option>}
+              {isPersonal ? null : <option value="both">both</option>}
             </select>
           </label>
           <label style={{ display: "block", marginBottom: 8 }}>

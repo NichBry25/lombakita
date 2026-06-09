@@ -7,6 +7,8 @@ import { CompetitionError } from "@/server/competitions/competition-core";
 import {
   getCompetitionIdByInstitutionAndSlug,
 } from "@/server/competitions/competition-service";
+import { loadInstitutionTypeBySlug } from "@/server/institution-workspace/institution-service";
+import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 
 type Props = { params: Promise<{ institutionSlug: string; competitionSlug: string }> };
 
@@ -30,10 +32,13 @@ export default async function InstitutionCompetitionEditPage({ params }: Props) 
     throw error;
   }
 
+  const isPersonal = isPersonalInstitutionType(await loadInstitutionTypeBySlug(institutionSlug));
+
   return (
     <InstitutionCompetitionEditShell
       institutionSlug={institutionSlug}
       competitionId={competitionId}
+      isPersonal={isPersonal}
     />
   );
 }

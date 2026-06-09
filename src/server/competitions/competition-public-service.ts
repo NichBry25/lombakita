@@ -18,9 +18,16 @@ import {
   type CompetitionIndexDocument,
 } from "@/server/search/competition-index";
 import { isCompetitionCategory, isCompetitionMode } from "@/server/competitions/competition-core";
+import {
+  getInstitutionDisplayName,
+  institutionOwnerUsernameSql,
+} from "@/server/institution-workspace/institution-display-name";
+import type { InstitutionType } from "@/server/db/schema";
 
 // Public listing columns — includes institution display name joined from the institutions table.
 // Does not expose fee_amount or fee_currency (DEC-0022). isFeatured is exposed for placement UI.
+// institutionName is resolved through getInstitutionDisplayName (mapPublicListingRow): a personal
+// institution stores NULL and derives its name from the owner username (institutionOwnerUsername).
 const PUBLIC_LISTING_COLUMNS = {
   id: competitions.id,
   slug: competitions.slug,
@@ -39,8 +46,51 @@ const PUBLIC_LISTING_COLUMNS = {
   updatedAt: competitions.updatedAt,
   isFeatured: competitions.isFeatured,
   institutionSlug: institutions.slug,
-  institutionName: institutions.displayName,
+  institutionDisplayName: institutions.displayName,
+  institutionType: institutions.institutionType,
+  institutionOwnerUsername: institutionOwnerUsernameSql,
 } as const;
+
+type PublicListingRow = {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  category: CompetitionCategory | null;
+  mode: CompetitionMode | null;
+  minTeamSize: number | null;
+  maxTeamSize: number | null;
+  registrationStartAt: Date | null;
+  registrationEndAt: Date | null;
+  eventStartAt: Date | null;
+  eventEndAt: Date | null;
+  publishedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  isFeatured: boolean;
+  institutionSlug: string;
+  institutionDisplayName: string | null;
+  institutionType: InstitutionType | null;
+  institutionOwnerUsername: string | null;
+};
+
+// Resolve the joined institution name through the display-name helper, then drop the type/owner
+// projection columns so the public shape stays exactly PublicCompetitionItem.
+const mapPublicListingRow = (row: PublicListingRow): PublicCompetitionItem => {
+  const {
+    institutionDisplayName,
+    institutionType,
+    institutionOwnerUsername,
+    ...rest
+  } = row;
+  return {
+    ...rest,
+    institutionName: getInstitutionDisplayName(
+      { displayName: institutionDisplayName, institutionType },
+      { username: institutionOwnerUsername },
+    ),
+  };
+};
 
 export type PublicCompetitionItem = {
   id: string;
@@ -174,7 +224,7 @@ const listFromDb = async (
   const total = countRow?.count ?? 0;
 
   return {
-    data: rows as PublicCompetitionItem[],
+    data: rows.map(mapPublicListingRow),
     meta: {
       total,
       page,
@@ -265,7 +315,10 @@ const listFromMeilisearch = async (
 
   // Preserve Meilisearch result order.
   const rowById = new Map(rows.map((r) => [r.id, r]));
-  const ordered = ids.map((id) => rowById.get(id)).filter(Boolean) as PublicCompetitionItem[];
+  const ordered = ids
+    .map((id) => rowById.get(id))
+    .filter((r): r is PublicListingRow => Boolean(r))
+    .map(mapPublicListingRow);
 
   return {
     data: ordered,
@@ -334,7 +387,9 @@ const PUBLIC_DETAIL_COLUMNS = {
   feeAmount: competitions.feeAmount,
   publishedAt: competitions.publishedAt,
   institutionSlug: institutions.slug,
-  institutionName: institutions.displayName,
+  institutionDisplayName: institutions.displayName,
+  institutionType: institutions.institutionType,
+  institutionOwnerUsername: institutionOwnerUsernameSql,
 } as const;
 
 export type PublicCompetitionDetail = {
@@ -397,7 +452,10 @@ export const getPublicCompetitionDetail = async (
     publishedAt: row.publishedAt,
     organizer: {
       slug: row.institutionSlug,
-      name: row.institutionName,
+      name: getInstitutionDisplayName(
+        { displayName: row.institutionDisplayName, institutionType: row.institutionType },
+        { username: row.institutionOwnerUsername },
+      ),
       logoUrl: null,
     },
     ctaState: deriveCTAState(row.registrationStartAt, row.registrationEndAt),

@@ -162,7 +162,12 @@ const makeCreateDb = (queue: unknown[][], insertReturning: unknown[]) => {
   };
 };
 
-const ADMIN_ROW = [{ institutionId: "inst_1", institutionDisplayName: "Univ" }];
+const ADMIN_ROW = [
+  { institutionId: "inst_1", institutionDisplayName: "Univ", institutionType: null },
+];
+const PERSONAL_ADMIN_ROW = [
+  { institutionId: "inst_p", institutionDisplayName: "Pribadi", institutionType: "personal" },
+];
 const CREATE_RETURNING = [
   { id: "inv_new", invitedEmail: "x@e.com", expiresAt: FUTURE },
 ];
@@ -222,6 +227,19 @@ describe("createInstitutionInvitation — resolution + dual-channel enqueue", ()
         db as never,
       ),
     ).rejects.toMatchObject({ code: "invitation_invalid_identifier", httpStatus: 400 });
+  });
+
+  it("Step 6.5f.1: a personal institution cannot invite — 403 invitation_personal_institution", async () => {
+    const { db, insertValues } = makeCreateDb([PERSONAL_ADMIN_ROW], CREATE_RETURNING);
+    await expect(
+      createInstitutionInvitation(
+        "owner_1",
+        "pribadi",
+        { invitedIdentifier: "x@e.com", invitedRole: "institution_staff" },
+        db as never,
+      ),
+    ).rejects.toMatchObject({ code: "invitation_personal_institution", httpStatus: 403 });
+    expect(insertValues).not.toHaveBeenCalled();
   });
 
   it("dual-channel: invite still succeeds when the dispatch enqueue throws", async () => {

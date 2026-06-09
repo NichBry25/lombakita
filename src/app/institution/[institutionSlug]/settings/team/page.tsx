@@ -1,6 +1,8 @@
 import { InstitutionTeamShell } from "@/components/institution/institution-team-shell";
 import { getCurrentSession } from "@/server/auth/session";
 import { isInstitutionAdminBySlug } from "@/server/institution-members/member-service";
+import { loadInstitutionTypeBySlug } from "@/server/institution-workspace/institution-service";
+import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { redirect } from "next/navigation";
 
 type InstitutionTeamPageProps = {
@@ -26,5 +28,7 @@ export default async function InstitutionTeamPage({ params }: InstitutionTeamPag
     redirect("/");
   }
 
-  return <InstitutionTeamShell institutionSlug={institutionSlug} />;
+  const isPersonal = isPersonalInstitutionType(await loadInstitutionTypeBySlug(institutionSlug));
+
+  return <InstitutionTeamShell institutionSlug={institutionSlug} isPersonal={isPersonal} />;
 }

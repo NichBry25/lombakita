@@ -11,6 +11,10 @@ import {
 import { logger } from "@/lib/logger";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import {
+  getInstitutionDisplayName,
+  institutionOwnerUsernameSql,
+} from "@/server/institution-workspace/institution-display-name";
+import {
   assertValidTransition,
   isVerificationStatus,
   VerificationError,
@@ -83,6 +87,8 @@ export const listInstitutionsForPlatformOps = async (options: {
     .select({
       id: institutions.id,
       displayName: institutions.displayName,
+      institutionType: institutions.institutionType,
+      ownerUsername: institutionOwnerUsernameSql,
       slug: institutions.slug,
       verificationStatus: institutions.verificationStatus,
       verifiedAt: institutions.verifiedAt,
@@ -114,8 +120,20 @@ export const listInstitutionsForPlatformOps = async (options: {
     .from(institutions)
     .where(statusWhere);
 
+  // Resolve the display name through the helper: a personal institution stores NULL and derives its
+  // name from the owner username; full/legacy institutions use the stored value.
+  const institutionItems: InstitutionListItem[] = rows.map(
+    ({ institutionType, ownerUsername, ...rest }) => ({
+      ...rest,
+      displayName: getInstitutionDisplayName(
+        { displayName: rest.displayName, institutionType },
+        { username: ownerUsername },
+      ),
+    }),
+  );
+
   return {
-    institutions: rows,
+    institutions: institutionItems,
     total: countRow?.count ?? 0,
     page,
   };
@@ -163,6 +181,7 @@ export const verifyInstitution = async (options: {
     .select({
       id: institutions.id,
       displayName: institutions.displayName,
+      institutionType: institutions.institutionType,
       verificationStatus: institutions.verificationStatus,
     })
     .from(institutions)
@@ -261,7 +280,7 @@ export const verifyInstitution = async (options: {
   if (options.targetStatus === "verified" || options.targetStatus === "rejected") {
     try {
       const [adminRow] = await db
-        .select({ email: users.email })
+        .select({ email: users.email, username: users.username })
         .from(institutionMemberships)
         .innerJoin(users, eq(users.id, institutionMemberships.userId))
         .where(
@@ -275,15 +294,21 @@ export const verifyInstitution = async (options: {
         .limit(1);
 
       if (adminRow) {
+        // Resolve the name through the helper: a personal institution derives it from the owner
+        // username (the same owner whose email we just loaded).
+        const resolvedDisplayName = getInstitutionDisplayName(
+          { displayName: current.displayName, institutionType: current.institutionType },
+          { username: adminRow.username },
+        );
         const emailTask =
           options.targetStatus === "verified"
             ? sendInstitutionVerifiedEmail({
                 toEmail: adminRow.email,
-                institutionDisplayName: current.displayName,
+                institutionDisplayName: resolvedDisplayName,
               })
             : sendInstitutionRejectedEmail({
                 toEmail: adminRow.email,
-                institutionDisplayName: current.displayName,
+                institutionDisplayName: resolvedDisplayName,
                 rejectionReason: options.reason!,
               });
 

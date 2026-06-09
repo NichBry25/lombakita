@@ -3,11 +3,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 import { InstitutionWorkspaceInputError } from "@/server/institution-workspace/institution-core";
+import { RecruiterTierError } from "@/server/auth/recruiter-tier";
 
-const { requireSessionRole, createInstitutionWorkspaceForUser } = vi.hoisted(() => ({
-  requireSessionRole: vi.fn(),
-  createInstitutionWorkspaceForUser: vi.fn(),
-}));
+const { requireSessionRole, createInstitutionWorkspaceForUser, assertRecruiterTier } = vi.hoisted(
+  () => ({
+    requireSessionRole: vi.fn(),
+    createInstitutionWorkspaceForUser: vi.fn(),
+    assertRecruiterTier: vi.fn(),
+  }),
+);
 
 vi.mock("@/server/auth/session", () => ({
   requireSessionRole,
@@ -16,6 +20,16 @@ vi.mock("@/server/auth/session", () => ({
 vi.mock("@/server/institution-workspace/institution-service", () => ({
   createInstitutionWorkspaceForUser,
 }));
+
+// Step 6.5f.1 — full-institution creation now asserts the elevated recruiter tier. Stub the
+// assertion (resolves by default) while keeping the real error class + threshold constant.
+vi.mock("@/server/auth/recruiter-tier", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/server/auth/recruiter-tier")>(
+      "@/server/auth/recruiter-tier",
+    );
+  return { ...actual, assertRecruiterTier };
+});
 
 import { POST } from "@/app/api/v1/institutions/route";
 
@@ -35,6 +49,7 @@ describe("POST /api/v1/institutions", () => {
 
   it("creates institution workspace for recruiter-verified account", async () => {
     requireSessionRole.mockResolvedValue(recruiterSessionFixture);
+    assertRecruiterTier.mockResolvedValue(undefined);
     createInstitutionWorkspaceForUser.mockResolvedValue({
       institutionId: "inst_1",
       displayName: "Universitas Nusantara",
@@ -117,6 +132,7 @@ describe("POST /api/v1/institutions", () => {
 
   it("maps institution input errors to 400 envelope", async () => {
     requireSessionRole.mockResolvedValue(recruiterSessionFixture);
+    assertRecruiterTier.mockResolvedValue(undefined);
     createInstitutionWorkspaceForUser.mockRejectedValue(
       new InstitutionWorkspaceInputError(
         "institution_invalid_value",
@@ -143,9 +159,36 @@ describe("POST /api/v1/institutions", () => {
     expect(body.error.details.fields).toContain("displayName");
   });
 
+  // Step 6.5f.1 — full-institution creation requires the elevated recruiter tier.
+  it("returns 403 when the recruiter tier is below elevated", async () => {
+    requireSessionRole.mockResolvedValue(recruiterSessionFixture);
+    assertRecruiterTier.mockRejectedValue(
+      new RecruiterTierError(
+        "recruiter_tier_insufficient",
+        403,
+        "Recruiter tier 'elevated' is required to perform this action",
+        { requiredTier: "elevated", currentTier: "minimal" },
+      ),
+    );
+
+    const request = new Request("http://localhost/api/v1/institutions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ displayName: "Kampus Penuh" }),
+    });
+
+    const response = await POST(request as never);
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe("recruiter_tier_insufficient");
+    expect(createInstitutionWorkspaceForUser).not.toHaveBeenCalled();
+  });
+
   // F7 (Step 6.5b) — recruiter institution-creation limit surfaced at the route layer.
   it("returns 409 recruiter_institution_limit_reached when the recruiter is at the limit", async () => {
     requireSessionRole.mockResolvedValue(recruiterSessionFixture);
+    assertRecruiterTier.mockResolvedValue(undefined);
     createInstitutionWorkspaceForUser.mockRejectedValue(
       new InstitutionWorkspaceInputError(
         "recruiter_institution_limit_reached",

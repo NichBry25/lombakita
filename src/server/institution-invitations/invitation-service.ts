@@ -7,7 +7,9 @@ import {
   institutionMemberships,
   institutions,
   users,
+  type InstitutionType,
 } from "@/server/db/schema";
+import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { logger } from "@/lib/logger";
 import {
   buildInvitationExpiresAt,
@@ -33,11 +35,14 @@ const requireAdminInstitution = async (
   userId: string,
   institutionSlug: string,
   db: Database,
-): Promise<{ institutionId: string; institutionDisplayName: string }> => {
+): Promise<{
+  institutionId: string;
+  institutionType: InstitutionType | null;
+}> => {
   const [row] = await db
     .select({
       institutionId: institutions.id,
-      institutionDisplayName: institutions.displayName,
+      institutionType: institutions.institutionType,
     })
     .from(institutions)
     .innerJoin(
@@ -70,7 +75,21 @@ export const createInstitutionInvitation = async (
   db: Database = getDb(),
 ): Promise<{ id: string; invitedEmail: string; expiresAt: Date }> => {
   const input: InvitationCreateInput = parseInvitationCreateInput(payload);
-  const { institutionId } = await requireAdminInstitution(userId, institutionSlug, db);
+  const { institutionId, institutionType } = await requireAdminInstitution(
+    userId,
+    institutionSlug,
+    db,
+  );
+
+  // Step 6.5f.1 — a personal institution is single-member: it cannot invite staff or members.
+  // No-op for full or legacy institutions (NULL type).
+  if (isPersonalInstitutionType(institutionType)) {
+    throw new InstitutionInvitationError(
+      "invitation_personal_institution",
+      403,
+      "A personal institution cannot invite staff or members",
+    );
+  }
 
   // Step 6.5e — classify the identifier (username or email) and resolve the recipient. This is the
   // shared resolver (extends DEC-0082); the service never builds its own.

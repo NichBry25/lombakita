@@ -13,10 +13,19 @@ import {
   deriveCTAState,
 } from "@/server/competitions/competition-public-service";
 
+// The service maps the joined institution columns (display_name / type / owner-username) through
+// getInstitutionDisplayName, so the mocked DB rows carry the RAW projection shape, not the resolved
+// output shape. institutionName on the result is computed, never read straight from the row.
+type RawListingRow = Omit<PublicCompetitionItem, "institutionName"> & {
+  institutionDisplayName: string | null;
+  institutionType: "personal" | "company" | "foundation" | "university" | "campus_organization" | null;
+  institutionOwnerUsername: string | null;
+};
+
 // Builds a chainable Drizzle mock where:
 //   first db.select() → resolves rows after full chain .from().innerJoin().where().orderBy().limit().offset()
 //   second db.select() → resolves count array after .from().innerJoin().where()
-const makeDb = (rows: PublicCompetitionItem[], total: number): Database => {
+const makeDb = (rows: RawListingRow[], total: number): Database => {
   const rowsChain = {
     from: vi.fn().mockReturnThis(),
     innerJoin: vi.fn().mockReturnThis(),
@@ -36,7 +45,7 @@ const makeDb = (rows: PublicCompetitionItem[], total: number): Database => {
   } as unknown as Database;
 };
 
-const makeRow = (overrides: Partial<PublicCompetitionItem> = {}): PublicCompetitionItem => ({
+const makeRow = (overrides: Partial<RawListingRow> = {}): RawListingRow => ({
   id: "comp_1",
   slug: "lomba-x",
   title: "Lomba X",
@@ -54,7 +63,9 @@ const makeRow = (overrides: Partial<PublicCompetitionItem> = {}): PublicCompetit
   updatedAt: new Date("2026-05-01"),
   isFeatured: false,
   institutionSlug: "lk-univ",
-  institutionName: "Universitas LK",
+  institutionDisplayName: "Universitas LK",
+  institutionType: null,
+  institutionOwnerUsername: null,
   ...overrides,
 });
 
@@ -69,6 +80,23 @@ describe("listPublicCompetitions — DB path", () => {
     expect(result.meta.searchEngine).toBe("db");
     expect(result.meta.total).toBe(1);
     expect(result.meta.page).toBe(1);
+  });
+
+  it("resolves a full institution's stored name as the organizer name", async () => {
+    const db = makeDb([makeRow()], 1);
+    const result = await listPublicCompetitions({}, db);
+    expect(result.data[0]!.institutionName).toBe("Universitas LK");
+  });
+
+  it("derives a personal institution's organizer name from the owner username", async () => {
+    const personalRow = makeRow({
+      institutionDisplayName: null,
+      institutionType: "personal",
+      institutionOwnerUsername: "owneruser",
+    });
+    const db = makeDb([personalRow], 1);
+    const result = await listPublicCompetitions({}, db);
+    expect(result.data[0]!.institutionName).toBe("owneruser's Institution");
   });
 
   it("defaults page to 1 and limit to 20", async () => {
@@ -130,7 +158,7 @@ describe("listPublicCompetitions — Meilisearch degradation", () => {
 
 // Builds a DB mock for the Meilisearch hydration path.
 // listFromMeilisearch issues a single db.select() that terminates at .where() — no orderBy/limit/offset.
-const makeHydrationDb = (rows: PublicCompetitionItem[]): Database =>
+const makeHydrationDb = (rows: RawListingRow[]): Database =>
   ({
     select: vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({

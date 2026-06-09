@@ -11,6 +11,7 @@ type InstitutionSettingsResponse = {
     displayName: string;
     slug: string;
     status: "active" | "inactive" | "suspended";
+    institutionType: string | null;
     ownerMembership: {
       membershipId: string;
       membershipRole: "institution_owner" | "institution_staff" | "institution_member";
@@ -53,6 +54,9 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
   const [displayName, setDisplayName] = useState("");
   const [slug, setSlug] = useState("");
   const [status, setStatus] = useState<"active" | "inactive" | "suspended">("inactive");
+  // Step 6.5f.1 — a personal institution's name is derived from the owner username and is read-only;
+  // the type also drives the minimal "Personal" indicator in the header.
+  const [isPersonal, setIsPersonal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
@@ -84,6 +88,7 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
     setDisplayName(data.institution.displayName);
     setSlug(data.institution.slug);
     setStatus(data.institution.status);
+    setIsPersonal(data.institution.institutionType === "personal");
     setIsLoading(false);
   }, [activeSlug]);
 
@@ -100,7 +105,9 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (displayName.trim().length < 2) {
+    // A personal institution has no editable name (it derives from the owner username), so the name
+    // length check is skipped and only the slug is sent.
+    if (!isPersonal && displayName.trim().length < 2) {
       setFeedback({
         type: "error",
         message: "Nama institusi minimal terdiri dari 2 karakter.",
@@ -127,10 +134,7 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
           "content-type": "application/json",
         },
         credentials: "include",
-        body: JSON.stringify({
-          displayName,
-          slug,
-        }),
+        body: JSON.stringify(isPersonal ? { slug } : { displayName, slug }),
       },
     );
 
@@ -151,6 +155,7 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
     setDisplayName(data.institution.displayName);
     setSlug(nextSlug);
     setStatus(data.institution.status);
+    setIsPersonal(data.institution.institutionType === "personal");
     setFeedback({
       type: "success",
       message: "Pengaturan institusi berhasil disimpan.",
@@ -167,6 +172,9 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-14">
       <header>
         <h1 className="text-2xl font-semibold text-gleam">Pengaturan Institusi</h1>
+        {isPersonal ? (
+          <p className="text-sm text-[var(--text-muted)]">Tipe: Personal</p>
+        ) : null}
       </header>
 
       <section className="glass-card p-6">
@@ -180,11 +188,17 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
               </label>
               <input
                 id="institution-settings-display-name"
-                className="form-input"
+                className={isPersonal ? "form-input form-input-readonly" : "form-input"}
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
-                required
+                readOnly={isPersonal}
+                required={!isPersonal}
               />
+              {isPersonal ? (
+                <p className="text-xs text-[var(--text-muted)]">
+                  Nama institusi personal mengikuti username Anda dan tidak dapat diubah di sini.
+                </p>
+              ) : null}
             </div>
 
             <div className="form-field">
@@ -193,11 +207,18 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
               </label>
               <input
                 id="institution-settings-slug"
-                className="form-input"
+                className={isPersonal ? "form-input form-input-readonly" : "form-input"}
                 value={slug}
                 onChange={(event) => setSlug(event.target.value)}
-                required
+                readOnly={isPersonal}
+                required={!isPersonal}
               />
+              {isPersonal ? (
+                <p className="text-xs text-[var(--text-muted)]">
+                  Slug institusi personal mengikuti username Anda dan tidak dapat diubah di sini.
+                  Ubah username Anda di pengaturan profil untuk mengubahnya.
+                </p>
+              ) : null}
             </div>
 
             <div className="form-field">

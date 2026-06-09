@@ -10,10 +10,15 @@ import {
   type CompetitionMode,
   type CompetitionStatus,
   type InstitutionMembershipRole,
+  type InstitutionType,
   type InstitutionVerificationStatus,
 } from "@/server/db/schema";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { CompetitionError } from "@/server/competitions/competition-core";
+import {
+  isPersonalInstitutionType,
+  MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL,
+} from "@/server/institution-workspace/institution-type";
 
 assertServerOnly("server/competitions/competition-access");
 
@@ -225,6 +230,95 @@ export const assertInstitutionNotSuspended = async (
       "institution_suspended",
       403,
       "This institution has been suspended by platform ops",
+    );
+  }
+};
+
+// Step 6.5f.1 — reads the owning institution's type. Returns null for a legacy/undeclared full
+// institution. Throws 404 if the institution does not exist. Shared by the personal reach-cap
+// guards on the competition-create, draft-edit, and publish paths.
+export const loadInstitutionTypeById = async (
+  institutionId: string,
+  db: Database = getDb(),
+): Promise<InstitutionType | null> => {
+  const [row] = await db
+    .select({ institutionType: institutions.institutionType })
+    .from(institutions)
+    .where(eq(institutions.id, institutionId))
+    .limit(1);
+
+  if (!row) {
+    throw new CompetitionError("competition_not_found", 404, "Institution not found");
+  }
+  return row.institutionType;
+};
+
+// Step 6.5f.1 — a personal institution may only run individual-mode competitions. No-op for full
+// or legacy (NULL-type) institutions. Wired into the competition-create and draft-edit paths so a
+// team/both mode can never be persisted on a personal-owned competition.
+export const assertPersonalInstitutionIndividualMode = async (
+  institutionId: string,
+  mode: CompetitionMode | null,
+  db: Database = getDb(),
+): Promise<void> => {
+  const institutionType = await loadInstitutionTypeById(institutionId, db);
+  if (!isPersonalInstitutionType(institutionType)) {
+    return;
+  }
+  if (mode !== null && mode !== "individual") {
+    throw new CompetitionError(
+      "competition_personal_individual_only",
+      422,
+      "A personal institution can only run individual-mode competitions",
+    );
+  }
+};
+
+// Step 6.5f.1 — publish-time reach cap for a personal institution: at most
+// MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL competitions in `published` status (drafts and archived
+// do not count). No-op for full or legacy institutions. The current competition is excluded from
+// the count (it is still draft at this point). Also re-asserts individual-only as defense in depth.
+// Paid competitions for personal institutions are a Phase 7 concern — fee fields are deferred
+// (DEC-0022) so no paid-path guard is wired here yet.
+//
+// This cap is only reachable once a personal institution can publish at all, which requires its
+// KTP verification to pass (verification_status → verified). KTP capture and the async review flow
+// land in Step 6.5g (F10); until then a personal institution sits at pending_verification and the
+// publish path is already blocked upstream by assertInstitutionVerified.
+export const assertPersonalCompetitionPublishable = async (
+  competition: { id: string; institutionId: string; mode: CompetitionMode | null },
+  db: Database = getDb(),
+): Promise<void> => {
+  const institutionType = await loadInstitutionTypeById(competition.institutionId, db);
+  if (!isPersonalInstitutionType(institutionType)) {
+    return;
+  }
+
+  if (competition.mode !== null && competition.mode !== "individual") {
+    throw new CompetitionError(
+      "competition_personal_individual_only",
+      422,
+      "A personal institution can only run individual-mode competitions",
+    );
+  }
+
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(competitions)
+    .where(
+      and(
+        eq(competitions.institutionId, competition.institutionId),
+        eq(competitions.status, "published"),
+        isNull(competitions.deletedAt),
+        ne(competitions.id, competition.id),
+      ),
+    );
+
+  if ((row?.count ?? 0) >= MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL) {
+    throw new CompetitionError(
+      "competition_personal_publish_limit",
+      422,
+      `A personal institution may have at most ${MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL} published competitions`,
     );
   }
 };

@@ -1,6 +1,13 @@
 import { eq, sql } from "drizzle-orm";
+import { enqueueCompetitionSearchSync } from "@/server/async/enqueue";
 import { getDb, type Database } from "@/server/db/client";
 import { userProfiles, users } from "@/server/db/schema";
+import {
+  findOwnedPersonalInstitution,
+  rewritePersonalInstitutionSlugForUsername,
+  usernameCollidesWithInstitutionSlug,
+} from "@/server/institution-workspace/institution-service";
+import { logger } from "@/lib/logger";
 import {
   buildOwnerProfileResponse,
   buildPublicProfileResponse,
@@ -165,7 +172,43 @@ export const updateOwnerProfile = async (
     }
   }
 
+  // A personal institution's slug follows its owner's username, so a username change must rewrite
+  // that slug and re-index the institution's published competitions. The published-competition ids
+  // are collected inside the transaction and re-synced after commit (fire-and-forget, never blocks).
+  let competitionIdsToResync: string[] = [];
+
   await db.transaction(async (tx) => {
+    // --- username-change guards + personal-institution slug rewrite ---
+    // Both run inside the transaction so a rejection or rewrite failure rolls the username change
+    // back atomically. Fix B (collision rejection) runs before Fix A (slug rewrite).
+    if (patch.username !== undefined) {
+      const personalInstitution = await findOwnedPersonalInstitution(userId, tx);
+
+      // Fix B: a username that normalizes to a slug already held by another institution is rejected.
+      // The actor's own personal institution is excluded — Fix A rewrites it to match the new name.
+      const collides = await usernameCollidesWithInstitutionSlug(
+        patch.username,
+        personalInstitution?.institutionId ?? null,
+        tx,
+      );
+      if (collides) {
+        throw new ProfileInputError(
+          "profile_username_conflicts_with_institution",
+          "This username conflicts with an existing institution and cannot be used",
+          { fields: ["username"] },
+        );
+      }
+
+      // Fix A: rewrite the personal institution's slug to follow the new username.
+      if (personalInstitution) {
+        competitionIdsToResync = await rewritePersonalInstitutionSlugForUsername(
+          personalInstitution.institutionId,
+          patch.username,
+          tx,
+        );
+      }
+    }
+
     // --- users table update ---
     type UsersSet = Parameters<typeof tx.update>[0] extends typeof users
       ? Parameters<ReturnType<typeof tx.update>["set"]>[0]
@@ -239,6 +282,18 @@ export const updateOwnerProfile = async (
         set: updateSet,
       });
   });
+
+  // Re-sync the renamed institution's published competitions so the cached institutionSlug in the
+  // search index follows the new slug. Fire-and-forget after commit: a failure here must not fail
+  // the profile update (the DB slug is already correct; the index self-heals on the next sync).
+  for (const competitionId of competitionIdsToResync) {
+    enqueueCompetitionSearchSync({ competitionId, action: "upsert" }).catch((err) => {
+      logger.warn("profile.username-change.search-sync.enqueue-failed", {
+        competitionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
 
   return getOwnerProfile(userId, db);
 };

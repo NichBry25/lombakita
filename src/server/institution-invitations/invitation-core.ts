@@ -46,7 +46,9 @@ type InstitutionInvitationErrorCode =
   | "invitation_not_actionable"
   | "invitation_already_member"
   | "invitation_forbidden"
-  | "invitation_role_verification_required";
+  | "invitation_role_verification_required"
+  // Step 6.5f.1 — a personal institution is single-member and cannot invite staff or members.
+  | "invitation_personal_institution";
 
 export class InstitutionInvitationError extends Error {
   constructor(

@@ -14,6 +14,10 @@ import {
   type CompetitionIndexDocument,
 } from "@/server/search/competition-index";
 import { ASYNC_JOB_NAMES, type CompetitionSearchSyncPayload } from "@/server/async/contracts";
+import {
+  getInstitutionDisplayName,
+  institutionOwnerUsernameSql,
+} from "@/server/institution-workspace/institution-display-name";
 
 export type CompetitionSearchSyncJob = Job<
   CompetitionSearchSyncPayload,
@@ -37,7 +41,9 @@ const loadPublishedCompetitionForIndex = async (
       isFeatured: competitions.isFeatured,
       featuredOrder: competitions.featuredOrder,
       institutionSlug: institutions.slug,
-      institutionName: institutions.displayName,
+      institutionDisplayName: institutions.displayName,
+      institutionType: institutions.institutionType,
+      institutionOwnerUsername: institutionOwnerUsernameSql,
     })
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
@@ -63,7 +69,14 @@ const loadPublishedCompetitionForIndex = async (
     isFeatured: row.isFeatured,
     featuredOrder: row.featuredOrder ?? null,
     institutionSlug: row.institutionSlug,
-    institutionName: row.institutionName,
+    // Resolve the institution name (personal institutions store NULL and derive from the owner
+    // username). The index document carries the name resolved at sync time; a later username change
+    // re-stales it until the competition is re-synced (parallels existing index staleness — see
+    // 6.5f.1-Amendment debt).
+    institutionName: getInstitutionDisplayName(
+      { displayName: row.institutionDisplayName, institutionType: row.institutionType },
+      { username: row.institutionOwnerUsername },
+    ),
     status: "published",
   };
 };

@@ -12,6 +12,10 @@ import {
   type InstitutionInvitationDispatchPayload,
 } from "@/server/async/contracts";
 import { sendInstitutionInvitationEmail } from "@/server/institution-invitations/invitation-email";
+import {
+  getInstitutionDisplayName,
+  institutionOwnerUsernameSql,
+} from "@/server/institution-workspace/institution-display-name";
 
 export type InstitutionInvitationDispatchJob = Job<
   InstitutionInvitationDispatchPayload,
@@ -34,6 +38,9 @@ export const processInstitutionInvitationDispatchJob = async (
   const { invitationId, rawToken } = job.data;
   const db = getDb();
 
+  // Name resolved through getInstitutionDisplayName for uniformity. In practice a personal
+  // institution can never issue invitations (createInstitutionInvitation blocks it), so this row is
+  // always a full/legacy institution and resolution returns the stored name.
   const [invitation] = await db
     .select({
       invitedEmail: institutionInvitations.invitedEmail,
@@ -41,6 +48,8 @@ export const processInstitutionInvitationDispatchJob = async (
       status: institutionInvitations.status,
       expiresAt: institutionInvitations.expiresAt,
       institutionDisplayName: institutions.displayName,
+      institutionType: institutions.institutionType,
+      institutionOwnerUsername: institutionOwnerUsernameSql,
     })
     .from(institutionInvitations)
     .innerJoin(institutions, eq(institutions.id, institutionInvitations.institutionId))
@@ -70,7 +79,13 @@ export const processInstitutionInvitationDispatchJob = async (
 
   await sendInstitutionInvitationEmail({
     toEmail: invitation.invitedEmail,
-    institutionDisplayName: invitation.institutionDisplayName,
+    institutionDisplayName: getInstitutionDisplayName(
+      {
+        displayName: invitation.institutionDisplayName,
+        institutionType: invitation.institutionType,
+      },
+      { username: invitation.institutionOwnerUsername },
+    ),
     invitedRole: invitation.invitedRole,
     expiresAt: invitation.expiresAt,
     mode,

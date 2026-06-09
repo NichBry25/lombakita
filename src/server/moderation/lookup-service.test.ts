@@ -50,7 +50,9 @@ describe("lookupInstitutionBySlug", () => {
   it("returns the institution row on hit", async () => {
     const row = {
       id: "i1",
-      name: "Inst",
+      displayName: "Inst",
+      institutionType: null,
+      ownerUsername: null,
       slug: "inst",
       verificationStatus: "verified",
       verifiedAt: new Date(),
@@ -62,13 +64,35 @@ describe("lookupInstitutionBySlug", () => {
     };
     const res = await lookupInstitutionBySlug("inst", makeDb(row));
     expect(res?.ownerEmail).toBe("owner@b.com");
+    expect(res?.name).toBe("Inst");
+  });
+
+  it("resolves a personal institution name from the owner username (display_name is NULL)", async () => {
+    const row = {
+      id: "ip",
+      displayName: null,
+      institutionType: "personal",
+      ownerUsername: "owneruser",
+      slug: "owneruser",
+      verificationStatus: "pending_verification",
+      verifiedAt: null,
+      suspendedAt: null,
+      suspensionReason: null,
+      createdAt: new Date(),
+      ownerEmail: "owner@b.com",
+      ownerName: "Owner",
+    };
+    const res = await lookupInstitutionBySlug("owneruser", makeDb(row));
+    expect(res?.name).toBe("owneruser's Institution");
   });
 });
 
 describe("F20 — lookupInstitutionBySlugOrName", () => {
   const institutionRow = {
     id: "i2",
-    name: "Universitas Nusantara",
+    displayName: "Universitas Nusantara",
+    institutionType: null,
+    ownerUsername: null,
     slug: "universitas-nusantara",
     verificationStatus: "verified",
     verifiedAt: new Date(),

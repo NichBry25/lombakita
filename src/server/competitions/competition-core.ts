@@ -69,7 +69,10 @@ type CompetitionErrorCode =
   | "competition_delete_not_allowed"
   | "competition_active_registrations"
   | "competition_field_immutable"
-  | "competition_post_publish_blocked";
+  | "competition_post_publish_blocked"
+  // Step 6.5f.1 — personal-institution reach caps.
+  | "competition_personal_individual_only"
+  | "competition_personal_publish_limit";
 
 // Structured publish-validation failure surfaced to clients.
 // Codes: `missing` (field is null/empty) | `out_of_order` (date pair inconsistent) |

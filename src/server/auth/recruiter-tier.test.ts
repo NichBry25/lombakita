@@ -8,10 +8,12 @@ vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn(
 
 import {
   assertRecruiterTier,
+  FULL_INSTITUTION_CREATION_MIN_TIER,
   getRecruiterTierForAccount,
   isRecruiterTier,
   meetsRecruiterTier,
   OPPORTUNITY_CREATION_MIN_TIER,
+  PERSONAL_INSTITUTION_CREATION_MIN_TIER,
   RecruiterTierError,
   RECRUITER_TIERS,
 } from "./recruiter-tier";
@@ -43,6 +45,21 @@ describe("RECRUITER_TIERS", () => {
 describe("OPPORTUNITY_CREATION_MIN_TIER", () => {
   it("is 'minimal' at launch (Step 4.0c)", () => {
     expect(OPPORTUNITY_CREATION_MIN_TIER).toBe("minimal");
+  });
+});
+
+describe("institution-creation tier gates (Step 6.5f.1)", () => {
+  it("personal institution creation requires the minimal tier", () => {
+    expect(PERSONAL_INSTITUTION_CREATION_MIN_TIER).toBe("minimal");
+  });
+
+  it("full institution creation requires the elevated tier", () => {
+    expect(FULL_INSTITUTION_CREATION_MIN_TIER).toBe("elevated");
+  });
+
+  it("the gates are independent of OPPORTUNITY_CREATION_MIN_TIER (unchanged)", () => {
+    expect(OPPORTUNITY_CREATION_MIN_TIER).toBe("minimal");
+    expect(FULL_INSTITUTION_CREATION_MIN_TIER).not.toBe(OPPORTUNITY_CREATION_MIN_TIER);
   });
 });
 

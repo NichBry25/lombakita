@@ -30,7 +30,16 @@ const formatDate = (iso: string): string => {
   });
 };
 
-export const InstitutionTeamShell = ({ institutionSlug }: { institutionSlug: string }) => {
+export const InstitutionTeamShell = ({
+  institutionSlug,
+  isPersonal = false,
+}: {
+  institutionSlug: string;
+  // Step 6.5f.1 — a personal institution is single-member: the staff-invite affordance is hidden.
+  // The server guard (createInstitutionInvitation → invitation_personal_institution 403) remains the
+  // authoritative enforcement.
+  isPersonal?: boolean;
+}) => {
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -116,28 +125,35 @@ export const InstitutionTeamShell = ({ institutionSlug }: { institutionSlug: str
       </header>
 
       <section className="glass-card p-6 space-y-4">
-        <form className="flex gap-3 flex-wrap" onSubmit={onInvite}>
-          <input
-            className="form-input flex-1 min-w-0"
-            type="text"
-            placeholder="Username atau email"
-            value={identifier}
-            onChange={(e) => setIdentifier(e.target.value)}
-            required
-          />
-          <select
-            className="form-input w-auto"
-            value={inviteRole}
-            onChange={(e) => setInviteRole(e.target.value as typeof inviteRole)}
-          >
-            <option value="institution_staff">Staf</option>
-            <option value="institution_owner">Pemilik</option>
-            <option value="institution_member">Anggota</option>
-          </select>
-          <button className="primary-button" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Mengirim..." : "Undang"}
-          </button>
-        </form>
+        {isPersonal ? (
+          <p className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text-muted)]">
+            Institusi personal hanya bisa memiliki satu anggota, sehingga tidak dapat mengundang staf
+            atau anggota.
+          </p>
+        ) : (
+          <form className="flex gap-3 flex-wrap" onSubmit={onInvite}>
+            <input
+              className="form-input flex-1 min-w-0"
+              type="text"
+              placeholder="Username atau email"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              required
+            />
+            <select
+              className="form-input w-auto"
+              value={inviteRole}
+              onChange={(e) => setInviteRole(e.target.value as typeof inviteRole)}
+            >
+              <option value="institution_staff">Staf</option>
+              <option value="institution_owner">Pemilik</option>
+              <option value="institution_member">Anggota</option>
+            </select>
+            <button className="primary-button" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Mengirim..." : "Undang"}
+            </button>
+          </form>
+        )}
 
         {feedback ? (
           <p

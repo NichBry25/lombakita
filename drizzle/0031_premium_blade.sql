@@ -1,0 +1,1 @@
+ALTER TABLE "institutions" ALTER COLUMN "display_name" DROP NOT NULL;

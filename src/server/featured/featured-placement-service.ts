@@ -4,13 +4,16 @@ assertServerOnly("server/featured/featured-placement-service");
 
 import { eq } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
-import { competitions } from "@/server/db/schema";
+import { competitions, institutions } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
 import { enqueueCompetitionSearchSync } from "@/server/async/enqueue";
+import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 
 export type FeaturedPlacementErrorCode =
   | "competition_not_found"
-  | "competition_not_published";
+  | "competition_not_published"
+  // Step 6.5f.1 — personal institutions cannot receive featured placement.
+  | "competition_personal_not_featurable";
 
 export class FeaturedPlacementError extends Error {
   constructor(
@@ -43,13 +46,28 @@ export const setFeaturedPlacement = async (
   db: Database = getDb(),
 ): Promise<SetFeaturedPlacementResult> => {
   const [row] = await db
-    .select({ id: competitions.id, status: competitions.status })
+    .select({
+      id: competitions.id,
+      status: competitions.status,
+      institutionType: institutions.institutionType,
+    })
     .from(competitions)
+    .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
     .where(eq(competitions.id, competitionId))
     .limit(1);
 
   if (!row) {
     throw new FeaturedPlacementError("competition_not_found", 404, "Competition not found");
+  }
+
+  // Step 6.5f.1 — personal institutions are excluded from featured placement. No-op for full or
+  // legacy institutions (NULL type).
+  if (isPersonalInstitutionType(row.institutionType)) {
+    throw new FeaturedPlacementError(
+      "competition_personal_not_featurable",
+      409,
+      "Competitions owned by a personal institution cannot be featured",
+    );
   }
 
   if (row.status !== "published") {

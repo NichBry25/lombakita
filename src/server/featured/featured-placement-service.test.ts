@@ -16,11 +16,14 @@ import {
 } from "./featured-placement-service";
 import type { Database } from "@/server/db/client";
 
-const makeSelectDb = (row: { id: string; status: string } | null) => {
+const makeSelectDb = (
+  row: { id: string; status: string; institutionType?: string | null } | null,
+) => {
   const chain = {
     from: vi.fn().mockReturnThis(),
+    innerJoin: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
-    limit: vi.fn().mockResolvedValue(row ? [row] : []),
+    limit: vi.fn().mockResolvedValue(row ? [{ institutionType: null, ...row }] : []),
   };
   const updateChain = {
     set: vi.fn().mockReturnThis(),
@@ -79,6 +82,30 @@ describe("setFeaturedPlacement", () => {
     } catch (e) {
       expect((e as FeaturedPlacementError).code).toBe("competition_not_published");
     }
+  });
+
+  it("throws competition_personal_not_featurable (409) when owned by a personal institution", async () => {
+    const { db } = makeSelectDb({
+      id: "comp_1",
+      status: "published",
+      institutionType: "personal",
+    });
+    await expect(
+      setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 1 }, db),
+    ).rejects.toThrow(FeaturedPlacementError);
+
+    try {
+      await setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 1 }, db);
+    } catch (e) {
+      expect((e as FeaturedPlacementError).code).toBe("competition_personal_not_featurable");
+      expect((e as FeaturedPlacementError).status).toBe(409);
+    }
+  });
+
+  it("allows featuring a competition owned by a legacy (NULL-type) institution", async () => {
+    const { db } = makeSelectDb({ id: "comp_1", status: "published", institutionType: null });
+    const result = await setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 1 }, db);
+    expect(result).toEqual({ isFeatured: true, featuredOrder: 1 });
   });
 
   it("succeeds for published competition and returns isFeatured + featuredOrder", async () => {

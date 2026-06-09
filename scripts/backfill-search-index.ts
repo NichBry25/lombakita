@@ -34,6 +34,10 @@ import {
   COMPETITION_INDEX_NAME,
   type CompetitionIndexDocument,
 } from "../src/server/search/competition-index";
+import {
+  getInstitutionDisplayName,
+  institutionOwnerUsernameSql,
+} from "../src/server/institution-workspace/institution-display-name";
 
 const db_url = process.env.DATABASE_URL;
 const meili_host = process.env.MEILISEARCH_HOST;
@@ -61,7 +65,9 @@ async function main() {
       isFeatured: competitions.isFeatured,
       featuredOrder: competitions.featuredOrder,
       institutionSlug: institutions.slug,
-      institutionName: institutions.displayName,
+      institutionDisplayName: institutions.displayName,
+      institutionType: institutions.institutionType,
+      institutionOwnerUsername: institutionOwnerUsernameSql,
     })
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
@@ -78,7 +84,11 @@ async function main() {
     isFeatured: r.isFeatured,
     featuredOrder: r.featuredOrder ?? null,
     institutionSlug: r.institutionSlug,
-    institutionName: r.institutionName,
+    // Personal institutions store NULL display_name and derive their name from the owner username.
+    institutionName: getInstitutionDisplayName(
+      { displayName: r.institutionDisplayName, institutionType: r.institutionType },
+      { username: r.institutionOwnerUsername },
+    ),
     status: "published",
   }));
 
