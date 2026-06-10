@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CompetitionRegistrationReviewStatus } from "@/server/db/schema";
 import { REVIEW_STATUS_LABELS, REVIEW_STATUS_ORDER } from "../review-status-labels";
+import { useToast } from "@/components/ui/primitives";
 
 type Props = {
   apiPath: string;
@@ -25,16 +26,13 @@ export function ReviewForm({
   activeMemberCount,
 }: Props) {
   const router = useRouter();
+  const { addToast } = useToast();
   const [status, setStatus] = useState<CompetitionRegistrationReviewStatus>(initialStatus);
   const [notes, setNotes] = useState<string>(initialNotes ?? "");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
 
   const onSave = async () => {
     setSaving(true);
-    setError(null);
-    setSuccess(false);
     try {
       const res = await fetch(apiPath, {
         method: "PATCH",
@@ -52,13 +50,13 @@ export function ReviewForm({
         } catch {
           // non-JSON error body — keep the status code
         }
-        setError(`Gagal menyimpan: ${code}`);
+        addToast({ type: "error", message: `Gagal menyimpan: ${code}` });
         return;
       }
-      setSuccess(true);
+      addToast({ type: "success", message: "Tersimpan." });
       router.refresh();
     } catch {
-      setError("Gagal menyimpan: kesalahan jaringan");
+      addToast({ type: "error", message: "Gagal menyimpan: kesalahan jaringan" });
     } finally {
       setSaving(false);
     }
@@ -106,8 +104,6 @@ export function ReviewForm({
         </button>
       </div>
 
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
-      {success && <p style={{ color: "green" }}>Tersimpan.</p>}
     </div>
   );
 }

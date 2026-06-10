@@ -111,11 +111,9 @@ export function IndividualRegistrationSection({
   const { addToast } = useToast();
   const [registration, setRegistration] = useState<Registration | null>(initialRegistration);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const handleRegister = async () => {
     setLoading(true);
-    setError(null);
     try {
       const res = await sessionFetch(
         expectedUserId,
@@ -124,13 +122,13 @@ export function IndividualRegistrationSection({
       );
       const body = (await res.json()) as { registration?: Registration; error?: { code?: string } };
       if (!res.ok || !body.registration) {
-        setError(messageFor(body.error?.code));
+        addToast({ type: "error", message: messageFor(body.error?.code) });
       } else {
         setRegistration(body.registration);
         router.refresh();
       }
     } catch {
-      setError("Terjadi kesalahan jaringan. Coba lagi.");
+      addToast({ type: "error", message: "Terjadi kesalahan jaringan. Coba lagi." });
     } finally {
       setLoading(false);
     }
@@ -140,7 +138,6 @@ export function IndividualRegistrationSection({
     if (!registration) return;
     closeModal();
     setLoading(true);
-    setError(null);
     try {
       const res = await sessionFetch(
         expectedUserId,
@@ -264,7 +261,6 @@ export function IndividualRegistrationSection({
         </button>
       )}
 
-      {error && <p style={{ fontSize: 12, color: "#c0392b", marginTop: 12 }}>{error}</p>}
     </section>
   );
 }

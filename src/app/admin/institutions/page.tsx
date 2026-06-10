@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { useModal, useToast } from "@/components/ui/primitives";
 
 type VerificationStatus = "pending_verification" | "under_review" | "verified" | "rejected";
 
@@ -69,46 +70,138 @@ const AVAILABLE_TRANSITIONS: Record<VerificationStatus, ValidTransition[]> = {
   rejected: [],
 };
 
+function RejectInstitutionForm({
+  institutionId,
+  displayName,
+  onClose,
+  onSuccess,
+}: {
+  institutionId: string;
+  displayName: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { addToast } = useToast();
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (!reason.trim()) {
+      addToast({ type: "error", message: "Alasan penolakan wajib diisi." });
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/institutions/${institutionId}/verify`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targetStatus: "rejected", reason: reason.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        addToast({ type: "error", message: data?.error?.message ?? `Error ${res.status}` });
+        return;
+      }
+      onClose();
+      onSuccess();
+    } catch {
+      addToast({ type: "error", message: "Terjadi kesalahan jaringan." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <p style={{ color: "#555", fontSize: 13, margin: "0 0 14px" }}>
+        <strong>{displayName}</strong>
+      </p>
+      <label htmlFor="reject-reason-textarea" style={{ fontSize: 13, color: "#333", display: "block", marginBottom: 6 }}>
+        Alasan penolakan <span style={{ color: "#d00" }}>*</span>
+      </label>
+      <textarea
+        id="reject-reason-textarea"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        rows={3}
+        style={{
+          width: "100%",
+          boxSizing: "border-box",
+          padding: "6px 8px",
+          borderRadius: 6,
+          border: "1px solid #ccc",
+          fontSize: 13,
+          resize: "vertical",
+        }}
+        placeholder="Masukkan alasan penolakan..."
+      />
+      <div style={{ marginTop: 16, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button
+          onClick={onClose}
+          style={{
+            padding: "6px 14px",
+            borderRadius: 6,
+            border: "1px solid #ccc",
+            background: "#fff",
+            cursor: "pointer",
+            fontSize: 13,
+          }}
+        >
+          Batal
+        </button>
+        <button
+          disabled={busy}
+          onClick={() => void submit()}
+          style={{
+            padding: "6px 14px",
+            borderRadius: 6,
+            border: "none",
+            background: "#355795",
+            color: "#fff",
+            cursor: busy ? "not-allowed" : "pointer",
+            fontSize: 13,
+          }}
+        >
+          {busy ? "Memproses..." : "Tolak Institusi"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminInstitutionsPage() {
+  const { openModal, closeModal } = useModal();
+  const { addToast } = useToast();
   const [rows, setRows] = useState<InstitutionRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [rejectModal, setRejectModal] = useState<{
-    institutionId: string;
-    displayName: string;
-  } | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
-  const [rejectError, setRejectError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
   const fetchInstitutions = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       const params = new URLSearchParams({ page: String(page) });
       if (statusFilter) params.set("status", statusFilter);
       const res = await fetch(`/api/admin/institutions?${params}`);
       if (res.status === 403) {
-        setError("Akses ditolak. Halaman ini hanya untuk platform_ops.");
+        addToast({ type: "error", message: "Akses ditolak. Halaman ini hanya untuk platform_ops." });
         return;
       }
       if (!res.ok) {
-        setError("Gagal memuat data institusi.");
+        addToast({ type: "error", message: "Gagal memuat data institusi." });
         return;
       }
       const data: ListResponse = await res.json();
       setRows(data.institutions.map((r) => ({ ...r, auditExpanded: false })));
       setTotal(data.total);
     } catch {
-      setError("Terjadi kesalahan saat memuat data.");
+      addToast({ type: "error", message: "Terjadi kesalahan saat memuat data." });
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter]);
+  }, [page, statusFilter, addToast]);
 
   useEffect(() => {
     void fetchInstitutions();
@@ -139,35 +232,26 @@ export default function AdminInstitutionsPage() {
   const handleTransition = async (institutionId: string, targetStatus: VerificationStatus) => {
     const result = await performTransition(institutionId, targetStatus);
     if (!result.ok) {
-      alert(`Gagal: ${result.message}`);
+      addToast({ type: "error", message: `Gagal: ${result.message}` });
       return;
     }
     await fetchInstitutions();
   };
 
   const openRejectModal = (id: string, displayName: string) => {
-    setRejectModal({ institutionId: id, displayName });
-    setRejectReason("");
-    setRejectError(null);
-  };
-
-  const submitReject = async () => {
-    if (!rejectModal) return;
-    if (!rejectReason.trim()) {
-      setRejectError("Alasan penolakan wajib diisi.");
-      return;
-    }
-    const result = await performTransition(
-      rejectModal.institutionId,
-      "rejected",
-      rejectReason.trim(),
-    );
-    if (!result.ok) {
-      setRejectError(result.message ?? "Gagal menolak institusi.");
-      return;
-    }
-    setRejectModal(null);
-    await fetchInstitutions();
+    openModal({
+      title: "Tolak Institusi",
+      body: (
+        <RejectInstitutionForm
+          institutionId={id}
+          displayName={displayName}
+          onClose={closeModal}
+          onSuccess={() => void fetchInstitutions()}
+        />
+      ),
+      actions: [],
+      closeable: true,
+    });
   };
 
   const toggleAudit = async (rowId: string, institutionId: string) => {
@@ -235,23 +319,9 @@ export default function AdminInstitutionsPage() {
         </select>
       </div>
 
-      {error && (
-        <div
-          style={{
-            background: "#f8d7da",
-            color: "#721c24",
-            padding: "10px 14px",
-            borderRadius: 6,
-            marginBottom: 16,
-          }}
-        >
-          {error}
-        </div>
-      )}
-
       {loading && <p style={{ color: "#555", fontSize: 13 }}>Memuat...</p>}
 
-      {!loading && rows.length === 0 && !error && (
+      {!loading && rows.length === 0 && (
         <p style={{ color: "#555", fontSize: 13 }}>Tidak ada institusi ditemukan.</p>
       )}
 
@@ -433,87 +503,6 @@ export default function AdminInstitutionsPage() {
         </div>
       )}
 
-      {/* Reject Modal */}
-      {rejectModal && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.4)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 100,
-          }}
-        >
-          <div
-            style={{
-              background: "#fff",
-              borderRadius: 10,
-              padding: 24,
-              width: 400,
-              maxWidth: "90vw",
-            }}
-          >
-            <h3 style={{ margin: "0 0 8px", fontSize: 16 }}>Tolak Institusi</h3>
-            <p style={{ color: "#555", fontSize: 13, margin: "0 0 14px" }}>
-              <strong>{rejectModal.displayName}</strong>
-            </p>
-            <label htmlFor="reject-reason-textarea" style={{ fontSize: 13, color: "#333", display: "block", marginBottom: 6 }}>
-              Alasan penolakan <span style={{ color: "#d00" }}>*</span>
-            </label>
-            <textarea
-              id="reject-reason-textarea"
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              rows={3}
-              style={{
-                width: "100%",
-                boxSizing: "border-box",
-                padding: "6px 8px",
-                borderRadius: 6,
-                border: "1px solid #ccc",
-                fontSize: 13,
-                resize: "vertical",
-              }}
-              placeholder="Masukkan alasan penolakan..."
-            />
-            {rejectError && (
-              <p style={{ color: "#d00", fontSize: 12, margin: "4px 0 0" }}>{rejectError}</p>
-            )}
-            <div style={{ marginTop: 16, display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button
-                onClick={() => setRejectModal(null)}
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: 6,
-                  border: "1px solid #ccc",
-                  background: "#fff",
-                  cursor: "pointer",
-                  fontSize: 13,
-                }}
-              >
-                Batal
-              </button>
-              <button
-                disabled={actionLoading}
-                onClick={() => void submitReject()}
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: 6,
-                  border: "none",
-                  background: "#355795",
-                  color: "#fff",
-                  cursor: actionLoading ? "not-allowed" : "pointer",
-                  fontSize: 13,
-                }}
-              >
-                {actionLoading ? "Memproses..." : "Tolak Institusi"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

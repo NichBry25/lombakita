@@ -1,9 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-
-// Step 6.2 — minimal proof moderation console. No design polish; every error and outcome is
-// rendered visibly so the flow is manually verifiable. Inline styles only.
+import { useToast } from "@/components/ui/primitives";
 
 type UserResult = {
   id: string;
@@ -60,8 +58,6 @@ const btn: React.CSSProperties = {
   fontSize: 13,
   cursor: "pointer",
 };
-const errStyle: React.CSSProperties = { color: "#721c24", fontSize: 13 };
-const okStyle: React.CSSProperties = { color: "#155724", fontSize: 13 };
 
 async function readError(res: Response): Promise<string> {
   try {
@@ -73,14 +69,13 @@ async function readError(res: Response): Promise<string> {
 }
 
 function NoteRow({ note, onSaved }: { note: NoteItem; onSaved: () => void }) {
+  const { addToast } = useToast();
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(note.note);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
     setBusy(true);
-    setError(null);
     try {
       const res = await fetch(`/api/platform-ops/notes/${encodeURIComponent(note.id)}`, {
         method: "PATCH",
@@ -88,13 +83,13 @@ function NoteRow({ note, onSaved }: { note: NoteItem; onSaved: () => void }) {
         body: JSON.stringify({ note: editText }),
       });
       if (!res.ok) {
-        setError(await readError(res));
+        addToast({ type: "error", message: await readError(res) });
         return;
       }
       setEditing(false);
       onSaved();
     } catch {
-      setError("Kesalahan jaringan saat menyimpan.");
+      addToast({ type: "error", message: "Kesalahan jaringan saat menyimpan." });
     } finally {
       setBusy(false);
     }
@@ -115,11 +110,10 @@ function NoteRow({ note, onSaved }: { note: NoteItem; onSaved: () => void }) {
           </button>{" "}
           <button
             style={{ ...btn, background: "#888" }}
-            onClick={() => { setEditing(false); setEditText(note.note); setError(null); }}
+            onClick={() => { setEditing(false); setEditText(note.note); }}
           >
             Batal
           </button>
-          {error && <span style={{ ...errStyle, marginLeft: 6 }}>{error}</span>}
         </span>
       ) : (
         <span>
@@ -141,9 +135,9 @@ function NoteRow({ note, onSaved }: { note: NoteItem; onSaved: () => void }) {
 }
 
 function NotesPanel({ target }: { target: { targetUserId?: string; targetInstitutionId?: string } }) {
+  const { addToast } = useToast();
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [noteInput, setNoteInput] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const query = target.targetUserId
@@ -151,19 +145,18 @@ function NotesPanel({ target }: { target: { targetUserId?: string; targetInstitu
     : `targetInstitutionId=${encodeURIComponent(target.targetInstitutionId ?? "")}`;
 
   const load = useCallback(async () => {
-    setError(null);
     try {
       const res = await fetch(`/api/platform-ops/notes?${query}`);
       if (!res.ok) {
-        setError(await readError(res));
+        addToast({ type: "error", message: await readError(res) });
         return;
       }
       const data = await res.json();
       setNotes(data.notes ?? []);
     } catch {
-      setError("Kesalahan jaringan saat memuat catatan.");
+      addToast({ type: "error", message: "Kesalahan jaringan saat memuat catatan." });
     }
-  }, [query]);
+  }, [query, addToast]);
 
   useEffect(() => {
     void load();
@@ -171,7 +164,6 @@ function NotesPanel({ target }: { target: { targetUserId?: string; targetInstitu
 
   const addNote = async () => {
     setBusy(true);
-    setError(null);
     try {
       const res = await fetch(`/api/platform-ops/notes`, {
         method: "POST",
@@ -179,13 +171,13 @@ function NotesPanel({ target }: { target: { targetUserId?: string; targetInstitu
         body: JSON.stringify({ ...target, note: noteInput }),
       });
       if (!res.ok) {
-        setError(await readError(res));
+        addToast({ type: "error", message: await readError(res) });
         return;
       }
       setNoteInput("");
       await load();
     } catch {
-      setError("Kesalahan jaringan saat menambah catatan.");
+      addToast({ type: "error", message: "Kesalahan jaringan saat menambah catatan." });
     } finally {
       setBusy(false);
     }
@@ -206,7 +198,6 @@ function NotesPanel({ target }: { target: { targetUserId?: string; targetInstitu
           Simpan Catatan
         </button>
       </div>
-      {error && <p style={errStyle}>{error}</p>}
       {notes.length === 0 ? (
         <p style={{ color: "#888", fontSize: 12 }}>Belum ada catatan.</p>
       ) : (
@@ -257,32 +248,27 @@ function ActionForm({
 }
 
 function UserPanel() {
+  const { addToast } = useToast();
   const [email, setEmail] = useState("");
   const [result, setResult] = useState<UserResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   const lookup = async () => {
-    setError(null);
-    setActionMsg(null);
     setResult(null);
     try {
       const res = await fetch(`/api/platform-ops/users/lookup?email=${encodeURIComponent(email)}`);
       if (!res.ok) {
-        setError(await readError(res));
+        addToast({ type: "error", message: await readError(res) });
         return;
       }
       const data = await res.json();
       setResult(data.user);
     } catch {
-      setError("Kesalahan jaringan.");
+      addToast({ type: "error", message: "Kesalahan jaringan." });
     }
   };
 
   const runAction = async (action: "suspend" | "unsuspend", reason: string) => {
     if (!result) return;
-    setError(null);
-    setActionMsg(null);
     try {
       const res = await fetch(`/api/platform-ops/users/${result.id}/${action}`, {
         method: "POST",
@@ -290,13 +276,16 @@ function UserPanel() {
         body: JSON.stringify({ reason }),
       });
       if (!res.ok) {
-        setError(await readError(res));
+        addToast({ type: "error", message: await readError(res) });
         return;
       }
-      setActionMsg(action === "suspend" ? "Pengguna ditangguhkan." : "Penangguhan dicabut.");
+      addToast({
+        type: "success",
+        message: action === "suspend" ? "Pengguna ditangguhkan." : "Penangguhan dicabut.",
+      });
       await lookup();
     } catch {
-      setError("Kesalahan jaringan.");
+      addToast({ type: "error", message: "Kesalahan jaringan." });
     }
   };
 
@@ -316,8 +305,6 @@ function UserPanel() {
           Cari
         </button>
       </div>
-      {error && <p style={errStyle}>{error}</p>}
-      {actionMsg && <p style={okStyle}>{actionMsg}</p>}
 
       {result && (
         <div style={{ marginTop: 12, fontSize: 13 }}>
@@ -360,34 +347,29 @@ function UserPanel() {
 }
 
 function InstitutionPanel() {
+  const { addToast } = useToast();
   const [slug, setSlug] = useState("");
   const [result, setResult] = useState<InstitutionResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   const lookup = async () => {
-    setError(null);
-    setActionMsg(null);
     setResult(null);
     try {
       const res = await fetch(
         `/api/platform-ops/institutions/lookup?slug=${encodeURIComponent(slug)}`,
       );
       if (!res.ok) {
-        setError(await readError(res));
+        addToast({ type: "error", message: await readError(res) });
         return;
       }
       const data = await res.json();
       setResult(data.institution);
     } catch {
-      setError("Kesalahan jaringan.");
+      addToast({ type: "error", message: "Kesalahan jaringan." });
     }
   };
 
   const runAction = async (action: "suspend" | "reinstate", reason: string) => {
     if (!result) return;
-    setError(null);
-    setActionMsg(null);
     try {
       const res = await fetch(`/api/platform-ops/institutions/${result.id}/${action}`, {
         method: "POST",
@@ -395,13 +377,16 @@ function InstitutionPanel() {
         body: JSON.stringify({ reason }),
       });
       if (!res.ok) {
-        setError(await readError(res));
+        addToast({ type: "error", message: await readError(res) });
         return;
       }
-      setActionMsg(action === "suspend" ? "Institusi ditangguhkan." : "Institusi dipulihkan.");
+      addToast({
+        type: "success",
+        message: action === "suspend" ? "Institusi ditangguhkan." : "Institusi dipulihkan.",
+      });
       await lookup();
     } catch {
-      setError("Kesalahan jaringan.");
+      addToast({ type: "error", message: "Kesalahan jaringan." });
     }
   };
 
@@ -422,8 +407,6 @@ function InstitutionPanel() {
           Cari
         </button>
       </div>
-      {error && <p style={errStyle}>{error}</p>}
-      {actionMsg && <p style={okStyle}>{actionMsg}</p>}
 
       {result && (
         <div style={{ marginTop: 12, fontSize: 13 }}>

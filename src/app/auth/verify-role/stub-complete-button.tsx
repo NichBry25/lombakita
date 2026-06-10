@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useSession } from "next-auth/react";
 import type { VerifiableRole } from "@/server/auth/role-verification";
+import { useToast } from "@/components/ui/primitives";
 
 type StubCompleteButtonProps = {
   role: VerifiableRole;
@@ -13,13 +14,12 @@ type StubCompleteButtonProps = {
 // re-login. Real verification UX (form, document upload, ops review) is a later step.
 export function StubCompleteButton({ role }: StubCompleteButtonProps) {
   const { update } = useSession();
+  const { addToast } = useToast();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const onClick = async () => {
     if (busy) return;
     setBusy(true);
-    setError(null);
     try {
       const response = await fetch("/api/v1/auth/verify-role", {
         method: "POST",
@@ -31,10 +31,12 @@ export function StubCompleteButton({ role }: StubCompleteButtonProps) {
         const payload = (await response.json().catch(() => null)) as {
           error?: { message?: string };
         } | null;
-        setError(
-          payload?.error?.message ??
+        addToast({
+          type: "error",
+          message:
+            payload?.error?.message ??
             "Stub verifikasi gagal. Periksa konsol server untuk detail lalu coba lagi.",
-        );
+        });
         setBusy(false);
         return;
       }
@@ -48,40 +50,31 @@ export function StubCompleteButton({ role }: StubCompleteButtonProps) {
 
       window.location.assign(payload.redirectTo);
     } catch {
-      setError(
-        "Stub verifikasi gagal karena gangguan koneksi. Periksa jaringan Anda lalu coba lagi.",
-      );
+      addToast({
+        type: "error",
+        message: "Stub verifikasi gagal karena gangguan koneksi. Periksa jaringan Anda lalu coba lagi.",
+      });
       setBusy(false);
     }
   };
 
   return (
-    <div>
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={busy}
-        data-testid={`stub-complete-${role}`}
-        style={{
-          padding: "0.6rem 1.25rem",
-          background: "#355795",
-          color: "#fff",
-          border: "none",
-          borderRadius: 6,
-          cursor: busy ? "wait" : "pointer",
-          fontSize: "0.95rem",
-        }}
-      >
-        {busy ? "Memproses..." : "Selesaikan verifikasi (stub)"}
-      </button>
-      {error ? (
-        <p
-          role="alert"
-          style={{ color: "#b91c1c", fontSize: "0.85rem", marginTop: "0.5rem" }}
-        >
-          {error}
-        </p>
-      ) : null}
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      data-testid={`stub-complete-${role}`}
+      style={{
+        padding: "0.6rem 1.25rem",
+        background: "#355795",
+        color: "#fff",
+        border: "none",
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        fontSize: "0.95rem",
+      }}
+    >
+      {busy ? "Memproses..." : "Selesaikan verifikasi (stub)"}
+    </button>
   );
 }

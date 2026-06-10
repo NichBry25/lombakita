@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useToast } from "@/components/ui/primitives";
 
 type Competition = {
   id: string;
@@ -43,10 +44,10 @@ const SORT_OPTIONS = [
 ];
 
 export default function PublicCompetitionsPage() {
+  const { addToast } = useToast();
   const [items, setItems] = useState<Competition[]>([]);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
@@ -55,7 +56,6 @@ export default function PublicCompetitionsPage() {
 
   const load = useCallback(async () => {
     setIsLoading(true);
-    setError(null);
 
     const params = new URLSearchParams();
     if (q.trim()) params.set("q", q.trim());
@@ -66,7 +66,7 @@ export default function PublicCompetitionsPage() {
     try {
       const res = await fetch(`/api/v1/competitions?${params.toString()}`, { cache: "no-store" });
       if (!res.ok) {
-        setError("Gagal memuat kompetisi.");
+        addToast({ type: "error", message: "Gagal memuat kompetisi." });
         setIsLoading(false);
         return;
       }
@@ -74,11 +74,11 @@ export default function PublicCompetitionsPage() {
       setItems(data.data);
       setMeta(data.meta);
     } catch {
-      setError("Gagal memuat kompetisi.");
+      addToast({ type: "error", message: "Gagal memuat kompetisi." });
     } finally {
       setIsLoading(false);
     }
-  }, [q, category, sort, page]);
+  }, [q, category, sort, page, addToast]);
 
   useEffect(() => {
     void load();
@@ -153,10 +153,6 @@ export default function PublicCompetitionsPage() {
       <section style={{ marginTop: 24 }}>
         {isLoading ? (
           <p>Memuat...</p>
-        ) : error ? (
-          <p role="alert" style={{ color: "#b00" }}>
-            {error}
-          </p>
         ) : items.length === 0 ? (
           <p>Tidak ada kompetisi yang ditemukan.</p>
         ) : (

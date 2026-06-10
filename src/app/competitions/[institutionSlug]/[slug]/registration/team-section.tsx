@@ -120,14 +120,13 @@ export function CompetitionTeamSection(props: Props) {
 
 function CreateTeamForm(props: Props) {
   const router = useRouter();
+  const { addToast } = useToast();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<ApiError | null>(null);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    setError(null);
     try {
       const res = await sessionFetch(
         props.expectedUserId,
@@ -139,7 +138,8 @@ function CreateTeamForm(props: Props) {
         },
       );
       if (!res.ok) {
-        setError(await handleError(res));
+        const err = await handleError(res);
+        addToast({ type: "error", message: err.message });
         return;
       }
       router.refresh();
@@ -186,7 +186,6 @@ function CreateTeamForm(props: Props) {
           {busy ? "Membuat…" : "Buat tim"}
         </button>
       </form>
-      {error && <ErrorAlert error={error} />}
     </div>
   );
 }
@@ -257,9 +256,8 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
   const isCaptain = team.captainId === props.expectedUserId;
   const status = team.status;
 
-  const [error, setError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
-  // Step 6.5e — a username OR an email; resolved server-side.
+  // a username OR an email; resolved server-side.
   const [inviteIdentifier, setInviteIdentifier] = useState("");
 
   const seatsUsed = props.initialMembers.length + props.initialPendingInvitations.length;
@@ -280,24 +278,18 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     return null;
   })();
 
-  const action = async (
-    label: string,
-    url: string,
-    init: RequestInit,
-    confirmMessage?: string,
-  ) => {
-    if (confirmMessage && !window.confirm(confirmMessage)) return;
+  const executeAction = async (label: string, url: string, init: RequestInit) => {
     setBusy(true);
-    setError(null);
     try {
       const res = await sessionFetch(props.expectedUserId, url, init);
       if (!res.ok) {
-        setError(await handleError(res));
+        const err = await handleError(res);
+        addToast({ type: "error", message: err.message });
         return;
       }
       router.refresh();
     } catch {
-      setError({ code: "network_error", message: `Gagal ${label}.` });
+      addToast({ type: "error", message: `Gagal ${label}.` });
     } finally {
       setBusy(false);
     }
@@ -305,7 +297,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
   const onInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    await action(
+    await executeAction(
       "mengirim undangan",
       `/api/v1/teams/${team.id}/invitations`,
       {
@@ -318,37 +310,57 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
   };
 
   const onCancelInvite = (tokenHash: string) =>
-    action(
+    executeAction(
       "membatalkan undangan",
       `/api/v1/teams/${team.id}/invitations/${tokenHash}`,
       { method: "DELETE" },
     );
 
   const onRemoveMember = (membershipId: string) =>
-    action(
+    executeAction(
       "menghapus anggota",
       `/api/v1/teams/${team.id}/memberships/${membershipId}`,
       { method: "DELETE" },
     );
 
   const onDisband = () =>
-    action(
-      "membubarkan tim",
-      `/api/v1/teams/${team.id}`,
-      { method: "DELETE" },
-      "Bubarkan tim? Tindakan ini tidak dapat dibatalkan.",
-    );
+    openModal({
+      title: "Bubarkan Tim",
+      body: "Bubarkan tim? Tindakan ini tidak dapat dibatalkan.",
+      actions: [
+        {
+          label: "Bubarkan Tim",
+          autoClose: true,
+          onClick: () => {
+            void executeAction("membubarkan tim", `/api/v1/teams/${team.id}`, { method: "DELETE" });
+          },
+        },
+        { label: "Batal", onClick: () => {} },
+      ],
+    });
 
   const onLeave = (membershipId: string) =>
-    action(
-      "meninggalkan tim",
-      `/api/v1/teams/${team.id}/memberships/${membershipId}`,
-      { method: "DELETE" },
-      "Tinggalkan tim?",
-    );
+    openModal({
+      title: "Tinggalkan Tim",
+      body: "Tinggalkan tim?",
+      actions: [
+        {
+          label: "Tinggalkan",
+          autoClose: true,
+          onClick: () => {
+            void executeAction(
+              "meninggalkan tim",
+              `/api/v1/teams/${team.id}/memberships/${membershipId}`,
+              { method: "DELETE" },
+            );
+          },
+        },
+        { label: "Batal", onClick: () => {} },
+      ],
+    });
 
   const onSubmitTeam = () =>
-    action(
+    executeAction(
       "mendaftarkan tim",
       `/api/v1/competitions/${props.competitionId}/teams/${team.id}/registrations`,
       { method: "POST" },
@@ -357,7 +369,6 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
   const submitTeamCancel = async (reason: string) => {
     closeModal();
     setBusy(true);
-    setError(null);
     try {
       const res = await sessionFetch(
         props.expectedUserId,
@@ -682,7 +693,6 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
         </p>
       )}
 
-      {error && <ErrorAlert error={error} />}
     </div>
   );
 }
@@ -705,26 +715,3 @@ function removeButtonStyle(disabled: boolean): React.CSSProperties {
   };
 }
 
-function ErrorAlert({ error }: { error: ApiError }) {
-  return (
-    <div
-      role="alert"
-      style={{
-        marginTop: 12,
-        padding: 8,
-        background: "#fee",
-        border: "1px solid #c00",
-        borderRadius: 4,
-        color: "#a00",
-        fontSize: 13,
-      }}
-    >
-      <strong>{error.code}</strong>: {error.message}
-      {error.details && Object.keys(error.details).length > 0 && (
-        <pre style={{ marginTop: 4, fontSize: 11, whiteSpace: "pre-wrap" }}>
-          {JSON.stringify(error.details, null, 2)}
-        </pre>
-      )}
-    </div>
-  );
-}

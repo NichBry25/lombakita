@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useToast } from "@/components/ui/primitives";
 
 type FeaturedRowFormProps = {
   competitionId: string;
@@ -13,24 +14,23 @@ export function FeaturedRowForm({
   initialIsFeatured,
   initialFeaturedOrder,
 }: FeaturedRowFormProps) {
+  const { addToast } = useToast();
   const [isFeatured, setIsFeatured] = useState(initialIsFeatured);
   const [featuredOrder, setFeaturedOrder] = useState<string>(
     initialFeaturedOrder !== null ? String(initialFeaturedOrder) : "",
   );
-  const [status, setStatus] = useState<"idle" | "saving" | "ok" | "error">("idle");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStatus("saving");
-    setErrorMsg(null);
+    setSaving(true);
 
     const parsedOrder =
       featuredOrder.trim() === "" ? null : parseInt(featuredOrder.trim(), 10);
 
     if (featuredOrder.trim() !== "" && (isNaN(parsedOrder!) || !Number.isInteger(parsedOrder))) {
-      setStatus("error");
-      setErrorMsg("Urutan harus berupa bilangan bulat.");
+      addToast({ type: "error", message: "Urutan harus berupa bilangan bulat." });
+      setSaving(false);
       return;
     }
 
@@ -42,16 +42,16 @@ export function FeaturedRowForm({
       });
       const data = await res.json();
       if (!res.ok) {
-        setStatus("error");
-        setErrorMsg(data?.error?.message ?? `Error ${res.status}`);
+        addToast({ type: "error", message: data?.error?.message ?? `Error ${res.status}` });
         return;
       }
       setIsFeatured(data.isFeatured);
       setFeaturedOrder(data.featuredOrder !== null ? String(data.featuredOrder) : "");
-      setStatus("ok");
+      addToast({ type: "success", message: "Pengaturan unggulan disimpan." });
     } catch {
-      setStatus("error");
-      setErrorMsg("Terjadi kesalahan jaringan.");
+      addToast({ type: "error", message: "Terjadi kesalahan jaringan." });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -75,7 +75,7 @@ export function FeaturedRowForm({
       />
       <button
         type="submit"
-        disabled={status === "saving"}
+        disabled={saving}
         style={{
           padding: "4px 10px",
           borderRadius: 6,
@@ -83,17 +83,11 @@ export function FeaturedRowForm({
           background: "#355795",
           color: "#fff",
           fontSize: 12,
-          cursor: status === "saving" ? "not-allowed" : "pointer",
+          cursor: saving ? "not-allowed" : "pointer",
         }}
       >
-        {status === "saving" ? "..." : "Simpan"}
+        {saving ? "..." : "Simpan"}
       </button>
-      {status === "ok" && (
-        <span style={{ color: "#155724", fontSize: 12 }}>✓</span>
-      )}
-      {status === "error" && (
-        <span style={{ color: "#721c24", fontSize: 12 }}>{errorMsg}</span>
-      )}
     </form>
   );
 }

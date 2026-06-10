@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CompetitionResultStatus } from "@/server/db/schema";
+import { useToast } from "@/components/ui/primitives";
 
 type Props = {
   apiBasePath: string;
@@ -26,23 +27,16 @@ export function ResultForm({
   activeMemberCount,
 }: Props) {
   const router = useRouter();
+  const { addToast } = useToast();
   const [label, setLabel] = useState<string>(initialLabel ?? "");
   const [notes, setNotes] = useState<string>(initialNotes ?? "");
   const [status, setStatus] = useState<CompetitionResultStatus>(initialStatus);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [unpublishing, setUnpublishing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  const clearMessages = () => {
-    setError(null);
-    setSuccess(null);
-  };
 
   const handleSaveDraft = async () => {
     setSaving(true);
-    clearMessages();
     try {
       const res = await fetch(apiBasePath, {
         method: "PUT",
@@ -52,13 +46,13 @@ export function ResultForm({
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         const code = (body as { error?: { code?: string } })?.error?.code ?? `HTTP ${res.status}`;
-        setError(`Gagal menyimpan: ${code}`);
+        addToast({ type: "error", message: `Gagal menyimpan: ${code}` });
         return;
       }
-      setSuccess("Tersimpan sebagai draf.");
+      addToast({ type: "success", message: "Tersimpan sebagai draf." });
       router.refresh();
     } catch {
-      setError("Gagal menyimpan: kesalahan jaringan");
+      addToast({ type: "error", message: "Gagal menyimpan: kesalahan jaringan" });
     } finally {
       setSaving(false);
     }
@@ -66,20 +60,19 @@ export function ResultForm({
 
   const handlePublish = async () => {
     setPublishing(true);
-    clearMessages();
     try {
       const res = await fetch(`${apiBasePath}/publish`, { method: "POST" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         const code = (body as { error?: { code?: string } })?.error?.code ?? `HTTP ${res.status}`;
-        setError(`Gagal mempublikasikan: ${code}`);
+        addToast({ type: "error", message: `Gagal mempublikasikan: ${code}` });
         return;
       }
       setStatus("published");
-      setSuccess("Hasil dipublikasikan.");
+      addToast({ type: "success", message: "Hasil dipublikasikan." });
       router.refresh();
     } catch {
-      setError("Gagal mempublikasikan: kesalahan jaringan");
+      addToast({ type: "error", message: "Gagal mempublikasikan: kesalahan jaringan" });
     } finally {
       setPublishing(false);
     }
@@ -87,20 +80,19 @@ export function ResultForm({
 
   const handleUnpublish = async () => {
     setUnpublishing(true);
-    clearMessages();
     try {
       const res = await fetch(`${apiBasePath}/unpublish`, { method: "POST" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         const code = (body as { error?: { code?: string } })?.error?.code ?? `HTTP ${res.status}`;
-        setError(`Gagal membatalkan publikasi: ${code}`);
+        addToast({ type: "error", message: `Gagal membatalkan publikasi: ${code}` });
         return;
       }
       setStatus("draft");
-      setSuccess("Publikasi dibatalkan — kembali ke draf.");
+      addToast({ type: "success", message: "Publikasi dibatalkan — kembali ke draf." });
       router.refresh();
     } catch {
-      setError("Gagal membatalkan publikasi: kesalahan jaringan");
+      addToast({ type: "error", message: "Gagal membatalkan publikasi: kesalahan jaringan" });
     } finally {
       setUnpublishing(false);
     }
@@ -196,8 +188,6 @@ export function ResultForm({
         </div>
       </div>
 
-      {error && <p style={{ color: "crimson", marginTop: 8 }}>{error}</p>}
-      {success && <p style={{ color: "green", marginTop: 8 }}>{success}</p>}
     </div>
   );
 }

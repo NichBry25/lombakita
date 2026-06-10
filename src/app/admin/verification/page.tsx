@@ -198,27 +198,25 @@ function ReviewPanelBody({
 export default function AdminVerificationPage() {
   const [items, setItems] = useState<PendingItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const { openModal, closeModal } = useModal();
   const { addToast } = useToast();
 
   const fetchPending = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       const res = await fetch("/api/platform-ops/verification/pending");
       if (!res.ok) {
-        setError("Gagal memuat antrean verifikasi.");
+        addToast({ type: "error", message: "Gagal memuat antrean verifikasi." });
         return;
       }
       const data = (await res.json()) as { submissions: PendingItem[] };
       setItems(data.submissions);
     } catch {
-      setError("Terjadi kesalahan.");
+      addToast({ type: "error", message: "Terjadi kesalahan." });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [addToast]);
 
   useEffect(() => {
     void fetchPending();
@@ -254,15 +252,9 @@ export default function AdminVerificationPage() {
       <h1 style={{ fontSize: 22, marginBottom: 4 }}>Antrian Verifikasi Dokumen</h1>
       <p style={{ color: "#555", fontSize: 14, marginBottom: 24 }}>Platform Ops — pengajuan menunggu tinjauan</p>
 
-      {error && (
-        <div style={{ background: "#f8d7da", color: "#721c24", padding: "10px 14px", borderRadius: 6, marginBottom: 16 }}>
-          {error}
-        </div>
-      )}
-
       {loading && <p style={{ color: "#888", fontSize: 13 }}>Memuat...</p>}
 
-      {!loading && items.length === 0 && !error && (
+      {!loading && items.length === 0 && (
         <p style={{ color: "#888", fontSize: 13 }}>Tidak ada pengajuan yang menunggu tinjauan.</p>
       )}
 

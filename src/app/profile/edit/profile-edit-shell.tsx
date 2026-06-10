@@ -8,6 +8,7 @@ import {
   SESSION_MISMATCH_MESSAGE,
   sessionFetch,
 } from "@/lib/session/session-fetch";
+import { useToast } from "@/components/ui/primitives";
 
 type Props = {
   profile: OwnerProfileResponse;
@@ -97,6 +98,7 @@ function FieldInput({
 
 export function ProfileEditShell({ profile, expectedUserId }: Props) {
   const router = useRouter();
+  const { addToast } = useToast();
 
   const [username, setUsername] = useState(profile.username);
   const [displayName, setDisplayName] = useState(fieldValue(profile.displayName));
@@ -111,16 +113,12 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
   const [websiteUrl, setWebsiteUrl] = useState(fieldValue(profile.websiteUrl));
 
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [success, setSuccess] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    setError(null);
     setFieldErrors({});
-    setSuccess(false);
 
     const payload: Record<string, string | number | null> = {
       username: username.trim(),
@@ -158,7 +156,7 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
         const details: { fields?: string[] } = data?.error?.details ?? {};
 
         if (errCode === SESSION_MISMATCH_CODE) {
-          setError(SESSION_MISMATCH_MESSAGE);
+          addToast({ type: "error", message: SESSION_MISMATCH_MESSAGE });
         } else if (errCode === "profile_username_taken") {
           setFieldErrors({ username: "Username sudah dipakai akun lain." });
         } else if (errCode === "profile_reserved_username") {
@@ -170,17 +168,17 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
           }
           setFieldErrors(fe);
         } else {
-          setError(errMsg);
+          addToast({ type: "error", message: errMsg });
         }
       } else {
-        setSuccess(true);
+        addToast({ type: "success", message: "Profil berhasil disimpan." });
         // On a successful save, return to the owner profile view. router.refresh() first so the
         // /profile server component re-fetches the just-saved values rather than a cached render.
         router.refresh();
         router.push("/profile");
       }
     } catch {
-      setError("Gagal terhubung ke server. Coba lagi.");
+      addToast({ type: "error", message: "Gagal terhubung ke server. Coba lagi." });
     } finally {
       setSaving(false);
     }
@@ -189,33 +187,6 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
 
   return (
     <form onSubmit={handleSubmit}>
-      {error && (
-        <p
-          style={{
-            background: "#fee2e2",
-            color: "#b91c1c",
-            padding: "0.75rem",
-            borderRadius: 4,
-            marginBottom: "1rem",
-          }}
-        >
-          {error}
-        </p>
-      )}
-      {success && (
-        <p
-          style={{
-            background: "#dcfce7",
-            color: "#15803d",
-            padding: "0.75rem",
-            borderRadius: 4,
-            marginBottom: "1rem",
-          }}
-        >
-          Profil berhasil disimpan.
-        </p>
-      )}
-
       <section style={{ marginBottom: "1.5rem" }}>
         <h2 style={{ fontSize: "0.95rem", color: "#444", marginBottom: "0.75rem" }}>Akun</h2>
         <div style={{ marginBottom: "1rem" }}>
