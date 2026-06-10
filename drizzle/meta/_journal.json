@@ -225,6 +225,20 @@
       "when": 1780931280868,
       "tag": "0031_premium_blade",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1781015196324,
+      "tag": "0032_eager_cerise",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1781018288777,
+      "tag": "0033_lethal_tinkerer",
+      "breakpoints": true
     }
   ]
 }

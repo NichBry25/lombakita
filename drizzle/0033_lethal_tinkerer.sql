@@ -1,0 +1,1 @@
+CREATE INDEX "institution_verification_documents_submission_id_idx" ON "institution_verification_documents" USING btree ("submission_id");

@@ -345,7 +345,15 @@ export const institutions = pgTable(
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [uniqueIndex("institutions_slug_unique_idx").on(table.slug)],
+  (table) => [
+    uniqueIndex("institutions_slug_unique_idx").on(table.slug),
+    // Step 6.5g — backstop for the 6.5f.1-S1 debt: full/legacy institutions must store a non-null
+    // display_name. Personal institutions are exempt (type = 'personal' short-circuits the OR).
+    check(
+      "institutions_display_name_type_chk",
+      sql`${table.institutionType} = 'personal' OR ${table.displayName} IS NOT NULL`,
+    ),
+  ],
 );
 
 export const institutionMemberships = pgTable(
@@ -1019,6 +1027,74 @@ export const notifications = pgTable(
 );
 
 export type NotificationRecord = typeof notifications.$inferSelect;
+
+// Step 6.5g — institution document verification submission system (F10).
+// An institution owner submits identity documents to platform ops for review. On approval,
+// verification_status transitions to verified; on upgrade (personal → full), the type flip and
+// display_name persistence happen in the same transaction.
+export const verificationSubmissionStatusEnum = pgEnum("verification_submission_status", [
+  "pending_review",
+  "approved",
+  "rejected",
+]);
+
+export type VerificationSubmissionStatus =
+  (typeof verificationSubmissionStatusEnum.enumValues)[number];
+
+export const institutionVerificationSubmissions = pgTable(
+  "institution_verification_submissions",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    institutionId: text("institution_id")
+      .notNull()
+      .references(() => institutions.id, { onDelete: "cascade" }),
+    submittedByUserId: text("submitted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    targetInstitutionType: institutionTypeEnum("target_institution_type").notNull(),
+    proposedDisplayName: text("proposed_display_name"),
+    status: verificationSubmissionStatusEnum("status").notNull().default("pending_review"),
+    // For university and campus_organization submissions only: true = institutional domain
+    // (e.g. @unpad.ac.id), false = known personal-provider domain (e.g. @gmail.com). NULL for
+    // all other institution types.
+    emailDomainFlag: boolean("email_domain_flag"),
+    reviewerUserId: text("reviewer_user_id").references(() => users.id, { onDelete: "set null" }),
+    reviewerNotes: text("reviewer_notes"),
+    submittedAt: timestamp("submitted_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    reviewedAt: timestamp("reviewed_at", { mode: "date", withTimezone: true }),
+  },
+  (table) => [
+    index("institution_verification_submissions_institution_id_status_idx").on(
+      table.institutionId,
+      table.status,
+    ),
+  ],
+);
+
+export const institutionVerificationDocuments = pgTable(
+  "institution_verification_documents",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    submissionId: text("submission_id")
+      .notNull()
+      .references(() => institutionVerificationSubmissions.id, { onDelete: "cascade" }),
+    documentType: text("document_type").notNull(),
+    r2Key: text("r2_key").notNull(),
+    originalFileName: text("original_file_name").notNull(),
+    fileSizeBytes: bigint("file_size_bytes", { mode: "number" }).notNull(),
+    contentType: text("content_type").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("institution_verification_documents_submission_id_idx").on(table.submissionId),
+  ],
+);
 
 // Non-domain bootstrap table for validating migration workflow only.
 export const infrastructureProbe = pgTable("infrastructure_probe", {
