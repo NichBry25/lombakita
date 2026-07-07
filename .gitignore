@@ -47,3 +47,4 @@ next-env.d.ts
 .env.example
 .env.example
 .claude/setting.local.json
+.codebase-memory/
