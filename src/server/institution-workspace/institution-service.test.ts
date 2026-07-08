@@ -25,6 +25,32 @@ import {
   MAX_PERSONAL_INSTITUTIONS_PER_RECRUITER,
 } from "@/server/institution-workspace/institution-type";
 
+// Every create-path insert transaction now (1) acquires a per-owner advisory lock via tx.execute and
+// (2) re-counts the owner's institutions under that lock via tx.select before inserting (the true cap
+// guard). These helpers let each tx mock satisfy both without duplicating the thenable boilerplate.
+// `inTxCount` is what the in-transaction re-count returns; pass an optional `capturedLockKeys` array
+// to record the advisory-lock key the code derives (proves per-owner keying / cross-owner independence).
+const makeTxCountNode = (value: number) => {
+  const node: Record<string, unknown> = {};
+  for (const m of ["from", "innerJoin", "where", "limit"]) node[m] = () => node;
+  node.then = (resolve: (v: unknown) => void) => resolve([{ value }]);
+  return node;
+};
+
+const txCapGuards = (inTxCount: number, capturedLockKeys?: string[]) => ({
+  execute: vi.fn((query?: unknown) => {
+    // drizzle stores an interpolated raw string as a primitive string chunk (parameterized at build
+    // time), not a Param object — so match the chunk that IS the "inst_owner_cap:<userId>" string.
+    const chunks = (query as { queryChunks?: unknown[] })?.queryChunks ?? [];
+    const key = chunks.find(
+      (c): c is string => typeof c === "string" && c.startsWith("inst_owner_cap:"),
+    );
+    if (key && capturedLockKeys) capturedLockKeys.push(key);
+    return Promise.resolve([]);
+  }),
+  select: vi.fn(() => makeTxCountNode(inTxCount)),
+});
+
 type CreationConflictShape = "outer" | "wrapped";
 
 const createDbMockForCreation = (options: {
@@ -46,6 +72,7 @@ const createDbMockForCreation = (options: {
   let institutionInsertCount = 0;
 
   const tx = {
+    ...txCapGuards(0),
     insert: vi.fn((table: unknown) => {
       if (table === institutions) {
         return {
@@ -251,6 +278,7 @@ describe("institution-service", () => {
   const createDbMockWithOwnerCount = (ownedCount: number) => {
     let selectCalls = 0;
     const tx = {
+      ...txCapGuards(ownedCount),
       insert: vi.fn((table: unknown) => {
         if (table === institutions) {
           return {
@@ -395,6 +423,7 @@ describe("createPersonalInstitutionForUser", () => {
     let selectCalls = 0;
 
     const tx = {
+      ...txCapGuards(personalCount),
       insert: vi.fn((table: unknown) => {
         if (table === institutions) {
           return {
@@ -978,6 +1007,7 @@ describe("createInstitutionWorkspaceForUser — Fix C username-collision gate", 
     let selectCalls = 0;
     const transaction = vi.fn(async (cb: (t: unknown) => Promise<unknown>) => {
       const tx = {
+        ...txCapGuards(options.ownedCount),
         insert: vi.fn((table: unknown) => {
           if (table === institutions) {
             return {
@@ -1097,6 +1127,7 @@ describe("createInstitutionWorkspaceForUser — Fix E suffixed-slug username re-
 
     const transaction = vi.fn(async (cb: (t: unknown) => Promise<unknown>) => {
       const tx = {
+        ...txCapGuards(0),
         insert: vi.fn((table: unknown) => {
           if (table === institutions) {
             return {
@@ -1157,5 +1188,178 @@ describe("createInstitutionWorkspaceForUser — Fix E suffixed-slug username re-
     // reached insert because Fix E skipped it on the username collision.
     expect(attemptedInstitutionSlugs).toEqual(["target", "target-3"]);
     expect(transaction).toHaveBeenCalledTimes(2);
+  });
+});
+
+// Owner-cap lock (concurrency hardening) — the create-path cap is now re-checked INSIDE the insert
+// transaction, behind a per-owner advisory lock. Two concurrent same-owner creates each pass the fast
+// pre-check (their snapshots cannot see the other's uncommitted insert under READ COMMITTED); the
+// in-transaction re-count under the lock is the true guard. The harness cannot run true parallel
+// transactions, so these drive the guard directly: a create whose pre-check passed but whose in-tx
+// count is already at the cap must reject with the SAME 409 and write nothing, and distinct owners
+// must derive distinct lock keys (so one owner never blocks another).
+describe("createInstitutionWorkspaceForUser / createPersonalInstitutionForUser — owner-cap lock", () => {
+  const makeSeqNode = (result: unknown[]) => {
+    const node: Record<string, unknown> = {};
+    for (const m of ["from", "innerJoin", "where", "limit"]) node[m] = () => node;
+    node.then = (resolve: (v: unknown) => void) => resolve(result);
+    return node;
+  };
+
+  // Full create-path mock. db.select #1 = fast pre-check count; #2 = base username probe (none);
+  // #3 = Fix-E candidate probe (none). The tx re-counts via txCapGuards(inTxCount) under the lock.
+  const makeFullRaceDb = (opts: { preCheckCount: number; inTxCount: number }) => {
+    const capturedLockKeys: string[] = [];
+    const insertedMemberships: Array<Record<string, unknown>> = [];
+    let sel = 0;
+    const tx = {
+      ...txCapGuards(opts.inTxCount, capturedLockKeys),
+      insert: vi.fn((table: unknown) => {
+        if (table === institutions) {
+          return {
+            values: (values: { displayName: string; slug: string; status: string }) => ({
+              returning: async () => [
+                {
+                  institutionId: "inst_new",
+                  institutionDisplayName: values.displayName,
+                  institutionSlug: values.slug,
+                  institutionStatus: values.status,
+                  institutionCreatedAt: new Date("2026-07-08T00:00:00.000Z"),
+                  institutionUpdatedAt: new Date("2026-07-08T00:00:00.000Z"),
+                },
+              ],
+            }),
+          };
+        }
+        return {
+          values: (values: Record<string, unknown>) => {
+            insertedMemberships.push(values);
+            return {
+              returning: async () => [
+                {
+                  membershipId: "mem_new",
+                  membershipRole: values.membershipRole,
+                  membershipStatus: values.status,
+                  membershipJoinedAt: new Date("2026-07-08T00:00:00.000Z"),
+                },
+              ],
+            };
+          },
+        };
+      }),
+    };
+    const db = {
+      select: vi.fn(() => {
+        sel += 1;
+        return makeSeqNode(sel === 1 ? [{ value: opts.preCheckCount }] : []);
+      }),
+      transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx)),
+    } as unknown as Database;
+    return { db, capturedLockKeys, insertedMemberships };
+  };
+
+  // Personal create-path mock. db.select #1 = personal pre-check count; #2 = owner-username load.
+  const makePersonalRaceDb = (opts: { preCheckCount: number; inTxCount: number; username?: string }) => {
+    const capturedLockKeys: string[] = [];
+    const insertedMemberships: Array<Record<string, unknown>> = [];
+    let sel = 0;
+    const tx = {
+      ...txCapGuards(opts.inTxCount, capturedLockKeys),
+      insert: vi.fn((table: unknown) => {
+        if (table === institutions) {
+          return {
+            values: (values: {
+              displayName: string | null;
+              slug: string;
+              status: string;
+              institutionType: string | null;
+            }) => ({
+              returning: async () => [
+                {
+                  institutionId: "inst_p",
+                  institutionDisplayName: values.displayName ?? null,
+                  institutionSlug: values.slug,
+                  institutionStatus: values.status,
+                  institutionType: values.institutionType ?? null,
+                  institutionCreatedAt: new Date("2026-07-08T00:00:00.000Z"),
+                  institutionUpdatedAt: new Date("2026-07-08T00:00:00.000Z"),
+                },
+              ],
+            }),
+          };
+        }
+        return {
+          values: (values: Record<string, unknown>) => {
+            insertedMemberships.push(values);
+            return {
+              returning: async () => [
+                {
+                  membershipId: "mem_p",
+                  membershipRole: values.membershipRole,
+                  membershipStatus: values.status,
+                  membershipJoinedAt: new Date("2026-07-08T00:00:00.000Z"),
+                },
+              ],
+            };
+          },
+        };
+      }),
+    };
+    const db = {
+      select: vi.fn(() => {
+        sel += 1;
+        return sel === 1
+          ? makeSeqNode([{ value: opts.preCheckCount }])
+          : makeSeqNode([{ username: opts.username ?? "owneruser" }]);
+      }),
+      transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx)),
+    } as unknown as Database;
+    return { db, capturedLockKeys, insertedMemberships };
+  };
+
+  it("full: the in-transaction guard rejects a racer that passed the pre-check (same 409, nothing written)", async () => {
+    // Pre-check sees MAX-1 (passes); a concurrent create commits; the in-tx re-count sees MAX and trips.
+    const { db, capturedLockKeys, insertedMemberships } = makeFullRaceDb({
+      preCheckCount: MAX_INSTITUTIONS_PER_RECRUITER - 1,
+      inTxCount: MAX_INSTITUTIONS_PER_RECRUITER,
+    });
+
+    await expect(
+      createInstitutionWorkspaceForUser("racer_user", { displayName: "Kampus Kilat" }, db),
+    ).rejects.toMatchObject({ code: "recruiter_institution_limit_reached", httpStatus: 409 });
+
+    // Guard fired before any insert committed — no owner membership row written.
+    expect(insertedMemberships).toEqual([]);
+    // Lock acquired, keyed on the acting owner.
+    expect(capturedLockKeys).toEqual(["inst_owner_cap:racer_user"]);
+  });
+
+  it("personal: the in-transaction guard rejects a racer that passed the pre-check (same 409, nothing written)", async () => {
+    const { db, capturedLockKeys, insertedMemberships } = makePersonalRaceDb({
+      preCheckCount: 0, // pre-check passes (0 < 1)
+      inTxCount: MAX_PERSONAL_INSTITUTIONS_PER_RECRUITER, // racer created one → in-tx count = 1 trips
+      username: "solo",
+    });
+
+    await expect(createPersonalInstitutionForUser("racer_user", db)).rejects.toMatchObject({
+      code: "personal_institution_already_exists",
+      httpStatus: 409,
+    });
+
+    expect(insertedMemberships).toEqual([]);
+    expect(capturedLockKeys).toEqual(["inst_owner_cap:racer_user"]);
+  });
+
+  it("cross-owner independence: two owners' creates acquire distinct advisory-lock keys", async () => {
+    const a = makeFullRaceDb({ preCheckCount: 0, inTxCount: 0 });
+    const b = makeFullRaceDb({ preCheckCount: 0, inTxCount: 0 });
+
+    await createInstitutionWorkspaceForUser("owner_A", { displayName: "Kampus A" }, a.db);
+    await createInstitutionWorkspaceForUser("owner_B", { displayName: "Kampus B" }, b.db);
+
+    expect(a.capturedLockKeys).toEqual(["inst_owner_cap:owner_A"]);
+    expect(b.capturedLockKeys).toEqual(["inst_owner_cap:owner_B"]);
+    // Distinct keys → owner A's lock can never block owner B's create.
+    expect(a.capturedLockKeys[0]).not.toBe(b.capturedLockKeys[0]);
   });
 });

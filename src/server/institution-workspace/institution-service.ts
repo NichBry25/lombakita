@@ -32,6 +32,7 @@ import {
   type FullInstitutionType,
 } from "@/server/institution-workspace/institution-type";
 import { getInstitutionDisplayName } from "@/server/institution-workspace/institution-display-name";
+import { acquireOwnerCapLock } from "@/server/institution-workspace/owner-cap-lock";
 
 const MAX_SLUG_ATTEMPTS = 20;
 const NEW_INSTITUTION_DEFAULT_STATUS = "inactive";
@@ -197,6 +198,38 @@ const countOwnedInstitutionsWhere = async (
   return rows[0]?.value ?? 0;
 };
 
+// The 409 a caller sees when the full-institution cap is reached. Built in one place so the fast
+// app-layer pre-check and the in-transaction re-check behind the owner lock throw a byte-identical
+// error — a caller cannot tell which guard tripped.
+const buildFullInstitutionLimitError = (): InstitutionWorkspaceInputError =>
+  new InstitutionWorkspaceInputError(
+    "recruiter_institution_limit_reached",
+    `Recruiter may own at most ${MAX_INSTITUTIONS_PER_RECRUITER} institutions`,
+    undefined,
+    409,
+  );
+
+// The 409 a caller sees when the one-personal-per-recruiter cap is reached. Same pre-check /
+// in-transaction parity as the full-institution error above.
+const buildPersonalInstitutionLimitError = (): InstitutionWorkspaceInputError =>
+  new InstitutionWorkspaceInputError(
+    "personal_institution_already_exists",
+    "You already have a personal institution. Only one is allowed per account.",
+    undefined,
+    409,
+  );
+
+// The owner-cap re-check applied INSIDE the insert transaction, behind acquireOwnerCapLock — the true
+// guard against a concurrent same-owner create slipping past the fast pre-check. `typeCondition` and
+// `max` reproduce the exact semantics of the caller's pre-check (full excludes personal via
+// FULL_INSTITUTION_TYPE_CONDITION; personal counts only institution_type = 'personal'), and
+// `buildLimitError` returns the same 409 the pre-check throws.
+type OwnerCapGuard = {
+  typeCondition: SQL | undefined;
+  max: number;
+  buildLimitError: () => InstitutionWorkspaceInputError;
+};
+
 // Slug-collision-retrying insert of an institution row plus its institution_owner membership, in a
 // single transaction. Shared by the full and personal create paths. They differ in:
 //   - displayName: a non-null name for full; NULL for personal (name derives from owner username).
@@ -215,6 +248,7 @@ const insertInstitutionWithOwner = async (
   userId: string,
   params: InsertInstitutionParams,
   institutionType: InstitutionType | null,
+  capGuard: OwnerCapGuard,
   db: Database,
 ): Promise<InstitutionWorkspaceShell> => {
   const baseSlug = params.explicitSlug ?? deriveInstitutionSlugBase(params.slugBaseSource);
@@ -234,6 +268,17 @@ const insertInstitutionWithOwner = async (
 
     try {
       return await db.transaction(async (tx) => {
+        // Serialize same-owner cap-guarded mutations, then re-count the owner's qualifying
+        // institutions UNDER the lock: this is the true cap guard. A plain count (in or out of the
+        // transaction) cannot see a concurrent same-owner insert under READ COMMITTED — see
+        // acquireOwnerCapLock. The fast pre-check in the caller stays as the friendly-409 path.
+        await acquireOwnerCapLock(tx, userId);
+
+        const ownedCount = await countOwnedInstitutionsWhere(userId, capGuard.typeCondition, tx);
+        if (ownedCount >= capGuard.max) {
+          throw capGuard.buildLimitError();
+        }
+
         const [institutionRow] = await tx
           .insert(institutions)
           .values({
@@ -361,12 +406,7 @@ export const createInstitutionWorkspaceForUser = async (
   const ownedCount = await countOwnedInstitutionsWhere(userId, FULL_INSTITUTION_TYPE_CONDITION, db);
 
   if (ownedCount >= MAX_INSTITUTIONS_PER_RECRUITER) {
-    throw new InstitutionWorkspaceInputError(
-      "recruiter_institution_limit_reached",
-      `Recruiter may own at most ${MAX_INSTITUTIONS_PER_RECRUITER} institutions`,
-      undefined,
-      409,
-    );
+    throw buildFullInstitutionLimitError();
   }
 
   // Service-layer NOT NULL invariant (replaces the loosened DB constraint from migration 0031):
@@ -400,6 +440,11 @@ export const createInstitutionWorkspaceForUser = async (
       ownerUsername: null,
     },
     null,
+    {
+      typeCondition: FULL_INSTITUTION_TYPE_CONDITION,
+      max: MAX_INSTITUTIONS_PER_RECRUITER,
+      buildLimitError: buildFullInstitutionLimitError,
+    },
     db,
   );
 }
@@ -444,12 +489,7 @@ export const createPersonalInstitutionForUser = async (
   );
 
   if (personalCount >= MAX_PERSONAL_INSTITUTIONS_PER_RECRUITER) {
-    throw new InstitutionWorkspaceInputError(
-      "personal_institution_already_exists",
-      "You already have a personal institution. Only one is allowed per account.",
-      undefined,
-      409,
-    );
+    throw buildPersonalInstitutionLimitError();
   }
 
   const ownerUsername = await loadOwnerUsername(userId, db);
@@ -463,6 +503,11 @@ export const createPersonalInstitutionForUser = async (
       ownerUsername,
     },
     PERSONAL_INSTITUTION_TYPE,
+    {
+      typeCondition: eq(institutions.institutionType, PERSONAL_INSTITUTION_TYPE),
+      max: MAX_PERSONAL_INSTITUTIONS_PER_RECRUITER,
+      buildLimitError: buildPersonalInstitutionLimitError,
+    },
     db,
   );
 };

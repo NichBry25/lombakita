@@ -19,6 +19,7 @@ import {
   RecruiterTierError,
 } from "@/server/auth/recruiter-tier";
 import { MAX_INSTITUTIONS_PER_RECRUITER } from "@/server/institution-workspace/institution-core";
+import { acquireOwnerCapLock } from "@/server/institution-workspace/owner-cap-lock";
 import {
   assertInstitutionTypeTransition,
   isFullInstitutionType,
@@ -597,6 +598,14 @@ export const reviewVerificationSubmission = async (
           "No active institution_owner found for this institution; cannot verify limit",
         );
       }
+
+      // Serialize concurrent same-owner upgrade approvals before counting the owner's full
+      // institutions. The count below ranges over the owner's OTHER institution rows, so gating the
+      // UPDATE on the target row alone cannot fence it — two approvals of two different institutions
+      // for the same owner each snapshot a count blind to the other's uncommitted type-flip and both
+      // pass the cap. The lock keyed on ownerRow.userId makes the count-then-flip atomic per owner.
+      // See acquireOwnerCapLock.
+      await acquireOwnerCapLock(tx, ownerRow.userId);
 
       const [limitRow] = await tx
         .select({ value: count() })
