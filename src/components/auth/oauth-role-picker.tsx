@@ -15,6 +15,11 @@ type OAuthRolePickerProps = {
 
 const mapFinalizeError = (error: string | null | undefined): string => {
   const normalized = error?.toUpperCase() ?? "";
+  // 6.5-HARDENING.1 — single-use carrier. A replayed carrier (already redeemed) and a fail-closed
+  // "cannot confirm single-use" both mean the same user action: start Google sign-in again.
+  if (normalized.includes("REPLAYED") || normalized.includes("UNAVAILABLE")) {
+    return "Sesi pendaftaran Google ini tidak dapat digunakan lagi. Silakan mulai lagi masuk dengan Google.";
+  }
   if (normalized.includes("INVALID_CARRIER")) {
     return "Sesi Google sudah kedaluwarsa atau tidak valid. Silakan masuk dengan Google lagi.";
   }

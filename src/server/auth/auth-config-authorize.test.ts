@@ -35,6 +35,22 @@ vi.mock("@/config/env.server", () => ({
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 vi.mock("@/server/auth/credentials-auth", () => ({
   authenticateWithEmailPassword: () => authenticateMock(),
+  normalizeEmail: (email: string) => email.trim().toLowerCase(),
+}));
+
+// Step 6.5-HARDENING.1 — the failed-attempt limiter gates authorize before any password work.
+// Mocked so tests can drive the over-limit branch and assert record-on-fail / clear-on-success.
+const { isFailedAttemptLimitedMock, recordFailedAttemptMock, clearFailedAttemptsMock } = vi.hoisted(
+  () => ({
+    isFailedAttemptLimitedMock: vi.fn(async () => false as boolean),
+    recordFailedAttemptMock: vi.fn(async () => undefined),
+    clearFailedAttemptsMock: vi.fn(async () => undefined),
+  }),
+);
+vi.mock("@/server/redis/rate-limit", () => ({
+  isFailedAttemptLimited: isFailedAttemptLimitedMock,
+  recordFailedAttempt: recordFailedAttemptMock,
+  clearFailedAttempts: clearFailedAttemptsMock,
 }));
 vi.mock("@/server/db/client", () => ({ getDb: vi.fn(() => ({ db: "mock" })) }));
 vi.mock("@/server/db/schema", () => ({
@@ -45,7 +61,15 @@ vi.mock("@/server/db/schema", () => ({
 }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
 
-type AuthorizeFn = (credentials: { email: string; password: string }) => Promise<unknown>;
+type AuthorizeReq = { headers?: Record<string, string> };
+type AuthorizeFn = (
+  credentials: { email: string; password: string },
+  req?: AuthorizeReq,
+) => Promise<unknown>;
+
+// A req carrying a resolvable client IP so the failed-attempt limiter is actually enforced (the
+// limiter is skipped when the IP resolves to the "unknown" sentinel — see auth.config.ts).
+const reqWithIp: AuthorizeReq = { headers: { "x-forwarded-for": "203.0.113.9" } };
 
 const loadAuthorize = async (): Promise<AuthorizeFn> => {
   const { authOptions } = await import("@/server/auth/auth.config");
@@ -87,5 +111,59 @@ describe("credentials authorize — suspension signal (Step 6.5c)", () => {
     const user = await authorize({ email: "user@example.com", password: "correct-password" });
 
     expect(user).toEqual({ id: "user_1", email: "user@example.com", role: "candidate" });
+  });
+});
+
+describe("credentials authorize — failed-attempt rate limit (Step 6.5-HARDENING.1)", () => {
+  it("throws RATE_LIMITED and never runs the password check when over the limit", async () => {
+    isFailedAttemptLimitedMock.mockResolvedValueOnce(true);
+    const authorize = await loadAuthorize();
+
+    await expect(
+      authorize({ email: "user@example.com", password: "correct-password" }, reqWithIp),
+    ).rejects.toThrow("RATE_LIMITED");
+    expect(authenticateMock).not.toHaveBeenCalled();
+  });
+
+  it("records a failed attempt on invalid credentials", async () => {
+    authenticateMock.mockResolvedValue({ status: "invalid_credentials" });
+    const authorize = await loadAuthorize();
+
+    await expect(
+      authorize({ email: "user@example.com", password: "wrong-password" }, reqWithIp),
+    ).rejects.toThrow("INVALID_CREDENTIALS");
+    expect(recordFailedAttemptMock).toHaveBeenCalledTimes(1);
+    expect(clearFailedAttemptsMock).not.toHaveBeenCalled();
+  });
+
+  it("clears the counter on a successful login and records nothing", async () => {
+    authenticateMock.mockResolvedValue({
+      status: "authenticated",
+      user: { id: "user_1", email: "user@example.com", role: "candidate" },
+    });
+    const authorize = await loadAuthorize();
+
+    await authorize({ email: "user@example.com", password: "correct-password" }, reqWithIp);
+
+    expect(clearFailedAttemptsMock).toHaveBeenCalledTimes(1);
+    expect(recordFailedAttemptMock).not.toHaveBeenCalled();
+  });
+
+  it("skips the lockout entirely when the client IP is unresolvable (no global-email bucket)", async () => {
+    isFailedAttemptLimitedMock.mockResolvedValue(true);
+    authenticateMock.mockResolvedValue({
+      status: "authenticated",
+      user: { id: "user_1", email: "user@example.com", role: "candidate" },
+    });
+    const authorize = await loadAuthorize();
+
+    // No req → IP resolves to the "unknown" sentinel → limiter is not consulted, correct password
+    // still authenticates even though the mock would report over-limit.
+    const user = await authorize({ email: "user@example.com", password: "correct-password" });
+
+    expect(user).toEqual({ id: "user_1", email: "user@example.com", role: "candidate" });
+    expect(isFailedAttemptLimitedMock).not.toHaveBeenCalled();
+    expect(recordFailedAttemptMock).not.toHaveBeenCalled();
+    expect(clearFailedAttemptsMock).not.toHaveBeenCalled();
   });
 });

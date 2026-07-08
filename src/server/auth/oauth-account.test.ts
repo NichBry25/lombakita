@@ -57,6 +57,17 @@ const { claimPendingInvitationsForUser } = vi.hoisted(() => ({
 }));
 vi.mock("@/server/invitations/claim-service", () => ({ claimPendingInvitationsForUser }));
 
+// Step 6.5-HARDENING.1 — the single-use carrier consume runs inside authorizeOAuthFinalize before
+// finalizeOAuthSignup. Default: first use (returns true) so pre-existing finalize tests are
+// unaffected; individual tests override it to simulate a replay (false) or a fail-closed Redis error
+// (throws).
+const { consumeSingleUseTokenMock } = vi.hoisted(() => ({
+  consumeSingleUseTokenMock: vi.fn(async () => true as boolean),
+}));
+vi.mock("@/server/redis/rate-limit", () => ({
+  consumeSingleUseToken: consumeSingleUseTokenMock,
+}));
+
 import { accounts as accountsRef, users as usersRef } from "@/server/db/schema";
 import {
   authorizeOAuthFinalize,
@@ -505,11 +516,35 @@ describe("authorizeOAuthFinalize — carrier gate", () => {
     ).rejects.toMatchObject({ code: "invalid_role" });
   });
 
-  it("finalizes with a valid carrier + role", async () => {
+  it("finalizes with a valid carrier + role, consuming the carrier nonce exactly once", async () => {
     const { db } = makeFinalizeDb();
     const carrier = signGoogleIdentityCarrier(googleClaims);
     const result = await authorizeOAuthFinalize({ carrier, role: "candidate" }, db as never);
     expect(result).toMatchObject({ id: "new-oauth-id", role: "candidate" });
+    expect(consumeSingleUseTokenMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a replayed carrier (nonce already consumed) with carrier_replayed and does not finalize", async () => {
+    consumeSingleUseTokenMock.mockResolvedValueOnce(false);
+    const { db, captures } = makeFinalizeDb();
+    const carrier = signGoogleIdentityCarrier(googleClaims);
+
+    await expect(
+      authorizeOAuthFinalize({ carrier, role: "candidate" }, db as never),
+    ).rejects.toMatchObject({ code: "carrier_replayed", message: "oauth_carrier_replayed" });
+    // Fail closed before any account write.
+    expect(captures.userInsert).toBeNull();
+  });
+
+  it("fails closed (carrier_replayed) when the single-use store cannot confirm (Redis error)", async () => {
+    consumeSingleUseTokenMock.mockRejectedValueOnce(new Error("redis down"));
+    const { db, captures } = makeFinalizeDb();
+    const carrier = signGoogleIdentityCarrier(googleClaims);
+
+    await expect(
+      authorizeOAuthFinalize({ carrier, role: "candidate" }, db as never),
+    ).rejects.toMatchObject({ code: "carrier_replayed", message: "oauth_carrier_unavailable" });
+    expect(captures.userInsert).toBeNull();
   });
 
   it("OAuthFinalizeError is the thrown type", async () => {

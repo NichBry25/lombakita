@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { serverEnv } from "@/config/env.server";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
@@ -48,7 +48,14 @@ export type GoogleIdentityClaims = {
   image: string | null;
 };
 
-type SignedClaims = GoogleIdentityClaims & { iat: number; exp: number };
+// `jti` is a per-carrier nonce (auth-D2 / 6.5d-D2). It is consumed once via an atomic Redis SET NX at
+// finalize so a captured carrier URL cannot be redeemed twice inside its TTL. It is not an identity
+// field, so it is carried alongside iat/exp, not in GoogleIdentityClaims.
+type SignedClaims = GoogleIdentityClaims & { iat: number; exp: number; jti: string };
+
+// What a verified carrier yields: the identity claims plus the fields the single-use consume needs —
+// `jti` (the nonce key) and `exp` (used to give the nonce a TTL matching the carrier's own expiry).
+export type VerifiedGoogleIdentityCarrier = GoogleIdentityClaims & { jti: string; exp: number };
 
 const base64url = (input: Buffer | string): string => {
   return Buffer.from(input).toString("base64url");
@@ -77,11 +84,13 @@ const signaturesEqual = (a: string, b: string): boolean => {
 export const signGoogleIdentityCarrier = (
   claims: GoogleIdentityClaims,
   nowSeconds: number = Math.floor(Date.now() / 1000),
+  jti: string = randomUUID(),
 ): string => {
   const signed: SignedClaims = {
     ...claims,
     iat: nowSeconds,
     exp: nowSeconds + CARRIER_TTL_SECONDS,
+    jti,
   };
   const payload = base64url(JSON.stringify(signed));
   return `${payload}.${sign(payload)}`;
@@ -93,7 +102,7 @@ export const signGoogleIdentityCarrier = (
 export const verifyGoogleIdentityCarrier = (
   token: unknown,
   nowSeconds: number = Math.floor(Date.now() / 1000),
-): GoogleIdentityClaims | null => {
+): VerifiedGoogleIdentityCarrier | null => {
   if (typeof token !== "string" || token.length === 0) {
     return null;
   }
@@ -137,7 +146,11 @@ export const verifyGoogleIdentityCarrier = (
     typeof claims.email !== "string" ||
     claims.email.length === 0 ||
     typeof claims.emailVerified !== "boolean" ||
-    typeof claims.exp !== "number"
+    typeof claims.exp !== "number" ||
+    // `jti` is required. A carrier without one (e.g. minted before this deploy) fails closed and the
+    // user simply re-initiates Google sign-in — carriers are transient (15-min TTL).
+    typeof claims.jti !== "string" ||
+    claims.jti.length === 0
   ) {
     return null;
   }
@@ -153,5 +166,7 @@ export const verifyGoogleIdentityCarrier = (
     emailVerified: claims.emailVerified,
     name: typeof claims.name === "string" ? claims.name : null,
     image: typeof claims.image === "string" ? claims.image : null,
+    jti: claims.jti,
+    exp: claims.exp,
   };
 };

@@ -7,13 +7,20 @@ import GoogleProvider from "next-auth/providers/google";
 import { assertRuntimeEnv, serverEnv } from "@/config/env.server";
 import { type AppRole, isAppRole } from "@/lib/access/roles";
 import { logger } from "@/lib/logger";
-import { authenticateWithEmailPassword } from "@/server/auth/credentials-auth";
+import { authenticateWithEmailPassword, normalizeEmail } from "@/server/auth/credentials-auth";
+import { extractClientIp, UNKNOWN_CLIENT_IP } from "@/server/auth/client-ip";
+import { LOGIN_FAILED_ATTEMPT_LIMIT } from "@/server/auth/rate-limit-constants";
 import {
   authorizeOAuthFinalize,
   GOOGLE_PROVIDER_ID,
   OAUTH_FINALIZE_PROVIDER_ID,
   resolveGoogleOAuthSignIn,
 } from "@/server/auth/oauth-account";
+import {
+  clearFailedAttempts,
+  isFailedAttemptLimited,
+  recordFailedAttempt,
+} from "@/server/redis/rate-limit";
 import { getDb } from "@/server/db/client";
 import { accounts, sessions, users, verificationTokens } from "@/server/db/schema";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
@@ -134,12 +141,40 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         const emailInput = credentials?.email;
         const passwordInput = credentials?.password;
 
         if (typeof emailInput !== "string" || typeof passwordInput !== "string") {
           throw new Error("INVALID_CREDENTIALS");
+        }
+
+        // Failed-attempt lockout keyed by (client IP + email), evaluated BEFORE any password hashing
+        // so a locked-out key does zero crypto work. The over-limit signal is identical whether or
+        // not the email exists (no enumeration leak). Fail-open (isFailedAttemptLimited): a Redis
+        // outage never locks anyone out. The thrown RATE_LIMITED message propagates to the client via
+        // the same next-auth credentials error path as ACCOUNT_SUSPENDED (result.error).
+        //
+        // The lockout is skipped entirely when the client IP is unresolvable: keying on the sentinel
+        // alone would collapse to a single per-email bucket, turning the limiter into a targeted
+        // account-lockout of any known email regardless of source. The IP component is what keeps a
+        // failed-attempt count attributable; without it, not throttling is the safer choice.
+        const headers = (req?.headers ?? {}) as Record<string, unknown>;
+        const clientIp = extractClientIp((name) => {
+          const value = headers[name];
+          return typeof value === "string" ? value : null;
+        });
+        const loginRateLimitEnforced = clientIp !== UNKNOWN_CLIENT_IP;
+        const failedAttemptKey = `${LOGIN_FAILED_ATTEMPT_LIMIT.keyPrefix}${clientIp}:${normalizeEmail(emailInput)}`;
+
+        if (
+          loginRateLimitEnforced &&
+          (await isFailedAttemptLimited({
+            key: failedAttemptKey,
+            limit: LOGIN_FAILED_ATTEMPT_LIMIT.limit,
+          }))
+        ) {
+          throw new Error("RATE_LIMITED");
         }
 
         const result = await authenticateWithEmailPassword(emailInput, passwordInput).catch(() => {
@@ -161,7 +196,21 @@ export const authOptions: NextAuthOptions = {
         }
 
         if (result.status === "invalid_credentials") {
+          // Count only failed password attempts toward the lockout. Suspended / unverified are
+          // correct-password outcomes and neither increment nor clear the counter.
+          if (loginRateLimitEnforced) {
+            await recordFailedAttempt({
+              key: failedAttemptKey,
+              windowSeconds: LOGIN_FAILED_ATTEMPT_LIMIT.windowSeconds,
+            });
+          }
           throw new Error("INVALID_CREDENTIALS");
+        }
+
+        // Authenticated — clear the counter so a good login resets a partial lockout and successful
+        // logins never accumulate toward the limit.
+        if (loginRateLimitEnforced) {
+          await clearFailedAttempts(failedAttemptKey);
         }
 
         return {

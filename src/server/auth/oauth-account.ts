@@ -17,6 +17,8 @@ import {
   signGoogleIdentityCarrier,
   verifyGoogleIdentityCarrier,
 } from "@/server/auth/oauth-identity-carrier";
+import { OAUTH_CARRIER_NONCE_KEY_PREFIX } from "@/server/auth/rate-limit-constants";
+import { consumeSingleUseToken } from "@/server/redis/rate-limit";
 import { UsernameGenerationError } from "@/lib/username/generate";
 import { claimPendingInvitationsForUser } from "@/server/invitations/claim-service";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
@@ -143,7 +145,11 @@ export const resolveGoogleSignIn = async (
 
 export class OAuthFinalizeError extends Error {
   constructor(
-    public readonly code: "invalid_carrier" | "invalid_role" | "account_conflict",
+    public readonly code:
+      | "invalid_carrier"
+      | "invalid_role"
+      | "account_conflict"
+      | "carrier_replayed",
     message: string,
   ) {
     super(message);
@@ -323,6 +329,29 @@ export const authorizeOAuthFinalize = async (
   const role = credentials?.role;
   if (!isSignupRole(role)) {
     throw new OAuthFinalizeError("invalid_role", "A valid role declaration is required");
+  }
+
+  // Step 6.5-HARDENING.1 (auth-D2 / 6.5d-D2) — single-use carrier. The carrier travels in the
+  // /auth/login?oauth=<carrier> URL, so a second party who captures that URL within the 15-min TTL
+  // could otherwise redeem it first. Consume the per-carrier nonce (jti) via an atomic SET NX with a
+  // TTL matching the carrier's own expiry: the first finalize wins, every later attempt is a replay.
+  // Fail-CLOSED — if the single-use store cannot confirm the consume (Redis error / unconfigured) we
+  // refuse finalization rather than risk a double redemption; the user re-initiates Google sign-in
+  // (carriers are cheap). This is an ADDITIONAL guard, independent of the DEC-0085 active-session
+  // mismatch check in the signIn callback, which still fires in its own case.
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  let firstUse: boolean;
+  try {
+    firstUse = await consumeSingleUseToken({
+      key: `${OAUTH_CARRIER_NONCE_KEY_PREFIX}${claims.jti}`,
+      ttlSeconds: Math.max(1, claims.exp - nowSeconds),
+    });
+  } catch {
+    // Degradation already reported to Sentry inside consumeSingleUseToken. Fail closed.
+    throw new OAuthFinalizeError("carrier_replayed", "oauth_carrier_unavailable");
+  }
+  if (!firstUse) {
+    throw new OAuthFinalizeError("carrier_replayed", "oauth_carrier_replayed");
   }
 
   return finalizeOAuthSignup(claims, role, db);

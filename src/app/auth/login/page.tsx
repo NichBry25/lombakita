@@ -23,6 +23,15 @@ const mapSignInPageError = (error: string): string => {
   if (error === "oauth_session_mismatch") {
     return "Anda sudah masuk dengan akun lain. Keluar dulu lalu coba lagi masuk dengan Google.";
   }
+  // 6.5-HARDENING.1 — single-use OAuth carrier (surfaced here only if a finalize error arrives via a
+  // full redirect; the in-page role picker maps it directly).
+  if (error === "oauth_carrier_replayed" || error === "oauth_carrier_unavailable") {
+    return "Sesi pendaftaran Google ini tidak dapat digunakan lagi. Silakan mulai lagi masuk dengan Google.";
+  }
+  // 6.5-HARDENING.1 — failed-login lockout.
+  if (error.includes("RATE_LIMITED")) {
+    return "Terlalu banyak percobaan login gagal. Tunggu beberapa menit sebelum mencoba lagi.";
+  }
   if (error.includes("EMAIL_NOT_VERIFIED")) {
     return "Login ditolak karena email belum diverifikasi. Cek inbox/spam lalu klik tautan verifikasi.";
   }

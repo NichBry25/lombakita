@@ -102,6 +102,15 @@ export const AuthEntry = ({
       return;
     }
 
+    // 6.5-HARDENING.1 — failed-attempt lockout. `authorize` throws RATE_LIMITED once too many failed
+    // logins for this IP+email accumulate; surface a distinct, non-enumerating message.
+    if (result?.error?.toUpperCase().includes("RATE_LIMITED")) {
+      setErrorMessage(
+        "Terlalu banyak percobaan login gagal. Tunggu beberapa menit sebelum mencoba lagi.",
+      );
+      return;
+    }
+
     if (result?.ok && result.url) {
       finishLogin(result.url);
       return;
@@ -138,6 +147,13 @@ export const AuthEntry = ({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
+
+      // 6.5-HARDENING.1 — the identify endpoint is per-IP rate-limited; a 429 is distinct from a
+      // validation failure and must not be reported as a bad email format.
+      if (response.status === 429) {
+        setErrorMessage("Terlalu banyak percobaan. Tunggu beberapa saat lalu coba lagi.");
+        return;
+      }
 
       if (!response.ok) {
         setErrorMessage("Format email tidak valid. Gunakan format seperti nama@kampus.ac.id.");
