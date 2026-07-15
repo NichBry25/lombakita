@@ -1,0 +1,143 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+  # To redeploy or roll back to an older commit, use "Run workflow" and pick
+  # that commit's SHA/tag as the ref — no separate rollback input needed.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ── PREVIEW: one throwaway deploy per PR commit, posted back on the PR ──
+  # Runs on pull_request only. Skipped for fork PRs so their untrusted code can
+  # never read the deploy secrets, and for Dependabot PRs (GitHub runs those
+  # without secret access, so the Vercel step would always fail). No approval
+  # gate — previews are meant to be fast so you can eyeball the change first.
+  # This job's `vercel build` is also the authoritative build check: it builds
+  # against the real preview environment and reports as a PR status check.
+  deploy-preview:
+    name: Deploy preview
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: preview
+    permissions:
+      contents: read
+      pull-requests: write # to comment the preview URL on the PR
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Same Vercel CLI sequence as production, minus every --prod flag, so this
+      # pulls the "preview" env and produces a preview (not live) deploy.
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel project settings
+        run: vercel pull --yes --environment=preview
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Build (prebuilt output)
+        run: vercel build
+
+      - name: Deploy prebuilt output
+        id: deploy
+        run: echo "url=$(vercel deploy --prebuilt)" >> "$GITHUB_OUTPUT"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Comment preview URL on the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --body "🔎 **Preview deployed** for \`${{ github.sha }}\`: ${PREVIEW_URL}"
+
+  # ── PRODUCTION: live deploy on merge to main (never on PRs). ──
+  # Gated by the "production" GitHub Environment: a human reviewer must approve
+  # before the job (and its secrets) are released — this is the deliberate
+  # "promote to production" gate that replaces the old push-to-production-branch
+  # step. CI correctness is gated separately, upstream, by branch protection
+  # requiring ci.yml to pass before a PR can merge to main.
+  #
+  # Database migrations are intentionally NOT run here — they remain a manual
+  # operator step per docs/operations (AUTH_SECRET-rotation ordering and
+  # destructive casts must stay under human control). This job deploys code only.
+  deploy-production:
+    name: Deploy to production
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # ── WEB: VERCEL ──
+      # Pull production settings/env, let `vercel build --prod` do its own
+      # isolated install+build, then upload the prebuilt output. Secrets are
+      # declared per-step so no other step can read them.
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel project settings
+        run: vercel pull --yes --environment=production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Build (prebuilt output)
+        run: vercel build --prod
+
+      - name: Deploy prebuilt output
+        run: vercel deploy --prebuilt --prod
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      # ── WORKER: RAILWAY (guarded) ──
+      # Promotes the Railway worker in lockstep with the web deploy, behind the
+      # same production approval gate. GUARDED: runs only when RAILWAY_TOKEN is
+      # set. Railway is currently offline (subscription lapsed), so until the
+      # token is added as a production-environment secret this step skips cleanly
+      # and never fails the promotion. Adding the token activates it with no
+      # workflow change.
+      #
+      # NOTE: verify the exact `railway` invocation against your project when the
+      # subscription is restored — RAILWAY_TOKEN must be a project-scoped token
+      # for the worker's Railway project, and the service name must match.
+      - name: Deploy worker (Railway)
+        if: ${{ env.RAILWAY_TOKEN != '' }}
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          npm install --global @railway/cli
+          railway up --ci --service worker
