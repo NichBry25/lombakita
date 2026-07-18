@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { ButtonLink, EmptyState, Icon, PageHeader, Skeleton } from "@/components/ui";
 
 type Competition = {
   id: string;
@@ -52,28 +53,95 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
   }, [load]);
 
   return (
-    <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
-      <h1>Kompetisi — {institutionSlug}</h1>
+    <main className="page-shell app-page competition-management-page">
+      <PageHeader
+        eyebrow="Portofolio institusi"
+        title="Kompetisi"
+        description={`Kelola seluruh kompetisi yang diterbitkan melalui ${institutionSlug}.`}
+        backHref={`/institution/${institutionSlug}`}
+        backLabel="Panel institusi"
+        actions={
+          <>
+            <ButtonLink
+              href={`/institution/${institutionSlug}/audit-log`}
+              variant="outline"
+              size="sm"
+            >
+              Log audit
+            </ButtonLink>
+            <ButtonLink
+              href={`/institution/${institutionSlug}/competitions/new`}
+              variant="primary"
+              size="sm"
+            >
+              Buat kompetisi
+            </ButtonLink>
+          </>
+        }
+      />
 
-      <p style={{ marginTop: 16, display: "flex", gap: 16 }}>
-        <Link href={`/institution/${institutionSlug}/competitions/new`}>+ Buat kompetisi baru</Link>
-        <Link href={`/institution/${institutionSlug}/audit-log`}>Log Audit</Link>
-      </p>
-
-      <section style={{ marginTop: 24 }}>
-        <h2>Daftar Kompetisi</h2>
+      <section className="content-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Daftar workspace</p>
+            <h2>Kompetisi tersimpan</h2>
+          </div>
+          <span className="status-badge data-text">{items.length}</span>
+        </div>
         {isLoading ? (
-          <p>Memuat...</p>
+          <div className="stack-sm" aria-label="Memuat kompetisi">
+            <Skeleton variant="media" />
+            <Skeleton variant="media" />
+          </div>
         ) : items.length === 0 ? (
-          <p>Belum ada kompetisi.</p>
+          <EmptyState
+            icon="trophy"
+            title="Belum ada kompetisi."
+            description="Mulai dari draf baru, lalu lengkapi seluruh informasi sebelum diterbitkan."
+            action={
+              <ButtonLink
+                href={`/institution/${institutionSlug}/competitions/new`}
+                variant="primary"
+              >
+                Buat draf pertama
+              </ButtonLink>
+            }
+          />
         ) : (
-          <ul>
+          <ul className="management-competition-list">
             {items.map((c) => (
-              <li key={c.id} style={{ padding: 8, borderBottom: "1px solid #eee" }}>
-                <Link href={`/institution/${institutionSlug}/competitions/${c.slug}`}>{c.title}</Link>{" "}
-                — <strong>{c.status}</strong>{" "}
-                |{" "}
-                <Link href={`/institution/${institutionSlug}/competitions/${c.slug}/participants`}>Peserta</Link>
+              <li key={c.id} className="management-competition-card">
+                <span className="management-competition-mark" aria-hidden="true">
+                  <Icon name="trophy" size="md" />
+                </span>
+                <div className="record-row-main">
+                  <Link
+                    href={`/institution/${institutionSlug}/competitions/${c.slug}`}
+                    className="record-row-title"
+                  >
+                    {c.title}
+                  </Link>
+                  <span className="record-meta data-text">/{c.slug}</span>
+                </div>
+                <span
+                  className="status-badge"
+                  data-status={
+                    c.status === "published"
+                      ? "open"
+                      : c.status === "archived"
+                        ? "closed"
+                        : "closing"
+                  }
+                >
+                  {c.status}
+                </span>
+                <ButtonLink
+                  href={`/institution/${institutionSlug}/competitions/${c.slug}/participants`}
+                  variant="outline"
+                  size="sm"
+                >
+                  Peserta
+                </ButtonLink>
               </li>
             ))}
           </ul>
@@ -81,10 +149,7 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
       </section>
 
       {feedback ? (
-        <p
-          role="status"
-          style={{ color: feedback.type === "error" ? "#b00" : "#070", marginTop: 8 }}
-        >
+        <p role="status" className="feedback" data-tone={feedback.type}>
           {feedback.message}
         </p>
       ) : null}

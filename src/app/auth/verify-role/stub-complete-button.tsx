@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useSession } from "next-auth/react";
+import { Button } from "@/components/ui";
 import type { VerifiableRole } from "@/server/auth/role-verification";
 import { useToast } from "@/components/ui/primitives";
 
@@ -52,29 +53,16 @@ export function StubCompleteButton({ role }: StubCompleteButtonProps) {
     } catch {
       addToast({
         type: "error",
-        message: "Stub verifikasi gagal karena gangguan koneksi. Periksa jaringan Anda lalu coba lagi.",
+        message:
+          "Stub verifikasi gagal karena gangguan koneksi. Periksa jaringan Anda lalu coba lagi.",
       });
       setBusy(false);
     }
   };
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={busy}
-      data-testid={`stub-complete-${role}`}
-      style={{
-        padding: "0.6rem 1.25rem",
-        background: "#355795",
-        color: "#fff",
-        border: "none",
-        borderRadius: 6,
-        cursor: busy ? "wait" : "pointer",
-        fontSize: "0.95rem",
-      }}
-    >
+    <Button type="button" onClick={onClick} disabled={busy} data-testid={`stub-complete-${role}`}>
       {busy ? "Memproses..." : "Selesaikan verifikasi (stub)"}
-    </button>
+    </Button>
   );
 }

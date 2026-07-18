@@ -10,6 +10,7 @@ import {
 import { MarkReadButton } from "./mark-read-button";
 import { DeleteNotificationButton } from "./delete-notification-button";
 import { InboxInviteActions } from "./invite-actions";
+import { ButtonLink, EmptyState, PageHeader } from "@/components/ui";
 
 const formatDate = (value: Date): string =>
   value.toLocaleString("id-ID", {
@@ -19,14 +20,6 @@ const formatDate = (value: Date): string =>
     hour: "2-digit",
     minute: "2-digit",
   });
-
-// Visual differentiation by kind is intentional (minimal proof): notifications, institution
-// invites, and team invites get distinct left-border colours and a kind label.
-const KIND_ACCENT: Record<InboxItem["kind"], string> = {
-  notification: "#355795",
-  institution_invite: "#7a5cff",
-  team_invite: "#1f9d6b",
-};
 
 const KIND_LABEL: Record<InboxItem["kind"], string> = {
   notification: "Notifikasi",
@@ -47,56 +40,46 @@ export default async function InboxPage() {
   ]);
 
   return (
-    <main style={{ maxWidth: 680, margin: "0 auto", padding: "2rem 1rem" }}>
-      <h1 style={{ marginBottom: "1.5rem" }}>
-        Kotak Masuk{" "}
-        <span style={{ fontSize: "0.6em", color: "#b00020", fontWeight: 400 }}>
-          ({unreadCount} belum dibaca)
-        </span>
-      </h1>
+    <main className="page-shell app-page inbox-page">
+      <PageHeader
+        eyebrow="Pusat komunikasi"
+        title="Kotak masuk"
+        description="Notifikasi dan undangan penting tersusun dalam satu alur tindakan."
+        actions={<span className="inbox-unread-count data-text">{unreadCount} belum dibaca</span>}
+      />
 
       {items.length === 0 ? (
-        <p style={{ color: "#777" }}>Belum ada notifikasi atau undangan.</p>
+        <EmptyState
+          icon="inbox"
+          title="Kotak masuk masih tenang."
+          description="Notifikasi, undangan institusi, dan undangan tim akan muncul di sini."
+          action={
+            <ButtonLink href="/" variant="outline">
+              Kembali ke beranda
+            </ButtonLink>
+          }
+        />
       ) : (
-        <ul
-          style={{
-            listStyle: "none",
-            padding: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: "0.75rem",
-          }}
-        >
+        <ul className="inbox-list">
           {items.map((item) => {
-            const accent = KIND_ACCENT[item.kind];
             const isUnreadNotification = item.kind === "notification" && item.readAt === null;
             return (
               <li
                 key={`${item.kind}:${item.id}`}
-                style={{
-                  padding: "0.75rem 1rem",
-                  background: isUnreadNotification ? "#eef3fb" : "#f9f9f9",
-                  borderRadius: 4,
-                  borderLeft: `3px solid ${accent}`,
-                }}
+                className="inbox-card"
+                data-kind={item.kind}
+                data-unread={isUnreadNotification ? "true" : undefined}
               >
-                <div style={{ fontSize: "0.75em", color: accent, fontWeight: 600 }}>
-                  {KIND_LABEL[item.kind]}
-                </div>
+                <div className="inbox-kind-label">{KIND_LABEL[item.kind]}</div>
 
                 {item.kind === "notification" ? (
-                  <div>
-                    <div style={{ fontWeight: 600 }}>{item.title}</div>
-                    <div style={{ color: "#444", marginTop: 4 }}>{item.body}</div>
-                    <div style={{ marginTop: 6, fontSize: "0.8em", color: "#888" }}>
-                      {formatDate(item.createdAt)}
-                    </div>
-                    <div style={{ marginTop: 6, display: "flex", gap: 12, alignItems: "center" }}>
+                  <div className="inbox-card-content">
+                    <h2>{item.title}</h2>
+                    <p>{item.body}</p>
+                    <div className="inbox-date data-text">{formatDate(item.createdAt)}</div>
+                    <div className="inbox-actions">
                       {isUnreadNotification ? (
-                        <MarkReadButton
-                          notificationId={item.id}
-                          expectedUserId={session.user.id}
-                        />
+                        <MarkReadButton notificationId={item.id} expectedUserId={session.user.id} />
                       ) : null}
                       <DeleteNotificationButton
                         notificationId={item.id}
@@ -105,10 +88,10 @@ export default async function InboxPage() {
                     </div>
                   </div>
                 ) : item.kind === "institution_invite" ? (
-                  <div>
-                    <div style={{ fontWeight: 600 }}>{item.institutionName}</div>
-                    <div style={{ color: "#444", marginTop: 4 }}>Peran: {item.invitedRole}</div>
-                    <div style={{ marginTop: 6, fontSize: "0.8em", color: "#888" }}>
+                  <div className="inbox-card-content">
+                    <h2>{item.institutionName}</h2>
+                    <p>Peran: {item.invitedRole}</p>
+                    <div className="inbox-date data-text">
                       Kedaluwarsa: {formatDate(item.expiresAt)}
                     </div>
                     <InboxInviteActions
@@ -118,12 +101,10 @@ export default async function InboxPage() {
                     />
                   </div>
                 ) : (
-                  <div>
-                    <div style={{ fontWeight: 600 }}>{item.teamName}</div>
-                    <div style={{ color: "#444", marginTop: 4 }}>
-                      Kompetisi: {item.competitionTitle}
-                    </div>
-                    <div style={{ marginTop: 6, fontSize: "0.8em", color: "#888" }}>
+                  <div className="inbox-card-content">
+                    <h2>{item.teamName}</h2>
+                    <p>Kompetisi: {item.competitionTitle}</p>
+                    <div className="inbox-date data-text">
                       Kedaluwarsa: {formatDate(item.expiresAt)}
                     </div>
                     <InboxInviteActions
@@ -139,11 +120,9 @@ export default async function InboxPage() {
         </ul>
       )}
 
-      <p style={{ marginTop: "1.5rem" }}>
-        <Link href="/" style={{ color: "#355795", fontSize: "0.9em" }}>
-          ← Beranda
-        </Link>
-      </p>
+      <Link href="/" className="page-heading-back">
+        ← Beranda
+      </Link>
     </main>
   );
 }

@@ -20,10 +20,11 @@ export function ParticipantsFilterForm({ path, status, type }: Props) {
   };
 
   return (
-    <div style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
-      <label>
-        Status:{" "}
+    <div className="participant-filter-toolbar glass-chrome">
+      <label className="form-field">
+        <span className="form-label">Status</span>
         <select
+          className="form-select"
           value={status}
           onChange={(e) => push({ status: e.target.value, type })}
         >
@@ -32,9 +33,10 @@ export function ParticipantsFilterForm({ path, status, type }: Props) {
           <option value="cancelled">Dibatalkan</option>
         </select>
       </label>
-      <label>
-        Tipe:{" "}
+      <label className="form-field">
+        <span className="form-label">Tipe</span>
         <select
+          className="form-select"
           value={type}
           onChange={(e) => push({ status, type: e.target.value })}
         >

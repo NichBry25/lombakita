@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { ButtonLink, PageHeader } from "@/components/ui";
 import { assertAuthenticatedSession, buildAccessContext } from "@/server/auth/access-core";
 import { getCurrentSession } from "@/server/auth/session";
 import { getDb } from "@/server/db/client";
@@ -35,14 +35,21 @@ export default async function ProtectedPage() {
     .limit(1);
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">Sesi Aktif</h1>
-      </header>
+    <main className="page-shell app-page protected-page">
+      <PageHeader
+        eyebrow="Diagnostik akses"
+        title="Sesi aktif"
+        description="Permukaan internal untuk memeriksa konteks sesi dan verifikasi per peran."
+      />
 
-      <section className="rounded border border-zinc-200 bg-white p-5">
-        <h2 className="mb-2 text-sm font-semibold">Session</h2>
-        <pre className="overflow-auto rounded bg-zinc-100 p-3 text-xs text-zinc-800">
+      <section className="content-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Konteks autentikasi</p>
+            <h2>Session</h2>
+          </div>
+        </div>
+        <pre className="diagnostic-code">
           {JSON.stringify(
             {
               user: {
@@ -58,9 +65,14 @@ export default async function ProtectedPage() {
         </pre>
       </section>
 
-      <section className="rounded border border-zinc-200 bg-white p-5">
-        <h2 className="mb-2 text-sm font-semibold">Per-role verification (CCR-02 / DEC-0036)</h2>
-        <pre className="overflow-auto rounded bg-zinc-100 p-3 text-xs text-zinc-800">
+      <section className="content-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">CCR-02 / DEC-0036</p>
+            <h2>Verifikasi per peran</h2>
+          </div>
+        </div>
+        <pre className="diagnostic-code">
           {JSON.stringify(
             {
               role: row?.role,
@@ -73,20 +85,17 @@ export default async function ProtectedPage() {
             2,
           )}
         </pre>
-        <p className="mt-2 text-xs text-zinc-600">
-          Probe candidate-only gate:{" "}
-          <code className="rounded bg-zinc-200 px-1">GET /api/v1/me/candidate-only</code> · Probe
-          recruiter-only gate:{" "}
-          <code className="rounded bg-zinc-200 px-1">GET /api/v1/me/recruiter-only</code>
+        <p className="form-help">
+          Probe candidate-only gate: <code>GET /api/v1/me/candidate-only</code> · Probe
+          recruiter-only gate: <code>GET /api/v1/me/recruiter-only</code>
         </p>
       </section>
 
-      <div className="flex items-center gap-4">
+      <div className="page-secondary-actions">
         <SignOutButton />
-
-        <Link className="text-sm underline" href="/">
-          Back to home
-        </Link>
+        <ButtonLink href="/" variant="ghost" size="sm">
+          Kembali ke beranda
+        </ButtonLink>
       </div>
     </main>
   );

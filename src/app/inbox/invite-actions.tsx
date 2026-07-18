@@ -97,12 +97,14 @@ export function InboxInviteActions({
   };
 
   return (
-    <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+    <div className="inbox-actions">
       <button
         type="button"
         disabled={busy}
         onClick={() => confirm("accept")}
-        style={{ fontSize: "0.85em" }}
+        className="ui-button"
+        data-variant="primary"
+        data-size="sm"
       >
         Terima
       </button>
@@ -110,7 +112,9 @@ export function InboxInviteActions({
         type="button"
         disabled={busy}
         onClick={() => confirm("decline")}
-        style={{ fontSize: "0.85em" }}
+        className="ui-button"
+        data-variant="outline"
+        data-size="sm"
       >
         Tolak
       </button>

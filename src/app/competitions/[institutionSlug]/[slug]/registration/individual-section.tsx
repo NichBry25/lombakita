@@ -62,10 +62,8 @@ function CancelReasonForm({
   const [reason, setReason] = useState("");
   const trimmed = reason.trim();
   return (
-    <div>
-      <p style={{ marginTop: 0, fontSize: 14 }}>
-        Tuliskan alasan pembatalan pendaftaran Anda. Alasan wajib diisi.
-      </p>
+    <div className="stack-md">
+      <p className="muted-copy">Tuliskan alasan pembatalan pendaftaran Anda. Alasan wajib diisi.</p>
       <textarea
         value={reason}
         onChange={(e) => setReason(e.target.value)}
@@ -73,24 +71,25 @@ function CancelReasonForm({
         maxLength={500}
         placeholder="Alasan pembatalan"
         aria-label="Alasan pembatalan"
-        style={{ display: "block", width: "100%" }}
+        className="form-textarea"
       />
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
-        <button type="button" onClick={onCancel}>
+      <div className="modal-actions">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="ui-button"
+          data-variant="outline"
+          data-size="sm"
+        >
           Kembali
         </button>
         <button
           type="button"
           disabled={trimmed.length === 0}
           onClick={() => onConfirm(trimmed)}
-          style={{
-            background: trimmed.length === 0 ? "#f0f0f0" : "#c0392b",
-            color: trimmed.length === 0 ? "#999" : "#fff",
-            border: "1px solid #c0392b",
-            borderRadius: 6,
-            padding: "6px 14px",
-            cursor: trimmed.length === 0 ? "not-allowed" : "pointer",
-          }}
+          className="ui-button"
+          data-variant="danger"
+          data-size="sm"
         >
           Batalkan Pendaftaran
         </button>
@@ -177,90 +176,50 @@ export function IndividualRegistrationSection({
   };
 
   return (
-    <section
-      style={{
-        marginTop: 24,
-        padding: 20,
-        border: "1px solid #e5e5e5",
-        borderRadius: 8,
-        background: "#fbfbfd",
-      }}
-    >
-      <h2 style={{ fontSize: 18, marginBottom: 8 }}>Individu</h2>
+    <section className="content-section registration-path-card">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Jalur 01</p>
+          <h2>Individu</h2>
+        </div>
+      </div>
 
       {registration && registration.status === "confirmed" ? (
-        <>
-          <div
-            style={{
-              display: "inline-block",
-              padding: "8px 16px",
-              background: "#dff5dd",
-              color: "#256029",
-              borderRadius: 6,
-              fontSize: 14,
-              fontWeight: 600,
-            }}
-          >
+        <div className="registration-state stack-sm">
+          <span className="status-badge" data-status="open">
             ✓ Terdaftar
-          </div>
-          <div style={{ marginTop: 12 }}>
+          </span>
+          <div className="stack-xs">
             <button
               onClick={handleCancel}
               disabled={loading}
-              style={{
-                padding: "6px 14px",
-                background: "#fff",
-                color: "#c0392b",
-                border: "1px solid #c0392b",
-                borderRadius: 6,
-                fontSize: 13,
-                cursor: loading ? "wait" : "pointer",
-              }}
+              className="ui-button"
+              data-variant="danger"
+              data-size="sm"
             >
               {loading ? "..." : "Batalkan Pendaftaran"}
             </button>
-            <p style={{ fontSize: 12, color: "#888", marginTop: 6 }}>
-              Pembatalan tunduk pada kebijakan penyelenggara.
-            </p>
+            <p className="form-help">Pembatalan tunduk pada kebijakan penyelenggara.</p>
           </div>
-        </>
+        </div>
       ) : registration && registration.status === "cancelled" ? (
-        <>
-          <div
-            style={{
-              display: "inline-block",
-              padding: "8px 16px",
-              background: "#fdecea",
-              color: "#a02020",
-              borderRadius: 6,
-              fontSize: 14,
-              fontWeight: 600,
-            }}
-          >
+        <div className="registration-state stack-xs">
+          <span className="status-badge" data-status="closed">
             Pendaftaran dibatalkan
-          </div>
-          <p style={{ fontSize: 12, color: "#888", marginTop: 8 }}>
-            Pendaftaran ulang tidak tersedia untuk MVP.
-          </p>
-        </>
+          </span>
+          <p className="form-help">Pendaftaran ulang tidak tersedia untuk MVP.</p>
+        </div>
       ) : (
         <button
           onClick={handleRegister}
           disabled={loading || ctaState !== "open"}
-          style={{
-            padding: "10px 24px",
-            background: ctaState === "open" ? "#355795" : "#ccc",
-            color: ctaState === "open" ? "#fff" : "#555",
-            borderRadius: 6,
-            border: "none",
-            fontSize: 15,
-            cursor: loading ? "wait" : ctaState === "open" ? "pointer" : "not-allowed",
-          }}
+          className="ui-button registration-primary-action"
+          data-variant="primary"
+          data-size="lg"
         >
           {loading ? "..." : modeLabel}
         </button>
       )}
-
     </section>
   );
 }

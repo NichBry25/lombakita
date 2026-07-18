@@ -1,18 +1,27 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { DM_Mono, DM_Sans, DM_Serif_Display } from "next/font/google";
+import { ApplicationHeader } from "@/components/navigation/application-header";
+import { SiteFooter } from "@/components/navigation/site-footer";
 import { publicEnv } from "@/config/env";
 import { AppProviders } from "./providers";
-import { NotificationBell } from "./notification-bell";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
   subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const dmMono = DM_Mono({
+  variable: "--font-dm-mono",
   subsets: ["latin"],
+  weight: ["400", "500"],
+});
+
+const dmSerifDisplay = DM_Serif_Display({
+  variable: "--font-dm-serif",
+  subsets: ["latin"],
+  weight: "400",
 });
 
 export const metadata: Metadata = {
@@ -28,17 +37,22 @@ export default function RootLayout({
   return (
     <html
       lang="id"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${dmSans.variable} ${dmMono.variable} ${dmSerifDisplay.variable} h-full antialiased`}
       data-theme="light"
       suppressHydrationWarning
     >
       <body className="min-h-full">
         <AppProviders>
-          {/* Mounted once at the root so the notification poll + ping persist across every route
-              (not just the homepage). Self-hides for signed-out users; relocates into a proper
-              global header during the design pass per DEC-0080. */}
-          <NotificationBell />
-          {children}
+          <a className="skip-link" href="#main-content">
+            Lewati ke konten utama
+          </a>
+          <div className="site-layout">
+            <ApplicationHeader />
+            <div id="main-content" className="site-main" tabIndex={-1}>
+              {children}
+            </div>
+            <SiteFooter />
+          </div>
         </AppProviders>
       </body>
     </html>

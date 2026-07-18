@@ -59,17 +59,6 @@ const ELIGIBILITY_LABEL: Record<EligibilityStatus, string> = {
   incomplete: "Profil belum lengkap",
 };
 
-const eligibilityBadgeStyle = (status: EligibilityStatus): React.CSSProperties => ({
-  display: "inline-block",
-  marginLeft: 8,
-  padding: "2px 6px",
-  borderRadius: 4,
-  fontSize: 11,
-  background: status === "eligible" ? "#dfd" : "#fee",
-  color: status === "eligible" ? "#060" : "#a00",
-  border: `1px solid ${status === "eligible" ? "#0a0" : "#c00"}`,
-});
-
 const handleError = async (res: Response): Promise<ApiError> => {
   const code = (await readErrorCode(res)) ?? `http_${res.status}`;
   if (code === SESSION_MISMATCH_CODE) {
@@ -93,21 +82,18 @@ export function CompetitionTeamSection(props: Props) {
   if (!supportsTeams) return null;
 
   return (
-    <section
-      style={{
-        marginTop: 32,
-        padding: 20,
-        border: "1px solid #e5e5e5",
-        borderRadius: 8,
-        background: "#fbfbfd",
-      }}
-    >
-      <h2 style={{ fontSize: 18, marginBottom: 4 }}>Tim</h2>
-      <p style={{ fontSize: 13, color: "#666", marginBottom: 16 }}>
-        {props.competitionMode === "both"
-          ? "Anda dapat mendaftar sebagai tim atau secara individu (di tombol Daftar di atas)."
-          : "Kompetisi ini wajib didaftarkan sebagai tim."}
-      </p>
+    <section className="content-section registration-path-card team-registration-card">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Jalur 02</p>
+          <h2>Tim</h2>
+          <p>
+            {props.competitionMode === "both"
+              ? "Anda dapat mendaftar sebagai tim atau secara individu (di tombol Daftar di atas)."
+              : "Kompetisi ini wajib didaftarkan sebagai tim."}
+          </p>
+        </div>
+      </div>
 
       {props.initialTeam ? (
         <TeamRoster {...props} team={props.initialTeam} />
@@ -150,38 +136,26 @@ function CreateTeamForm(props: Props) {
   };
 
   return (
-    <div>
-      <h3 style={{ fontSize: 15, marginBottom: 8 }}>Buat tim</h3>
-      <p style={{ fontSize: 13, color: "#555", marginBottom: 12 }}>
-        Anda akan menjadi kapten setelah membuat tim.
-      </p>
-      <form onSubmit={onSubmit} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+    <div className="team-create stack-md">
+      <div className="stack-xs">
+        <h3>Buat tim</h3>
+        <p className="muted-copy">Anda akan menjadi kapten setelah membuat tim.</p>
+      </div>
+      <form onSubmit={onSubmit} className="team-inline-form">
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Nama tim"
           required
-          style={{
-            flex: "1 1 240px",
-            padding: 8,
-            border: "1px solid #ccc",
-            borderRadius: 4,
-            fontSize: 14,
-          }}
+          className="form-input"
         />
         <button
           type="submit"
           disabled={busy}
-          style={{
-            padding: "8px 16px",
-            background: busy ? "#888" : "#355795",
-            color: "#fff",
-            border: "none",
-            borderRadius: 4,
-            cursor: busy ? "not-allowed" : "pointer",
-            fontSize: 14,
-          }}
+          className="ui-button"
+          data-variant="primary"
+          data-size="md"
         >
           {busy ? "Membuat…" : "Buat tim"}
         </button>
@@ -201,8 +175,8 @@ function TeamCancelReasonForm({
   const [reason, setReason] = useState("");
   const trimmed = reason.trim();
   return (
-    <div>
-      <p style={{ marginTop: 0, fontSize: 14 }}>
+    <div className="stack-md">
+      <p className="muted-copy">
         Tim akan kembali ke status &apos;forming&apos; dan semua pendaftaran tim dibatalkan.
         Tuliskan alasan pembatalan (wajib diisi).
       </p>
@@ -213,24 +187,25 @@ function TeamCancelReasonForm({
         maxLength={500}
         placeholder="Alasan pembatalan"
         aria-label="Alasan pembatalan"
-        style={{ display: "block", width: "100%" }}
+        className="form-textarea"
       />
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
-        <button type="button" onClick={onCancel}>
+      <div className="modal-actions">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="ui-button"
+          data-variant="outline"
+          data-size="sm"
+        >
           Kembali
         </button>
         <button
           type="button"
           disabled={trimmed.length === 0}
           onClick={() => onConfirm(trimmed)}
-          style={{
-            background: trimmed.length === 0 ? "#f0f0f0" : "#c0392b",
-            color: trimmed.length === 0 ? "#999" : "#fff",
-            border: "1px solid #c0392b",
-            borderRadius: 6,
-            padding: "6px 14px",
-            cursor: trimmed.length === 0 ? "not-allowed" : "pointer",
-          }}
+          className="ui-button"
+          data-variant="danger"
+          data-size="sm"
         >
           Batalkan Pendaftaran Tim
         </button>
@@ -297,31 +272,23 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
   const onInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    await executeAction(
-      "mengirim undangan",
-      `/api/v1/teams/${team.id}/invitations`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ invitedIdentifier: inviteIdentifier }),
-      },
-    );
+    await executeAction("mengirim undangan", `/api/v1/teams/${team.id}/invitations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ invitedIdentifier: inviteIdentifier }),
+    });
     setInviteIdentifier("");
   };
 
   const onCancelInvite = (tokenHash: string) =>
-    executeAction(
-      "membatalkan undangan",
-      `/api/v1/teams/${team.id}/invitations/${tokenHash}`,
-      { method: "DELETE" },
-    );
+    executeAction("membatalkan undangan", `/api/v1/teams/${team.id}/invitations/${tokenHash}`, {
+      method: "DELETE",
+    });
 
   const onRemoveMember = (membershipId: string) =>
-    executeAction(
-      "menghapus anggota",
-      `/api/v1/teams/${team.id}/memberships/${membershipId}`,
-      { method: "DELETE" },
-    );
+    executeAction("menghapus anggota", `/api/v1/teams/${team.id}/memberships/${membershipId}`, {
+      method: "DELETE",
+    });
 
   const onDisband = () =>
     openModal({
@@ -439,13 +406,17 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
           label: "Simpan & Keluar",
           variant: "primary",
           autoClose: true,
-          onClick: () => { void saveAndBack(); },
+          onClick: () => {
+            void saveAndBack();
+          },
         },
         {
           label: "Keluar tanpa menyimpan",
           variant: "secondary",
           autoClose: true,
-          onClick: () => { router.back(); },
+          onClick: () => {
+            router.back();
+          },
         },
       ],
     });
@@ -454,63 +425,47 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
   const ownMembership = props.initialMembers.find((m) => m.userId === props.expectedUserId);
 
   return (
-    <div>
-      <p style={{ fontSize: 14, marginBottom: 4 }}>
-        <strong>{team.name}</strong>
-        <span
-          style={{
-            marginLeft: 8,
-            padding: "2px 8px",
-            borderRadius: 4,
-            background: statusBackground(status),
-            border: "1px solid #888",
-            fontSize: 12,
-          }}
-        >
-          {status}
-        </span>
-      </p>
-      <p style={{ fontSize: 12, color: "#666" }}>
-        {seatsUsed}
-        {props.maxTeamSize !== null ? ` / ${props.maxTeamSize}` : ""} kursi terpakai
-        {props.minTeamSize !== null || props.maxTeamSize !== null
-          ? ` (rentang: ${props.minTeamSize ?? "—"} – ${props.maxTeamSize ?? "—"})`
-          : ""}
-      </p>
+    <div className="team-roster">
+      <div className="team-roster-header">
+        <div className="stack-xs">
+          <div className="cluster">
+            <h3>{team.name}</h3>
+            <span className="status-badge" data-team-status={status}>
+              {status}
+            </span>
+          </div>
+          <p className="record-meta">
+            {seatsUsed}
+            {props.maxTeamSize !== null ? ` / ${props.maxTeamSize}` : ""} kursi terpakai
+            {props.minTeamSize !== null || props.maxTeamSize !== null
+              ? ` (rentang: ${props.minTeamSize ?? "—"} – ${props.maxTeamSize ?? "—"})`
+              : ""}
+          </p>
+        </div>
+      </div>
 
-      <h3 style={{ fontSize: 14, marginTop: 16, marginBottom: 4 }}>Anggota</h3>
-      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+      <h3 className="team-subheading">Anggota</h3>
+      <ul className="team-member-list">
         {props.initialMembers.map((m) => (
-          <li
-            key={m.membershipId}
-            style={{
-              padding: 8,
-              borderBottom: "1px solid #eee",
-              fontSize: 13,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 8,
-              flexWrap: "wrap",
-            }}
-          >
-            <span style={{ flex: "1 1 200px" }}>
-              {m.displayName ?? m.email}{" "}
-              <span style={{ fontSize: 11, color: "#888" }}>({m.role})</span>
-              <span style={eligibilityBadgeStyle(m.eligibility.status)}>
+          <li key={m.membershipId} className="team-member-row">
+            <span className="team-member-main">
+              <span className="team-member-name">
+                {m.displayName ?? m.email} <span className="record-meta">({m.role})</span>
+              </span>
+              <span className="team-eligibility" data-status={m.eligibility.status}>
                 {ELIGIBILITY_LABEL[m.eligibility.status]}
               </span>
               {m.eligibility.status !== "eligible" && m.eligibility.reasons.length > 0 && (
-                <span style={{ display: "block", fontSize: 11, color: "#a00", marginTop: 2 }}>
-                  {m.eligibility.reasons.join(", ")}
-                </span>
+                <span className="team-eligibility-reasons">{m.eligibility.reasons.join(", ")}</span>
               )}
             </span>
             {isCaptain && m.role !== "captain" && status === "forming" && (
               <button
                 onClick={() => onRemoveMember(m.membershipId)}
                 disabled={busy}
-                style={removeButtonStyle(busy)}
+                className="ui-button"
+                data-variant="danger"
+                data-size="sm"
               >
                 Hapus
               </button>
@@ -519,7 +474,9 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               <button
                 onClick={() => onLeave(m.membershipId)}
                 disabled={busy}
-                style={removeButtonStyle(busy)}
+                className="ui-button"
+                data-variant="danger"
+                data-size="sm"
               >
                 Tinggalkan
               </button>
@@ -530,27 +487,18 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
       {props.initialPendingInvitations.length > 0 && (
         <>
-          <h3 style={{ fontSize: 14, marginTop: 16, marginBottom: 4 }}>Undangan tertunda</h3>
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          <h3 className="team-subheading">Undangan tertunda</h3>
+          <ul className="team-member-list">
             {props.initialPendingInvitations.map((p) => (
-              <li
-                key={p.id}
-                style={{
-                  padding: 8,
-                  borderBottom: "1px solid #eee",
-                  fontSize: 13,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                }}
-              >
-                <span>{p.invitedEmail}</span>
+              <li key={p.id} className="team-member-row">
+                <span className="team-member-name">{p.invitedEmail}</span>
                 {isCaptain && status === "forming" && (
                   <button
                     onClick={() => onCancelInvite(p.tokenHash)}
                     disabled={busy}
-                    style={removeButtonStyle(busy)}
+                    className="ui-button"
+                    data-variant="danger"
+                    data-size="sm"
                   >
                     Batalkan
                   </button>
@@ -563,8 +511,8 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
       {isCaptain && status === "forming" && (
         <>
-          <h3 style={{ fontSize: 14, marginTop: 20, marginBottom: 4 }}>Undang anggota</h3>
-          <form onSubmit={onInvite} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <h3 className="team-subheading">Undang anggota</h3>
+          <form onSubmit={onInvite} className="team-inline-form">
             <input
               type="text"
               value={inviteIdentifier}
@@ -572,55 +520,32 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               placeholder="Username atau email"
               required
               disabled={busy || atCapacity}
-              style={{
-                flex: "1 1 240px",
-                padding: 8,
-                border: "1px solid #ccc",
-                borderRadius: 4,
-                fontSize: 14,
-              }}
+              className="form-input"
             />
             <button
               type="submit"
               disabled={busy || atCapacity}
-              style={{
-                padding: "8px 16px",
-                background: busy || atCapacity ? "#888" : "#355795",
-                color: "#fff",
-                border: "none",
-                borderRadius: 4,
-                cursor: busy || atCapacity ? "not-allowed" : "pointer",
-                fontSize: 14,
-              }}
+              className="ui-button"
+              data-variant="primary"
+              data-size="md"
             >
               Undang
             </button>
           </form>
-          {atCapacity && (
-            <p style={{ fontSize: 12, color: "#a23", marginTop: 4 }}>
-              Tim telah mencapai kapasitas maksimum.
-            </p>
-          )}
+          {atCapacity && <p className="form-error">Tim telah mencapai kapasitas maksimum.</p>}
         </>
       )}
 
-      {/* Submission + cancellation controls — captain only. */}
       {isCaptain && (
-        <div style={{ marginTop: 24, display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div className="team-primary-actions">
           {status === "forming" && (
             <button
               onClick={onSubmitTeam}
               disabled={busy || submitDisabledReason !== null}
               title={submitDisabledReason ?? ""}
-              style={{
-                padding: "10px 18px",
-                background: busy || submitDisabledReason !== null ? "#888" : "#355795",
-                color: "#fff",
-                border: "none",
-                borderRadius: 4,
-                cursor: busy || submitDisabledReason !== null ? "not-allowed" : "pointer",
-                fontSize: 14,
-              }}
+              className="ui-button"
+              data-variant="primary"
+              data-size="md"
             >
               {busy ? "Memproses…" : "Daftarkan Tim"}
             </button>
@@ -629,15 +554,9 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
             <button
               onClick={onCancelSubmission}
               disabled={busy}
-              style={{
-                padding: "10px 18px",
-                background: "transparent",
-                color: "#c00",
-                border: "1px solid #c00",
-                borderRadius: 4,
-                cursor: busy ? "not-allowed" : "pointer",
-                fontSize: 14,
-              }}
+              className="ui-button"
+              data-variant="danger"
+              data-size="md"
             >
               Batalkan Pendaftaran Tim
             </button>
@@ -646,15 +565,9 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
             <button
               onClick={onDisband}
               disabled={busy}
-              style={{
-                padding: "10px 18px",
-                background: "transparent",
-                color: "#c00",
-                border: "1px solid #c00",
-                borderRadius: 4,
-                cursor: busy ? "not-allowed" : "pointer",
-                fontSize: 14,
-              }}
+              className="ui-button"
+              data-variant="danger"
+              data-size="md"
             >
               Bubarkan Tim
             </button>
@@ -663,23 +576,17 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       )}
 
       {isCaptain && submitDisabledReason && status === "forming" && (
-        <p style={{ fontSize: 12, color: "#a23", marginTop: 8 }}>{submitDisabledReason}</p>
+        <p className="form-error">{submitDisabledReason}</p>
       )}
 
-      {/* F16: back-out with save-progress option when team is incomplete */}
       {sizeBelowMin && status === "forming" && (
-        <div style={{ marginTop: 16 }}>
+        <div>
           <button
             type="button"
             onClick={handleBackOut}
-            style={{
-              background: "none",
-              border: "none",
-              color: "#355795",
-              cursor: "pointer",
-              fontSize: 13,
-              padding: 0,
-            }}
+            className="ui-button"
+            data-variant="ghost"
+            data-size="sm"
           >
             ← Kembali ke detail kompetisi
           </button>
@@ -687,31 +594,10 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       )}
 
       {!isCaptain && ownMembership && (
-        <p style={{ marginTop: 16, fontSize: 13, color: "#555" }}>
-          Hanya kapten ({team.captainId.slice(0, 8)}…) yang dapat mendaftarkan atau membubarkan
-          tim.
+        <p className="feedback" data-tone="info">
+          Hanya kapten ({team.captainId.slice(0, 8)}…) yang dapat mendaftarkan atau membubarkan tim.
         </p>
       )}
-
     </div>
   );
 }
-
-function statusBackground(status: string): string {
-  if (status === "submitted") return "#def";
-  if (status === "cancelled") return "#eee";
-  return "#fff7d6";
-}
-
-function removeButtonStyle(disabled: boolean): React.CSSProperties {
-  return {
-    background: "transparent",
-    border: "1px solid #c00",
-    color: "#c00",
-    padding: "2px 8px",
-    borderRadius: 4,
-    fontSize: 12,
-    cursor: disabled ? "not-allowed" : "pointer",
-  };
-}
-

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
+import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 
 // Step 6.5d — minimal-proof OAuth role picker. Reached after a brand-new Google user is routed to
 // /auth/login?oauth=<carrier> (Step 6.5d.1 merged the role picker onto the single login page). The
@@ -64,27 +65,34 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
   };
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-12">
-      <section className="rounded-2xl border border-zinc-200 bg-white p-5 md:p-6">
-        <h2 className="text-xl font-semibold text-zinc-900">Selesaikan pendaftaran dengan Google</h2>
-        <p className="mt-2 text-sm text-zinc-600">
-          Anda masuk sebagai <span className="font-medium text-zinc-900">{email}</span>. Pilih peran
-          untuk menyelesaikan pembuatan akun. Akun baru hanya dibuat setelah Anda memilih peran.
+    <AuthPageFrame
+      eyebrow="Pendaftaran Google"
+      title="Tetapkan peran utama untuk memulai."
+      description="Peran menjaga pengalaman kandidat dan penyelenggara tetap jelas sejak akses pertama."
+    >
+      <div className="auth-entry">
+        <header className="auth-entry-header">
+          <p className="eyebrow">Langkah terakhir</p>
+          <h1>Selesaikan pendaftaran dengan Google</h1>
+        </header>
+        <p className="auth-intro-copy">
+          Anda masuk sebagai <span className="auth-email-emphasis">{email}</span>. Pilih peran untuk
+          menyelesaikan pembuatan akun. Akun baru hanya dibuat setelah Anda memilih peran.
         </p>
 
-        <div className="mt-6 space-y-3">
+        <div className="auth-role-list">
           <button
             type="button"
             disabled={isSubmitting !== null}
             onClick={() => {
               void finalize("candidate");
             }}
-            className="block w-full rounded-xl border border-zinc-200 p-4 text-left text-sm font-medium text-zinc-900 hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-50"
+            className="auth-role-option"
           >
-            {isSubmitting === "candidate" ? "Membuat akun..." : "Daftar sebagai Kandidat"}
-            <span className="mt-0.5 block text-xs font-normal text-zinc-500">
-              Mahasiswa atau lulusan yang mencari kompetisi, beasiswa, dan peluang lain.
-            </span>
+            <strong>
+              {isSubmitting === "candidate" ? "Membuat akun..." : "Daftar sebagai Kandidat"}
+            </strong>
+            <span>Mahasiswa atau lulusan yang mencari kompetisi, beasiswa, dan peluang lain.</span>
           </button>
           <button
             type="button"
@@ -92,18 +100,22 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
             onClick={() => {
               void finalize("recruiter");
             }}
-            className="block w-full rounded-xl border border-zinc-200 p-4 text-left text-sm font-medium text-zinc-900 hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-50"
+            className="auth-role-option"
           >
-            {isSubmitting === "recruiter" ? "Membuat akun..." : "Daftar sebagai Recruiter"}
-            <span className="mt-0.5 block text-xs font-normal text-zinc-500">
-              Perwakilan institusi yang ingin menerbitkan dan mengelola peluang.
-            </span>
+            <strong>
+              {isSubmitting === "recruiter" ? "Membuat akun..." : "Daftar sebagai Recruiter"}
+            </strong>
+            <span>Perwakilan institusi yang ingin menerbitkan dan mengelola peluang.</span>
           </button>
         </div>
 
-        {errorMessage ? <p className="mt-4 text-xs text-rose-700">{errorMessage}</p> : null}
-      </section>
-    </main>
+        {errorMessage ? (
+          <p className="feedback" data-tone="error">
+            {errorMessage}
+          </p>
+        ) : null}
+      </div>
+    </AuthPageFrame>
   );
 };
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button, ButtonLink, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 import { useModal } from "@/components/ui/primitives";
 
 const CATEGORY_OPTIONS = [
@@ -184,14 +185,22 @@ export const InstitutionCompetitionEditShell = ({
   const [savedSnapshot, setSavedSnapshot] = useState<FormSnapshot | null>(null);
 
   const currentSnapshot = (): FormSnapshot => ({
-    title, slug, description, category, mode,
-    minTeamSize, maxTeamSize, regStart, regEnd, evtStart, evtEnd,
-    allowCancellation, cutoffDays,
+    title,
+    slug,
+    description,
+    category,
+    mode,
+    minTeamSize,
+    maxTeamSize,
+    regStart,
+    regEnd,
+    evtStart,
+    evtEnd,
+    allowCancellation,
+    cutoffDays,
   });
 
-  const isDirty =
-    savedSnapshot !== null &&
-    !snapshotEquals(currentSnapshot(), savedSnapshot);
+  const isDirty = savedSnapshot !== null && !snapshotEquals(currentSnapshot(), savedSnapshot);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -236,11 +245,19 @@ export const InstitutionCompetitionEditShell = ({
     setCutoffDays(loadedCutoffDays);
 
     setSavedSnapshot({
-      title: loadedTitle, slug: loadedSlug, description: loadedDescription,
-      category: loadedCategory, mode: loadedMode, minTeamSize: loadedMinTeamSize,
-      maxTeamSize: loadedMaxTeamSize, regStart: loadedRegStart, regEnd: loadedRegEnd,
-      evtStart: loadedEvtStart, evtEnd: loadedEvtEnd,
-      allowCancellation: loadedAllowCancellation, cutoffDays: loadedCutoffDays,
+      title: loadedTitle,
+      slug: loadedSlug,
+      description: loadedDescription,
+      category: loadedCategory,
+      mode: loadedMode,
+      minTeamSize: loadedMinTeamSize,
+      maxTeamSize: loadedMaxTeamSize,
+      regStart: loadedRegStart,
+      regEnd: loadedRegEnd,
+      evtStart: loadedEvtStart,
+      evtEnd: loadedEvtEnd,
+      allowCancellation: loadedAllowCancellation,
+      cutoffDays: loadedCutoffDays,
     });
     setIsLoading(false);
   }, [competitionId]);
@@ -255,7 +272,9 @@ export const InstitutionCompetitionEditShell = ({
   // F13: warn browser on page unload/refresh when form is dirty.
   useEffect(() => {
     if (!isDirty) return;
-    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
@@ -301,8 +320,8 @@ export const InstitutionCompetitionEditShell = ({
               : "Perubahan ditolak",
           closeable: true,
           body: (
-            <div>
-              <p style={{ marginTop: 0 }}>
+            <div className="stack-sm">
+              <p className="muted-copy">
                 {code === "competition_field_immutable"
                   ? "Bidang berikut tidak dapat diubah setelah kompetisi diterbitkan:"
                   : "Perubahan berikut akan membatalkan pendaftaran yang sudah ada, jadi tidak dapat disimpan:"}
@@ -312,7 +331,7 @@ export const InstitutionCompetitionEditShell = ({
                   <li key={f}>{labelForField(f)}</li>
                 ))}
               </ul>
-              <p style={{ marginBottom: 0, fontSize: 13, color: "#555" }}>
+              <p className="form-help">
                 Untuk mengubah bidang ini, batalkan publikasi kompetisi terlebih dahulu (ini akan
                 membatalkan semua pendaftaran yang ada).
               </p>
@@ -368,7 +387,9 @@ export const InstitutionCompetitionEditShell = ({
           label: "Tinggalkan",
           variant: "danger",
           autoClose: true,
-          onClick: () => { router.push(backUrl); },
+          onClick: () => {
+            router.push(backUrl);
+          },
         },
         {
           label: "Tetap di sini",
@@ -382,16 +403,29 @@ export const InstitutionCompetitionEditShell = ({
 
   if (isLoading) {
     return (
-      <main style={{ padding: 24 }}>
-        <p>Memuat...</p>
+      <main className="page-shell app-page competition-form-page">
+        <div className="stack-md" aria-label="Memuat formulir kompetisi">
+          <Skeleton variant="title" />
+          <Skeleton variant="media" />
+          <Skeleton variant="media" />
+        </div>
       </main>
     );
   }
 
   if (!competition) {
     return (
-      <main style={{ padding: 24 }}>
-        <p style={{ color: "#b00" }}>{feedback?.message ?? "Kompetisi tidak ditemukan."}</p>
+      <main className="page-shell app-page competition-form-page">
+        <EmptyState
+          icon="trophy"
+          title="Kompetisi tidak ditemukan."
+          description={feedback?.message ?? "Formulir kompetisi tidak dapat dimuat."}
+          action={
+            <ButtonLink href={`/institution/${institutionSlug}/competitions`} variant="outline">
+              Kembali ke daftar
+            </ButtonLink>
+          }
+        />
       </main>
     );
   }
@@ -403,236 +437,271 @@ export const InstitutionCompetitionEditShell = ({
   const isPublished = competition.status === "published";
 
   return (
-    <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
-      <h1>Edit Kompetisi — {competition.title}</h1>
-      <p>
-        Status: <strong>{competition.status}</strong> · Slug: <code>{competition.slug}</code> ·
-        Institusi: <code>{institutionSlug}</code>
-      </p>
+    <main className="page-shell app-page competition-form-page">
+      <PageHeader
+        eyebrow="Editor kompetisi"
+        title={competition.title}
+        description={`/${competition.slug} · ${institutionSlug}`}
+        actions={
+          <span
+            className="status-badge"
+            data-status={
+              isPublished ? "open" : competition.status === "archived" ? "closed" : "closing"
+            }
+          >
+            {competition.status}
+          </span>
+        }
+      />
 
       {competition.status === "published" ? (
-        <p style={{ color: "#555", marginTop: 12, fontSize: 13 }}>
+        <p className="feedback" data-tone="info">
           Kompetisi ini sudah terbit. Perubahan yang memengaruhi peserta akan mengirim notifikasi.
           Perubahan yang membatalkan pendaftaran yang ada akan ditolak.
         </p>
       ) : null}
 
       {!isEditable ? (
-        <p style={{ color: "#b00", marginTop: 12 }}>
+        <p className="feedback" data-tone="error">
           Kompetisi berstatus <code>{competition.status}</code> tidak dapat diubah.
         </p>
       ) : (
-        <form onSubmit={onSave} style={{ marginTop: 16 }}>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Judul
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-              minLength={5}
-              maxLength={200}
-              style={{ display: "block", width: "100%" }}
-            />
-          </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Slug (^[a-z0-9-]+$)
-            <input
-              type="text"
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              style={{ display: "block", width: "100%" }}
-            />
-          </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Deskripsi
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={4}
-              maxLength={10000}
-              style={{ display: "block", width: "100%" }}
-            />
-          </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Kategori
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              style={{ display: "block" }}
-            >
-              <option value="">— kosong —</option>
-              {CATEGORY_OPTIONS.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-          {isPublished ? (
-            <p style={{ fontSize: 12, color: "#888", marginTop: 12, marginBottom: 4 }}>
-              Format peserta dan ukuran tim tidak dapat diubah setelah kompetisi terbit.
-            </p>
-          ) : null}
-          {isPersonal ? (
-            <p style={{ fontSize: 12, color: "#888", marginTop: 12, marginBottom: 4 }}>
-              Institusi personal hanya dapat menjalankan kompetisi mode individu.
-            </p>
-          ) : null}
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Mode
-            <select
-              value={mode}
-              disabled={isPublished}
-              onChange={(e) => {
-                const newMode = e.target.value;
-                setMode(newMode);
-                // F5 (Step 6.5b) — mode-driven team-size behaviour:
-                //   individual → fixed 1/1, both fields disabled
-                //   team       → default 2/2, both fields editable
-                //   both       → min fixed at 1 (disabled), max editable (default 2)
-                if (newMode === "individual") {
-                  setMinTeamSize("1");
-                  setMaxTeamSize("1");
-                } else if (newMode === "team") {
-                  setMinTeamSize("2");
-                  setMaxTeamSize("2");
-                } else if (newMode === "both") {
-                  setMinTeamSize("1");
-                  if (!maxTeamSize || Number.parseInt(maxTeamSize, 10) < 1) {
-                    setMaxTeamSize("2");
-                  }
-                }
-              }}
-              style={{ display: "block" }}
-            >
-              <option value="">— kosong —</option>
-              <option value="individual">individual</option>
-              {/* Step 6.5f.1 — team/both are hidden for a personal institution (individual-only). */}
-              {isPersonal ? null : <option value="team">team</option>}
-              {isPersonal ? null : <option value="both">both</option>}
-            </select>
-          </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Min. anggota tim
-            <input
-              type="number"
-              value={minTeamSize}
-              onChange={(e) => setMinTeamSize(e.target.value)}
-              min={mode === "team" ? 2 : 1}
-              // Min is fixed for individual (1) and both (1); only team allows editing min.
-              // Immutable once published.
-              disabled={isPublished || mode === "individual" || mode === "both"}
-              style={{ display: "block" }}
-            />
-          </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Maks. anggota tim
-            <input
-              type="number"
-              value={maxTeamSize}
-              onChange={(e) => setMaxTeamSize(e.target.value)}
-              min={1}
-              // Max is fixed for individual (1); team and both allow editing max.
-              // Immutable once published.
-              disabled={isPublished || mode === "individual"}
-              style={{ display: "block" }}
-            />
-          </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Pendaftaran mulai
-            <input
-              type="datetime-local"
-              value={regStart}
-              onChange={(e) => setRegStart(e.target.value)}
-              style={{ display: "block" }}
-            />
-          </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Pendaftaran berakhir (deadline, harus di masa depan)
-            <input
-              type="datetime-local"
-              value={regEnd}
-              onChange={(e) => setRegEnd(e.target.value)}
-              style={{ display: "block" }}
-            />
-          </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Acara mulai
-            <input
-              type="datetime-local"
-              value={evtStart}
-              onChange={(e) => setEvtStart(e.target.value)}
-              style={{ display: "block" }}
-            />
-          </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            Acara berakhir
-            <input
-              type="datetime-local"
-              value={evtEnd}
-              onChange={(e) => setEvtEnd(e.target.value)}
-              style={{ display: "block" }}
-            />
-          </label>
+        <form onSubmit={onSave} className="competition-edit-form">
+          <section className="content-section">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Identitas publik</p>
+                <h2>Informasi utama</h2>
+              </div>
+            </div>
+            <label className="form-field">
+              <span className="form-label form-label-required">Judul</span>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                required
+                minLength={5}
+                maxLength={200}
+                className="form-input"
+              />
+            </label>
+            <label className="form-field">
+              <span className="form-label">Slug</span>
+              <input
+                type="text"
+                value={slug}
+                onChange={(e) => setSlug(e.target.value)}
+                className="form-input"
+              />
+              <span className="form-help">Gunakan huruf kecil, angka, dan tanda hubung.</span>
+            </label>
+            <label className="form-field">
+              <span className="form-label">Deskripsi</span>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={4}
+                maxLength={10000}
+                className="form-textarea"
+              />
+            </label>
+            <label className="form-field">
+              <span className="form-label">Kategori</span>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="form-select"
+              >
+                <option value="">— kosong —</option>
+                {CATEGORY_OPTIONS.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </section>
 
-          <fieldset style={{ marginTop: 16, marginBottom: 12, padding: 12 }}>
-            <legend>Kebijakan pembatalan peserta</legend>
-            <label style={{ display: "block", marginBottom: 8 }}>
+          <section className="content-section">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Format partisipasi</p>
+                <h2>Mode dan ukuran tim</h2>
+              </div>
+            </div>
+            {isPublished ? (
+              <p className="form-help">
+                Format peserta dan ukuran tim tidak dapat diubah setelah kompetisi terbit.
+              </p>
+            ) : null}
+            {isPersonal ? (
+              <p className="feedback" data-tone="info">
+                Institusi personal hanya dapat menjalankan kompetisi mode individu.
+              </p>
+            ) : null}
+            <label className="form-field">
+              <span className="form-label">Mode</span>
+              <select
+                value={mode}
+                disabled={isPublished}
+                onChange={(e) => {
+                  const newMode = e.target.value;
+                  setMode(newMode);
+                  // F5 (Step 6.5b) — mode-driven team-size behaviour:
+                  //   individual → fixed 1/1, both fields disabled
+                  //   team       → default 2/2, both fields editable
+                  //   both       → min fixed at 1 (disabled), max editable (default 2)
+                  if (newMode === "individual") {
+                    setMinTeamSize("1");
+                    setMaxTeamSize("1");
+                  } else if (newMode === "team") {
+                    setMinTeamSize("2");
+                    setMaxTeamSize("2");
+                  } else if (newMode === "both") {
+                    setMinTeamSize("1");
+                    if (!maxTeamSize || Number.parseInt(maxTeamSize, 10) < 1) {
+                      setMaxTeamSize("2");
+                    }
+                  }
+                }}
+                className="form-select"
+              >
+                <option value="">— kosong —</option>
+                <option value="individual">individual</option>
+                {/* Step 6.5f.1 — team/both are hidden for a personal institution (individual-only). */}
+                {isPersonal ? null : <option value="team">team</option>}
+                {isPersonal ? null : <option value="both">both</option>}
+              </select>
+            </label>
+            <div className="form-grid">
+              <label className="form-field">
+                <span className="form-label">Min. anggota tim</span>
+                <input
+                  type="number"
+                  value={minTeamSize}
+                  onChange={(e) => setMinTeamSize(e.target.value)}
+                  min={mode === "team" ? 2 : 1}
+                  // Min is fixed for individual (1) and both (1); only team allows editing min.
+                  // Immutable once published.
+                  disabled={isPublished || mode === "individual" || mode === "both"}
+                  className="form-input"
+                />
+              </label>
+              <label className="form-field">
+                <span className="form-label">Maks. anggota tim</span>
+                <input
+                  type="number"
+                  value={maxTeamSize}
+                  onChange={(e) => setMaxTeamSize(e.target.value)}
+                  min={1}
+                  // Max is fixed for individual (1); team and both allow editing max.
+                  // Immutable once published.
+                  disabled={isPublished || mode === "individual"}
+                  className="form-input"
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className="content-section">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Linimasa</p>
+                <h2>Jadwal kompetisi</h2>
+              </div>
+            </div>
+            <div className="form-grid">
+              <label className="form-field">
+                <span className="form-label">Pendaftaran mulai</span>
+                <input
+                  type="datetime-local"
+                  value={regStart}
+                  onChange={(e) => setRegStart(e.target.value)}
+                  className="form-input"
+                />
+              </label>
+              <label className="form-field">
+                <span className="form-label">Pendaftaran berakhir</span>
+                <input
+                  type="datetime-local"
+                  value={regEnd}
+                  onChange={(e) => setRegEnd(e.target.value)}
+                  className="form-input"
+                />
+                <span className="form-help">Deadline harus berada di masa depan.</span>
+              </label>
+              <label className="form-field">
+                <span className="form-label">Acara mulai</span>
+                <input
+                  type="datetime-local"
+                  value={evtStart}
+                  onChange={(e) => setEvtStart(e.target.value)}
+                  className="form-input"
+                />
+              </label>
+              <label className="form-field">
+                <span className="form-label">Acara berakhir</span>
+                <input
+                  type="datetime-local"
+                  value={evtEnd}
+                  onChange={(e) => setEvtEnd(e.target.value)}
+                  className="form-input"
+                />
+              </label>
+            </div>
+          </section>
+
+          <fieldset className="content-section competition-policy-fieldset">
+            <legend className="form-legend">Kebijakan pembatalan peserta</legend>
+            <label className="checkbox-field">
               <input
                 type="checkbox"
                 checked={allowCancellation}
                 onChange={(e) => setAllowCancellation(e.target.checked)}
-              />{" "}
-              Izinkan peserta membatalkan pendaftaran sendiri
+              />
+              <span>Izinkan peserta membatalkan pendaftaran sendiri</span>
             </label>
-            <label style={{ display: "block", marginBottom: 8 }}>
-              Batas pembatalan (hari sebelum acara mulai)
+            <label className="form-field">
+              <span className="form-label">Batas pembatalan (hari sebelum acara mulai)</span>
               <input
                 type="number"
                 value={cutoffDays}
                 onChange={(e) => setCutoffDays(e.target.value)}
                 min={0}
                 disabled={!allowCancellation}
-                style={{ display: "block" }}
+                className="form-input"
               />
             </label>
           </fieldset>
 
-          <button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Menyimpan..." : "Simpan"}
-          </button>{" "}
-          {isDraft ? (
-            <button type="button" onClick={onPublish} disabled={isSubmitting}>
-              Publish
-            </button>
-          ) : null}
+          <div className="competition-edit-actions glass-chrome">
+            <Button type="submit" disabled={isSubmitting} loading={isSubmitting}>
+              {isSubmitting ? "Menyimpan..." : "Simpan"}
+            </Button>
+            {isDraft ? (
+              <Button variant="gold" type="button" onClick={onPublish} disabled={isSubmitting}>
+                Publish
+              </Button>
+            ) : null}
+            <span className="record-meta" data-dirty={isDirty ? "true" : undefined}>
+              {isDirty ? "Perubahan belum disimpan" : "Semua perubahan tersimpan"}
+            </span>
+          </div>
         </form>
       )}
 
-      <p style={{ marginTop: 16 }}>
-        <button
-          type="button"
-          onClick={handleBack}
-          style={{ background: "none", border: "none", color: "#355795", cursor: "pointer", padding: 0, fontSize: "inherit" }}
-        >
+      <div>
+        <Button type="button" onClick={handleBack} variant="ghost" size="sm">
           ← Kembali ke aksi status
-        </button>
-      </p>
+        </Button>
+      </div>
 
       {feedback ? (
-        <div
-          role="status"
-          style={{
-            color: feedback.type === "error" ? "#b00" : "#070",
-            marginTop: 16,
-            padding: 8,
-            border: `1px solid ${feedback.type === "error" ? "#b00" : "#070"}`,
-          }}
-        >
-          <p style={{ margin: 0 }}>{feedback.message}</p>
+        <div role="status" className="feedback" data-tone={feedback.type}>
+          <p>{feedback.message}</p>
           {feedback.type === "error" && feedback.failures && feedback.failures.length > 0 ? (
-            <ul style={{ marginTop: 8, marginBottom: 0 }}>
+            <ul>
               {feedback.failures.map((f) => (
                 <li key={`${f.field}-${f.code}`}>
                   <strong>{f.field}</strong> — {f.message}

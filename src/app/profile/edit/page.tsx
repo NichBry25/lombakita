@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentSession } from "@/server/auth/session";
 import { getOwnerProfile } from "@/server/user-profile/profile-service";
+import { PageHeader } from "@/components/ui";
 import { ProfileEditShell } from "./profile-edit-shell";
 
 export default async function ProfileEditPage() {
@@ -13,8 +14,12 @@ export default async function ProfileEditPage() {
   const profile = await getOwnerProfile(session.user.id);
 
   return (
-    <main style={{ maxWidth: 640, margin: "0 auto", padding: "2rem 1rem" }}>
-      <h1 style={{ marginBottom: "1.5rem" }}>Edit Profil</h1>
+    <main className="page-shell app-page profile-edit-page">
+      <PageHeader
+        eyebrow="Pengaturan profil"
+        title="Edit profil"
+        description="Perbarui identitas publik dan detail peran Anda. Bidang yang terkunci membutuhkan verifikasi peran terkait."
+      />
       <ProfileEditShell profile={profile} expectedUserId={session.user.id} />
     </main>
   );

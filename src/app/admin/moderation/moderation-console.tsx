@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 
 type UserResult = {
@@ -36,33 +37,12 @@ type NoteItem = {
   createdAt: string;
 };
 
-const box: React.CSSProperties = {
-  border: "1px solid #ddd",
-  borderRadius: 8,
-  padding: 16,
-  marginBottom: 24,
-};
-const label: React.CSSProperties = { fontSize: 12, color: "#555", marginRight: 6 };
-const input: React.CSSProperties = {
-  padding: "4px 8px",
-  borderRadius: 4,
-  border: "1px solid #ccc",
-  fontSize: 13,
-};
-const btn: React.CSSProperties = {
-  padding: "5px 12px",
-  borderRadius: 6,
-  border: "none",
-  background: "#355795",
-  color: "#fff",
-  fontSize: 13,
-  cursor: "pointer",
-};
-
 async function readError(res: Response): Promise<string> {
   try {
     const data = await res.json();
-    return data?.error?.code ? `${data.error.code} — ${data.error.message ?? ""}` : `Error ${res.status}`;
+    return data?.error?.code
+      ? `${data.error.code} — ${data.error.message ?? ""}`
+      : `Error ${res.status}`;
   } catch {
     return `Error ${res.status}`;
   }
@@ -96,45 +76,54 @@ function NoteRow({ note, onSaved }: { note: NoteItem; onSaved: () => void }) {
   };
 
   return (
-    <li style={{ marginBottom: 6, fontSize: 12 }}>
+    <li className="moderation-note-row">
       {editing ? (
-        <span>
+        <div className="moderation-note-edit">
           <input
-            style={{ ...input, width: 300 }}
+            className="form-input"
             aria-label="Edit catatan"
             value={editText}
             onChange={(e) => setEditText(e.target.value)}
-          />{" "}
-          <button style={btn} disabled={busy} onClick={() => void save()}>
+          />
+          <Button size="sm" disabled={busy} loading={busy} onClick={() => void save()}>
             Simpan
-          </button>{" "}
-          <button
-            style={{ ...btn, background: "#888" }}
-            onClick={() => { setEditing(false); setEditText(note.note); }}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setEditing(false);
+              setEditText(note.note);
+            }}
           >
             Batal
-          </button>
-        </span>
+          </Button>
+        </div>
       ) : (
-        <span>
-          {note.note}{" "}
-          <span style={{ color: "#999" }}>
+        <div className="moderation-note-content">
+          <span>{note.note}</span>
+          <span className="record-meta data-text">
             — {note.createdByName ?? note.createdById} · {new Date(note.createdAt).toLocaleString()}
-          </span>{" "}
-          <button
-            style={{ fontSize: 11, cursor: "pointer", border: "none", background: "none", color: "#355795", textDecoration: "underline" }}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setEditing(true)}
             aria-label="Edit catatan ini"
           >
             Edit
-          </button>
-        </span>
+          </Button>
+        </div>
       )}
     </li>
   );
 }
 
-function NotesPanel({ target }: { target: { targetUserId?: string; targetInstitutionId?: string } }) {
+function NotesPanel({
+  target,
+}: {
+  target: { targetUserId?: string; targetInstitutionId?: string };
+}) {
   const { addToast } = useToast();
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [noteInput, setNoteInput] = useState("");
@@ -184,24 +173,24 @@ function NotesPanel({ target }: { target: { targetUserId?: string; targetInstitu
   };
 
   return (
-    <div style={{ marginTop: 12, borderTop: "1px dashed #ccc", paddingTop: 10 }}>
-      <strong style={{ fontSize: 13 }}>Catatan Internal</strong>
-      <div style={{ margin: "8px 0" }}>
+    <div className="moderation-notes-panel">
+      <strong>Catatan internal</strong>
+      <div className="moderation-note-form">
         <input
-          style={{ ...input, width: 360 }}
+          className="form-input"
           placeholder="Tambah catatan…"
           aria-label="Tambah catatan internal"
           value={noteInput}
           onChange={(e) => setNoteInput(e.target.value)}
-        />{" "}
-        <button style={btn} disabled={busy} onClick={() => void addNote()}>
+        />
+        <Button size="sm" disabled={busy} loading={busy} onClick={() => void addNote()}>
           Simpan Catatan
-        </button>
+        </Button>
       </div>
       {notes.length === 0 ? (
-        <p style={{ color: "#888", fontSize: 12 }}>Belum ada catatan.</p>
+        <p className="record-meta">Belum ada catatan.</p>
       ) : (
-        <ul style={{ fontSize: 12, paddingLeft: 18 }}>
+        <ul className="moderation-note-list">
           {notes.map((n) => (
             <NoteRow key={n.id} note={n} onSaved={() => void load()} />
           ))}
@@ -221,17 +210,19 @@ function ActionForm({
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   return (
-    <span>
+    <div className="moderation-action-form">
       <input
-        style={{ ...input, width: 220 }}
+        className="form-input"
         placeholder="Alasan…"
         aria-label={`Alasan — ${buttonLabel}`}
         value={reason}
         onChange={(e) => setReason(e.target.value)}
-      />{" "}
-      <button
-        style={busy ? { ...btn, opacity: 0.6 } : btn}
+      />
+      <Button
+        variant={buttonLabel === "Tangguhkan" ? "danger" : "primary"}
+        size="sm"
         disabled={busy}
+        loading={busy}
         onClick={async () => {
           setBusy(true);
           try {
@@ -242,8 +233,8 @@ function ActionForm({
         }}
       >
         {buttonLabel}
-      </button>
-    </span>
+      </Button>
+    </div>
   );
 }
 
@@ -290,41 +281,50 @@ function UserPanel() {
   };
 
   return (
-    <section style={box}>
-      <h2 style={{ fontSize: 16, marginTop: 0 }}>Pengguna</h2>
-      <div>
-        <label htmlFor="user-lookup-email" style={label}>Email</label>
+    <section className="content-section moderation-panel">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Pencarian akun</p>
+          <h2>Pengguna</h2>
+        </div>
+      </div>
+      <div className="moderation-lookup-form">
+        <label htmlFor="user-lookup-email" className="form-label">
+          Email
+        </label>
         <input
           id="user-lookup-email"
-          style={{ ...input, width: 260 }}
+          className="form-input"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="user@example.com"
-        />{" "}
-        <button style={btn} onClick={() => void lookup()}>
+        />
+        <Button size="sm" onClick={() => void lookup()}>
           Cari
-        </button>
+        </Button>
       </div>
 
       {result && (
-        <div style={{ marginTop: 12, fontSize: 13 }}>
+        <div className="moderation-result">
           <div>
             <strong>{result.name ?? "(tanpa nama)"}</strong> · {result.email} · peran:{" "}
             {result.appRole}
           </div>
-          <div style={{ color: "#555", marginTop: 4 }}>
+          <div className="moderation-status-row">
             Status:{" "}
             {result.suspendedAt ? (
-              <span style={{ color: "#721c24", fontWeight: 600 }}>
+              <span className="status-badge" data-status="closed">
                 DITANGGUHKAN ({result.suspensionReason ?? "tanpa alasan"})
               </span>
             ) : (
-              <span style={{ color: "#155724" }}>Aktif</span>
+              <span className="status-badge" data-status="open">
+                Aktif
+              </span>
             )}
           </div>
-          <div style={{ marginTop: 10 }}>
+          <div>
             {result.appRole === "platform_ops" || result.appRole === "finance_ops" ? (
-              <p style={{ color: "#721c24", fontSize: 13, fontWeight: 600 }}>
+              <p className="feedback" data-tone="error">
                 Akun ops internal ({result.appRole}) tidak dapat ditangguhkan.
               </p>
             ) : result.suspendedAt ? (
@@ -391,43 +391,51 @@ function InstitutionPanel() {
   };
 
   return (
-    <section style={box}>
-      <h2 style={{ fontSize: 16, marginTop: 0 }}>Institusi</h2>
-      <div>
-        <label htmlFor="institution-lookup-slug" style={label}>Slug / Nama</label>
+    <section className="content-section moderation-panel">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Pencarian workspace</p>
+          <h2>Institusi</h2>
+        </div>
+      </div>
+      <div className="moderation-lookup-form">
+        <label htmlFor="institution-lookup-slug" className="form-label">
+          Slug / Nama
+        </label>
         <input
           id="institution-lookup-slug"
-          style={{ ...input, width: 260 }}
+          className="form-input"
           value={slug}
           onChange={(e) => setSlug(e.target.value)}
           placeholder="nama-institusi atau Nama Institusi"
           aria-label="Cari institusi berdasarkan slug atau nama"
-        />{" "}
-        <button style={btn} onClick={() => void lookup()}>
+        />
+        <Button size="sm" onClick={() => void lookup()}>
           Cari
-        </button>
+        </Button>
       </div>
 
       {result && (
-        <div style={{ marginTop: 12, fontSize: 13 }}>
+        <div className="moderation-result">
           <div>
-            <strong>{result.name}</strong> · {result.slug} · verifikasi:{" "}
-            {result.verificationStatus}
+            <strong>{result.name}</strong> · {result.slug} · verifikasi: {result.verificationStatus}
           </div>
-          <div style={{ color: "#555", marginTop: 4 }}>
+          <div className="record-meta">
             Pemilik: {result.ownerName ?? "—"} ({result.ownerEmail ?? "—"})
           </div>
-          <div style={{ color: "#555", marginTop: 4 }}>
+          <div className="moderation-status-row">
             Status operasional:{" "}
             {result.suspendedAt ? (
-              <span style={{ color: "#721c24", fontWeight: 600 }}>
+              <span className="status-badge" data-status="closed">
                 DITANGGUHKAN ({result.suspensionReason ?? "tanpa alasan"})
               </span>
             ) : (
-              <span style={{ color: "#155724" }}>Aktif</span>
+              <span className="status-badge" data-status="open">
+                Aktif
+              </span>
             )}
           </div>
-          <div style={{ marginTop: 10 }}>
+          <div>
             {result.suspendedAt ? (
               <ActionForm
                 buttonLabel="Pulihkan"
@@ -449,7 +457,7 @@ function InstitutionPanel() {
 
 export function ModerationConsole() {
   return (
-    <div>
+    <div className="moderation-console">
       <UserPanel />
       <InstitutionPanel />
     </div>

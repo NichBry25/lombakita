@@ -1,6 +1,7 @@
 "use client";
 
 import { signOut } from "next-auth/react";
+import { Button } from "@/components/ui";
 
 type SignOutButtonProps = {
   className?: string;
@@ -12,14 +13,15 @@ export const SignOutButton = ({ className }: SignOutButtonProps) => {
   };
 
   return (
-    <button
-      className={className ?? "primary-button"}
+    <Button
+      className={className}
+      variant="outline"
       onClick={() => {
         void onClick();
       }}
       type="button"
     >
-      Sign out
-    </button>
+      Keluar
+    </Button>
   );
 };

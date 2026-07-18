@@ -10,6 +10,7 @@ import { getRegistrationReview } from "@/server/participants/review-service";
 import { getResultForInstitution } from "@/server/participants/result-service";
 import { ReviewForm } from "./review-form";
 import { ResultForm } from "./result-form";
+import { PageHeader } from "@/components/ui";
 
 type Props = {
   params: Promise<{ institutionSlug: string; competitionSlug: string; registrationId: string }>;
@@ -44,7 +45,11 @@ export default async function RegistrationReviewPage({ params }: Props) {
 
   let competitionId: string;
   try {
-    competitionId = await getCompetitionIdByInstitutionAndSlug(institutionSlug, competitionSlug, db);
+    competitionId = await getCompetitionIdByInstitutionAndSlug(
+      institutionSlug,
+      competitionSlug,
+      db,
+    );
   } catch (error) {
     if (isRedirectError(error)) throw error;
     if (error instanceof CompetitionError) notFound();
@@ -64,11 +69,14 @@ export default async function RegistrationReviewPage({ params }: Props) {
   const resultApiBase = `/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/registrations/${registrationId}/result`;
 
   return (
-    <main style={{ padding: 24, maxWidth: 640, margin: "0 auto" }}>
-      <h1>Detail peserta</h1>
-      <p>
-        <a href={listPath}>← Kembali ke daftar peserta</a>
-      </p>
+    <main className="page-shell app-page participant-review-page">
+      <PageHeader
+        eyebrow="Tinjauan peserta"
+        title="Detail peserta"
+        description="Catatan internal dan hasil publik dikelola secara terpisah."
+        backHref={listPath}
+        backLabel="Daftar peserta"
+      />
       <ReviewForm
         apiPath={reviewApiPath}
         initialStatus={review.internalReviewStatus}

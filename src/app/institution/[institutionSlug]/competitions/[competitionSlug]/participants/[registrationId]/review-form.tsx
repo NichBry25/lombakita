@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { CompetitionRegistrationReviewStatus } from "@/server/db/schema";
 import { REVIEW_STATUS_LABELS, REVIEW_STATUS_ORDER } from "../review-status-labels";
 import { useToast } from "@/components/ui/primitives";
+import { Button } from "@/components/ui";
 
 type Props = {
   apiPath: string;
@@ -63,20 +64,26 @@ export function ReviewForm({
   };
 
   return (
-    <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+    <section className="content-section participant-review-card">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Penilaian internal</p>
+          <h2>Tinjauan peserta</h2>
+        </div>
+        <span className="status-badge">{REVIEW_STATUS_LABELS[status]}</span>
+      </div>
       {registrationType === "team" && teamName && (
-        <p style={{ margin: 0, fontWeight: 600 }}>
+        <p className="participant-team-context">
           Tim: {teamName}
           {activeMemberCount !== null && (
-            <span style={{ fontWeight: 400, marginLeft: 8, color: "#666" }}>
-              ({activeMemberCount} anggota aktif)
-            </span>
+            <span className="record-meta">({activeMemberCount} anggota aktif)</span>
           )}
         </p>
       )}
-      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        Status tinjauan
+      <label className="form-field">
+        <span className="form-label">Status tinjauan</span>
         <select
+          className="form-select"
           value={status}
           onChange={(e) => setStatus(e.target.value as CompetitionRegistrationReviewStatus)}
         >
@@ -88,22 +95,21 @@ export function ReviewForm({
         </select>
       </label>
 
-      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        Catatan internal
+      <label className="form-field">
+        <span className="form-label">Catatan internal</span>
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={5}
-          style={{ width: "100%" }}
+          className="form-textarea"
         />
       </label>
 
       <div>
-        <button type="button" onClick={onSave} disabled={saving}>
+        <Button type="button" onClick={onSave} disabled={saving} loading={saving}>
           {saving ? "Menyimpan…" : "Simpan tinjauan"}
-        </button>
+        </Button>
       </div>
-
-    </div>
+    </section>
   );
 }

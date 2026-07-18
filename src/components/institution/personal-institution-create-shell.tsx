@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { Button, ButtonLink, Icon, PageHeader } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   readErrorCode,
@@ -73,50 +73,64 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
   };
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-14">
-      <header>
-        <h1 className="text-2xl font-semibold text-gleam">Buat Institusi Personal</h1>
-        <p className="text-sm">
-          Institusi personal bersifat ringan dan satu anggota: maksimal 2 kompetisi terbit, hanya
-          mode individu, tanpa penempatan unggulan, dan tanpa undangan staf. Namanya mengikuti
-          username Anda — tidak ada nama yang perlu diisi.
-        </p>
-      </header>
+    <main className="page-shell app-page personal-institution-page">
+      <PageHeader
+        eyebrow="Ruang penyelenggara personal"
+        title="Buat institusi personal"
+        description="Ruang ringan untuk menyelenggarakan kompetisi secara mandiri. Nama institusi akan mengikuti username Anda."
+      />
 
-      <section className="glass-card p-6 space-y-4">
+      <section className="content-section personal-institution-card">
+        <div className="personal-institution-intro">
+          <span className="personal-institution-icon" aria-hidden="true">
+            <Icon name="building" size="lg" />
+          </span>
+          <div className="stack-xs">
+            <h2>Ruang kerja satu anggota</h2>
+            <p>
+              Maksimal 2 kompetisi terbit, hanya mode individu, tanpa penempatan unggulan, dan tanpa
+              undangan staf. Tidak ada nama yang perlu diisi.
+            </p>
+          </div>
+        </div>
+
         {created ? (
-          <div className="space-y-3">
-            <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          <div className="personal-institution-created">
+            <p className="feedback" data-tone="success">
               Institusi personal berhasil dibuat.
             </p>
-            <p className="text-sm">
-              Nama: <strong>{created.displayName}</strong>
-            </p>
-            <p className="text-sm">
-              Slug: <strong>{created.slug}</strong>
-            </p>
-            <Link
-              className="action-chip inline-block"
+            <dl className="profile-detail-list">
+              <div>
+                <dt>Nama</dt>
+                <dd>{created.displayName}</dd>
+              </div>
+              <div>
+                <dt>Slug</dt>
+                <dd className="data-text">{created.slug}</dd>
+              </div>
+            </dl>
+            <ButtonLink
               href={`/institution/${created.slug}/settings`}
               prefetch={false}
+              variant="primary"
             >
-              Buka Institusi
-            </Link>
+              Buka institusi
+            </ButtonLink>
           </div>
         ) : (
-          <form className="space-y-4" onSubmit={onSubmit}>
-            <button className="primary-button" type="submit" disabled={isCreating}>
+          <form className="personal-institution-form" onSubmit={onSubmit}>
+            <Button type="submit" disabled={isCreating} loading={isCreating}>
               {isCreating ? "Menyimpan..." : "Buat Institusi Personal"}
-            </button>
+            </Button>
           </form>
         )}
       </section>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="page-secondary-actions">
         <SignOutButton />
-        <Link className="text-sm underline" href="/" prefetch={false}>
+        <ButtonLink href="/" prefetch={false} variant="ghost" size="sm">
           Kembali ke beranda
-        </Link>
+        </ButtonLink>
       </div>
     </main>
   );

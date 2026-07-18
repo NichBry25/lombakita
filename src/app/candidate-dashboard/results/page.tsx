@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { EmptyState, PageHeader } from "@/components/ui";
 import { getCurrentSession } from "@/server/auth/session";
 import { getUnverifiedRoles } from "@/server/auth/role-verification";
 import { listCandidatePublishedResults } from "@/server/participants/result-service";
@@ -18,33 +19,44 @@ export default async function CandidateResultsPage() {
   const results = await listCandidatePublishedResults(session.user.id);
 
   return (
-    <main style={{ maxWidth: 640, margin: "0 auto", padding: "2rem 1rem" }}>
-      <p style={{ marginBottom: "0.5rem" }}>
-        <Link href="/candidate-dashboard" style={{ color: "#355795", fontSize: "0.9em" }}>
-          ← Dasbor Kandidat
-        </Link>
-      </p>
-      <h1 style={{ marginBottom: "1.5rem" }}>Hasil Kompetisi</h1>
+    <main className="page-shell app-page candidate-results-page">
+      <PageHeader
+        eyebrow="Keputusan penyelenggara"
+        title="Hasil kompetisi"
+        description="Hasil yang telah dipublikasikan untuk pendaftaranmu."
+        backHref="/candidate-dashboard"
+        backLabel="Dasbor kandidat"
+      />
 
       {results.length === 0 ? (
-        <p style={{ color: "#777" }}>Belum ada hasil yang dipublikasikan.</p>
+        <EmptyState
+          icon="trophy"
+          title="Belum ada hasil yang dipublikasikan."
+          description="Keputusan final akan terlihat setelah penyelenggara mempublikasikannya."
+        />
       ) : (
-        <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-          {results.map((r) => (
-            <li
-              key={r.registrationId}
-              style={{ padding: "0.75rem 1rem", background: "#f9f9f9", borderRadius: 4, borderLeft: "3px solid #355795" }}
-            >
-              <Link
-                href={`/candidate-dashboard/results/${r.registrationId}`}
-                style={{ fontWeight: 600, color: "#355795" }}
-              >
-                {r.competitionTitle}
-              </Link>
-              <span style={{ marginLeft: 8, color: "#555", fontSize: "0.9em" }}>— {r.resultLabel}</span>
-              <div style={{ marginTop: 4, fontSize: "0.85em", color: "#888" }}>
-                {r.publishedAt.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}
+        <ul className="record-list">
+          {results.map((result) => (
+            <li key={result.registrationId} className="record-row result-row">
+              <span className="result-mark" aria-hidden="true">
+                #
+              </span>
+              <div className="record-row-main">
+                <Link
+                  href={`/candidate-dashboard/results/${result.registrationId}`}
+                  className="record-row-title"
+                >
+                  {result.competitionTitle}
+                </Link>
+                <span className="record-meta data-text">
+                  {result.publishedAt.toLocaleDateString("id-ID", {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </span>
               </div>
+              <span className="result-label">{result.resultLabel}</span>
             </li>
           ))}
         </ul>

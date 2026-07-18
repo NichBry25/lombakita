@@ -49,7 +49,14 @@ export function MarkReadButton({
   };
 
   return (
-    <button type="button" onClick={onClick} disabled={pending} style={{ fontSize: "0.85em" }}>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={pending}
+      className="ui-button"
+      data-variant="outline"
+      data-size="sm"
+    >
       {pending ? "Menandai…" : "Tandai dibaca"}
     </button>
   );
