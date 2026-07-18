@@ -24,11 +24,9 @@ export function DeleteNotificationButton({
   const onClick = async () => {
     setPending(true);
     try {
-      const res = await sessionFetch(
-        expectedUserId,
-        `/api/v1/me/notifications/${notificationId}`,
-        { method: "DELETE" },
-      );
+      const res = await sessionFetch(expectedUserId, `/api/v1/me/notifications/${notificationId}`, {
+        method: "DELETE",
+      });
       if (!res.ok) {
         const code = await readErrorCode(res);
         addToast({
@@ -49,7 +47,14 @@ export function DeleteNotificationButton({
   };
 
   return (
-    <button type="button" onClick={onClick} disabled={pending} style={{ fontSize: "0.85em" }}>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={pending}
+      className="ui-button"
+      data-variant="ghost"
+      data-size="sm"
+    >
       {pending ? "Menghapus…" : "Hapus"}
     </button>
   );

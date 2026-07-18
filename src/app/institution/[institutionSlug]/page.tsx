@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Icon, PageHeader } from "@/components/ui";
 import { isInstitutionAdminBySlug } from "@/server/institution-members/member-service";
 import { getCurrentSession } from "@/server/auth/session";
 
@@ -26,40 +27,67 @@ export default async function InstitutionHubPage({ params }: InstitutionHubPageP
   }
 
   const links = [
-    { href: `${base}/competitions`, label: "Kompetisi" },
-    { href: `${base}/members`, label: "Anggota" },
-    { href: `${base}/settings`, label: "Pengaturan" },
-    { href: `${base}/verification`, label: "Verifikasi Dokumen" },
-    { href: `${base}/audit-log`, label: "Log Audit" },
+    {
+      href: `${base}/competitions`,
+      label: "Kompetisi",
+      description: "Buat, terbitkan, dan tinjau partisipasi kompetisi.",
+      icon: "trophy" as const,
+    },
+    {
+      href: `${base}/members`,
+      label: "Anggota",
+      description: "Kelola akses staf dan anggota workspace.",
+      icon: "users" as const,
+    },
+    {
+      href: `${base}/settings`,
+      label: "Pengaturan",
+      description: "Perbarui identitas dan konfigurasi institusi.",
+      icon: "building" as const,
+    },
+    {
+      href: `${base}/verification`,
+      label: "Verifikasi dokumen",
+      description: "Ajukan bukti resmi dan pantau status tinjauan.",
+      icon: "check" as const,
+    },
+    {
+      href: `${base}/audit-log`,
+      label: "Log audit",
+      description: "Telusuri perubahan penting dalam urutan waktu.",
+      icon: "inbox" as const,
+    },
   ];
 
   return (
-    <div style={{ fontFamily: "Arial, sans-serif", maxWidth: 600, margin: "48px auto", padding: "0 16px", color: "#0f1012" }}>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>{institutionSlug}</h1>
-      <p style={{ color: "#555", fontSize: 14, marginBottom: 24 }}>Panel Institusi</p>
-      <nav>
-        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-          {links.map(({ href, label }) => (
+    <main className="page-shell app-page institution-hub-page">
+      <PageHeader
+        eyebrow="Panel institusi"
+        title={institutionSlug}
+        description="Pusat kerja untuk identitas institusi, penyelenggaraan kompetisi, dan tata kelola anggota."
+        backHref="/recruiter-dashboard"
+        backLabel="Dasbor rekruter"
+      />
+      <nav aria-label="Fitur institusi">
+        <ul className="hub-grid institution-hub-grid">
+          {links.map(({ href, label, description, icon }) => (
             <li key={href}>
-              <Link
-                href={href}
-                style={{
-                  display: "block",
-                  padding: "12px 16px",
-                  background: "#f2f7fb",
-                  borderRadius: 8,
-                  color: "#355795",
-                  textDecoration: "none",
-                  fontWeight: 500,
-                  fontSize: 14,
-                }}
-              >
-                {label}
+              <Link href={href} className="hub-card">
+                <span className="hub-card-icon">
+                  <Icon name={icon} size="lg" />
+                </span>
+                <div className="stack-xs">
+                  <h2>{label}</h2>
+                  <p>{description}</p>
+                </div>
+                <span className="hub-card-arrow" aria-hidden="true">
+                  →
+                </span>
               </Link>
             </li>
           ))}
         </ul>
       </nav>
-    </div>
+    </main>
   );
 }

@@ -1,5 +1,18 @@
 "use client";
 
+import {
+  Button,
+  Card,
+  Feedback,
+  FormField,
+  FormHelp,
+  FormInput,
+  FormLabel,
+  FormSelect,
+  FormTextarea,
+  Skeleton,
+  SkeletonCard,
+} from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 
 export function DevPrimitivesClient() {
@@ -45,34 +58,184 @@ export function DevPrimitivesClient() {
     });
   }
 
-  const BTN_STYLE = {
-    padding: "0.5rem 1rem",
-    borderRadius: 4,
-    border: "1px solid #ccc",
-    cursor: "pointer",
-    background: "#f5f5f5",
-  };
-
   return (
-    <div style={{ display: "flex", flexWrap: "wrap" as const, gap: "0.75rem" }}>
-      <button style={BTN_STYLE} onClick={openTwoActionModal}>
-        Open modal (2 actions)
-      </button>
-      <button style={BTN_STYLE} onClick={openNoCloseModal}>
-        Open modal (no close button)
-      </button>
-      <button style={{ ...BTN_STYLE, borderColor: "#c0392b" }} onClick={() => addToast({ message: "Terjadi kesalahan. Coba lagi.", type: "error" })}>
-        Toast: error
-      </button>
-      <button style={{ ...BTN_STYLE, borderColor: "#27ae60" }} onClick={() => addToast({ message: "Operasi berhasil.", type: "success" })}>
-        Toast: success
-      </button>
-      <button style={{ ...BTN_STYLE, borderColor: "#2980b9" }} onClick={() => addToast({ message: "Informasi tambahan tersedia.", type: "info" })}>
-        Toast: info
-      </button>
-      <button style={{ ...BTN_STYLE, borderColor: "#d68910" }} onClick={() => addToast({ message: "Perhatikan langkah berikutnya.", type: "warning" })}>
-        Toast: warning
-      </button>
+    <div className="primitive-showcase">
+      <section className="stack-md">
+        <div className="stack-xs">
+          <p className="eyebrow">Warna semantik</p>
+          <h2 className="section-title">Palet Mercusuar</h2>
+        </div>
+        <div className="token-swatch-grid">
+          {[
+            ["navy", "Navy"],
+            ["gold", "Muted gold"],
+            ["paper", "Warm paper"],
+            ["surface", "Surface"],
+            ["ink", "Ink"],
+            ["coral", "Coral"],
+          ].map(([token, label]) => (
+            <div className="token-swatch" key={token}>
+              <span className="token-swatch-color" data-token={token} />
+              <span>{label}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="stack-md">
+        <div className="stack-xs">
+          <p className="eyebrow">Kontrol</p>
+          <h2 className="section-title">Tombol dan status</h2>
+        </div>
+        <div className="cluster">
+          <Button variant="primary">Aksi utama</Button>
+          <Button variant="gold">Aksi aksen</Button>
+          <Button variant="outline">Aksi sekunder</Button>
+          <Button variant="ghost">Aksi tenang</Button>
+          <Button variant="danger">Aksi destruktif</Button>
+          <Button disabled>Nonaktif</Button>
+          <Button loading>Memuat</Button>
+        </div>
+      </section>
+
+      <section className="stack-md">
+        <div className="stack-xs">
+          <p className="eyebrow">Surface hierarchy</p>
+          <h2 className="section-title">Opaque untuk membaca, glass untuk chrome</h2>
+        </div>
+        <div className="primitive-surface-grid">
+          <Card>
+            <h3>Surface baca</h3>
+            <p className="muted-copy">
+              Kartu konten tetap opaque agar teks selalu tenang dan terbaca.
+            </p>
+          </Card>
+          <div className="glass-chrome primitive-surface-sample">
+            <h3>Chrome glass</h3>
+            <p className="muted-copy">Untuk header, filter, dan rel kontrol.</p>
+          </div>
+          <div className="glass-focus primitive-surface-sample">
+            <h3>Focus glass</h3>
+            <p className="muted-copy">Untuk pencarian dan panel konversi utama.</p>
+          </div>
+          <div className="glass-overlay primitive-surface-sample">
+            <h3>Overlay glass</h3>
+            <p className="muted-copy">Untuk ringkasan mengambang yang terpilih.</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="primitive-columns">
+        <div className="stack-md">
+          <div className="stack-xs">
+            <p className="eyebrow">Form</p>
+            <h2 className="section-title">Keadaan kontrol</h2>
+          </div>
+          <Card>
+            <div className="stack-md">
+              <FormField>
+                <FormLabel htmlFor="dev-name" required>
+                  Nama kompetisi
+                </FormLabel>
+                <FormInput id="dev-name" placeholder="Contoh: Lomba Esai Nusantara" />
+                <FormHelp>Gunakan nama publik yang mudah dikenali.</FormHelp>
+              </FormField>
+              <FormField>
+                <FormLabel htmlFor="dev-category">Kategori</FormLabel>
+                <FormSelect id="dev-category" defaultValue="essay">
+                  <option value="essay">Esai</option>
+                  <option value="business">Bisnis</option>
+                </FormSelect>
+              </FormField>
+              <FormField>
+                <FormLabel htmlFor="dev-notes">Catatan</FormLabel>
+                <FormTextarea id="dev-notes" placeholder="Tambahkan konteks singkat…" />
+              </FormField>
+              <FormField>
+                <FormLabel htmlFor="dev-readonly">ID institusi</FormLabel>
+                <FormInput id="dev-readonly" value="INST-0241" readOnly />
+              </FormField>
+              <FormField>
+                <FormLabel htmlFor="dev-disabled">Kontrol nonaktif</FormLabel>
+                <FormInput id="dev-disabled" value="Tidak dapat diubah" disabled />
+              </FormField>
+            </div>
+          </Card>
+        </div>
+
+        <div className="stack-md">
+          <div className="stack-xs">
+            <p className="eyebrow">Feedback</p>
+            <h2 className="section-title">Pesan sistem</h2>
+          </div>
+          <div className="stack-sm">
+            <Feedback tone="success">Perubahan berhasil disimpan.</Feedback>
+            <Feedback tone="warning">Periksa tenggat sebelum melanjutkan.</Feedback>
+            <Feedback tone="error">Dokumen belum lengkap.</Feedback>
+            <Feedback tone="info">Data akan ditinjau oleh tim operasi.</Feedback>
+          </div>
+          <div className="cluster">
+            <Button variant="outline" size="sm" onClick={openTwoActionModal}>
+              Modal dua aksi
+            </Button>
+            <Button variant="outline" size="sm" onClick={openNoCloseModal}>
+              Modal terkunci
+            </Button>
+          </div>
+          <div className="cluster">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => addToast({ message: "Terjadi kesalahan. Coba lagi.", type: "error" })}
+            >
+              Toast error
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => addToast({ message: "Operasi berhasil.", type: "success" })}
+            >
+              Toast sukses
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => addToast({ message: "Informasi tambahan tersedia.", type: "info" })}
+            >
+              Toast info
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                addToast({ message: "Perhatikan langkah berikutnya.", type: "warning" })
+              }
+            >
+              Toast peringatan
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <section className="stack-md">
+        <div className="stack-xs">
+          <p className="eyebrow">Loading</p>
+          <h2 className="section-title">Skeleton yang tenang</h2>
+        </div>
+        <div className="primitive-skeleton-grid">
+          <SkeletonCard />
+          <div className="surface-card card-padding stack-md">
+            <div className="cluster">
+              <Skeleton variant="avatar" />
+              <div className="primitive-skeleton-copy stack-xs">
+                <Skeleton variant="title" />
+                <Skeleton />
+              </div>
+            </div>
+            <Skeleton variant="media" />
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

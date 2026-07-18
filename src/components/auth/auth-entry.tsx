@@ -275,21 +275,24 @@ export const AuthEntry = ({
   };
 
   return (
-    <div className="flex flex-col gap-5">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-zinc-900">Masuk atau daftar</h1>
-        <p className="text-sm text-zinc-500">Pilih cara Anda ingin melanjutkan.</p>
+    <div className="auth-entry">
+      <header className="auth-entry-header">
+        <p className="eyebrow">Akses akun</p>
+        <h1>Masuk atau daftar</h1>
+        <p>Pilih cara Anda ingin melanjutkan.</p>
       </header>
 
       {method === "choose" ? (
-        <div className="space-y-3">
+        <div className="auth-method-list">
           {googleEnabled ? (
-            <button
-              type="button"
-              onClick={startGoogle}
-              className="w-full rounded-xl border border-zinc-300 px-5 py-3 text-sm font-medium text-zinc-800 hover:border-zinc-400"
-            >
-              Lanjut dengan Google
+            <button type="button" onClick={startGoogle} className="auth-method-button">
+              <span className="auth-provider-mark" aria-hidden="true">
+                G
+              </span>
+              <span>
+                <strong>Lanjut dengan Google</strong>
+                <small>Gunakan akun Google yang terhubung dengan email Anda.</small>
+              </span>
             </button>
           ) : null}
           <button
@@ -298,76 +301,92 @@ export const AuthEntry = ({
               resetMessages();
               setMethod("credentials");
             }}
-            className="w-full rounded-xl border border-zinc-300 px-5 py-3 text-sm font-medium text-zinc-800 hover:border-zinc-400"
+            className="auth-method-button"
           >
-            Lanjut dengan Email & Password
+            <span className="auth-provider-mark" aria-hidden="true">
+              @
+            </span>
+            <span>
+              <strong>Lanjut dengan Email &amp; Password</strong>
+              <small>Masuk atau buat akun dengan alamat email Anda.</small>
+            </span>
           </button>
         </div>
       ) : null}
 
       {method === "credentials" && stage === "entry" ? (
-        <form onSubmit={onSubmitEntry} className="space-y-3">
-          <label className="block text-sm font-medium" htmlFor="auth-email">
-            Email
-          </label>
-          <input
-            id="auth-email"
-            name="email"
-            type="email"
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm"
-            placeholder="you@university.ac.id"
-          />
+        <form onSubmit={onSubmitEntry} className="auth-form">
+          <div className="form-field">
+            <label className="form-label form-label-required" htmlFor="auth-email">
+              Email
+            </label>
+            <input
+              id="auth-email"
+              name="email"
+              type="email"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="form-input"
+              placeholder="nama@kampus.ac.id"
+            />
+          </div>
 
-          <label className="block text-sm font-medium" htmlFor="auth-password">
-            Password
-          </label>
-          <input
-            id="auth-password"
-            name="password"
-            type="password"
-            required
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm"
-            placeholder="Masukkan password"
-          />
+          <div className="form-field">
+            <label className="form-label form-label-required" htmlFor="auth-password">
+              Password
+            </label>
+            <input
+              id="auth-password"
+              name="password"
+              type="password"
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="form-input"
+              placeholder="Masukkan password"
+            />
+          </div>
 
-          <div className="flex items-center justify-between pt-1">
+          <div className="auth-form-actions">
             <button
               type="button"
               onClick={backToChoose}
-              className="text-xs font-medium text-zinc-500 hover:text-zinc-800"
+              className="ui-button"
+              data-variant="ghost"
+              data-size="sm"
             >
               Ganti metode
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="rounded-full bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="ui-button"
+              data-variant="primary"
+              data-size="md"
             >
               {isSubmitting ? "Memproses..." : "Lanjut"}
             </button>
           </div>
-          <p className="text-xs text-zinc-500">
+          <p className="form-help">
             Belum punya akun? Masukkan email &amp; password, lalu pilih peran di langkah berikutnya.
           </p>
         </form>
       ) : null}
 
       {method === "credentials" && stage === "verifyNotice" ? (
-        <div className="space-y-3">
-          <p className="text-sm text-zinc-700">
+        <div className="auth-stage-panel">
+          <p>
             Email <span className="font-medium">{email}</span> belum diverifikasi. Buka tautan
             verifikasi di inbox/spam Anda, atau kirim ulang di bawah ini.
           </p>
-          <div className="flex items-center justify-between">
+          <div className="auth-form-actions">
             <button
               type="button"
               onClick={backToEntry}
-              className="text-xs font-medium text-zinc-500 hover:text-zinc-800"
+              className="ui-button"
+              data-variant="ghost"
+              data-size="sm"
             >
               Kembali
             </button>
@@ -377,7 +396,9 @@ export const AuthEntry = ({
               onClick={() => {
                 void onResend();
               }}
-              className="rounded-full border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="ui-button"
+              data-variant="outline"
+              data-size="sm"
             >
               {isResending ? "Mengirim..." : "Kirim ulang verifikasi"}
             </button>
@@ -386,41 +407,45 @@ export const AuthEntry = ({
       ) : null}
 
       {method === "credentials" && stage === "signup" ? (
-        <div className="space-y-3">
-          <p className="text-sm text-zinc-700">
+        <div className="auth-stage-panel">
+          <p>
             Belum ada akun untuk <span className="font-medium">{email}</span>. Lengkapi nama dan
             pilih peran untuk mendaftar.
           </p>
 
-          <label className="block text-sm font-medium" htmlFor="auth-name">
-            Nama lengkap
-          </label>
-          <input
-            id="auth-name"
-            name="name"
-            type="text"
-            autoComplete="off"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm"
-            placeholder="Nama Anda"
-          />
+          <div className="form-field">
+            <label className="form-label form-label-required" htmlFor="auth-name">
+              Nama lengkap
+            </label>
+            <input
+              id="auth-name"
+              name="name"
+              type="text"
+              autoComplete="off"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              className="form-input"
+              placeholder="Nama Anda"
+            />
+          </div>
 
-          <label className="block text-sm font-medium" htmlFor="auth-confirm-password">
-            Konfirmasi password
-          </label>
-          <input
-            id="auth-confirm-password"
-            name="confirmPassword"
-            type="password"
-            autoComplete="new-password"
-            value={confirmPassword}
-            onChange={(event) => setConfirmPassword(event.target.value)}
-            className="w-full rounded-xl border border-zinc-300 px-3 py-2.5 text-sm"
-            placeholder="Ulangi password Anda"
-          />
+          <div className="form-field">
+            <label className="form-label form-label-required" htmlFor="auth-confirm-password">
+              Konfirmasi password
+            </label>
+            <input
+              id="auth-confirm-password"
+              name="confirmPassword"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              className="form-input"
+              placeholder="Ulangi password Anda"
+            />
+          </div>
 
-          <div className="space-y-2 pt-1">
+          <div className="auth-role-list">
             {SIGNUP_ROLES.map((entry) => (
               <button
                 key={entry.role}
@@ -429,10 +454,10 @@ export const AuthEntry = ({
                 onClick={() => {
                   void onPickSignupRole(entry.role);
                 }}
-                className="block w-full rounded-xl border border-zinc-200 p-4 text-left text-sm font-medium text-zinc-900 hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-50"
+                className="auth-role-option"
               >
-                {isSubmitting ? "Membuat akun..." : entry.label}
-                <span className="mt-0.5 block text-xs font-normal text-zinc-500">{entry.hint}</span>
+                <strong>{isSubmitting ? "Membuat akun..." : entry.label}</strong>
+                <span>{entry.hint}</span>
               </button>
             ))}
           </div>
@@ -440,21 +465,31 @@ export const AuthEntry = ({
           <button
             type="button"
             onClick={backToEntry}
-            className="text-xs font-medium text-zinc-500 hover:text-zinc-800"
+            className="ui-button"
+            data-variant="ghost"
+            data-size="sm"
           >
             Kembali
           </button>
 
           {!verificationEnabled ? (
-            <p className="text-xs text-amber-700">
+            <p className="feedback" data-tone="warning">
               Pendaftaran email belum tersedia (`RESEND_API_KEY`, `AUTH_EMAIL_FROM` belum lengkap).
             </p>
           ) : null}
         </div>
       ) : null}
 
-      {statusMessage ? <p className="text-xs text-emerald-700">{statusMessage}</p> : null}
-      {errorMessage ? <p className="text-xs text-rose-700">{errorMessage}</p> : null}
+      {statusMessage ? (
+        <p className="feedback" data-tone="success">
+          {statusMessage}
+        </p>
+      ) : null}
+      {errorMessage ? (
+        <p className="feedback" data-tone="error">
+          {errorMessage}
+        </p>
+      ) : null}
     </div>
   );
 };

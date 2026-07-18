@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 
 type MemberRole = "institution_owner" | "institution_staff" | "institution_member";
 
@@ -144,39 +145,52 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
   };
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-14">
-      <header>
-        <h1 className="text-2xl font-semibold text-gleam">Manajemen Anggota</h1>
-      </header>
+    <main className="page-shell app-page institution-members-page">
+      <PageHeader
+        eyebrow="Tata kelola akses"
+        title="Manajemen anggota"
+        description="Tinjau anggota aktif, sesuaikan peran, dan cabut akses bila diperlukan."
+        backHref={`/institution/${institutionSlug}`}
+        backLabel="Panel institusi"
+      />
 
       {feedback ? (
-        <p
-          className={`rounded-xl border px-3 py-2 text-sm ${
-            feedback.type === "error"
-              ? "border-red-200 bg-red-50 text-red-700"
-              : "border-emerald-200 bg-emerald-50 text-emerald-700"
-          }`}
-          role="status"
-        >
+        <p className="feedback" data-tone={feedback.type} role="status">
           {feedback.message}
         </p>
       ) : null}
 
-      <section className="glass-card p-6">
+      <section className="content-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Anggota aktif</p>
+            <h2>Daftar akses institusi</h2>
+          </div>
+          <span className="status-badge data-text">{members.length}</span>
+        </div>
         {isLoading ? (
-          <p className="text-sm text-[var(--text-muted)]">Memuat...</p>
+          <div className="stack-sm" aria-label="Memuat anggota">
+            <Skeleton variant="media" />
+            <Skeleton variant="media" />
+          </div>
         ) : members.length === 0 ? (
-          <p className="text-sm text-[var(--text-muted)]">Tidak ada anggota aktif.</p>
+          <EmptyState
+            icon="users"
+            title="Belum ada anggota aktif."
+            description="Anggota yang menerima undangan akan muncul dalam daftar ini."
+          />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="table-scroll">
+            <table className="data-table institution-members-table">
               <thead>
-                <tr className="text-left border-b border-[var(--border)]">
-                  <th className="pb-3 font-medium pr-4">Nama</th>
-                  <th className="pb-3 font-medium pr-4">Email</th>
-                  <th className="pb-3 font-medium pr-4">Peran</th>
-                  <th className="pb-3 font-medium pr-4">Bergabung</th>
-                  <th className="pb-3" />
+                <tr>
+                  <th>Nama</th>
+                  <th>Email</th>
+                  <th>Peran</th>
+                  <th>Bergabung</th>
+                  <th>
+                    <span className="sr-only">Tindakan</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -186,50 +200,40 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
                   const otherRoles = ROLE_OPTIONS.filter((role) => role !== member.role);
 
                   return (
-                    <tr
-                      key={member.membershipId}
-                      className="border-b border-[var(--border)] last:border-0"
-                    >
-                      <td className="py-3 pr-4 font-medium">
+                    <tr key={member.membershipId}>
+                      <td>
                         {member.name ?? "—"}
-                        {isSelf ? (
-                          <span className="ml-2 text-xs text-[var(--text-muted)]">(Anda)</span>
-                        ) : null}
+                        {isSelf ? <span className="record-meta"> (Anda)</span> : null}
                       </td>
-                      <td className="py-3 pr-4 text-[var(--text-muted)]">{member.email}</td>
-                      <td className="py-3 pr-4">
-                        <span
-                          className="inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold"
-                          style={{ background: "var(--badge-bg)", color: "var(--badge-text)" }}
-                        >
-                          {ROLE_LABELS[member.role]}
-                        </span>
+                      <td>{member.email}</td>
+                      <td>
+                        <span className="status-badge">{ROLE_LABELS[member.role]}</span>
                       </td>
-                      <td className="py-3 pr-4 text-[var(--text-muted)]">
-                        {formatDate(member.joinedAt)}
-                      </td>
-                      <td className="py-3">
+                      <td className="data-text">{formatDate(member.joinedAt)}</td>
+                      <td>
                         {isSelf ? null : (
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="table-actions">
                             {otherRoles.map((role) => (
-                              <button
+                              <Button
                                 key={role}
-                                className="action-chip text-xs"
+                                variant="outline"
+                                size="sm"
                                 disabled={isActing}
                                 onClick={() => void onRoleChange(member.membershipId, role)}
                                 type="button"
                               >
                                 {isActing ? "..." : `Jadikan ${ROLE_LABELS[role]}`}
-                              </button>
+                              </Button>
                             ))}
-                            <button
-                              className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                            <Button
+                              variant="danger"
+                              size="sm"
                               disabled={isActing}
                               onClick={() => onConfirmRemove(member)}
                               type="button"
                             >
                               Hapus
-                            </button>
+                            </Button>
                           </div>
                         )}
                       </td>
@@ -243,29 +247,22 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
       </section>
 
       {confirmRemove ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="glass-card w-full max-w-sm p-6 space-y-4">
-            <p className="font-medium">Hapus anggota ini?</p>
-            <p className="text-sm text-[var(--text-muted)]">
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal-dialog">
+            <div className="modal-header">
+              <h2>Hapus anggota ini?</h2>
+            </div>
+            <p className="modal-body">
               {confirmRemove.name ?? confirmRemove.email} akan dihapus dari institusi. Tindakan ini
               tidak dapat dibatalkan.
             </p>
-            <div className="flex justify-end gap-3">
-              <button className="action-chip text-sm" onClick={onCancelRemove} type="button">
+            <div className="modal-actions">
+              <Button variant="outline" onClick={onCancelRemove} type="button">
                 Batal
-              </button>
-              <button
-                className="primary-button text-sm"
-                style={{ background: "#dc2626" }}
-                onClick={() => void onRemove()}
-                type="button"
-              >
+              </Button>
+              <Button variant="danger" onClick={() => void onRemove()} type="button">
                 Hapus
-              </button>
+              </Button>
             </div>
           </div>
         </div>

@@ -7,6 +7,7 @@ import {
   SESSION_MISMATCH_MESSAGE,
   sessionFetch,
 } from "@/lib/session/session-fetch";
+import { PageHeader, Skeleton } from "@/components/ui";
 
 type EnrollmentStatus = "enrolled" | "on_leave" | "graduated" | "unknown";
 type EducationLevel = "D3" | "D4" | "S1" | "S2" | "S3";
@@ -185,153 +186,136 @@ export const StudentEligibilityShell = ({ expectedUserId }: ShellProps) => {
   };
 
   return (
-    <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 22, marginBottom: 12 }}>Kelayakan Mahasiswa</h1>
-      <p style={{ fontSize: 13, color: "#555", marginBottom: 20 }}>
-        Lengkapi data berikut untuk mengikuti pendaftaran kompetisi. Semua data dievaluasi di server
-        saat dibutuhkan.
-      </p>
+    <main className="page-shell app-page eligibility-page">
+      <PageHeader
+        eyebrow="Identitas kandidat"
+        title="Kelayakan mahasiswa"
+        description="Lengkapi data berikut untuk mengikuti pendaftaran kompetisi. Semua data dievaluasi di server saat dibutuhkan."
+        backHref="/candidate-dashboard"
+        backLabel="Dasbor kandidat"
+      />
 
-      {feedback && (
+      {feedback ? (
         <div
           role="status"
-          style={{
-            padding: "10px 14px",
-            marginBottom: 16,
-            borderRadius: 6,
-            fontSize: 13,
-            border: feedback.type === "success" ? "1px solid #8fcf8f" : "1px solid #e09090",
-            background: feedback.type === "success" ? "#eff8ef" : "#fbeded",
-            color: feedback.type === "success" ? "#1f5f1f" : "#7a1f1f",
-          }}
+          className="feedback"
+          data-tone={feedback.type === "success" ? "success" : "error"}
         >
           {feedback.message}
         </div>
-      )}
+      ) : null}
 
-      {eligibility && (
-        <section
-          style={{
-            border: "1px solid #d4d4d8",
-            borderRadius: 8,
-            padding: 16,
-            marginBottom: 20,
-            background: "#fafafa",
-          }}
-        >
-          <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Status saat ini</p>
-          <p
-            style={{
-              fontSize: 16,
-              fontWeight: 600,
-              color: eligibility.status === "eligible" ? "#1f5f1f" : "#7a1f1f",
-              marginBottom: 8,
-            }}
-            data-testid="eligibility-status"
-          >
+      {eligibility ? (
+        <section className="eligibility-status-card" data-status={eligibility.status}>
+          <p className="eyebrow">Status saat ini</p>
+          <p className="eligibility-status-label" data-testid="eligibility-status">
             {STATUS_LABEL[eligibility.status]}
           </p>
-          {eligibility.reasons.length > 0 && (
-            <ul
-              style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: "#555" }}
-              data-testid="eligibility-reasons"
-            >
+          {eligibility.reasons.length > 0 ? (
+            <ul className="eligibility-reasons" data-testid="eligibility-reasons">
               {eligibility.reasons.map((reason) => (
                 <li key={reason}>{formatReason(reason)}</li>
               ))}
             </ul>
-          )}
-          <p style={{ fontSize: 11, color: "#888", marginTop: 8 }}>
+          ) : null}
+          <p className="eligibility-checked data-text">
             Diperiksa: {new Date(eligibility.checkedAt).toLocaleString("id-ID")}
           </p>
         </section>
-      )}
+      ) : null}
 
       {isLoading ? (
-        <p style={{ fontSize: 13, color: "#555" }}>Memuat...</p>
+        <div className="content-section stack-md" aria-label="Memuat data kelayakan">
+          <Skeleton variant="title" />
+          <Skeleton />
+          <Skeleton />
+          <Skeleton variant="media" />
+        </div>
       ) : (
-        <form onSubmit={onSubmit} style={{ display: "grid", gap: 16 }}>
-          <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
-            <span>Tanggal lahir</span>
-            <input
-              type="date"
-              value={form.dateOfBirth}
-              onChange={(e) => updateField("dateOfBirth", e.currentTarget.value)}
-              style={{ padding: "6px 8px", border: "1px solid #ccc", borderRadius: 4 }}
-            />
-          </label>
+        <form onSubmit={onSubmit} className="content-section eligibility-form">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Data evaluasi</p>
+              <h2>Profil kelayakan</h2>
+            </div>
+          </div>
+          <div className="form-grid">
+            <label className="form-field">
+              <span className="form-label">Tanggal lahir</span>
+              <input
+                className="form-input"
+                type="date"
+                value={form.dateOfBirth}
+                onChange={(e) => updateField("dateOfBirth", e.currentTarget.value)}
+              />
+            </label>
 
-          <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
-            <span>Status studi</span>
-            <select
-              value={form.enrollmentStatus}
-              onChange={(e) =>
-                updateField("enrollmentStatus", e.currentTarget.value as EnrollmentStatus | "")
-              }
-              style={{ padding: "6px 8px", border: "1px solid #ccc", borderRadius: 4 }}
-            >
-              <option value="">— Pilih —</option>
-              {ENROLLMENT_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label className="form-field">
+              <span className="form-label">Status studi</span>
+              <select
+                className="form-select"
+                value={form.enrollmentStatus}
+                onChange={(e) =>
+                  updateField("enrollmentStatus", e.currentTarget.value as EnrollmentStatus | "")
+                }
+              >
+                <option value="">— Pilih —</option>
+                {ENROLLMENT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
-            <span>Jenjang studi</span>
-            <select
-              value={form.educationLevel}
-              onChange={(e) =>
-                updateField("educationLevel", e.currentTarget.value as EducationLevel | "")
-              }
-              style={{ padding: "6px 8px", border: "1px solid #ccc", borderRadius: 4 }}
-            >
-              <option value="">— Pilih —</option>
-              {EDUCATION_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label className="form-field">
+              <span className="form-label">Jenjang studi</span>
+              <select
+                className="form-select"
+                value={form.educationLevel}
+                onChange={(e) =>
+                  updateField("educationLevel", e.currentTarget.value as EducationLevel | "")
+                }
+              >
+                <option value="">— Pilih —</option>
+                {EDUCATION_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
-            <span>Nama universitas</span>
-            <input
-              type="text"
-              value={form.universityName}
-              onChange={(e) => updateField("universityName", e.currentTarget.value)}
-              maxLength={200}
-              style={{ padding: "6px 8px", border: "1px solid #ccc", borderRadius: 4 }}
-            />
-          </label>
+            <label className="form-field">
+              <span className="form-label">Nama universitas</span>
+              <input
+                className="form-input"
+                type="text"
+                value={form.universityName}
+                onChange={(e) => updateField("universityName", e.currentTarget.value)}
+                maxLength={200}
+              />
+            </label>
 
-          <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
-            <span>Nomor mahasiswa</span>
-            <input
-              type="text"
-              value={form.studentIdNumber}
-              onChange={(e) => updateField("studentIdNumber", e.currentTarget.value)}
-              maxLength={64}
-              style={{ padding: "6px 8px", border: "1px solid #ccc", borderRadius: 4 }}
-            />
-          </label>
+            <label className="form-field">
+              <span className="form-label">Nomor mahasiswa</span>
+              <input
+                className="form-input"
+                type="text"
+                value={form.studentIdNumber}
+                onChange={(e) => updateField("studentIdNumber", e.currentTarget.value)}
+                maxLength={64}
+              />
+            </label>
+          </div>
 
-          <div style={{ display: "flex", gap: 8 }}>
+          <div className="record-actions">
             <button
               type="submit"
               disabled={isSaving}
-              style={{
-                padding: "8px 16px",
-                background: "#355795",
-                color: "white",
-                border: "none",
-                borderRadius: 4,
-                fontSize: 13,
-                cursor: isSaving ? "not-allowed" : "pointer",
-              }}
+              className="ui-button"
+              data-variant="primary"
+              data-size="md"
             >
               {isSaving ? "Menyimpan..." : "Simpan"}
             </button>
@@ -339,14 +323,9 @@ export const StudentEligibilityShell = ({ expectedUserId }: ShellProps) => {
               type="button"
               disabled={isSaving}
               onClick={() => void loadEligibility()}
-              style={{
-                padding: "8px 16px",
-                background: "white",
-                color: "#355795",
-                border: "1px solid #355795",
-                borderRadius: 4,
-                fontSize: 13,
-              }}
+              className="ui-button"
+              data-variant="outline"
+              data-size="md"
             >
               Muat ulang
             </button>

@@ -67,7 +67,10 @@ export const SubmissionShell = ({
     if (code === SESSION_MISMATCH_CODE) {
       setFeedback({ type: "error", message: SESSION_MISMATCH_MESSAGE });
     } else {
-      setFeedback({ type: "error", message: code ? `Error: ${code}` : `Error (HTTP ${res.status})` });
+      setFeedback({
+        type: "error",
+        message: code ? `Error: ${code}` : `Error (HTTP ${res.status})`,
+      });
     }
   };
 
@@ -79,7 +82,10 @@ export const SubmissionShell = ({
       const res = await sessionFetch(expectedUserId, `${url}/upload-url`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ fileName: fileName || "submission", fileMimeType: fileMimeType || null }),
+        body: JSON.stringify({
+          fileName: fileName || "submission",
+          fileMimeType: fileMimeType || null,
+        }),
       });
       if (!res.ok) {
         await surfaceError(res);
@@ -88,7 +94,10 @@ export const SubmissionShell = ({
       const body = (await res.json()) as { uploadUrl: string; fileKey: string };
       setUploadUrl(body.uploadUrl);
       setFileKey(body.fileKey);
-      setFeedback({ type: "success", message: "Upload URL berhasil dibuat. Salin fileKey di bawah." });
+      setFeedback({
+        type: "success",
+        message: "Upload URL berhasil dibuat. Salin fileKey di bawah.",
+      });
     } catch {
       setFeedback({ type: "error", message: "Network error" });
     } finally {
@@ -143,94 +152,155 @@ export const SubmissionShell = ({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      {/* Current state */}
-      <section style={{ padding: "0.75rem", background: "#f5f5f5", borderRadius: 4 }}>
-        <h2 style={{ fontSize: "1rem", margin: "0 0 0.5rem" }}>Status Submission</h2>
+    <div className="submission-shell">
+      <section className="content-section submission-status">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Status saat ini</p>
+            <h2>Status submission</h2>
+          </div>
+          <span
+            className="status-badge"
+            data-status={finalized ? "closed" : submission ? "open" : undefined}
+          >
+            {finalized ? "Final" : submission ? "Draft" : "Belum dimulai"}
+          </span>
+        </div>
         {submission ? (
-          <ul style={{ margin: 0, paddingLeft: "1.2rem" }}>
-            <li>Nama berkas: {submission.fileName}</li>
-            <li>Versi: {submission.version}</li>
-            <li>Final: {finalized ? "Ya (terkunci)" : "Belum"}</li>
-          </ul>
+          <dl className="submission-summary">
+            <div>
+              <dt>Nama berkas</dt>
+              <dd>{submission.fileName}</dd>
+            </div>
+            <div>
+              <dt>Versi</dt>
+              <dd className="data-text">{submission.version}</dd>
+            </div>
+            <div>
+              <dt>Final</dt>
+              <dd>{finalized ? "Ya (terkunci)" : "Belum"}</dd>
+            </div>
+          </dl>
         ) : (
-          <p style={{ margin: 0, color: "#777" }}>Belum ada submission.</p>
+          <p className="muted-copy">Belum ada submission.</p>
         )}
       </section>
 
       {registrationCancelled ? (
-        <p style={{ color: "#c00" }}>Pendaftaran dibatalkan — submission ditutup.</p>
+        <p className="feedback" data-tone="error">
+          Pendaftaran dibatalkan — submission ditutup.
+        </p>
       ) : !windowOpen ? (
-        <p style={{ color: "#c00" }}>Jendela submission belum dibuka atau sudah ditutup.</p>
+        <p className="feedback" data-tone="warning">
+          Jendela submission belum dibuka atau sudah ditutup.
+        </p>
       ) : null}
 
       {feedback ? (
-        <p style={{ color: feedback.type === "error" ? "#c00" : "#060", fontWeight: 500 }}>
+        <p className="feedback" data-tone={feedback.type === "error" ? "error" : "success"}>
           {feedback.message}
         </p>
       ) : null}
 
-      {/* Upload URL request */}
       {!finalized && !registrationCancelled && windowOpen ? (
-        <section style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          <h2 style={{ fontSize: "1rem", margin: 0 }}>1. Minta Upload URL (R2)</h2>
-          <button type="button" onClick={requestUploadUrl} disabled={loading}>
+        <section className="content-section submission-step">
+          <div className="submission-step-heading">
+            <span className="submission-step-number data-text">01</span>
+            <div>
+              <p className="eyebrow">Unggah berkas</p>
+              <h2>Minta upload URL (R2)</h2>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={requestUploadUrl}
+            disabled={loading}
+            className="ui-button"
+            data-variant="outline"
+            data-size="md"
+          >
             Minta Upload URL
           </button>
-          {uploadUrl ? (
-            <p style={{ fontSize: "0.8rem", wordBreak: "break-all", color: "#355795" }}>
-              Upload URL: {uploadUrl}
-            </p>
-          ) : null}
+          {uploadUrl ? <p className="submission-url data-text">Upload URL: {uploadUrl}</p> : null}
         </section>
       ) : null}
 
-      {/* Record metadata */}
       {!finalized && !registrationCancelled && windowOpen ? (
-        <section style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          <h2 style={{ fontSize: "1rem", margin: 0 }}>2. Simpan Metadata Submission</h2>
-          <p style={{ fontSize: "0.8rem", color: "#777", margin: 0 }}>
+        <section className="content-section submission-step">
+          <div className="submission-step-heading">
+            <span className="submission-step-number data-text">02</span>
+            <div>
+              <p className="eyebrow">Metadata</p>
+              <h2>Simpan metadata submission</h2>
+            </div>
+          </div>
+          <p className="form-help">
             fileKey harus diawali dengan <code>{requiredPrefix}</code>
           </p>
-          <label>
-            fileKey
-            <input value={fileKey} onChange={(e) => setFileKey(e.target.value)} style={{ width: "100%" }} />
-          </label>
-          <label>
-            fileName
-            <input value={fileName} onChange={(e) => setFileName(e.target.value)} style={{ width: "100%" }} />
-          </label>
-          <label>
-            fileSizeBytes (opsional)
+          <label className="form-field">
+            <span className="form-label">fileKey</span>
             <input
+              className="form-input"
+              value={fileKey}
+              onChange={(e) => setFileKey(e.target.value)}
+            />
+          </label>
+          <label className="form-field">
+            <span className="form-label">fileName</span>
+            <input
+              className="form-input"
+              value={fileName}
+              onChange={(e) => setFileName(e.target.value)}
+            />
+          </label>
+          <label className="form-field">
+            <span className="form-label">fileSizeBytes (opsional)</span>
+            <input
+              className="form-input"
               value={fileSizeBytes}
               onChange={(e) => setFileSizeBytes(e.target.value)}
               inputMode="numeric"
-              style={{ width: "100%" }}
             />
           </label>
-          <label>
-            fileMimeType (opsional)
+          <label className="form-field">
+            <span className="form-label">fileMimeType (opsional)</span>
             <input
+              className="form-input"
               value={fileMimeType}
               onChange={(e) => setFileMimeType(e.target.value)}
-              style={{ width: "100%" }}
             />
           </label>
-          <button type="button" onClick={saveSubmission} disabled={loading}>
+          <button
+            type="button"
+            onClick={saveSubmission}
+            disabled={loading}
+            className="ui-button"
+            data-variant="primary"
+            data-size="md"
+          >
             Simpan Submission
           </button>
         </section>
       ) : null}
 
-      {/* Finalize */}
       {submission && !finalized && !registrationCancelled ? (
-        <section style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          <h2 style={{ fontSize: "1rem", margin: 0 }}>3. Finalisasi</h2>
-          <p style={{ fontSize: "0.8rem", color: "#777", margin: 0 }}>
-            Setelah difinalisasi, submission tidak dapat diubah.
-          </p>
-          <button type="button" onClick={finalizeSubmission} disabled={loading}>
+        <section className="content-section submission-step submission-finalize">
+          <div className="submission-step-heading">
+            <span className="submission-step-number data-text">03</span>
+            <div>
+              <p className="eyebrow">Kunci submission</p>
+              <h2>Finalisasi</h2>
+            </div>
+          </div>
+          <p className="muted-copy">Setelah difinalisasi, submission tidak dapat diubah.</p>
+          <button
+            type="button"
+            onClick={finalizeSubmission}
+            disabled={loading}
+            className="ui-button"
+            data-variant="gold"
+            data-size="md"
+          >
             Finalisasi Submission
           </button>
         </section>

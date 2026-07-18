@@ -5,6 +5,7 @@ import { getDb } from "@/server/db/client";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { desc, eq, sql } from "drizzle-orm";
 import { institutionAuditLogs, users } from "@/server/db/schema";
+import { ButtonLink, EmptyState, PageHeader } from "@/components/ui";
 
 type Props = {
   params: Promise<{ institutionSlug: string }>;
@@ -72,77 +73,81 @@ export default async function AuditLogPage({ params, searchParams }: Props) {
   const nextHref = page < totalPages ? `${path}?page=${page + 1}` : null;
 
   return (
-    <main style={{ padding: 24, maxWidth: 960, margin: "0 auto" }}>
-      <h1>Log Audit — {institutionSlug}</h1>
-      <p>
-        <a href={`/institution/${institutionSlug}/competitions`}>← Kembali</a>
-      </p>
+    <main className="page-shell app-page audit-log-page">
+      <PageHeader
+        eyebrow="Tata kelola institusi"
+        title="Log audit"
+        description={`Riwayat perubahan penting untuk ${institutionSlug}, diurutkan dari yang terbaru.`}
+        backHref={`/institution/${institutionSlug}`}
+        backLabel="Panel institusi"
+      />
 
       {events.length === 0 ? (
-        <p style={{ marginTop: 24 }}>Tidak ada entri log.</p>
+        <EmptyState
+          icon="inbox"
+          title="Belum ada entri audit."
+          description="Tindakan administratif dan perubahan penting akan tercatat di sini."
+        />
       ) : (
-        <table style={{ marginTop: 24, width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
-                Tipe Event
-              </th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
-                Aktor
-              </th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
-                Ringkasan
-              </th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
-                Waktu
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {events.map((e) => {
-              const summary = JSON.stringify(e.metadata ?? {}).slice(0, 80);
-              return (
-                <tr key={e.id} style={{ borderBottom: "1px solid #eee" }}>
-                  <td style={{ padding: 8, fontFamily: "monospace", fontSize: "0.9em" }}>
-                    {e.eventType}
-                  </td>
-                  <td style={{ padding: 8 }}>{e.actorName ?? "—"}</td>
-                  <td
-                    style={{
-                      padding: 8,
-                      fontFamily: "monospace",
-                      fontSize: "0.85em",
-                      color: "#555",
-                    }}
-                  >
-                    {summary}
-                  </td>
-                  <td style={{ padding: 8, fontSize: "0.9em" }}>
-                    {new Date(e.createdAt).toLocaleString("id-ID")}
-                  </td>
+        <section className="content-section">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Aktivitas terbaru</p>
+              <h2>{total} entri tercatat</h2>
+            </div>
+          </div>
+          <div className="table-scroll">
+            <table className="data-table audit-log-table">
+              <thead>
+                <tr>
+                  <th>Tipe event</th>
+                  <th>Aktor</th>
+                  <th>Ringkasan</th>
+                  <th>Waktu</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {events.map((e) => {
+                  const summary = JSON.stringify(e.metadata ?? {}).slice(0, 80);
+                  return (
+                    <tr key={e.id}>
+                      <td className="data-text">{e.eventType}</td>
+                      <td>{e.actorName ?? "—"}</td>
+                      <td className="data-text audit-summary">{summary}</td>
+                      <td className="data-text">{new Date(e.createdAt).toLocaleString("id-ID")}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       {totalPages > 1 && (
-        <div style={{ marginTop: 16, display: "flex", gap: 16 }}>
+        <nav className="pagination" aria-label="Halaman log audit">
           {prevHref ? (
-            <a href={prevHref}>← Sebelumnya</a>
+            <ButtonLink href={prevHref} variant="outline" size="sm">
+              ← Sebelumnya
+            </ButtonLink>
           ) : (
-            <span style={{ color: "#999" }}>← Sebelumnya</span>
+            <span className="ui-button" data-variant="outline" data-size="sm" aria-disabled="true">
+              ← Sebelumnya
+            </span>
           )}
-          <span>
+          <span className="pagination-status data-text">
             Halaman {page} dari {totalPages}
           </span>
           {nextHref ? (
-            <a href={nextHref}>Selanjutnya →</a>
+            <ButtonLink href={nextHref} variant="outline" size="sm">
+              Selanjutnya →
+            </ButtonLink>
           ) : (
-            <span style={{ color: "#999" }}>Selanjutnya →</span>
+            <span className="ui-button" data-variant="outline" data-size="sm" aria-disabled="true">
+              Selanjutnya →
+            </span>
           )}
-        </div>
+        </nav>
       )}
     </main>
   );

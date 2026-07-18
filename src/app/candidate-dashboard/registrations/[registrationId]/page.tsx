@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { SubmissionShell } from "@/components/submissions/submission-shell";
+import { PageHeader } from "@/components/ui";
 import { getCurrentSession } from "@/server/auth/session";
 import { getUnverifiedRoles } from "@/server/auth/role-verification";
 import { getSubmissionViewForRegistration } from "@/server/submissions/submission-service";
@@ -30,13 +30,14 @@ export default async function SubmissionPage({
   }
 
   return (
-    <main style={{ maxWidth: 640, margin: "0 auto", padding: "2rem 1rem" }}>
-      <p style={{ marginBottom: "0.5rem" }}>
-        <Link href="/candidate-dashboard" style={{ color: "#355795", fontSize: "0.9em" }}>
-          ← Dasbor Kandidat
-        </Link>
-      </p>
-      <h1 style={{ marginBottom: "1rem" }}>Submission — {view.competitionTitle}</h1>
+    <main className="page-shell app-page submission-page">
+      <PageHeader
+        eyebrow="Intake karya"
+        title={`Submission — ${view.competitionTitle}`}
+        description="Siapkan metadata berkas, simpan versi kerja, lalu finalisasi ketika seluruh detail sudah benar."
+        backHref="/candidate-dashboard"
+        backLabel="Dasbor kandidat"
+      />
 
       <SubmissionShell
         expectedUserId={session.user.id}

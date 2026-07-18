@@ -1,11 +1,12 @@
-import { notFound } from "next/navigation";
 import Link from "next/link";
+import { notFound } from "next/navigation";
+import { Button, ButtonLink, Icon } from "@/components/ui";
+import { sessionHasRole } from "@/lib/access/roles";
+import { getCurrentSession } from "@/server/auth/session";
 import {
   getPublicCompetitionDetail,
   type PublicCompetitionDetail,
 } from "@/server/competitions/competition-public-service";
-import { sessionHasRole } from "@/lib/access/roles";
-import { getCurrentSession } from "@/server/auth/session";
 import { isSavedCompetition } from "@/server/saved-competitions/saved-competition-service";
 import { SaveButton } from "./save-button";
 import { formatTeamSizeText } from "./team-size-utils";
@@ -27,19 +28,18 @@ const MODE_LABELS: Record<string, string> = {
   both: "Individu / Tim",
 };
 
-const formatDate = (d: Date | string | null) =>
-  d
-    ? new Date(d).toLocaleDateString("id-ID", {
+const formatDate = (date: Date | string | null) =>
+  date
+    ? new Date(date).toLocaleDateString("id-ID", {
         day: "numeric",
         month: "long",
         year: "numeric",
       })
     : "—";
 
-// F4: Registration window dates include HH:MM so candidates can read exact close time.
-const formatDateTime = (d: Date | string | null) =>
-  d
-    ? new Date(d).toLocaleString("id-ID", {
+const formatDateTime = (date: Date | string | null) =>
+  date
+    ? new Date(date).toLocaleString("id-ID", {
         day: "numeric",
         month: "long",
         year: "numeric",
@@ -48,24 +48,20 @@ const formatDateTime = (d: Date | string | null) =>
       })
     : "—";
 
-
 function FeeDisplay({ feeAmount }: { feeAmount: string | null }) {
   const amount = feeAmount ? parseFloat(feeAmount) : 0;
   if (!feeAmount || amount === 0) {
-    return <p style={{ fontSize: 14, color: "#2d7a2d", fontWeight: 600 }}>Gratis</p>;
+    return <p className="detail-fee-free">Gratis</p>;
   }
-  // "Rp" is hardcoded as IDR — Indonesia-first MVP assumption.
+
   return (
-    <>
-      <p style={{ fontSize: 14 }}>Rp {amount.toLocaleString("id-ID")}</p>
-      <p style={{ fontSize: 12, color: "#888", marginTop: 4 }}>Pembayaran online segera hadir.</p>
-    </>
+    <div className="stack-xs">
+      <p className="detail-fee-amount">Rp {amount.toLocaleString("id-ID")}</p>
+      <p className="detail-rail-note">Pembayaran online segera hadir.</p>
+    </div>
   );
 }
 
-// CTA button on the detail page is a *navigation link*, not a mutation. Clicking takes the
-// candidate to the dedicated `/registration` subpage where the actual register/team flows live.
-// This keeps the read surface (this page) cleanly separated from the act surface (registration).
 function CTANavLink({
   ctaState,
   registrationPath,
@@ -77,55 +73,41 @@ function CTANavLink({
 }) {
   if (ctaState === "open" && isCandidate) {
     return (
-      <Link
-        href={registrationPath}
-        style={{
-          display: "inline-block",
-          padding: "10px 24px",
-          background: "#355795",
-          color: "#fff",
-          borderRadius: 6,
-          fontSize: 15,
-          textDecoration: "none",
-        }}
-      >
-        Daftar
-      </Link>
+      <ButtonLink href={registrationPath} variant="primary" size="lg" fullWidth>
+        Daftar kompetisi
+        <Icon name="arrow-right" size="md" />
+      </ButtonLink>
     );
   }
+
   if (ctaState === "open" && !isCandidate) {
     return (
-      <button
-        disabled
-        style={{
-          padding: "10px 24px",
-          background: "#ccc",
-          color: "#555",
-          borderRadius: 6,
-          border: "none",
-          fontSize: 15,
-          cursor: "not-allowed",
-        }}
-      >
-        Daftar
-      </button>
+      <Button disabled size="lg" fullWidth>
+        Daftar kompetisi
+      </Button>
     );
   }
+
   return (
-    <button
-      disabled
-      style={{
-        padding: "10px 24px",
-        background: "#ccc",
-        color: "#555",
-        borderRadius: 6,
-        border: "none",
-        fontSize: 15,
-        cursor: "not-allowed",
-      }}
-    >
-      {ctaState === "not_yet_open" ? "Pendaftaran Belum Dibuka" : "Pendaftaran Ditutup"}
-    </button>
+    <Button disabled size="lg" fullWidth>
+      {ctaState === "not_yet_open" ? "Pendaftaran belum dibuka" : "Pendaftaran ditutup"}
+    </Button>
+  );
+}
+
+function RegistrationStatus({ ctaState }: { ctaState: PublicCompetitionDetail["ctaState"] }) {
+  const label =
+    ctaState === "open"
+      ? "Pendaftaran dibuka"
+      : ctaState === "not_yet_open"
+        ? "Belum dibuka"
+        : "Pendaftaran ditutup";
+  const status = ctaState === "open" ? "open" : ctaState === "closed" ? "closed" : undefined;
+
+  return (
+    <span className="status-badge" data-status={status}>
+      {label}
+    </span>
   );
 }
 
@@ -142,157 +124,199 @@ export default async function CompetitionDetailPage({
 
   if (!competition) notFound();
 
-  const isCandidate = sessionHasRole(session?.user?.role, session?.user?.verifiedRoles, "candidate");
+  const isCandidate = sessionHasRole(
+    session?.user?.role,
+    session?.user?.verifiedRoles,
+    "candidate",
+  );
   const initialSaved = isCandidate
     ? await isSavedCompetition(session!.user.id, competition.id)
     : false;
 
   const registrationPath = `/competitions/${institutionSlug}/${slug}/registration`;
-
   const showTeamSize =
     competition.mode !== "individual" &&
     (competition.minTeamSize !== null || competition.maxTeamSize !== null);
 
   return (
-    <main style={{ padding: 24, maxWidth: 800, margin: "0 auto" }}>
-      <Link href="/competitions" style={{ fontSize: 14, color: "#555" }}>
-        ← Semua Kompetisi
-      </Link>
-
-      <h1 style={{ marginTop: 16, fontSize: 24 }}>{competition.title}</h1>
-
-      {/* Organizer */}
-      <div
-        style={{
-          marginTop: 8,
-          fontSize: 14,
-          color: "#555",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
+    <main>
+      <section
+        className="brand-band competition-detail-hero"
+        data-category={competition.category ?? "other"}
       >
-        {competition.organizer.logoUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={competition.organizer.logoUrl} alt="" style={{ height: 20 }} />
-        )}
-        <span>{competition.organizer.name}</span>
-      </div>
+        <div className="content-shell competition-detail-hero-inner">
+          <Link href="/competitions" className="detail-back-link">
+            <span aria-hidden="true">←</span>
+            Semua kompetisi
+          </Link>
 
-      {/* Badges */}
-      <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {competition.category && (
-          <span
-            style={{ padding: "2px 8px", background: "#ECE5FF", borderRadius: 4, fontSize: 13 }}
-          >
-            {CATEGORY_LABELS[competition.category] ?? competition.category}
-          </span>
-        )}
-        {competition.mode && (
-          <span
-            style={{ padding: "2px 8px", background: "#e8f0fe", borderRadius: 4, fontSize: 13 }}
-          >
-            {MODE_LABELS[competition.mode] ?? competition.mode}
-          </span>
-        )}
-      </div>
+          <div className="detail-hero-content stack-md">
+            <div className="cluster">
+              <RegistrationStatus ctaState={competition.ctaState} />
+              {competition.category ? (
+                <span className="status-badge">
+                  {CATEGORY_LABELS[competition.category] ?? competition.category}
+                </span>
+              ) : null}
+              {competition.mode ? (
+                <span className="status-badge">
+                  {MODE_LABELS[competition.mode] ?? competition.mode}
+                </span>
+              ) : null}
+            </div>
 
-      {/* Description */}
-      {competition.description && (
-        <p style={{ marginTop: 20, fontSize: 15, lineHeight: 1.7, whiteSpace: "pre-line" }}>
-          {competition.description}
-        </p>
-      )}
+            <h1>{competition.title}</h1>
 
-      {/* Timeline */}
-      <section style={{ marginTop: 28, borderTop: "1px solid #eee", paddingTop: 16 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 12 }}>Jadwal</h2>
-        <table style={{ fontSize: 14, borderCollapse: "collapse" }}>
-          <tbody>
-            <tr>
-              <td style={{ paddingRight: 24, color: "#555", paddingBottom: 8 }}>
-                Pendaftaran dibuka
-              </td>
-              <td style={{ paddingBottom: 8 }}>{formatDateTime(competition.registrationStartAt)}</td>
-            </tr>
-            <tr>
-              <td style={{ paddingRight: 24, color: "#555", paddingBottom: 8 }}>
-                Batas pendaftaran
-              </td>
-              <td style={{ paddingBottom: 8 }}>{formatDateTime(competition.registrationEndAt)}</td>
-            </tr>
-            <tr>
-              <td style={{ paddingRight: 24, color: "#555", paddingBottom: 8 }}>Mulai kompetisi</td>
-              <td style={{ paddingBottom: 8 }}>{formatDate(competition.eventStartAt)}</td>
-            </tr>
-            <tr>
-              <td style={{ paddingRight: 24, color: "#555" }}>Akhir kompetisi</td>
-              <td>{formatDate(competition.eventEndAt)}</td>
-            </tr>
-          </tbody>
-        </table>
+            <div className="detail-organizer-line">
+              {competition.organizer.logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={competition.organizer.logoUrl} alt="" />
+              ) : (
+                <span className="detail-organizer-mark" aria-hidden="true">
+                  <Icon name="trophy" size="sm" />
+                </span>
+              )}
+              <span>Diselenggarakan oleh {competition.organizer.name}</span>
+            </div>
+          </div>
+        </div>
       </section>
 
-      {/* Team size */}
-      {showTeamSize && (
-        <section style={{ marginTop: 20 }}>
-          <h2 style={{ fontSize: 16, marginBottom: 8 }}>Ukuran Tim</h2>
-          <p style={{ fontSize: 14 }}>
-            {formatTeamSizeText(competition.minTeamSize, competition.maxTeamSize)}
-          </p>
-        </section>
-      )}
+      <div className="page-shell detail-layout">
+        <article className="detail-main stack-lg">
+          {competition.description ? (
+            <section className="surface-card card-padding-lg stack-md">
+              <div className="stack-xs">
+                <p className="eyebrow">Tentang kompetisi</p>
+                <h2 className="section-title">Gambaran umum</h2>
+              </div>
+              <p className="detail-description">{competition.description}</p>
+            </section>
+          ) : null}
 
-      {/* Fee */}
-      <section style={{ marginTop: 20 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 8 }}>Biaya Pendaftaran</h2>
-        <FeeDisplay feeAmount={competition.feeAmount} />
-      </section>
+          <section className="surface-card card-padding-lg stack-md">
+            <div className="stack-xs">
+              <p className="eyebrow">Jadwal</p>
+              <h2 className="section-title">Tanggal penting</h2>
+            </div>
+            <div className="detail-timeline">
+              <div className="detail-timeline-item">
+                <span className="detail-timeline-node" aria-hidden="true" />
+                <div>
+                  <span>Pendaftaran dibuka</span>
+                  <strong>{formatDateTime(competition.registrationStartAt)}</strong>
+                </div>
+              </div>
+              <div className="detail-timeline-item" data-key-date="true">
+                <span className="detail-timeline-node" aria-hidden="true" />
+                <div>
+                  <span>Batas pendaftaran</span>
+                  <strong>{formatDateTime(competition.registrationEndAt)}</strong>
+                </div>
+              </div>
+              <div className="detail-timeline-item">
+                <span className="detail-timeline-node" aria-hidden="true" />
+                <div>
+                  <span>Mulai kompetisi</span>
+                  <strong>{formatDate(competition.eventStartAt)}</strong>
+                </div>
+              </div>
+              <div className="detail-timeline-item">
+                <span className="detail-timeline-node" aria-hidden="true" />
+                <div>
+                  <span>Akhir kompetisi</span>
+                  <strong>{formatDate(competition.eventEndAt)}</strong>
+                </div>
+              </div>
+            </div>
+          </section>
 
-      {/* Eligibility placeholder */}
-      <section style={{ marginTop: 20 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 8 }}>Persyaratan</h2>
-        <p style={{ fontSize: 14, color: "#555" }}>Mahasiswa aktif usia 18–32 tahun.</p>
-      </section>
+          <div className="detail-information-grid">
+            {showTeamSize ? (
+              <section className="surface-card card-padding stack-md">
+                <span className="detail-info-icon" aria-hidden="true">
+                  <Icon name="users" size="lg" />
+                </span>
+                <div className="stack-xs">
+                  <p className="eyebrow">Format peserta</p>
+                  <h2>Ukuran tim</h2>
+                  <p>{formatTeamSizeText(competition.minTeamSize, competition.maxTeamSize)}</p>
+                </div>
+              </section>
+            ) : null}
 
-      {/* CTA — navigation only. The actual register/team flow lives at /registration. */}
-      <div style={{ marginTop: 32 }}>
-        <CTANavLink
-          ctaState={competition.ctaState}
-          registrationPath={registrationPath}
-          isCandidate={isCandidate}
-        />
-        {!session?.user && (
-          <p style={{ fontSize: 12, color: "#888", marginTop: 8 }}>
-            <Link href="/auth/login" style={{ color: "#355795" }}>
-              Masuk
-            </Link>{" "}
-            sebagai mahasiswa untuk mendaftar.
-          </p>
-        )}
-        {session?.user && !isCandidate && (
-          <p style={{ fontSize: 12, color: "#888", marginTop: 8 }}>
-            Hanya akun kandidat yang dapat mendaftar.
-          </p>
-        )}
-      </div>
+            <section className="surface-card card-padding stack-md">
+              <span className="detail-info-icon" aria-hidden="true">
+                <Icon name="check" size="lg" />
+              </span>
+              <div className="stack-xs">
+                <p className="eyebrow">Persyaratan</p>
+                <h2>Kelayakan dasar</h2>
+                <p>Mahasiswa aktif usia 18–32 tahun.</p>
+              </div>
+            </section>
+          </div>
 
-      {/* Save */}
-      <div style={{ marginTop: 8 }}>
-        {isCandidate ? (
-          <SaveButton
-            competitionId={competition.id}
-            initialSaved={initialSaved}
-            expectedUserId={session!.user.id}
-          />
-        ) : (
-          <p style={{ fontSize: 13, color: "#888", marginTop: 16 }}>
-            <Link href="/auth/login" style={{ color: "#355795" }}>
-              Masuk
-            </Link>{" "}
-            untuk menyimpan kompetisi ini.
-          </p>
-        )}
+          <section className="inset-panel card-padding-lg detail-organizer-card">
+            <span className="detail-organizer-mark detail-organizer-mark-large" aria-hidden="true">
+              <Icon name="trophy" size="lg" />
+            </span>
+            <div className="stack-xs">
+              <p className="eyebrow">Penyelenggara</p>
+              <h2>{competition.organizer.name}</h2>
+              <p className="muted-copy">
+                Informasi kompetisi dan tahapan partisipasi dikelola oleh penyelenggara ini.
+              </p>
+            </div>
+          </section>
+        </article>
+
+        <aside className="glass-focus detail-cta-rail" aria-label="Ringkasan pendaftaran">
+          <div className="stack-sm">
+            <RegistrationStatus ctaState={competition.ctaState} />
+            <div className="stack-xs">
+              <p className="eyebrow">Batas pendaftaran</p>
+              <p className="detail-deadline data-text">
+                {formatDateTime(competition.registrationEndAt)}
+              </p>
+            </div>
+          </div>
+
+          <div className="detail-rail-divider" />
+
+          <div className="stack-xs">
+            <p className="eyebrow">Biaya pendaftaran</p>
+            <FeeDisplay feeAmount={competition.feeAmount} />
+          </div>
+
+          <div className="detail-rail-actions">
+            <CTANavLink
+              ctaState={competition.ctaState}
+              registrationPath={registrationPath}
+              isCandidate={isCandidate}
+            />
+            {!session?.user ? (
+              <p className="detail-rail-note">
+                <Link href="/auth/login">Masuk</Link> sebagai mahasiswa untuk mendaftar.
+              </p>
+            ) : null}
+            {session?.user && !isCandidate ? (
+              <p className="detail-rail-note">Hanya akun kandidat yang dapat mendaftar.</p>
+            ) : null}
+
+            {isCandidate ? (
+              <SaveButton
+                competitionId={competition.id}
+                initialSaved={initialSaved}
+                expectedUserId={session!.user.id}
+              />
+            ) : (
+              <p className="detail-rail-note">
+                <Link href="/auth/login">Masuk</Link> untuk menyimpan kompetisi ini.
+              </p>
+            )}
+          </div>
+        </aside>
       </div>
     </main>
   );

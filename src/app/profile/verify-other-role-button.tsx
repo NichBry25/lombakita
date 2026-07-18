@@ -14,16 +14,9 @@ export function VerifyOtherRoleButton({ unverifiedRoleLabel }: { unverifiedRoleL
     <button
       type="button"
       onClick={onClick}
-      style={{
-        marginTop: "0.75rem",
-        padding: "0.4rem 1rem",
-        background: "transparent",
-        color: "#355795",
-        border: "1px solid #355795",
-        borderRadius: 6,
-        fontSize: "0.85rem",
-        cursor: "pointer",
-      }}
+      className="ui-button"
+      data-variant="outline"
+      data-size="sm"
     >
       Verifikasi sebagai {unverifiedRoleLabel}
     </button>

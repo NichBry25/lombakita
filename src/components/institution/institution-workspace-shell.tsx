@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { Button, ButtonLink, PageHeader } from "@/components/ui";
 
 type InstitutionCreationResponse = {
   institution: {
@@ -105,13 +105,17 @@ export const InstitutionWorkspaceShell = () => {
   };
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-14">
-      <header>
-        <h1 className="text-2xl font-semibold text-gleam">Buat Workspace Institusi</h1>
-      </header>
+    <main className="page-shell app-page institution-form-page">
+      <PageHeader
+        eyebrow="Workspace baru"
+        title="Buat workspace institusi"
+        description="Tetapkan identitas dasar ruang penyelenggara. Slug dapat dikosongkan agar dibuat otomatis."
+        backHref="/recruiter-dashboard"
+        backLabel="Dasbor rekruter"
+      />
 
-      <section className="glass-card p-6">
-        <form className="space-y-4" onSubmit={onSubmit}>
+      <section className="content-section">
+        <form className="stack-md" onSubmit={onSubmit}>
           <div className="form-field">
             <label className="form-label" htmlFor="institution-display-name">
               Nama Institusi
@@ -141,41 +145,34 @@ export const InstitutionWorkspaceShell = () => {
           </div>
 
           {feedback ? (
-            <p
-              className={`rounded-xl border px-3 py-2 text-sm ${
-                feedback.type === "error"
-                  ? "border-red-200 bg-red-50 text-red-700"
-                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
-              }`}
-              role="status"
-            >
+            <p className="feedback" data-tone={feedback.type} role="status">
               {feedback.message}
             </p>
           ) : null}
 
-          <div className="flex flex-wrap items-center gap-3">
-            <button className="primary-button" type="submit" disabled={isCreating}>
+          <div className="record-actions">
+            <Button type="submit" disabled={isCreating} loading={isCreating}>
               {isCreating ? "Menyimpan..." : "Buat Workspace"}
-            </button>
+            </Button>
 
             {createdInstitutionSlug ? (
-              <Link
-                className="action-chip"
+              <ButtonLink
                 href={`/institution/${createdInstitutionSlug}/settings`}
                 prefetch={false}
+                variant="outline"
               >
-                Buka Pengaturan
-              </Link>
+                Buka pengaturan
+              </ButtonLink>
             ) : null}
           </div>
         </form>
       </section>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="page-secondary-actions">
         <SignOutButton />
-        <Link className="text-sm underline" href="/" prefetch={false}>
+        <ButtonLink href="/" prefetch={false} variant="ghost" size="sm">
           Kembali ke beranda
-        </Link>
+        </ButtonLink>
       </div>
     </main>
   );

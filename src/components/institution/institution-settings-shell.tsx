@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { Button, ButtonLink, PageHeader, Skeleton } from "@/components/ui";
 
 type InstitutionSettingsResponse = {
   institution: {
@@ -169,19 +169,25 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
   };
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-14">
-      <header>
-        <h1 className="text-2xl font-semibold text-gleam">Pengaturan Institusi</h1>
-        {isPersonal ? (
-          <p className="text-sm text-[var(--text-muted)]">Tipe: Personal</p>
-        ) : null}
-      </header>
+    <main className="page-shell app-page institution-form-page">
+      <PageHeader
+        eyebrow="Identitas workspace"
+        title="Pengaturan institusi"
+        description="Kelola nama, slug, dan status dasar institusi."
+        backHref={`/institution/${activeSlug}`}
+        backLabel="Panel institusi"
+        actions={isPersonal ? <span className="status-badge">Tipe personal</span> : undefined}
+      />
 
-      <section className="glass-card p-6">
+      <section className="content-section">
         {isLoading ? (
-          <p className="text-sm text-[var(--text-muted)]">Memuat data institusi...</p>
+          <div className="stack-md" aria-label="Memuat data institusi">
+            <Skeleton variant="title" />
+            <Skeleton variant="media" />
+            <Skeleton variant="media" />
+          </div>
         ) : (
-          <form className="space-y-4" onSubmit={onSubmit}>
+          <form className="stack-md" onSubmit={onSubmit}>
             <div className="form-field">
               <label className="form-label" htmlFor="institution-settings-display-name">
                 Nama Institusi
@@ -195,7 +201,7 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
                 required={!isPersonal}
               />
               {isPersonal ? (
-                <p className="text-xs text-[var(--text-muted)]">
+                <p className="form-help">
                   Nama institusi personal mengikuti username Anda dan tidak dapat diubah di sini.
                 </p>
               ) : null}
@@ -214,7 +220,7 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
                 required={!isPersonal}
               />
               {isPersonal ? (
-                <p className="text-xs text-[var(--text-muted)]">
+                <p className="form-help">
                   Slug institusi personal mengikuti username Anda dan tidak dapat diubah di sini.
                   Ubah username Anda di pengaturan profil untuk mengubahnya.
                 </p>
@@ -234,33 +240,26 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
             </div>
 
             {feedback ? (
-              <p
-                className={`rounded-xl border px-3 py-2 text-sm ${
-                  feedback.type === "error"
-                    ? "border-red-200 bg-red-50 text-red-700"
-                    : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                }`}
-                role="status"
-              >
+              <p className="feedback" data-tone={feedback.type} role="status">
                 {feedback.message}
               </p>
             ) : null}
 
-            <button className="primary-button" type="submit" disabled={isSaving}>
+            <Button type="submit" disabled={isSaving} loading={isSaving}>
               {isSaving ? "Menyimpan..." : "Simpan Perubahan"}
-            </button>
+            </Button>
           </form>
         )}
       </section>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="page-secondary-actions">
         <SignOutButton />
-        <Link className="text-sm underline" href="/institution/workspace" prefetch={false}>
+        <ButtonLink href="/institution/workspace" prefetch={false} variant="ghost" size="sm">
           Buat workspace lain
-        </Link>
-        <Link className="text-sm underline" href="/" prefetch={false}>
+        </ButtonLink>
+        <ButtonLink href="/" prefetch={false} variant="ghost" size="sm">
           Kembali ke beranda
-        </Link>
+        </ButtonLink>
       </div>
     </main>
   );

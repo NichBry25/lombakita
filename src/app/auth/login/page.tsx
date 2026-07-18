@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AuthEntry } from "@/components/auth/auth-entry";
+import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 import { OAuthRolePicker } from "@/components/auth/oauth-role-picker";
 import { isEmailAuthConfigured, isGoogleAuthConfigured } from "@/server/auth/auth.config";
 import { verifyGoogleIdentityCarrier } from "@/server/auth/oauth-identity-carrier";
@@ -68,18 +69,27 @@ export default async function LoginPage(props: {
 
     if (!claims) {
       return (
-        <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-20">
-          <h1 className="text-2xl font-semibold tracking-tight">Sesi pendaftaran tidak valid</h1>
-          <p className="text-zinc-600">
-            Sesi pendaftaran Google sudah kedaluwarsa atau tidak valid. Silakan mulai lagi dari
-            halaman masuk.
-          </p>
-          <p className="text-sm">
-            <Link className="underline" href="/auth/login">
+        <AuthPageFrame
+          eyebrow="Sesi akses"
+          title="Mulai kembali dengan sesi yang aman."
+          description="Tautan pendaftaran Google bersifat terbatas dan tidak dapat digunakan setelah kedaluwarsa."
+        >
+          <div className="auth-state stack-md">
+            <span className="auth-state-icon" data-tone="error" aria-hidden="true">
+              !
+            </span>
+            <div className="stack-xs">
+              <h1>Sesi pendaftaran tidak valid</h1>
+              <p>
+                Sesi pendaftaran Google sudah kedaluwarsa atau tidak valid. Silakan mulai lagi dari
+                halaman masuk.
+              </p>
+            </div>
+            <Link className="ui-button" data-variant="primary" data-size="md" href="/auth/login">
               Kembali ke halaman masuk
             </Link>
-          </p>
-        </main>
+          </div>
+        </AuthPageFrame>
       );
     }
 
@@ -103,8 +113,12 @@ export default async function LoginPage(props: {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-6 px-6 py-12">
-      <section className="rounded-2xl border border-zinc-200 bg-white p-5 md:p-6">
+    <AuthPageFrame
+      eyebrow="Akses terarah"
+      title="Satu akun untuk menemukan dan mengelola peluang."
+      description="Pilih metode masuk terlebih dahulu. Kami akan menuntun langkah berikutnya tanpa mencampur peran atau identitas akun."
+    >
+      <div className="stack-md">
         <AuthEntry
           googleEnabled={isGoogleAuthConfigured}
           verificationEnabled={isEmailAuthConfigured}
@@ -112,8 +126,12 @@ export default async function LoginPage(props: {
           initialEmail={email}
           verifiedNotice={verified}
         />
-        {error ? <p className="mt-4 text-xs text-rose-700">{mapSignInPageError(error)}</p> : null}
-      </section>
-    </main>
+        {error ? (
+          <p className="feedback" data-tone="error">
+            {mapSignInPageError(error)}
+          </p>
+        ) : null}
+      </div>
+    </AuthPageFrame>
   );
 }

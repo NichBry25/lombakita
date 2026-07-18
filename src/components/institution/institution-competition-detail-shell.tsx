@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Button, ButtonLink, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 import { useModal } from "@/components/ui/primitives";
 
 type CompetitionStatus = "draft" | "published" | "archived";
@@ -136,16 +137,29 @@ export const InstitutionCompetitionDetailShell = ({
 
   if (isLoading) {
     return (
-      <main style={{ padding: 24 }}>
-        <p>Memuat...</p>
+      <main className="page-shell app-page competition-management-page">
+        <div className="stack-md" aria-label="Memuat kompetisi">
+          <Skeleton variant="title" />
+          <Skeleton variant="media" />
+          <Skeleton variant="media" />
+        </div>
       </main>
     );
   }
 
   if (!competition) {
     return (
-      <main style={{ padding: 24 }}>
-        <p style={{ color: "#b00" }}>{feedback?.message ?? "Kompetisi tidak ditemukan."}</p>
+      <main className="page-shell app-page competition-management-page">
+        <EmptyState
+          icon="trophy"
+          title="Kompetisi tidak ditemukan."
+          description={feedback?.message ?? "Data kompetisi tidak dapat dimuat."}
+          action={
+            <ButtonLink href={`/institution/${institutionSlug}/competitions`} variant="outline">
+              Kembali ke daftar
+            </ButtonLink>
+          }
+        />
       </main>
     );
   }
@@ -155,57 +169,104 @@ export const InstitutionCompetitionDetailShell = ({
   const isArchived = competition.status === "archived";
 
   return (
-    <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
-      <h1>{competition.title}</h1>
-      <p>
-        Status: <strong>{competition.status}</strong> · Slug: <code>{competition.slug}</code>
-      </p>
+    <main className="page-shell app-page competition-management-page">
+      <PageHeader
+        eyebrow="Konsol kompetisi"
+        title={competition.title}
+        description={`/${competition.slug}`}
+        backHref={`/institution/${institutionSlug}/competitions`}
+        backLabel="Daftar kompetisi"
+        actions={
+          <span
+            className="status-badge"
+            data-status={isPublished ? "open" : isArchived ? "closed" : "closing"}
+          >
+            {competition.status}
+          </span>
+        }
+      />
 
-      <section style={{ marginTop: 16, padding: 12, border: "1px solid #ccc" }}>
-        <h2>Ringkasan</h2>
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          <li>
-            Mode: <code>{competition.mode ?? "—"}</code>
-          </li>
-          <li>
-            Kategori: <code>{competition.category ?? "—"}</code>
-          </li>
-          <li>Pendaftaran mulai: {formatDate(competition.registrationStartAt)}</li>
-          <li>Pendaftaran berakhir: {formatDate(competition.registrationEndAt)}</li>
-          <li>Acara mulai: {formatDate(competition.eventStartAt)}</li>
-          <li>Acara berakhir: {formatDate(competition.eventEndAt)}</li>
-          <li>Diterbitkan pada: {formatDate(competition.publishedAt)}</li>
-          <li>Diarsipkan pada: {formatDate(competition.archivedAt)}</li>
-        </ul>
-        <p style={{ marginTop: 8 }}>
-          <a
+      <section className="content-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Ringkasan konfigurasi</p>
+            <h2>Informasi kompetisi</h2>
+          </div>
+          <ButtonLink
             href={`/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(
               competition.slug,
             )}/edit`}
+            variant="outline"
+            size="sm"
           >
-            Edit field draf →
-          </a>
-        </p>
+            Edit kompetisi
+          </ButtonLink>
+        </div>
+        <dl className="management-detail-grid">
+          <div>
+            <dt>Mode</dt>
+            <dd className="data-text">{competition.mode ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Kategori</dt>
+            <dd className="data-text">{competition.category ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Pendaftaran mulai</dt>
+            <dd className="data-text">{formatDate(competition.registrationStartAt)}</dd>
+          </div>
+          <div>
+            <dt>Pendaftaran berakhir</dt>
+            <dd className="data-text">{formatDate(competition.registrationEndAt)}</dd>
+          </div>
+          <div>
+            <dt>Acara mulai</dt>
+            <dd className="data-text">{formatDate(competition.eventStartAt)}</dd>
+          </div>
+          <div>
+            <dt>Acara berakhir</dt>
+            <dd className="data-text">{formatDate(competition.eventEndAt)}</dd>
+          </div>
+          <div>
+            <dt>Diterbitkan</dt>
+            <dd className="data-text">{formatDate(competition.publishedAt)}</dd>
+          </div>
+          <div>
+            <dt>Diarsipkan</dt>
+            <dd className="data-text">{formatDate(competition.archivedAt)}</dd>
+          </div>
+        </dl>
       </section>
 
-      <section style={{ marginTop: 16, padding: 12, border: "1px solid #ccc" }}>
-        <h2>Aksi Status</h2>
+      <section className="content-section lifecycle-card">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Siklus publikasi</p>
+            <h2>Aksi status</h2>
+          </div>
+        </div>
         {isDraft ? (
-          <>
-            <button onClick={() => onAction("publish")} disabled={isSubmitting} type="button">
+          <div className="record-actions">
+            <Button onClick={() => onAction("publish")} disabled={isSubmitting} type="button">
               Publish
-            </button>{" "}
-            <button onClick={() => onAction("archive")} disabled={isSubmitting} type="button">
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => onAction("archive")}
+              disabled={isSubmitting}
+              type="button"
+            >
               Arsipkan
-            </button>{" "}
-            <button onClick={onDelete} disabled={isSubmitting} type="button">
+            </Button>
+            <Button variant="danger" onClick={onDelete} disabled={isSubmitting} type="button">
               Hapus draf
-            </button>
-          </>
+            </Button>
+          </div>
         ) : null}
         {isPublished ? (
-          <>
-            <button
+          <div className="record-actions">
+            <Button
+              variant="danger"
               onClick={() =>
                 openModal({
                   title: "Tarik publikasi kompetisi?",
@@ -228,28 +289,29 @@ export const InstitutionCompetitionDetailShell = ({
               type="button"
             >
               Unpublish (batalkan semua pendaftaran)
-            </button>{" "}
-            <button onClick={() => onAction("archive")} disabled={isSubmitting} type="button">
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => onAction("archive")}
+              disabled={isSubmitting}
+              type="button"
+            >
               Arsipkan
-            </button>
-          </>
+            </Button>
+          </div>
         ) : null}
-        {isArchived ? <p>Kompetisi sudah diarsipkan (terminal).</p> : null}
+        {isArchived ? (
+          <p className="feedback" data-tone="info">
+            Kompetisi sudah diarsipkan (terminal).
+          </p>
+        ) : null}
       </section>
 
       {feedback ? (
-        <div
-          role="status"
-          style={{
-            color: feedback.type === "error" ? "#b00" : "#070",
-            marginTop: 16,
-            padding: 8,
-            border: `1px solid ${feedback.type === "error" ? "#b00" : "#070"}`,
-          }}
-        >
-          <p style={{ margin: 0 }}>{feedback.message}</p>
+        <div role="status" className="feedback" data-tone={feedback.type}>
+          <p>{feedback.message}</p>
           {feedback.type === "error" && feedback.failures && feedback.failures.length > 0 ? (
-            <ul style={{ marginTop: 8, marginBottom: 0 }}>
+            <ul>
               {feedback.failures.map((f) => (
                 <li key={`${f.field}-${f.code}`}>
                   <strong>{f.field}</strong> — {f.message}
@@ -259,12 +321,6 @@ export const InstitutionCompetitionDetailShell = ({
           ) : null}
         </div>
       ) : null}
-
-      <p style={{ marginTop: 16 }}>
-        <a href={`/institution/${encodeURIComponent(institutionSlug)}/competitions`}>
-          ← Kembali ke daftar kompetisi
-        </a>
-      </p>
     </main>
   );
 };

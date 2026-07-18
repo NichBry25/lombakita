@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useModal, useToast } from "@/components/ui/primitives";
+import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 import { DOCUMENT_TYPE_LABELS } from "@/server/institution-verification/verification-requirements";
 import type { InstitutionType } from "@/server/db/schema";
 
@@ -86,45 +87,43 @@ function ReviewPanelBody({
   };
 
   return (
-    <div>
-      <p style={{ color: "#555", fontSize: 13, marginBottom: 16 }}>
-        <strong>{detail.institutionDisplayName}</strong> → {TYPE_LABELS[detail.targetInstitutionType]}
+    <div className="stack-md admin-review-panel">
+      <p className="muted-copy">
+        <strong>{detail.institutionDisplayName}</strong> →{" "}
+        {TYPE_LABELS[detail.targetInstitutionType]}
         {detail.proposedDisplayName && (
-          <span style={{ marginLeft: 8, color: "#355795" }}>
+          <span className="admin-proposed-name">
             Nama: &ldquo;{detail.proposedDisplayName}&rdquo;
           </span>
         )}
       </p>
 
-      <div style={{ marginBottom: 16 }}>
-        <p style={{ fontSize: 13, color: "#444", marginBottom: 8, fontWeight: 600 }}>Dokumen:</p>
-        <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ background: "#f2f7fb" }}>
-              <th style={{ padding: "4px 8px", textAlign: "left" }}>Tipe</th>
-              <th style={{ padding: "4px 8px", textAlign: "left" }}>Nama File</th>
-              <th style={{ padding: "4px 8px", textAlign: "left" }}>Format</th>
-            </tr>
-          </thead>
-          <tbody>
-            {detail.documents.map((doc) => (
-              <tr key={doc.id} style={{ borderTop: "1px solid #eee" }}>
-                <td style={{ padding: "4px 8px" }}>
-                  {DOCUMENT_TYPE_LABELS[doc.documentType] ?? doc.documentType}
-                </td>
-                <td style={{ padding: "4px 8px", color: "#555" }}>{doc.originalFileName}</td>
-                <td style={{ padding: "4px 8px", color: "#555" }}>{doc.contentType}</td>
+      <div className="stack-sm">
+        <p className="form-label">Dokumen</p>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Tipe</th>
+                <th>Nama file</th>
+                <th>Format</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {detail.documents.map((doc) => (
+                <tr key={doc.id}>
+                  <td>{DOCUMENT_TYPE_LABELS[doc.documentType] ?? doc.documentType}</td>
+                  <td>{doc.originalFileName}</td>
+                  <td className="data-text">{doc.contentType}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <div style={{ marginBottom: 14 }}>
-        <label
-          htmlFor="reviewer-notes-textarea"
-          style={{ fontSize: 13, color: "#333", display: "block", marginBottom: 4 }}
-        >
+      <div className="form-field">
+        <label htmlFor="reviewer-notes-textarea" className="form-label">
           Catatan Reviewer (opsional)
         </label>
         <textarea
@@ -132,64 +131,25 @@ function ReviewPanelBody({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={3}
-          style={{
-            width: "100%",
-            boxSizing: "border-box",
-            padding: "6px 8px",
-            borderRadius: 6,
-            border: "1px solid #ccc",
-            fontSize: 13,
-            resize: "vertical",
-          }}
+          className="form-textarea"
           placeholder="Catatan untuk pemilik institusi..."
         />
       </div>
 
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
-        <button
-          onClick={() => closeModal()}
-          disabled={loading}
-          style={{
-            padding: "6px 14px",
-            borderRadius: 6,
-            border: "1px solid #ccc",
-            background: "#fff",
-            cursor: "pointer",
-            fontSize: 13,
-          }}
-        >
+      <div className="modal-actions">
+        <Button variant="outline" onClick={() => closeModal()} disabled={loading}>
           Batal
-        </button>
-        <button
-          onClick={() => void submitDecision("rejected")}
-          disabled={loading}
-          style={{
-            padding: "6px 14px",
-            borderRadius: 6,
-            border: "1px solid #721c24",
-            background: "#fff",
-            color: "#721c24",
-            cursor: loading ? "not-allowed" : "pointer",
-            fontSize: 13,
-          }}
-        >
+        </Button>
+        <Button variant="danger" onClick={() => void submitDecision("rejected")} disabled={loading}>
           {loading ? "Memproses..." : "Tolak"}
-        </button>
-        <button
+        </Button>
+        <Button
           onClick={() => void submitDecision("approved")}
           disabled={loading}
-          style={{
-            padding: "6px 14px",
-            borderRadius: 6,
-            border: "none",
-            background: loading ? "#aaa" : "#155724",
-            color: "#fff",
-            cursor: loading ? "not-allowed" : "pointer",
-            fontSize: 13,
-          }}
+          loading={loading}
         >
           {loading ? "Memproses..." : "Setujui"}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -248,75 +208,86 @@ export default function AdminVerificationPage() {
   };
 
   return (
-    <div style={{ fontFamily: "Arial, sans-serif", maxWidth: 960, margin: "32px auto", padding: "0 16px", color: "#0f1012" }}>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>Antrian Verifikasi Dokumen</h1>
-      <p style={{ color: "#555", fontSize: 14, marginBottom: 24 }}>Platform Ops — pengajuan menunggu tinjauan</p>
+    <main className="page-shell app-page admin-page">
+      <PageHeader
+        eyebrow="Keputusan terkontrol"
+        title="Antrean verifikasi dokumen"
+        description="Tinjau bukti institusi yang masih menunggu keputusan Platform Ops."
+        backHref="/admin"
+        backLabel="Panel Platform Ops"
+        actions={<span className="status-badge data-text">{items.length} menunggu</span>}
+      />
 
-      {loading && <p style={{ color: "#888", fontSize: 13 }}>Memuat...</p>}
+      {loading && (
+        <div className="content-section stack-sm" aria-label="Memuat antrean verifikasi">
+          <Skeleton variant="media" />
+          <Skeleton variant="media" />
+          <Skeleton variant="media" />
+        </div>
+      )}
 
       {!loading && items.length === 0 && (
-        <p style={{ color: "#888", fontSize: 13 }}>Tidak ada pengajuan yang menunggu tinjauan.</p>
+        <EmptyState
+          icon="check"
+          title="Antrean sudah bersih."
+          description="Tidak ada pengajuan dokumen yang menunggu tinjauan."
+        />
       )}
 
       {!loading && items.length > 0 && (
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr style={{ background: "#f2f7fb", textAlign: "left" }}>
-              <th style={{ padding: "8px 10px", borderBottom: "1px solid #ddd" }}>Institusi</th>
-              <th style={{ padding: "8px 10px", borderBottom: "1px solid #ddd" }}>Submitter</th>
-              <th style={{ padding: "8px 10px", borderBottom: "1px solid #ddd" }}>Tipe Tujuan</th>
-              <th style={{ padding: "8px 10px", borderBottom: "1px solid #ddd" }}>Nama Diusulkan</th>
-              <th style={{ padding: "8px 10px", borderBottom: "1px solid #ddd" }}>Domain Email</th>
-              <th style={{ padding: "8px 10px", borderBottom: "1px solid #ddd" }}>Dokumen</th>
-              <th style={{ padding: "8px 10px", borderBottom: "1px solid #ddd" }}>Dikirim</th>
-              <th style={{ padding: "8px 10px", borderBottom: "1px solid #ddd" }}>Aksi</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.id} style={{ borderBottom: "1px solid #eee" }}>
-                <td style={{ padding: "8px 10px" }}>
-                  <strong>{item.institutionDisplayName}</strong>
-                  <br />
-                  <span style={{ color: "#888", fontSize: 11 }}>{item.institutionSlug}</span>
-                </td>
-                <td style={{ padding: "8px 10px", color: "#555" }}>{item.submitterEmail ?? "–"}</td>
-                <td style={{ padding: "8px 10px" }}>{TYPE_LABELS[item.targetInstitutionType]}</td>
-                <td style={{ padding: "8px 10px", color: "#555" }}>{item.proposedDisplayName ?? "–"}</td>
-                <td style={{ padding: "8px 10px" }}>
-                  {item.emailDomainFlag === null ? (
-                    <em style={{ color: "#aaa" }}>N/A</em>
-                  ) : item.emailDomainFlag ? (
-                    <span style={{ color: "#155724" }}>Institusional</span>
-                  ) : (
-                    <span style={{ color: "#856404" }}>Personal</span>
-                  )}
-                </td>
-                <td style={{ padding: "8px 10px", color: "#555" }}>{item.documentCount}</td>
-                <td style={{ padding: "8px 10px", color: "#555" }}>
-                  {new Date(item.submittedAt).toLocaleDateString("id-ID")}
-                </td>
-                <td style={{ padding: "8px 10px" }}>
-                  <button
-                    onClick={() => void openReview(item.id)}
-                    style={{
-                      padding: "4px 10px",
-                      borderRadius: 6,
-                      border: "1px solid #355795",
-                      background: "#355795",
-                      color: "#fff",
-                      cursor: "pointer",
-                      fontSize: 12,
-                    }}
-                  >
-                    Tinjau
-                  </button>
-                </td>
+        <div className="table-scroll">
+          <table className="data-table admin-verification-table">
+            <thead>
+              <tr>
+                <th>Institusi</th>
+                <th>Submitter</th>
+                <th>Tipe tujuan</th>
+                <th>Nama diusulkan</th>
+                <th>Domain email</th>
+                <th>Dokumen</th>
+                <th>Dikirim</th>
+                <th>Aksi</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <strong>{item.institutionDisplayName}</strong>
+                    <br />
+                    <span className="record-meta data-text">{item.institutionSlug}</span>
+                  </td>
+                  <td>{item.submitterEmail ?? "–"}</td>
+                  <td>{TYPE_LABELS[item.targetInstitutionType]}</td>
+                  <td>{item.proposedDisplayName ?? "–"}</td>
+                  <td>
+                    {item.emailDomainFlag === null ? (
+                      <span className="status-badge">N/A</span>
+                    ) : item.emailDomainFlag ? (
+                      <span className="status-badge" data-status="open">
+                        Institusional
+                      </span>
+                    ) : (
+                      <span className="status-badge" data-status="closing">
+                        Personal
+                      </span>
+                    )}
+                  </td>
+                  <td className="data-text">{item.documentCount}</td>
+                  <td className="data-text">
+                    {new Date(item.submittedAt).toLocaleDateString("id-ID")}
+                  </td>
+                  <td>
+                    <Button onClick={() => void openReview(item.id)} size="sm">
+                      Tinjau
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-    </div>
+    </main>
   );
 }

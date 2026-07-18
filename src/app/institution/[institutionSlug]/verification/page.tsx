@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useModal, useToast } from "@/components/ui/primitives";
+import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 import {
   DOCUMENT_TYPE_LABELS,
   REQUIRED_DOCUMENTS_BY_TYPE,
@@ -84,9 +85,7 @@ export default function InstitutionVerificationPage() {
   const fetchHistory = async () => {
     setLoadingHistory(true);
     try {
-      const res = await fetch(
-        `/api/v1/institutions/${institutionSlug}/verification/submissions`,
-      );
+      const res = await fetch(`/api/v1/institutions/${institutionSlug}/verification/submissions`);
       if (res.ok) {
         const data = (await res.json()) as { submissions: SubmissionItem[] };
         setSubmissions(data.submissions);
@@ -117,7 +116,7 @@ export default function InstitutionVerificationPage() {
       }
     }
 
-    if ((targetType !== "personal") && !proposedDisplayName.trim()) {
+    if (targetType !== "personal" && !proposedDisplayName.trim()) {
       openModal({
         title: "Nama Institusi Wajib Diisi",
         body: "Masukkan nama institusi yang akan ditampilkan setelah verifikasi.",
@@ -135,21 +134,18 @@ export default function InstitutionVerificationPage() {
         contentType: f.file!.type || "application/octet-stream",
       }));
 
-      const res = await fetch(
-        `/api/v1/institutions/${institutionSlug}/verification/submit`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Expected-User-Id": session?.user?.id ?? "",
-          },
-          body: JSON.stringify({
-            targetType,
-            proposedDisplayName: targetType !== "personal" ? proposedDisplayName.trim() : null,
-            documents,
-          }),
+      const res = await fetch(`/api/v1/institutions/${institutionSlug}/verification/submit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Expected-User-Id": session?.user?.id ?? "",
         },
-      );
+        body: JSON.stringify({
+          targetType,
+          proposedDisplayName: targetType !== "personal" ? proposedDisplayName.trim() : null,
+          documents,
+        }),
+      });
 
       const data = (await res.json()) as {
         submissionId?: string;
@@ -179,10 +175,14 @@ export default function InstitutionVerificationPage() {
             headers: { "Content-Type": field.file.type || "application/octet-stream" },
           });
           if (!uploadRes.ok) {
-            uploadErrors.push(DOCUMENT_TYPE_LABELS[uploadTarget.documentType] ?? uploadTarget.documentType);
+            uploadErrors.push(
+              DOCUMENT_TYPE_LABELS[uploadTarget.documentType] ?? uploadTarget.documentType,
+            );
           }
         } catch {
-          uploadErrors.push(DOCUMENT_TYPE_LABELS[uploadTarget.documentType] ?? uploadTarget.documentType);
+          uploadErrors.push(
+            DOCUMENT_TYPE_LABELS[uploadTarget.documentType] ?? uploadTarget.documentType,
+          );
         }
       }
 
@@ -192,7 +192,10 @@ export default function InstitutionVerificationPage() {
           message: `Pengajuan dibuat, tetapi upload gagal untuk: ${uploadErrors.join(", ")}. Hubungi dukungan.`,
         });
       } else {
-        addToast({ type: "success", message: "Dokumen berhasil dikirim. Kami akan meninjau dalam 1–3 hari kerja." });
+        addToast({
+          type: "success",
+          message: "Dokumen berhasil dikirim. Kami akan meninjau dalam 1–3 hari kerja.",
+        });
       }
 
       setProposedDisplayName("");
@@ -202,39 +205,59 @@ export default function InstitutionVerificationPage() {
     }
   };
 
-  if (sessionStatus === "loading") return null;
+  if (sessionStatus === "loading") {
+    return (
+      <main className="page-shell app-page institution-verification-page">
+        <div className="stack-md" aria-label="Memuat halaman verifikasi">
+          <Skeleton variant="title" />
+          <Skeleton variant="media" />
+          <Skeleton variant="media" />
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <div style={{ fontFamily: "Arial, sans-serif", maxWidth: 680, margin: "32px auto", padding: "0 16px", color: "#0f1012" }}>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>Verifikasi Institusi</h1>
-      <p style={{ color: "#555", fontSize: 14, marginBottom: 24 }}>
-        Kirim dokumen identitas untuk memverifikasi institusi Anda.
-      </p>
+    <main className="page-shell app-page institution-verification-page">
+      <PageHeader
+        eyebrow="Kredibilitas institusi"
+        title="Verifikasi institusi"
+        description="Kirim dokumen identitas resmi untuk ditinjau oleh tim platform."
+        backHref={`/institution/${institutionSlug}`}
+        backLabel="Panel institusi"
+      />
 
       {/* Submission form */}
-      <div style={{ background: "#f2f7fb", padding: 20, borderRadius: 10, marginBottom: 32 }}>
-        <h2 style={{ fontSize: 16, marginTop: 0, marginBottom: 16 }}>Pengajuan Baru</h2>
+      <section className="content-section verification-submit-card">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Pengajuan baru</p>
+            <h2>Dokumen verifikasi</h2>
+          </div>
+        </div>
 
-        <div style={{ marginBottom: 14 }}>
-          <label htmlFor="institution-target-type" style={{ fontSize: 13, display: "block", marginBottom: 4, color: "#333" }}>
+        <div className="form-field">
+          <label htmlFor="institution-target-type" className="form-label">
             Tipe Institusi
           </label>
           <select
             id="institution-target-type"
             value={targetType}
             onChange={(e) => setTargetType(e.target.value as InstitutionType)}
-            style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #ccc", fontSize: 13, width: "100%" }}
+            className="form-select"
           >
             {SELECTABLE_TYPES.map((t) => (
-              <option key={t} value={t}>{TYPE_LABELS[t]}</option>
+              <option key={t} value={t}>
+                {TYPE_LABELS[t]}
+              </option>
             ))}
           </select>
         </div>
 
         {targetType !== "personal" && (
-          <div style={{ marginBottom: 14 }}>
-            <label htmlFor="institution-proposed-name" style={{ fontSize: 13, display: "block", marginBottom: 4, color: "#333" }}>
-              Nama Institusi <span style={{ color: "#d00" }}>*</span>
+          <div className="form-field">
+            <label htmlFor="institution-proposed-name" className="form-label form-label-required">
+              Nama Institusi
             </label>
             <input
               id="institution-proposed-name"
@@ -242,17 +265,20 @@ export default function InstitutionVerificationPage() {
               value={proposedDisplayName}
               onChange={(e) => setProposedDisplayName(e.target.value)}
               placeholder="Nama resmi institusi"
-              style={{ width: "100%", boxSizing: "border-box", padding: "6px 10px", borderRadius: 6, border: "1px solid #ccc", fontSize: 13 }}
+              className="form-input"
             />
           </div>
         )}
 
-        <div style={{ marginBottom: 16 }}>
-          <p style={{ fontSize: 13, color: "#444", marginBottom: 8 }}>Dokumen yang dibutuhkan:</p>
+        <div className="verification-documents">
+          <p className="form-label">Dokumen yang dibutuhkan</p>
           {docFields.map((field, i) => (
-            <div key={field.documentType} style={{ marginBottom: 10 }}>
-              <label htmlFor={`doc-${field.documentType}`} style={{ fontSize: 13, color: "#333", display: "block", marginBottom: 4 }}>
-                {DOCUMENT_TYPE_LABELS[field.documentType] ?? field.documentType} <span style={{ color: "#d00" }}>*</span>
+            <div key={field.documentType} className="form-field verification-document-field">
+              <label
+                htmlFor={`doc-${field.documentType}`}
+                className="form-label form-label-required"
+              >
+                {DOCUMENT_TYPE_LABELS[field.documentType] ?? field.documentType}
               </label>
               <input
                 id={`doc-${field.documentType}`}
@@ -266,78 +292,81 @@ export default function InstitutionVerificationPage() {
                     ),
                   );
                 }}
-                style={{ fontSize: 13 }}
+                className="form-file"
               />
             </div>
           ))}
         </div>
 
-        <button
-          disabled={submitting}
-          onClick={() => void handleSubmit()}
-          style={{
-            padding: "8px 20px",
-            borderRadius: 8,
-            border: "none",
-            background: submitting ? "#aaa" : "#355795",
-            color: "#fff",
-            cursor: submitting ? "not-allowed" : "pointer",
-            fontSize: 14,
-          }}
-        >
+        <Button disabled={submitting} onClick={() => void handleSubmit()} loading={submitting}>
           {submitting ? "Mengirim..." : "Kirim Dokumen"}
-        </button>
-      </div>
+        </Button>
+      </section>
 
       {/* Submission history */}
-      <h2 style={{ fontSize: 16, marginBottom: 12 }}>Riwayat Pengajuan</h2>
-      {loadingHistory && <p style={{ color: "#888", fontSize: 13 }}>Memuat riwayat...</p>}
-      {!loadingHistory && submissions.length === 0 && (
-        <p style={{ color: "#888", fontSize: 13 }}>Belum ada pengajuan.</p>
-      )}
-      {!loadingHistory && submissions.length > 0 && (
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr style={{ background: "#f2f7fb", textAlign: "left" }}>
-              <th style={{ padding: "8px 10px", borderBottom: "1px solid #ddd" }}>Tipe Tujuan</th>
-              <th style={{ padding: "8px 10px", borderBottom: "1px solid #ddd" }}>Status</th>
-              <th style={{ padding: "8px 10px", borderBottom: "1px solid #ddd" }}>Dokumen</th>
-              <th style={{ padding: "8px 10px", borderBottom: "1px solid #ddd" }}>Dikirim</th>
-              <th style={{ padding: "8px 10px", borderBottom: "1px solid #ddd" }}>Catatan</th>
-            </tr>
-          </thead>
-          <tbody>
-            {submissions.map((s) => (
-              <tr key={s.id} style={{ borderBottom: "1px solid #eee" }}>
-                <td style={{ padding: "8px 10px" }}>{TYPE_LABELS[s.targetInstitutionType]}</td>
-                <td style={{ padding: "8px 10px" }}>
-                  <span
-                    style={{
-                      background:
-                        s.status === "approved" ? "#d4edda" : s.status === "rejected" ? "#f8d7da" : "#fff3cd",
-                      color:
-                        s.status === "approved" ? "#155724" : s.status === "rejected" ? "#721c24" : "#856404",
-                      padding: "2px 8px",
-                      borderRadius: 4,
-                      fontSize: 12,
-                      fontWeight: 600,
-                    }}
-                  >
-                    {STATUS_LABELS[s.status]}
-                  </span>
-                </td>
-                <td style={{ padding: "8px 10px", color: "#555" }}>{s.documentCount}</td>
-                <td style={{ padding: "8px 10px", color: "#555" }}>
-                  {new Date(s.submittedAt).toLocaleDateString("id-ID")}
-                </td>
-                <td style={{ padding: "8px 10px", color: "#555", maxWidth: 200, wordBreak: "break-word" }}>
-                  {s.reviewerNotes ?? "–"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
+      <section className="content-section verification-history-card">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Jejak pengajuan</p>
+            <h2>Riwayat verifikasi</h2>
+          </div>
+          <span className="status-badge data-text">{submissions.length}</span>
+        </div>
+        {loadingHistory && (
+          <div className="stack-sm" aria-label="Memuat riwayat verifikasi">
+            <Skeleton variant="media" />
+            <Skeleton variant="media" />
+          </div>
+        )}
+        {!loadingHistory && submissions.length === 0 && (
+          <EmptyState
+            icon="check"
+            title="Belum ada pengajuan."
+            description="Riwayat peninjauan dokumen institusi akan muncul di sini."
+          />
+        )}
+        {!loadingHistory && submissions.length > 0 && (
+          <div className="table-scroll">
+            <table className="data-table verification-history-table">
+              <thead>
+                <tr>
+                  <th>Tipe tujuan</th>
+                  <th>Status</th>
+                  <th>Dokumen</th>
+                  <th>Dikirim</th>
+                  <th>Catatan</th>
+                </tr>
+              </thead>
+              <tbody>
+                {submissions.map((s) => (
+                  <tr key={s.id}>
+                    <td>{TYPE_LABELS[s.targetInstitutionType]}</td>
+                    <td>
+                      <span
+                        className="status-badge"
+                        data-status={
+                          s.status === "approved"
+                            ? "open"
+                            : s.status === "rejected"
+                              ? "closed"
+                              : "closing"
+                        }
+                      >
+                        {STATUS_LABELS[s.status]}
+                      </span>
+                    </td>
+                    <td className="data-text">{s.documentCount}</td>
+                    <td className="data-text">
+                      {new Date(s.submittedAt).toLocaleDateString("id-ID")}
+                    </td>
+                    <td>{s.reviewerNotes ?? "–"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </main>
   );
 }

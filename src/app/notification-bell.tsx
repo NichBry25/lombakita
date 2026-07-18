@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "@/components/ui";
 
 // Step 6.5.1 — homepage notification bell. Polls the lightweight unread-count endpoint, shows a
 // badge, and plays a short audio ping when the unread count rises (a new notification/invitation
@@ -109,46 +110,13 @@ export function NotificationBell() {
   return (
     <Link
       href="/inbox"
-      aria-label={
-        hasUnread ? `Kotak masuk, ${unreadCount} belum dibaca` : "Kotak masuk"
-      }
-      style={{
-        position: "fixed",
-        top: 16,
-        right: 16,
-        zIndex: 50,
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "8px 10px",
-        background: "#fff",
-        border: "1px solid #d8d8d8",
-        borderRadius: 999,
-        textDecoration: "none",
-        fontSize: "1.1rem",
-        lineHeight: 1,
-      }}
+      className="ui-button icon-button notification-link"
+      data-variant="ghost"
+      data-size="md"
+      aria-label={hasUnread ? `Kotak masuk, ${unreadCount} belum dibaca` : "Kotak masuk"}
     >
-      <span aria-hidden>🔔</span>
-      {hasUnread ? (
-        <span
-          style={{
-            minWidth: 18,
-            height: 18,
-            padding: "0 5px",
-            background: "#b00020",
-            color: "#fff",
-            borderRadius: 999,
-            fontSize: "0.7rem",
-            fontWeight: 700,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          {unreadCount}
-        </span>
-      ) : null}
+      <Icon name="inbox" size="md" />
+      {hasUnread ? <span className="notification-badge">{unreadCount}</span> : null}
     </Link>
   );
 }

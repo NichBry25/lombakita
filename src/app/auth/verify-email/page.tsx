@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 import { CredentialsAuthError, verifyRegistrationEmailToken } from "@/server/auth/credentials-auth";
 
 type VerifyEmailPageState =
@@ -72,15 +73,23 @@ export default async function VerifyEmailPage(props: {
   }
 
   return (
-    <main className="mx-auto flex min-h-[70vh] w-full max-w-2xl flex-1 flex-col items-center justify-center gap-4 px-6 py-14 text-center">
-      <h1 className="text-3xl font-semibold text-[var(--text-primary)]">{state.title}</h1>
-      <p className="max-w-lg text-sm text-[var(--text-muted)]">{state.description}</p>
-
-      <div className="pt-2">
-        <Link className="primary-button inline-flex" href={signInHref}>
+    <AuthPageFrame
+      eyebrow="Verifikasi email"
+      title="Tautan verifikasi melindungi kepemilikan akun."
+      description="Jika tautan tidak lagi berlaku, mulai kembali dari halaman masuk untuk meminta verifikasi baru."
+    >
+      <div className="auth-state stack-md">
+        <span className="auth-state-icon" data-tone="error" aria-hidden="true">
+          !
+        </span>
+        <div className="stack-xs">
+          <h1>{state.title}</h1>
+          <p>{state.description}</p>
+        </div>
+        <Link className="ui-button" data-variant="primary" data-size="md" href={signInHref}>
           Kembali ke login
         </Link>
       </div>
-    </main>
+    </AuthPageFrame>
   );
 }

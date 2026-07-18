@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SecondRoleBanner } from "@/components/auth/second-role-banner";
+import { ButtonLink, Icon, PageHeader } from "@/components/ui";
 import { getCurrentSession } from "@/server/auth/session";
 import { getUnverifiedRoles } from "@/server/auth/role-verification";
 
@@ -25,57 +26,60 @@ export default async function RecruiterDashboardPage() {
   const recruiterIsVerified = !unverified.includes("recruiter");
 
   return (
-    <main style={{ maxWidth: 760, margin: "0 auto", padding: "2rem 1rem" }}>
-      <h1 style={{ marginBottom: "1rem" }}>Dasbor Rekruter</h1>
+    <main className="page-shell app-page recruiter-dashboard">
+      <PageHeader
+        eyebrow="Ruang penyelenggara"
+        title="Dasbor rekruter"
+        description="Kelola identitas penyelenggara dan masuk ke workspace institusi Anda."
+      />
 
       {showCandidateBanner ? (
         <SecondRoleBanner unverifiedRole="candidate" userId={session.user.id} />
       ) : null}
 
-      <p style={{ color: "#555", marginBottom: "1.25rem" }}>
-        Halaman ini adalah dasbor rekruter versi minimal. Konten dasbor akan ditambahkan pada
-        tahap berikutnya.
-      </p>
-
-      <ul style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-        <li>
-          <Link href="/institution/workspace">Ruang kerja institusi</Link>
-        </li>
-        <li>
-          <Link href="/profile">Profil saya</Link>
-        </li>
-      </ul>
+      <section className="hub-grid" aria-label="Akses rekruter">
+        <Link className="hub-card" href="/institution/workspace">
+          <span className="hub-card-icon">
+            <Icon name="building" size="lg" />
+          </span>
+          <div className="stack-xs">
+            <h2>Workspace institusi</h2>
+            <p>Buat ruang penyelenggara baru atau lanjutkan pengelolaan institusi.</p>
+          </div>
+          <span className="hub-card-arrow" aria-hidden="true">
+            →
+          </span>
+        </Link>
+        <Link className="hub-card" href="/profile">
+          <span className="hub-card-icon">
+            <Icon name="user" size="lg" />
+          </span>
+          <div className="stack-xs">
+            <h2>Profil saya</h2>
+            <p>Pastikan identitas publik dan kredensial rekruter tetap mutakhir.</p>
+          </div>
+          <span className="hub-card-arrow" aria-hidden="true">
+            →
+          </span>
+        </Link>
+      </section>
 
       {recruiterIsVerified ? (
-        <section
-          data-testid="elevated-tier-entry"
-          style={{
-            marginTop: "2rem",
-            padding: "1rem",
-            border: "1px dashed #c7d2fe",
-            borderRadius: 6,
-          }}
-        >
-          <h2 style={{ marginTop: 0, fontSize: "1rem" }}>
-            Verifikasi rekruter tingkat lanjut (stub)
-          </h2>
-          <p style={{ fontSize: "0.85rem", color: "#555" }}>
-            Tingkat lanjut akan diaktifkan pada Phase 4.0c. Saat ini hanya tautan stub.
+        <section data-testid="elevated-tier-entry" className="content-section recruiter-tier-card">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Kredibilitas penyelenggara</p>
+              <h2>Verifikasi rekruter tingkat lanjut</h2>
+            </div>
+            <span className="status-badge">Segera hadir</span>
+          </div>
+          <p className="muted-copy">
+            Tingkat lanjut akan diaktifkan pada fase berikutnya. Saat ini tersedia sebagai pratinjau
+            jalur verifikasi.
           </p>
-          <Link
-            href="/auth/verify-tier?target=elevated"
-            style={{
-              display: "inline-block",
-              padding: "0.35rem 0.85rem",
-              background: "#355795",
-              color: "#fff",
-              borderRadius: 6,
-              textDecoration: "none",
-              fontSize: "0.85rem",
-            }}
-          >
+          <ButtonLink href="/auth/verify-tier?target=elevated" variant="outline" size="sm">
             Pelajari lebih lanjut
-          </Link>
+          </ButtonLink>
         </section>
       ) : null}
     </main>

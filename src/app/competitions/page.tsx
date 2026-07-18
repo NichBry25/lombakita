@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { Button, Icon, SkeletonCard } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 
 type Competition = {
@@ -14,6 +15,7 @@ type Competition = {
   registrationEndAt: string | null;
   eventStartAt: string | null;
   publishedAt: string | null;
+  isFeatured: boolean;
   institutionSlug: string;
   institutionName: string;
 };
@@ -37,11 +39,30 @@ const CATEGORY_LABELS: Record<string, string> = {
   other: "Lainnya",
 };
 
+const MODE_LABELS: Record<string, string> = {
+  individual: "Individu",
+  team: "Tim",
+  both: "Individu / Tim",
+};
+
 const SORT_OPTIONS = [
   { value: "created_desc", label: "Terbaru" },
-  { value: "deadline_asc", label: "Deadline Terdekat" },
-  { value: "deadline_desc", label: "Deadline Terjauh" },
+  { value: "deadline_asc", label: "Deadline terdekat" },
+  { value: "deadline_desc", label: "Deadline terjauh" },
 ];
+
+function formatDeadline(value: string | null) {
+  if (!value) return "Tanpa batas waktu";
+  return new Date(value).toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function truncateDescription(description: string) {
+  return description.length > 160 ? `${description.slice(0, 160)}…` : description;
+}
 
 export default function PublicCompetitionsPage() {
   const { addToast } = useToast();
@@ -64,7 +85,9 @@ export default function PublicCompetitionsPage() {
     params.set("page", String(page));
 
     try {
-      const res = await fetch(`/api/v1/competitions?${params.toString()}`, { cache: "no-store" });
+      const res = await fetch(`/api/v1/competitions?${params.toString()}`, {
+        cache: "no-store",
+      });
       if (!res.ok) {
         addToast({ type: "error", message: "Gagal memuat kompetisi." });
         setIsLoading(false);
@@ -84,132 +107,222 @@ export default function PublicCompetitionsPage() {
     void load();
   }, [load]);
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSearch = (event: React.FormEvent) => {
+    event.preventDefault();
     setPage(1);
   };
 
+  function clearFilters() {
+    setQ("");
+    setCategory("");
+    setSort("created_desc");
+    setPage(1);
+  }
+
   return (
-    <main style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
-      <h1>Kompetisi</h1>
+    <main>
+      <section className="brand-band listing-hero">
+        <div className="content-shell listing-hero-inner">
+          <div className="stack-sm listing-heading">
+            <p className="eyebrow">Discovery</p>
+            <h1>Temukan kompetisi yang layak kamu kejar.</h1>
+            <p>
+              Cari berdasarkan judul, lalu saring arena yang paling sesuai dengan minat dan waktumu.
+            </p>
+          </div>
 
-      <form
-        onSubmit={handleSearch}
-        style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap" }}
-      >
-        <input
-          type="search"
-          placeholder="Cari kompetisi..."
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setPage(1);
-          }}
-          style={{
-            flex: 1,
-            minWidth: 200,
-            padding: "6px 10px",
-            border: "1px solid #ccc",
-            borderRadius: 4,
-          }}
-          aria-label="Cari kompetisi"
-        />
-        <select
-          value={category}
-          onChange={(e) => {
-            setCategory(e.target.value);
-            setPage(1);
-          }}
-          style={{ padding: "6px 10px", border: "1px solid #ccc", borderRadius: 4 }}
-          aria-label="Filter kategori"
-        >
-          <option value="">Semua Kategori</option>
-          {Object.entries(CATEGORY_LABELS).map(([val, label]) => (
-            <option key={val} value={val}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={sort}
-          onChange={(e) => {
-            setSort(e.target.value);
-            setPage(1);
-          }}
-          style={{ padding: "6px 10px", border: "1px solid #ccc", borderRadius: 4 }}
-          aria-label="Urutan"
-        >
-          {SORT_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-        <button type="submit" style={{ padding: "6px 16px", borderRadius: 4 }}>
-          Cari
-        </button>
-      </form>
-
-      <section style={{ marginTop: 24 }}>
-        {isLoading ? (
-          <p>Memuat...</p>
-        ) : items.length === 0 ? (
-          <p>Tidak ada kompetisi yang ditemukan.</p>
-        ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {items.map((c) => (
-              <li key={c.id} style={{ padding: "16px 0", borderBottom: "1px solid #eee" }}>
-                <Link
-                  href={`/competitions/${c.institutionSlug}/${c.slug}`}
-                  style={{ fontWeight: 600, fontSize: 16 }}
-                >
-                  {c.title}
-                </Link>
-                <div style={{ fontSize: 13, color: "#555", marginTop: 4 }}>
-                  {c.institutionName}
-                  {c.category ? ` · ${CATEGORY_LABELS[c.category] ?? c.category}` : ""}
-                  {c.registrationEndAt
-                    ? ` · Deadline: ${new Date(c.registrationEndAt).toLocaleDateString("id-ID")}`
-                    : ""}
-                </div>
-                {c.description ? (
-                  <p style={{ fontSize: 14, margin: "6px 0 0", color: "#333" }}>
-                    {c.description.length > 160 ? `${c.description.slice(0, 160)}…` : c.description}
-                  </p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
+          <form className="glass-focus listing-search" onSubmit={handleSearch} role="search">
+            <Icon name="search" size="lg" />
+            <label className="sr-only" htmlFor="competition-search">
+              Cari kompetisi
+            </label>
+            <input
+              id="competition-search"
+              type="search"
+              placeholder="Cari judul atau kata kunci…"
+              value={q}
+              onChange={(event) => {
+                setQ(event.target.value);
+                setPage(1);
+              }}
+              aria-label="Cari kompetisi"
+            />
+            <Button type="submit" variant="gold" size="lg">
+              Cari
+            </Button>
+          </form>
+        </div>
       </section>
 
-      {meta && meta.totalPages > 1 ? (
-        <nav style={{ marginTop: 24, display: "flex", gap: 8, alignItems: "center" }}>
+      <div className="page-shell discovery-page">
+        <section className="glass-chrome category-rail" aria-label="Filter kategori">
           <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            style={{ padding: "4px 12px", borderRadius: 4 }}
+            type="button"
+            className="action-chip"
+            data-selected={category === "" ? "true" : undefined}
+            aria-pressed={category === ""}
+            onClick={() => {
+              setCategory("");
+              setPage(1);
+            }}
           >
-            ‹ Sebelumnya
+            Semua
           </button>
-          <span style={{ fontSize: 13 }}>
-            Halaman {meta.page} dari {meta.totalPages}
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(meta.totalPages, p + 1))}
-            disabled={page >= meta.totalPages}
-            style={{ padding: "4px 12px", borderRadius: 4 }}
-          >
-            Berikutnya ›
-          </button>
-        </nav>
-      ) : null}
+          {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className="action-chip"
+              data-selected={category === value ? "true" : undefined}
+              aria-pressed={category === value}
+              onClick={() => {
+                setCategory(value);
+                setPage(1);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </section>
 
-      {meta ? (
-        <p style={{ fontSize: 12, color: "#888", marginTop: 12 }}>
-          {meta.total} kompetisi ditemukan
-        </p>
-      ) : null}
+        <section className="stack-lg" aria-labelledby="competition-results-title">
+          <div className="glass-chrome filter-toolbar">
+            <div>
+              <p className="eyebrow">Hasil pencarian</p>
+              <h2 id="competition-results-title" className="filter-result-title" aria-live="polite">
+                {isLoading
+                  ? "Menyiapkan pilihan…"
+                  : `${meta?.total ?? items.length} kompetisi ditemukan`}
+              </h2>
+            </div>
+            <div className="filter-sort-field">
+              <label htmlFor="competition-sort">Urutkan</label>
+              <select
+                id="competition-sort"
+                className="form-select"
+                value={sort}
+                onChange={(event) => {
+                  setSort(event.target.value);
+                  setPage(1);
+                }}
+                aria-label="Urutan"
+              >
+                {SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {isLoading ? (
+            <div className="competition-grid" aria-label="Memuat kompetisi">
+              {Array.from({ length: 6 }, (_, index) => (
+                <SkeletonCard key={index} />
+              ))}
+            </div>
+          ) : items.length === 0 ? (
+            <div className="empty-state">
+              <span className="empty-state-icon" aria-hidden="true">
+                <Icon name="search" size="xl" />
+              </span>
+              <h2>Belum ada hasil yang cocok.</h2>
+              <p>Coba kata kunci yang lebih luas atau kembalikan kategori ke semua kompetisi.</p>
+              <Button variant="outline" onClick={clearFilters}>
+                Bersihkan filter
+              </Button>
+            </div>
+          ) : (
+            <div className="competition-grid">
+              {items.map((competition) => {
+                const detailPath = `/competitions/${competition.institutionSlug}/${competition.slug}`;
+                return (
+                  <article className="competition-card" key={competition.id}>
+                    <Link
+                      href={detailPath}
+                      className="competition-cover"
+                      data-category={competition.category ?? "other"}
+                      aria-label={`Buka ${competition.title}`}
+                    >
+                      <span className="competition-cover-icon" aria-hidden="true">
+                        <Icon name="trophy" size="lg" />
+                      </span>
+                      <span className="competition-cover-label">
+                        {competition.category
+                          ? (CATEGORY_LABELS[competition.category] ?? competition.category)
+                          : "Kompetisi"}
+                      </span>
+                    </Link>
+
+                    <div className="competition-card-body">
+                      <div className="competition-card-badges">
+                        {competition.isFeatured ? (
+                          <span className="status-badge" data-status="featured">
+                            Pilihan editor
+                          </span>
+                        ) : null}
+                        {competition.mode ? (
+                          <span className="status-badge">
+                            {MODE_LABELS[competition.mode] ?? competition.mode}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="stack-xs">
+                        <Link href={detailPath} className="competition-title-link">
+                          {competition.title}
+                        </Link>
+                        <p className="competition-organizer">{competition.institutionName}</p>
+                      </div>
+
+                      {competition.description ? (
+                        <p className="competition-description">
+                          {truncateDescription(competition.description)}
+                        </p>
+                      ) : null}
+
+                      <div className="competition-card-footer">
+                        <span>
+                          <Icon name="calendar" size="sm" />
+                          {formatDeadline(competition.registrationEndAt)}
+                        </span>
+                        <span className="competition-card-arrow" aria-hidden="true">
+                          <Icon name="arrow-right" size="md" />
+                        </span>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+
+          {meta && meta.totalPages > 1 ? (
+            <nav className="pagination" aria-label="Halaman hasil kompetisi">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
+                disabled={page <= 1}
+              >
+                Sebelumnya
+              </Button>
+              <span className="pagination-status data-text">
+                Halaman {meta.page} / {meta.totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((currentPage) => Math.min(meta.totalPages, currentPage + 1))}
+                disabled={page >= meta.totalPages}
+              >
+                Berikutnya
+              </Button>
+            </nav>
+          ) : null}
+        </section>
+      </div>
     </main>
   );
 }

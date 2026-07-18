@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { Button, Icon } from "@/components/ui";
 
 // Global event name. Components can dispatch this on `window` to manually re-trigger the modal
 // (e.g. a "Verifikasi peran lain" button on /profile).
@@ -111,67 +112,29 @@ export function SecondRolePromptModal() {
       role="dialog"
       aria-modal="true"
       aria-labelledby="second-role-prompt-title"
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(15, 16, 18, 0.5)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1000,
-        padding: 16,
-      }}
+      className="modal-backdrop"
       onClick={(e) => {
         if (e.target === e.currentTarget) onDismiss();
       }}
     >
-      <div
-        style={{
-          background: "#fff",
-          maxWidth: 480,
-          width: "100%",
-          padding: 24,
-          borderRadius: 12,
-          boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
-        }}
-      >
-        <h2 id="second-role-prompt-title" style={{ fontSize: 20, marginBottom: 12 }}>
-          {copy.headline}
-        </h2>
-        <p style={{ fontSize: 14, color: "#555", marginBottom: 20, lineHeight: 1.6 }}>
-          {copy.description}
-        </p>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button
-            type="button"
-            onClick={onVerify}
-            style={{
-              padding: "10px 18px",
-              background: "#355795",
-              color: "#fff",
-              border: "none",
-              borderRadius: 6,
-              fontSize: 14,
-              cursor: "pointer",
-            }}
-          >
+      <div className="modal-dialog second-role-dialog">
+        <span className="auth-state-icon" aria-hidden="true">
+          <Icon name="user" size="lg" />
+        </span>
+        <div className="stack-xs">
+          <p className="eyebrow">Perluas peran</p>
+          <h2 id="second-role-prompt-title" className="modal-title">
+            {copy.headline}
+          </h2>
+          <p className="second-role-copy">{copy.description}</p>
+        </div>
+        <div className="modal-actions second-role-actions">
+          <Button type="button" onClick={onVerify}>
             {copy.cta}
-          </button>
-          <button
-            type="button"
-            onClick={onDismiss}
-            style={{
-              padding: "10px 18px",
-              background: "transparent",
-              color: "#355795",
-              border: "1px solid #355795",
-              borderRadius: 6,
-              fontSize: 14,
-              cursor: "pointer",
-            }}
-          >
+          </Button>
+          <Button type="button" variant="outline" onClick={onDismiss}>
             Nanti saja
-          </button>
+          </Button>
         </div>
       </div>
     </div>

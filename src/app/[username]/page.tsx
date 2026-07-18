@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { Icon, PageHeader } from "@/components/ui";
 import { getCurrentSession } from "@/server/auth/session";
 import { getPublicProfile, isUsernameOwnedBy } from "@/server/user-profile/profile-service";
 
@@ -23,45 +24,97 @@ export default async function PublicProfilePage({
   if (!profile) notFound();
 
   return (
-    <main style={{ maxWidth: 640, margin: "0 auto", padding: "2rem 1rem" }}>
-      <h1 style={{ marginBottom: "0.5rem" }}>{profile.displayName ?? profile.username}</h1>
-      <p style={{ color: "#555", marginBottom: "1.5rem" }}>@{profile.username}</p>
+    <main className="page-shell app-page public-profile-page">
+      <PageHeader
+        eyebrow="Profil publik"
+        title={profile.displayName ?? profile.username}
+        description={`@${profile.username}`}
+      />
 
-      {profile.bio && <p style={{ marginBottom: "1rem" }}>{profile.bio}</p>}
-      {profile.location && (
-        <p style={{ fontSize: "0.9rem", color: "#666" }}>Lokasi: {profile.location}</p>
-      )}
-      {profile.avatarUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={profile.avatarUrl}
-          alt={profile.displayName ?? profile.username}
-          style={{ width: 80, height: 80, borderRadius: "50%", marginBottom: "1rem" }}
-        />
-      )}
+      <section className="public-profile-hero brand-band">
+        <div className="public-profile-avatar" aria-hidden={!profile.avatarUrl}>
+          {profile.avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={profile.avatarUrl} alt={profile.displayName ?? profile.username} />
+          ) : (
+            <Icon name="user" size="xl" />
+          )}
+        </div>
+        <div className="stack-sm">
+          <p className="data-text">@{profile.username}</p>
+          {profile.bio && <p className="public-profile-bio">{profile.bio}</p>}
+          {profile.location && (
+            <p className="public-profile-location">
+              <Icon name="pin" size="sm" />
+              {profile.location}
+            </p>
+          )}
+        </div>
+      </section>
 
       {"university" in profile && (
-        <section style={{ marginTop: "1.5rem" }}>
-          <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>Profil Kandidat</h2>
-          {profile.university && <p>Universitas: {profile.university}</p>}
-          {profile.major && <p>Jurusan: {profile.major}</p>}
-          {profile.graduationYear && <p>Tahun Lulus: {profile.graduationYear}</p>}
+        <section className="content-section public-profile-section">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Kandidat</p>
+              <h2>Riwayat pendidikan</h2>
+            </div>
+          </div>
+          <dl className="profile-detail-list">
+            {profile.university && (
+              <div>
+                <dt>Universitas</dt>
+                <dd>{profile.university}</dd>
+              </div>
+            )}
+            {profile.major && (
+              <div>
+                <dt>Jurusan</dt>
+                <dd>{profile.major}</dd>
+              </div>
+            )}
+            {profile.graduationYear && (
+              <div>
+                <dt>Tahun lulus</dt>
+                <dd className="data-text">{profile.graduationYear}</dd>
+              </div>
+            )}
+          </dl>
         </section>
       )}
 
       {"roleTitle" in profile && (
-        <section style={{ marginTop: "1.5rem" }}>
-          <h2 style={{ fontSize: "1rem", marginBottom: "0.5rem" }}>Profil Rekruter</h2>
-          {profile.roleTitle && <p>Jabatan: {profile.roleTitle}</p>}
-          {profile.organizationName && <p>Organisasi: {profile.organizationName}</p>}
-          {profile.websiteUrl && (
-            <p>
-              Website:{" "}
-              <a href={profile.websiteUrl} target="_blank" rel="noopener noreferrer">
-                {profile.websiteUrl}
-              </a>
-            </p>
-          )}
+        <section className="content-section public-profile-section">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Rekruter</p>
+              <h2>Identitas profesional</h2>
+            </div>
+          </div>
+          <dl className="profile-detail-list">
+            {profile.roleTitle && (
+              <div>
+                <dt>Jabatan</dt>
+                <dd>{profile.roleTitle}</dd>
+              </div>
+            )}
+            {profile.organizationName && (
+              <div>
+                <dt>Organisasi</dt>
+                <dd>{profile.organizationName}</dd>
+              </div>
+            )}
+            {profile.websiteUrl && (
+              <div>
+                <dt>Website</dt>
+                <dd>
+                  <a href={profile.websiteUrl} target="_blank" rel="noopener noreferrer">
+                    {profile.websiteUrl}
+                  </a>
+                </dd>
+              </div>
+            )}
+          </dl>
         </section>
       )}
     </main>

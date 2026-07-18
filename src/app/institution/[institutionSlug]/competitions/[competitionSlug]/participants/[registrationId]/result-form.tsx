@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CompetitionResultStatus } from "@/server/db/schema";
 import { useToast } from "@/components/ui/primitives";
+import { Button } from "@/components/ui";
 
 type Props = {
   apiBasePath: string;
@@ -41,7 +42,10 @@ export function ResultForm({
       const res = await fetch(apiBasePath, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resultLabel: label.trim() || null, resultNotes: notes.trim() || null }),
+        body: JSON.stringify({
+          resultLabel: label.trim() || null,
+          resultNotes: notes.trim() || null,
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -99,95 +103,94 @@ export function ResultForm({
   };
 
   return (
-    <div style={{ marginTop: 24, borderTop: "1px solid #ddd", paddingTop: 16 }}>
-      <h2 style={{ marginBottom: 12 }}>Hasil kompetisi</h2>
+    <section className="content-section participant-result-card">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Keluaran publik</p>
+          <h2>Hasil kompetisi</h2>
+        </div>
+        <span className="status-badge" data-status={status === "published" ? "open" : "closing"}>
+          {status === "published" ? "Dipublikasikan" : "Draf"}
+        </span>
+      </div>
 
       {registrationType === "team" && teamName && (
-        <p style={{ margin: "0 0 12px", fontWeight: 600 }}>
+        <p className="participant-team-context">
           Tim: {teamName}
           {activeMemberCount !== null && (
-            <span style={{ fontWeight: 400, marginLeft: 8, color: "#666" }}>
-              ({activeMemberCount} anggota)
-            </span>
+            <span className="record-meta">({activeMemberCount} anggota)</span>
           )}
           {registrationType === "team" && (
-            <span style={{ fontWeight: 400, marginLeft: 8, color: "#666", fontSize: "0.9em" }}>
-              — menerbitkan akan memperbarui semua anggota tim
-            </span>
+            <span className="record-meta">— menerbitkan akan memperbarui semua anggota tim</span>
           )}
         </p>
       )}
 
-      <p style={{ margin: "0 0 12px", color: status === "published" ? "#060" : "#888" }}>
-        Status: <strong>{status === "published" ? "Dipublikasikan" : "Draf"}</strong>
-      </p>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          Label hasil (wajib sebelum publikasi)
+      <div className="stack-md">
+        <label className="form-field">
+          <span className="form-label form-label-required">Label hasil</span>
           <input
             type="text"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="cth. Juara 1, Finalis, Winner"
             disabled={status === "published"}
-            style={{ padding: "6px 8px" }}
+            className="form-input"
           />
+          <span className="form-help">Wajib diisi sebelum publikasi.</span>
         </label>
 
-        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          Catatan hasil (opsional)
+        <label className="form-field">
+          <span className="form-label">Catatan hasil (opsional)</span>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={4}
             disabled={status === "published"}
-            style={{ width: "100%" }}
+            className="form-textarea"
           />
         </label>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div className="record-actions">
           {status === "draft" && (
             <>
-              <button type="button" onClick={handleSaveDraft} disabled={saving}>
+              <Button
+                variant="outline"
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={saving}
+                loading={saving}
+              >
                 {saving ? "Menyimpan…" : "Simpan draf"}
-              </button>
+              </Button>
               {(() => {
                 const isDisabled = publishing || !label.trim();
                 return (
-                  <button
+                  <Button
                     type="button"
                     onClick={handlePublish}
                     disabled={isDisabled}
-                    style={{
-                      background: isDisabled ? "#aaa" : "#355795",
-                      color: "#fff",
-                      border: "none",
-                      padding: "6px 12px",
-                      borderRadius: 4,
-                      cursor: isDisabled ? "not-allowed" : "pointer",
-                      opacity: isDisabled ? 0.65 : 1,
-                    }}
+                    loading={publishing}
                   >
                     {publishing ? "Menerbitkan…" : "Terbitkan"}
-                  </button>
+                  </Button>
                 );
               })()}
             </>
           )}
           {status === "published" && (
-            <button
+            <Button
+              variant="danger"
               type="button"
               onClick={handleUnpublish}
               disabled={unpublishing}
-              style={{ background: "#c00", color: "#fff", border: "none", padding: "6px 12px", borderRadius: 4, cursor: "pointer" }}
+              loading={unpublishing}
             >
               {unpublishing ? "Membatalkan…" : "Batalkan publikasi"}
-            </button>
+            </Button>
           )}
         </div>
       </div>
-
-    </div>
+    </section>
   );
 }

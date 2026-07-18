@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button, Icon } from "@/components/ui";
 import {
   SESSION_MISMATCH_CODE,
   SESSION_MISMATCH_MESSAGE,
@@ -23,11 +24,9 @@ export function SaveButton({ competitionId, initialSaved, expectedUserId }: Prop
     setLoading(true);
     const method = saved ? "DELETE" : "POST";
     try {
-      const res = await sessionFetch(
-        expectedUserId,
-        `/api/v1/competitions/${competitionId}/save`,
-        { method },
-      );
+      const res = await sessionFetch(expectedUserId, `/api/v1/competitions/${competitionId}/save`, {
+        method,
+      });
       if (!res.ok) {
         const body = (await res.json()) as { error?: { code?: string } };
         addToast({
@@ -48,21 +47,16 @@ export function SaveButton({ competitionId, initialSaved, expectedUserId }: Prop
   };
 
   return (
-    <button
+    <Button
+      type="button"
+      variant={saved ? "gold" : "outline"}
+      size="lg"
+      fullWidth
+      leadingIcon={<Icon name={saved ? "check" : "bookmark"} size="md" />}
       onClick={handleToggle}
       disabled={loading}
-      style={{
-        marginTop: 16,
-        padding: "8px 20px",
-        background: saved ? "#ECE5FF" : "#f4f4f4",
-        color: saved ? "#355795" : "#333",
-        border: "1px solid #ccc",
-        borderRadius: 6,
-        fontSize: 14,
-        cursor: loading ? "wait" : "pointer",
-      }}
     >
-      {loading ? "..." : saved ? "✓ Disimpan" : "Simpan"}
-    </button>
+      {loading ? "Memuat…" : saved ? "Disimpan" : "Simpan kompetisi"}
+    </Button>
   );
 }

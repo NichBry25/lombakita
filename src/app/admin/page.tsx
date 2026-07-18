@@ -1,40 +1,61 @@
 import Link from "next/link";
+import { Icon, PageHeader } from "@/components/ui";
 
 const ADMIN_LINKS = [
-  { href: "/admin/institutions", label: "Verifikasi Institusi" },
-  { href: "/admin/moderation", label: "Moderasi" },
-  { href: "/admin/verification", label: "Dokumen Verifikasi" },
-  { href: "/admin/featured", label: "Kompetisi Unggulan" },
+  {
+    href: "/admin/institutions",
+    label: "Verifikasi institusi",
+    description: "Kelola status dan riwayat verifikasi workspace.",
+    icon: "building" as const,
+  },
+  {
+    href: "/admin/moderation",
+    label: "Moderasi",
+    description: "Cari akun atau institusi dan tangani dukungan internal.",
+    icon: "users" as const,
+  },
+  {
+    href: "/admin/verification",
+    label: "Dokumen verifikasi",
+    description: "Tinjau berkas identitas dalam antrean keputusan.",
+    icon: "check" as const,
+  },
+  {
+    href: "/admin/featured",
+    label: "Kompetisi unggulan",
+    description: "Kurasi urutan kompetisi yang ditonjolkan ke publik.",
+    icon: "trophy" as const,
+  },
 ];
 
 export default function AdminHubPage() {
   return (
-    <div style={{ fontFamily: "Arial, sans-serif", maxWidth: 600, margin: "48px auto", padding: "0 16px", color: "#0f1012" }}>
-      <h1 style={{ fontSize: 22, marginBottom: 4 }}>Panel Platform Ops</h1>
-      <p style={{ color: "#555", fontSize: 14, marginBottom: 24 }}>Pilih area yang ingin dikelola.</p>
+    <main className="page-shell app-page admin-page">
+      <PageHeader
+        eyebrow="Operasi platform"
+        title="Panel Platform Ops"
+        description="Pusat kendali verifikasi, moderasi, dan kurasi kualitas platform."
+      />
       <nav>
-        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-          {ADMIN_LINKS.map(({ href, label }) => (
+        <ul className="hub-grid admin-hub-grid">
+          {ADMIN_LINKS.map(({ href, label, description, icon }) => (
             <li key={href}>
-              <Link
-                href={href}
-                style={{
-                  display: "block",
-                  padding: "12px 16px",
-                  background: "#f2f7fb",
-                  borderRadius: 8,
-                  color: "#355795",
-                  textDecoration: "none",
-                  fontWeight: 500,
-                  fontSize: 14,
-                }}
-              >
-                {label}
+              <Link href={href} className="hub-card">
+                <span className="hub-card-icon">
+                  <Icon name={icon} size="lg" />
+                </span>
+                <div className="stack-xs">
+                  <h2>{label}</h2>
+                  <p>{description}</p>
+                </div>
+                <span className="hub-card-arrow" aria-hidden="true">
+                  →
+                </span>
               </Link>
             </li>
           ))}
         </ul>
       </nav>
-    </div>
+    </main>
   );
 }

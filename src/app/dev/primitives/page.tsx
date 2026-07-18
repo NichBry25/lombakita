@@ -7,11 +7,15 @@ export default function DevPrimitivesPage() {
   }
 
   return (
-    <main style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>UI Primitives — Dev Verification</h1>
-      <p style={{ color: "#666", marginBottom: "1.5rem" }}>
-        Accessible in development only (NODE_ENV !== &apos;production&apos;).
-      </p>
+    <main className="page-shell stack-lg">
+      <header className="stack-sm">
+        <p className="eyebrow">Mercusuar foundation</p>
+        <h1 className="display-title">Token dan komponen produksi</h1>
+        <p className="lead-copy">
+          Halaman verifikasi visual khusus development untuk warna, tipografi, surface, kontrol,
+          feedback, dan loading.
+        </p>
+      </header>
       <DevPrimitivesClient />
     </main>
   );

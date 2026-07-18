@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 
 type Invitation = {
   id: string;
@@ -45,7 +46,9 @@ export const InstitutionTeamShell = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Step 6.5e — a username OR an email; resolved server-side.
   const [identifier, setIdentifier] = useState("");
-  const [inviteRole, setInviteRole] = useState<"institution_owner" | "institution_staff" | "institution_member">("institution_staff");
+  const [inviteRole, setInviteRole] = useState<
+    "institution_owner" | "institution_staff" | "institution_member"
+  >("institution_staff");
   const [feedback, setFeedback] = useState<FeedbackState>(null);
 
   const loadInvitations = useCallback(async () => {
@@ -119,21 +122,31 @@ export const InstitutionTeamShell = ({
   };
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-14">
-      <header>
-        <h1 className="text-2xl font-semibold text-gleam">Undang Staf</h1>
-      </header>
+    <main className="page-shell app-page institution-team-page">
+      <PageHeader
+        eyebrow="Akses workspace"
+        title="Staf dan undangan"
+        description="Undang pengelola baru dan pantau undangan yang belum dijawab."
+        backHref={`/institution/${institutionSlug}`}
+        backLabel="Panel institusi"
+      />
 
-      <section className="glass-card p-6 space-y-4">
+      <section className="content-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Undangan baru</p>
+            <h2>Tambah pengelola</h2>
+          </div>
+        </div>
         {isPersonal ? (
-          <p className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--text-muted)]">
-            Institusi personal hanya bisa memiliki satu anggota, sehingga tidak dapat mengundang staf
-            atau anggota.
+          <p className="feedback" data-tone="info">
+            Institusi personal hanya bisa memiliki satu anggota, sehingga tidak dapat mengundang
+            staf atau anggota.
           </p>
         ) : (
-          <form className="flex gap-3 flex-wrap" onSubmit={onInvite}>
+          <form className="institution-invite-form" onSubmit={onInvite}>
             <input
-              className="form-input flex-1 min-w-0"
+              className="form-input"
               type="text"
               placeholder="Username atau email"
               value={identifier}
@@ -141,7 +154,7 @@ export const InstitutionTeamShell = ({
               required
             />
             <select
-              className="form-input w-auto"
+              className="form-select"
               value={inviteRole}
               onChange={(e) => setInviteRole(e.target.value as typeof inviteRole)}
             >
@@ -149,57 +162,66 @@ export const InstitutionTeamShell = ({
               <option value="institution_owner">Pemilik</option>
               <option value="institution_member">Anggota</option>
             </select>
-            <button className="primary-button" type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitting} loading={isSubmitting}>
               {isSubmitting ? "Mengirim..." : "Undang"}
-            </button>
+            </Button>
           </form>
         )}
 
         {feedback ? (
-          <p
-            className={`rounded-xl border px-3 py-2 text-sm ${
-              feedback.type === "error"
-                ? "border-red-200 bg-red-50 text-red-700"
-                : "border-emerald-200 bg-emerald-50 text-emerald-700"
-            }`}
-            role="status"
-          >
+          <p className="feedback" data-tone={feedback.type} role="status">
             {feedback.message}
           </p>
         ) : null}
       </section>
 
-      <section className="glass-card p-6">
-        <h2 className="text-base font-medium mb-4">Undangan Tertunda</h2>
+      <section className="content-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Status akses</p>
+            <h2>Undangan tertunda</h2>
+          </div>
+          <span className="status-badge data-text">{invitations.length}</span>
+        </div>
         {isLoading ? (
-          <p className="text-sm text-[var(--text-muted)]">Memuat...</p>
+          <div className="stack-sm" aria-label="Memuat undangan">
+            <Skeleton variant="media" />
+            <Skeleton variant="media" />
+          </div>
         ) : invitations.length === 0 ? (
-          <p className="text-sm text-[var(--text-muted)]">Tidak ada undangan tertunda.</p>
+          <EmptyState
+            icon="inbox"
+            title="Tidak ada undangan tertunda."
+            description="Undangan yang dikirim akan tersusun di sini sampai dijawab atau dibatalkan."
+          />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="table-scroll">
+            <table className="data-table">
               <thead>
-                <tr className="text-left border-b border-[var(--border)]">
-                  <th className="pb-2 font-medium">Email</th>
-                  <th className="pb-2 font-medium">Peran</th>
-                  <th className="pb-2 font-medium">Kedaluwarsa</th>
-                  <th className="pb-2" />
+                <tr>
+                  <th>Email</th>
+                  <th>Peran</th>
+                  <th>Kedaluwarsa</th>
+                  <th>
+                    <span className="sr-only">Tindakan</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {invitations.map((inv) => (
-                  <tr key={inv.id} className="border-b border-[var(--border)] last:border-0">
-                    <td className="py-2 pr-4">{inv.invitedEmail}</td>
-                    <td className="py-2 pr-4 capitalize">{inv.invitedRole.replace(/_/g, " ")}</td>
-                    <td className="py-2 pr-4">{formatDate(inv.expiresAt)}</td>
-                    <td className="py-2">
-                      <button
-                        className="text-xs text-red-600 hover:underline"
+                  <tr key={inv.id}>
+                    <td>{inv.invitedEmail}</td>
+                    <td>{inv.invitedRole.replace(/_/g, " ")}</td>
+                    <td className="data-text">{formatDate(inv.expiresAt)}</td>
+                    <td>
+                      <Button
+                        variant="danger"
+                        size="sm"
                         onClick={() => void onCancel(inv.id)}
                         type="button"
                       >
                         Batalkan
-                      </button>
+                      </Button>
                     </td>
                   </tr>
                 ))}

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Icon } from "@/components/ui";
 import type { VerifiableRole } from "@/server/auth/role-verification";
 
 type SecondRoleBannerProps = {
@@ -36,9 +37,7 @@ const readDismissedFromStorage = (storageKey: string): boolean => {
 
 export function SecondRoleBanner({ unverifiedRole, userId }: SecondRoleBannerProps) {
   const storageKey = `lombakita.banner.secondRole.dismissed.${userId}.${unverifiedRole}`;
-  const [dismissed, setDismissed] = useState<boolean>(() =>
-    readDismissedFromStorage(storageKey),
-  );
+  const [dismissed, setDismissed] = useState<boolean>(() => readDismissedFromStorage(storageKey));
 
   if (dismissed) {
     return null;
@@ -56,48 +55,26 @@ export function SecondRoleBanner({ unverifiedRole, userId }: SecondRoleBannerPro
   };
 
   return (
-    <div
-      style={{
-        border: "1px solid #c7d2fe",
-        background: "#eef2ff",
-        padding: "0.75rem 1rem",
-        borderRadius: 6,
-        marginBottom: "1rem",
-        display: "flex",
-        gap: "0.75rem",
-        alignItems: "center",
-        justifyContent: "space-between",
-      }}
-      data-testid="second-role-banner"
-      data-role={unverifiedRole}
-    >
-      <span style={{ fontSize: "0.9rem" }}>{copy.headline}</span>
-      <span style={{ display: "flex", gap: "0.5rem" }}>
+    <div className="second-role-banner" data-testid="second-role-banner" data-role={unverifiedRole}>
+      <span className="second-role-banner-copy">
+        <Icon name="user" size="md" />
+        {copy.headline}
+      </span>
+      <span className="second-role-banner-actions">
         <Link
           href={`/auth/verify-role?as=${unverifiedRole}`}
-          style={{
-            padding: "0.35rem 0.85rem",
-            background: "#355795",
-            color: "#fff",
-            borderRadius: 6,
-            textDecoration: "none",
-            fontSize: "0.85rem",
-          }}
+          className="ui-button"
+          data-variant="primary"
+          data-size="sm"
         >
           {copy.cta}
         </Link>
         <button
           type="button"
           onClick={onDismiss}
-          style={{
-            padding: "0.35rem 0.6rem",
-            background: "transparent",
-            color: "#555",
-            border: "1px solid #cbd5e1",
-            borderRadius: 6,
-            cursor: "pointer",
-            fontSize: "0.85rem",
-          }}
+          className="ui-button"
+          data-variant="ghost"
+          data-size="sm"
         >
           Tutup
         </button>

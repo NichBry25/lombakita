@@ -12,6 +12,7 @@ import {
   type ParticipantRecord,
 } from "@/server/participants/participant-service";
 import { REVIEW_STATUS_LABELS } from "./review-status-labels";
+import { ButtonLink, EmptyState, PageHeader } from "@/components/ui";
 
 type Props = {
   params: Promise<{ institutionSlug: string; competitionSlug: string }>;
@@ -47,7 +48,11 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
 
   let competitionId: string;
   try {
-    competitionId = await getCompetitionIdByInstitutionAndSlug(institutionSlug, competitionSlug, db);
+    competitionId = await getCompetitionIdByInstitutionAndSlug(
+      institutionSlug,
+      competitionSlug,
+      db,
+    );
   } catch (error) {
     if (isRedirectError(error)) throw error;
     if (error instanceof CompetitionError) notFound();
@@ -85,176 +90,195 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
     return qs ? `?${qs}` : "";
   };
 
-  const prevHref =
-    page > 1 ? `${path}${buildSearchParams({ page: String(page - 1) })}` : null;
+  const prevHref = page > 1 ? `${path}${buildSearchParams({ page: String(page - 1) })}` : null;
   const nextHref =
     page < result.pagination.totalPages
       ? `${path}${buildSearchParams({ page: String(page + 1) })}`
       : null;
 
   return (
-    <main style={{ padding: 24, maxWidth: 960, margin: "0 auto" }}>
-      <h1>Peserta — {competitionSlug}</h1>
-      <p>
-        <a href={`/institution/${institutionSlug}/competitions`}>← Kembali ke kompetisi</a>
-      </p>
+    <main className="page-shell app-page participants-page">
+      <PageHeader
+        eyebrow="Konsol partisipasi"
+        title="Peserta"
+        description={`Tinjau pendaftaran, submission, dan hasil untuk ${competitionSlug}.`}
+        backHref={`/institution/${institutionSlug}/competitions/${competitionSlug}`}
+        backLabel="Konsol kompetisi"
+      />
 
-      <section style={{ marginTop: 16, display: "flex", gap: 12, flexWrap: "wrap" }}>
+      <section className="export-toolbar glass-chrome" aria-label="Ekspor data kompetisi">
         <a
           href={`/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/export/registrants`}
           download
-          style={{ fontSize: "0.9em" }}
+          className="ui-button"
+          data-variant="outline"
+          data-size="sm"
         >
-          Export Registrants
+          Export registrants
         </a>
         <a
           href={`/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/export/submissions`}
           download
-          style={{ fontSize: "0.9em" }}
+          className="ui-button"
+          data-variant="outline"
+          data-size="sm"
         >
-          Export Submissions
+          Export submissions
         </a>
         <a
           href={`/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/export/results`}
           download
-          style={{ fontSize: "0.9em" }}
+          className="ui-button"
+          data-variant="outline"
+          data-size="sm"
         >
-          Export Results
+          Export results
         </a>
       </section>
 
-      <section style={{ marginTop: 16, display: "flex", gap: 16, flexWrap: "wrap" }}>
-        <span>
-          Total: <strong>{result.counts.total}</strong>
-        </span>
-        <span>
-          Dikonfirmasi: <strong>{result.counts.confirmed}</strong>
-        </span>
-        <span>
-          Pending: <strong>{result.counts.pending}</strong>
-        </span>
-        <span>
-          Dibatalkan: <strong>{result.counts.cancelled}</strong>
-        </span>
-        <span>
-          Ada submission: <strong>{result.counts.withSubmissions}</strong>
-        </span>
-        <span>
-          Finalisasi: <strong>{result.counts.withFinalizedSubmissions}</strong>
-        </span>
+      <section className="summary-grid participant-summary" aria-label="Ringkasan peserta">
+        <div className="summary-stat">
+          <span>Total</span>
+          <strong className="data-text">{result.counts.total}</strong>
+        </div>
+        <div className="summary-stat">
+          <span>Dikonfirmasi</span>
+          <strong className="data-text">{result.counts.confirmed}</strong>
+        </div>
+        <div className="summary-stat">
+          <span>Pending</span>
+          <strong className="data-text">{result.counts.pending}</strong>
+        </div>
+        <div className="summary-stat">
+          <span>Dibatalkan</span>
+          <strong className="data-text">{result.counts.cancelled}</strong>
+        </div>
+        <div className="summary-stat">
+          <span>Ada submission</span>
+          <strong className="data-text">{result.counts.withSubmissions}</strong>
+        </div>
+        <div className="summary-stat">
+          <span>Finalisasi</span>
+          <strong className="data-text">{result.counts.withFinalizedSubmissions}</strong>
+        </div>
       </section>
 
       <ParticipantsFilterForm path={path} status={status} type={type} />
 
       {result.participants.length === 0 ? (
-        <p style={{ marginTop: 24 }}>Tidak ada peserta.</p>
+        <EmptyState
+          icon="users"
+          title="Tidak ada peserta."
+          description="Coba ubah filter, atau kembali lagi setelah pendaftaran dimulai."
+        />
       ) : (
-        <table style={{ marginTop: 24, width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
-                Tipe
-              </th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
-                Peserta
-              </th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
-                Status
-              </th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
-                Anggota
-              </th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
-                Submission
-              </th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
-                Tinjauan
-              </th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
-                Terdaftar
-              </th>
-              <th style={{ textAlign: "left", padding: 8, borderBottom: "1px solid #ccc" }}>
-                Aksi
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.participants.map((p: ParticipantRecord) => (
-              <tr key={p.registrationId} style={{ borderBottom: "1px solid #eee" }}>
-                <td style={{ padding: 8 }}>
-                  {p.registrationType === "team" ? "Tim" : "Individu"}
-                </td>
-                <td style={{ padding: 8 }}>
-                  {p.registrationType === "individual" && p.candidate ? (
-                    p.candidate.displayName ?? p.candidate.username
-                  ) : p.team ? (
-                    <details>
-                      <summary style={{ cursor: "pointer" }}>
-                        {p.team.teamName} ({p.team.activeMemberCount} anggota)
-                      </summary>
-                      <ul style={{ margin: "4px 0 0 16px", padding: 0, listStyle: "none", fontSize: "0.9em" }}>
-                        {p.team.members.map((m) => (
-                          <li key={m.userId}>
-                            {m.displayName ?? m.username}
-                            {m.isCaptain ? " (Kapten)" : ""}
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                  ) : "—"}
-                </td>
-                <td style={{ padding: 8 }}>{p.status}</td>
-                <td style={{ padding: 8 }}>
-                  {p.registrationType === "team" && p.team ? p.team.activeMemberCount : "—"}
-                </td>
-                <td style={{ padding: 8 }}>
-                  {p.submission === null
-                    ? "Tidak ada"
-                    : p.submission.finalized
-                      ? "Finalisasi"
-                      : "Diunggah"}
-                </td>
-                <td style={{ padding: 8 }}>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      padding: "2px 6px",
-                      border: "1px solid #ccc",
-                      borderRadius: 4,
-                      fontSize: "0.85em",
-                    }}
-                  >
-                    {REVIEW_STATUS_LABELS[p.internalReviewStatus]}
-                  </span>
-                </td>
-                <td style={{ padding: 8 }}>
-                  {new Date(p.registeredAt).toLocaleDateString("id-ID")}
-                </td>
-                <td style={{ padding: 8 }}>
-                  <a href={`${path}/${p.registrationId}`}>Tinjau</a>
-                </td>
+        <div className="table-scroll">
+          <table className="data-table participants-table">
+            <thead>
+              <tr>
+                <th>Tipe</th>
+                <th>Peserta</th>
+                <th>Status</th>
+                <th>Anggota</th>
+                <th>Submission</th>
+                <th>Tinjauan</th>
+                <th>Terdaftar</th>
+                <th>Aksi</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {result.participants.map((p: ParticipantRecord) => (
+                <tr key={p.registrationId}>
+                  <td>{p.registrationType === "team" ? "Tim" : "Individu"}</td>
+                  <td>
+                    {p.registrationType === "individual" && p.candidate ? (
+                      (p.candidate.displayName ?? p.candidate.username)
+                    ) : p.team ? (
+                      <details className="participant-team-details">
+                        <summary>
+                          {p.team.teamName} ({p.team.activeMemberCount} anggota)
+                        </summary>
+                        <ul>
+                          {p.team.members.map((m) => (
+                            <li key={m.userId}>
+                              {m.displayName ?? m.username}
+                              {m.isCaptain ? " (Kapten)" : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td>
+                    <span
+                      className="status-badge"
+                      data-status={
+                        p.status === "confirmed"
+                          ? "open"
+                          : p.status === "cancelled"
+                            ? "closed"
+                            : "closing"
+                      }
+                    >
+                      {p.status}
+                    </span>
+                  </td>
+                  <td className="data-text">
+                    {p.registrationType === "team" && p.team ? p.team.activeMemberCount : "—"}
+                  </td>
+                  <td>
+                    {p.submission === null
+                      ? "Tidak ada"
+                      : p.submission.finalized
+                        ? "Finalisasi"
+                        : "Diunggah"}
+                  </td>
+                  <td>
+                    <span className="status-badge">
+                      {REVIEW_STATUS_LABELS[p.internalReviewStatus]}
+                    </span>
+                  </td>
+                  <td className="data-text">
+                    {new Date(p.registeredAt).toLocaleDateString("id-ID")}
+                  </td>
+                  <td>
+                    <ButtonLink href={`${path}/${p.registrationId}`} variant="outline" size="sm">
+                      Tinjau
+                    </ButtonLink>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {result.pagination.totalPages > 1 && (
-        <div style={{ marginTop: 16, display: "flex", gap: 16 }}>
+        <nav className="pagination" aria-label="Halaman peserta">
           {prevHref ? (
-            <a href={prevHref}>← Sebelumnya</a>
+            <ButtonLink href={prevHref} variant="outline" size="sm">
+              ← Sebelumnya
+            </ButtonLink>
           ) : (
-            <span style={{ color: "#999" }}>← Sebelumnya</span>
+            <span className="ui-button" data-variant="outline" data-size="sm" aria-disabled="true">
+              ← Sebelumnya
+            </span>
           )}
-          <span>
+          <span className="pagination-status data-text">
             Halaman {result.pagination.page} dari {result.pagination.totalPages}
           </span>
           {nextHref ? (
-            <a href={nextHref}>Selanjutnya →</a>
+            <ButtonLink href={nextHref} variant="outline" size="sm">
+              Selanjutnya →
+            </ButtonLink>
           ) : (
-            <span style={{ color: "#999" }}>Selanjutnya →</span>
+            <span className="ui-button" data-variant="outline" data-size="sm" aria-disabled="true">
+              Selanjutnya →
+            </span>
           )}
-        </div>
+        </nav>
       )}
     </main>
   );

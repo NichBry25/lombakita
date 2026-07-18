@@ -8,6 +8,7 @@ import {
   SESSION_MISMATCH_MESSAGE,
   sessionFetch,
 } from "@/lib/session/session-fetch";
+import { Button } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 
 type Props = {
@@ -42,56 +43,39 @@ function FieldInput({
   error?: string;
 }) {
   const lockedNote = locked ? (
-    <span style={{ fontSize: "0.78rem", color: "#9333ea", marginLeft: "0.5rem" }}>
-      Verifikasi peran {requiredRole} untuk mengedit
-    </span>
+    <span className="profile-locked-note">Verifikasi peran {requiredRole} untuk mengedit</span>
   ) : null;
 
-  const borderColor = error ? "#dc2626" : "#ccc";
-
   return (
-    <div style={{ marginBottom: "1rem" }}>
-      <label style={{ display: "block", fontWeight: 500, marginBottom: "0.25rem" }}>
+    <div className="form-field profile-edit-field" data-locked={locked || undefined}>
+      <label className="form-label" htmlFor={`profile-${name}`}>
         {label}
         {lockedNote}
       </label>
       {multiline ? (
         <textarea
+          id={`profile-${name}`}
           name={name}
           value={value}
           disabled={locked}
           rows={3}
           onChange={(e) => onChange(e.target.value)}
-          style={{
-            width: "100%",
-            padding: "0.5rem",
-            borderRadius: 4,
-            border: `1px solid ${borderColor}`,
-            background: locked ? "#f5f5f5" : "#fff",
-            resize: "vertical",
-            boxSizing: "border-box",
-          }}
+          className="form-textarea"
+          aria-invalid={Boolean(error)}
         />
       ) : (
         <input
+          id={`profile-${name}`}
           type="text"
           name={name}
           value={value}
           disabled={locked}
           onChange={(e) => onChange(e.target.value)}
-          style={{
-            width: "100%",
-            padding: "0.5rem",
-            borderRadius: 4,
-            border: `1px solid ${borderColor}`,
-            background: locked ? "#f5f5f5" : "#fff",
-            boxSizing: "border-box",
-          }}
+          className="form-input"
+          aria-invalid={Boolean(error)}
         />
       )}
-      {error && (
-        <p style={{ color: "#dc2626", fontSize: "0.82rem", marginTop: "0.25rem" }}>{error}</p>
-      )}
+      {error && <p className="form-error">{error}</p>}
     </div>
   );
 }
@@ -183,40 +167,38 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
       setSaving(false);
     }
   };
-
-
   return (
-    <form onSubmit={handleSubmit}>
-      <section style={{ marginBottom: "1.5rem" }}>
-        <h2 style={{ fontSize: "0.95rem", color: "#444", marginBottom: "0.75rem" }}>Akun</h2>
-        <div style={{ marginBottom: "1rem" }}>
-          <label style={{ display: "block", fontWeight: 500, marginBottom: "0.25rem" }}>
+    <form className="profile-edit-form" onSubmit={handleSubmit}>
+      <section className="content-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Akun</p>
+            <h2>Alamat profil publik</h2>
+          </div>
+        </div>
+        <div className="form-field profile-edit-field">
+          <label className="form-label" htmlFor="profile-username">
             Username
           </label>
           <input
+            id="profile-username"
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "0.5rem",
-              borderRadius: 4,
-              border: fieldErrors.username ? "1px solid #dc2626" : "1px solid #ccc",
-              boxSizing: "border-box",
-            }}
+            className="form-input"
+            aria-invalid={Boolean(fieldErrors.username)}
           />
-          {fieldErrors.username && (
-            <p style={{ color: "#dc2626", fontSize: "0.82rem", marginTop: "0.25rem" }}>
-              {fieldErrors.username}
-            </p>
-          )}
+          {fieldErrors.username && <p className="form-error">{fieldErrors.username}</p>}
         </div>
       </section>
 
-      <section style={{ marginBottom: "1.5rem" }}>
-        <h2 style={{ fontSize: "0.95rem", color: "#444", marginBottom: "0.75rem" }}>
-          Informasi Umum
-        </h2>
+      <section className="content-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Informasi umum</p>
+            <h2>Identitas publik</h2>
+          </div>
+        </div>
         <FieldInput
           label="Nama Tampil"
           name="displayName"
@@ -252,10 +234,13 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
         />
       </section>
 
-      <section style={{ marginBottom: "1.5rem" }}>
-        <h2 style={{ fontSize: "0.95rem", color: "#444", marginBottom: "0.75rem" }}>
-          Profil Kandidat
-        </h2>
+      <section className="content-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Profil kandidat</p>
+            <h2>Riwayat pendidikan</h2>
+          </div>
+        </div>
         <FieldInput
           label="Universitas"
           name="university"
@@ -285,10 +270,13 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
         />
       </section>
 
-      <section style={{ marginBottom: "1.5rem" }}>
-        <h2 style={{ fontSize: "0.95rem", color: "#444", marginBottom: "0.75rem" }}>
-          Profil Rekruter
-        </h2>
+      <section className="content-section">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Profil rekruter</p>
+            <h2>Identitas profesional</h2>
+          </div>
+        </div>
         <FieldInput
           label="Jabatan"
           name="roleTitle"
@@ -318,21 +306,9 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
         />
       </section>
 
-      <button
-        type="submit"
-        disabled={saving}
-        style={{
-          padding: "0.6rem 1.5rem",
-          background: saving ? "#94a3b8" : "#355795",
-          color: "#fff",
-          border: "none",
-          borderRadius: 6,
-          cursor: saving ? "not-allowed" : "pointer",
-          fontSize: "0.95rem",
-        }}
-      >
+      <Button type="submit" disabled={saving} loading={saving}>
         {saving ? "Menyimpan..." : "Simpan"}
-      </button>
+      </Button>
     </form>
   );
 }

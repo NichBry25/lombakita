@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button, PageHeader } from "@/components/ui";
 
 const CATEGORY_OPTIONS = [
   "technology",
@@ -68,12 +69,18 @@ export const InstitutionCompetitionCreateShell = ({
   };
 
   return (
-    <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
-      <h1>Buat Draf Kompetisi — {institutionSlug}</h1>
+    <main className="page-shell app-page competition-form-page">
+      <PageHeader
+        eyebrow="Kompetisi baru"
+        title="Buat draf kompetisi"
+        description="Mulai dengan identitas inti. Detail jadwal, format, dan publikasi diatur setelah draf dibuat."
+        backHref={`/institution/${institutionSlug}/competitions`}
+        backLabel="Daftar kompetisi"
+      />
 
-      <form onSubmit={onSubmit} style={{ marginTop: 16 }}>
-        <label style={{ display: "block", marginBottom: 8 }}>
-          Judul (5–200 karakter)
+      <form onSubmit={onSubmit} className="content-section stack-md">
+        <label className="form-field">
+          <span className="form-label form-label-required">Judul</span>
           <input
             type="text"
             value={title}
@@ -81,26 +88,30 @@ export const InstitutionCompetitionCreateShell = ({
             required
             minLength={5}
             maxLength={200}
-            style={{ display: "block", width: "100%" }}
+            className="form-input"
           />
+          <span className="form-help">5–200 karakter.</span>
         </label>
 
-        <label style={{ display: "block", marginBottom: 8 }}>
-          Slug (opsional, ^[a-z0-9-]+$, 3–120 karakter)
+        <label className="form-field">
+          <span className="form-label">Slug (opsional)</span>
           <input
             type="text"
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
-            style={{ display: "block", width: "100%" }}
+            className="form-input"
           />
+          <span className="form-help">
+            Gunakan huruf kecil, angka, dan tanda hubung; 3–120 karakter.
+          </span>
         </label>
 
-        <label style={{ display: "block", marginBottom: 8 }}>
-          Kategori (opsional)
+        <label className="form-field">
+          <span className="form-label">Kategori (opsional)</span>
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value)}
-            style={{ display: "block" }}
+            className="form-select"
           >
             <option value="">— pilih —</option>
             {CATEGORY_OPTIONS.map((c) => (
@@ -111,19 +122,16 @@ export const InstitutionCompetitionCreateShell = ({
           </select>
         </label>
 
-        <button type="submit" disabled={isSubmitting}>
+        <Button type="submit" disabled={isSubmitting} loading={isSubmitting}>
           {isSubmitting ? "Menyimpan..." : "Buat draf"}
-        </button>
-      </form>
+        </Button>
 
-      {feedback ? (
-        <p
-          role="status"
-          style={{ color: feedback.type === "error" ? "#b00" : "#070", marginTop: 16 }}
-        >
-          {feedback.message}
-        </p>
-      ) : null}
+        {feedback ? (
+          <p role="status" className="feedback" data-tone={feedback.type}>
+            {feedback.message}
+          </p>
+        ) : null}
+      </form>
     </main>
   );
 };

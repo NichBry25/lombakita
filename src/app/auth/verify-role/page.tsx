@@ -1,5 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AuthPageFrame } from "@/components/auth/auth-page-frame";
+import { ButtonLink, Feedback } from "@/components/ui";
 import { getCurrentSession } from "@/server/auth/session";
 import {
   dashboardPathForRole,
@@ -17,9 +18,7 @@ const ROLE_HEADLINE: Record<VerifiableRole, string> = {
 // STUB: CCR-19 — verification mechanics deferred. This page replaces what will eventually be
 // the real candidate/recruiter verification flow. For now it shows a single completion button
 // that flips the per-role *_verified_at timestamp via the stub completion API.
-export default async function VerifyRolePage(props: {
-  searchParams?: Promise<{ as?: string }>;
-}) {
+export default async function VerifyRolePage(props: { searchParams?: Promise<{ as?: string }> }) {
   const session = await getCurrentSession();
   if (!session?.user?.id) {
     redirect("/auth/login?callbackUrl=/");
@@ -30,16 +29,27 @@ export default async function VerifyRolePage(props: {
 
   if (!isVerifiableRole(asParam)) {
     return (
-      <main style={{ maxWidth: 560, margin: "0 auto", padding: "3rem 1rem" }}>
-        <h1>Verifikasi peran</h1>
-        <p style={{ color: "#b91c1c" }}>
-          Parameter <code>?as=</code> tidak valid. Gunakan{" "}
-          <code>?as=candidate</code> atau <code>?as=recruiter</code>.
-        </p>
-        <p style={{ marginTop: "1rem" }}>
-          <Link href="/">Kembali</Link>
-        </p>
-      </main>
+      <AuthPageFrame
+        eyebrow="Verifikasi peran"
+        title="Peran menentukan jalur verifikasi yang tepat."
+        description="Kandidat dan rekruter memiliki kebutuhan akses yang berbeda dan diverifikasi secara terpisah."
+      >
+        <div className="auth-state stack-md">
+          <span className="auth-state-icon" data-tone="error" aria-hidden="true">
+            !
+          </span>
+          <div className="stack-xs">
+            <h1>Verifikasi peran</h1>
+            <Feedback tone="error">
+              Parameter <code>?as=</code> tidak valid. Gunakan <code>?as=candidate</code> atau{" "}
+              <code>?as=recruiter</code>.
+            </Feedback>
+          </div>
+          <ButtonLink href="/" variant="outline">
+            Kembali
+          </ButtonLink>
+        </div>
+      </AuthPageFrame>
     );
   }
 
@@ -53,34 +63,33 @@ export default async function VerifyRolePage(props: {
   }
 
   return (
-    <main style={{ maxWidth: 560, margin: "0 auto", padding: "3rem 1rem" }}>
-      <h1 style={{ marginBottom: "0.5rem" }}>{ROLE_HEADLINE[role]}</h1>
+    <AuthPageFrame
+      eyebrow="Verifikasi peran"
+      title="Bangun kepercayaan sebelum membuka akses."
+      description="Setiap peran melewati jalur verifikasi tersendiri agar tindakan kandidat dan penyelenggara tetap dapat dipertanggungjawabkan."
+    >
+      <div className="auth-state stack-md">
+        <div className="stack-xs">
+          <p className="eyebrow">Status pengembangan</p>
+          <h1>{ROLE_HEADLINE[role]}</h1>
+        </div>
 
-      <p
-        style={{
-          background: "#fef9c3",
-          border: "1px solid #facc15",
-          padding: "0.75rem 1rem",
-          borderRadius: 6,
-          color: "#854d0e",
-          fontSize: "0.85rem",
-        }}
-      >
-        Ini adalah halaman <strong>stub pengembangan</strong>. Alur verifikasi sesungguhnya
-        (formulir, unggah dokumen, tinjauan ops) belum diimplementasikan dan dijadwalkan pada
-        fase berikutnya (CCR-19).
-      </p>
+        <Feedback tone="warning">
+          Ini adalah halaman <strong>stub pengembangan</strong>. Alur verifikasi sesungguhnya
+          (formulir, unggah dokumen, tinjauan ops) belum diimplementasikan dan dijadwalkan pada fase
+          berikutnya (CCR-19).
+        </Feedback>
 
-      <p style={{ color: "#555", margin: "1rem 0" }}>
-        Klik tombol di bawah untuk mensimulasikan penyelesaian verifikasi. Setelah berhasil,
-        sesi Anda akan disegarkan dan Anda akan diarahkan ke dasbor peran terkait.
-      </p>
+        <p>
+          Klik tombol di bawah untuk mensimulasikan penyelesaian verifikasi. Setelah berhasil, sesi
+          Anda akan disegarkan dan Anda akan diarahkan ke dasbor peran terkait.
+        </p>
 
-      <StubCompleteButton role={role} />
-
-      <p style={{ marginTop: "1.5rem", fontSize: "0.85rem" }}>
-        <Link href="/">Batal — kembali</Link>
-      </p>
-    </main>
+        <StubCompleteButton role={role} />
+        <ButtonLink href="/" variant="ghost" size="sm">
+          Batal — kembali
+        </ButtonLink>
+      </div>
+    </AuthPageFrame>
   );
 }

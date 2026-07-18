@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 
 type FeaturedRowFormProps = {
@@ -25,8 +26,7 @@ export function FeaturedRowForm({
     e.preventDefault();
     setSaving(true);
 
-    const parsedOrder =
-      featuredOrder.trim() === "" ? null : parseInt(featuredOrder.trim(), 10);
+    const parsedOrder = featuredOrder.trim() === "" ? null : parseInt(featuredOrder.trim(), 10);
 
     if (featuredOrder.trim() !== "" && (isNaN(parsedOrder!) || !Number.isInteger(parsedOrder))) {
       addToast({ type: "error", message: "Urutan harus berupa bilangan bulat." });
@@ -56,8 +56,8 @@ export function FeaturedRowForm({
   };
 
   return (
-    <form onSubmit={(e) => void handleSubmit(e)} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-      <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+    <form onSubmit={(e) => void handleSubmit(e)} className="featured-row-form">
+      <label className="checkbox-field">
         <input
           type="checkbox"
           checked={isFeatured}
@@ -71,23 +71,11 @@ export function FeaturedRowForm({
         onChange={(e) => setFeaturedOrder(e.target.value)}
         placeholder="Urutan"
         aria-label="Urutan unggulan"
-        style={{ width: 70, padding: "3px 6px", borderRadius: 4, border: "1px solid #ccc", fontSize: 12 }}
+        className="form-input featured-order-input"
       />
-      <button
-        type="submit"
-        disabled={saving}
-        style={{
-          padding: "4px 10px",
-          borderRadius: 6,
-          border: "none",
-          background: "#355795",
-          color: "#fff",
-          fontSize: 12,
-          cursor: saving ? "not-allowed" : "pointer",
-        }}
-      >
+      <Button type="submit" disabled={saving} loading={saving} size="sm">
         {saving ? "..." : "Simpan"}
-      </button>
+      </Button>
     </form>
   );
 }

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { sessionHasRole } from "@/lib/access/roles";
 import { getCurrentSession } from "@/server/auth/session";
@@ -8,6 +7,7 @@ import { getStudentRegistration } from "@/server/registrations/registration-serv
 import { getTeamForCompetitionAndCandidate } from "@/server/teams/team-service";
 import { IndividualRegistrationSection } from "./individual-section";
 import { CompetitionTeamSection } from "./team-section";
+import { PageHeader } from "@/components/ui";
 
 // Dedicated registration surface. The detail page at `..` is read-only; candidates click
 // "Daftar" there which navigates here. This separation keeps reading vs. registering distinct
@@ -28,12 +28,15 @@ export default async function CompetitionRegistrationPage({
 
   if (!sessionHasRole(session.user.role, session.user.verifiedRoles, "candidate")) {
     return (
-      <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
-        <Link href={detailPath} style={{ fontSize: 14, color: "#555" }}>
-          ← Kembali ke detail kompetisi
-        </Link>
-        <h1 style={{ marginTop: 16, fontSize: 22 }}>Hanya kandidat yang dapat mendaftar</h1>
-        <p style={{ marginTop: 8, color: "#555" }}>
+      <main className="page-shell app-page registration-page">
+        <PageHeader
+          eyebrow="Akses pendaftaran"
+          title="Hanya kandidat yang dapat mendaftar"
+          description="Akun kandidat yang terverifikasi diperlukan untuk memulai pendaftaran kompetisi."
+          backHref={detailPath}
+          backLabel="Kembali ke detail kompetisi"
+        />
+        <p className="feedback" data-tone="warning">
           Akun Anda bukan akun kandidat. Masuk dengan akun kandidat untuk mendaftar ke kompetisi
           ini.
         </p>
@@ -45,8 +48,7 @@ export default async function CompetitionRegistrationPage({
   if (!competition) notFound();
 
   const supportsTeams = competition.mode === "team" || competition.mode === "both";
-  const supportsIndividual =
-    competition.mode === "individual" || competition.mode === "both";
+  const supportsIndividual = competition.mode === "individual" || competition.mode === "both";
 
   // Individual side: load the calling candidate's existing registration (if any).
   const initialRegistration = supportsIndividual
@@ -86,33 +88,23 @@ export default async function CompetitionRegistrationPage({
   const registrationOpen = competition.ctaState === "open";
 
   return (
-    <main style={{ padding: 24, maxWidth: 800, margin: "0 auto" }}>
-      <Link href={detailPath} style={{ fontSize: 14, color: "#555" }}>
-        ← {competition.title}
-      </Link>
-
-      <h1 style={{ marginTop: 16, fontSize: 24 }}>Daftarkan diri</h1>
-      <p style={{ fontSize: 13, color: "#666", marginTop: 4 }}>
-        {competition.mode === "both"
-          ? "Kompetisi ini menerima pendaftaran individu maupun tim."
-          : competition.mode === "team"
-            ? "Kompetisi ini wajib didaftarkan sebagai tim."
-            : "Kompetisi ini menerima pendaftaran individu."}
-      </p>
+    <main className="page-shell app-page registration-page">
+      <PageHeader
+        eyebrow="Pendaftaran kompetisi"
+        title="Daftarkan diri"
+        description={
+          competition.mode === "both"
+            ? "Kompetisi ini menerima pendaftaran individu maupun tim."
+            : competition.mode === "team"
+              ? "Kompetisi ini wajib didaftarkan sebagai tim."
+              : "Kompetisi ini menerima pendaftaran individu."
+        }
+        backHref={detailPath}
+        backLabel={competition.title}
+      />
 
       {!registrationOpen && (
-        <div
-          role="alert"
-          style={{
-            marginTop: 16,
-            padding: 12,
-            background: "#fff7d6",
-            border: "1px solid #d4a000",
-            borderRadius: 6,
-            color: "#7a5500",
-            fontSize: 13,
-          }}
-        >
+        <div role="alert" className="feedback" data-tone="warning">
           {competition.ctaState === "not_yet_open"
             ? "Pendaftaran belum dibuka."
             : "Pendaftaran sudah ditutup."}
@@ -129,9 +121,7 @@ export default async function CompetitionRegistrationPage({
               : null
           }
           expectedUserId={session.user.id}
-          modeLabel={
-            competition.mode === "both" ? "Daftar sebagai individu" : "Daftar"
-          }
+          modeLabel={competition.mode === "both" ? "Daftar sebagai individu" : "Daftar"}
         />
       )}
 
