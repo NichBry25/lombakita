@@ -16,6 +16,8 @@ export { Icon } from "./icon";
 export type { IconName } from "./icon";
 export { Skeleton, SkeletonCard } from "./skeleton";
 export type { SkeletonVariant } from "./skeleton";
+export { FilterDropdown } from "./filter-dropdown";
+export type { FilterOption } from "./filter-dropdown";
 export { EmptyState } from "./empty-state";
 export { PageHeader } from "./page-header";
 export { PageLoading } from "./page-loading";

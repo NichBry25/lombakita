@@ -16,6 +16,12 @@ import {
   type ProfilePatch,
   type PublicProfileResponse,
 } from "@/server/user-profile/profile-core";
+import { getProfileCollections } from "@/server/user-profile/profile-collections-service";
+import { resolveProfileFileUrl } from "@/server/user-profile/profile-files-service";
+import type {
+  OwnerResume,
+  PublicResume,
+} from "@/server/user-profile/profile-collections-core";
 
 type UserProfileRow = {
   id: string;
@@ -24,16 +30,17 @@ type UserProfileRow = {
   role: string;
   candidateVerifiedAt: Date | null;
   recruiterVerifiedAt: Date | null;
+  recruiterVerificationTier: "unverified" | "minimal" | "elevated";
   displayName: string | null;
   summary: string | null;
   location: string | null;
   avatarUrl: string | null;
-  university: string | null;
-  major: string | null;
-  graduationYear: number | null;
-  roleTitle: string | null;
-  organizationName: string | null;
-  websiteUrl: string | null;
+  avatarR2Key: string | null;
+  resumeR2Key: string | null;
+  resumeFileName: string | null;
+  resumeSizeBytes: number | null;
+  resumeMimeType: string | null;
+  resumePublic: boolean | null;
 };
 
 const PROFILE_COLUMNS = {
@@ -43,16 +50,17 @@ const PROFILE_COLUMNS = {
   role: users.role,
   candidateVerifiedAt: users.candidateVerifiedAt,
   recruiterVerifiedAt: users.recruiterVerifiedAt,
+  recruiterVerificationTier: users.recruiterVerificationTier,
   displayName: userProfiles.displayName,
   summary: userProfiles.summary,
   location: userProfiles.location,
   avatarUrl: userProfiles.avatarUrl,
-  university: userProfiles.university,
-  major: userProfiles.major,
-  graduationYear: userProfiles.graduationYear,
-  roleTitle: userProfiles.roleTitle,
-  organizationName: userProfiles.organizationName,
-  websiteUrl: userProfiles.websiteUrl,
+  avatarR2Key: userProfiles.avatarR2Key,
+  resumeR2Key: userProfiles.resumeR2Key,
+  resumeFileName: userProfiles.resumeFileName,
+  resumeSizeBytes: userProfiles.resumeSizeBytes,
+  resumeMimeType: userProfiles.resumeMimeType,
+  resumePublic: userProfiles.resumePublic,
 } as const;
 
 const findUserProfileByUserId = async (
@@ -83,6 +91,32 @@ const findUserProfileByUsername = async (
   return row ?? null;
 };
 
+// Resolves the display avatar URL: a presigned GET on the uploaded R2 key when present, else the
+// legacy external URL fallback, else null.
+const resolveAvatarUrl = async (row: UserProfileRow): Promise<string | null> => {
+  const uploaded = await resolveProfileFileUrl(row.avatarR2Key);
+  return uploaded ?? row.avatarUrl;
+};
+
+const buildOwnerResume = async (row: UserProfileRow): Promise<OwnerResume | null> => {
+  if (!row.resumeR2Key) return null;
+  return {
+    fileName: row.resumeFileName ?? "resume",
+    sizeBytes: row.resumeSizeBytes,
+    mimeType: row.resumeMimeType,
+    isPublic: row.resumePublic === true,
+    downloadUrl: await resolveProfileFileUrl(row.resumeR2Key),
+  };
+};
+
+const buildPublicResume = async (row: UserProfileRow): Promise<PublicResume | null> => {
+  if (!row.resumeR2Key || row.resumePublic !== true) return null;
+  return {
+    fileName: row.resumeFileName ?? "resume",
+    downloadUrl: await resolveProfileFileUrl(row.resumeR2Key),
+  };
+};
+
 export const getOwnerProfile = async (
   userId: string,
   db: Database = getDb(),
@@ -93,7 +127,14 @@ export const getOwnerProfile = async (
     throw new ProfileInputError("profile_invalid_payload", "Profile not found");
   }
 
-  return buildOwnerProfileResponse(row);
+  const collections = await getProfileCollections(row.id, db);
+  const response = buildOwnerProfileResponse(row, collections);
+  const avatarUrl = await resolveAvatarUrl(row);
+  response.avatarUrl = avatarUrl
+    ? { status: "populated", value: avatarUrl }
+    : { status: "empty", value: null };
+  response.resume = await buildOwnerResume(row);
+  return response;
 };
 
 export const getPublicProfile = async (
@@ -104,7 +145,11 @@ export const getPublicProfile = async (
 
   if (!row) return null;
 
-  return buildPublicProfileResponse(row);
+  const collections = await getProfileCollections(row.id, db);
+  const response = buildPublicProfileResponse(row, collections);
+  response.avatarUrl = await resolveAvatarUrl(row);
+  response.resume = await buildPublicResume(row);
+  return response;
 };
 
 export const isUsernameOwnedBy = async (
@@ -133,29 +178,6 @@ export const isUsernameTaken = async (
     .limit(1);
 
   return Boolean(row && row.id !== excludeUserId);
-};
-
-// Fetches the account's verification state. Route layer calls this before parseProfilePatch
-// so scope-gating is enforced with current DB values (not session token values).
-export const getVerificationState = async (
-  userId: string,
-  db: Database = getDb(),
-): Promise<{ candidateVerified: boolean; recruiterVerified: boolean } | null> => {
-  const [row] = await db
-    .select({
-      candidateVerifiedAt: users.candidateVerifiedAt,
-      recruiterVerifiedAt: users.recruiterVerifiedAt,
-    })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-
-  if (!row) return null;
-
-  return {
-    candidateVerified: row.candidateVerifiedAt !== null,
-    recruiterVerified: row.recruiterVerifiedAt !== null,
-  };
 };
 
 export const updateOwnerProfile = async (
@@ -228,9 +250,9 @@ export const updateOwnerProfile = async (
 
     // --- user_profiles upsert ---
     // Only upsert if any profile field is being changed.
-    const profileFieldsInPatch = (
-      ["displayName", "bio", "location", "avatarUrl", "university", "major", "graduationYear", "roleTitle", "organizationName", "websiteUrl"] as const
-    ).filter((f) => f in patch);
+    const profileFieldsInPatch = (["displayName", "bio", "location"] as const).filter(
+      (f) => f in patch,
+    );
 
     if (profileFieldsInPatch.length === 0) return;
 
@@ -250,27 +272,6 @@ export const updateOwnerProfile = async (
       } else if (field === "location") {
         insertValues.location = value as string | null | undefined;
         updateSet.location = value as string | null | undefined;
-      } else if (field === "avatarUrl") {
-        insertValues.avatarUrl = value as string | null | undefined;
-        updateSet.avatarUrl = value as string | null | undefined;
-      } else if (field === "university") {
-        insertValues.university = value as string | null | undefined;
-        updateSet.university = value as string | null | undefined;
-      } else if (field === "major") {
-        insertValues.major = value as string | null | undefined;
-        updateSet.major = value as string | null | undefined;
-      } else if (field === "graduationYear") {
-        insertValues.graduationYear = value as number | null | undefined;
-        updateSet.graduationYear = value as number | null | undefined;
-      } else if (field === "roleTitle") {
-        insertValues.roleTitle = value as string | null | undefined;
-        updateSet.roleTitle = value as string | null | undefined;
-      } else if (field === "organizationName") {
-        insertValues.organizationName = value as string | null | undefined;
-        updateSet.organizationName = value as string | null | undefined;
-      } else if (field === "websiteUrl") {
-        insertValues.websiteUrl = value as string | null | undefined;
-        updateSet.websiteUrl = value as string | null | undefined;
       }
     }
 

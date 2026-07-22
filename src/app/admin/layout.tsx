@@ -25,6 +25,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         <div className="admin-nav-links">
           <Link href="/admin/institutions">Institusi</Link>
           <Link href="/admin/verification">Dokumen</Link>
+          <Link href="/admin/recruiter-verification">Rekruter</Link>
           <Link href="/admin/moderation">Moderasi</Link>
           <Link href="/admin/featured">Unggulan</Link>
         </div>

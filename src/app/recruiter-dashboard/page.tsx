@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SecondRoleBanner } from "@/components/auth/second-role-banner";
-import { ButtonLink, Icon, PageHeader } from "@/components/ui";
+import { Icon, PageHeader } from "@/components/ui";
 import { getCurrentSession } from "@/server/auth/session";
 import { getUnverifiedRoles } from "@/server/auth/role-verification";
+import { getRecruiterTierForAccount } from "@/server/auth/recruiter-tier";
+import { getLatestRecruiterVerificationForUser } from "@/server/recruiter-verification/recruiter-verification-service";
+import { RecruiterVerificationPanel } from "@/app/recruiter-dashboard/recruiter-verification-panel";
 
-// Step 4.0b — minimal-proof recruiter dashboard scaffold. Hosts the second-role banner and the
-// elevated-tier (Phase 4.0c) entry point stub.
+// Minimal-proof recruiter dashboard. Hosts the second-role banner and the recruiter trust
+// verification panel (submit / pending / rejected / Trusted).
 export default async function RecruiterDashboardPage() {
   const session = await getCurrentSession();
   if (!session?.user?.id) {
@@ -24,6 +27,12 @@ export default async function RecruiterDashboardPage() {
 
   const showCandidateBanner = unverified.includes("candidate");
   const recruiterIsVerified = !unverified.includes("recruiter");
+
+  const [tierState, latestVerification] = await Promise.all([
+    getRecruiterTierForAccount(session.user.id),
+    getLatestRecruiterVerificationForUser(session.user.id),
+  ]);
+  const isTrusted = tierState?.recruiterVerificationTier === "elevated";
 
   return (
     <main className="page-shell app-page recruiter-dashboard">
@@ -65,22 +74,29 @@ export default async function RecruiterDashboardPage() {
       </section>
 
       {recruiterIsVerified ? (
-        <section data-testid="elevated-tier-entry" className="content-section recruiter-tier-card">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Kredibilitas penyelenggara</p>
-              <h2>Verifikasi rekruter tingkat lanjut</h2>
-            </div>
-            <span className="status-badge">Segera hadir</span>
-          </div>
-          <p className="muted-copy">
-            Tingkat lanjut akan diaktifkan pada fase berikutnya. Saat ini tersedia sebagai pratinjau
-            jalur verifikasi.
-          </p>
-          <ButtonLink href="/auth/verify-tier?target=elevated" variant="outline" size="sm">
-            Pelajari lebih lanjut
-          </ButtonLink>
-        </section>
+        <RecruiterVerificationPanel
+          userId={session.user.id}
+          isTrusted={isTrusted}
+          submission={
+            latestVerification
+              ? {
+                  id: latestVerification.submission.id,
+                  status: latestVerification.submission.status,
+                  rejectionReason: latestVerification.submission.rejectionReason,
+                  corporateEmail: latestVerification.submission.corporateEmail,
+                  vouchedAt: latestVerification.submission.vouchedAt
+                    ? latestVerification.submission.vouchedAt.toISOString()
+                    : null,
+                }
+              : null
+          }
+          documents={
+            latestVerification?.documents.map((d) => ({
+              id: d.id,
+              originalFileName: d.originalFileName,
+            })) ?? []
+          }
+        />
       ) : null}
     </main>
   );

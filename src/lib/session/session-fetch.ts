@@ -11,7 +11,7 @@
 // `src/server/auth/access-core.ts#assertSessionMatchesExpectedUser`.
 //
 // Usage:
-//   const res = await sessionFetch(currentUserId, "/api/v1/students/me/eligibility", {
+//   const res = await sessionFetch(currentUserId, "/api/v1/candidate/me/profile", {
 //     method: "PATCH",
 //     headers: { "content-type": "application/json" },
 //     body: JSON.stringify(...),

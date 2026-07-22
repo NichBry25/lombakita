@@ -21,6 +21,12 @@ const ADMIN_LINKS = [
     icon: "check" as const,
   },
   {
+    href: "/admin/recruiter-verification",
+    label: "Verifikasi rekruter",
+    description: "Tinjau permohonan Rekruter Terpercaya dalam antrean prioritas.",
+    icon: "user" as const,
+  },
+  {
     href: "/admin/featured",
     label: "Kompetisi unggulan",
     description: "Kurasi urutan kompetisi yang ditonjolkan ke publik.",

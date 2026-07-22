@@ -20,6 +20,18 @@ import {
 } from "@/server/auth/password";
 import { sendRegistrationVerificationEmail } from "@/server/auth/email-verification";
 import { claimPendingInvitationsForUser } from "@/server/invitations/claim-service";
+import {
+  CandidateProfileError,
+  parseCandidateProfileInput,
+  type CandidateProfileInput,
+} from "@/server/candidate/candidate-profile-core";
+import { insertCandidateProfileInTransaction } from "@/server/candidate/candidate-profile-service";
+import {
+  parseRecruiterVerificationInput,
+  RecruiterVerificationError,
+  type RecruiterVerificationInput,
+} from "@/server/recruiter-verification/recruiter-verification-core";
+import { createRecruiterVerificationSubmissionInTransaction } from "@/server/recruiter-verification/recruiter-verification-service";
 
 const NAME_MIN_LENGTH = 2;
 const NAME_MAX_LENGTH = 120;
@@ -100,7 +112,12 @@ type AuthFlowErrorCode =
   | "verification_token_invalid"
   | "verification_token_expired"
   | "verification_email_failed"
-  | "username_generation_failed";
+  | "username_generation_failed"
+  | "candidate_profile_invalid_payload"
+  | "candidate_profile_invalid_fields"
+  | "candidate_profile_invalid_value"
+  | "recruiter_verification_invalid_payload"
+  | "recruiter_verification_invalid_value";
 
 export class CredentialsAuthError extends Error {
   constructor(
@@ -184,6 +201,14 @@ type RegistrationInput = {
   email: string;
   password: string;
   signupRole: SignupRole;
+  // Present only for candidate signups. Candidate onboarding collects these descriptive fields in
+  // the same request that creates the account, so the profile and the candidate verification grant
+  // land in one transaction. Recruiter signups leave this null.
+  candidateProfile: CandidateProfileInput | null;
+  // Present only for recruiter signups. The affiliation form (full name, mobile number, optional
+  // corporate email) creates a pending trust-verification submission in the same transaction as
+  // the recruiter role grant. Candidate signups leave this null.
+  recruiterVerification: RecruiterVerificationInput | null;
 };
 
 const parseSignupRole = (value: unknown): SignupRole => {
@@ -207,11 +232,49 @@ export const parseRegistrationInput = (payload: unknown): RegistrationInput => {
     );
   }
 
+  const signupRole = parseSignupRole(payload.signupRole ?? payload.role);
+
+  // Candidate signups must carry a complete onboarding profile in the same payload. Candidate
+  // validation failures are surfaced through the credentials-auth error pipeline (400) so the
+  // register endpoint reports them uniformly.
+  let candidateProfile: CandidateProfileInput | null = null;
+  if (signupRole === "candidate") {
+    try {
+      candidateProfile = parseCandidateProfileInput(payload);
+    } catch (error) {
+      if (error instanceof CandidateProfileError) {
+        throw new CredentialsAuthError(error.code, 400, error.message);
+      }
+      throw error;
+    }
+  }
+
+  // Recruiter signups must carry the affiliation form in the same payload; validation failures
+  // surface through the same 400 pipeline as candidate onboarding errors.
+  let recruiterVerification: RecruiterVerificationInput | null = null;
+  if (signupRole === "recruiter") {
+    try {
+      recruiterVerification = parseRecruiterVerificationInput(payload);
+    } catch (error) {
+      if (error instanceof RecruiterVerificationError) {
+        // Parsing can only fail with the two validation codes; narrow explicitly for the union.
+        const code =
+          error.code === "recruiter_verification_invalid_payload"
+            ? ("recruiter_verification_invalid_payload" as const)
+            : ("recruiter_verification_invalid_value" as const);
+        throw new CredentialsAuthError(code, 400, error.message);
+      }
+      throw error;
+    }
+  }
+
   return {
     name: parseName(payload.name),
     email: parseEmail(payload.email),
     password: parsePassword(payload.password),
-    signupRole: parseSignupRole(payload.signupRole ?? payload.role),
+    signupRole,
+    candidateProfile,
+    recruiterVerification,
   };
 };
 
@@ -389,6 +452,24 @@ export const registerUserWithCredentials = async (
           displayName: input.name,
         })
         .onConflictDoNothing();
+
+      // Candidate onboarding profile is written in the SAME transaction that grants the candidate
+      // verification timestamp (via roleColumns above), so a candidate account never exists without
+      // its onboarding data. Recruiter signups skip this — recruiter onboarding is a separate flow.
+      if (input.candidateProfile) {
+        await insertCandidateProfileInTransaction(tx, userId, input.candidateProfile);
+      }
+
+      // Recruiter affiliation form lands in the SAME transaction as the recruiter role grant, so
+      // every credentials-signup recruiter enters the review queue immediately. The account stays
+      // sandboxed (tier `minimal`: drafts yes, publishing no) until platform ops approve.
+      if (input.recruiterVerification) {
+        await createRecruiterVerificationSubmissionInTransaction(
+          tx,
+          userId,
+          input.recruiterVerification,
+        );
+      }
 
       await tx
         .insert(userPasswordCredentials)

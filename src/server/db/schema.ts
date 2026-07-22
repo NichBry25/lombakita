@@ -33,6 +33,15 @@ export const platformUserRoleEnum = pgEnum("platform_user_role", [
   "finance_ops",
 ]);
 
+// Fixed set of social platforms a profile may link to (one link per platform per user).
+export const profileSocialPlatformEnum = pgEnum("profile_social_platform", [
+  "linkedin",
+  "github",
+  "instagram",
+  "x",
+  "website",
+]);
+
 export const institutionStatusEnum = pgEnum("institution_status", [
   "active",
   "inactive",
@@ -132,29 +141,18 @@ export type CompetitionMode = (typeof competitionModeEnum.enumValues)[number];
 export type CompetitionStatus = (typeof competitionStatusEnum.enumValues)[number];
 export type CompetitionCategory = (typeof competitionCategoryEnum.enumValues)[number];
 
-// Step 4.1: Student eligibility primitives.
-// `student_enrollment_status` is the self-declared MVP enrollment value. `enrolled` is the only
-// status that satisfies the eligibility helper; other values produce ineligible_enrollment.
-// `unknown` is the safety-valve until the student fills the field.
-export const studentEnrollmentStatusEnum = pgEnum("student_enrollment_status", [
-  "enrolled",
-  "on_leave",
-  "graduated",
-  "unknown",
+// Candidate self-declared current occupation, captured at candidate onboarding. Purely
+// descriptive — it does not gate access. Anyone of any age and any occupation may register as a
+// candidate; this field records where they are in life for segmentation and display.
+export const candidateOccupationEnum = pgEnum("candidate_occupation", [
+  "school_student",
+  "college_student",
+  "new_graduate",
+  "professional",
+  "other",
 ]);
 
-// Indonesian higher-education credential levels. D3/D4 are diploma tracks; S1/S2/S3 are
-// undergraduate, master, doctoral. Curated MVP set; extension deferred to a later step.
-export const studentEducationLevelEnum = pgEnum("student_education_level", [
-  "D3",
-  "D4",
-  "S1",
-  "S2",
-  "S3",
-]);
-
-export type StudentEnrollmentStatus = (typeof studentEnrollmentStatusEnum.enumValues)[number];
-export type StudentEducationLevel = (typeof studentEducationLevelEnum.enumValues)[number];
+export type CandidateOccupation = (typeof candidateOccupationEnum.enumValues)[number];
 
 export type AppUserStatus = (typeof appUserStatusEnum.enumValues)[number];
 export type InstitutionInvitationStatus =
@@ -240,30 +238,165 @@ export const users = pgTable(
 // known debt). The new user-profile API exposes it as `bio`. Old student-profile code continues
 // to reference it as `summary` → `headline` without disruption.
 // `phoneNumber` retained for backward compat with pre-rollback student-profile code.
-// New fields added:
-//   shared:           location
-//   candidate-scoped: university, major, graduation_year
-//   recruiter-scoped: role_title, organization_name, website_url
-// Field scope (shared / candidate / recruiter) is enforced at the application layer only — no
-// DB-level scope column. The scope constants live in src/server/user-profile/profile-core.ts.
+// Remaining scalar fields are all "shared" — readable/writable by any account, no per-role
+// scope gating. The former candidate-scoped (university, major, graduation_year) and
+// recruiter-scoped (role_title, organization_name, website_url) columns were retired: their data
+// now lives in the multi-row profile collection tables below (profile_educations,
+// profile_experiences, profile_social_links), which are role-agnostic.
 export const userProfiles = pgTable("user_profiles", {
   userId: text("user_id")
     .primaryKey()
     .references(() => users.id, { onDelete: "cascade" }),
   displayName: text("display_name"),
   phoneNumber: text("phone_number"),
+  // `avatar_url` is a legacy external-URL fallback (no longer editable). The uploaded avatar is
+  // stored as an R2 object key in `avatar_r2_key`; the read path presigns a short-lived GET URL.
   avatarUrl: text("avatar_url"),
+  avatarR2Key: text("avatar_r2_key"),
   summary: text("summary"),
   location: text("location"),
-  university: text("university"),
-  major: text("major"),
-  graduationYear: integer("graduation_year"),
-  roleTitle: text("role_title"),
-  organizationName: text("organization_name"),
-  websiteUrl: text("website_url"),
+  // Single resume per user (uploaded to R2). `resume_public` gates whether it appears on the
+  // public profile; it is owner-only by default.
+  resumeR2Key: text("resume_r2_key"),
+  resumeFileName: text("resume_file_name"),
+  resumeSizeBytes: bigint("resume_size_bytes", { mode: "number" }),
+  resumeMimeType: text("resume_mime_type"),
+  resumeUploadedAt: timestamp("resume_uploaded_at", { mode: "date", withTimezone: true }),
+  resumePublic: boolean("resume_public").notNull().default(false),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
 });
+
+// Profile detail collections. Every row is scoped to one user (FK ON DELETE CASCADE) and is
+// role-agnostic: any signed-in account may add entries regardless of candidate/recruiter
+// verification. Verification badges still render on the profile, but they no longer gate which
+// sections a user can fill. These tables replace the single scalar profile fields retired above.
+export const profileExperiences = pgTable(
+  "profile_experiences",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    organizationName: text("organization_name").notNull(),
+    location: text("location"),
+    // Month-granularity in practice (stored as first-of-month). Nullable: "dates optional" UX and
+    // the legacy backfill (old recruiter fields carried no dates) both need a null-start entry.
+    startDate: date("start_date", { mode: "date" }),
+    endDate: date("end_date", { mode: "date" }),
+    isCurrent: boolean("is_current").notNull().default(false),
+    description: text("description"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("profile_experiences_user_id_idx").on(table.userId),
+    check(
+      "profile_experiences_date_order_chk",
+      sql`${table.startDate} IS NULL OR ${table.endDate} IS NULL OR ${table.endDate} >= ${table.startDate}`,
+    ),
+    check(
+      "profile_experiences_current_no_end_chk",
+      sql`${table.isCurrent} = false OR ${table.endDate} IS NULL`,
+    ),
+  ],
+);
+
+export const profileEducations = pgTable(
+  "profile_educations",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    school: text("school").notNull(),
+    degree: text("degree"),
+    fieldOfStudy: text("field_of_study"),
+    startYear: integer("start_year"),
+    endYear: integer("end_year"),
+    description: text("description"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("profile_educations_user_id_idx").on(table.userId),
+    check(
+      "profile_educations_year_order_chk",
+      sql`${table.startYear} IS NULL OR ${table.endYear} IS NULL OR ${table.endYear} >= ${table.startYear}`,
+    ),
+  ],
+);
+
+export const profileSkills = pgTable(
+  "profile_skills",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("profile_skills_user_id_idx").on(table.userId),
+    // Case-insensitive uniqueness per user: no duplicate skill regardless of casing.
+    uniqueIndex("profile_skills_user_name_unique_idx").on(table.userId, sql`lower(${table.name})`),
+  ],
+);
+
+export const profileCertifications = pgTable(
+  "profile_certifications",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    issuer: text("issuer").notNull(),
+    issueDate: date("issue_date", { mode: "date" }),
+    expiryDate: date("expiry_date", { mode: "date" }),
+    credentialId: text("credential_id"),
+    credentialUrl: text("credential_url"),
+    // Optional uploaded certificate file, stored as an R2 object key (read path presigns a GET URL).
+    fileR2Key: text("file_r2_key"),
+    fileName: text("file_name"),
+    fileSizeBytes: bigint("file_size_bytes", { mode: "number" }),
+    fileMimeType: text("file_mime_type"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index("profile_certifications_user_id_idx").on(table.userId)],
+);
+
+export const profileSocialLinks = pgTable(
+  "profile_social_links",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    platform: profileSocialPlatformEnum("platform").notNull(),
+    url: text("url").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("profile_social_links_user_id_idx").on(table.userId),
+    // One link per platform per user (fixed platform set).
+    uniqueIndex("profile_social_links_user_platform_unique_idx").on(table.userId, table.platform),
+  ],
+);
 
 export const userPasswordCredentials = pgTable("user_password_credentials", {
   userId: text("user_id")
@@ -758,21 +891,22 @@ export const competitionRegistrations = pgTable(
   ],
 );
 
-// Step 4.1: Student eligibility profile.
-// Eligibility STATUS is never persisted — it is computed on demand by checkStudentEligibility
-// from the fields below plus the current server time. This table stores only the raw inputs the
-// student self-declares; the helper is the single source of truth for the derived status.
-// Separate from user_profiles because eligibility is student-only and must not be exposed via
-// the generic profile shell endpoint (see contract: forbidden_mutation_scopes).
-export const studentEligibilityProfiles = pgTable("student_eligibility_profiles", {
+// Candidate onboarding profile.
+// Captured when an account first declares the candidate role, in the same transaction that grants
+// candidate verification. These are self-declared descriptive fields, not an eligibility gate:
+// there is no age or enrollment restriction on becoming a candidate. Separate from user_profiles
+// because these fields are candidate-specific and are not exposed via the generic profile shell
+// endpoint. `full_name` is the candidate's own declared full name, distinct from the profile
+// display name. Every field is required; the profile is one uniform shape with no conditional
+// fields.
+export const candidateProfiles = pgTable("candidate_profiles", {
   userId: text("user_id")
     .primaryKey()
     .references(() => users.id, { onDelete: "cascade" }),
-  dateOfBirth: date("date_of_birth", { mode: "string" }),
-  enrollmentStatus: studentEnrollmentStatusEnum("enrollment_status"),
-  educationLevel: studentEducationLevelEnum("education_level"),
-  universityName: text("university_name"),
-  studentIdNumber: text("student_id_number"),
+  fullName: text("full_name").notNull(),
+  phoneNumber: text("phone_number").notNull(),
+  occupation: candidateOccupationEnum("occupation").notNull(),
+  dateOfBirth: date("date_of_birth", { mode: "string" }).notNull(),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
 });
@@ -1095,6 +1229,79 @@ export const institutionVerificationDocuments = pgTable(
     index("institution_verification_documents_submission_id_idx").on(table.submissionId),
   ],
 );
+
+// Recruiter trust verification — a recruiter account submits a lightweight affiliation form
+// (full name, mobile number, optional corporate email, optional proof documents) reviewed by
+// platform ops. Approval elevates users.recruiter_verification_tier to `elevated` ("Trusted
+// Recruiter"), which gates competition publishing and full-institution creation. The three
+// priority signals (vouched_at, email_domain_flag, document presence) order the review queue
+// only — human review is always the gate.
+export const recruiterVerificationSubmissions = pgTable(
+  "recruiter_verification_submissions",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    fullName: text("full_name").notNull(),
+    mobileNumber: text("mobile_number").notNull(),
+    // Optional declared work email — may differ from the login email. Ownership is NOT proven
+    // at MVP; it informs email_domain_flag and admin cross-checking only.
+    corporateEmail: text("corporate_email"),
+    // true = corporate_email uses a non-personal-provider domain, false = known personal
+    // provider (e.g. @gmail.com), NULL = no corporate email declared.
+    emailDomainFlag: boolean("email_domain_flag"),
+    // Set when the submitter accepts an owner/staff invitation from an institution that has a
+    // Trusted (elevated-tier) owner — the strongest queue-priority signal.
+    vouchedAt: timestamp("vouched_at", { mode: "date", withTimezone: true }),
+    status: verificationSubmissionStatusEnum("status").notNull().default("pending_review"),
+    reviewerUserId: text("reviewer_user_id").references(() => users.id, { onDelete: "set null" }),
+    rejectionReason: text("rejection_reason"),
+    submittedAt: timestamp("submitted_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    reviewedAt: timestamp("reviewed_at", { mode: "date", withTimezone: true }),
+  },
+  (table) => [
+    index("recruiter_verification_submissions_user_id_idx").on(table.userId),
+    // At most one open submission per account; rejected/approved history rows are unaffected.
+    uniqueIndex("recruiter_verification_submissions_user_pending_unique_idx")
+      .on(table.userId)
+      .where(sql`${table.status} = 'pending_review'`),
+    // Review-queue scan: only pending rows, ordered by submission time.
+    index("recruiter_verification_submissions_pending_submitted_idx")
+      .on(table.submittedAt)
+      .where(sql`${table.status} = 'pending_review'`),
+  ],
+);
+
+// Optional affiliation-proof files attached to a recruiter verification submission. Free-form
+// evidence (employment letter, staff ID, etc.) — no per-type requirements; original_file_name
+// is the reviewer-facing label.
+export const recruiterVerificationDocuments = pgTable(
+  "recruiter_verification_documents",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    submissionId: text("submission_id")
+      .notNull()
+      .references(() => recruiterVerificationSubmissions.id, { onDelete: "cascade" }),
+    r2Key: text("r2_key").notNull(),
+    originalFileName: text("original_file_name").notNull(),
+    fileSizeBytes: bigint("file_size_bytes", { mode: "number" }).notNull(),
+    contentType: text("content_type").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index("recruiter_verification_documents_submission_id_idx").on(table.submissionId)],
+);
+
+export type RecruiterVerificationSubmissionRecord =
+  typeof recruiterVerificationSubmissions.$inferSelect;
+export type RecruiterVerificationDocumentRecord =
+  typeof recruiterVerificationDocuments.$inferSelect;
 
 // Non-domain bootstrap table for validating migration workflow only.
 export const infrastructureProbe = pgTable("infrastructure_probe", {

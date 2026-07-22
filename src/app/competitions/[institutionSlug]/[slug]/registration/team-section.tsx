@@ -10,18 +10,12 @@ import {
 } from "@/lib/session/session-fetch";
 import { useModal, useToast } from "@/components/ui/primitives";
 
-type EligibilityStatus = "eligible" | "ineligible_age" | "ineligible_enrollment" | "incomplete";
-
 type Member = {
   membershipId: string;
   userId: string;
   role: "captain" | "member" | string;
   displayName: string | null;
   email: string;
-  eligibility: {
-    status: EligibilityStatus;
-    reasons: string[];
-  };
 };
 
 type PendingInvitation = {
@@ -51,13 +45,6 @@ type Props = {
 };
 
 type ApiError = { code: string; message: string; details?: Record<string, unknown> };
-
-const ELIGIBILITY_LABEL: Record<EligibilityStatus, string> = {
-  eligible: "Memenuhi syarat",
-  ineligible_age: "Usia tidak memenuhi",
-  ineligible_enrollment: "Status studi tidak memenuhi",
-  incomplete: "Profil belum lengkap",
-};
 
 const handleError = async (res: Response): Promise<ApiError> => {
   const code = (await readErrorCode(res)) ?? `http_${res.status}`;
@@ -239,7 +226,6 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
   const atCapacity = props.maxTeamSize !== null && seatsUsed >= props.maxTeamSize;
 
   // Submission gate hints (UI-side mirror of server checks; server is authoritative).
-  const ineligibleMembers = props.initialMembers.filter((m) => m.eligibility.status !== "eligible");
   const memberCount = props.initialMembers.length;
   const sizeBelowMin = props.minTeamSize !== null && memberCount < props.minTeamSize;
   const sizeAboveMax = props.maxTeamSize !== null && memberCount > props.maxTeamSize;
@@ -248,8 +234,6 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     if (!props.registrationOpen) return "Pendaftaran kompetisi belum dibuka atau sudah ditutup";
     if (sizeBelowMin) return `Tim membutuhkan minimal ${props.minTeamSize} anggota aktif`;
     if (sizeAboveMax) return `Tim melebihi maksimum ${props.maxTeamSize} anggota aktif`;
-    if (ineligibleMembers.length > 0)
-      return `${ineligibleMembers.length} anggota belum memenuhi syarat`;
     return null;
   })();
 
@@ -452,12 +436,6 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               <span className="team-member-name">
                 {m.displayName ?? m.email} <span className="record-meta">({m.role})</span>
               </span>
-              <span className="team-eligibility" data-status={m.eligibility.status}>
-                {ELIGIBILITY_LABEL[m.eligibility.status]}
-              </span>
-              {m.eligibility.status !== "eligible" && m.eligibility.reasons.length > 0 && (
-                <span className="team-eligibility-reasons">{m.eligibility.reasons.join(", ")}</span>
-              )}
             </span>
             {isCaptain && m.role !== "captain" && status === "forming" && (
               <button

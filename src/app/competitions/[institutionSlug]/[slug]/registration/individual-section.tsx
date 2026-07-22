@@ -27,8 +27,6 @@ type Props = {
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
-  registration_ineligible:
-    "Akun Anda belum memenuhi syarat. Lengkapi profil kelayakan terlebih dahulu.",
   competition_not_published: "Kompetisi tidak tersedia untuk pendaftaran.",
   competition_wrong_mode: "Kompetisi ini hanya menerima pendaftaran tim.",
   registration_deadline_passed: "Batas waktu pendaftaran telah terlewat.",

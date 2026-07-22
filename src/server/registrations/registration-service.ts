@@ -5,7 +5,6 @@ assertServerOnly("server/registrations/registration-service");
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import { competitionRegistrations, competitions } from "@/server/db/schema";
-import { checkStudentEligibility } from "@/server/eligibility/eligibility-service";
 import {
   MAX_CANCELLATION_REASON_LENGTH,
   RegistrationError,
@@ -157,18 +156,7 @@ export const createIndividualRegistration = async (
     throw new RegistrationError("registration_deadline_passed", "Registration deadline has passed");
   }
 
-  // (e) eligibility re-checked server-side on every create attempt
-  const eligibility = await checkStudentEligibility(studentId, db);
-
-  if (eligibility.status !== "eligible") {
-    throw new RegistrationError(
-      "registration_ineligible",
-      "Student does not meet competition eligibility requirements",
-      { eligibilityStatus: eligibility.status, reasons: eligibility.reasons },
-    );
-  }
-
-  // (f) duplicate guard — block if any prior registration row exists. Re-registration after
+  // (e) duplicate guard — block if any prior registration row exists. Re-registration after
   // cancellation is intentionally deferred (Step 4.2 product simplification). The DB-level
   // partial unique index protects against concurrent race; this application-layer check
   // additionally blocks the cancelled-then-re-register path.

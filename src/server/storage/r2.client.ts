@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/storage/r2.client");
 
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { serverEnv } from "@/config/env.server";
 
@@ -87,6 +87,26 @@ export const generatePresignedPutUrl = async (
     Bucket: serverEnv.r2Bucket,
     Key: fileKey,
     ContentType: fileMimeType ?? undefined,
+  });
+
+  return getSignedUrl(getR2Client(), command, { expiresIn: expirySeconds });
+};
+
+// Mint a short-lived presigned GET URL for reading a private object (profile avatar / resume /
+// certificate file). Objects are never public — the read path signs a fresh URL at render time.
+// Caller is responsible for checking `isR2Available()` first; this throws if the bucket is
+// unconfigured.
+export const generatePresignedGetUrl = async (
+  fileKey: string,
+  expirySeconds: number,
+): Promise<string> => {
+  if (!serverEnv.r2Bucket) {
+    throw new Error("R2_BUCKET is not configured");
+  }
+
+  const command = new GetObjectCommand({
+    Bucket: serverEnv.r2Bucket,
+    Key: fileKey,
   });
 
   return getSignedUrl(getR2Client(), command, { expiresIn: expirySeconds });

@@ -95,18 +95,24 @@ function CTANavLink({
   );
 }
 
-function RegistrationStatus({ ctaState }: { ctaState: PublicCompetitionDetail["ctaState"] }) {
+function RegistrationStatus({
+  ctaState,
+  registrationEndAt,
+}: {
+  ctaState: PublicCompetitionDetail["ctaState"];
+  registrationEndAt: Date | string | null;
+}) {
   const label =
     ctaState === "open"
       ? "Pendaftaran dibuka"
       : ctaState === "not_yet_open"
         ? "Belum dibuka"
         : "Pendaftaran ditutup";
-  const status = ctaState === "open" ? "open" : ctaState === "closed" ? "closed" : undefined;
+  const status = ctaState === "open" ? "open" : "closed";
 
   return (
     <span className="status-badge" data-status={status}>
-      {label}
+      {label} · {formatDate(registrationEndAt)}
     </span>
   );
 }
@@ -152,7 +158,10 @@ export default async function CompetitionDetailPage({
 
           <div className="detail-hero-content stack-md">
             <div className="cluster">
-              <RegistrationStatus ctaState={competition.ctaState} />
+              <RegistrationStatus
+                ctaState={competition.ctaState}
+                registrationEndAt={competition.registrationEndAt}
+              />
               {competition.category ? (
                 <span className="status-badge">
                   {CATEGORY_LABELS[competition.category] ?? competition.category}
@@ -273,7 +282,10 @@ export default async function CompetitionDetailPage({
 
         <aside className="glass-focus detail-cta-rail" aria-label="Ringkasan pendaftaran">
           <div className="stack-sm">
-            <RegistrationStatus ctaState={competition.ctaState} />
+            <RegistrationStatus
+              ctaState={competition.ctaState}
+              registrationEndAt={competition.registrationEndAt}
+            />
             <div className="stack-xs">
               <p className="eyebrow">Batas pendaftaran</p>
               <p className="detail-deadline data-text">

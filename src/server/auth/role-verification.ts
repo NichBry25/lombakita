@@ -2,6 +2,10 @@ import { eq, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
 import { users } from "@/server/db/schema";
+import type { CandidateProfileInput } from "@/server/candidate/candidate-profile-core";
+import { insertCandidateProfileInTransaction } from "@/server/candidate/candidate-profile-service";
+import type { RecruiterVerificationInput } from "@/server/recruiter-verification/recruiter-verification-core";
+import { createRecruiterVerificationSubmissionInTransaction } from "@/server/recruiter-verification/recruiter-verification-service";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/auth/role-verification");
@@ -98,7 +102,9 @@ export class RoleVerificationError extends Error {
     public readonly code:
       | "role_already_verified"
       | "invalid_role"
-      | "user_not_found",
+      | "user_not_found"
+      | "candidate_profile_required"
+      | "recruiter_verification_required",
     public readonly status: 400 | 404 | 409,
     message: string,
   ) {
@@ -106,15 +112,41 @@ export class RoleVerificationError extends Error {
   }
 }
 
-// STUB: CCR-19 — verification mechanics deferred. The real verification path (form intake,
-// document upload, ops review queue) lands in a later step. This stub flips the per-role
-// `*_verified_at` timestamp directly so the rest of the role-mode plumbing can be exercised
-// end-to-end. Guarded so it cannot re-verify an already-verified role.
-export const markRoleAsVerifiedStub = async (
+// Flips the per-role `*_verified_at` timestamp together with that role's onboarding data, in one
+// transaction. Guarded so it cannot re-verify an already-verified role.
+//
+// `candidateProfile` carries the four onboarding fields when a recruiter-first account verifies the
+// candidate role here. It is written in the SAME transaction as the candidate verification grant, so
+// this path never grants candidate access without an onboarding profile — parity with the
+// credentials- and OAuth-signup candidacy paths. Required when `role === "candidate"`.
+//
+// `recruiterVerification` carries the recruiter affiliation form when a candidate-first account
+// verifies the recruiter role here. The trust-verification submission is written in the SAME
+// transaction as the recruiter grant, so the account enters the ops review queue immediately and
+// stays sandboxed (tier `minimal`) until approved. Required when `role === "recruiter"`.
+export const markRoleAsVerified = async (
   userId: string,
   role: VerifiableRole,
+  candidateProfile: CandidateProfileInput | null,
+  recruiterVerification: RecruiterVerificationInput | null,
   db: Database = getDb(),
 ): Promise<VerificationState> => {
+  if (role === "candidate" && !candidateProfile) {
+    throw new RoleVerificationError(
+      "candidate_profile_required",
+      400,
+      "Candidate onboarding profile is required to verify the candidate role",
+    );
+  }
+
+  if (role === "recruiter" && !recruiterVerification) {
+    throw new RoleVerificationError(
+      "recruiter_verification_required",
+      400,
+      "Recruiter affiliation form is required to verify the recruiter role",
+    );
+  }
+
   return db.transaction(async (tx) => {
     const current = await readVerificationState(userId, tx);
 
@@ -157,7 +189,19 @@ export const markRoleAsVerifiedStub = async (
       .set({ ...verificationColumns, updatedAt: sql`now()` })
       .where(eq(users.id, userId));
 
-    logger.info("role_verification.stub_completed", { userId, role });
+    // Candidate onboarding profile lands in the SAME transaction as the candidate verification
+    // grant, so a candidate account verified through this path always has its onboarding data.
+    if (role === "candidate" && candidateProfile) {
+      await insertCandidateProfileInTransaction(tx, userId, candidateProfile);
+    }
+
+    // Recruiter affiliation form lands in the SAME transaction as the recruiter grant, entering
+    // the account into the platform-ops trust review queue.
+    if (role === "recruiter" && recruiterVerification) {
+      await createRecruiterVerificationSubmissionInTransaction(tx, userId, recruiterVerification);
+    }
+
+    logger.info("role_verification.completed", { userId, role });
 
     return {
       candidateVerified: current.candidateVerified || role === "candidate",

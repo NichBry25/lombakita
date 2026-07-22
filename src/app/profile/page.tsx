@@ -1,28 +1,25 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentSession } from "@/server/auth/session";
 import { getOwnerProfile } from "@/server/user-profile/profile-service";
 import type { ProfileFieldValue } from "@/server/user-profile/profile-core";
+import { deriveProfileHeader } from "@/server/user-profile/profile-collections-core";
+import { ProfileDetailSections } from "@/components/profile/profile-detail-sections";
 import { VerifyOtherRoleButton } from "./verify-other-role-button";
-import { ButtonLink, Icon, PageHeader } from "@/components/ui";
+import { Icon } from "@/components/ui";
 
-function FieldRow({ label, field }: { label: string; field: ProfileFieldValue<string | number> }) {
-  if (field.status === "scope-gated") {
-    return (
-      <tr className="profile-field-row" data-locked="true">
-        <th scope="row">{label}</th>
-        <td>
-          <em>Tidak tersedia — verifikasi peran diperlukan</em>
-          <span className="status-badge">terkunci</span>
-        </td>
-      </tr>
-    );
+// Extracts a set value, or null when the field is empty.
+function populatedValue<T>(field: ProfileFieldValue<T>): T | null {
+  return field.status === "populated" ? field.value : null;
+}
+
+// Renders a validated http(s) URL as its bare host for compact display.
+function displayUrl(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
   }
-  return (
-    <tr className="profile-field-row">
-      <th scope="row">{label}</th>
-      <td>{field.status === "populated" ? field.value : "—"}</td>
-    </tr>
-  );
 }
 
 export default async function OwnerProfilePage() {
@@ -34,74 +31,133 @@ export default async function OwnerProfilePage() {
 
   const profile = await getOwnerProfile(session.user.id);
 
-  return (
-    <main className="page-shell app-page profile-page">
-      <PageHeader
-        eyebrow="Identitas akun"
-        title="Profil saya"
-        description="Atur identitas publik dan informasi peran yang digunakan di seluruh Lombakita."
-        actions={
-          <ButtonLink href="/profile/edit" variant="primary" size="sm">
-            Edit profil
-          </ButtonLink>
-        }
-      />
+  const displayName = populatedValue(profile.displayName) ?? `@${profile.username}`;
+  const bio = populatedValue(profile.bio);
+  const location = populatedValue(profile.location);
+  const avatarUrl = populatedValue(profile.avatarUrl);
+  const { affiliation, websiteUrl } = deriveProfileHeader(profile.collections);
 
-      <section className="profile-identity-card brand-band">
-        <span className="profile-avatar" aria-hidden="true">
-          <Icon name="user" size="xl" />
-        </span>
-        <div className="stack-xs">
-          <h2>@{profile.username}</h2>
-          <div className="profile-role-row">
-            <span className="status-badge">{profile.role}</span>
-            {profile.candidateVerified ? (
-              <span className="status-badge" data-status="open">
-                Kandidat terverifikasi
-              </span>
-            ) : null}
-            {profile.recruiterVerified ? (
-              <span className="status-badge" data-status="open">
-                Rekruter terverifikasi
-              </span>
-            ) : null}
+  return (
+    <main className="page-shell app-page pf-page">
+      <article className="pf-card">
+        <div className="pf-banner" aria-hidden="true" />
+        <div className="pf-identity">
+          <div className="pf-identity-head">
+            <span className="pf-avatar">
+              {avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatarUrl} alt="" />
+              ) : (
+                <Icon name="user" size="xl" aria-hidden="true" />
+              )}
+            </span>
+            <div className="pf-actions">
+              {profile.candidateVerified !== profile.recruiterVerified && (
+                <VerifyOtherRoleButton
+                  unverifiedRoleLabel={profile.candidateVerified ? "Rekruter" : "Kandidat"}
+                />
+              )}
+              <Link
+                href="/profile/edit"
+                className="ui-button icon-button"
+                data-variant="primary"
+                data-size="sm"
+                aria-label="Edit profil"
+              >
+                <Icon name="edit" size="sm" />
+              </Link>
+            </div>
+          </div>
+
+          <div className="pf-name-block">
+            <h1 className="pf-name">{displayName}</h1>
+            <p className="pf-handle">@{profile.username}</p>
+
+            {bio && <p className="pf-headline">{bio}</p>}
+
+            {(affiliation || location) && (
+              <div className="pf-meta">
+                {affiliation && (
+                  <span className="pf-meta-item">
+                    <Icon name="building" size="sm" className="pf-meta-icon" />
+                    {affiliation}
+                  </span>
+                )}
+                {location && (
+                  <span className="pf-meta-item">
+                    <Icon name="pin" size="sm" className="pf-meta-icon" />
+                    {location}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {websiteUrl && (
+              <a
+                className="pf-website"
+                href={websiteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Icon name="link" size="sm" aria-hidden="true" />
+                {displayUrl(websiteUrl)}
+              </a>
+            )}
+
+            <div className="pf-badges">
+              {profile.candidateVerified && (
+                <span className="status-badge" data-status="open">
+                  <Icon name="check" size="sm" aria-hidden="true" />
+                  Kandidat terverifikasi
+                </span>
+              )}
+              {profile.recruiterVerified && !profile.trustedRecruiter && (
+                <span className="status-badge" data-status="open">
+                  <Icon name="check" size="sm" aria-hidden="true" />
+                  Rekruter terverifikasi
+                </span>
+              )}
+              {profile.trustedRecruiter && (
+                <span className="status-badge" data-status="open">
+                  <Icon name="check" size="sm" aria-hidden="true" />
+                  Rekruter Terpercaya
+                </span>
+              )}
+            </div>
+
+            <p className="pf-email">Email: {profile.email}</p>
           </div>
         </div>
-      </section>
+      </article>
 
-      {profile.candidateVerified !== profile.recruiterVerified && (
-        <div>
-          <VerifyOtherRoleButton
-            unverifiedRoleLabel={profile.candidateVerified ? "rekruter" : "kandidat"}
-          />
-        </div>
+      {profile.resume && (
+        <section className="content-section">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Dokumen</p>
+              <h2>Resume</h2>
+            </div>
+          </div>
+          <p className="pf-entry-sub">
+            {profile.resume.fileName}
+            {" · "}
+            {profile.resume.isPublic ? "Publik" : "Hanya Anda"}
+          </p>
+          {profile.resume.downloadUrl && (
+            <a
+              className="pf-website"
+              href={profile.resume.downloadUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Icon name="inbox" size="sm" aria-hidden="true" />
+              Unduh resume
+            </a>
+          )}
+        </section>
       )}
 
-      <section className="content-section">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Detail profil</p>
-            <h2>Informasi akun dan peran</h2>
-          </div>
-        </div>
-        <div className="table-scroll">
-          <table className="profile-table">
-            <tbody>
-              <FieldRow label="Nama Tampil" field={profile.displayName} />
-              <FieldRow label="Bio" field={profile.bio} />
-              <FieldRow label="Lokasi" field={profile.location} />
-              <FieldRow label="Avatar URL" field={profile.avatarUrl} />
-              <FieldRow label="Universitas" field={profile.university} />
-              <FieldRow label="Jurusan" field={profile.major} />
-              <FieldRow label="Tahun Lulus" field={profile.graduationYear} />
-              <FieldRow label="Jabatan" field={profile.roleTitle} />
-              <FieldRow label="Organisasi" field={profile.organizationName} />
-              <FieldRow label="Website" field={profile.websiteUrl} />
-            </tbody>
-          </table>
-        </div>
-        <p className="profile-email data-text">Email: {profile.email}</p>
-      </section>
+      <ProfileDetailSections collections={profile.collections} variant="owner" />
     </main>
   );
 }

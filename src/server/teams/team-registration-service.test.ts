@@ -1,10 +1,9 @@
 // @vitest-environment node
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetDb, checkStudentEligibility } = vi.hoisted(() => ({
+const { mockGetDb } = vi.hoisted(() => ({
   mockGetDb: vi.fn(),
-  checkStudentEligibility: vi.fn(),
 }));
 
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
@@ -12,7 +11,6 @@ vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn(
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock("@/server/eligibility/eligibility-service", () => ({ checkStudentEligibility }));
 
 import {
   cancelTeamRegistration,
@@ -110,10 +108,6 @@ const competition = (over: Record<string, unknown> = {}) => ({
 afterEach(() => vi.clearAllMocks());
 
 describe("submitTeamRegistration — pre-transaction gates", () => {
-  beforeEach(() => {
-    checkStudentEligibility.mockReset();
-  });
-
   it("rejects team_not_found when team is missing", async () => {
     const { db } = makeDb([[]]);
     await expect(
@@ -217,11 +211,6 @@ describe("submitTeamRegistration — pre-transaction gates", () => {
         txTeamUpdateReturning: [{ id: "team_1" }],
       },
     );
-    checkStudentEligibility.mockResolvedValue({
-      status: "eligible",
-      reasons: [],
-      checkedAt: NOW,
-    });
     const result = await submitTeamRegistration(
       "cap_1",
       "comp_1",
@@ -232,32 +221,35 @@ describe("submitTeamRegistration — pre-transaction gates", () => {
     expect(result.status).toBe("submitted");
   });
 
-  it("aggregates ineligible members into team_member_ineligible", async () => {
-    const { db } = makeDb([
-      [team()],
-      [competition()],
+  // Open-candidacy negative contract (DEC-0106): team submission applies no per-member age
+  // or eligibility gate. A team whose members would all have failed the retired 18–32 rule
+  // must still submit. Members are loaded as {membershipId, userId} only — no date of birth
+  // is read for any member. If a future change reintroduces a member-eligibility check, this
+  // team stops submitting and the test fails.
+  it("allows a team of members over 32 to submit (no member eligibility gate — DEC-0106)", async () => {
+    const { db } = makeDb(
       [
-        { membershipId: "m1", userId: "u_cap" },
-        { membershipId: "m2", userId: "u_member" },
+        [team()],
+        [competition()],
+        [
+          { membershipId: "m1", userId: "u_cap_over_32" },
+          { membershipId: "m2", userId: "u_member_over_32" },
+        ],
+        [], // existing regs → none
       ],
-    ]);
-    checkStudentEligibility
-      .mockResolvedValueOnce({ status: "eligible", reasons: [], checkedAt: NOW })
-      .mockResolvedValueOnce({
-        status: "incomplete",
-        reasons: ["missing_date_of_birth"],
-        checkedAt: NOW,
-      });
-    await expect(
-      submitTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW),
-    ).rejects.toMatchObject({
-      code: "team_member_ineligible",
-      details: expect.objectContaining({
-        ineligibleMembers: expect.arrayContaining([
-          expect.objectContaining({ userId: "u_member", status: "incomplete" }),
-        ]),
-      }),
-    });
+      {
+        txInsertReturning: [
+          { id: "reg_1", studentId: "u_cap_over_32", status: "confirmed" },
+          { id: "reg_2", studentId: "u_member_over_32", status: "confirmed" },
+        ],
+        txTeamUpdateReturning: [{ id: "team_1" }],
+      },
+    );
+
+    const result = await submitTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW);
+
+    expect(result.status).toBe("submitted");
+    expect(result.registrations).toHaveLength(2);
   });
 
   it("rejects team_member_already_registered when a member has a non-cancelled registration", async () => {
@@ -270,11 +262,6 @@ describe("submitTeamRegistration — pre-transaction gates", () => {
       ],
       [{ studentId: "u_member", status: "confirmed" }], // existing reg
     ]);
-    checkStudentEligibility.mockResolvedValue({
-      status: "eligible",
-      reasons: [],
-      checkedAt: NOW,
-    });
     await expect(
       submitTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW),
     ).rejects.toMatchObject({
@@ -304,11 +291,6 @@ describe("submitTeamRegistration — pre-transaction gates", () => {
         txTeamUpdateReturning: [{ id: "team_1" }],
       },
     );
-    checkStudentEligibility.mockResolvedValue({
-      status: "eligible",
-      reasons: [],
-      checkedAt: NOW,
-    });
     const result = await submitTeamRegistration(
       "cap_1",
       "comp_1",
@@ -341,11 +323,6 @@ describe("submitTeamRegistration — transactional behaviour", () => {
         txTeamUpdateReturning: [{ id: "team_1" }],
       },
     );
-    checkStudentEligibility.mockResolvedValue({
-      status: "eligible",
-      reasons: [],
-      checkedAt: NOW,
-    });
 
     const result = await submitTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW);
     expect(result).toEqual({
@@ -373,11 +350,6 @@ describe("submitTeamRegistration — transactional behaviour", () => {
         txTeamUpdateReturning: [], // CAS returned 0 rows
       },
     );
-    checkStudentEligibility.mockResolvedValue({
-      status: "eligible",
-      reasons: [],
-      checkedAt: NOW,
-    });
 
     await expect(
       submitTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW),
@@ -396,11 +368,6 @@ describe("submitTeamRegistration — transactional behaviour", () => {
         txInsertError: Object.assign(new Error("dup"), { code: "23505" }),
       },
     );
-    checkStudentEligibility.mockResolvedValue({
-      status: "eligible",
-      reasons: [],
-      checkedAt: NOW,
-    });
 
     await expect(
       submitTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW),
@@ -420,11 +387,6 @@ describe("submitTeamRegistration — transactional behaviour", () => {
         txInsertError: Object.assign(new Error("check failed"), { code: "23514" }),
       },
     );
-    checkStudentEligibility.mockResolvedValue({
-      status: "eligible",
-      reasons: [],
-      checkedAt: NOW,
-    });
 
     await expect(
       submitTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW),
@@ -448,11 +410,6 @@ describe("submitTeamRegistration — transactional behaviour", () => {
       ],
       { txInsertError: wrapped },
     );
-    checkStudentEligibility.mockResolvedValue({
-      status: "eligible",
-      reasons: [],
-      checkedAt: NOW,
-    });
 
     await expect(
       submitTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW),

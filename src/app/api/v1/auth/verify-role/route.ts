@@ -3,13 +3,26 @@ import { withApiAuth } from "@/server/auth/api-guard";
 import {
   dashboardPathForRole,
   isVerifiableRole,
-  markRoleAsVerifiedStub,
+  markRoleAsVerified,
   RoleVerificationError,
 } from "@/server/auth/role-verification";
+import {
+  CandidateProfileError,
+  parseCandidateProfileInput,
+  toCandidateProfileErrorResponse,
+  type CandidateProfileInput,
+} from "@/server/candidate/candidate-profile-core";
+import {
+  parseRecruiterVerificationInput,
+  RecruiterVerificationError,
+  toRecruiterVerificationErrorResponse,
+  type RecruiterVerificationInput,
+} from "@/server/recruiter-verification/recruiter-verification-core";
 
-// STUB: CCR-19 — verification mechanics deferred. POST flips the per-role verified-at
-// timestamp directly. The real verification flow (intake form, document upload, ops review
-// queue, email notifications) lands in a later phase.
+// Second-role verification. POST grants the requested role together with that role's onboarding
+// data in one transaction: candidate → onboarding profile; recruiter → affiliation form that
+// enters the platform-ops trust review queue (the account stays sandboxed at tier `minimal`
+// until approved).
 //
 // Note on path: the step prompt describes this as `POST /api/auth/verify-role`. The project's
 // established API surface lives under `/api/v1/auth/...` (see /api/v1/auth/register,
@@ -57,8 +70,37 @@ export const POST = withApiAuth(async (request, session) => {
     );
   }
 
+  // Verifying the candidate role requires the onboarding profile in the same request, so the
+  // profile and the candidate verification grant land in one transaction (parity with the
+  // credentials- and OAuth-signup candidacy paths).
+  let candidateProfile: CandidateProfileInput | null = null;
+  if (role === "candidate") {
+    try {
+      candidateProfile = parseCandidateProfileInput(body);
+    } catch (error) {
+      if (error instanceof CandidateProfileError) {
+        return toCandidateProfileErrorResponse(error);
+      }
+      throw error;
+    }
+  }
+
+  // Verifying the recruiter role requires the affiliation form in the same request, so the
+  // trust-verification submission and the recruiter grant land in one transaction.
+  let recruiterVerification: RecruiterVerificationInput | null = null;
+  if (role === "recruiter") {
+    try {
+      recruiterVerification = parseRecruiterVerificationInput(body);
+    } catch (error) {
+      if (error instanceof RecruiterVerificationError) {
+        return toRecruiterVerificationErrorResponse(error);
+      }
+      throw error;
+    }
+  }
+
   try {
-    await markRoleAsVerifiedStub(session.user.id, role);
+    await markRoleAsVerified(session.user.id, role, candidateProfile, recruiterVerification);
   } catch (error) {
     if (error instanceof RoleVerificationError) {
       return NextResponse.json(

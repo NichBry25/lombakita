@@ -40,15 +40,11 @@ const profileRow = (username: string) => ({
   summary: null,
   location: null,
   avatarUrl: null,
-  university: null,
-  major: null,
-  graduationYear: null,
-  roleTitle: null,
-  organizationName: null,
-  websiteUrl: null,
 });
 
-// selectResults are consumed in call order: isUsernameTaken first, then getOwnerProfile's final read.
+// selectResults are consumed in call order (by `.limit`): isUsernameTaken first, then
+// getOwnerProfile's final scalar read. The collection reads in getOwnerProfile terminate on
+// `.orderBy` and always resolve to [] here — they do not consume from selectResults.
 const makeProfileDb = (selectResults: unknown[][]) => {
   let idx = 0;
   const selectNode = (): Record<string, unknown> => {
@@ -57,6 +53,7 @@ const makeProfileDb = (selectResults: unknown[][]) => {
       n[m] = () => n;
     }
     n.limit = async () => selectResults[idx++] ?? [];
+    n.orderBy = async () => [];
     return n;
   };
 

@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# browser-automation scratch (Playwright MCP snapshots, console logs, screenshots)
+/.playwright-mcp/
+
 # next.js
 /.next/
 /out/

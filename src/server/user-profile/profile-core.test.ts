@@ -9,9 +9,10 @@ import {
   ProfileInputError,
   RESERVED_USERNAMES,
 } from "@/server/user-profile/profile-core";
+import { emptyProfileCollections } from "@/server/user-profile/profile-collections-core";
 
 // ---------------------------------------------------------------------------
-// buildOwnerProfileResponse — scope-indicator logic
+// buildOwnerProfileResponse — shared scalar fields + verification flags
 // ---------------------------------------------------------------------------
 
 describe("buildOwnerProfileResponse", () => {
@@ -20,24 +21,15 @@ describe("buildOwnerProfileResponse", () => {
     username: "john_abc1",
     email: "john@example.com",
     role: "candidate",
+    recruiterVerificationTier: "unverified" as const,
     displayName: "John Doe",
     summary: "A developer",
     location: "Jakarta",
     avatarUrl: null,
-    university: "UI",
-    major: "Computer Science",
-    graduationYear: 2024,
-    roleTitle: "CTO",
-    organizationName: "Acme",
-    websiteUrl: "https://example.com",
   };
 
-  it("emits populated for filled shared fields when candidate verified", () => {
-    const row = {
-      ...baseRow,
-      candidateVerifiedAt: new Date(),
-      recruiterVerifiedAt: null,
-    };
+  it("emits populated/empty for shared fields", () => {
+    const row = { ...baseRow, candidateVerifiedAt: new Date(), recruiterVerifiedAt: null };
     const resp = buildOwnerProfileResponse(row);
 
     expect(resp.displayName).toEqual({ status: "populated", value: "John Doe" });
@@ -46,100 +38,39 @@ describe("buildOwnerProfileResponse", () => {
     expect(resp.avatarUrl).toEqual({ status: "empty", value: null });
   });
 
-  it("emits populated for candidate fields when candidateVerifiedAt is set", () => {
-    const row = { ...baseRow, candidateVerifiedAt: new Date(), recruiterVerifiedAt: null };
-    const resp = buildOwnerProfileResponse(row);
-
-    expect(resp.university).toEqual({ status: "populated", value: "UI" });
-    expect(resp.major).toEqual({ status: "populated", value: "Computer Science" });
-    expect(resp.graduationYear).toEqual({ status: "populated", value: 2024 });
-  });
-
-  it("emits scope-gated for candidate fields when candidateVerifiedAt is null", () => {
-    const row = { ...baseRow, candidateVerifiedAt: null, recruiterVerifiedAt: new Date() };
-    const resp = buildOwnerProfileResponse(row);
-
-    expect(resp.university).toEqual({ status: "scope-gated" });
-    expect(resp.major).toEqual({ status: "scope-gated" });
-    expect(resp.graduationYear).toEqual({ status: "scope-gated" });
-  });
-
-  it("emits populated for recruiter fields when recruiterVerifiedAt is set", () => {
-    const row = { ...baseRow, candidateVerifiedAt: null, recruiterVerifiedAt: new Date() };
-    const resp = buildOwnerProfileResponse(row);
-
-    expect(resp.roleTitle).toEqual({ status: "populated", value: "CTO" });
-    expect(resp.organizationName).toEqual({ status: "populated", value: "Acme" });
-    expect(resp.websiteUrl).toEqual({ status: "populated", value: "https://example.com" });
-  });
-
-  it("emits scope-gated for recruiter fields when recruiterVerifiedAt is null", () => {
-    const row = { ...baseRow, candidateVerifiedAt: new Date(), recruiterVerifiedAt: null };
-    const resp = buildOwnerProfileResponse(row);
-
-    expect(resp.roleTitle).toEqual({ status: "scope-gated" });
-    expect(resp.organizationName).toEqual({ status: "scope-gated" });
-    expect(resp.websiteUrl).toEqual({ status: "scope-gated" });
-  });
-
   it("emits candidateVerified and recruiterVerified flags correctly", () => {
-    const cv = new Date();
-    const row = { ...baseRow, candidateVerifiedAt: cv, recruiterVerifiedAt: null };
+    const row = { ...baseRow, candidateVerifiedAt: new Date(), recruiterVerifiedAt: null };
     const resp = buildOwnerProfileResponse(row);
 
     expect(resp.candidateVerified).toBe(true);
     expect(resp.recruiterVerified).toBe(false);
   });
+
+  it("defaults to empty collections and carries collections through when provided", () => {
+    const row = { ...baseRow, candidateVerifiedAt: new Date(), recruiterVerifiedAt: null };
+    expect(buildOwnerProfileResponse(row).collections).toEqual(emptyProfileCollections());
+
+    const collections = {
+      ...emptyProfileCollections(),
+      skills: [{ id: "s1", name: "TypeScript" }],
+    };
+    expect(buildOwnerProfileResponse(row, collections).collections.skills).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
-// buildPublicProfileResponse — scope-gated fields omitted entirely
+// buildPublicProfileResponse — shared fields + verification trust flags
 // ---------------------------------------------------------------------------
 
 describe("buildPublicProfileResponse", () => {
   const baseRow = {
     username: "john_abc1",
+    recruiterVerificationTier: "unverified" as const,
     displayName: "John Doe",
     summary: "A developer",
     location: "Jakarta",
     avatarUrl: null,
-    university: "UI",
-    major: "CS",
-    graduationYear: 2024,
-    roleTitle: "CTO",
-    organizationName: "Acme",
-    websiteUrl: "https://example.com",
   };
-
-  it("includes candidate fields only when candidateVerifiedAt is set", () => {
-    const row = { ...baseRow, candidateVerifiedAt: new Date(), recruiterVerifiedAt: null };
-    const resp = buildPublicProfileResponse(row);
-
-    expect("university" in resp).toBe(true);
-    expect(resp.university).toBe("UI");
-    expect("roleTitle" in resp).toBe(false);
-  });
-
-  it("includes recruiter fields only when recruiterVerifiedAt is set", () => {
-    const row = { ...baseRow, candidateVerifiedAt: null, recruiterVerifiedAt: new Date() };
-    const resp = buildPublicProfileResponse(row);
-
-    expect("roleTitle" in resp).toBe(true);
-    expect(resp.roleTitle).toBe("CTO");
-    expect("university" in resp).toBe(false);
-  });
-
-  it("omits all scoped fields when both verification timestamps are null", () => {
-    const row = { ...baseRow, candidateVerifiedAt: null, recruiterVerifiedAt: null };
-    const resp = buildPublicProfileResponse(row);
-
-    expect("university" in resp).toBe(false);
-    expect("major" in resp).toBe(false);
-    expect("graduationYear" in resp).toBe(false);
-    expect("roleTitle" in resp).toBe(false);
-    expect("organizationName" in resp).toBe(false);
-    expect("websiteUrl" in resp).toBe(false);
-  });
 
   it("always emits shared fields regardless of verification state", () => {
     const row = { ...baseRow, candidateVerifiedAt: null, recruiterVerifiedAt: null };
@@ -150,6 +81,51 @@ describe("buildPublicProfileResponse", () => {
     expect(resp.bio).toBe("A developer");
     expect(resp.location).toBe("Jakarta");
     expect(resp.avatarUrl).toBeNull();
+  });
+
+  it("exposes verification booleans as a public trust signal", () => {
+    const verified = buildPublicProfileResponse({
+      ...baseRow,
+      candidateVerifiedAt: new Date(),
+      recruiterVerifiedAt: null,
+    });
+    expect(verified.candidateVerified).toBe(true);
+    expect(verified.recruiterVerified).toBe(false);
+
+    const none = buildPublicProfileResponse({
+      ...baseRow,
+      candidateVerifiedAt: null,
+      recruiterVerifiedAt: null,
+    });
+    expect(none.candidateVerified).toBe(false);
+    expect(none.recruiterVerified).toBe(false);
+  });
+
+  it("exposes trustedRecruiter only when the recruiter tier is elevated", () => {
+    const trusted = buildPublicProfileResponse({
+      ...baseRow,
+      candidateVerifiedAt: null,
+      recruiterVerifiedAt: new Date(),
+      recruiterVerificationTier: "elevated",
+    });
+    expect(trusted.trustedRecruiter).toBe(true);
+
+    const sandboxed = buildPublicProfileResponse({
+      ...baseRow,
+      candidateVerifiedAt: null,
+      recruiterVerifiedAt: new Date(),
+      recruiterVerificationTier: "minimal",
+    });
+    expect(sandboxed.trustedRecruiter).toBe(false);
+  });
+
+  it("carries collections through", () => {
+    const row = { ...baseRow, candidateVerifiedAt: null, recruiterVerifiedAt: null };
+    const collections = {
+      ...emptyProfileCollections(),
+      skills: [{ id: "s1", name: "Go" }],
+    };
+    expect(buildPublicProfileResponse(row, collections).collections.skills).toHaveLength(1);
   });
 });
 
@@ -216,88 +192,48 @@ describe("parseUsername", () => {
 });
 
 // ---------------------------------------------------------------------------
-// parseProfilePatch — scope enforcement
+// parseProfilePatch — shared scalar fields only (no per-role scope gating)
 // ---------------------------------------------------------------------------
 
 describe("parseProfilePatch", () => {
-  it("accepts shared fields for any verified account", () => {
-    const patch = parseProfilePatch({ displayName: "Jane", bio: "Hello" }, true, false);
+  it("accepts shared fields", () => {
+    const patch = parseProfilePatch({ displayName: "Jane", bio: "Hello" });
     expect(patch.displayName).toBe("Jane");
     expect(patch.bio).toBe("Hello");
   });
 
-  it("accepts candidate fields when candidateVerified is true", () => {
-    const patch = parseProfilePatch({ university: "UI" }, true, false);
-    expect(patch.university).toBe("UI");
-  });
-
-  it("rejects candidate fields when candidateVerified is false", () => {
-    expect(() => parseProfilePatch({ university: "UI" }, false, true)).toThrowError(
-      ProfileInputError,
-    );
-    try {
-      parseProfilePatch({ university: "UI" }, false, true);
-    } catch (e) {
-      expect((e as ProfileInputError).code).toBe("profile_scope_violation");
-      expect((e as ProfileInputError).details?.requiredRole).toBe("candidate");
-      expect((e as ProfileInputError).details?.fields).toContain("university");
-    }
-  });
-
-  it("accepts recruiter fields when recruiterVerified is true", () => {
-    const patch = parseProfilePatch({ roleTitle: "CEO" }, false, true);
-    expect(patch.roleTitle).toBe("CEO");
-  });
-
-  it("rejects recruiter fields when recruiterVerified is false", () => {
-    expect(() => parseProfilePatch({ roleTitle: "CEO" }, true, false)).toThrowError(
-      ProfileInputError,
-    );
-    try {
-      parseProfilePatch({ roleTitle: "CEO" }, true, false);
-    } catch (e) {
-      expect((e as ProfileInputError).code).toBe("profile_scope_violation");
-      expect((e as ProfileInputError).details?.requiredRole).toBe("recruiter");
-    }
-  });
-
   it("rejects protected fields with profile_protected_fields", () => {
     try {
-      parseProfilePatch({ email: "x@example.com" }, true, true);
+      parseProfilePatch({ email: "x@example.com" });
+      expect.fail("expected throw");
     } catch (e) {
       expect((e as ProfileInputError).code).toBe("profile_protected_fields");
     }
   });
 
+  it("rejects the retired scoped fields (and avatarUrl) as unknown fields", () => {
+    // avatarUrl is now upload-managed, not a scalar PATCH field.
+    for (const key of ["university", "roleTitle", "graduationYear", "websiteUrl", "avatarUrl"]) {
+      try {
+        parseProfilePatch({ [key]: "x" });
+        expect.fail(`expected ${key} to be rejected`);
+      } catch (e) {
+        expect((e as ProfileInputError).code).toBe("profile_invalid_fields");
+      }
+    }
+  });
+
   it("rejects unknown fields with profile_invalid_fields", () => {
     try {
-      parseProfilePatch({ unknownField: "value" }, true, true);
+      parseProfilePatch({ unknownField: "value" });
+      expect.fail("expected throw");
     } catch (e) {
       expect((e as ProfileInputError).code).toBe("profile_invalid_fields");
     }
   });
 
-  it("validates graduationYear range", () => {
-    expect(() => parseProfilePatch({ graduationYear: 1800 }, true, true)).toThrowError(
-      ProfileInputError,
-    );
-    expect(() => parseProfilePatch({ graduationYear: 2050 }, true, true)).toThrowError(
-      ProfileInputError,
-    );
-    const patch = parseProfilePatch({ graduationYear: 2024 }, true, true);
-    expect(patch.graduationYear).toBe(2024);
-  });
-
-  it("validates websiteUrl format", () => {
-    expect(() =>
-      parseProfilePatch({ websiteUrl: "not-a-url" }, true, true),
-    ).toThrowError(ProfileInputError);
-    const patch = parseProfilePatch({ websiteUrl: "https://example.com" }, true, true);
-    expect(patch.websiteUrl).toBe("https://example.com");
-  });
-
   it("clears optional fields on null input", () => {
-    const patch = parseProfilePatch({ bio: null, location: null }, true, true);
+    const patch = parseProfilePatch({ bio: null, location: null });
     expect(patch.bio).toBeNull();
     expect(patch.location).toBeNull();
   });

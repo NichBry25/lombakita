@@ -25,11 +25,36 @@ import {
   resolveInviteRecipient,
 } from "@/server/invitations/invite-resolution";
 import { enqueueInstitutionInvitationDispatch } from "@/server/async/enqueue";
+import { markRecruiterSubmissionVouched } from "@/server/recruiter-verification/recruiter-verification-service";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/institution-invitations/invitation-service");
 
 const ADMIN_ROLES = ["institution_owner", "institution_staff"] as const;
+
+// Vouch signal: true when the institution has at least one active institution_owner whose
+// recruiter account is Trusted (tier `elevated`). A Trusted owner vouching for a new owner/staff
+// member is the strongest queue-priority signal — but only a priority bump, never an auto-grant.
+const institutionHasTrustedOwner = async (
+  institutionId: string,
+  db: Database,
+): Promise<boolean> => {
+  const [row] = await db
+    .select({ id: institutionMemberships.id })
+    .from(institutionMemberships)
+    .innerJoin(users, eq(users.id, institutionMemberships.userId))
+    .where(
+      and(
+        eq(institutionMemberships.institutionId, institutionId),
+        eq(institutionMemberships.membershipRole, "institution_owner"),
+        eq(institutionMemberships.status, "active"),
+        eq(users.recruiterVerificationTier, "elevated"),
+      ),
+    )
+    .limit(1);
+
+  return row !== undefined;
+};
 
 const requireAdminInstitution = async (
   userId: string,
@@ -294,6 +319,17 @@ export const acceptInstitutionInvitationForUser = async (
       .update(institutionInvitations)
       .set({ status: "accepted", acceptedAt: now })
       .where(eq(institutionInvitations.id, invitation.id));
+
+    // Vouch bump: accepting an owner/staff invite from an institution that already has a Trusted
+    // owner moves any open recruiter trust submission to the top of the review queue. Priority
+    // only — the platform-ops background check is still the gate. No-op when the accepter has no
+    // open submission (e.g. already Trusted) or the institution has no Trusted owner.
+    if (RECRUITER_VERIFIED_ROLES.includes(invitation.invitedRole)) {
+      const vouched = await institutionHasTrustedOwner(invitation.institutionId, tx);
+      if (vouched) {
+        await markRecruiterSubmissionVouched(userId, tx);
+      }
+    }
 
     logger.info("invitation.accepted", {
       institutionId: invitation.institutionId,

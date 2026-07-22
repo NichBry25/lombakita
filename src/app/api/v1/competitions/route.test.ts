@@ -250,4 +250,15 @@ describe("GET /api/v1/competitions — public listing", () => {
       }),
     );
   });
+
+  it("passes status and teamSize to listPublicCompetitions", async () => {
+    listPublicCompetitions.mockResolvedValue({
+      data: [],
+      meta: { total: 0, page: 1, limit: 20, totalPages: 0, searchEngine: "db" },
+    });
+    await GET(makeGet("?status=closed&teamSize=small"));
+    expect(listPublicCompetitions).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "closed", teamSize: "small" }),
+    );
+  });
 });

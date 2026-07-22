@@ -22,7 +22,7 @@ export default function ErrorPage({ error, reset }: ErrorPageProps) {
         <p className="eyebrow">Gangguan sementara</p>
         <h1>Terjadi kesalahan.</h1>
         <p>Coba muat ulang halaman. Jika masalah berlanjut, hubungi dukungan Lombakita.</p>
-        <Button type="button" onClick={reset} variant="gold">
+        <Button type="button" onClick={reset} variant="secondary">
           Coba lagi
         </Button>
       </section>

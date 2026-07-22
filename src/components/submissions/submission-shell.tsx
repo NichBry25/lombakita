@@ -298,7 +298,7 @@ export const SubmissionShell = ({
             onClick={finalizeSubmission}
             disabled={loading}
             className="ui-button"
-            data-variant="gold"
+            data-variant="secondary"
             data-size="md"
           >
             Finalisasi Submission

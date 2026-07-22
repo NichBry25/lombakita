@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Button, Icon, SkeletonCard } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import { CompetitionFilters } from "./competition-filters";
 
 type Competition = {
   id: string;
@@ -45,12 +46,6 @@ const MODE_LABELS: Record<string, string> = {
   both: "Individu / Tim",
 };
 
-const SORT_OPTIONS = [
-  { value: "created_desc", label: "Terbaru" },
-  { value: "deadline_asc", label: "Deadline terdekat" },
-  { value: "deadline_desc", label: "Deadline terjauh" },
-];
-
 function formatDeadline(value: string | null) {
   if (!value) return "Tanpa batas waktu";
   return new Date(value).toLocaleDateString("id-ID", {
@@ -58,6 +53,17 @@ function formatDeadline(value: string | null) {
     month: "short",
     year: "numeric",
   });
+}
+
+function resolveRegistrationStatus(value: string | null) {
+  if (!value) return { value: "open", label: "Dibuka" } as const;
+
+  const millisecondsRemaining = new Date(value).getTime() - Date.now();
+  if (millisecondsRemaining <= 0) return { value: "closed", label: "Ditutup" } as const;
+  if (millisecondsRemaining < 7 * 24 * 60 * 60 * 1000) {
+    return { value: "closing", label: "Segera ditutup" } as const;
+  }
+  return { value: "open", label: "Dibuka" } as const;
 }
 
 function truncateDescription(description: string) {
@@ -72,6 +78,9 @@ export default function PublicCompetitionsPage() {
 
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
+  const [mode, setMode] = useState("");
+  const [status, setStatus] = useState("");
+  const [teamSize, setTeamSize] = useState("");
   const [sort, setSort] = useState("created_desc");
   const [page, setPage] = useState(1);
 
@@ -81,6 +90,9 @@ export default function PublicCompetitionsPage() {
     const params = new URLSearchParams();
     if (q.trim()) params.set("q", q.trim());
     if (category) params.set("category", category);
+    if (mode) params.set("mode", mode);
+    if (status) params.set("status", status);
+    if (teamSize) params.set("teamSize", teamSize);
     params.set("sort", sort);
     params.set("page", String(page));
 
@@ -101,7 +113,7 @@ export default function PublicCompetitionsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [q, category, sort, page, addToast]);
+  }, [q, category, mode, status, teamSize, sort, page, addToast]);
 
   useEffect(() => {
     void load();
@@ -115,6 +127,9 @@ export default function PublicCompetitionsPage() {
   function clearFilters() {
     setQ("");
     setCategory("");
+    setMode("");
+    setStatus("");
+    setTeamSize("");
     setSort("created_desc");
     setPage(1);
   }
@@ -147,7 +162,7 @@ export default function PublicCompetitionsPage() {
               }}
               aria-label="Cari kompetisi"
             />
-            <Button type="submit" variant="gold" size="lg">
+            <Button type="submit" variant="secondary" size="lg">
               Cari
             </Button>
           </form>
@@ -155,36 +170,6 @@ export default function PublicCompetitionsPage() {
       </section>
 
       <div className="page-shell discovery-page">
-        <section className="glass-chrome category-rail" aria-label="Filter kategori">
-          <button
-            type="button"
-            className="action-chip"
-            data-selected={category === "" ? "true" : undefined}
-            aria-pressed={category === ""}
-            onClick={() => {
-              setCategory("");
-              setPage(1);
-            }}
-          >
-            Semua
-          </button>
-          {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className="action-chip"
-              data-selected={category === value ? "true" : undefined}
-              aria-pressed={category === value}
-              onClick={() => {
-                setCategory(value);
-                setPage(1);
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </section>
-
         <section className="stack-lg" aria-labelledby="competition-results-title">
           <div className="glass-chrome filter-toolbar">
             <div>
@@ -195,25 +180,33 @@ export default function PublicCompetitionsPage() {
                   : `${meta?.total ?? items.length} kompetisi ditemukan`}
               </h2>
             </div>
-            <div className="filter-sort-field">
-              <label htmlFor="competition-sort">Urutkan</label>
-              <select
-                id="competition-sort"
-                className="form-select"
-                value={sort}
-                onChange={(event) => {
-                  setSort(event.target.value);
-                  setPage(1);
-                }}
-                aria-label="Urutan"
-              >
-                {SORT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <CompetitionFilters
+              category={category}
+              mode={mode}
+              status={status}
+              teamSize={teamSize}
+              sort={sort}
+              onCategory={(value) => {
+                setCategory(value);
+                setPage(1);
+              }}
+              onMode={(value) => {
+                setMode(value);
+                setPage(1);
+              }}
+              onStatus={(value) => {
+                setStatus(value);
+                setPage(1);
+              }}
+              onTeamSize={(value) => {
+                setTeamSize(value);
+                setPage(1);
+              }}
+              onSort={(value) => {
+                setSort(value);
+                setPage(1);
+              }}
+            />
           </div>
 
           {isLoading ? (
@@ -237,6 +230,7 @@ export default function PublicCompetitionsPage() {
             <div className="competition-grid">
               {items.map((competition) => {
                 const detailPath = `/competitions/${competition.institutionSlug}/${competition.slug}`;
+                const registrationStatus = resolveRegistrationStatus(competition.registrationEndAt);
                 return (
                   <article className="competition-card" key={competition.id}>
                     <Link
@@ -283,9 +277,8 @@ export default function PublicCompetitionsPage() {
                       ) : null}
 
                       <div className="competition-card-footer">
-                        <span>
-                          <Icon name="calendar" size="sm" />
-                          {formatDeadline(competition.registrationEndAt)}
+                        <span className="status-badge" data-status={registrationStatus.value}>
+                          {registrationStatus.label} · {formatDeadline(competition.registrationEndAt)}
                         </span>
                         <span className="competition-card-arrow" aria-hidden="true">
                           <Icon name="arrow-right" size="md" />

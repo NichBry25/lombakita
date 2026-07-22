@@ -680,7 +680,7 @@ export const InstitutionCompetitionEditShell = ({
               {isSubmitting ? "Menyimpan..." : "Simpan"}
             </Button>
             {isDraft ? (
-              <Button variant="gold" type="button" onClick={onPublish} disabled={isSubmitting}>
+              <Button variant="secondary" type="button" onClick={onPublish} disabled={isSubmitting}>
                 Publish
               </Button>
             ) : null}

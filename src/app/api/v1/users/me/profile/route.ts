@@ -6,42 +6,26 @@ import {
   ProfileInputError,
   toProfileInputErrorResponse,
 } from "@/server/user-profile/profile-core";
-import {
-  getOwnerProfile,
-  getVerificationState,
-  updateOwnerProfile,
-} from "@/server/user-profile/profile-service";
+import { getOwnerProfile, updateOwnerProfile } from "@/server/user-profile/profile-service";
 
 // GET /api/v1/users/me/profile
-// Returns the authenticated owner's full profile with per-field scope indicators.
+// Returns the authenticated owner's full profile (scalar fields + detail collections).
 export const GET = withApiAuth(async (_request, session) => {
   const profile = await getOwnerProfile(session.user.id);
   return NextResponse.json({ profile });
 });
 
 // PATCH /api/v1/users/me/profile
-// Updates the owner's profile. Enforces field-scope server-side:
-//   - candidate-scoped fields require candidateVerifiedAt IS NOT NULL
-//   - recruiter-scoped fields require recruiterVerifiedAt IS NOT NULL
-// Returns 422 with profile_scope_violation for any scope violation.
+// Updates the owner's scalar profile fields (all shared — no per-role scope gating). Detail
+// collections (experience, education, skills, certifications, social links) have their own
+// sub-resource endpoints.
 export const PATCH = withApiAuth(async (request, session) => {
   try {
     // Cross-session form-submission guard. See assertSessionMatchesExpectedUser doc.
     assertSessionMatchesExpectedUser(request, session);
 
-    // Fetch verification state from DB — session token does not carry these timestamps.
-    const verificationState = await getVerificationState(session.user.id);
-
-    if (!verificationState) {
-      return NextResponse.json({ error: { code: "unauthenticated" } }, { status: 401 });
-    }
-
     const payload = await request.json();
-    const patch = parseProfilePatch(
-      payload,
-      verificationState.candidateVerified,
-      verificationState.recruiterVerified,
-    );
+    const patch = parseProfilePatch(payload);
     const profile = await updateOwnerProfile(session.user.id, patch);
 
     return NextResponse.json({ profile });

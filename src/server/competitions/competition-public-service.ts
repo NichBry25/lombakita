@@ -2,7 +2,22 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/competitions/competition-public-service");
 
-import { and, desc, eq, gte, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  gte,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitions,
@@ -119,6 +134,8 @@ export type PublicListingFilters = {
   q?: string;
   category?: string;
   mode?: string;
+  status?: string;
+  teamSize?: string;
   institutionSlug?: string;
   sort?: string;
   page?: number;
@@ -169,23 +186,99 @@ const buildDbOrderBy = (sort: PublicListingSort) => {
   return [...FEATURED_SORT_EXPRS, desc(competitions.createdAt)]; // created_desc default
 };
 
+// Registration-phase filter. Absent/unknown status returns the default "hide expired" clause
+// (F15), so the un-filtered listing is unchanged. Only status="closed" surfaces past-deadline
+// competitions. "closing" = under 7 days left, matching the competition card badge window.
+const buildStatusCondition = (status: string | undefined): SQL => {
+  const start = competitions.registrationStartAt;
+  const end = competitions.registrationEndAt;
+  if (status === "upcoming") {
+    return and(isNotNull(start), gt(start, sql`now()`))!;
+  }
+  if (status === "open") {
+    return and(
+      or(isNull(start), lte(start, sql`now()`))!,
+      or(isNull(end), gte(end, sql`now() + interval '7 days'`))!,
+    )!;
+  }
+  if (status === "closing") {
+    return and(
+      or(isNull(start), lte(start, sql`now()`))!,
+      isNotNull(end),
+      gte(end, sql`now()`),
+      lt(end, sql`now() + interval '7 days'`),
+    )!;
+  }
+  if (status === "closed") {
+    return and(isNotNull(end), lt(end, sql`now()`))!;
+  }
+  return or(isNull(end), gte(end, sql`now()`))!;
+};
+
+// Team-size bucket filter (DB-only; the Meilisearch index carries no team columns). Range
+// overlap, mode-aware: individual-only competitions accept a solo participant; team/both
+// competitions carry an allowed [min, max] range.
+const buildTeamSizeCondition = (bucket: string | undefined): SQL | undefined => {
+  const min = competitions.minTeamSize;
+  const max = competitions.maxTeamSize;
+  const mode = competitions.mode;
+  if (bucket === "solo") {
+    return or(eq(mode, "individual"), eq(mode, "both"), and(isNotNull(min), lte(min, 1)));
+  }
+  if (bucket === "small") {
+    return and(
+      inArray(mode, ["team", "both"]),
+      or(isNull(min), lte(min, 4))!,
+      or(isNull(max), gte(max, 2))!,
+    )!;
+  }
+  if (bucket === "large") {
+    return and(inArray(mode, ["team", "both"]), or(isNull(max), gte(max, 5))!)!;
+  }
+  return undefined;
+};
+
+// A query with no letters or digits (e.g. only punctuation like ";") carries no searchable
+// term. Meilisearch normalizes it to an empty query and runs a placeholder search that returns
+// the entire catalog — so such queries must never reach the search path, and must match no
+// competition on the DB path.
+const hasSearchableQuery = (q: string | undefined): boolean =>
+  Boolean(q && /[\p{L}\p{N}]/u.test(q));
+
+// Meili routing (spec §6): the index lacks registrationStartAt and team-size fields, so any
+// active status/teamSize filter forces the DB path to avoid partial filtering + count drift.
+// A token-less query is also kept off the search path (it would placeholder-match everything).
+export const resolveUseSearch = (
+  filters: PublicListingFilters,
+  meiliAvailable: boolean,
+): boolean =>
+  hasSearchableQuery(filters.q) && meiliAvailable && !filters.status && !filters.teamSize;
+
 const buildDbWhere = (filters: PublicListingFilters) => {
   const conditions = [
     eq(competitions.status, "published"),
     isNull(competitions.deletedAt),
-    // F15: hide competitions whose registration deadline has passed. Null deadline = no deadline.
-    or(isNull(competitions.registrationEndAt), gte(competitions.registrationEndAt, sql`now()`))!,
+    buildStatusCondition(filters.status),
   ];
 
   if (filters.q?.trim()) {
-    const term = `%${filters.q.trim()}%`;
-    conditions.push(or(ilike(competitions.title, term), ilike(competitions.description, term))!);
+    if (hasSearchableQuery(filters.q)) {
+      const term = `%${filters.q.trim()}%`;
+      conditions.push(or(ilike(competitions.title, term), ilike(competitions.description, term))!);
+    } else {
+      // Token-less query (punctuation/symbols only) cannot match any competition.
+      conditions.push(sql`false`);
+    }
   }
   if (filters.category && isCompetitionCategory(filters.category)) {
     conditions.push(eq(competitions.category, filters.category));
   }
   if (filters.mode && isCompetitionMode(filters.mode)) {
     conditions.push(eq(competitions.mode, filters.mode));
+  }
+  const teamSizeCondition = buildTeamSizeCondition(filters.teamSize);
+  if (teamSizeCondition) {
+    conditions.push(teamSizeCondition);
   }
   if (filters.institutionSlug) {
     conditions.push(eq(institutions.slug, filters.institutionSlug.trim().toLowerCase()));
@@ -330,15 +423,17 @@ export const listPublicCompetitions = async (
   filters: PublicListingFilters,
   db: Database = getDb(),
 ): Promise<PublicListingResult> => {
-  const useSearch = Boolean(filters.q) && isMeilisearchAvailable();
+  const useSearch = resolveUseSearch(filters, isMeilisearchAvailable());
 
   if (useSearch) {
     try {
       const meiliResult = await listFromMeilisearch(filters, db);
-      // Only trust Meilisearch results when the index actually returned hits.
-      // An empty result here usually means the index is stale (e.g. competitions published
-      // before the BullMQ worker ran). Fall through to DB ILIKE search in that case.
-      if (meiliResult.meta.total > 0) return meiliResult;
+      // Only trust Meilisearch results when the index actually hydrated rows from the DB.
+      // Meili's estimatedTotalHits can be non-zero while DB hydration yields nothing — a stale
+      // index (competition re-indexed under a different id, or indexed before a change) reports
+      // a phantom count with an empty grid. Check the hydrated data, not the estimate, and fall
+      // through to DB ILIKE search when nothing hydrated.
+      if (meiliResult.data.length > 0) return meiliResult;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.warn("competition-public-listing.meilisearch-fallback", {

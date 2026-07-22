@@ -42,8 +42,8 @@ export default async function CandidateDashboardPage() {
         description="Pantau pendaftaran, tenggat, hasil, dan peluang yang kamu simpan."
         actions={
           <>
-            <ButtonLink href="/candidate-dashboard/eligibility" variant="outline" size="sm">
-              Data kelayakan
+            <ButtonLink href="/candidate-dashboard/profile" variant="outline" size="sm">
+              Data kandidat
             </ButtonLink>
             <ButtonLink href="/competitions" variant="primary" size="sm">
               Jelajahi kompetisi

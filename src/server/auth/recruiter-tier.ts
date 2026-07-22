@@ -37,6 +37,12 @@ export const isRecruiterTier = (value: unknown): value is RecruiterVerificationT
 // this file rather than inline-passing a string literal.
 export const OPPORTUNITY_CREATION_MIN_TIER: RecruiterVerificationTier = "minimal";
 
+// Recruiter trust rework — publishing gate. Draft creation stays open to every verified
+// recruiter (`minimal`, the sandboxed state); making a competition publicly visible requires the
+// account to be a Trusted Recruiter (`elevated`, granted through the platform-ops verification
+// review). This is an account-level gate: trust follows the person, not the institution.
+export const OPPORTUNITY_PUBLISH_MIN_TIER: RecruiterVerificationTier = "elevated";
+
 // Step 6.5f.1 — institution-creation tier gates. These are distinct from
 // OPPORTUNITY_CREATION_MIN_TIER (which gates competition creation and is unchanged here).
 //   personal institution — a minimal-tier recruiter may self-create one capped personal institution.

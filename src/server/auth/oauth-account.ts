@@ -21,6 +21,18 @@ import { OAUTH_CARRIER_NONCE_KEY_PREFIX } from "@/server/auth/rate-limit-constan
 import { consumeSingleUseToken } from "@/server/redis/rate-limit";
 import { UsernameGenerationError } from "@/lib/username/generate";
 import { claimPendingInvitationsForUser } from "@/server/invitations/claim-service";
+import {
+  CandidateProfileError,
+  parseCandidateProfileInput,
+  type CandidateProfileInput,
+} from "@/server/candidate/candidate-profile-core";
+import { insertCandidateProfileInTransaction } from "@/server/candidate/candidate-profile-service";
+import {
+  parseRecruiterVerificationInput,
+  RecruiterVerificationError,
+  type RecruiterVerificationInput,
+} from "@/server/recruiter-verification/recruiter-verification-core";
+import { createRecruiterVerificationSubmissionInTransaction } from "@/server/recruiter-verification/recruiter-verification-service";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/auth/oauth-account");
@@ -149,7 +161,9 @@ export class OAuthFinalizeError extends Error {
       | "invalid_carrier"
       | "invalid_role"
       | "account_conflict"
-      | "carrier_replayed",
+      | "carrier_replayed"
+      | "invalid_candidate_profile"
+      | "invalid_recruiter_verification",
     message: string,
   ) {
     super(message);
@@ -172,9 +186,19 @@ type FinalizeResult = { id: string; email: string; role: SignupRole };
 // session is minted through the `oauth-finalize` credentials provider, not the OAuth callback. Only
 // the identity columns (type/provider/providerAccountId) are stored — no Google API tokens are
 // persisted, as this step performs authentication only.
+//
+// `candidateProfile` carries the four onboarding fields for a candidate signup, and
+// `recruiterVerification` carries the affiliation form (full name, mobile number, optional
+// corporate email) for a recruiter signup. Each is written in the SAME transaction as the users
+// row and the corresponding role grant, so a Google-origin candidate never exists without its
+// onboarding data and a Google-origin recruiter never exists without entering the trust-review
+// queue — parity with the credentials-signup path. Only the field matching the declared role is
+// ever non-null; the other is always null.
 export const finalizeOAuthSignup = async (
   claims: GoogleIdentityClaims,
   signupRole: SignupRole,
+  candidateProfile: CandidateProfileInput | null,
+  recruiterVerification: RecruiterVerificationInput | null,
   db: Database = getDb(),
 ): Promise<FinalizeResult> => {
   const email = normalizeEmail(claims.email);
@@ -264,6 +288,22 @@ export const finalizeOAuthSignup = async (
         .values({ userId, displayName: claims.name })
         .onConflictDoNothing();
 
+      // Candidate onboarding profile is written in the SAME transaction that grants the candidate
+      // verification timestamp (via roleColumns above), so a candidate account never exists without
+      // its onboarding data. Recruiter signups pass null and skip this.
+      if (candidateProfile) {
+        await insertCandidateProfileInTransaction(tx, userId, candidateProfile);
+      }
+
+      // Recruiter affiliation form lands in the SAME transaction as the recruiter role grant
+      // (roleColumns above sets recruiter_verification_tier='minimal'), so a Google-origin
+      // recruiter enters the trust-review queue immediately, exactly like a credentials-signup
+      // recruiter — closes the parity gap where OAuth recruiters previously finalized with no
+      // submission at all. Candidate signups pass null and skip this.
+      if (recruiterVerification) {
+        await createRecruiterVerificationSubmissionInTransaction(tx, userId, recruiterVerification);
+      }
+
       await tx
         .insert(accounts)
         .values({
@@ -331,6 +371,35 @@ export const authorizeOAuthFinalize = async (
     throw new OAuthFinalizeError("invalid_role", "A valid role declaration is required");
   }
 
+  // A candidate signup must carry its onboarding profile, and a recruiter signup must carry its
+  // affiliation form, in the same credentials payload, so the corresponding data lands in one
+  // finalize transaction with the role grant (parity with the credentials-signup path). These
+  // fields ride as ordinary credentials fields on the oauth-finalize provider — the HMAC identity
+  // carrier is untouched. Only the branch matching the declared role parses; the other stays null.
+  let candidateProfile: CandidateProfileInput | null = null;
+  if (role === "candidate") {
+    try {
+      candidateProfile = parseCandidateProfileInput(credentials);
+    } catch (error) {
+      if (error instanceof CandidateProfileError) {
+        throw new OAuthFinalizeError("invalid_candidate_profile", error.code);
+      }
+      throw error;
+    }
+  }
+
+  let recruiterVerification: RecruiterVerificationInput | null = null;
+  if (role === "recruiter") {
+    try {
+      recruiterVerification = parseRecruiterVerificationInput(credentials);
+    } catch (error) {
+      if (error instanceof RecruiterVerificationError) {
+        throw new OAuthFinalizeError("invalid_recruiter_verification", error.code);
+      }
+      throw error;
+    }
+  }
+
   // Step 6.5-HARDENING.1 (auth-D2 / 6.5d-D2) — single-use carrier. The carrier travels in the
   // /auth/login?oauth=<carrier> URL, so a second party who captures that URL within the 15-min TTL
   // could otherwise redeem it first. Consume the per-carrier nonce (jti) via an atomic SET NX with a
@@ -354,7 +423,7 @@ export const authorizeOAuthFinalize = async (
     throw new OAuthFinalizeError("carrier_replayed", "oauth_carrier_replayed");
   }
 
-  return finalizeOAuthSignup(claims, role, db);
+  return finalizeOAuthSignup(claims, role, candidateProfile, recruiterVerification, db);
 };
 
 // Redirect base for the signIn-callback interception. signIn can only abort the OAuth flow by

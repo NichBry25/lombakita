@@ -14,7 +14,6 @@ export type RegistrationErrorCode =
   | "competition_not_published"
   | "competition_wrong_mode"
   | "registration_deadline_passed"
-  | "registration_ineligible"
   | "registration_already_exists"
   | "registration_not_found"
   | "registration_not_owner"
@@ -32,7 +31,6 @@ const STATUS_BY_CODE: Record<RegistrationErrorCode, number> = {
   competition_not_published: 409,
   competition_wrong_mode: 409,
   registration_deadline_passed: 409,
-  registration_ineligible: 422,
   registration_already_exists: 409,
   registration_not_found: 404,
   registration_not_owner: 403,

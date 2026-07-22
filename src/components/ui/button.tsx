@@ -2,10 +2,7 @@ import Link from "next/link";
 import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from "react";
 import { joinClassNames } from "./class-names";
 
-// "secondary" is additive (not a rename of "gold") so this stays compatible with every
-// pre-existing "gold" consumer elsewhere in the app that has not yet migrated; only this
-// unit's own new usage (the homepage organizer CTA) uses "secondary".
-export type ButtonVariant = "primary" | "gold" | "secondary" | "outline" | "ghost" | "danger";
+export type ButtonVariant = "primary" | "secondary" | "outline" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {

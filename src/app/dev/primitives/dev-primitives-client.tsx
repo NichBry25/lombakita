@@ -63,16 +63,16 @@ export function DevPrimitivesClient() {
       <section className="stack-md">
         <div className="stack-xs">
           <p className="eyebrow">Warna semantik</p>
-          <h2 className="section-title">Palet Mercusuar</h2>
+          <h2 className="section-title">Palet Brandbook v2</h2>
         </div>
         <div className="token-swatch-grid">
           {[
-            ["navy", "Navy"],
-            ["gold", "Muted gold"],
+            ["palm", "Deep Palm"],
+            ["tangerine", "Tangerine"],
             ["paper", "Warm paper"],
             ["surface", "Surface"],
             ["ink", "Ink"],
-            ["coral", "Coral"],
+            ["lime", "Stabilo Lime"],
           ].map(([token, label]) => (
             <div className="token-swatch" key={token}>
               <span className="token-swatch-color" data-token={token} />
@@ -89,7 +89,7 @@ export function DevPrimitivesClient() {
         </div>
         <div className="cluster">
           <Button variant="primary">Aksi utama</Button>
-          <Button variant="gold">Aksi aksen</Button>
+          <Button variant="secondary">Aksi sekunder</Button>
           <Button variant="outline">Aksi sekunder</Button>
           <Button variant="ghost">Aksi tenang</Button>
           <Button variant="danger">Aksi destruktif</Button>

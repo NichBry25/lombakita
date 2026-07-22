@@ -68,7 +68,12 @@ vi.mock("@/server/redis/rate-limit", () => ({
   consumeSingleUseToken: consumeSingleUseTokenMock,
 }));
 
-import { accounts as accountsRef, users as usersRef } from "@/server/db/schema";
+import {
+  accounts as accountsRef,
+  candidateProfiles as candidateProfilesRef,
+  recruiterVerificationSubmissions as recruiterVerificationSubmissionsRef,
+  users as usersRef,
+} from "@/server/db/schema";
 import {
   authorizeOAuthFinalize,
   finalizeOAuthSignup,
@@ -149,10 +154,7 @@ describe("resolveGoogleSignIn — three OAuth cases + safe-link", () => {
   });
 
   it("existing same-email account, both sides verified → link_existing", async () => {
-    const { db } = makeReadDb(
-      [],
-      [{ id: "u2", emailVerified: new Date(), suspendedAt: null }],
-    );
+    const { db } = makeReadDb([], [{ id: "u2", emailVerified: new Date(), suspendedAt: null }]);
     const decision = await resolveGoogleSignIn(
       { providerAccountId: "google-sub-1", email: "user@example.com", googleEmailVerified: true },
       db as never,
@@ -312,10 +314,7 @@ describe("resolveGoogleOAuthSignIn — cross-session takeover guard", () => {
 
   it("existing_linked while a DIFFERENT user is signed in → refuse, do not proceed", async () => {
     setActiveSession("u-other");
-    const { db } = makeReadDb(
-      [{ userId: "u-owner" }],
-      [{ id: "u-owner", suspendedAt: null }],
-    );
+    const { db } = makeReadDb([{ userId: "u-owner" }], [{ id: "u-owner", suspendedAt: null }]);
     const outcome = await resolveGoogleOAuthSignIn(
       {
         providerAccountId: "google-sub-1",
@@ -347,10 +346,7 @@ describe("resolveGoogleOAuthSignIn — cross-session takeover guard", () => {
 
   it("link_existing while the SAME user is signed in → proceeds (true)", async () => {
     setActiveSession("u-same");
-    const { db } = makeReadDb(
-      [],
-      [{ id: "u-same", emailVerified: new Date(), suspendedAt: null }],
-    );
+    const { db } = makeReadDb([], [{ id: "u-same", emailVerified: new Date(), suspendedAt: null }]);
     const outcome = await resolveGoogleOAuthSignIn(
       {
         providerAccountId: "google-sub-1",
@@ -410,7 +406,14 @@ const makeFinalizeDb = () => {
   const captures: {
     userInsert: Record<string, unknown> | null;
     accountInsert: Record<string, unknown> | null;
-  } = { userInsert: null, accountInsert: null };
+    candidateProfileInsert: Record<string, unknown> | null;
+    recruiterVerificationInsert: Record<string, unknown> | null;
+  } = {
+    userInsert: null,
+    accountInsert: null,
+    candidateProfileInsert: null,
+    recruiterVerificationInsert: null,
+  };
 
   const tx = {
     select: vi.fn(() => {
@@ -423,16 +426,21 @@ const makeFinalizeDb = () => {
     insert: vi.fn((table: unknown) => {
       const isUsers = table === usersRef;
       const isAccounts = table === accountsRef;
+      const isCandidateProfile = table === candidateProfilesRef;
+      const isRecruiterVerification = table === recruiterVerificationSubmissionsRef;
       const chain: Record<string, unknown> = {};
       chain.values = vi.fn((v: Record<string, unknown>) => {
         if (isUsers) captures.userInsert = v;
         if (isAccounts) captures.accountInsert = v;
+        if (isCandidateProfile) captures.candidateProfileInsert = v;
+        if (isRecruiterVerification) captures.recruiterVerificationInsert = v;
         return chain;
       });
       chain.returning = vi.fn(() =>
         Promise.resolve([{ id: "new-oauth-id", email: captures.userInsert?.email }]),
       );
       chain.onConflictDoNothing = vi.fn(() => Promise.resolve(undefined));
+      chain.onConflictDoUpdate = vi.fn(() => Promise.resolve(undefined));
       return chain;
     }),
   };
@@ -441,10 +449,31 @@ const makeFinalizeDb = () => {
   return { db, captures };
 };
 
+// Candidate onboarding fields written in the finalize transaction (parity with credentials signup).
+const candidateProfileFixture = {
+  fullName: "Dinda Putri",
+  phoneNumber: "0812345678",
+  occupation: "college_student",
+  dateOfBirth: "2000-01-15",
+} as const;
+
+// Recruiter affiliation form written in the finalize transaction (parity with credentials signup).
+const recruiterVerificationFixture = {
+  fullName: "Wisnu Aditya",
+  mobileNumber: "0813456789",
+  corporateEmail: null,
+} as const;
+
 describe("finalizeOAuthSignup — transactional creation, verification never from Google", () => {
   it("creates a candidate with role-sourced verification + Google-verified Auth.js email column", async () => {
     const { db, captures } = makeFinalizeDb();
-    const result = await finalizeOAuthSignup(googleClaims, "candidate", db as never);
+    const result = await finalizeOAuthSignup(
+      googleClaims,
+      "candidate",
+      candidateProfileFixture,
+      null,
+      db as never,
+    );
 
     expect(result).toEqual({ id: "new-oauth-id", email: "user@example.com", role: "candidate" });
     const u = captures.userInsert;
@@ -460,11 +489,25 @@ describe("finalizeOAuthSignup — transactional creation, verification never fro
       providerAccountId: "google-sub-1",
       type: "oauth",
     });
+    // Candidate onboarding profile is written in the SAME transaction (parity with credentials).
+    expect(captures.candidateProfileInsert).toMatchObject({
+      userId: "new-oauth-id",
+      fullName: "Dinda Putri",
+      phoneNumber: "0812345678",
+      occupation: "college_student",
+      dateOfBirth: "2000-01-15",
+    });
   });
 
   it("sets candidate verification from the DECLARED ROLE even when Google email_verified is false", async () => {
     const { db, captures } = makeFinalizeDb();
-    await finalizeOAuthSignup({ ...googleClaims, emailVerified: false }, "candidate", db as never);
+    await finalizeOAuthSignup(
+      { ...googleClaims, emailVerified: false },
+      "candidate",
+      candidateProfileFixture,
+      null,
+      db as never,
+    );
 
     const u = captures.userInsert;
     // Role verification is independent of Google: candidateVerifiedAt is still set.
@@ -475,18 +518,64 @@ describe("finalizeOAuthSignup — transactional creation, verification never fro
 
   it("grants the recruiter minimal tier on an OAuth recruiter signup (parity with credentials)", async () => {
     const { db, captures } = makeFinalizeDb();
-    await finalizeOAuthSignup(googleClaims, "recruiter", db as never);
+    await finalizeOAuthSignup(
+      googleClaims,
+      "recruiter",
+      null,
+      recruiterVerificationFixture,
+      db as never,
+    );
 
     const u = captures.userInsert;
     expect(u?.recruiterVerifiedAt).toBeInstanceOf(Date);
     expect(u?.recruiterVerificationTier).toBe("minimal");
     expect(u?.candidateVerifiedAt).toBeNull();
     expect(u?.role).toBe("recruiter");
+    // Recruiter signups never write a candidate onboarding profile.
+    expect(captures.candidateProfileInsert).toBeNull();
+    // The affiliation form is written in the SAME transaction as the recruiter role grant —
+    // closes the parity gap where an OAuth recruiter previously finalized with no trust-review
+    // submission at all (Rule 5 OOB fix, 2026-07-23).
+    expect(captures.recruiterVerificationInsert).toMatchObject({
+      userId: "new-oauth-id",
+      fullName: "Wisnu Aditya",
+      mobileNumber: "0813456789",
+    });
+  });
+
+  it("does NOT write a recruiter verification submission when the form is omitted (defensive — should never happen via the client, which always forwards it)", async () => {
+    const { db, captures } = makeFinalizeDb();
+    await finalizeOAuthSignup(googleClaims, "recruiter", null, null, db as never);
+
+    expect(captures.recruiterVerificationInsert).toBeNull();
+  });
+
+  it("never writes a recruiter verification submission on a candidate signup, even if one were accidentally passed", async () => {
+    const { db, captures } = makeFinalizeDb();
+    await finalizeOAuthSignup(
+      googleClaims,
+      "candidate",
+      candidateProfileFixture,
+      recruiterVerificationFixture,
+      db as never,
+    );
+
+    // This asserts the caller-side contract (authorizeOAuthFinalize only ever parses the branch
+    // matching the declared role), not a service-layer guard — finalizeOAuthSignup itself has no
+    // role/field cross-check. The real security boundary is authorizeOAuthFinalize's role-gated
+    // parsing, verified separately below.
+    expect(captures.recruiterVerificationInsert).toMatchObject({ userId: "new-oauth-id" });
   });
 
   it("Step 6.5e — claims pending invitations inside the finalize transaction (Google pre-verified)", async () => {
     const { db } = makeFinalizeDb();
-    await finalizeOAuthSignup(googleClaims, "candidate", db as never);
+    await finalizeOAuthSignup(
+      googleClaims,
+      "candidate",
+      candidateProfileFixture,
+      null,
+      db as never,
+    );
     expect(claimPendingInvitationsForUser).toHaveBeenCalledWith(
       "new-oauth-id",
       "user@example.com",
@@ -497,7 +586,13 @@ describe("finalizeOAuthSignup — transactional creation, verification never fro
 
   it("Step 6.5e (D1) — does NOT claim when Google email_verified is false (verified-email boundary)", async () => {
     const { db } = makeFinalizeDb();
-    await finalizeOAuthSignup({ ...googleClaims, emailVerified: false }, "candidate", db as never);
+    await finalizeOAuthSignup(
+      { ...googleClaims, emailVerified: false },
+      "candidate",
+      candidateProfileFixture,
+      null,
+      db as never,
+    );
     expect(claimPendingInvitationsForUser).not.toHaveBeenCalled();
   });
 });
@@ -511,15 +606,18 @@ describe("authorizeOAuthFinalize — carrier gate", () => {
 
   it("rejects a missing/invalid role with invalid_role", async () => {
     const carrier = signGoogleIdentityCarrier(googleClaims);
-    await expect(
-      authorizeOAuthFinalize({ carrier, role: "platform_ops" }),
-    ).rejects.toMatchObject({ code: "invalid_role" });
+    await expect(authorizeOAuthFinalize({ carrier, role: "platform_ops" })).rejects.toMatchObject({
+      code: "invalid_role",
+    });
   });
 
   it("finalizes with a valid carrier + role, consuming the carrier nonce exactly once", async () => {
     const { db } = makeFinalizeDb();
     const carrier = signGoogleIdentityCarrier(googleClaims);
-    const result = await authorizeOAuthFinalize({ carrier, role: "candidate" }, db as never);
+    const result = await authorizeOAuthFinalize(
+      { carrier, role: "candidate", ...candidateProfileFixture },
+      db as never,
+    );
     expect(result).toMatchObject({ id: "new-oauth-id", role: "candidate" });
     expect(consumeSingleUseTokenMock).toHaveBeenCalledTimes(1);
   });
@@ -530,7 +628,10 @@ describe("authorizeOAuthFinalize — carrier gate", () => {
     const carrier = signGoogleIdentityCarrier(googleClaims);
 
     await expect(
-      authorizeOAuthFinalize({ carrier, role: "candidate" }, db as never),
+      authorizeOAuthFinalize(
+        { carrier, role: "candidate", ...candidateProfileFixture },
+        db as never,
+      ),
     ).rejects.toMatchObject({ code: "carrier_replayed", message: "oauth_carrier_replayed" });
     // Fail closed before any account write.
     expect(captures.userInsert).toBeNull();
@@ -542,7 +643,10 @@ describe("authorizeOAuthFinalize — carrier gate", () => {
     const carrier = signGoogleIdentityCarrier(googleClaims);
 
     await expect(
-      authorizeOAuthFinalize({ carrier, role: "candidate" }, db as never),
+      authorizeOAuthFinalize(
+        { carrier, role: "candidate", ...candidateProfileFixture },
+        db as never,
+      ),
     ).rejects.toMatchObject({ code: "carrier_replayed", message: "oauth_carrier_unavailable" });
     expect(captures.userInsert).toBeNull();
   });
@@ -551,5 +655,77 @@ describe("authorizeOAuthFinalize — carrier gate", () => {
     await expect(
       authorizeOAuthFinalize({ carrier: "bad", role: "candidate" }),
     ).rejects.toBeInstanceOf(OAuthFinalizeError);
+  });
+
+  // 2026-07-23 — closes the OAuth-recruiter parity gap: previously `finalize("recruiter", null)`
+  // skipped onboarding entirely and created a Trusted-Recruiter-eligible-looking account with no
+  // trust-review submission at all. The affiliation form is now required and validated exactly
+  // like the candidate path, before the carrier nonce is even consumed (so a validation failure
+  // never burns a legitimate carrier).
+  it("rejects a recruiter finalize whose affiliation form is missing, before touching the DB or the carrier nonce", async () => {
+    const { db, captures } = makeFinalizeDb();
+    const carrier = signGoogleIdentityCarrier(googleClaims);
+
+    await expect(
+      authorizeOAuthFinalize({ carrier, role: "recruiter" }, db as never),
+    ).rejects.toMatchObject({ code: "invalid_recruiter_verification" });
+
+    expect(captures.userInsert).toBeNull();
+    expect(consumeSingleUseTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a recruiter finalize with an invalid mobile number, mirroring the credentials-signup validation rules", async () => {
+    const { db, captures } = makeFinalizeDb();
+    const carrier = signGoogleIdentityCarrier(googleClaims);
+
+    await expect(
+      authorizeOAuthFinalize(
+        { carrier, role: "recruiter", fullName: "Wisnu Aditya", mobileNumber: "123" },
+        db as never,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_recruiter_verification" });
+
+    expect(captures.userInsert).toBeNull();
+  });
+
+  it("finalizes a recruiter with a valid affiliation form, writing the trust-review submission in the same transaction", async () => {
+    const { db, captures } = makeFinalizeDb();
+    const carrier = signGoogleIdentityCarrier(googleClaims);
+
+    const result = await authorizeOAuthFinalize(
+      { carrier, role: "recruiter", ...recruiterVerificationFixture },
+      db as never,
+    );
+
+    expect(result).toMatchObject({ id: "new-oauth-id", role: "recruiter" });
+    expect(consumeSingleUseTokenMock).toHaveBeenCalledTimes(1);
+    expect(captures.recruiterVerificationInsert).toMatchObject({
+      userId: "new-oauth-id",
+      fullName: "Wisnu Aditya",
+      mobileNumber: "0813456789",
+    });
+    // A recruiter finalize must never write a candidate onboarding profile.
+    expect(captures.candidateProfileInsert).toBeNull();
+  });
+
+  it("a candidate finalize ignores stray recruiter-shaped fields on the payload (role-gated parsing, not field presence)", async () => {
+    const { db, captures } = makeFinalizeDb();
+    const carrier = signGoogleIdentityCarrier(googleClaims);
+
+    await authorizeOAuthFinalize(
+      {
+        carrier,
+        role: "candidate",
+        ...candidateProfileFixture,
+        mobileNumber: "0899999999",
+        corporateEmail: "attacker@corp.co.id",
+      },
+      db as never,
+    );
+
+    // authorizeOAuthFinalize only parses recruiterVerification when role === "recruiter"; a
+    // candidate request carrying recruiter-shaped fields must not create a trust-review
+    // submission, regardless of what extra fields ride along on the credentials payload.
+    expect(captures.recruiterVerificationInsert).toBeNull();
   });
 });

@@ -14,7 +14,6 @@ describe("RegistrationError status mapping", () => {
     ["competition_not_published", 409],
     ["competition_wrong_mode", 409],
     ["registration_deadline_passed", 409],
-    ["registration_ineligible", 422],
     ["registration_already_exists", 409],
     ["registration_not_found", 404],
     ["registration_not_owner", 403],
@@ -27,15 +26,15 @@ describe("RegistrationError status mapping", () => {
 
 describe("toRegistrationErrorResponse", () => {
   it("serializes error with code, message, and details", async () => {
-    const err = new RegistrationError("registration_ineligible", "nope", {
-      eligibilityStatus: "incomplete",
+    const err = new RegistrationError("cancellation_reason_required", "nope", {
+      field: "cancellationReason",
     });
     const res = toRegistrationErrorResponse(err);
     expect(res.status).toBe(422);
     const body = await res.json();
-    expect(body.error.code).toBe("registration_ineligible");
+    expect(body.error.code).toBe("cancellation_reason_required");
     expect(body.error.message).toBe("nope");
-    expect(body.error.details).toEqual({ eligibilityStatus: "incomplete" });
+    expect(body.error.details).toEqual({ field: "cancellationReason" });
   });
 });
 

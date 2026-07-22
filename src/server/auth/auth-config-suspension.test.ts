@@ -38,6 +38,20 @@ vi.mock("@/server/db/schema", () => ({
   accounts: {},
   sessions: {},
   verificationTokens: {},
+  // Reached transitively via oauth-account → candidate-profile-core, which reads .enumValues
+  // at module load.
+  candidateOccupationEnum: {
+    enumValues: ["school_student", "college_student", "new_graduate", "professional", "other"],
+  },
+  candidateProfiles: {
+    userId: "user_id",
+    fullName: "full_name",
+    phoneNumber: "phone_number",
+    occupation: "occupation",
+    dateOfBirth: "date_of_birth",
+    createdAt: "created_at",
+    updatedAt: "updated_at",
+  },
 }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
 

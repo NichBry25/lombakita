@@ -10,11 +10,11 @@ import type { CompetitionRow } from "@/server/competitions/competition-access";
 
 const {
   assertCompetitionAccess,
-  assertInstitutionVerified,
+  assertActorIsTrustedRecruiter,
   assertInstitutionNotSuspended,
 } = vi.hoisted(() => ({
   assertCompetitionAccess: vi.fn(),
-  assertInstitutionVerified: vi.fn(),
+  assertActorIsTrustedRecruiter: vi.fn(),
   assertInstitutionNotSuspended: vi.fn(),
 }));
 
@@ -25,7 +25,7 @@ vi.mock("@/server/competitions/competition-access", async () => {
   return {
     ...actual,
     assertCompetitionAccess,
-    assertInstitutionVerified,
+    assertActorIsTrustedRecruiter,
     assertInstitutionNotSuspended,
   };
 });
@@ -108,7 +108,7 @@ describe("F2 — same-status transitions return 422", () => {
     );
   });
 
-  it("does not call assertInstitutionVerified on same-status draft → draft", async () => {
+  it("does not call assertActorIsTrustedRecruiter on same-status draft → draft", async () => {
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({ status: "draft" }),
       membershipRole: "institution_owner",
@@ -117,7 +117,7 @@ describe("F2 — same-status transitions return 422", () => {
     await expect(
       transitionCompetitionStatus("user_1", "comp_1", "draft", stubDb),
     ).rejects.toBeInstanceOf(CompetitionError);
-    expect(assertInstitutionVerified).not.toHaveBeenCalled();
+    expect(assertActorIsTrustedRecruiter).not.toHaveBeenCalled();
   });
 });
 
@@ -183,7 +183,7 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
       }),
       membershipRole: "institution_owner",
     });
-    assertInstitutionVerified.mockResolvedValue(undefined);
+    assertActorIsTrustedRecruiter.mockResolvedValue(undefined);
     assertInstitutionNotSuspended.mockResolvedValue(undefined);
 
     await expect(
@@ -193,6 +193,39 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
       httpStatus: 422,
       details: { fields: expect.arrayContaining(["minTeamSize"]) },
     });
+  });
+
+  it("rejects publish with 403 competition_recruiter_not_trusted when the actor is not Trusted", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({
+        status: "draft",
+        mode: "individual",
+        title: "Lomba Individu",
+        description: "Deskripsi lengkap",
+        category: "technology",
+        registrationStartAt: future(2),
+        registrationEndAt: future(10),
+        eventStartAt: future(20),
+        eventEndAt: future(25),
+      }),
+      membershipRole: "institution_owner",
+    });
+    assertActorIsTrustedRecruiter.mockRejectedValue(
+      new CompetitionError(
+        "competition_recruiter_not_trusted",
+        403,
+        "Publishing requires a Trusted Recruiter account — complete recruiter verification first",
+      ),
+    );
+
+    await expect(
+      transitionCompetitionStatus("user_1", "comp_1", "published", stubDb),
+    ).rejects.toMatchObject({
+      code: "competition_recruiter_not_trusted",
+      httpStatus: 403,
+    });
+    // The trust gate fires before the suspension read — no institution lookup happens.
+    expect(assertInstitutionNotSuspended).not.toHaveBeenCalled();
   });
 
   it("validatePublishChecklist passes for an otherwise-identical team competition with minTeamSize=2", async () => {

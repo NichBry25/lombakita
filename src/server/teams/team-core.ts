@@ -55,7 +55,6 @@ export type TeamErrorCode =
   | "registration_not_yet_open"
   | "team_size_insufficient"
   | "team_size_exceeded"
-  | "team_member_ineligible"
   | "team_member_already_registered"
   | "team_not_submitted"
   | "team_state_conflict"
@@ -103,7 +102,6 @@ const STATUS_BY_CODE: Record<TeamErrorCode, number> = {
   registration_not_yet_open: 422,
   team_size_insufficient: 422,
   team_size_exceeded: 422,
-  team_member_ineligible: 422,
   team_member_already_registered: 409,
   team_not_submitted: 409,
   team_state_conflict: 409,

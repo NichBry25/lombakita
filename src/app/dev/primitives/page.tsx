@@ -9,7 +9,7 @@ export default function DevPrimitivesPage() {
   return (
     <main className="page-shell stack-lg">
       <header className="stack-sm">
-        <p className="eyebrow">Mercusuar foundation</p>
+        <p className="eyebrow">Brandbook v2 foundation</p>
         <h1 className="display-title">Token dan komponen produksi</h1>
         <p className="lead-copy">
           Halaman verifikasi visual khusus development untuk warna, tipografi, surface, kontrol,

@@ -9,13 +9,17 @@ export type IconName =
   | "check"
   | "chevron-down"
   | "close"
+  | "edit"
   | "inbox"
+  | "link"
   | "menu"
   | "moon"
   | "pin"
+  | "plus"
   | "search"
   | "sun"
   | "trophy"
+  | "upload"
   | "user"
   | "users";
 
@@ -62,11 +66,21 @@ function IconPaths({ name }: { name: IconName }) {
           <path d="m18 6-12 12" />
         </>
       );
+    case "edit":
+      return <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />;
     case "inbox":
       return (
         <>
           <path d="M4 4h16v15H4Z" />
           <path d="M4 14h4l2 3h4l2-3h4" />
+        </>
+      );
+    case "link":
+      return (
+        <>
+          <path d="M9.5 14.5 14.5 9.5" />
+          <path d="M11 6.5 12 5.5a4 4 0 0 1 5.66 5.66l-1 1" />
+          <path d="M13 17.5 12 18.5a4 4 0 0 1-5.66-5.66l1-1" />
         </>
       );
     case "menu":
@@ -82,6 +96,13 @@ function IconPaths({ name }: { name: IconName }) {
         <>
           <path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z" />
           <circle cx="12" cy="10" r="2.5" />
+        </>
+      );
+    case "plus":
+      return (
+        <>
+          <path d="M12 5v14" />
+          <path d="M5 12h14" />
         </>
       );
     case "search":
@@ -103,6 +124,14 @@ function IconPaths({ name }: { name: IconName }) {
         <>
           <path d="M8 4h8v4a4 4 0 0 1-8 0Z" />
           <path d="M12 12v5M8 21h8M10 17h4M8 6H4v1a4 4 0 0 0 4 4M16 6h4v1a4 4 0 0 1-4 4" />
+        </>
+      );
+    case "upload":
+      return (
+        <>
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <path d="M12 3v12" />
+          <path d="m7 8 5-5 5 5" />
         </>
       );
     case "user":
@@ -131,7 +160,7 @@ export function Icon({ name, size = "md", className, ...svgProps }: IconProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.7"
+      strokeWidth="var(--icon-stroke)"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden={svgProps["aria-label"] ? undefined : true}

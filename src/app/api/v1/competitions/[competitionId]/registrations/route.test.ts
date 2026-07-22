@@ -82,20 +82,20 @@ describe("POST /api/v1/competitions/[competitionId]/registrations", () => {
     expect(body.error.code).toBe("competition_not_found");
   });
 
-  it("forwards RegistrationError with correct status (422 ineligible)", async () => {
+  it("forwards RegistrationError with correct status (422)", async () => {
     requireSessionRole.mockResolvedValue(candidateSession);
     const { RegistrationError } = await import("@/server/registrations/registration-core");
     createIndividualRegistration.mockRejectedValue(
-      new RegistrationError("registration_ineligible", "Not eligible", {
-        eligibilityStatus: "incomplete",
+      new RegistrationError("cancellation_reason_required", "Reason required", {
+        field: "cancellationReason",
       }),
     );
 
     const res = await POST(makeRequest() as never, makeContext());
     const body = await res.json();
     expect(res.status).toBe(422);
-    expect(body.error.code).toBe("registration_ineligible");
-    expect(body.error.details.eligibilityStatus).toBe("incomplete");
+    expect(body.error.code).toBe("cancellation_reason_required");
+    expect(body.error.details.field).toBe("cancellationReason");
   });
 
   it("forwards RegistrationError with correct status (409 already exists)", async () => {

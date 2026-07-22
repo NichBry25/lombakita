@@ -40,9 +40,15 @@ describe("GET /api/v1/users/[username]/profile", () => {
       bio: "A developer",
       location: "Jakarta",
       avatarUrl: null,
-      university: "UI",
-      major: "CS",
-      graduationYear: 2024,
+      candidateVerified: true,
+      recruiterVerified: false,
+      collections: {
+        experiences: [],
+        educations: [{ id: "e1", school: "UI", degree: null, fieldOfStudy: "CS", startYear: null, endYear: 2024, description: null }],
+        skills: [],
+        certifications: [],
+        socialLinks: [],
+      },
     });
 
     const res = await GET(makeRequest("john_abc1") as never, makeParams("john_abc1"));
@@ -51,30 +57,8 @@ describe("GET /api/v1/users/[username]/profile", () => {
     expect(res.status).toBe(200);
     expect(body.profile.username).toBe("john_abc1");
     expect(body.profile.displayName).toBe("John Doe");
+    expect(body.profile.collections.educations).toHaveLength(1);
     expect(getPublicProfile).toHaveBeenCalledWith("john_abc1");
-  });
-
-  it("does not include scope-gated fields in public response", async () => {
-    // Simulate a candidate-only account: recruiter fields absent from public response.
-    getPublicProfile.mockResolvedValue({
-      username: "candidate_user",
-      displayName: "Budi",
-      bio: null,
-      location: null,
-      avatarUrl: null,
-      university: "ITS",
-      major: "Informatika",
-      graduationYear: 2025,
-      // roleTitle, organizationName, websiteUrl intentionally absent (recruiter not verified)
-    });
-
-    const res = await GET(makeRequest("candidate_user") as never, makeParams("candidate_user"));
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect("roleTitle" in body.profile).toBe(false);
-    expect("organizationName" in body.profile).toBe(false);
-    expect("websiteUrl" in body.profile).toBe(false);
   });
 
   it("does not include status wrappers in public response shape", async () => {
@@ -84,6 +68,15 @@ describe("GET /api/v1/users/[username]/profile", () => {
       bio: null,
       location: null,
       avatarUrl: null,
+      candidateVerified: false,
+      recruiterVerified: false,
+      collections: {
+        experiences: [],
+        educations: [],
+        skills: [],
+        certifications: [],
+        socialLinks: [],
+      },
     });
 
     const res = await GET(makeRequest("john_abc1") as never, makeParams("john_abc1"));

@@ -116,6 +116,9 @@ describe("registerUserWithCredentials — recruiter signup atomic auto-grant (4.
       email: "recruiter@example.com",
       password: "very-strong-password",
       signupRole: "recruiter",
+      fullName: "Dinda Recruiter",
+      mobileNumber: "0812345678",
+      corporateEmail: "dinda@corp.co.id",
     });
 
     const values = captures.userInsertValues;
@@ -142,6 +145,10 @@ describe("registerUserWithCredentials — recruiter signup atomic auto-grant (4.
       email: "candidate@example.com",
       password: "very-strong-password",
       signupRole: "candidate",
+      fullName: "Dinda Candidate",
+      phoneNumber: "0812345678",
+      occupation: "college_student",
+      dateOfBirth: "2000-01-15",
     });
 
     const values = captures.userInsertValues;

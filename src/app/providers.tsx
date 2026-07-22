@@ -6,7 +6,7 @@ import { SecondRolePromptModal } from "@/components/auth/second-role-prompt-moda
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 
 // Step 4.0b — root-level next-auth SessionProvider. Required so client components that call
-// `useSession()` (e.g. SkipForNowButton, StubCompleteButton) can refresh the JWT via
+// `useSession()` (e.g. SkipForNowButton, VerifyRoleForm) can refresh the JWT via
 // `update()` after the second-role verification flow. The provider does not pass an initial
 // session — children call /api/auth/session lazily when they need it.
 //

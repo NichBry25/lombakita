@@ -239,6 +239,34 @@
       "when": 1781018288777,
       "tag": "0033_lethal_tinkerer",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1784688669919,
+      "tag": "0034_light_cammi",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1784691950481,
+      "tag": "0035_flawless_true_believers",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1784723987175,
+      "tag": "0036_open_candidacy_candidate_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1784733233385,
+      "tag": "0037_abandoned_kat_farrell",
+      "breakpoints": true
     }
   ]
 }
