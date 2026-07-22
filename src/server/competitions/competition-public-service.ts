@@ -356,6 +356,31 @@ export const listPublicCompetitions = async (
   return listFromDb(filters, db);
 };
 
+// Featured competitions for the homepage. Same published + not-deleted + live-deadline guards as
+// the public listing, restricted to is_featured, ordered by featured_order (NULLS LAST). No paging
+// — the homepage renders a small fixed set.
+export const listFeaturedCompetitions = async (
+  limit = 6,
+  db: Database = getDb(),
+): Promise<PublicCompetitionItem[]> => {
+  const rows = await db
+    .select(PUBLIC_LISTING_COLUMNS)
+    .from(competitions)
+    .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
+    .where(
+      and(
+        eq(competitions.status, "published"),
+        isNull(competitions.deletedAt),
+        eq(competitions.isFeatured, true),
+        or(isNull(competitions.registrationEndAt), gte(competitions.registrationEndAt, sql`now()`))!,
+      ),
+    )
+    .orderBy(sql`${competitions.featuredOrder} ASC NULLS LAST`, desc(competitions.createdAt))
+    .limit(limit);
+
+  return rows.map(mapPublicListingRow);
+};
+
 // ── Detail ────────────────────────────────────────────────────────────────────
 
 export type RegistrationCTAState = "open" | "closed" | "not_yet_open";

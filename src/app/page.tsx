@@ -1,11 +1,28 @@
 import Link from "next/link";
 import { ButtonLink, Icon } from "@/components/ui";
+import { MemphisHeroArt } from "@/components/home/memphis-hero-art";
+import { FeaturedCarousel } from "@/components/home/featured-carousel";
+import { listFeaturedCompetitions } from "@/server/competitions/competition-public-service";
+
+// Featured placement is ops-managed and changes rarely (Step 5.5), so a short staleness
+// window is acceptable — ISR avoids a DB round trip on every request to the highest-traffic
+// page. The render has no session-dependent content (see pre-flight audit, W0), so caching it
+// is safe: identical HTML for every visitor.
+export const revalidate = 300;
 
 const DISCOVERY_CATEGORIES = [
-  { label: "Teknologi", detail: "Hackathon, produk digital, dan inovasi" },
-  { label: "Bisnis", detail: "Studi kasus, rencana bisnis, dan pitching" },
-  { label: "Sains", detail: "Riset, olimpiade, dan karya ilmiah" },
-  { label: "Seni & kreasi", detail: "Desain, film, fotografi, dan karya visual" },
+  {
+    value: "technology",
+    label: "Teknologi",
+    detail: "Hackathon, produk digital, dan inovasi",
+  },
+  { value: "business", label: "Bisnis", detail: "Studi kasus, rencana bisnis, dan pitching" },
+  { value: "science", label: "Sains", detail: "Riset, olimpiade, dan karya ilmiah" },
+  {
+    value: "creative_arts",
+    label: "Seni & kreasi",
+    detail: "Desain, film, fotografi, dan karya visual",
+  },
 ] as const;
 
 const TRUST_MARKERS = [
@@ -14,51 +31,66 @@ const TRUST_MARKERS = [
   "Alur pendaftaran terpadu",
 ] as const;
 
-export default function HomePage() {
+const MARQUEE_WORDS = ["Temukan", "Daftar", "Berkarya", "Menang"] as const;
+// One half, repeated enough to overflow the ribbon even on a wide monitor, then doubled
+// so the translateX(-50%) loop lands the second half exactly over the first — no blank run.
+const MARQUEE_HALF = Array.from({ length: 9 }, () => MARQUEE_WORDS).flat();
+const MARQUEE_ITEMS = [...MARQUEE_HALF, ...MARQUEE_HALF];
+
+export default async function HomePage() {
+  const featuredCompetitions = await listFeaturedCompetitions(4);
+
   return (
     <main>
       <section className="brand-band home-hero">
         <div className="content-shell home-hero-inner">
-          <div className="home-hero-copy stack-md">
-            <p className="home-kicker">
-              <Icon name="trophy" size="sm" />
-              Platform peluang mahasiswa Indonesia
-            </p>
-            <p className="home-brand-word">Lombakita</p>
-            <h1>Temukan panggung yang tepat untuk langkah berikutmu.</h1>
-            <p className="home-hero-lead">
-              Jelajahi kompetisi dengan informasi yang jernih, tenggat yang tegas, dan penyelenggara
-              yang dapat kamu kenali.
-            </p>
-            <ButtonLink href="/auth/login" variant="gold" size="sm">
-              Login atau daftar akun
-            </ButtonLink>
-          </div>
+          <div className="home-hero-main">
+            <div className="home-hero-copy stack-md">
+              <h1>
+                Temukan kompetisi yang <span className="lime-marker">tepat</span> untuk langkah
+                berikutmu.
+              </h1>
+              <p className="home-hero-lead">
+                Jelajahi kompetisi dengan informasi yang jernih, tenggat yang tegas, dan
+                penyelenggara yang dapat kamu kenali.
+              </p>
+            </div>
 
-          <Link href="/competitions" className="glass-focus home-search-entry">
-            <span className="home-search-icon" aria-hidden="true">
-              <Icon name="search" size="lg" />
-            </span>
-            <span className="home-search-copy">
-              <span className="home-search-label">Cari kompetisi</span>
-              <span>Nama, kategori, atau penyelenggara</span>
-            </span>
-            <span className="ui-button" data-variant="gold" data-size="lg">
-              Mulai mencari
-              <Icon name="arrow-right" size="md" />
-            </span>
-          </Link>
-
-          <div className="home-trust-row" aria-label="Keunggulan penemuan peluang">
-            {TRUST_MARKERS.map((marker) => (
-              <span key={marker}>
-                <Icon name="check" size="sm" />
-                {marker}
+            <Link href="/competitions" className="glass-focus home-search-entry">
+              <span className="home-search-icon" aria-hidden="true">
+                <Icon name="search" size="lg" />
               </span>
-            ))}
+              <span className="home-search-copy">
+                <span className="home-search-label">Cari kompetisi</span>
+                <span>Nama, kategori, atau penyelenggara</span>
+              </span>
+              <span className="ui-button" data-variant="primary" data-size="lg">
+                Mulai mencari
+                <Icon name="arrow-right" size="md" />
+              </span>
+            </Link>
+
+            <div className="home-trust-row" aria-label="Keunggulan penemuan peluang">
+              {TRUST_MARKERS.map((marker) => (
+                <span key={marker}>
+                  <Icon name="check" size="sm" />
+                  {marker}
+                </span>
+              ))}
+            </div>
           </div>
+
+          <MemphisHeroArt />
         </div>
       </section>
+
+      <div className="home-marquee" aria-hidden="true">
+        <div className="home-marquee-track">
+          {MARQUEE_ITEMS.map((word, index) => (
+            <span key={index}>{word}</span>
+          ))}
+        </div>
+      </div>
 
       <section className="page-section">
         <div className="content-shell stack-lg">
@@ -67,64 +99,37 @@ export default function HomePage() {
               <p className="eyebrow">Jelajahi berdasarkan minat</p>
               <h2 className="section-title">Satu tempat untuk beragam arena</h2>
             </div>
-            <ButtonLink href="/competitions" variant="outline" size="sm">
-              Lihat semua kompetisi
-              <Icon name="arrow-right" size="sm" />
-            </ButtonLink>
           </header>
 
           <div className="home-category-grid">
-            {DISCOVERY_CATEGORIES.map((category, index) => (
-              <article className="home-category-card" key={category.label}>
-                <span className="home-category-index data-text">
-                  {String(index + 1).padStart(2, "0")}
+            {DISCOVERY_CATEGORIES.map((category) => (
+              <Link
+                className="home-category-card"
+                data-category={category.value}
+                href="/competitions"
+                key={category.label}
+              >
+                <span className="home-category-icon" aria-hidden="true">
+                  <Icon name="trophy" size="md" />
                 </span>
-                <div className="stack-xs">
+                <div className="stack-xs home-category-copy">
+                  <span className="home-category-label">{category.label}</span>
                   <h3>{category.label}</h3>
                   <p>{category.detail}</p>
                 </div>
-              </article>
+              </Link>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="page-section home-guidance-section">
-        <div className="content-shell home-guidance-grid">
-          <div className="stack-md">
-            <p className="eyebrow">Untuk kandidat</p>
-            <h2 className="section-title">Fokus pada keputusan, bukan kebisingan.</h2>
-            <p className="lead-copy">
-              Bandingkan kategori, format partisipasi, jadwal, dan biaya sebelum membuka detail.
-              Simpan peluang yang relevan untuk dibaca kembali.
-            </p>
-            <div className="cluster">
-              <ButtonLink href="/competitions" variant="primary">
-                Jelajahi kompetisi
-              </ButtonLink>
-              <ButtonLink href="/saved" variant="ghost">
-                Buka yang tersimpan
-              </ButtonLink>
-            </div>
+      {featuredCompetitions.length > 0 ? (
+        <section className="page-section">
+          <div className="content-shell stack-lg">
+            <FeaturedCarousel items={featuredCompetitions} />
           </div>
-
-          <div className="home-guidance-list">
-            {[
-              ["01", "Temukan", "Gunakan pencarian dan filter untuk mempersempit arena."],
-              ["02", "Pahami", "Baca jadwal, format, biaya, dan ketentuan utama."],
-              ["03", "Bertindak", "Masuk sebagai kandidat dan lanjutkan ke alur pendaftaran."],
-            ].map(([number, title, detail]) => (
-              <div className="home-guidance-item" key={number}>
-                <span className="data-text">{number}</span>
-                <div>
-                  <h3>{title}</h3>
-                  <p>{detail}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
 
       <section className="page-section">
         <div className="content-shell">
@@ -136,7 +141,12 @@ export default function HomePage() {
                 Kelola publikasi, peserta, submission, dan hasil melalui satu ruang kerja institusi.
               </p>
             </div>
-            <ButtonLink href="/institution/workspace" variant="gold" size="lg" prefetch={false}>
+            <ButtonLink
+              href="/institution/workspace"
+              variant="secondary"
+              size="lg"
+              prefetch={false}
+            >
               Buka ruang kerja
               <Icon name="arrow-right" size="md" />
             </ButtonLink>
