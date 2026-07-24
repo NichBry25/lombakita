@@ -154,13 +154,24 @@ describe("parseCompetitionPatchInput", () => {
   });
   it("accepts each valid category enum value", () => {
     for (const cat of [
-      "technology",
-      "science",
+      "hackathon",
+      "scientific_writing",
+      "essay",
+      "debate",
+      "olympiad",
       "business",
-      "creative_arts",
-      "social_humanities",
-      "sports",
-      "academic",
+      "engineering",
+      "finance",
+      "law",
+      "design",
+      "data_science",
+      "programming",
+      "marketing",
+      "digital_art",
+      "infographics",
+      "performing_arts",
+      "esports",
+      "quiz",
       "other",
     ] as const) {
       expect(parseCompetitionPatchInput({ category: cat }).category).toBe(cat);
@@ -219,7 +230,7 @@ describe("validatePublishChecklist", () => {
   const passing = () => ({
     title: "Lomba",
     description: "Deskripsi yang panjang",
-    category: "technology" as const,
+    category: "hackathon" as const,
     mode: "individual" as const,
     registrationStartAt: inFuture(7),
     registrationEndAt: inFuture(30),
@@ -356,9 +367,9 @@ describe("F5 — mode auto-set (parseCompetitionPatchInput)", () => {
   });
 
   it("rejects team mode with min < 2 when only min is explicit (floor still enforced)", () => {
-    expect(() =>
-      parseCompetitionPatchInput({ mode: "team", minTeamSize: 1 }),
-    ).toThrow(/minTeamSize >= 2/);
+    expect(() => parseCompetitionPatchInput({ mode: "team", minTeamSize: 1 })).toThrow(
+      /minTeamSize >= 2/,
+    );
   });
 
   it("auto-sets max=min when min is explicit and min > default max (no clobber)", () => {
@@ -376,9 +387,9 @@ describe("F5 — mode auto-set (parseCompetitionPatchInput)", () => {
   });
 
   it("rejects when max < min (existing rule, still enforced)", () => {
-    expect(() =>
-      parseCompetitionPatchInput({ minTeamSize: 3, maxTeamSize: 2 }),
-    ).toThrow(/less than or equal to/);
+    expect(() => parseCompetitionPatchInput({ minTeamSize: 3, maxTeamSize: 2 })).toThrow(
+      /less than or equal to/,
+    );
   });
 });
 
@@ -391,7 +402,7 @@ describe("F5 — mode floor at publish time (validatePublishChecklist)", () => {
   const base = () => ({
     title: "Lomba",
     description: "Desc",
-    category: "technology" as const,
+    category: "hackathon" as const,
     registrationStartAt: inFuture(7),
     registrationEndAt: inFuture(30),
     eventStartAt: inFuture(40),

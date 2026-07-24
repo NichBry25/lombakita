@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { SelectField } from "@/components/ui";
 
 type Props = {
   path: string;
@@ -21,30 +22,32 @@ export function ParticipantsFilterForm({ path, status, type }: Props) {
 
   return (
     <div className="participant-filter-toolbar glass-chrome">
-      <label className="form-field">
+      <div className="form-field">
         <span className="form-label">Status</span>
-        <select
-          className="form-select"
+        <SelectField
+          label="Status"
           value={status}
-          onChange={(e) => push({ status: e.target.value, type })}
-        >
-          <option value="all">Semua</option>
-          <option value="confirmed">Dikonfirmasi</option>
-          <option value="cancelled">Dibatalkan</option>
-        </select>
-      </label>
-      <label className="form-field">
+          onChange={(value) => push({ status: value, type })}
+          options={[
+            { value: "all", label: "Semua" },
+            { value: "confirmed", label: "Dikonfirmasi" },
+            { value: "cancelled", label: "Dibatalkan" },
+          ]}
+        />
+      </div>
+      <div className="form-field">
         <span className="form-label">Tipe</span>
-        <select
-          className="form-select"
+        <SelectField
+          label="Tipe"
           value={type}
-          onChange={(e) => push({ status, type: e.target.value })}
-        >
-          <option value="all">Semua</option>
-          <option value="individual">Individu</option>
-          <option value="team">Tim</option>
-        </select>
-      </label>
+          onChange={(value) => push({ status, type: value })}
+          options={[
+            { value: "all", label: "Semua" },
+            { value: "individual", label: "Individu" },
+            { value: "team", label: "Tim" },
+          ]}
+        />
+      </div>
     </div>
   );
 }

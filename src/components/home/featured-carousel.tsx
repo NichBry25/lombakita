@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ButtonLink, Icon } from "@/components/ui";
+import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
+import { getCompetitionModeLabel } from "@/lib/competitions/modes";
 
 type FeaturedItem = {
   id: string;
@@ -14,23 +16,6 @@ type FeaturedItem = {
   registrationEndAt: Date | string | null;
   institutionSlug: string;
   institutionName: string;
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  technology: "Teknologi",
-  science: "Sains",
-  business: "Bisnis",
-  creative_arts: "Seni & Kreasi",
-  social_humanities: "Sosial & Humaniora",
-  sports: "Olahraga",
-  academic: "Akademik",
-  other: "Lainnya",
-};
-
-const MODE_LABELS: Record<string, string> = {
-  individual: "Individu",
-  team: "Tim",
-  both: "Individu / Tim",
 };
 
 function toDate(value: Date | string | null) {
@@ -86,7 +71,10 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
     const slides = el.querySelectorAll<HTMLElement>(".featured-carousel-slide");
     const first = slides[0];
     const second = slides[1];
-    const step = first && second ? second.offsetLeft - first.offsetLeft : (first?.offsetWidth ?? el.clientWidth);
+    const step =
+      first && second
+        ? second.offsetLeft - first.offsetLeft
+        : (first?.offsetWidth ?? el.clientWidth);
     el.scrollBy({ left: step * direction, behavior: "smooth" });
   };
 
@@ -121,63 +109,63 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
         </button>
 
         <div className="featured-carousel" ref={viewportRef} onScroll={updateEdges}>
-        {items.map((competition) => {
-          const detailPath = `/competitions/${competition.institutionSlug}/${competition.slug}`;
-          const registrationStatus = resolveRegistrationStatus(competition.registrationEndAt);
-          const categoryLabel = competition.category
-            ? (CATEGORY_LABELS[competition.category] ?? competition.category)
-            : "Kompetisi";
-          return (
-            <article className="competition-card featured-carousel-slide" key={competition.id}>
-              <Link
-                href={detailPath}
-                className="competition-cover"
-                data-category={competition.category ?? "other"}
-                aria-label={`Buka ${competition.title}`}
-              >
-                <span className="competition-cover-icon" aria-hidden="true">
-                  <Icon name="trophy" size="lg" />
-                </span>
-                <span className="competition-cover-label">{categoryLabel}</span>
-              </Link>
-
-              <div className="competition-card-body">
-                <div className="competition-card-badges">
-                  <span className="status-badge" data-status="featured">
-                    Pilihan editor
+          {items.map((competition) => {
+            const detailPath = `/competitions/${competition.institutionSlug}/${competition.slug}`;
+            const registrationStatus = resolveRegistrationStatus(competition.registrationEndAt);
+            const categoryLabel = competition.category
+              ? getCompetitionCategoryLabel(competition.category)
+              : "Kompetisi";
+            return (
+              <article className="competition-card featured-carousel-slide" key={competition.id}>
+                <Link
+                  href={detailPath}
+                  className="competition-cover"
+                  data-category={competition.category ?? "other"}
+                  aria-label={`Buka ${competition.title}`}
+                >
+                  <span className="competition-cover-icon" aria-hidden="true">
+                    <Icon name="trophy" size="lg" />
                   </span>
-                  {competition.mode ? (
-                    <span className="status-badge">
-                      {MODE_LABELS[competition.mode] ?? competition.mode}
+                  <span className="competition-cover-label">{categoryLabel}</span>
+                </Link>
+
+                <div className="competition-card-body">
+                  <div className="competition-card-badges">
+                    <span className="status-badge" data-status="featured">
+                      Pilihan editor
                     </span>
+                    {competition.mode ? (
+                      <span className="status-badge">
+                        {getCompetitionModeLabel(competition.mode)}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="stack-xs">
+                    <Link href={detailPath} className="competition-title-link">
+                      {competition.title}
+                    </Link>
+                    <p className="competition-organizer">{competition.institutionName}</p>
+                  </div>
+
+                  {competition.description ? (
+                    <p className="competition-description">
+                      {truncateDescription(competition.description)}
+                    </p>
                   ) : null}
-                </div>
 
-                <div className="stack-xs">
-                  <Link href={detailPath} className="competition-title-link">
-                    {competition.title}
-                  </Link>
-                  <p className="competition-organizer">{competition.institutionName}</p>
+                  <div className="competition-card-footer">
+                    <span className="status-badge" data-status={registrationStatus.value}>
+                      {registrationStatus.label} · {formatDeadline(competition.registrationEndAt)}
+                    </span>
+                    <span className="competition-card-arrow" aria-hidden="true">
+                      <Icon name="arrow-right" size="md" />
+                    </span>
+                  </div>
                 </div>
-
-                {competition.description ? (
-                  <p className="competition-description">
-                    {truncateDescription(competition.description)}
-                  </p>
-                ) : null}
-
-                <div className="competition-card-footer">
-                  <span className="status-badge" data-status={registrationStatus.value}>
-                    {registrationStatus.label} · {formatDeadline(competition.registrationEndAt)}
-                  </span>
-                  <span className="competition-card-arrow" aria-hidden="true">
-                    <Icon name="arrow-right" size="md" />
-                  </span>
-                </div>
-              </div>
-            </article>
-          );
-        })}
+              </article>
+            );
+          })}
         </div>
 
         <button

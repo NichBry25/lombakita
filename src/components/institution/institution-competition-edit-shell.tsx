@@ -1,21 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Button, ButtonLink, EmptyState, PageHeader, Skeleton } from "@/components/ui";
+import {
+  Button,
+  ButtonLink,
+  EmptyState,
+  FormActionBar,
+  Icon,
+  IconButton,
+  PageHeader,
+  SelectField,
+  Skeleton,
+} from "@/components/ui";
 import { useModal } from "@/components/ui/primitives";
+import { COMPETITION_CATEGORY_OPTIONS } from "@/lib/competitions/categories";
+import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
+import { COMPETITION_MODE_OPTIONS } from "@/lib/competitions/modes";
+import { capitalizeFirst, capitalizeWord } from "@/lib/text/capitalize";
+import type { CompetitionCategory } from "@/server/db/schema";
 
-const CATEGORY_OPTIONS = [
-  "technology",
-  "science",
-  "business",
-  "creative_arts",
-  "social_humanities",
-  "sports",
-  "academic",
-  "other",
-] as const;
-type Category = (typeof CATEGORY_OPTIONS)[number];
+type Category = CompetitionCategory;
 
 type CompetitionStatus = "draft" | "published" | "archived";
 type CompetitionMode = "individual" | "team" | "both";
@@ -93,18 +98,6 @@ const extractError = async (
   }
 };
 
-// Bahasa labels for the post-publish blocked/immutable field names, so the modal names the offending
-// field with its bucket context rather than a raw column name.
-const FIELD_LABEL: Record<string, string> = {
-  mode: "Format peserta (mode)",
-  minTeamSize: "Minimum anggota tim",
-  maxTeamSize: "Maksimum anggota tim",
-  eventStartAt: "Tanggal mulai acara",
-  feeAmount: "Biaya",
-};
-
-const labelForField = (field: string): string => FIELD_LABEL[field] ?? field;
-
 const cutoffOrNull = (value: string): number | null => {
   if (value.trim() === "") return null;
   const n = Number.parseInt(value, 10);
@@ -151,6 +144,7 @@ export const InstitutionCompetitionEditShell = ({
   institutionSlug,
   competitionId,
   isPersonal = false,
+  children,
 }: {
   institutionSlug: string;
   competitionId: string;
@@ -158,6 +152,9 @@ export const InstitutionCompetitionEditShell = ({
   // mode selector offers individual only (no team/both); the server guard
   // (assertPersonalInstitutionIndividualMode, 422) remains the authoritative enforcement.
   isPersonal?: boolean;
+  // Additional authoring surfaces (e.g. the prizes editor) rendered inside the page shell so the
+  // page keeps a single <main>. The parent page wires these because they carry their own save.
+  children?: ReactNode;
 }) => {
   const router = useRouter();
   const { openModal } = useModal();
@@ -279,8 +276,8 @@ export const InstitutionCompetitionEditShell = ({
     return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
 
-  const onSave = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const onSave = async (event?: React.FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
     setIsSubmitting(true);
     setFeedback(null);
 
@@ -328,7 +325,7 @@ export const InstitutionCompetitionEditShell = ({
               </p>
               <ul>
                 {fields.map((f) => (
-                  <li key={f}>{labelForField(f)}</li>
+                  <li key={f}>{getCompetitionFieldLabel(f)}</li>
                 ))}
               </ul>
               <p className="form-help">
@@ -449,7 +446,7 @@ export const InstitutionCompetitionEditShell = ({
               isPublished ? "open" : competition.status === "archived" ? "closed" : "closing"
             }
           >
-            {competition.status}
+            {capitalizeWord(competition.status)}
           </span>
         }
       />
@@ -463,7 +460,7 @@ export const InstitutionCompetitionEditShell = ({
 
       {!isEditable ? (
         <p className="feedback" data-tone="error">
-          Kompetisi berstatus <code>{competition.status}</code> tidak dapat diubah.
+          Kompetisi berstatus <code>{capitalizeWord(competition.status)}</code> tidak dapat diubah.
         </p>
       ) : (
         <form onSubmit={onSave} className="competition-edit-form">
@@ -506,21 +503,19 @@ export const InstitutionCompetitionEditShell = ({
                 className="form-textarea"
               />
             </label>
-            <label className="form-field">
-              <span className="form-label">Kategori</span>
-              <select
+            <div className="form-field">
+              <span className="form-label" id="competition-category-label">
+                Kategori
+              </span>
+              <SelectField
+                label="Kategori"
+                id="competition-category-label"
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="form-select"
-              >
-                <option value="">— kosong —</option>
-                {CATEGORY_OPTIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </label>
+                placeholder="Pilih"
+                options={[...COMPETITION_CATEGORY_OPTIONS]}
+                onChange={setCategory}
+              />
+            </div>
           </section>
 
           <section className="content-section">
@@ -540,15 +535,25 @@ export const InstitutionCompetitionEditShell = ({
                 Institusi personal hanya dapat menjalankan kompetisi mode individu.
               </p>
             ) : null}
-            <label className="form-field">
-              <span className="form-label">Mode</span>
-              <select
+            <div className="form-field">
+              <span className="form-label" id="competition-mode-label">
+                Mode
+              </span>
+              {/* Personal institutions are individual-only (Step 6.5f.1). */}
+              <SelectField
+                label="Mode"
+                id="competition-mode-label"
                 value={mode}
                 disabled={isPublished}
-                onChange={(e) => {
-                  const newMode = e.target.value;
+                placeholder="Pilih"
+                options={
+                  isPersonal
+                    ? COMPETITION_MODE_OPTIONS.filter((option) => option.value === "individual")
+                    : [...COMPETITION_MODE_OPTIONS]
+                }
+                onChange={(newMode) => {
                   setMode(newMode);
-                  // F5 (Step 6.5b) — mode-driven team-size behaviour:
+                  // Mode-driven team-size behaviour:
                   //   individual → fixed 1/1, both fields disabled
                   //   team       → default 2/2, both fields editable
                   //   both       → min fixed at 1 (disabled), max editable (default 2)
@@ -565,15 +570,8 @@ export const InstitutionCompetitionEditShell = ({
                     }
                   }
                 }}
-                className="form-select"
-              >
-                <option value="">— kosong —</option>
-                <option value="individual">individual</option>
-                {/* Step 6.5f.1 — team/both are hidden for a personal institution (individual-only). */}
-                {isPersonal ? null : <option value="team">team</option>}
-                {isPersonal ? null : <option value="both">both</option>}
-              </select>
-            </label>
+              />
+            </div>
             <div className="form-grid">
               <label className="form-field">
                 <span className="form-label">Min. anggota tim</span>
@@ -629,7 +627,6 @@ export const InstitutionCompetitionEditShell = ({
                   onChange={(e) => setRegEnd(e.target.value)}
                   className="form-input"
                 />
-                <span className="form-help">Deadline harus berada di masa depan.</span>
               </label>
               <label className="form-field">
                 <span className="form-label">Acara mulai</span>
@@ -653,7 +650,12 @@ export const InstitutionCompetitionEditShell = ({
           </section>
 
           <fieldset className="content-section competition-policy-fieldset">
-            <legend className="form-legend">Kebijakan pembatalan peserta</legend>
+            <legend className="sr-only">Kebijakan pembatalan peserta</legend>
+            <div className="section-heading">
+              <div>
+                <h2>Kebijakan pembatalan peserta</h2>
+              </div>
+            </div>
             <label className="checkbox-field">
               <input
                 type="checkbox"
@@ -674,28 +676,8 @@ export const InstitutionCompetitionEditShell = ({
               />
             </label>
           </fieldset>
-
-          <div className="competition-edit-actions glass-chrome">
-            <Button type="submit" disabled={isSubmitting} loading={isSubmitting}>
-              {isSubmitting ? "Menyimpan..." : "Simpan"}
-            </Button>
-            {isDraft ? (
-              <Button variant="secondary" type="button" onClick={onPublish} disabled={isSubmitting}>
-                Publish
-              </Button>
-            ) : null}
-            <span className="record-meta" data-dirty={isDirty ? "true" : undefined}>
-              {isDirty ? "Perubahan belum disimpan" : "Semua perubahan tersimpan"}
-            </span>
-          </div>
         </form>
       )}
-
-      <div>
-        <Button type="button" onClick={handleBack} variant="ghost" size="sm">
-          ← Kembali ke aksi status
-        </Button>
-      </div>
 
       {feedback ? (
         <div role="status" className="feedback" data-tone={feedback.type}>
@@ -704,13 +686,41 @@ export const InstitutionCompetitionEditShell = ({
             <ul>
               {feedback.failures.map((f) => (
                 <li key={`${f.field}-${f.code}`}>
-                  <strong>{f.field}</strong> — {f.message}
+                  <strong>{getCompetitionFieldLabel(f.field)}</strong> —{" "}
+                  {capitalizeFirst(f.message)}
                 </li>
               ))}
             </ul>
           ) : null}
         </div>
       ) : null}
+
+      {children}
+
+      <FormActionBar>
+        <IconButton icon="arrow-left" label="Kembali ke aksi status" onClick={handleBack} />
+        {isEditable ? (
+          <div className="form-action-bar-end">
+            <span className="record-meta" data-dirty={isDirty ? "true" : undefined}>
+              {isDirty ? "Perubahan belum disimpan" : "Semua perubahan tersimpan"}
+            </span>
+            <Button
+              type="button"
+              onClick={() => onSave()}
+              disabled={isSubmitting}
+              loading={isSubmitting}
+              leadingIcon={<Icon name="save" />}
+            >
+              {isSubmitting ? "Menyimpan..." : "Simpan"}
+            </Button>
+            {isDraft ? (
+              <Button variant="secondary" type="button" onClick={onPublish} disabled={isSubmitting}>
+                Publish
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </FormActionBar>
     </main>
   );
 };

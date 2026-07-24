@@ -133,7 +133,9 @@ describe("Step 9 & 10 — Session guard redirects", () => {
 
   it("Step 10 — redirects unauthenticated sessions to sign-in", async () => {
     mockGetCurrentSession.mockResolvedValue(null);
-    mockRedirect.mockImplementation(() => { throw new Error("NEXT_REDIRECT"); });
+    mockRedirect.mockImplementation(() => {
+      throw new Error("NEXT_REDIRECT");
+    });
 
     await expect(CandidateDashboardPage()).rejects.toThrow("NEXT_REDIRECT");
     // F2 (Step 6.5b): unauthenticated guards send users to the login view at /auth/login.
@@ -146,7 +148,9 @@ describe("Step 9 & 10 — Session guard redirects", () => {
       expires: new Date(Date.now() + 60_000).toISOString(),
     });
     mockGetUnverifiedRoles.mockResolvedValue(["candidate"]);
-    mockRedirect.mockImplementation(() => { throw new Error("NEXT_REDIRECT"); });
+    mockRedirect.mockImplementation(() => {
+      throw new Error("NEXT_REDIRECT");
+    });
 
     await expect(CandidateDashboardPage()).rejects.toThrow("NEXT_REDIRECT");
     expect(mockRedirect).toHaveBeenCalledWith("/auth/verify-role?as=candidate");
@@ -257,7 +261,7 @@ describe("Saved competitions preview", () => {
     const html = renderToStaticMarkup(await CandidateDashboardPage());
 
     expect(html).toContain("Saved Competition 1");
-    expect(html).toContain("tidak tersedia");
+    expect(html).toContain("Tidak tersedia");
     // unavailable item must not render a link to the competition page
     expect(html).not.toContain('href="/competitions/ugm/saved-comp-1"');
   });
@@ -347,7 +351,7 @@ describe("Step 11 — Link hrefs", () => {
     // Upcoming deadlines section renders the competition title
     expect(html).toContain("Hackathon Nasional 2026");
     // Past-deadline: component uses live new Date() so we can only assert section renders
-    expect(html).toContain("Tenggat Mendatang");
+    expect(html).toContain("Tenggat mendatang");
   });
 
   it("cancelled registration does not contribute to upcoming deadlines", async () => {

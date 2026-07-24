@@ -2,7 +2,19 @@
 
 import { useState } from "react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
-import { Button, ButtonLink, PageHeader } from "@/components/ui";
+import { useRouter } from "next/navigation";
+import {
+  Button,
+  ButtonLink,
+  FormActionBar,
+  IconButton,
+  PageHeader,
+  SelectField,
+} from "@/components/ui";
+// Type-only: importing the enum VALUE would pull the Drizzle schema into the client bundle. The
+// exhaustive Record below is the compile-time guarantee instead — a new full subtype fails to build
+// until it is given a label here.
+import type { FullInstitutionType } from "@/server/institution-workspace/institution-type";
 
 type InstitutionCreationResponse = {
   institution: {
@@ -14,6 +26,18 @@ type InstitutionCreationResponse = {
     updatedAt: string;
   };
 };
+
+const TYPE_LABELS: Record<FullInstitutionType, string> = {
+  company: "Perusahaan",
+  foundation: "Yayasan",
+  university: "Universitas",
+  campus_organization: "Organisasi kampus",
+};
+
+const TYPE_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => ({
+  value: value as FullInstitutionType,
+  label,
+}));
 
 type FeedbackState =
   | {
@@ -41,14 +65,16 @@ const extractErrorMessage = async (response: Response): Promise<string> => {
 };
 
 export const InstitutionWorkspaceShell = () => {
+  const router = useRouter();
   const [displayName, setDisplayName] = useState("");
   const [slug, setSlug] = useState("");
+  const [institutionType, setInstitutionType] = useState<FullInstitutionType>("company");
   const [isCreating, setIsCreating] = useState(false);
   const [createdInstitutionSlug, setCreatedInstitutionSlug] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
 
-  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const onSubmit = async (event?: React.FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
 
     setFeedback(null);
 
@@ -65,8 +91,10 @@ export const InstitutionWorkspaceShell = () => {
     const payload: {
       displayName: string;
       slug?: string;
+      institutionType: FullInstitutionType;
     } = {
       displayName,
+      institutionType,
     };
 
     if (slug.trim().length > 0) {
@@ -110,15 +138,13 @@ export const InstitutionWorkspaceShell = () => {
         eyebrow="Workspace baru"
         title="Buat workspace institusi"
         description="Tetapkan identitas dasar ruang penyelenggara. Slug dapat dikosongkan agar dibuat otomatis."
-        backHref="/recruiter-dashboard"
-        backLabel="Dasbor rekruter"
       />
 
       <section className="content-section">
         <form className="stack-md" onSubmit={onSubmit}>
           <div className="form-field">
             <label className="form-label" htmlFor="institution-display-name">
-              Nama Institusi
+              Nama institusi
             </label>
             <input
               id="institution-display-name"
@@ -128,6 +154,16 @@ export const InstitutionWorkspaceShell = () => {
               onChange={(event) => setDisplayName(event.target.value)}
               placeholder="Contoh: Universitas Nusantara"
               required
+            />
+          </div>
+
+          <div className="form-field">
+            <SelectField
+              id="institution-type"
+              label="Tipe institusi"
+              value={institutionType}
+              onChange={(value) => setInstitutionType(value as FullInstitutionType)}
+              options={TYPE_OPTIONS}
             />
           </div>
 
@@ -150,12 +186,8 @@ export const InstitutionWorkspaceShell = () => {
             </p>
           ) : null}
 
-          <div className="record-actions">
-            <Button type="submit" disabled={isCreating} loading={isCreating}>
-              {isCreating ? "Menyimpan..." : "Buat Workspace"}
-            </Button>
-
-            {createdInstitutionSlug ? (
+          {createdInstitutionSlug ? (
+            <div className="record-actions">
               <ButtonLink
                 href={`/institution/${createdInstitutionSlug}/settings`}
                 prefetch={false}
@@ -163,8 +195,8 @@ export const InstitutionWorkspaceShell = () => {
               >
                 Buka pengaturan
               </ButtonLink>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </form>
       </section>
 
@@ -174,6 +206,24 @@ export const InstitutionWorkspaceShell = () => {
           Kembali ke beranda
         </ButtonLink>
       </div>
+
+      <FormActionBar>
+        <IconButton
+          icon="arrow-left"
+          label="Dasbor rekruter"
+          onClick={() => router.push("/recruiter-dashboard")}
+        />
+        <div className="form-action-bar-end">
+          <Button
+            type="button"
+            onClick={() => onSubmit()}
+            disabled={isCreating}
+            loading={isCreating}
+          >
+            {isCreating ? "Menyimpan..." : "Buat workspace"}
+          </Button>
+        </div>
+      </FormActionBar>
     </main>
   );
 };

@@ -12,6 +12,7 @@ import {
   listPublicCompetitions,
   deriveCTAState,
   resolveUseSearch,
+  countPublicRegistrants,
 } from "@/server/competitions/competition-public-service";
 
 // The service maps the joined institution columns (display_name / type / owner-username) through
@@ -19,7 +20,13 @@ import {
 // output shape. institutionName on the result is computed, never read straight from the row.
 type RawListingRow = Omit<PublicCompetitionItem, "institutionName"> & {
   institutionDisplayName: string | null;
-  institutionType: "personal" | "company" | "foundation" | "university" | "campus_organization" | null;
+  institutionType:
+    | "personal"
+    | "company"
+    | "foundation"
+    | "university"
+    | "campus_organization"
+    | null;
   institutionOwnerUsername: string | null;
 };
 
@@ -51,7 +58,7 @@ const makeRow = (overrides: Partial<RawListingRow> = {}): RawListingRow => ({
   slug: "lomba-x",
   title: "Lomba X",
   description: "Deskripsi",
-  category: "technology",
+  category: "hackathon",
   mode: "individual",
   minTeamSize: null,
   maxTeamSize: null,
@@ -279,7 +286,7 @@ describe("resolveUseSearch — Meili routing (spec §6)", () => {
   });
 
   it("does not use search when q is absent", () => {
-    expect(resolveUseSearch({ category: "technology" }, true)).toBe(false);
+    expect(resolveUseSearch({ category: "hackathon" }, true)).toBe(false);
   });
 
   it("treats empty-string status/teamSize as absent", () => {
@@ -345,6 +352,29 @@ describe("listPublicCompetitions — status/teamSize force the DB path", () => {
 
     expect(result.meta.searchEngine).toBe("db");
     expect(getClient).not.toHaveBeenCalled();
+  });
+});
+
+describe("countPublicRegistrants", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  const makeCountDb = (rows: Array<{ count: number }>): Database =>
+    ({
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(rows),
+        }),
+      }),
+    }) as unknown as Database;
+
+  it("returns the confirmed-registration count", async () => {
+    const db = makeCountDb([{ count: 42 }]);
+    expect(await countPublicRegistrants("comp_1", db)).toBe(42);
+  });
+
+  it("returns 0 when the count query yields no row", async () => {
+    const db = makeCountDb([]);
+    expect(await countPublicRegistrants("comp_1", db)).toBe(0);
   });
 });
 
@@ -431,7 +461,9 @@ describe("F15 — deadline filter on Meilisearch path", () => {
     const { getMeilisearchClient } = await import("@/server/search/client");
     vi.mocked(getMeilisearchClient).mockReturnValue({
       index: () => ({
-        search: vi.fn().mockResolvedValue({ hits: [{ id: "comp_featured_stale" }], estimatedTotalHits: 1 }),
+        search: vi
+          .fn()
+          .mockResolvedValue({ hits: [{ id: "comp_featured_stale" }], estimatedTotalHits: 1 }),
       }),
     } as unknown as ReturnType<typeof getMeilisearchClient>);
 

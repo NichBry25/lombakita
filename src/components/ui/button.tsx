@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from "react";
 import { joinClassNames } from "./class-names";
+import { Icon, type IconName } from "./icon";
 
 export type ButtonVariant = "primary" | "secondary" | "outline" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
@@ -69,5 +70,44 @@ export function ButtonLink({
       {leadingIcon}
       <span>{children}</span>
     </Link>
+  );
+}
+
+type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  // A localized accessible name is mandatory — an icon-only control is unnamed without it.
+  label: string;
+  icon: IconName;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  loading?: boolean;
+};
+
+// Icon-only button for actions whose glyph is unambiguous (logout, delete, share, back).
+// The glyph is decorative (aria-hidden via Icon); the button carries the accessible name.
+export function IconButton({
+  label,
+  icon,
+  variant = "ghost",
+  size = "md",
+  loading = false,
+  className,
+  disabled,
+  type = "button",
+  ...buttonProps
+}: IconButtonProps) {
+  return (
+    <button
+      {...buttonProps}
+      type={type}
+      className={joinClassNames("ui-icon-button", className)}
+      data-variant={variant}
+      data-size={size}
+      aria-label={label}
+      title={label}
+      aria-busy={loading || undefined}
+      disabled={disabled || loading}
+    >
+      <Icon name={icon} />
+    </button>
   );
 }

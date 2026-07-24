@@ -75,7 +75,7 @@ export const processRegistrationConfirmedJob = async (
     {
       userId: studentId,
       type: NOTIFICATION_TYPES.registrationConfirmed,
-      title: "Pendaftaran Dikonfirmasi",
+      title: "Pendaftaran dikonfirmasi",
       body: `Pendaftaranmu untuk kompetisi "${competition.title}" telah dikonfirmasi.`,
     },
     { event: "registration.confirmed", jobId: job.id ?? undefined },

@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, ButtonLink, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 import { useModal } from "@/components/ui/primitives";
+import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
+import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
+import { getCompetitionModeLabel } from "@/lib/competitions/modes";
+import { capitalizeFirst, capitalizeWord } from "@/lib/text/capitalize";
 
 type CompetitionStatus = "draft" | "published" | "archived";
 type CompetitionMode = "individual" | "team" | "both";
@@ -181,7 +185,7 @@ export const InstitutionCompetitionDetailShell = ({
             className="status-badge"
             data-status={isPublished ? "open" : isArchived ? "closed" : "closing"}
           >
-            {competition.status}
+            {capitalizeWord(competition.status)}
           </span>
         }
       />
@@ -199,17 +203,21 @@ export const InstitutionCompetitionDetailShell = ({
             variant="outline"
             size="sm"
           >
-            Edit kompetisi
+            Edit
           </ButtonLink>
         </div>
         <dl className="management-detail-grid">
           <div>
             <dt>Mode</dt>
-            <dd className="data-text">{competition.mode ?? "—"}</dd>
+            <dd className="data-text">
+              {competition.mode ? getCompetitionModeLabel(competition.mode) : "—"}
+            </dd>
           </div>
           <div>
             <dt>Kategori</dt>
-            <dd className="data-text">{competition.category ?? "—"}</dd>
+            <dd className="data-text">
+              {competition.category ? getCompetitionCategoryLabel(competition.category) : "—"}
+            </dd>
           </div>
           <div>
             <dt>Pendaftaran mulai</dt>
@@ -314,7 +322,8 @@ export const InstitutionCompetitionDetailShell = ({
             <ul>
               {feedback.failures.map((f) => (
                 <li key={`${f.field}-${f.code}`}>
-                  <strong>{f.field}</strong> — {f.message}
+                  <strong>{getCompetitionFieldLabel(f.field)}</strong> —{" "}
+                  {capitalizeFirst(f.message)}
                 </li>
               ))}
             </ul>

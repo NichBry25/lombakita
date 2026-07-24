@@ -8,6 +8,8 @@ import {
   SESSION_MISMATCH_MESSAGE,
   sessionFetch,
 } from "@/lib/session/session-fetch";
+import { getTeamRoleLabel } from "@/lib/access/role-labels";
+import { formatDisplayToken } from "@/lib/text/capitalize";
 import { useModal, useToast } from "@/components/ui/primitives";
 
 type Member = {
@@ -45,6 +47,15 @@ type Props = {
 };
 
 type ApiError = { code: string; message: string; details?: Record<string, unknown> };
+
+const TEAM_STATUS_LABELS: Record<string, string> = {
+  forming: "Pembentukan",
+  submitted: "Terdaftar",
+  cancelled: "Dibatalkan",
+};
+
+const getTeamStatusLabel = (status: string): string =>
+  TEAM_STATUS_LABELS[status] ?? formatDisplayToken(status);
 
 const handleError = async (res: Response): Promise<ApiError> => {
   const code = (await readErrorCode(res)) ?? `http_${res.status}`;
@@ -194,7 +205,7 @@ function TeamCancelReasonForm({
           data-variant="danger"
           data-size="sm"
         >
-          Batalkan Pendaftaran Tim
+          Batalkan pendaftaran tim
         </button>
       </div>
     </div>
@@ -230,7 +241,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
   const sizeBelowMin = props.minTeamSize !== null && memberCount < props.minTeamSize;
   const sizeAboveMax = props.maxTeamSize !== null && memberCount > props.maxTeamSize;
   const submitDisabledReason = (() => {
-    if (status !== "forming") return `Tim sudah berstatus '${status}'`;
+    if (status !== "forming") return `Tim sudah berstatus '${getTeamStatusLabel(status)}'`;
     if (!props.registrationOpen) return "Pendaftaran kompetisi belum dibuka atau sudah ditutup";
     if (sizeBelowMin) return `Tim membutuhkan minimal ${props.minTeamSize} anggota aktif`;
     if (sizeAboveMax) return `Tim melebihi maksimum ${props.maxTeamSize} anggota aktif`;
@@ -276,11 +287,11 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
   const onDisband = () =>
     openModal({
-      title: "Bubarkan Tim",
+      title: "Bubarkan tim",
       body: "Bubarkan tim? Tindakan ini tidak dapat dibatalkan.",
       actions: [
         {
-          label: "Bubarkan Tim",
+          label: "Bubarkan tim",
           autoClose: true,
           onClick: () => {
             void executeAction("membubarkan tim", `/api/v1/teams/${team.id}`, { method: "DELETE" });
@@ -292,7 +303,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
   const onLeave = (membershipId: string) =>
     openModal({
-      title: "Tinggalkan Tim",
+      title: "Tinggalkan tim",
       body: "Tinggalkan tim?",
       actions: [
         {
@@ -346,7 +357,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
   const onCancelSubmission = () =>
     openModal({
-      title: "Batalkan Pendaftaran Tim",
+      title: "Batalkan pendaftaran tim",
       closeable: true,
       actions: [],
       body: <TeamCancelReasonForm onConfirm={submitTeamCancel} onCancel={closeModal} />,
@@ -387,7 +398,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       closeable: true,
       actions: [
         {
-          label: "Simpan & Keluar",
+          label: "Simpan & keluar",
           variant: "primary",
           autoClose: true,
           onClick: () => {
@@ -415,7 +426,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
           <div className="cluster">
             <h3>{team.name}</h3>
             <span className="status-badge" data-team-status={status}>
-              {status}
+              {getTeamStatusLabel(status)}
             </span>
           </div>
           <p className="record-meta">
@@ -434,7 +445,8 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
           <li key={m.membershipId} className="team-member-row">
             <span className="team-member-main">
               <span className="team-member-name">
-                {m.displayName ?? m.email} <span className="record-meta">({m.role})</span>
+                {m.displayName ?? m.email}{" "}
+                <span className="record-meta">({getTeamRoleLabel(m.role)})</span>
               </span>
             </span>
             {isCaptain && m.role !== "captain" && status === "forming" && (
@@ -525,7 +537,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               data-variant="primary"
               data-size="md"
             >
-              {busy ? "Memproses…" : "Daftarkan Tim"}
+              {busy ? "Memproses…" : "Daftarkan tim"}
             </button>
           )}
           {status === "submitted" && (
@@ -536,7 +548,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               data-variant="danger"
               data-size="md"
             >
-              Batalkan Pendaftaran Tim
+              Batalkan pendaftaran tim
             </button>
           )}
           {status === "forming" && (
@@ -547,7 +559,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               data-variant="danger"
               data-size="md"
             >
-              Bubarkan Tim
+              Bubarkan tim
             </button>
           )}
         </div>

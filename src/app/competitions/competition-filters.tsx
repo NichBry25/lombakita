@@ -1,24 +1,17 @@
 "use client";
 
 import { FilterDropdown, type FilterOption } from "@/components/ui";
+import { COMPETITION_CATEGORY_OPTIONS } from "@/lib/competitions/categories";
+import { COMPETITION_MODE_OPTIONS } from "@/lib/competitions/modes";
 
 const CATEGORY_OPTIONS: FilterOption[] = [
   { value: "", label: "Semua kategori" },
-  { value: "technology", label: "Teknologi" },
-  { value: "science", label: "Sains" },
-  { value: "business", label: "Bisnis" },
-  { value: "creative_arts", label: "Seni & Kreasi" },
-  { value: "social_humanities", label: "Sosial & Humaniora" },
-  { value: "sports", label: "Olahraga" },
-  { value: "academic", label: "Akademik" },
-  { value: "other", label: "Lainnya" },
+  ...COMPETITION_CATEGORY_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
 ];
 
 const MODE_OPTIONS: FilterOption[] = [
   { value: "", label: "Semua mode" },
-  { value: "individual", label: "Individu" },
-  { value: "team", label: "Tim" },
-  { value: "both", label: "Individu / Tim" },
+  ...COMPETITION_MODE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
 ];
 
 const STATUS_OPTIONS: FilterOption[] = [
@@ -69,10 +62,20 @@ export function CompetitionFilters({
 }: CompetitionFiltersProps) {
   return (
     <div className="filter-toolbar-filters" aria-label="Filter kompetisi">
-      <FilterDropdown label="Kategori" options={CATEGORY_OPTIONS} value={category} onChange={onCategory} />
+      <FilterDropdown
+        label="Kategori"
+        options={CATEGORY_OPTIONS}
+        value={category}
+        onChange={onCategory}
+      />
       <FilterDropdown label="Mode" options={MODE_OPTIONS} value={mode} onChange={onMode} />
       <FilterDropdown label="Status" options={STATUS_OPTIONS} value={status} onChange={onStatus} />
-      <FilterDropdown label="Ukuran tim" options={TEAM_SIZE_OPTIONS} value={teamSize} onChange={onTeamSize} />
+      <FilterDropdown
+        label="Ukuran tim"
+        options={TEAM_SIZE_OPTIONS}
+        value={teamSize}
+        onChange={onTeamSize}
+      />
       <FilterDropdown label="Urutkan" options={SORT_OPTIONS} value={sort} onChange={onSort} />
     </div>
   );

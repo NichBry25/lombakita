@@ -63,11 +63,11 @@ export const institutionMembershipRoleEnum = pgEnum("institution_membership_role
 
 // Step 6.5f.1 — institution type taxonomy. The column is nullable: a NULL value is a legacy
 // full/standard institution whose concrete subtype was never declared (all rows created before
-// this step backfill to NULL). `personal` is the lightweight, single-member, capped institution
-// a minimal-tier recruiter can self-create. The four full subtypes
-// (company|foundation|university|campus_organization) are declared through the F10 verification
-// flow (Step 6.5g). Predicate convention: "is personal" is `institution_type = 'personal'`;
-// "is full/standard" treats NULL as full via `institution_type IS DISTINCT FROM 'personal'`.
+// `personal` is the lightweight, single-member, capped institution a minimal-tier recruiter can
+// self-create. The four full subtypes (company|foundation|university|campus_organization) are
+// chosen at create time for a directly-created full institution, or at upgrade time for a
+// personal→full upgrade — never left undeclared. Predicate convention: "is personal" is
+// `institution_type = 'personal'`; "is full/standard" is `institution_type <> 'personal'`.
 // `community` is intentionally absent (deferred post-Beta). The enum is forward-compatible with
 // Phase 8 opportunity types — no jobs/internship wiring is added here.
 export const institutionTypeEnum = pgEnum("institution_type", [
@@ -113,8 +113,7 @@ export const recruiterVerificationTierEnum = pgEnum("recruiter_verification_tier
   "elevated",
 ]);
 
-export type RecruiterVerificationTier =
-  (typeof recruiterVerificationTierEnum.enumValues)[number];
+export type RecruiterVerificationTier = (typeof recruiterVerificationTierEnum.enumValues)[number];
 
 export const competitionStatusEnum = pgEnum("competition_status", [
   "draft",
@@ -124,16 +123,28 @@ export const competitionStatusEnum = pgEnum("competition_status", [
 
 export const competitionModeEnum = pgEnum("competition_mode", ["individual", "team", "both"]);
 
-// Step 3.2: competition_category enum. Curated MVP set; extension in later phases must align
-// with the contract's category taxonomy. "other" is the safety-valve value.
+// competition_category enum: competition-type taxonomy (Brand Book §8 + Indonesia student
+// competition types). "other" is the safety-valve value. Display labels live in the single
+// source of truth at @/lib/competitions/categories.
 export const competitionCategoryEnum = pgEnum("competition_category", [
-  "technology",
-  "science",
+  "hackathon",
+  "scientific_writing",
+  "essay",
+  "debate",
+  "olympiad",
   "business",
-  "creative_arts",
-  "social_humanities",
-  "sports",
-  "academic",
+  "engineering",
+  "finance",
+  "law",
+  "design",
+  "data_science",
+  "programming",
+  "marketing",
+  "digital_art",
+  "infographics",
+  "performing_arts",
+  "esports",
+  "quiz",
   "other",
 ]);
 
@@ -458,11 +469,12 @@ export const institutions = pgTable(
     displayName: text("display_name"),
     slug: text("slug").notNull(),
     status: institutionStatusEnum("status").notNull().default("active"),
-    // Step 6.5f.1 — institution type. Nullable on purpose: NULL = legacy full institution,
-    // subtype undeclared. `personal` rows are capped (≤2 published competitions, individual-only,
-    // no featured placement, no staff/member invites); full subtypes are unconstrained by those
-    // caps. See institution-type.ts for the predicates and the type-transition state machine.
-    institutionType: institutionTypeEnum("institution_type"),
+    // Institution type. NOT NULL: every institution declares a type at creation — `personal` via
+    // the personal-create path, or a full subtype via the full-create form / personal→full upgrade.
+    // `personal` rows are capped (≤2 published competitions, individual-only, no featured placement,
+    // no staff/member invites); full subtypes are unconstrained by those caps. See institution-type.ts
+    // for the predicates and the type-transition state machine.
+    institutionType: institutionTypeEnum("institution_type").notNull(),
     verificationStatus: institutionVerificationStatusEnum("verification_status")
       .notNull()
       .default("pending_verification"),
@@ -475,6 +487,16 @@ export const institutions = pgTable(
     // alongside `assertInstitutionVerified` on the competition create/publish paths.
     suspendedAt: timestamp("suspended_at", { mode: "date", withTimezone: true }),
     suspensionReason: text("suspension_reason"),
+    // Public organizer profile (competition detail "Penyelenggara" surface). All nullable —
+    // an organizer that has not enriched its profile falls back to the derived display name and
+    // a placeholder mark. `logoR2Key` is a private R2 object key; the read path signs a fresh GET
+    // URL at render time (never a stored public URL). These fields are descriptive only.
+    logoR2Key: text("logo_r2_key"),
+    about: text("about"),
+    contactName: text("contact_name"),
+    contactEmail: text("contact_email"),
+    contactPhone: text("contact_phone"),
+    websiteUrl: text("website_url"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
@@ -485,6 +507,32 @@ export const institutions = pgTable(
     check(
       "institutions_display_name_type_chk",
       sql`${table.institutionType} = 'personal' OR ${table.displayName} IS NOT NULL`,
+    ),
+  ],
+);
+
+// Public organizer social links — mirrors profile_social_links but keyed to an institution.
+// Reuses profile_social_platform (linkedin | github | instagram | x | website); one link per
+// platform per institution. Descriptive only.
+export const institutionSocialLinks = pgTable(
+  "institution_social_links",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    institutionId: text("institution_id")
+      .notNull()
+      .references(() => institutions.id, { onDelete: "cascade" }),
+    platform: profileSocialPlatformEnum("platform").notNull(),
+    url: text("url").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("institution_social_links_institution_id_idx").on(table.institutionId),
+    uniqueIndex("institution_social_links_institution_platform_unique_idx").on(
+      table.institutionId,
+      table.platform,
     ),
   ],
 );
@@ -747,6 +795,9 @@ export const competitions = pgTable(
     cancellationCutoffDays: integer("cancellation_cutoff_days"),
     feeAmount: numeric("fee_amount", { precision: 12, scale: 2 }),
     feeCurrency: text("fee_currency"),
+    // Descriptive, organizer-authored eligibility note. Display ONLY — never read to authorize any
+    // action (open candidacy, DEC-0106). Registration remains open to every verified candidate.
+    eligibilityNote: text("eligibility_note"),
     isFeatured: boolean("is_featured").notNull().default(false),
     featuredOrder: integer("featured_order"),
     publishedAt: timestamp("published_at", { mode: "date", withTimezone: true }),
@@ -770,6 +821,117 @@ export const competitions = pgTable(
     check(
       "competitions_cancellation_policy_chk",
       sql`${table.allowCancellation} = false OR (${table.cancellationCutoffDays} IS NOT NULL AND ${table.cancellationCutoffDays} >= 0)`,
+    ),
+  ],
+);
+
+// Structured competition prizes — the "Hadiah" surface on the public detail page. A prize is a
+// rank tier with an optional cash amount and/or a certificate. Cash amounts are DISPLAY ONLY:
+// no disbursement happens in MVP (payments are Phase 7). Ordered by sort_order for presentation.
+export const competitionPrizes = pgTable(
+  "competition_prizes",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    competitionId: text("competition_id")
+      .notNull()
+      .references(() => competitions.id, { onDelete: "cascade" }),
+    sortOrder: integer("sort_order").notNull().default(0),
+    rankLabel: text("rank_label"),
+    title: text("title").notNull(),
+    description: text("description"),
+    cashAmount: numeric("cash_amount", { precision: 12, scale: 2 }),
+    isCertificate: boolean("is_certificate").notNull().default(false),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("competition_prizes_competition_id_idx").on(table.competitionId),
+    check(
+      "competition_prizes_cash_amount_non_negative_chk",
+      sql`${table.cashAmount} IS NULL OR ${table.cashAmount} >= 0`,
+    ),
+  ],
+);
+
+// Multi-stage rounds — the "Tahapan & Linimasa" surface on the public detail page. Each round is
+// an ordered stage with its own optional date window, description, and platform label (e.g.
+// "Online"). When a competition has no rounds the detail page falls back to the flat registration/
+// event timeline. Ordered by sort_order for presentation.
+export const competitionRounds = pgTable(
+  "competition_rounds",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    competitionId: text("competition_id")
+      .notNull()
+      .references(() => competitions.id, { onDelete: "cascade" }),
+    sortOrder: integer("sort_order").notNull().default(0),
+    title: text("title").notNull(),
+    description: text("description"),
+    startsAt: timestamp("starts_at", { mode: "date", withTimezone: true }),
+    endsAt: timestamp("ends_at", { mode: "date", withTimezone: true }),
+    platformLabel: text("platform_label"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index("competition_rounds_competition_id_idx").on(table.competitionId)],
+);
+
+// Additional free-labels on a competition beyond its single primary category. Values are drawn
+// from a controlled vocabulary (ALLOWED_COMPETITION_TAGS in competition-tags-core). Composite PK
+// enforces one row per (competition, tag).
+export const competitionTags = pgTable(
+  "competition_tags",
+  {
+    competitionId: text("competition_id")
+      .notNull()
+      .references(() => competitions.id, { onDelete: "cascade" }),
+    tag: text("tag").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.competitionId, table.tag] }),
+    index("competition_tags_competition_id_idx").on(table.competitionId),
+  ],
+);
+
+// Participant reviews — public rating/feedback on a competition. Moderation axis: a review is
+// `visible` by default; platform_ops can flip it to `hidden` (removed from public reads) while
+// preserving the row. One review per (competition, author).
+export const competitionReviewStatusEnum = pgEnum("competition_review_status", [
+  "visible",
+  "hidden",
+]);
+
+export const competitionReviews = pgTable(
+  "competition_reviews",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    competitionId: text("competition_id")
+      .notNull()
+      .references(() => competitions.id, { onDelete: "cascade" }),
+    authorUserId: text("author_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    rating: integer("rating").notNull(),
+    body: text("body"),
+    status: competitionReviewStatusEnum("status").notNull().default("visible"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("competition_reviews_competition_id_idx").on(table.competitionId),
+    uniqueIndex("competition_reviews_competition_author_unique_idx").on(
+      table.competitionId,
+      table.authorUserId,
+    ),
+    check(
+      "competition_reviews_rating_range_chk",
+      sql`${table.rating} >= 1 AND ${table.rating} <= 5`,
     ),
   ],
 );
@@ -1069,9 +1231,7 @@ export const competitionSubmissions = pgTable(
     submittedAt: timestamp("submitted_at", { mode: "date", withTimezone: true })
       .defaultNow()
       .notNull(),
-    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
-      .defaultNow()
-      .notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     // Exactly one submission per registration — the one-active-submission invariant.
@@ -1225,9 +1385,7 @@ export const institutionVerificationDocuments = pgTable(
     contentType: text("content_type").notNull(),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [
-    index("institution_verification_documents_submission_id_idx").on(table.submissionId),
-  ],
+  (table) => [index("institution_verification_documents_submission_id_idx").on(table.submissionId)],
 );
 
 // Recruiter trust verification — a recruiter account submits a lightweight affiliation form

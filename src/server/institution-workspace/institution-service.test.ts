@@ -76,7 +76,12 @@ const createDbMockForCreation = (options: {
     insert: vi.fn((table: unknown) => {
       if (table === institutions) {
         return {
-          values: (values: { displayName: string; slug: string; status: string }) => {
+          values: (values: {
+            displayName: string;
+            slug: string;
+            status: string;
+            institutionType: string | null;
+          }) => {
             attemptedInstitutionSlugs.push(values.slug);
 
             return {
@@ -111,6 +116,7 @@ const createDbMockForCreation = (options: {
                     institutionDisplayName: values.displayName,
                     institutionSlug: values.slug,
                     institutionStatus: values.status,
+                    institutionType: values.institutionType,
                     institutionCreatedAt: new Date("2026-04-16T10:00:00.000Z"),
                     institutionUpdatedAt: new Date("2026-04-16T10:00:00.000Z"),
                   },
@@ -189,7 +195,8 @@ const createDbMockWithMembershipStates = (options: { hasAnyMembership: boolean }
   let selectCallCount = 0;
   const select = vi.fn(() => {
     selectCallCount += 1;
-    const result = selectCallCount === 1 ? [] : options.hasAnyMembership ? [{ membershipId: "m_1" }] : [];
+    const result =
+      selectCallCount === 1 ? [] : options.hasAnyMembership ? [{ membershipId: "m_1" }] : [];
 
     const limit = vi.fn().mockResolvedValue(result);
     const chain: { where: ReturnType<typeof vi.fn>; innerJoin: ReturnType<typeof vi.fn> } = {
@@ -221,6 +228,7 @@ describe("institution-service", () => {
       "user_1",
       {
         displayName: "Universitas Nusantara",
+        institutionType: "university",
       },
       db,
     );
@@ -261,17 +269,17 @@ describe("institution-service", () => {
   it("rejects settings read with 'owner required' when user is a member but not the owner", async () => {
     const { db } = createDbMockWithMembershipStates({ hasAnyMembership: true });
 
-    await expect(
-      getInstitutionWorkspaceForOwnerBySlug("user_1", "kampus-a", db),
-    ).rejects.toThrow(/owner access required/i);
+    await expect(getInstitutionWorkspaceForOwnerBySlug("user_1", "kampus-a", db)).rejects.toThrow(
+      /owner access required/i,
+    );
   });
 
   it("rejects settings read with 'not part of institution' when user has no membership at all", async () => {
     const { db } = createDbMockWithMembershipStates({ hasAnyMembership: false });
 
-    await expect(
-      getInstitutionWorkspaceForOwnerBySlug("user_1", "kampus-a", db),
-    ).rejects.toThrow(/not part of this institution/i);
+    await expect(getInstitutionWorkspaceForOwnerBySlug("user_1", "kampus-a", db)).rejects.toThrow(
+      /not part of this institution/i,
+    );
   });
 
   // F7 — institution creation limit (Step 6.5b)
@@ -298,7 +306,12 @@ describe("institution-service", () => {
         }
         if (table === institutionMemberships) {
           return {
-            values: (values: { institutionId: string; userId: string; membershipRole: string; status: string }) => ({
+            values: (values: {
+              institutionId: string;
+              userId: string;
+              membershipRole: string;
+              status: string;
+            }) => ({
               returning: async () => [
                 {
                   membershipId: "mem_new",
@@ -340,22 +353,34 @@ describe("institution-service", () => {
   it("F7: blocks creation when recruiter already owns MAX_INSTITUTIONS_PER_RECRUITER institutions", async () => {
     const { db } = createDbMockWithOwnerCount(MAX_INSTITUTIONS_PER_RECRUITER);
     await expect(
-      createInstitutionWorkspaceForUser("user_at_limit", { displayName: "Kampus Baru" }, db),
+      createInstitutionWorkspaceForUser(
+        "user_at_limit",
+        { displayName: "Kampus Baru", institutionType: "company" },
+        db,
+      ),
     ).rejects.toThrow(InstitutionWorkspaceInputError);
 
-    await createInstitutionWorkspaceForUser("user_at_limit", { displayName: "Kampus Baru" }, db).catch(
-      (err: unknown) => {
-        expect(err).toBeInstanceOf(InstitutionWorkspaceInputError);
-        expect((err as InstitutionWorkspaceInputError).code).toBe("recruiter_institution_limit_reached");
-        expect((err as InstitutionWorkspaceInputError).httpStatus).toBe(409);
-      },
-    );
+    await createInstitutionWorkspaceForUser(
+      "user_at_limit",
+      { displayName: "Kampus Baru", institutionType: "company" },
+      db,
+    ).catch((err: unknown) => {
+      expect(err).toBeInstanceOf(InstitutionWorkspaceInputError);
+      expect((err as InstitutionWorkspaceInputError).code).toBe(
+        "recruiter_institution_limit_reached",
+      );
+      expect((err as InstitutionWorkspaceInputError).httpStatus).toBe(409);
+    });
   });
 
   it("F7: allows creation when recruiter is one below the limit", async () => {
     const { db } = createDbMockWithOwnerCount(MAX_INSTITUTIONS_PER_RECRUITER - 1);
     await expect(
-      createInstitutionWorkspaceForUser("user_below_limit", { displayName: "Kampus Baru" }, db),
+      createInstitutionWorkspaceForUser(
+        "user_below_limit",
+        { displayName: "Kampus Baru", institutionType: "company" },
+        db,
+      ),
     ).resolves.toMatchObject({ ownerMembership: { membershipRole: "institution_owner" } });
   });
 
@@ -364,11 +389,19 @@ describe("institution-service", () => {
     const dbB = createDbMockWithOwnerCount(0).db;
 
     await expect(
-      createInstitutionWorkspaceForUser("user_A_at_limit", { displayName: "Kampus A" }, dbA),
+      createInstitutionWorkspaceForUser(
+        "user_A_at_limit",
+        { displayName: "Kampus A", institutionType: "company" },
+        dbA,
+      ),
     ).rejects.toBeInstanceOf(InstitutionWorkspaceInputError);
 
     await expect(
-      createInstitutionWorkspaceForUser("user_B_at_zero", { displayName: "Kampus B" }, dbB),
+      createInstitutionWorkspaceForUser(
+        "user_B_at_zero",
+        { displayName: "Kampus B", institutionType: "company" },
+        dbB,
+      ),
     ).resolves.toBeDefined();
   });
 
@@ -378,14 +411,22 @@ describe("institution-service", () => {
   it("Amendment 2: full create rejects an empty / whitespace display name at the service layer", async () => {
     const { db } = createDbMockWithOwnerCount(0);
     await expect(
-      createInstitutionWorkspaceForUser("user_1", { displayName: "   " }, db),
+      createInstitutionWorkspaceForUser(
+        "user_1",
+        { displayName: "   ", institutionType: "company" },
+        db,
+      ),
     ).rejects.toMatchObject({ code: "institution_invalid_value" });
   });
 
   it("Amendment 2: full create rejects a missing display name at the service layer", async () => {
     const { db } = createDbMockWithOwnerCount(0);
     await expect(
-      createInstitutionWorkspaceForUser("user_1", { slug: "kampus-tanpa-nama" }, db),
+      createInstitutionWorkspaceForUser(
+        "user_1",
+        { slug: "kampus-tanpa-nama", institutionType: "company" },
+        db,
+      ),
     ).rejects.toMatchObject({ code: "institution_invalid_value" });
   });
 
@@ -397,14 +438,11 @@ describe("institution-service", () => {
 
     const workspace = await createInstitutionWorkspaceForUser(
       "user_1",
-      { displayName: "Universitas Nusantara" },
+      { displayName: "Universitas Nusantara", institutionType: "university" },
       db,
     );
 
-    expect(attemptedInstitutionSlugs).toEqual([
-      "universitas-nusantara",
-      "universitas-nusantara-2",
-    ]);
+    expect(attemptedInstitutionSlugs).toEqual(["universitas-nusantara", "universitas-nusantara-2"]);
     expect(institutionRows).toHaveLength(1);
     expect(workspace.slug).toBe("universitas-nusantara-2");
   });
@@ -488,7 +526,9 @@ describe("createPersonalInstitutionForUser", () => {
         // Call 1 — personal-count query; call 2 — owner-username load.
         select: vi.fn(() => {
           selectCalls += 1;
-          return selectCalls === 1 ? makeNode([{ value: personalCount }]) : makeNode([{ username }]);
+          return selectCalls === 1
+            ? makeNode([{ value: personalCount }])
+            : makeNode([{ username }]);
         }),
         transaction: vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx)),
       } as unknown as Database,
@@ -522,7 +562,9 @@ describe("createPersonalInstitutionForUser", () => {
     const { db, insertedTypes } = makePersonalCreateDb(MAX_PERSONAL_INSTITUTIONS_PER_RECRUITER);
     await createPersonalInstitutionForUser("user_at_personal_limit", db).catch((err: unknown) => {
       expect(err).toBeInstanceOf(InstitutionWorkspaceInputError);
-      expect((err as InstitutionWorkspaceInputError).code).toBe("personal_institution_already_exists");
+      expect((err as InstitutionWorkspaceInputError).code).toBe(
+        "personal_institution_already_exists",
+      );
       expect((err as InstitutionWorkspaceInputError).httpStatus).toBe(409);
     });
     // The transaction insert must not have run.
@@ -545,9 +587,14 @@ describe("upgradeInstitutionType", () => {
   const MINIMAL = [{ recruiterVerifiedAt: new Date(), recruiterVerificationTier: "minimal" }];
   const UNVERIFIED = [{ recruiterVerifiedAt: null, recruiterVerificationTier: "unverified" }];
 
+  const OFFICIAL_NAME = "Yayasan Harapan";
+
   // Sequenced db: each awaited terminal (.limit / .where / .returning) consumes the next result.
-  // Order of awaited reads in upgradeInstitutionType:
-  //   [0] recruiter tier, [1] institution+owner membership, [2] full-count, [3] update returning.
+  // `execute` (the advisory lock) is a no-op and consumes nothing. Order of awaited reads in
+  // upgradeInstitutionType:
+  //   [0] recruiter tier, [1] institution+owner membership, [2] full-count,
+  //   [3] slug-taken probe, [4] username-collision probe, [5] update returning,
+  //   [6] published competitions to re-sync.
   const makeSequencedDb = (results: unknown[][]) => {
     let idx = 0;
     const node = (): Record<string, unknown> => {
@@ -572,41 +619,100 @@ describe("upgradeInstitutionType", () => {
       select: () => node(),
       update: () => node(),
       insert: () => node(),
+      execute: async () => undefined,
       transaction: (cb: (tx: unknown) => Promise<unknown>) => cb(db),
     };
     return db as unknown as Database;
   };
 
-  it("flips personal → full subtype and returns the previous + new type", async () => {
+  // The free-slug probes: [] = slug not taken, [] = no username collision.
+  const SLUG_FREE: unknown[][] = [[], []];
+
+  it("flips personal → full subtype, writes the official name, and re-derives the slug", async () => {
     const db = makeSequencedDb([
       ELEVATED,
-      [{ institutionType: "personal", ownerMembershipId: "m1" }],
+      [{ institutionType: "personal", ownerMembershipId: "m1", slug: "nikau-bryan" }],
       [{ value: 0 }],
+      ...SLUG_FREE,
       [{ institutionId: "inst_1" }],
+      [{ id: "comp_1" }, { id: "comp_2" }],
     ]);
-    const result = await upgradeInstitutionType("actor_1", "inst_1", "company", db);
+    const result = await upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db);
     expect(result).toEqual({
       institutionId: "inst_1",
       previousType: "personal",
       institutionType: "company",
+      displayName: OFFICIAL_NAME,
+      // Derived from the official name — NOT carried over from the owner-username slug.
+      slug: "yayasan-harapan",
+      previousSlug: "nikau-bryan",
+      resyncCompetitionIds: ["comp_1", "comp_2"],
     });
   });
 
   it("flips a legacy NULL-type institution → full subtype (first declaration)", async () => {
     const db = makeSequencedDb([
       ELEVATED,
-      [{ institutionType: null, ownerMembershipId: "m1" }],
+      [{ institutionType: null, ownerMembershipId: "m1", slug: "legacy-inst" }],
       [{ value: 2 }], // 2 existing full + this one = 3 ≤ limit
+      ...SLUG_FREE,
       [{ institutionId: "inst_1" }],
+      [],
     ]);
-    const result = await upgradeInstitutionType("actor_1", "inst_1", "university", db);
+    const result = await upgradeInstitutionType(
+      "actor_1",
+      "inst_1",
+      "university",
+      OFFICIAL_NAME,
+      db,
+    );
     expect(result.previousType).toBeNull();
     expect(result.institutionType).toBe("university");
   });
 
+  it("suffixes the derived slug when the name's slug form is already taken", async () => {
+    const db = makeSequencedDb([
+      ELEVATED,
+      [{ institutionType: "personal", ownerMembershipId: "m1", slug: "nikau-bryan" }],
+      [{ value: 0 }],
+      [{ id: "other_inst" }], // attempt 0: slug taken by another institution
+      [], // attempt 1: free
+      [], // attempt 1: no username collision
+      [{ institutionId: "inst_1" }],
+      [],
+    ]);
+    const result = await upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db);
+    expect(result.slug).toBe("yayasan-harapan-2");
+  });
+
+  it("skips a derived slug that collides with an existing username", async () => {
+    const db = makeSequencedDb([
+      ELEVATED,
+      [{ institutionType: "personal", ownerMembershipId: "m1", slug: "nikau-bryan" }],
+      [{ value: 0 }],
+      [], // attempt 0: no institution holds it
+      [{ id: "user_9" }], // attempt 0: but a username does — flat namespace, skip
+      [], // attempt 1: free
+      [], // attempt 1: no username collision
+      [{ institutionId: "inst_1" }],
+      [],
+    ]);
+    const result = await upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db);
+    expect(result.slug).toBe("yayasan-harapan-2");
+  });
+
+  it("rejects an invalid official name before touching the database", async () => {
+    const db = makeSequencedDb([ELEVATED]);
+    await expect(
+      upgradeInstitutionType("actor_1", "inst_1", "company", "x", db),
+    ).rejects.toMatchObject({ code: "institution_invalid_value" });
+  });
+
   it("refuses an upgrade when the actor is below the elevated tier", async () => {
     const db = makeSequencedDb([MINIMAL]);
-    await expect(upgradeInstitutionType("actor_1", "inst_1", "company", db)).rejects.toMatchObject({
+    await expect(
+      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db),
+    ).rejects.toMatchObject({
       code: "institution_upgrade_tier_insufficient",
       status: 403,
     });
@@ -614,14 +720,16 @@ describe("upgradeInstitutionType", () => {
 
   it("refuses an upgrade when the recruiter mode is not verified", async () => {
     const db = makeSequencedDb([UNVERIFIED]);
-    await expect(upgradeInstitutionType("actor_1", "inst_1", "company", db)).rejects.toBeInstanceOf(
-      InstitutionUpgradeError,
-    );
+    await expect(
+      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db),
+    ).rejects.toBeInstanceOf(InstitutionUpgradeError);
   });
 
   it("returns 404 when the institution does not exist", async () => {
     const db = makeSequencedDb([ELEVATED, []]);
-    await expect(upgradeInstitutionType("actor_1", "inst_x", "company", db)).rejects.toMatchObject({
+    await expect(
+      upgradeInstitutionType("actor_1", "inst_x", "company", OFFICIAL_NAME, db),
+    ).rejects.toMatchObject({
       code: "institution_not_found",
       status: 404,
     });
@@ -630,9 +738,11 @@ describe("upgradeInstitutionType", () => {
   it("forbids an upgrade by a non-owner of the institution", async () => {
     const db = makeSequencedDb([
       ELEVATED,
-      [{ institutionType: "personal", ownerMembershipId: null }],
+      [{ institutionType: "personal", ownerMembershipId: null, slug: "nikau-bryan" }],
     ]);
-    await expect(upgradeInstitutionType("actor_1", "inst_1", "company", db)).rejects.toMatchObject({
+    await expect(
+      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db),
+    ).rejects.toMatchObject({
       code: "institution_upgrade_forbidden",
       status: 403,
     });
@@ -641,20 +751,22 @@ describe("upgradeInstitutionType", () => {
   it("propagates the fail-closed transition guard on a full → different-full change", async () => {
     const db = makeSequencedDb([
       ELEVATED,
-      [{ institutionType: "company", ownerMembershipId: "m1" }],
+      [{ institutionType: "company", ownerMembershipId: "m1", slug: "acme" }],
     ]);
     await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "foundation", db),
+      upgradeInstitutionType("actor_1", "inst_1", "foundation", OFFICIAL_NAME, db),
     ).rejects.toBeInstanceOf(InstitutionTypeTransitionError);
   });
 
   it("re-checks the full limit INCLUDING the upgrading institution (seed 11)", async () => {
     const db = makeSequencedDb([
       ELEVATED,
-      [{ institutionType: "personal", ownerMembershipId: "m1" }],
+      [{ institutionType: "personal", ownerMembershipId: "m1", slug: "nikau-bryan" }],
       [{ value: MAX_INSTITUTIONS_PER_RECRUITER }], // already at the limit → +1 exceeds
     ]);
-    await expect(upgradeInstitutionType("actor_1", "inst_1", "company", db)).rejects.toMatchObject({
+    await expect(
+      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db),
+    ).rejects.toMatchObject({
       code: "institution_upgrade_limit_reached",
       status: 409,
     });
@@ -663,14 +775,59 @@ describe("upgradeInstitutionType", () => {
   it("throws a conflict when the CAS flip matches no row (concurrent change)", async () => {
     const db = makeSequencedDb([
       ELEVATED,
-      [{ institutionType: "personal", ownerMembershipId: "m1" }],
+      [{ institutionType: "personal", ownerMembershipId: "m1", slug: "nikau-bryan" }],
       [{ value: 0 }],
+      ...SLUG_FREE,
       [], // update returning empty → concurrent modification
     ]);
-    await expect(upgradeInstitutionType("actor_1", "inst_1", "company", db)).rejects.toMatchObject({
+    await expect(
+      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db),
+    ).rejects.toMatchObject({
       code: "institution_upgrade_conflict",
       status: 409,
     });
+  });
+
+  it("acquires the per-owner advisory lock before counting (tripwire 6.5-HARDENING.2-D2)", async () => {
+    const calls: string[] = [];
+    let idx = 0;
+    const results: unknown[][] = [
+      ELEVATED,
+      [{ institutionType: "personal", ownerMembershipId: "m1", slug: "nikau-bryan" }],
+      [{ value: 0 }],
+      ...SLUG_FREE,
+      [{ institutionId: "inst_1" }],
+      [],
+    ];
+    const node = (): Record<string, unknown> => {
+      const n: Record<string, unknown> = {};
+      for (const m of ["from", "innerJoin", "leftJoin", "where", "limit", "set", "returning"]) {
+        n[m] = () => node();
+      }
+      n.then = (resolve: (v: unknown) => void) => {
+        calls.push("read");
+        resolve(results[idx++] ?? []);
+      };
+      return n;
+    };
+    const db: Record<string, unknown> = {
+      select: () => node(),
+      update: () => node(),
+      execute: async () => {
+        calls.push("advisory-lock");
+      },
+      transaction: (cb: (tx: unknown) => Promise<unknown>) => cb(db),
+    };
+
+    await upgradeInstitutionType(
+      "actor_1",
+      "inst_1",
+      "company",
+      OFFICIAL_NAME,
+      db as unknown as Database,
+    );
+
+    expect(calls[0]).toBe("advisory-lock");
   });
 });
 
@@ -731,7 +888,9 @@ describe("personal institution slug ↔ username sync", () => {
 
     it("returns false when no other institution holds the slug", async () => {
       const { db } = makeSlugSyncDb([[]]);
-      await expect(usernameCollidesWithInstitutionSlug("bob", "inst_self", db)).resolves.toBe(false);
+      await expect(usernameCollidesWithInstitutionSlug("bob", "inst_self", db)).resolves.toBe(
+        false,
+      );
     });
   });
 
@@ -844,10 +1003,22 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
 
   it("still applies a slug patch on a full institution", async () => {
     const { db, captured } = makeSettingsDb([
-      [ownerRow({ institutionType: null, institutionSlug: "kampus-lama", institutionDisplayName: "Kampus Lama" })],
+      [
+        ownerRow({
+          institutionType: null,
+          institutionSlug: "kampus-lama",
+          institutionDisplayName: "Kampus Lama",
+        }),
+      ],
       [], // Fix D: institutionSlugCollidesWithUsername("kampus-baru") → no colliding username
       [], // UPDATE resolve
-      [ownerRow({ institutionType: null, institutionSlug: "kampus-baru", institutionDisplayName: "Kampus Lama" })],
+      [
+        ownerRow({
+          institutionType: null,
+          institutionSlug: "kampus-baru",
+          institutionDisplayName: "Kampus Lama",
+        }),
+      ],
     ]);
 
     const result = await updateInstitutionWorkspaceForOwnerBySlug(
@@ -867,7 +1038,13 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
   // create a slug==username collision the create-path check did not cover.
   it("Fix D: rejects a full-institution slug change that collides with an existing username", async () => {
     const { db, captured } = makeSettingsDb([
-      [ownerRow({ institutionType: null, institutionSlug: "kampus-lama", institutionDisplayName: "Kampus Lama" })],
+      [
+        ownerRow({
+          institutionType: null,
+          institutionSlug: "kampus-lama",
+          institutionDisplayName: "Kampus Lama",
+        }),
+      ],
       [{ id: "user_alice" }], // Fix D probe: username "alice" already occupies this slot
     ]);
 
@@ -885,7 +1062,13 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
     // (Fix C)" describe; here we confirm the settings path wires it so a hyphenated slug matching an
     // underscore username is rejected.
     const { db, captured } = makeSettingsDb([
-      [ownerRow({ institutionType: null, institutionSlug: "kampus-lama", institutionDisplayName: "Kampus Lama" })],
+      [
+        ownerRow({
+          institutionType: null,
+          institutionSlug: "kampus-lama",
+          institutionDisplayName: "Kampus Lama",
+        }),
+      ],
       [{ id: "user_alice_bob" }], // username "alice_bob" occupies the slot slug "alice-bob" maps to
     ]);
 
@@ -945,7 +1128,12 @@ describe("updateInstitutionWorkspaceForOwnerBySlug — slug editability by type"
     } as unknown as Database;
 
     await expect(
-      updateInstitutionWorkspaceForOwnerBySlug("user_1", "kampus-lama", { slug: "kampus-baru" }, db),
+      updateInstitutionWorkspaceForOwnerBySlug(
+        "user_1",
+        "kampus-lama",
+        { slug: "kampus-baru" },
+        db,
+      ),
     ).rejects.toMatchObject({ code: "institution_invalid_value", details: { fields: ["slug"] } });
   });
 });
@@ -1067,7 +1255,11 @@ describe("createInstitutionWorkspaceForUser — Fix C username-collision gate", 
     const { db, transaction } = makeCreateDb({ ownedCount: 0, usernameCollision: true });
 
     await expect(
-      createInstitutionWorkspaceForUser("user_1", { displayName: "alice" }, db),
+      createInstitutionWorkspaceForUser(
+        "user_1",
+        { displayName: "alice", institutionType: "company" },
+        db,
+      ),
     ).rejects.toMatchObject({
       code: "institution_slug_conflicts_with_username",
       httpStatus: 409,
@@ -1080,7 +1272,11 @@ describe("createInstitutionWorkspaceForUser — Fix C username-collision gate", 
     const { db, transaction } = makeCreateDb({ ownedCount: 0, usernameCollision: false });
 
     await expect(
-      createInstitutionWorkspaceForUser("user_1", { displayName: "Universitas Nusantara" }, db),
+      createInstitutionWorkspaceForUser(
+        "user_1",
+        { displayName: "Universitas Nusantara", institutionType: "university" },
+        db,
+      ),
     ).resolves.toMatchObject({ slug: "universitas-nusantara" });
     expect(transaction).toHaveBeenCalledTimes(1);
   });
@@ -1090,7 +1286,11 @@ describe("createInstitutionWorkspaceForUser — Fix C username-collision gate", 
 
     // `personal` is a reserved word; parse rejects it (422) before the Fix-C probe or any insert.
     await expect(
-      createInstitutionWorkspaceForUser("user_1", { displayName: "Kampus", slug: "personal" }, db),
+      createInstitutionWorkspaceForUser(
+        "user_1",
+        { displayName: "Kampus", slug: "personal", institutionType: "company" },
+        db,
+      ),
     ).rejects.toMatchObject({ code: "institution_slug_reserved", httpStatus: 422 });
     expect(transaction).not.toHaveBeenCalled();
   });
@@ -1107,13 +1307,7 @@ describe("createInstitutionWorkspaceForUser — Fix E suffixed-slug username re-
     // Ordered read results:
     //   1 owner count → 0; 2 base Fix-C probe ("target") → none; 3 Fix-E attempt0 ("target") → none;
     //   4 Fix-E attempt1 ("target-2") → username "target_2" collides; 5 Fix-E attempt2 ("target-3") → none.
-    const selectResults: unknown[][] = [
-      [{ value: 0 }],
-      [],
-      [],
-      [{ id: "user_target_2" }],
-      [],
-    ];
+    const selectResults: unknown[][] = [[{ value: 0 }], [], [], [{ id: "user_target_2" }], []];
     let selectIdx = 0;
 
     const makeSeqNode = (result: unknown[]) => {
@@ -1178,7 +1372,7 @@ describe("createInstitutionWorkspaceForUser — Fix E suffixed-slug username re-
 
     const workspace = await createInstitutionWorkspaceForUser(
       "user_1",
-      { displayName: "Target" },
+      { displayName: "Target", institutionType: "company" },
       db,
     );
 
@@ -1259,7 +1453,11 @@ describe("createInstitutionWorkspaceForUser / createPersonalInstitutionForUser �
   };
 
   // Personal create-path mock. db.select #1 = personal pre-check count; #2 = owner-username load.
-  const makePersonalRaceDb = (opts: { preCheckCount: number; inTxCount: number; username?: string }) => {
+  const makePersonalRaceDb = (opts: {
+    preCheckCount: number;
+    inTxCount: number;
+    username?: string;
+  }) => {
     const capturedLockKeys: string[] = [];
     const insertedMemberships: Array<Record<string, unknown>> = [];
     let sel = 0;
@@ -1325,7 +1523,11 @@ describe("createInstitutionWorkspaceForUser / createPersonalInstitutionForUser �
     });
 
     await expect(
-      createInstitutionWorkspaceForUser("racer_user", { displayName: "Kampus Kilat" }, db),
+      createInstitutionWorkspaceForUser(
+        "racer_user",
+        { displayName: "Kampus Kilat", institutionType: "company" },
+        db,
+      ),
     ).rejects.toMatchObject({ code: "recruiter_institution_limit_reached", httpStatus: 409 });
 
     // Guard fired before any insert committed — no owner membership row written.
@@ -1354,8 +1556,16 @@ describe("createInstitutionWorkspaceForUser / createPersonalInstitutionForUser �
     const a = makeFullRaceDb({ preCheckCount: 0, inTxCount: 0 });
     const b = makeFullRaceDb({ preCheckCount: 0, inTxCount: 0 });
 
-    await createInstitutionWorkspaceForUser("owner_A", { displayName: "Kampus A" }, a.db);
-    await createInstitutionWorkspaceForUser("owner_B", { displayName: "Kampus B" }, b.db);
+    await createInstitutionWorkspaceForUser(
+      "owner_A",
+      { displayName: "Kampus A", institutionType: "company" },
+      a.db,
+    );
+    await createInstitutionWorkspaceForUser(
+      "owner_B",
+      { displayName: "Kampus B", institutionType: "company" },
+      b.db,
+    );
 
     expect(a.capturedLockKeys).toEqual(["inst_owner_cap:owner_A"]);
     expect(b.capturedLockKeys).toEqual(["inst_owner_cap:owner_B"]);

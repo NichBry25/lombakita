@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Button, Icon, SkeletonCard } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
+import { getCompetitionModeLabel } from "@/lib/competitions/modes";
 import { CompetitionFilters } from "./competition-filters";
 
 type Competition = {
@@ -27,23 +29,6 @@ type Meta = {
   limit: number;
   totalPages: number;
   searchEngine: "meilisearch" | "db";
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  technology: "Teknologi",
-  science: "Sains",
-  business: "Bisnis",
-  creative_arts: "Seni & Kreasi",
-  social_humanities: "Sosial & Humaniora",
-  sports: "Olahraga",
-  academic: "Akademik",
-  other: "Lainnya",
-};
-
-const MODE_LABELS: Record<string, string> = {
-  individual: "Individu",
-  team: "Tim",
-  both: "Individu / Tim",
 };
 
 function formatDeadline(value: string | null) {
@@ -244,7 +229,7 @@ export default function PublicCompetitionsPage() {
                       </span>
                       <span className="competition-cover-label">
                         {competition.category
-                          ? (CATEGORY_LABELS[competition.category] ?? competition.category)
+                          ? getCompetitionCategoryLabel(competition.category)
                           : "Kompetisi"}
                       </span>
                     </Link>
@@ -258,7 +243,7 @@ export default function PublicCompetitionsPage() {
                         ) : null}
                         {competition.mode ? (
                           <span className="status-badge">
-                            {MODE_LABELS[competition.mode] ?? competition.mode}
+                            {getCompetitionModeLabel(competition.mode)}
                           </span>
                         ) : null}
                       </div>
@@ -278,7 +263,8 @@ export default function PublicCompetitionsPage() {
 
                       <div className="competition-card-footer">
                         <span className="status-badge" data-status={registrationStatus.value}>
-                          {registrationStatus.label} · {formatDeadline(competition.registrationEndAt)}
+                          {registrationStatus.label} ·{" "}
+                          {formatDeadline(competition.registrationEndAt)}
                         </span>
                         <span className="competition-card-arrow" aria-hidden="true">
                           <Icon name="arrow-right" size="md" />

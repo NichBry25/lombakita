@@ -3,6 +3,8 @@ import { ButtonLink, Icon } from "@/components/ui";
 import { MemphisHeroArt } from "@/components/home/memphis-hero-art";
 import { FeaturedCarousel } from "@/components/home/featured-carousel";
 import { listFeaturedCompetitions } from "@/server/competitions/competition-public-service";
+import { logger } from "@/lib/logger";
+import type { PublicCompetitionItem } from "@/server/competitions/competition-public-service";
 
 // Featured placement is ops-managed and changes rarely (Step 5.5), so a short staleness
 // window is acceptable — ISR avoids a DB round trip on every request to the highest-traffic
@@ -12,16 +14,20 @@ export const revalidate = 300;
 
 const DISCOVERY_CATEGORIES = [
   {
-    value: "technology",
-    label: "Teknologi",
-    detail: "Hackathon, produk digital, dan inovasi",
+    value: "hackathon",
+    label: "Hackathon",
+    detail: "Sprint coding, produk digital, dan inovasi",
   },
-  { value: "business", label: "Bisnis", detail: "Studi kasus, rencana bisnis, dan pitching" },
-  { value: "science", label: "Sains", detail: "Riset, olimpiade, dan karya ilmiah" },
+  { value: "business", label: "Business", detail: "Business case, rencana bisnis, dan pitching" },
   {
-    value: "creative_arts",
-    label: "Seni & kreasi",
-    detail: "Desain, film, fotografi, dan karya visual",
+    value: "scientific_writing",
+    label: "Karya tulis ilmiah",
+    detail: "Riset, karya ilmiah, dan olimpiade",
+  },
+  {
+    value: "design",
+    label: "UI/UX & desain",
+    detail: "Desain antarmuka dan karya visual",
   },
 ] as const;
 
@@ -37,8 +43,22 @@ const MARQUEE_WORDS = ["Temukan", "Daftar", "Berkarya", "Menang"] as const;
 const MARQUEE_HALF = Array.from({ length: 9 }, () => MARQUEE_WORDS).flat();
 const MARQUEE_ITEMS = [...MARQUEE_HALF, ...MARQUEE_HALF];
 
+// Featured placement is a decorative rail, not core to the page. A fetch failure (e.g. the DB
+// is unreachable) degrades to no rail rather than taking down the whole public homepage — but
+// the failure is still recorded so a broken featured system is never hidden.
+const loadFeaturedCompetitionsOrEmpty = async (): Promise<PublicCompetitionItem[]> => {
+  try {
+    return await listFeaturedCompetitions(4);
+  } catch (error) {
+    logger.error("home.featured-competitions.load-failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+};
+
 export default async function HomePage() {
-  const featuredCompetitions = await listFeaturedCompetitions(4);
+  const featuredCompetitions = await loadFeaturedCompetitionsOrEmpty();
 
   return (
     <main>

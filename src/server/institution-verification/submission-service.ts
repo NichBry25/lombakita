@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { AccessError } from "@/server/auth/access-core";
 import { getDb, type Database } from "@/server/db/client";
@@ -12,29 +12,12 @@ import {
   type InstitutionType,
   type VerificationSubmissionStatus,
 } from "@/server/db/schema";
-import {
-  getRecruiterTierForAccount,
-  meetsRecruiterTier,
-  FULL_INSTITUTION_CREATION_MIN_TIER,
-  RecruiterTierError,
-} from "@/server/auth/recruiter-tier";
-import { MAX_INSTITUTIONS_PER_RECRUITER } from "@/server/institution-workspace/institution-core";
-import { acquireOwnerCapLock } from "@/server/institution-workspace/owner-cap-lock";
-import {
-  assertInstitutionTypeTransition,
-  isFullInstitutionType,
-  type FullInstitutionType,
-} from "@/server/institution-workspace/institution-type";
+import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { getInstitutionDisplayName } from "@/server/institution-workspace/institution-display-name";
 import { isR2Available, generatePresignedPutUrl } from "@/server/storage/r2.client";
 import { logger } from "@/lib/logger";
-import {
-  deriveEmailDomainFlag,
-  getMissingDocuments,
-} from "./verification-requirements";
-import {
-  sendInstitutionVerifiedEmail,
-} from "./verification-email";
+import { deriveEmailDomainFlag, getMissingDocuments } from "./verification-requirements";
+import { sendInstitutionVerifiedEmail } from "./verification-email";
 
 assertServerOnly("server/institution-verification/submission-service");
 
@@ -125,7 +108,7 @@ const resolveOwnerInstitution = async (
   institutionSlug: string,
   actorUserId: string,
   db: Database,
-): Promise<{ institutionId: string; institutionType: InstitutionType | null }> => {
+): Promise<{ institutionId: string; institutionType: InstitutionType }> => {
   const [row] = await db
     .select({
       institutionId: institutions.id,
@@ -153,15 +136,16 @@ const resolveOwnerInstitution = async (
     );
   }
 
-  return { institutionId: row.institutionId, institutionType: row.institutionType ?? null };
+  return { institutionId: row.institutionId, institutionType: row.institutionType };
 };
 
-// Submits a verification request for an institution. Validates target type, documents, and tier.
-// Returns presigned PUT URLs for each document so the client can upload directly to R2.
+// Submits a document verification request for a full institution. Verification is credibility-only:
+// it does not gate publishing (that gates on the account-level Trusted Recruiter status), it does
+// not change an institution's reach, and it never changes an institution's type — the type is fixed
+// at creation. The required documents are those of the institution's own type. Returns presigned PUT
+// URLs so the client can upload directly to R2.
 export const createVerificationSubmission = async (
   institutionSlug: string,
-  targetType: InstitutionType,
-  proposedDisplayName: string | null,
   documents: DocumentInput[],
   actorUserId: string,
   db: Database = getDb(),
@@ -174,44 +158,26 @@ export const createVerificationSubmission = async (
     );
   }
 
-  const { institutionId, institutionType: currentType } =
-    await resolveOwnerInstitution(institutionSlug, actorUserId, db);
+  const { institutionId, institutionType } = await resolveOwnerInstitution(
+    institutionSlug,
+    actorUserId,
+    db,
+  );
 
-  // Validate the target type transition using the existing state machine guard.
-  assertInstitutionTypeTransition(currentType, targetType);
-
-  // Upgrade path: personal → full type requires elevated tier and a proposed display name.
-  const isUpgrade = currentType === "personal" && targetType !== "personal";
-  if (isUpgrade || currentType === null) {
-    // NULL → full type (legacy first-declaration) also requires elevated tier.
-    const tierState = await getRecruiterTierForAccount(actorUserId, db);
-    if (
-      !tierState ||
-      !tierState.recruiterVerified ||
-      !meetsRecruiterTier(tierState.recruiterVerificationTier, FULL_INSTITUTION_CREATION_MIN_TIER)
-    ) {
-      throw new RecruiterTierError(
-        "recruiter_tier_insufficient",
-        403,
-        `Submitting verification for a full institution type requires '${FULL_INSTITUTION_CREATION_MIN_TIER}' tier`,
-        { requiredTier: FULL_INSTITUTION_CREATION_MIN_TIER },
-      );
-    }
-  }
-
-  if (isUpgrade) {
-    if (!proposedDisplayName || proposedDisplayName.trim().length === 0) {
-      throw new SubmissionError(
-        "proposed_display_name_required",
-        422,
-        "A display name is required when upgrading from personal to a full institution type",
-      );
-    }
+  // A personal institution is the person, and the person is verified through the account-level
+  // Trusted Recruiter review — there is nothing separate to document here. Reaching a full type is
+  // the self-service upgrade, not a document submission.
+  if (isPersonalInstitutionType(institutionType)) {
+    throw new SubmissionError(
+      "institution_verification_not_applicable",
+      409,
+      "A personal institution has no document verification. Upgrade it to a full institution type first",
+    );
   }
 
   // Validate all required documents are present.
   const submittedTypes = documents.map((d) => d.documentType);
-  const missingDocs = getMissingDocuments(targetType, submittedTypes);
+  const missingDocs = getMissingDocuments(institutionType, submittedTypes);
   if (missingDocs.length > 0) {
     throw new SubmissionError(
       "missing_required_documents",
@@ -223,14 +189,14 @@ export const createVerificationSubmission = async (
 
   // Derive email domain flag for university/campus_organization submissions.
   let emailDomainFlag: boolean | null = null;
-  if (targetType === "university" || targetType === "campus_organization") {
+  if (institutionType === "university" || institutionType === "campus_organization") {
     const [userRow] = await db
       .select({ email: users.email })
       .from(users)
       .where(eq(users.id, actorUserId))
       .limit(1);
     if (userRow) {
-      emailDomainFlag = deriveEmailDomainFlag(targetType, userRow.email);
+      emailDomainFlag = deriveEmailDomainFlag(institutionType, userRow.email);
     }
   }
 
@@ -240,8 +206,7 @@ export const createVerificationSubmission = async (
     .values({
       institutionId,
       submittedByUserId: actorUserId,
-      targetInstitutionType: targetType,
-      proposedDisplayName: proposedDisplayName?.trim() ?? null,
+      targetInstitutionType: institutionType,
       emailDomainFlag,
     })
     .returning({ id: institutionVerificationSubmissions.id });
@@ -257,7 +222,11 @@ export const createVerificationSubmission = async (
 
   for (const doc of documents) {
     const r2Key = `verification/${institutionId}/${submissionId}/${doc.documentType}`;
-    const uploadUrl = await generatePresignedPutUrl(r2Key, doc.contentType, PRESIGNED_URL_EXPIRY_SECONDS);
+    const uploadUrl = await generatePresignedPutUrl(
+      r2Key,
+      doc.contentType,
+      PRESIGNED_URL_EXPIRY_SECONDS,
+    );
 
     await db.insert(institutionVerificationDocuments).values({
       submissionId,
@@ -274,7 +243,7 @@ export const createVerificationSubmission = async (
   logger.info("institution.verification.submission.created", {
     submissionId,
     institutionId,
-    targetType,
+    institutionType,
     actorUserId,
   });
 
@@ -542,129 +511,16 @@ export const reviewVerificationSubmission = async (
       return { submissionId, status: "rejected" };
     }
 
-    // Approval path.
-    const currentType = inst.institutionType ?? null;
-    const targetType = sub.targetInstitutionType;
-    const isUpgrade = currentType === "personal" && isFullInstitutionType(targetType);
-    const isLegacyDeclaration = currentType === null && isFullInstitutionType(targetType);
-
-    if (isUpgrade || isLegacyDeclaration) {
-      // Fail-closed: if the submitter's account has been deleted (ON DELETE SET NULL),
-      // the tier gate can no longer be verified — block the upgrade approval.
-      if (!sub.submittedByUserId) {
-        throw new SubmissionError(
-          "submitter_account_deleted",
-          409,
-          "The submitter's account has been deleted; upgrade approval requires tier verification",
-        );
-      }
-
-      // Tier check uses the outer db — the tier is a read-only gate that does not need to
-      // be fenced inside the write transaction.
-      const tierState = await getRecruiterTierForAccount(sub.submittedByUserId, db);
-      if (
-        !tierState ||
-        !tierState.recruiterVerified ||
-        !meetsRecruiterTier(tierState.recruiterVerificationTier, FULL_INSTITUTION_CREATION_MIN_TIER)
-      ) {
-        throw new RecruiterTierError(
-          "recruiter_tier_insufficient",
-          403,
-          "The submitter no longer meets the tier requirement for this upgrade",
-          { requiredTier: FULL_INSTITUTION_CREATION_MIN_TIER },
-        );
-      }
-
-      // Full-institution limit re-check inside the transaction: count existing full institutions
-      // owned by the current active owner of this institution, excluding the upgrading institution
-      // itself (which is currently personal and not yet counted as full). After upgrade there would
-      // be existingFullCount + 1 full institutions.
-      const [ownerRow] = await tx
-        .select({ userId: institutionMemberships.userId })
-        .from(institutionMemberships)
-        .where(
-          and(
-            eq(institutionMemberships.institutionId, sub.institutionId),
-            eq(institutionMemberships.membershipRole, OWNER_ROLE),
-            eq(institutionMemberships.status, ACTIVE_MEMBERSHIP),
-          ),
-        )
-        .limit(1);
-
-      if (!ownerRow) {
-        throw new SubmissionError(
-          "institution_owner_not_found",
-          409,
-          "No active institution_owner found for this institution; cannot verify limit",
-        );
-      }
-
-      // Serialize concurrent same-owner upgrade approvals before counting the owner's full
-      // institutions. The count below ranges over the owner's OTHER institution rows, so gating the
-      // UPDATE on the target row alone cannot fence it — two approvals of two different institutions
-      // for the same owner each snapshot a count blind to the other's uncommitted type-flip and both
-      // pass the cap. The lock keyed on ownerRow.userId makes the count-then-flip atomic per owner.
-      // See acquireOwnerCapLock.
-      await acquireOwnerCapLock(tx, ownerRow.userId);
-
-      const [limitRow] = await tx
-        .select({ value: count() })
-        .from(institutionMemberships)
-        .innerJoin(institutions, eq(institutions.id, institutionMemberships.institutionId))
-        .where(
-          and(
-            eq(institutionMemberships.userId, ownerRow.userId),
-            eq(institutionMemberships.membershipRole, OWNER_ROLE),
-            eq(institutionMemberships.status, ACTIVE_MEMBERSHIP),
-            or(isNull(institutions.institutionType), ne(institutions.institutionType, "personal")),
-            ne(institutions.id, sub.institutionId),
-          ),
-        );
-
-      const existingFullCount = limitRow?.value ?? 0;
-      if (existingFullCount + 1 > MAX_INSTITUTIONS_PER_RECRUITER) {
-        throw new SubmissionError(
-          "institution_upgrade_limit_reached",
-          409,
-          `Approving this upgrade would exceed the limit of ${MAX_INSTITUTIONS_PER_RECRUITER} full institutions for this recruiter`,
-        );
-      }
-
-      // Validate the proposed display name for upgrade.
-      if (isUpgrade) {
-        if (!sub.proposedDisplayName || sub.proposedDisplayName.trim().length === 0) {
-          throw new SubmissionError(
-            "proposed_display_name_required",
-            422,
-            "Upgrade approval requires a proposed display name",
-          );
-        }
-      }
-
-      // Atomic: flip type + persist display_name + transition verification_status.
-      // This closes 6.5f.1-S1: display_name is written before the transaction commits;
-      // the institutions_display_name_type_chk CHECK constraint enforces this at DB level.
-      const displayNameToSet =
-        isUpgrade ? sub.proposedDisplayName!.trim() : inst.displayName ?? sub.proposedDisplayName?.trim() ?? null;
-
-      await tx
-        .update(institutions)
-        .set({
-          institutionType: isFullInstitutionType(targetType) ? (targetType as FullInstitutionType) : inst.institutionType,
-          displayName: displayNameToSet,
-          verificationStatus: "verified",
-          verifiedAt: now,
-          updatedAt: sql`now()`,
-        })
-        .where(eq(institutions.id, sub.institutionId));
-    } else {
-      // Regular verification: same type (or same-type personal KTP verification).
-      // Just transition verification_status to verified.
-      await tx
-        .update(institutions)
-        .set({ verificationStatus: "verified", verifiedAt: now, updatedAt: sql`now()` })
-        .where(eq(institutions.id, sub.institutionId));
-    }
+    // Approval path. Verification confirms an institution's documents; it never changes the
+    // institution's type (fixed at creation) or its reach. It only transitions verification_status.
+    await tx
+      .update(institutions)
+      .set({
+        verificationStatus: "verified",
+        verifiedAt: now,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(institutions.id, sub.institutionId));
 
     // Write audit entry (mirrors verifyInstitution from verification-service.ts).
     await tx.insert(institutionVerificationAudit).values({
@@ -684,8 +540,6 @@ export const reviewVerificationSubmission = async (
     logger.info("institution.verification.submission.approved", {
       submissionId,
       institutionId: sub.institutionId,
-      targetType,
-      isUpgrade,
       reviewerUserId,
     });
 
@@ -706,10 +560,11 @@ export const reviewVerificationSubmission = async (
         .limit(1);
 
       if (ownerRow) {
+        // Verification never renames an institution, so the stored display name is the current one.
         const resolvedName = getInstitutionDisplayName(
           {
-            displayName: isUpgrade ? sub.proposedDisplayName : inst.displayName,
-            institutionType: isUpgrade ? (targetType as FullInstitutionType) : inst.institutionType ?? null,
+            displayName: inst.displayName,
+            institutionType: inst.institutionType ?? null,
           },
           { username: ownerRow.username },
         );

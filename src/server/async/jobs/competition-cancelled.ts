@@ -79,7 +79,7 @@ export const processCompetitionCancelledJob = async (
       {
         userId: recipient.userId,
         type: NOTIFICATION_TYPES.competitionCancelled,
-        title: "Kompetisi Dibatalkan",
+        title: "Kompetisi dibatalkan",
         body: `"${competition.title}" yang kamu daftarkan telah dibatalkan oleh penyelenggara.`,
       },
       { event: "competition.cancelled", jobId: job.id ?? undefined },

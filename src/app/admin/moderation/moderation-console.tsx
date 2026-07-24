@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import { getAppRoleLabel } from "@/lib/access/role-labels";
+import { formatDisplayToken } from "@/lib/text/capitalize";
 
 type UserResult = {
   id: string;
@@ -184,7 +186,7 @@ function NotesPanel({
           onChange={(e) => setNoteInput(e.target.value)}
         />
         <Button size="sm" disabled={busy} loading={busy} onClick={() => void addNote()}>
-          Simpan Catatan
+          Simpan catatan
         </Button>
       </div>
       {notes.length === 0 ? (
@@ -308,13 +310,13 @@ function UserPanel() {
         <div className="moderation-result">
           <div>
             <strong>{result.name ?? "(tanpa nama)"}</strong> · {result.email} · peran:{" "}
-            {result.appRole}
+            {getAppRoleLabel(result.appRole)}
           </div>
           <div className="moderation-status-row">
             Status:{" "}
             {result.suspendedAt ? (
               <span className="status-badge" data-status="closed">
-                DITANGGUHKAN ({result.suspensionReason ?? "tanpa alasan"})
+                Ditangguhkan ({result.suspensionReason ?? "tanpa alasan"})
               </span>
             ) : (
               <span className="status-badge" data-status="open">
@@ -325,11 +327,11 @@ function UserPanel() {
           <div>
             {result.appRole === "platform_ops" || result.appRole === "finance_ops" ? (
               <p className="feedback" data-tone="error">
-                Akun ops internal ({result.appRole}) tidak dapat ditangguhkan.
+                Akun ops internal ({getAppRoleLabel(result.appRole)}) tidak dapat ditangguhkan.
               </p>
             ) : result.suspendedAt ? (
               <ActionForm
-                buttonLabel="Cabut Penangguhan"
+                buttonLabel="Cabut penangguhan"
                 onSubmit={(reason) => runAction("unsuspend", reason)}
               />
             ) : (
@@ -400,7 +402,7 @@ function InstitutionPanel() {
       </div>
       <div className="moderation-lookup-form">
         <label htmlFor="institution-lookup-slug" className="form-label">
-          Slug / Nama
+          Slug / nama
         </label>
         <input
           id="institution-lookup-slug"
@@ -418,7 +420,8 @@ function InstitutionPanel() {
       {result && (
         <div className="moderation-result">
           <div>
-            <strong>{result.name}</strong> · {result.slug} · verifikasi: {result.verificationStatus}
+            <strong>{result.name}</strong> · {result.slug} · verifikasi:{" "}
+            {formatDisplayToken(result.verificationStatus)}
           </div>
           <div className="record-meta">
             Pemilik: {result.ownerName ?? "—"} ({result.ownerEmail ?? "—"})
@@ -427,7 +430,7 @@ function InstitutionPanel() {
             Status operasional:{" "}
             {result.suspendedAt ? (
               <span className="status-badge" data-status="closed">
-                DITANGGUHKAN ({result.suspensionReason ?? "tanpa alasan"})
+                Ditangguhkan ({result.suspensionReason ?? "tanpa alasan"})
               </span>
             ) : (
               <span className="status-badge" data-status="open">

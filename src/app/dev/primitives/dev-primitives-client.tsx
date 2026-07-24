@@ -21,7 +21,7 @@ export function DevPrimitivesClient() {
 
   function openTwoActionModal() {
     openModal({
-      title: "Konfirmasi Tindakan",
+      title: "Konfirmasi tindakan",
       body: "Apakah Anda yakin ingin melanjutkan? Tindakan ini tidak dapat dibatalkan.",
       onClose: () => console.log("[dev] modal onClose fired"),
       actions: [
@@ -43,7 +43,7 @@ export function DevPrimitivesClient() {
 
   function openNoCloseModal() {
     openModal({
-      title: "Modal Tanpa Tombol Tutup",
+      title: "Modal tanpa tombol tutup",
       body: "Modal ini tidak memiliki tombol ×. Gunakan salah satu tombol aksi di bawah.",
       closeable: false,
       onClose: () => console.log("[dev] no-close modal onClose fired"),

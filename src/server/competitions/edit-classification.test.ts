@@ -14,7 +14,7 @@ const base = (overrides: Partial<ClassifiableCompetition> = {}): ClassifiableCom
   title: "Lomba",
   slug: "lomba",
   description: "Deskripsi",
-  category: "technology",
+  category: "hackathon",
   mode: "both",
   minTeamSize: 1,
   maxTeamSize: 4,
@@ -168,33 +168,47 @@ describe("classifyCompetitionEdit — fee", () => {
 describe("classifyCompetitionEdit — eventStartAt cancel window", () => {
   it("blocks moving eventStartAt earlier so the cutoff lands in the past", () => {
     // cutoff 7 days; new event 3 days from NOW → window end is in the past.
-    const oldRow = base({ eventStartAt: new Date(NOW.getTime() + 30 * DAY), allowCancellation: true, cancellationCutoffDays: 7 });
-    const newRow = base({ eventStartAt: new Date(NOW.getTime() + 3 * DAY), allowCancellation: true, cancellationCutoffDays: 7 });
-    const result = classifyCompetitionEdit(
-      oldRow,
-      newRow,
-      snapshot({ nonCancelledCount: 1 }),
-      NOW,
-    );
+    const oldRow = base({
+      eventStartAt: new Date(NOW.getTime() + 30 * DAY),
+      allowCancellation: true,
+      cancellationCutoffDays: 7,
+    });
+    const newRow = base({
+      eventStartAt: new Date(NOW.getTime() + 3 * DAY),
+      allowCancellation: true,
+      cancellationCutoffDays: 7,
+    });
+    const result = classifyCompetitionEdit(oldRow, newRow, snapshot({ nonCancelledCount: 1 }), NOW);
     expect(result.blocked).toContain("eventStartAt");
   });
 
   it("notifies moving eventStartAt earlier when the window still holds", () => {
-    const oldRow = base({ eventStartAt: new Date(NOW.getTime() + 60 * DAY), allowCancellation: true, cancellationCutoffDays: 7 });
-    const newRow = base({ eventStartAt: new Date(NOW.getTime() + 30 * DAY), allowCancellation: true, cancellationCutoffDays: 7 });
-    const result = classifyCompetitionEdit(
-      oldRow,
-      newRow,
-      snapshot({ nonCancelledCount: 1 }),
-      NOW,
-    );
+    const oldRow = base({
+      eventStartAt: new Date(NOW.getTime() + 60 * DAY),
+      allowCancellation: true,
+      cancellationCutoffDays: 7,
+    });
+    const newRow = base({
+      eventStartAt: new Date(NOW.getTime() + 30 * DAY),
+      allowCancellation: true,
+      cancellationCutoffDays: 7,
+    });
+    const result = classifyCompetitionEdit(oldRow, newRow, snapshot({ nonCancelledCount: 1 }), NOW);
     expect(result.notify).toContain("eventStartAt");
     expect(result.blocked).not.toContain("eventStartAt");
   });
 
   it("notifies moving eventStartAt later (never blocks a later event)", () => {
-    const oldRow = base({ eventStartAt: new Date(NOW.getTime() + 10 * DAY), allowCancellation: true, cancellationCutoffDays: 7 });
-    const newRow = base({ eventStartAt: new Date(NOW.getTime() + 90 * DAY), allowCancellation: true, cancellationCutoffDays: 7 });
+    const oldRow = base({
+      eventStartAt: new Date(NOW.getTime() + 10 * DAY),
+      allowCancellation: true,
+      cancellationCutoffDays: 7,
+    });
+    const newRow = base({
+      eventStartAt: new Date(NOW.getTime() + 90 * DAY),
+      allowCancellation: true,
+      cancellationCutoffDays: 7,
+    });
     const result = classifyCompetitionEdit(oldRow, newRow, snapshot({ nonCancelledCount: 1 }), NOW);
     expect(result.notify).toContain("eventStartAt");
     expect(result.blocked).not.toContain("eventStartAt");

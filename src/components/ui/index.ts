@@ -1,5 +1,8 @@
-export { Button, ButtonLink } from "./button";
+export { Button, ButtonLink, IconButton } from "./button";
 export type { ButtonSize, ButtonVariant } from "./button";
+export { FormActionBar } from "./form-action-bar";
+export { SelectField } from "./select-field";
+export type { SelectFieldOption } from "./select-field";
 export { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
 export { Feedback } from "./feedback";
 export type { FeedbackTone } from "./feedback";

@@ -13,9 +13,7 @@ const {
 } = vi.hoisted(() => {
   class RecruiterTierError extends Error {
     constructor(
-      public readonly code:
-        | "recruiter_role_not_verified"
-        | "recruiter_tier_insufficient",
+      public readonly code: "recruiter_role_not_verified" | "recruiter_tier_insufficient",
       public readonly status: 403,
       message: string,
       public readonly details?: Record<string, unknown>,
@@ -176,9 +174,7 @@ describe("POST /api/v1/competitions", () => {
         { requiredTier: "minimal" },
       ),
     );
-    const response = await POST(
-      makePost({ institutionSlug: "lk", title: "Lomba Coding 2026" }),
-    );
+    const response = await POST(makePost({ institutionSlug: "lk", title: "Lomba Coding 2026" }));
     const body = await response.json();
     expect(response.status).toBe(403);
     expect(body.error.code).toBe("recruiter_role_not_verified");
@@ -195,9 +191,7 @@ describe("POST /api/v1/competitions", () => {
         { requiredTier: "minimal", currentTier: "unverified" },
       ),
     );
-    const response = await POST(
-      makePost({ institutionSlug: "lk", title: "Lomba Coding 2026" }),
-    );
+    const response = await POST(makePost({ institutionSlug: "lk", title: "Lomba Coding 2026" }));
     const body = await response.json();
     expect(response.status).toBe(403);
     expect(body.error.code).toBe("recruiter_tier_insufficient");
@@ -240,11 +234,11 @@ describe("GET /api/v1/competitions — public listing", () => {
       data: [],
       meta: { total: 0, page: 2, limit: 20, totalPages: 0, searchEngine: "meilisearch" },
     });
-    await GET(makeGet("?q=lomba&category=technology&sort=deadline_asc&page=2"));
+    await GET(makeGet("?q=lomba&category=hackathon&sort=deadline_asc&page=2"));
     expect(listPublicCompetitions).toHaveBeenCalledWith(
       expect.objectContaining({
         q: "lomba",
-        category: "technology",
+        category: "hackathon",
         sort: "deadline_asc",
         page: 2,
       }),

@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { signIn } from "next-auth/react";
+import { SelectField } from "@/components/ui";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 
 // Step 6.5d — minimal-proof OAuth role picker. Reached after a brand-new Google user is routed to
@@ -50,7 +51,7 @@ const mapFinalizeError = (error: string | null | undefined): string => {
     return "Akun untuk email ini sudah ada. Coba masuk dengan metode yang sudah terdaftar.";
   }
   if (normalized.includes("INVALID_ROLE")) {
-    return "Peran tidak valid. Pilih Kandidat atau Recruiter.";
+    return "Peran tidak valid. Pilih kandidat atau rekruter.";
   }
   return "Pendaftaran dengan Google gagal. Silakan coba lagi.";
 };
@@ -182,7 +183,7 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
               }}
               className="auth-role-option"
             >
-              <strong>Daftar sebagai Kandidat</strong>
+              <strong>Daftar sebagai kandidat</strong>
               <span>Siapa pun yang mencari kompetisi, beasiswa, dan peluang lain.</span>
             </button>
             <button
@@ -197,7 +198,7 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
               }}
               className="auth-role-option"
             >
-              <strong>Daftar sebagai Recruiter</strong>
+              <strong>Daftar sebagai rekruter</strong>
               <span>Perwakilan institusi yang ingin menerbitkan dan mengelola peluang.</span>
             </button>
           </div>
@@ -239,19 +240,14 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
               <label className="form-label form-label-required" htmlFor="candidate-occupation">
                 Status saat ini
               </label>
-              <select
+              <SelectField
                 id="candidate-occupation"
+                label="Status saat ini"
                 value={occupation}
-                onChange={(event) => setOccupation(event.target.value)}
-                className="form-input"
-              >
-                <option value="">Pilih status Anda</option>
-                {OCCUPATION_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+                placeholder="Pilih status Anda"
+                options={[...OCCUPATION_OPTIONS]}
+                onChange={setOccupation}
+              />
             </div>
 
             <div className="form-field">

@@ -387,6 +387,14 @@
   --category-hue-film: 300;
   --category-hue-olympiad: 222;
   --category-hue-pitch: 140;
+  --category-hue-engineering: 250;
+  --category-hue-finance: 120;
+  --category-hue-law: 320;
+  --category-hue-data-science: 190;
+  --category-hue-programming: 235;
+  --category-hue-marketing: 6;
+  --category-hue-esports: 285;
+  --category-hue-quiz: 65;
   --category-wash-saturation: 55%;
   --category-wash-lightness: 90%;
   --category-blob-saturation: 62%;

@@ -9,15 +9,9 @@
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { and, eq, isNull } from "drizzle-orm";
-import {
-  competitions,
-  competitionSaves,
-  institutions,
-  users,
-} from "../db/schema";
+import { competitions, competitionSaves, institutions, users } from "../db/schema";
 
-const DB_URL =
-  "postgresql://lombakita_app:LombakitaAppNBT01%21@localhost:5432/lombakita";
+const DB_URL = "postgresql://lombakita_app:LombakitaAppNBT01%21@localhost:5432/lombakita";
 
 const INSTITUTION_SLUG = "universitas-indonesia";
 const USER_EMAIL = "nicholasbryan250@gmail.com";
@@ -95,7 +89,7 @@ async function seed() {
         description: `Seed competition for Step 4.5 manual test — ${seed.title}`,
         status: "published",
         mode: "individual",
-        category: "technology",
+        category: "hackathon",
         registrationStartAt: REG_START,
         registrationEndAt: REG_END,
         eventStartAt: EVENT_START,

@@ -1,0 +1,1 @@
+ALTER TABLE "institutions" ALTER COLUMN "institution_type" SET NOT NULL;

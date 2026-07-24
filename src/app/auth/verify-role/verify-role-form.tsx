@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Button } from "@/components/ui";
+import { Button, SelectField } from "@/components/ui";
 import type { VerifiableRole } from "@/server/auth/role-verification";
 import { useToast } from "@/components/ui/primitives";
 
@@ -226,19 +226,14 @@ export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
         <label className="form-label form-label-required" htmlFor="candidate-occupation">
           Status saat ini
         </label>
-        <select
+        <SelectField
           id="candidate-occupation"
+          label="Status saat ini"
           value={occupation}
-          onChange={(event) => setOccupation(event.target.value)}
-          className="form-input"
-        >
-          <option value="">Pilih status Anda</option>
-          {OCCUPATION_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          placeholder="Pilih status Anda"
+          options={[...OCCUPATION_OPTIONS]}
+          onChange={setOccupation}
+        />
       </div>
 
       <div className="form-field">

@@ -3,7 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SignOutButton } from "@/components/auth/sign-out-button";
-import { Button, ButtonLink, PageHeader, Skeleton } from "@/components/ui";
+import {
+  Button,
+  ButtonLink,
+  FormActionBar,
+  Icon,
+  IconButton,
+  PageHeader,
+  Skeleton,
+} from "@/components/ui";
+import { formatDisplayToken } from "@/lib/text/capitalize";
 
 type InstitutionSettingsResponse = {
   institution: {
@@ -102,8 +111,8 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
     };
   }, [loadInstitution]);
 
-  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const onSubmit = async (event?: React.FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
 
     // A personal institution has no editable name (it derives from the owner username), so the name
     // length check is skipped and only the slug is sent.
@@ -174,8 +183,6 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
         eyebrow="Identitas workspace"
         title="Pengaturan institusi"
         description="Kelola nama, slug, dan status dasar institusi."
-        backHref={`/institution/${activeSlug}`}
-        backLabel="Panel institusi"
         actions={isPersonal ? <span className="status-badge">Tipe personal</span> : undefined}
       />
 
@@ -190,7 +197,7 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
           <form className="stack-md" onSubmit={onSubmit}>
             <div className="form-field">
               <label className="form-label" htmlFor="institution-settings-display-name">
-                Nama Institusi
+                Nama institusi
               </label>
               <input
                 id="institution-settings-display-name"
@@ -229,12 +236,12 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
 
             <div className="form-field">
               <label className="form-label" htmlFor="institution-settings-status">
-                Status Awal Platform
+                Status awal platform
               </label>
               <input
                 id="institution-settings-status"
                 className="form-input form-input-readonly"
-                value={status}
+                value={formatDisplayToken(status)}
                 readOnly
               />
             </div>
@@ -244,15 +251,21 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
                 {feedback.message}
               </p>
             ) : null}
-
-            <Button type="submit" disabled={isSaving} loading={isSaving}>
-              {isSaving ? "Menyimpan..." : "Simpan Perubahan"}
-            </Button>
           </form>
         )}
       </section>
 
       <div className="page-secondary-actions">
+        {!isPersonal ? (
+          <ButtonLink
+            href={`/institution/${activeSlug}/settings/profile`}
+            prefetch={false}
+            variant="outline"
+            size="sm"
+          >
+            Profil penyelenggara
+          </ButtonLink>
+        ) : null}
         <SignOutButton />
         <ButtonLink href="/institution/workspace" prefetch={false} variant="ghost" size="sm">
           Buat workspace lain
@@ -261,6 +274,27 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
           Kembali ke beranda
         </ButtonLink>
       </div>
+
+      <FormActionBar>
+        <IconButton
+          icon="arrow-left"
+          label="Panel institusi"
+          onClick={() => router.push(`/institution/${activeSlug}`)}
+        />
+        {!isLoading ? (
+          <div className="form-action-bar-end">
+            <Button
+              type="button"
+              onClick={() => onSubmit()}
+              disabled={isSaving}
+              loading={isSaving}
+              leadingIcon={<Icon name="save" />}
+            >
+              {isSaving ? "Menyimpan..." : "Simpan perubahan"}
+            </Button>
+          </div>
+        ) : null}
+      </FormActionBar>
     </main>
   );
 };

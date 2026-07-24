@@ -41,8 +41,8 @@ export const sendRegistrationConfirmedEmail = async (options: {
     text: [
       `Pendaftaran kamu untuk kompetisi "${options.competitionTitle}" telah berhasil.`,
       "",
-      `Jenis Pendaftaran: ${typeLabel}`,
-      `Tanggal Daftar: ${dateFormatted}`,
+      `Jenis pendaftaran: ${typeLabel}`,
+      `Tanggal daftar: ${dateFormatted}`,
       "",
       `Pantau perkembangan kompetisi kamu di ${resolveBaseUrl()}.`,
     ].join("\n"),

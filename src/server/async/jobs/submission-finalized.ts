@@ -18,9 +18,7 @@ export type SubmissionFinalizedJob = Job<
   typeof ASYNC_JOB_NAMES.submissionFinalized
 >;
 
-export const processSubmissionFinalizedJob = async (
-  job: SubmissionFinalizedJob,
-): Promise<void> => {
+export const processSubmissionFinalizedJob = async (job: SubmissionFinalizedJob): Promise<void> => {
   const { submissionId, studentId, competitionId } = job.data;
 
   const db = getDb();
@@ -73,7 +71,7 @@ export const processSubmissionFinalizedJob = async (
     {
       userId: studentId,
       type: NOTIFICATION_TYPES.submissionFinalized,
-      title: "Pengiriman Dikunci",
+      title: "Pengiriman dikunci",
       body: `Pengirimanmu untuk kompetisi "${competition.title}" telah dikunci dan tidak dapat diubah.`,
     },
     { event: "submission.finalized", jobId: job.id ?? undefined },

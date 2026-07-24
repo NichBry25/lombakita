@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ButtonLink, EmptyState, Icon, PageHeader, Skeleton } from "@/components/ui";
+import { capitalizeWord } from "@/lib/text/capitalize";
 
 type Competition = {
   id: string;
@@ -133,7 +134,7 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
                         : "closing"
                   }
                 >
-                  {c.status}
+                  {capitalizeWord(c.status)}
                 </span>
                 <ButtonLink
                   href={`/institution/${institutionSlug}/competitions/${c.slug}/participants`}

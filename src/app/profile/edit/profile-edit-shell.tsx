@@ -8,7 +8,7 @@ import {
   SESSION_MISMATCH_MESSAGE,
   sessionFetch,
 } from "@/lib/session/session-fetch";
-import { Button } from "@/components/ui";
+import { Button, FormActionBar, Icon, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { ProfileCollectionsEditor } from "./profile-collections-editor";
 import { AvatarUpload, ResumeSection } from "./profile-media-controls";
@@ -82,8 +82,8 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setSaving(true);
     setFieldErrors({});
 
@@ -169,7 +169,7 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
             </div>
           </div>
           <FieldInput
-            label="Nama Tampil"
+            label="Nama tampil"
             name="displayName"
             value={displayName}
             onChange={setDisplayName}
@@ -195,15 +195,30 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
             <AvatarUpload expectedUserId={expectedUserId} currentUrl={currentAvatarUrl} />
           </div>
         </section>
-
-        <Button type="submit" disabled={saving} loading={saving}>
-          {saving ? "Menyimpan..." : "Simpan"}
-        </Button>
       </form>
 
       <ResumeSection expectedUserId={expectedUserId} resume={profile.resume} />
 
       <ProfileCollectionsEditor expectedUserId={expectedUserId} initial={profile.collections} />
+
+      <FormActionBar>
+        <IconButton
+          icon="arrow-left"
+          label="Kembali ke profil"
+          onClick={() => router.push("/profile")}
+        />
+        <div className="form-action-bar-end">
+          <Button
+            type="button"
+            onClick={() => handleSubmit()}
+            disabled={saving}
+            loading={saving}
+            leadingIcon={<Icon name="save" />}
+          >
+            {saving ? "Menyimpan..." : "Simpan"}
+          </Button>
+        </div>
+      </FormActionBar>
     </div>
   );
 }

@@ -89,7 +89,7 @@ function CancelReasonForm({
           data-variant="danger"
           data-size="sm"
         >
-          Batalkan Pendaftaran
+          Batalkan pendaftaran
         </button>
       </div>
     </div>
@@ -166,7 +166,7 @@ export function IndividualRegistrationSection({
   const handleCancel = () => {
     if (!registration) return;
     openModal({
-      title: "Batalkan Pendaftaran",
+      title: "Batalkan pendaftaran",
       closeable: true,
       actions: [],
       body: <CancelReasonForm onConfirm={submitCancel} onCancel={closeModal} />,
@@ -195,7 +195,7 @@ export function IndividualRegistrationSection({
               data-variant="danger"
               data-size="sm"
             >
-              {loading ? "..." : "Batalkan Pendaftaran"}
+              {loading ? "..." : "Batalkan pendaftaran"}
             </button>
             <p className="form-help">Pembatalan tunduk pada kebijakan penyelenggara.</p>
           </div>

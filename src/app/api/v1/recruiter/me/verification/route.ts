@@ -12,7 +12,34 @@ import {
 import {
   getLatestRecruiterVerificationForUser,
   submitRecruiterVerification,
+  type RecruiterVerificationWithDocuments,
 } from "@/server/recruiter-verification/recruiter-verification-service";
+
+// Recruiter-facing view of a trust submission. Deliberately omits internal fields the reviewed
+// recruiter has no business seeing: `reviewerUserId` (the platform_ops actor's identity) and
+// `emailDomainFlag` (the internal queue-priority signal). Own-data fields (fullName, mobileNumber,
+// corporateEmail) and the review outcome (status, rejectionReason, reviewedAt) are kept.
+export const toRecruiterVerificationView = (data: RecruiterVerificationWithDocuments) => {
+  const { submission, documents } = data;
+  return {
+    submission: {
+      id: submission.id,
+      status: submission.status,
+      fullName: submission.fullName,
+      mobileNumber: submission.mobileNumber,
+      corporateEmail: submission.corporateEmail,
+      vouchedAt: submission.vouchedAt,
+      rejectionReason: submission.rejectionReason,
+      submittedAt: submission.submittedAt,
+      reviewedAt: submission.reviewedAt,
+    },
+    documents: documents.map((document) => ({
+      id: document.id,
+      originalFileName: document.originalFileName,
+      createdAt: document.createdAt,
+    })),
+  };
+};
 
 // GET — the caller's latest trust-verification submission (any status) plus its documents.
 // Powers the recruiter dashboard status panel. Returns { verification: null } when the account
@@ -21,7 +48,9 @@ export async function GET(): Promise<Response> {
   try {
     const session = await requireSessionRole(["recruiter"]);
     const verification = await getLatestRecruiterVerificationForUser(session.user.id);
-    return NextResponse.json({ verification });
+    return NextResponse.json({
+      verification: verification ? toRecruiterVerificationView(verification) : null,
+    });
   } catch (error) {
     return toAccessDeniedResponse(error);
   }

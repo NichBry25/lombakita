@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { signIn } from "next-auth/react";
+import { SelectField } from "@/components/ui";
 import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
 
 // Step 6.5d.1 — method-first single-page auth entry. Replaces the 6.5b two-page login/register
@@ -40,12 +41,12 @@ type CredentialStage =
 const SIGNUP_ROLES = [
   {
     role: "candidate" as const,
-    label: "Daftar sebagai Kandidat",
+    label: "Daftar sebagai kandidat",
     hint: "Siapa pun yang mencari kompetisi, beasiswa, dan peluang lain.",
   },
   {
     role: "recruiter" as const,
-    label: "Daftar sebagai Recruiter",
+    label: "Daftar sebagai rekruter",
     hint: "Perwakilan institusi yang ingin menerbitkan dan mengelola peluang.",
   },
 ];
@@ -411,7 +412,7 @@ export const AuthEntry = ({
               @
             </span>
             <span>
-              <strong>Lanjut dengan Email &amp; Password</strong>
+              <strong>Lanjut dengan email &amp; password</strong>
               <small>Masuk atau buat akun dengan alamat email Anda.</small>
             </span>
           </button>
@@ -620,19 +621,14 @@ export const AuthEntry = ({
             <label className="form-label form-label-required" htmlFor="candidate-occupation">
               Status saat ini
             </label>
-            <select
+            <SelectField
               id="candidate-occupation"
+              label="Status saat ini"
               value={occupation}
-              onChange={(event) => setOccupation(event.target.value)}
-              className="form-input"
-            >
-              <option value="">Pilih status Anda</option>
-              {OCCUPATION_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              placeholder="Pilih status Anda"
+              options={[...OCCUPATION_OPTIONS]}
+              onChange={setOccupation}
+            />
           </div>
 
           <div className="form-field">

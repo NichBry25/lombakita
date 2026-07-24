@@ -219,7 +219,7 @@ export const SubmissionShell = ({
             data-variant="outline"
             data-size="md"
           >
-            Minta Upload URL
+            Minta upload URL
           </button>
           {uploadUrl ? <p className="submission-url data-text">Upload URL: {uploadUrl}</p> : null}
         </section>
@@ -278,7 +278,7 @@ export const SubmissionShell = ({
             data-variant="primary"
             data-size="md"
           >
-            Simpan Submission
+            Simpan submission
           </button>
         </section>
       ) : null}
@@ -301,7 +301,7 @@ export const SubmissionShell = ({
             data-variant="secondary"
             data-size="md"
           >
-            Finalisasi Submission
+            Finalisasi submission
           </button>
         </section>
       ) : null}

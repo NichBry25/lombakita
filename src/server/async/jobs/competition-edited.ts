@@ -78,7 +78,7 @@ export const processCompetitionEditedJob = async (job: CompetitionEditedJob): Pr
       {
         userId: recipient.userId,
         type: NOTIFICATION_TYPES.competitionEdited,
-        title: "Kompetisi Diperbarui",
+        title: "Kompetisi diperbarui",
         body: `"${competition.title}" yang kamu daftarkan diperbarui oleh penyelenggara. Bagian yang berubah: ${categoryText}.`,
       },
       { event: "competition.edited", jobId: job.id ?? undefined },

@@ -1,18 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Button, PageHeader } from "@/components/ui";
+import { useRouter } from "next/navigation";
+import { Button, FormActionBar, IconButton, PageHeader, SelectField } from "@/components/ui";
 
-const CATEGORY_OPTIONS = [
-  "technology",
-  "science",
-  "business",
-  "creative_arts",
-  "social_humanities",
-  "sports",
-  "academic",
-  "other",
-] as const;
+import { COMPETITION_CATEGORY_OPTIONS } from "@/lib/competitions/categories";
 
 type Feedback = { type: "success" | "error"; message: string } | null;
 
@@ -35,9 +27,11 @@ export const InstitutionCompetitionCreateShell = ({
   const [category, setCategory] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const router = useRouter();
+  const backHref = `/institution/${institutionSlug}/competitions`;
 
-  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const onSubmit = async (event?: React.FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
     setIsSubmitting(true);
     setFeedback(null);
 
@@ -74,8 +68,6 @@ export const InstitutionCompetitionCreateShell = ({
         eyebrow="Kompetisi baru"
         title="Buat draf kompetisi"
         description="Mulai dengan identitas inti. Detail jadwal, format, dan publikasi diatur setelah draf dibuat."
-        backHref={`/institution/${institutionSlug}/competitions`}
-        backLabel="Daftar kompetisi"
       />
 
       <form onSubmit={onSubmit} className="content-section stack-md">
@@ -106,25 +98,19 @@ export const InstitutionCompetitionCreateShell = ({
           </span>
         </label>
 
-        <label className="form-field">
-          <span className="form-label">Kategori (opsional)</span>
-          <select
+        <div className="form-field">
+          <span className="form-label" id="create-category-label">
+            Kategori (opsional)
+          </span>
+          <SelectField
+            label="Kategori"
+            id="create-category-label"
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="form-select"
-          >
-            <option value="">— pilih —</option>
-            {CATEGORY_OPTIONS.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <Button type="submit" disabled={isSubmitting} loading={isSubmitting}>
-          {isSubmitting ? "Menyimpan..." : "Buat draf"}
-        </Button>
+            placeholder="— Pilih —"
+            options={[...COMPETITION_CATEGORY_OPTIONS]}
+            onChange={setCategory}
+          />
+        </div>
 
         {feedback ? (
           <p role="status" className="feedback" data-tone={feedback.type}>
@@ -132,6 +118,24 @@ export const InstitutionCompetitionCreateShell = ({
           </p>
         ) : null}
       </form>
+
+      <FormActionBar>
+        <IconButton
+          icon="arrow-left"
+          label="Daftar kompetisi"
+          onClick={() => router.push(backHref)}
+        />
+        <div className="form-action-bar-end">
+          <Button
+            type="button"
+            onClick={() => onSubmit()}
+            disabled={isSubmitting}
+            loading={isSubmitting}
+          >
+            {isSubmitting ? "Menyimpan..." : "Buat draf"}
+          </Button>
+        </div>
+      </FormActionBar>
     </main>
   );
 };

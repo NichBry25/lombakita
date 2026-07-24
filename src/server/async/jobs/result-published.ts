@@ -5,7 +5,13 @@ assertServerOnly("server/async/jobs/result-published");
 import { and, eq } from "drizzle-orm";
 import type { Job } from "bullmq";
 import { getDb } from "@/server/db/client";
-import { competitions, competitionRegistrations, competitionResults, userProfiles, users } from "@/server/db/schema";
+import {
+  competitions,
+  competitionRegistrations,
+  competitionResults,
+  userProfiles,
+  users,
+} from "@/server/db/schema";
 import { logger } from "@/lib/logger";
 import { ASYNC_JOB_NAMES, type ResultPublishedPayload } from "@/server/async/contracts";
 import { sendResultPublishedEmail } from "@/server/notifications/notification-email";
@@ -120,7 +126,7 @@ export const processResultPublishedJob = async (job: ResultPublishedJob): Promis
       {
         userId: recipient.userId,
         type: NOTIFICATION_TYPES.resultPublished,
-        title: "Hasil Diumumkan",
+        title: "Hasil diumumkan",
         body: `Hasil kompetisi "${competition.title}" telah diumumkan.`,
       },
       { event: "result.published", jobId: job.id ?? undefined },
@@ -145,6 +151,8 @@ export const processResultPublishedJob = async (job: ResultPublishedJob): Promis
   }
 
   if (errors.length > 0 && errors.length === recipients.length) {
-    throw new Error(`All ${recipients.length} result.published email(s) failed — triggering BullMQ retry`);
+    throw new Error(
+      `All ${recipients.length} result.published email(s) failed — triggering BullMQ retry`,
+    );
   }
 };

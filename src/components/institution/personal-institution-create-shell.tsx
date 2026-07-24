@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { SignOutButton } from "@/components/auth/sign-out-button";
-import { Button, ButtonLink, Icon, PageHeader } from "@/components/ui";
+import { Button, ButtonLink, FormActionBar, Icon, IconButton, PageHeader } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   readErrorCode,
@@ -41,14 +42,15 @@ const extractErrorMessage = async (response: Response): Promise<string> => {
 };
 
 export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUserId: string }) => {
+  const router = useRouter();
   const { addToast } = useToast();
   const [isCreating, setIsCreating] = useState(false);
   const [created, setCreated] = useState<CreatedInstitution | null>(null);
 
   // No name or slug input: a personal institution's name derives from your username and its slug is
   // derived through the shared slug path. Creation is a single submit.
-  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const onSubmit = async (event?: React.FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
     setIsCreating(true);
 
     const response = await sessionFetch(expectedUserId, "/api/v1/institutions/personal", {
@@ -70,6 +72,7 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
     });
     addToast({ type: "success", message: "Institusi personal berhasil dibuat." });
     setIsCreating(false);
+    router.replace(`/institution/${data.institution.slug}`);
   };
 
   return (
@@ -118,11 +121,7 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
             </ButtonLink>
           </div>
         ) : (
-          <form className="personal-institution-form" onSubmit={onSubmit}>
-            <Button type="submit" disabled={isCreating} loading={isCreating}>
-              {isCreating ? "Menyimpan..." : "Buat Institusi Personal"}
-            </Button>
-          </form>
+          <form className="personal-institution-form" onSubmit={onSubmit} />
         )}
       </section>
 
@@ -132,6 +131,22 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
           Kembali ke beranda
         </ButtonLink>
       </div>
+
+      <FormActionBar>
+        <IconButton icon="arrow-left" label="Kembali ke beranda" onClick={() => router.push("/")} />
+        {!created ? (
+          <div className="form-action-bar-end">
+            <Button
+              type="button"
+              onClick={() => onSubmit()}
+              disabled={isCreating}
+              loading={isCreating}
+            >
+              {isCreating ? "Menyimpan..." : "Buat institusi personal"}
+            </Button>
+          </div>
+        ) : null}
+      </FormActionBar>
     </main>
   );
 };

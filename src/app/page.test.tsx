@@ -3,8 +3,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { mockListFeaturedCompetitions } = vi.hoisted(() => ({
+const { mockListFeaturedCompetitions, mockLoggerError } = vi.hoisted(() => ({
   mockListFeaturedCompetitions: vi.fn(),
+  mockLoggerError: vi.fn(),
 }));
 
 // Render a real <a> so renderToStaticMarkup can assert href attributes without a router context.
@@ -19,6 +20,9 @@ vi.mock("next/link", () => {
 vi.mock("@/server/competitions/competition-public-service", () => ({
   listFeaturedCompetitions: mockListFeaturedCompetitions,
 }));
+vi.mock("@/lib/logger", () => ({
+  logger: { error: mockLoggerError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
+}));
 
 import HomePage from "@/app/page";
 
@@ -30,7 +34,7 @@ const featuredItem = (n: number) => ({
   slug: `featured-${n}`,
   title: `Kompetisi Unggulan ${n}`,
   description: "Deskripsi kompetisi.",
-  category: "technology" as const,
+  category: "hackathon" as const,
   mode: "individual" as const,
   minTeamSize: null,
   maxTeamSize: null,
@@ -79,9 +83,20 @@ describe("HomePage", () => {
     expect(html).toContain("Satu tempat untuk beragam arena");
   });
 
-  it("propagates a data-fetch failure rather than swallowing it silently", async () => {
+  it("degrades to no featured rail — and records the failure — when the fetch throws", async () => {
     mockListFeaturedCompetitions.mockRejectedValue(new Error("db unavailable"));
 
-    await expect(HomePage()).rejects.toThrow("db unavailable");
+    // The decorative featured rail failing must not take down the whole public homepage.
+    const html = renderToStaticMarkup(await HomePage());
+
+    expect(html).toContain("Temukan kompetisi yang");
+    expect(html).toContain("Satu tempat untuk beragam arena");
+    expect(html).not.toContain("Kompetisi ternama");
+
+    // Degraded, but not silently — the failure is logged for observability.
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      "home.featured-competitions.load-failed",
+      expect.objectContaining({ error: "db unavailable" }),
+    );
   });
 });

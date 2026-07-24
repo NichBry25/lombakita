@@ -24,8 +24,14 @@ describe("REQUIRED_DOCUMENTS_BY_TYPE — exhaustive coverage", () => {
   it("defines requirements for every institution type", () => {
     for (const t of ALL_TYPES) {
       expect(REQUIRED_DOCUMENTS_BY_TYPE[t]).toBeDefined();
+    }
+  });
+
+  it("every full type requires at least one document; personal requires none", () => {
+    for (const t of ALL_TYPES.filter((type) => type !== "personal")) {
       expect(REQUIRED_DOCUMENTS_BY_TYPE[t].length).toBeGreaterThan(0);
     }
+    expect(REQUIRED_DOCUMENTS_BY_TYPE.personal).toEqual([]);
   });
 
   it("every required document type has a label", () => {
@@ -36,8 +42,8 @@ describe("REQUIRED_DOCUMENTS_BY_TYPE — exhaustive coverage", () => {
     }
   });
 
-  it("personal requires ktp only", () => {
-    expect(REQUIRED_DOCUMENTS_BY_TYPE.personal).toEqual(["ktp"]);
+  it("personal requires no documents — a personal institution has no document verification", () => {
+    expect(REQUIRED_DOCUMENTS_BY_TYPE.personal).toEqual([]);
   });
 
   it("company requires npwp and nib", () => {
@@ -69,7 +75,7 @@ describe("getRequiredDocumentsForType", () => {
 
 describe("getMissingDocuments", () => {
   it("returns empty array when all required docs are present", () => {
-    expect(getMissingDocuments("personal", ["ktp"])).toEqual([]);
+    expect(getMissingDocuments("personal", [])).toEqual([]);
     expect(getMissingDocuments("company", ["npwp", "nib"])).toEqual([]);
   });
 
@@ -86,21 +92,20 @@ describe("getMissingDocuments", () => {
   });
 
   it("extra submitted docs do not produce false positives", () => {
-    const missing = getMissingDocuments("personal", ["ktp", "npwp", "extra_doc"]);
+    const missing = getMissingDocuments("company", ["npwp", "nib", "extra_doc"]);
     expect(missing).toEqual([]);
   });
 });
 
 describe("validateSubmissionDocuments", () => {
   it("returns true when all required docs are present", () => {
-    expect(validateSubmissionDocuments("personal", ["ktp"])).toBe(true);
+    expect(validateSubmissionDocuments("personal", [])).toBe(true);
     expect(validateSubmissionDocuments("company", ["npwp", "nib"])).toBe(true);
   });
 
   it("returns false when any required doc is missing", () => {
     expect(validateSubmissionDocuments("company", ["npwp"])).toBe(false);
     expect(validateSubmissionDocuments("foundation", ["npwp"])).toBe(false);
-    expect(validateSubmissionDocuments("personal", [])).toBe(false);
   });
 });
 

@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { Button, Icon } from "@/components/ui";
-import { FormField, FormInput, FormLabel, FormSelect, FormTextarea } from "@/components/ui";
+import { FormField, FormInput, FormLabel, FormTextarea, SelectField } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { ownerFetch, uploadProfileFile } from "./profile-file-upload";
 import {
@@ -256,7 +256,13 @@ const experienceDraftToPayload = (d: ExperienceDraft) => ({
   description: d.description || null,
 });
 
-function ExperienceForm({ initial, submitLabel, busy, onSubmit, onCancel }: FormProps<ExperienceDraft>) {
+function ExperienceForm({
+  initial,
+  submitLabel,
+  busy,
+  onSubmit,
+  onCancel,
+}: FormProps<ExperienceDraft>) {
   const uid = useId();
   const [d, setD] = useState(initial);
   const set = (patch: Partial<ExperienceDraft>) => setD((prev) => ({ ...prev, ...patch }));
@@ -267,7 +273,11 @@ function ExperienceForm({ initial, submitLabel, busy, onSubmit, onCancel }: Form
         <FormLabel htmlFor={`${uid}-title`} required>
           Jabatan
         </FormLabel>
-        <FormInput id={`${uid}-title`} value={d.title} onChange={(e) => set({ title: e.target.value })} />
+        <FormInput
+          id={`${uid}-title`}
+          value={d.title}
+          onChange={(e) => set({ title: e.target.value })}
+        />
       </FormField>
       <FormField>
         <FormLabel htmlFor={`${uid}-org`} required>
@@ -281,7 +291,11 @@ function ExperienceForm({ initial, submitLabel, busy, onSubmit, onCancel }: Form
       </FormField>
       <FormField>
         <FormLabel htmlFor={`${uid}-loc`}>Lokasi</FormLabel>
-        <FormInput id={`${uid}-loc`} value={d.location} onChange={(e) => set({ location: e.target.value })} />
+        <FormInput
+          id={`${uid}-loc`}
+          value={d.location}
+          onChange={(e) => set({ location: e.target.value })}
+        />
       </FormField>
       <FormField>
         <FormLabel htmlFor={`${uid}-start`}>Mulai</FormLabel>
@@ -418,7 +432,13 @@ const educationDraftToPayload = (d: EducationDraft) => ({
   endYear: parseYear(d.endYear),
 });
 
-function EducationForm({ initial, submitLabel, busy, onSubmit, onCancel }: FormProps<EducationDraft>) {
+function EducationForm({
+  initial,
+  submitLabel,
+  busy,
+  onSubmit,
+  onCancel,
+}: FormProps<EducationDraft>) {
   const uid = useId();
   const [d, setD] = useState(initial);
   const set = (patch: Partial<EducationDraft>) => setD((prev) => ({ ...prev, ...patch }));
@@ -429,11 +449,19 @@ function EducationForm({ initial, submitLabel, busy, onSubmit, onCancel }: FormP
         <FormLabel htmlFor={`${uid}-school`} required>
           Institusi
         </FormLabel>
-        <FormInput id={`${uid}-school`} value={d.school} onChange={(e) => set({ school: e.target.value })} />
+        <FormInput
+          id={`${uid}-school`}
+          value={d.school}
+          onChange={(e) => set({ school: e.target.value })}
+        />
       </FormField>
       <FormField>
         <FormLabel htmlFor={`${uid}-degree`}>Gelar</FormLabel>
-        <FormInput id={`${uid}-degree`} value={d.degree} onChange={(e) => set({ degree: e.target.value })} />
+        <FormInput
+          id={`${uid}-degree`}
+          value={d.degree}
+          onChange={(e) => set({ degree: e.target.value })}
+        />
       </FormField>
       <FormField>
         <FormLabel htmlFor={`${uid}-field`}>Jurusan</FormLabel>
@@ -640,13 +668,21 @@ function CertificationForm({
         <FormLabel htmlFor={`${uid}-name`} required>
           Nama sertifikat
         </FormLabel>
-        <FormInput id={`${uid}-name`} value={d.name} onChange={(e) => set({ name: e.target.value })} />
+        <FormInput
+          id={`${uid}-name`}
+          value={d.name}
+          onChange={(e) => set({ name: e.target.value })}
+        />
       </FormField>
       <FormField>
         <FormLabel htmlFor={`${uid}-issuer`} required>
           Penerbit
         </FormLabel>
-        <FormInput id={`${uid}-issuer`} value={d.issuer} onChange={(e) => set({ issuer: e.target.value })} />
+        <FormInput
+          id={`${uid}-issuer`}
+          value={d.issuer}
+          onChange={(e) => set({ issuer: e.target.value })}
+        />
       </FormField>
       <FormField>
         <FormLabel htmlFor={`${uid}-issued`}>Tanggal terbit</FormLabel>
@@ -866,7 +902,13 @@ const socialLinkDraftFrom = (entry: SocialLinkEntry): SocialLinkDraft => ({
   url: entry.url,
 });
 
-function SocialLinkForm({ initial, submitLabel, busy, onSubmit, onCancel }: FormProps<SocialLinkDraft>) {
+function SocialLinkForm({
+  initial,
+  submitLabel,
+  busy,
+  onSubmit,
+  onCancel,
+}: FormProps<SocialLinkDraft>) {
   const uid = useId();
   const [d, setD] = useState(initial);
   const set = (patch: Partial<SocialLinkDraft>) => setD((prev) => ({ ...prev, ...patch }));
@@ -875,17 +917,13 @@ function SocialLinkForm({ initial, submitLabel, busy, onSubmit, onCancel }: Form
     <div className="pf-editor-form">
       <FormField>
         <FormLabel htmlFor={`${uid}-platform`}>Platform</FormLabel>
-        <FormSelect
+        <SelectField
           id={`${uid}-platform`}
+          label="Platform"
           value={d.platform}
-          onChange={(e) => set({ platform: e.target.value as SocialPlatform })}
-        >
-          {SOCIAL_PLATFORMS.map((p) => (
-            <option key={p} value={p}>
-              {PLATFORM_LABELS[p]}
-            </option>
-          ))}
-        </FormSelect>
+          onChange={(value) => set({ platform: value as SocialPlatform })}
+          options={SOCIAL_PLATFORMS.map((p) => ({ value: p, label: PLATFORM_LABELS[p] }))}
+        />
       </FormField>
       <FormField>
         <FormLabel htmlFor={`${uid}-url`} required>
