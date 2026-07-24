@@ -5,6 +5,7 @@ import { useModal, useToast } from "@/components/ui/primitives";
 import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 import { DOCUMENT_TYPE_LABELS } from "@/server/institution-verification/verification-requirements";
 import type { InstitutionType } from "@/server/db/schema";
+import { formatDisplayToken } from "@/lib/text/capitalize";
 
 type SubmissionStatus = "pending_review" | "approved" | "rejected";
 
@@ -48,7 +49,7 @@ const TYPE_LABELS: Record<InstitutionType, string> = {
   company: "Perusahaan",
   foundation: "Yayasan",
   university: "Universitas",
-  campus_organization: "Organisasi Kampus",
+  campus_organization: "Organisasi kampus",
 };
 
 function ReviewPanelBody({
@@ -112,7 +113,9 @@ function ReviewPanelBody({
             <tbody>
               {detail.documents.map((doc) => (
                 <tr key={doc.id}>
-                  <td>{DOCUMENT_TYPE_LABELS[doc.documentType] ?? doc.documentType}</td>
+                  <td>
+                    {DOCUMENT_TYPE_LABELS[doc.documentType] ?? formatDisplayToken(doc.documentType)}
+                  </td>
                   <td>{doc.originalFileName}</td>
                   <td className="data-text">{doc.contentType}</td>
                 </tr>
@@ -124,7 +127,7 @@ function ReviewPanelBody({
 
       <div className="form-field">
         <label htmlFor="reviewer-notes-textarea" className="form-label">
-          Catatan Reviewer (opsional)
+          Catatan reviewer (opsional)
         </label>
         <textarea
           id="reviewer-notes-textarea"
@@ -191,7 +194,7 @@ export default function AdminVerificationPage() {
       }
       const data = (await res.json()) as { submission: SubmissionDetail };
       openModal({
-        title: "Tinjau Pengajuan",
+        title: "Tinjau pengajuan",
         body: (
           <ReviewPanelBody
             detail={data.submission}

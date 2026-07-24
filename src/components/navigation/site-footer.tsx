@@ -5,10 +5,9 @@ export function SiteFooter() {
     <footer className="site-footer" id="tentang">
       <div className="footer-inner">
         <div className="stack-sm">
-          <h2 className="footer-title">Lombakita.id</h2>
+          <span className="footer-wordmark" aria-hidden="true" />
           <p className="footer-copy">
-            Mercusuar peluang mahasiswa Indonesia: temukan kompetisi yang kredibel, pahami
-            persyaratannya, lalu melangkah dengan yakin.
+            Temukan kompetisi yang tepat, pahami persyaratannya, lalu melangkah dengan yakin.
           </p>
         </div>
         <div className="footer-links">

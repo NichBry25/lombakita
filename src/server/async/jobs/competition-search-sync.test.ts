@@ -24,7 +24,7 @@ const publishedDbRow = {
   id: "comp_1",
   title: "Lomba X",
   slug: "lomba-x",
-  category: "technology",
+  category: "hackathon",
   mode: "individual",
   registrationEndAt: new Date("2026-12-01"),
   createdAt: new Date("2026-05-01"),

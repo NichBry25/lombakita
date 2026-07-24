@@ -1,17 +1,20 @@
 import { NextResponse } from "next/server";
-import { assertSessionMatchesExpectedUser, toAccessDeniedResponse } from "@/server/auth/access-core";
+import {
+  assertSessionMatchesExpectedUser,
+  toAccessDeniedResponse,
+} from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
-import { RecruiterTierError } from "@/server/auth/recruiter-tier";
 import {
   createVerificationSubmission,
   SubmissionError,
   type DocumentInput,
 } from "@/server/institution-verification/submission-service";
-import { InstitutionTypeTransitionError } from "@/server/institution-workspace/institution-type";
-import type { InstitutionType } from "@/server/db/schema";
 
 type RouteContext = { params: Promise<{ institutionSlug: string }> };
 
+// Document verification for a full institution. The institution's type is fixed at creation, so the
+// required documents are derived server-side from that type — the client submits documents only,
+// never a type.
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
     // Rule #16 — the caller submits on behalf of an institution they own; reject if the active
@@ -32,17 +35,6 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     }
 
     const raw = body as Record<string, unknown>;
-    const targetType = raw.targetType;
-    const proposedDisplayName =
-      typeof raw.proposedDisplayName === "string" ? raw.proposedDisplayName : null;
-
-    if (typeof targetType !== "string") {
-      return NextResponse.json(
-        { error: { code: "invalid_payload", message: "targetType is required" } },
-        { status: 400 },
-      );
-    }
-
     const rawDocs = raw.documents;
     if (!Array.isArray(rawDocs) || rawDocs.length === 0) {
       return NextResponse.json(
@@ -61,13 +53,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       };
     });
 
-    const result = await createVerificationSubmission(
-      institutionSlug,
-      targetType as InstitutionType,
-      proposedDisplayName,
-      documents,
-      session.user.id,
-    );
+    const result = await createVerificationSubmission(institutionSlug, documents, session.user.id);
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
@@ -75,18 +61,6 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       return NextResponse.json(
         { error: { code: error.code, message: error.message, details: error.details } },
         { status: error.status },
-      );
-    }
-    if (error instanceof RecruiterTierError) {
-      return NextResponse.json(
-        { error: { code: error.code, message: error.message, details: error.details } },
-        { status: error.status },
-      );
-    }
-    if (error instanceof InstitutionTypeTransitionError) {
-      return NextResponse.json(
-        { error: { code: "institution_type_transition_invalid", message: error.message } },
-        { status: 422 },
       );
     }
     return toAccessDeniedResponse(error);

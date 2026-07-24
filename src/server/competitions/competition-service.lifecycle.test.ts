@@ -47,7 +47,7 @@ const baseCompetition = (overrides: Partial<CompetitionRow> = {}): CompetitionRo
   title: "Lomba",
   description: "Deskripsi",
   status: "published",
-  category: "technology",
+  category: "hackathon",
   mode: "both",
   minTeamSize: 1,
   maxTeamSize: 4,
@@ -118,15 +118,12 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
       membershipRole: "institution_owner",
     });
     // One active registration; pulling the event to 3 days out closes the cancel window retroactively.
-    const db = { select: () => selectChain([{ registrationType: "individual", teamId: null }]) } as unknown as Database;
+    const db = {
+      select: () => selectChain([{ registrationType: "individual", teamId: null }]),
+    } as unknown as Database;
 
     await expect(
-      updateCompetitionDraft(
-        "u_1",
-        "comp_1",
-        { eventStartAt: new Date(Date.now() + 3 * DAY) },
-        db,
-      ),
+      updateCompetitionDraft("u_1", "comp_1", { eventStartAt: new Date(Date.now() + 3 * DAY) }, db),
     ).rejects.toMatchObject({
       code: "competition_post_publish_blocked",
       httpStatus: 422,

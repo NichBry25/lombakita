@@ -15,7 +15,8 @@ import { createCompetitionDraft } from "@/server/competitions/competition-servic
 import { listPublicCompetitions } from "@/server/competitions/competition-public-service";
 
 // GET — public listing, no auth required.
-// Returns only published competitions. Supports filters: q, category, mode, institutionSlug.
+// Returns only published competitions. Supports filters: q, category, mode, status, teamSize,
+// institutionSlug.
 // Sorts: deadline_asc | deadline_desc | created_desc (default).
 // Pagination: page (1-indexed, default 1), limit (default 20, max 50).
 export async function GET(request: Request): Promise<Response> {
@@ -25,6 +26,8 @@ export async function GET(request: Request): Promise<Response> {
       q: url.searchParams.get("q") ?? undefined,
       category: url.searchParams.get("category") ?? undefined,
       mode: url.searchParams.get("mode") ?? undefined,
+      status: url.searchParams.get("status") ?? undefined,
+      teamSize: url.searchParams.get("teamSize") ?? undefined,
       institutionSlug: url.searchParams.get("institutionSlug") ?? undefined,
       sort: url.searchParams.get("sort") ?? undefined,
       page: url.searchParams.has("page")

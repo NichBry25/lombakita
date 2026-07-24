@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { CompetitionCategory, CompetitionMode, CompetitionStatus } from "@/server/db/schema";
+import { COMPETITION_CATEGORY_VALUES } from "@/lib/competitions/categories";
 
 const MIN_SLUG_LENGTH = 3;
 export const MAX_SLUG_LENGTH = 120;
@@ -16,16 +17,7 @@ export const COMPETITION_STATUS_VALUES: readonly CompetitionStatus[] = [
 
 export const COMPETITION_MODE_VALUES: readonly CompetitionMode[] = ["individual", "team", "both"];
 
-export const COMPETITION_CATEGORY_VALUES: readonly CompetitionCategory[] = [
-  "technology",
-  "science",
-  "business",
-  "creative_arts",
-  "social_humanities",
-  "sports",
-  "academic",
-  "other",
-];
+export { COMPETITION_CATEGORY_VALUES };
 
 export const isCompetitionStatus = (value: string): value is CompetitionStatus =>
   (COMPETITION_STATUS_VALUES as readonly string[]).includes(value);
@@ -64,6 +56,7 @@ type CompetitionErrorCode =
   | "competition_invalid_transition"
   | "competition_publish_validation_failed"
   | "competition_institution_not_verified"
+  | "competition_recruiter_not_trusted"
   | "institution_suspended"
   | "competition_slug_taken"
   | "competition_delete_not_allowed"
@@ -393,7 +386,11 @@ const validateFieldRelations = (fields: CompetitionDraftFields): void => {
   }
   // Mode-aware floor: team requires minTeamSize ≥ 2. (both/individual: parseOptionalInt
   // already guarantees ≥ 1, which covers their floor.)
-  if (fields.mode === "team" && fields.minTeamSize != null && fields.minTeamSize < TEAM_MODE_MIN_SIZE) {
+  if (
+    fields.mode === "team" &&
+    fields.minTeamSize != null &&
+    fields.minTeamSize < TEAM_MODE_MIN_SIZE
+  ) {
     throw new CompetitionError(
       "competition_invalid_value",
       400,

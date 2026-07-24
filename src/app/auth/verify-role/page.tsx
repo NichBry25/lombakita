@@ -8,16 +8,16 @@ import {
   isVerifiableRole,
   type VerifiableRole,
 } from "@/server/auth/role-verification";
-import { StubCompleteButton } from "./stub-complete-button";
+import { VerifyRoleForm } from "./verify-role-form";
 
 const ROLE_HEADLINE: Record<VerifiableRole, string> = {
-  candidate: "Verifikasi sebagai kandidat",
-  recruiter: "Verifikasi sebagai rekruter",
+  candidate: "Verifikasi sebagai Kandidat",
+  recruiter: "Verifikasi sebagai Rekruter",
 };
 
-// STUB: CCR-19 — verification mechanics deferred. This page replaces what will eventually be
-// the real candidate/recruiter verification flow. For now it shows a single completion button
-// that flips the per-role *_verified_at timestamp via the stub completion API.
+// CCR-19 — verification mechanics deferred. This page collects the per-role verification data
+// and flips the per-role *_verified_at timestamp via the completion API. The candidate path
+// mirrors the registration onboarding form (full name, phone, occupation, date of birth).
 export default async function VerifyRolePage(props: { searchParams?: Promise<{ as?: string }> }) {
   const session = await getCurrentSession();
   if (!session?.user?.id) {
@@ -65,29 +65,22 @@ export default async function VerifyRolePage(props: { searchParams?: Promise<{ a
   return (
     <AuthPageFrame
       eyebrow="Verifikasi peran"
-      title="Bangun kepercayaan sebelum membuka akses."
+      title="Lengkapi data untuk membuka akses."
       description="Setiap peran melewati jalur verifikasi tersendiri agar tindakan kandidat dan penyelenggara tetap dapat dipertanggungjawabkan."
     >
-      <div className="auth-state stack-md">
-        <div className="stack-xs">
-          <p className="eyebrow">Status pengembangan</p>
+      <div className="stack-md">
+        <header className="auth-entry-header">
+          <p className="eyebrow">Verifikasi peran</p>
           <h1>{ROLE_HEADLINE[role]}</h1>
-        </div>
+        </header>
 
-        <Feedback tone="warning">
-          Ini adalah halaman <strong>stub pengembangan</strong>. Alur verifikasi sesungguhnya
-          (formulir, unggah dokumen, tinjauan ops) belum diimplementasikan dan dijadwalkan pada fase
-          berikutnya (CCR-19).
-        </Feedback>
+        {role === "recruiter" ? (
+          <p>Verifikasi peran rekruter Anda untuk mulai menerbitkan dan mengelola peluang.</p>
+        ) : null}
 
-        <p>
-          Klik tombol di bawah untuk mensimulasikan penyelesaian verifikasi. Setelah berhasil, sesi
-          Anda akan disegarkan dan Anda akan diarahkan ke dasbor peran terkait.
-        </p>
-
-        <StubCompleteButton role={role} />
+        <VerifyRoleForm role={role} />
         <ButtonLink href="/" variant="ghost" size="sm">
-          Batal — kembali
+          Kembali
         </ButtonLink>
       </div>
     </AuthPageFrame>

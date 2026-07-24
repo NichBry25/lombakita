@@ -9,7 +9,6 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/db/client", () => ({ getDb: vi.fn(() => ({})) }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
-vi.mock("@/server/eligibility/eligibility-service", () => ({ checkStudentEligibility: vi.fn() }));
 
 import { getStudentRegistration } from "@/server/registrations/registration-service";
 

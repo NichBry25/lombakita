@@ -16,7 +16,6 @@ import {
   teams,
   type CompetitionRegistrationStatus,
 } from "@/server/db/schema";
-import { checkStudentEligibility } from "@/server/eligibility/eligibility-service";
 import { TeamError } from "@/server/teams/team-core";
 import { MAX_CANCELLATION_REASON_LENGTH } from "@/server/registrations/registration-core";
 
@@ -215,26 +214,9 @@ export const submitTeamRegistration = async (
     );
   }
 
-  // (h) per-member eligibility. Run sequentially against the helper — each call is one DB read,
-  // and team rosters in MVP are small. Collect all ineligible members instead of fail-fast so
-  // the captain can see the full list at once.
   const memberUserIds = members.map((m) => m.userId);
-  const ineligible: { userId: string; status: string; reasons: string[] }[] = [];
-  for (const userId of memberUserIds) {
-    const result = await checkStudentEligibility(userId, db);
-    if (result.status !== "eligible") {
-      ineligible.push({ userId, status: result.status, reasons: result.reasons });
-    }
-  }
-  if (ineligible.length > 0) {
-    throw new TeamError(
-      "team_member_ineligible",
-      `${ineligible.length} team member(s) are not eligible for this competition`,
-      { ineligibleMembers: ineligible },
-    );
-  }
 
-  // (i) pre-check existing non-cancelled registrations for any member. The partial unique
+  // (h) pre-check existing non-cancelled registrations for any member. The partial unique
   // index is the safety net; this pre-check produces a clean 409 with the conflicting member
   // ids rather than relying on the index to surface the violation.
   const existingRegs = memberUserIds.length

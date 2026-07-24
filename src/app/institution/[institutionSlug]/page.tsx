@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { Icon, PageHeader } from "@/components/ui";
 import { isInstitutionAdminBySlug } from "@/server/institution-members/member-service";
 import { getCurrentSession } from "@/server/auth/session";
+import { loadInstitutionTypeBySlug } from "@/server/institution-workspace/institution-service";
+import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 
 type InstitutionHubPageProps = {
   params: Promise<{ institutionSlug: string }>;
@@ -26,6 +28,10 @@ export default async function InstitutionHubPage({ params }: InstitutionHubPageP
     redirect("/recruiter-dashboard");
   }
 
+  // The /verification route serves the type upgrade for a personal institution and document
+  // verification for a full one, so its entry in this hub is labelled for whichever it will render.
+  const isPersonal = isPersonalInstitutionType(await loadInstitutionTypeBySlug(institutionSlug));
+
   const links = [
     {
       href: `${base}/competitions`,
@@ -45,12 +51,19 @@ export default async function InstitutionHubPage({ params }: InstitutionHubPageP
       description: "Perbarui identitas dan konfigurasi institusi.",
       icon: "building" as const,
     },
-    {
-      href: `${base}/verification`,
-      label: "Verifikasi dokumen",
-      description: "Ajukan bukti resmi dan pantau status tinjauan.",
-      icon: "check" as const,
-    },
+    isPersonal
+      ? {
+          href: `${base}/verification`,
+          label: "Tingkatkan level institusi",
+          description: "Ubah institusi personal menjadi institusi resmi. Bersifat permanen.",
+          icon: "building" as const,
+        }
+      : {
+          href: `${base}/verification`,
+          label: "Verifikasi dokumen",
+          description: "Ajukan bukti resmi dan pantau status tinjauan.",
+          icon: "check" as const,
+        },
     {
       href: `${base}/audit-log`,
       label: "Log audit",
@@ -80,9 +93,6 @@ export default async function InstitutionHubPage({ params }: InstitutionHubPageP
                   <h2>{label}</h2>
                   <p>{description}</p>
                 </div>
-                <span className="hub-card-arrow" aria-hidden="true">
-                  →
-                </span>
               </Link>
             </li>
           ))}

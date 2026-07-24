@@ -47,7 +47,7 @@ function makeInboxDb(resultQueue: unknown[][], whereSink: unknown[]) {
 const notifRow = (overrides: Record<string, unknown> = {}) => ({
   id: "n1",
   type: "registration_confirmed",
-  title: "Pendaftaran Dikonfirmasi",
+  title: "Pendaftaran dikonfirmasi",
   body: "Pendaftaranmu telah dikonfirmasi.",
   readAt: null,
   createdAt: new Date("2026-06-01T00:00:00.000Z"),
@@ -85,7 +85,7 @@ describe("listUserInbox", () => {
     expect(items[0]).toMatchObject({
       kind: "notification",
       id: "n1",
-      title: "Pendaftaran Dikonfirmasi",
+      title: "Pendaftaran dikonfirmasi",
       readAt: null,
     });
   });

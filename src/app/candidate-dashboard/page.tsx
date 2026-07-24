@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SecondRoleBanner } from "@/components/auth/second-role-banner";
 import { ButtonLink, EmptyState, Icon, PageHeader } from "@/components/ui";
+import { formatDisplayToken } from "@/lib/text/capitalize";
 import { getCurrentSession } from "@/server/auth/session";
 import { getUnverifiedRoles } from "@/server/auth/role-verification";
 import {
@@ -10,6 +11,12 @@ import {
 } from "@/server/candidate-registrations/candidate-registration-service";
 import { deriveUpcomingDeadlines } from "@/server/candidate-registrations/deadline-utils";
 import { listSavedCompetitions } from "@/server/saved-competitions/saved-competition-service";
+
+const getCandidateRegistrationStatusLabel = (status: string): string => {
+  if (status === "confirmed") return "Terdaftar";
+  if (status === "cancelled") return "Dibatalkan";
+  return formatDisplayToken(status);
+};
 
 export default async function CandidateDashboardPage() {
   const session = await getCurrentSession();
@@ -42,8 +49,8 @@ export default async function CandidateDashboardPage() {
         description="Pantau pendaftaran, tenggat, hasil, dan peluang yang kamu simpan."
         actions={
           <>
-            <ButtonLink href="/candidate-dashboard/eligibility" variant="outline" size="sm">
-              Data kelayakan
+            <ButtonLink href="/candidate-dashboard/profile" variant="outline" size="sm">
+              Data kandidat
             </ButtonLink>
             <ButtonLink href="/competitions" variant="primary" size="sm">
               Jelajahi kompetisi
@@ -84,7 +91,7 @@ export default async function CandidateDashboardPage() {
         <div className="section-heading">
           <div>
             <p className="eyebrow">Prioritas waktu</p>
-            <h2>Tenggat Mendatang</h2>
+            <h2>Tenggat mendatang</h2>
           </div>
         </div>
         {upcomingDeadlines.length === 0 ? (
@@ -168,11 +175,7 @@ export default async function CandidateDashboardPage() {
                             : undefined
                       }
                     >
-                      {reg.registrationStatus === "confirmed"
-                        ? "Terdaftar"
-                        : reg.registrationStatus === "cancelled"
-                          ? "Dibatalkan"
-                          : reg.registrationStatus}
+                      {getCandidateRegistrationStatusLabel(reg.registrationStatus)}
                     </span>
                     <Link
                       className="ui-button"
@@ -247,11 +250,7 @@ export default async function CandidateDashboardPage() {
                             : undefined
                       }
                     >
-                      {reg.registrationStatus === "confirmed"
-                        ? "Terdaftar"
-                        : reg.registrationStatus === "cancelled"
-                          ? "Dibatalkan"
-                          : reg.registrationStatus}
+                      {getCandidateRegistrationStatusLabel(reg.registrationStatus)}
                     </span>
                     <Link
                       className="ui-button"
@@ -330,7 +329,7 @@ export default async function CandidateDashboardPage() {
                 </div>
                 {item.savedStatus === "unavailable" ? (
                   <span className="status-badge" data-status="closed">
-                    tidak tersedia
+                    Tidak tersedia
                   </span>
                 ) : null}
               </li>

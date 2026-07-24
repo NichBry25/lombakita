@@ -1,15 +1,13 @@
 // @vitest-environment node
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetDb, checkStudentEligibility } = vi.hoisted(() => ({
+const { mockGetDb } = vi.hoisted(() => ({
   mockGetDb: vi.fn(),
-  checkStudentEligibility: vi.fn(),
 }));
 
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
-vi.mock("@/server/eligibility/eligibility-service", () => ({ checkStudentEligibility }));
 
 import {
   cancelRegistration,
@@ -148,9 +146,6 @@ describe("getStudentRegistration", () => {
 });
 
 describe("createIndividualRegistration enforcement chain", () => {
-  beforeEach(() => {
-    checkStudentEligibility.mockReset();
-  });
   afterEach(() => vi.clearAllMocks());
 
   it("returns the inserted record on the happy path", async () => {
@@ -162,7 +157,6 @@ describe("createIndividualRegistration enforcement chain", () => {
       ],
       { insertReturning: [inserted] },
     );
-    checkStudentEligibility.mockResolvedValue({ status: "eligible", reasons: [], checkedAt: NOW });
 
     const result = await createIndividualRegistration("stud_1", "comp_1", db as never, NOW);
 
@@ -177,13 +171,40 @@ describe("createIndividualRegistration enforcement chain", () => {
     );
   });
 
+  // Open-candidacy negative contract (DEC-0106): there is no age band and no eligibility
+  // gate. A candidate who would have been blocked under the retired 18–32 rule must be able
+  // to register. The service never receives a date of birth and must never look one up: the
+  // only SELECTs on the happy path are the competition load and the duplicate-registration
+  // check. If a future change reintroduces an age/eligibility lookup, either the registration
+  // stops succeeding or a third SELECT appears here — both fail this test.
+  it("allows a candidate over 32 to register (no age/eligibility gate — DEC-0106)", async () => {
+    const inserted = baseRegistration({ studentId: "candidate_over_32" });
+    const { db, spies } = makeQueuedDb(
+      [
+        [baseCompetition()], // load competition
+        [], // existing-registration check → none
+      ],
+      { insertReturning: [inserted] },
+    );
+
+    const result = await createIndividualRegistration(
+      "candidate_over_32",
+      "comp_1",
+      db as never,
+      NOW,
+    );
+
+    expect(result).toEqual(inserted);
+    // No profile/age/eligibility SELECT was issued — exactly the two enforcement-chain reads.
+    expect(spies.selectCallTraces).toHaveLength(2);
+  });
+
   it("rejects with competition_not_found when competition does not exist", async () => {
     const { db } = makeQueuedDb([[]]);
 
     await expect(
       createIndividualRegistration("stud_1", "missing", db as never, NOW),
     ).rejects.toMatchObject({ code: "competition_not_found" });
-    expect(checkStudentEligibility).not.toHaveBeenCalled();
   });
 
   it("rejects with competition_not_published when status is draft", async () => {
@@ -192,7 +213,6 @@ describe("createIndividualRegistration enforcement chain", () => {
     await expect(
       createIndividualRegistration("stud_1", "comp_1", db as never, NOW),
     ).rejects.toMatchObject({ code: "competition_not_published" });
-    expect(checkStudentEligibility).not.toHaveBeenCalled();
   });
 
   it("rejects with competition_not_published when status is archived", async () => {
@@ -216,7 +236,6 @@ describe("createIndividualRegistration enforcement chain", () => {
     const { db } = makeQueuedDb([[baseCompetition({ mode: "both" })], []], {
       insertReturning: [inserted],
     });
-    checkStudentEligibility.mockResolvedValue({ status: "eligible", reasons: [], checkedAt: NOW });
 
     const result = await createIndividualRegistration("stud_1", "comp_1", db as never, NOW);
     expect(result).toEqual(inserted);
@@ -228,7 +247,6 @@ describe("createIndividualRegistration enforcement chain", () => {
     await expect(
       createIndividualRegistration("stud_1", "comp_1", db as never, NOW),
     ).rejects.toMatchObject({ code: "registration_deadline_passed" });
-    expect(checkStudentEligibility).not.toHaveBeenCalled();
   });
 
   it("rejects with registration_deadline_passed when deadline is null", async () => {
@@ -239,38 +257,11 @@ describe("createIndividualRegistration enforcement chain", () => {
     ).rejects.toMatchObject({ code: "registration_deadline_passed" });
   });
 
-  it("rejects with registration_ineligible when eligibility helper returns ineligible_age", async () => {
-    const { db } = makeQueuedDb([[baseCompetition()]]);
-    checkStudentEligibility.mockResolvedValue({
-      status: "ineligible_age",
-      reasons: ["age_below_minimum"],
-      checkedAt: NOW,
-    });
-
-    await expect(
-      createIndividualRegistration("stud_1", "comp_1", db as never, NOW),
-    ).rejects.toMatchObject({ code: "registration_ineligible" });
-  });
-
-  it("rejects with registration_ineligible when eligibility helper returns incomplete", async () => {
-    const { db } = makeQueuedDb([[baseCompetition()]]);
-    checkStudentEligibility.mockResolvedValue({
-      status: "incomplete",
-      reasons: ["missing_date_of_birth"],
-      checkedAt: NOW,
-    });
-
-    await expect(
-      createIndividualRegistration("stud_1", "comp_1", db as never, NOW),
-    ).rejects.toMatchObject({ code: "registration_ineligible" });
-  });
-
   it("rejects with registration_already_exists when a confirmed registration exists", async () => {
     const { db } = makeQueuedDb([
       [baseCompetition()],
       [{ id: "reg_existing", status: "confirmed" }],
     ]);
-    checkStudentEligibility.mockResolvedValue({ status: "eligible", reasons: [], checkedAt: NOW });
 
     await expect(
       createIndividualRegistration("stud_1", "comp_1", db as never, NOW),
@@ -282,7 +273,6 @@ describe("createIndividualRegistration enforcement chain", () => {
       [baseCompetition()],
       [{ id: "reg_existing", status: "cancelled" }],
     ]);
-    checkStudentEligibility.mockResolvedValue({ status: "eligible", reasons: [], checkedAt: NOW });
 
     await expect(
       createIndividualRegistration("stud_1", "comp_1", db as never, NOW),
@@ -296,7 +286,6 @@ describe("createIndividualRegistration enforcement chain", () => {
     const { db } = makeQueuedDb([[baseCompetition()], []], {
       insertError: Object.assign(new Error("dup"), { code: "23505" }),
     });
-    checkStudentEligibility.mockResolvedValue({ status: "eligible", reasons: [], checkedAt: NOW });
 
     await expect(
       createIndividualRegistration("stud_1", "comp_1", db as never, NOW),
@@ -439,9 +428,9 @@ describe("cancelRegistration enforcement chain", () => {
 
 describe("RegistrationError shape", () => {
   it("carries code, message, status, and details", () => {
-    const err = new RegistrationError("registration_ineligible", "msg", { reasons: ["x"] });
+    const err = new RegistrationError("cancellation_reason_required", "msg", { reasons: ["x"] });
     expect(err).toBeInstanceOf(Error);
-    expect(err.code).toBe("registration_ineligible");
+    expect(err.code).toBe("cancellation_reason_required");
     expect(err.status).toBe(422);
     expect(err.details).toEqual({ reasons: ["x"] });
   });

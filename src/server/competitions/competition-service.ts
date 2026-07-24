@@ -36,9 +36,9 @@ import {
 } from "@/server/competitions/edit-classification";
 import { INSTITUTION_CANCELLATION_REASON } from "@/server/competitions/competition-lifecycle";
 import {
+  assertActorIsTrustedRecruiter,
   assertCompetitionAccess,
   assertCompetitionRead,
-  assertInstitutionVerified,
   assertInstitutionNotSuspended,
   assertPersonalCompetitionPublishable,
   assertPersonalInstitutionIndividualMode,
@@ -671,13 +671,13 @@ export const transitionCompetitionStatus = async (
     );
   }
 
-  // Publish guards: institution must be verified, publish-validation checklist must pass.
-  // Validation runs against the merged DB row (not caller payload) so partial PATCHes that left
-  // the row internally inconsistent are caught here. This is the second gate referenced in
-  // DEC-0028 and addresses the latent material finding D5 from the Step 3.2 depth review.
+  // Publish guards: the acting recruiter must be Trusted (account-level gate), the institution
+  // must not be suspended, and the publish-validation checklist must pass. Validation runs
+  // against the merged DB row (not caller payload) so partial PATCHes that left the row
+  // internally inconsistent are caught here. This is the second gate referenced in DEC-0028 and
+  // addresses the latent material finding D5 from the Step 3.2 depth review.
   if (competition.status === "draft" && targetStatus === "published") {
-    await assertInstitutionVerified(competition.institutionId, db);
-    // Step 6.2 — both guards must pass: verified AND not suspended.
+    await assertActorIsTrustedRecruiter(actorUserId, db);
     await assertInstitutionNotSuspended(competition.institutionId, db);
     const result = validatePublishChecklist({
       title: competition.title,

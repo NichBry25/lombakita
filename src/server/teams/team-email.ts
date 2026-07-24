@@ -54,7 +54,7 @@ export const sendTeamInvitationEmail = async (options: {
 
   const isClaim = options.mode === "claim";
   const actionUrl = isClaim ? buildClaimSignupUrl(options.rawToken as string) : buildInboxUrl();
-  const ctaLabel = isClaim ? "Daftar untuk Menerima" : "Buka Kotak Masuk";
+  const ctaLabel = isClaim ? "Daftar untuk menerima" : "Buka kotak masuk";
   const leadLine = isClaim
     ? "Buat akun Lombakita dengan email ini untuk menerima atau menolak undangan."
     : "Buka kotak masuk Anda di Lombakita untuk menerima atau menolak undangan.";

@@ -11,6 +11,7 @@ import { MarkReadButton } from "./mark-read-button";
 import { DeleteNotificationButton } from "./delete-notification-button";
 import { InboxInviteActions } from "./invite-actions";
 import { ButtonLink, EmptyState, PageHeader } from "@/components/ui";
+import { getInstitutionRoleLabel } from "@/lib/access/role-labels";
 
 const formatDate = (value: Date): string =>
   value.toLocaleString("id-ID", {
@@ -23,8 +24,8 @@ const formatDate = (value: Date): string =>
 
 const KIND_LABEL: Record<InboxItem["kind"], string> = {
   notification: "Notifikasi",
-  institution_invite: "Undangan Institusi",
-  team_invite: "Undangan Tim",
+  institution_invite: "Undangan institusi",
+  team_invite: "Undangan tim",
 };
 
 export default async function InboxPage() {
@@ -90,7 +91,7 @@ export default async function InboxPage() {
                 ) : item.kind === "institution_invite" ? (
                   <div className="inbox-card-content">
                     <h2>{item.institutionName}</h2>
-                    <p>Peran: {item.invitedRole}</p>
+                    <p>Peran: {getInstitutionRoleLabel(item.invitedRole)}</p>
                     <div className="inbox-date data-text">
                       Kedaluwarsa: {formatDate(item.expiresAt)}
                     </div>

@@ -8,15 +8,18 @@ export const DOCUMENT_TYPE_LABELS: Record<string, string> = {
   ktp: "KTP (Kartu Tanda Penduduk)",
   npwp: "NPWP (Nomor Pokok Wajib Pajak)",
   nib: "NIB (Nomor Induk Berusaha)",
-  akta_pendirian: "Akta Pendirian",
+  akta_pendirian: "Akta pendirian",
   sk_kemenkumham: "SK Kemenkumham",
-  sk_pendirian: "SK Pendirian",
-  surat_keterangan_organisasi: "Surat Keterangan Organisasi",
+  sk_pendirian: "SK pendirian",
+  surat_keterangan_organisasi: "Surat keterangan organisasi",
   ktm: "KTM (Kartu Tanda Mahasiswa)",
 };
 
+// `personal` carries no documents: a personal institution is its owner, and the owner is vetted by
+// the account-level Trusted Recruiter review. createVerificationSubmission refuses a personal
+// institution outright, so this entry exists only to keep the map exhaustive over InstitutionType.
 export const REQUIRED_DOCUMENTS_BY_TYPE: Record<InstitutionType, readonly string[]> = {
-  personal: ["ktp"],
+  personal: [],
   company: ["npwp", "nib"],
   foundation: ["npwp", "akta_pendirian", "sk_kemenkumham"],
   university: ["sk_pendirian"],

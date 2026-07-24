@@ -1,5 +1,6 @@
 import { PersonalInstitutionCreateShell } from "@/components/institution/personal-institution-create-shell";
 import { getCurrentSession } from "@/server/auth/session";
+import { findOwnedPersonalInstitution } from "@/server/institution-workspace/institution-service";
 import { redirect } from "next/navigation";
 
 const PERSONAL_INSTITUTION_PATH = "/institution/personal";
@@ -16,6 +17,11 @@ export default async function PersonalInstitutionPage() {
 
   if (!session.user.verifiedRoles.includes("recruiter")) {
     redirect("/");
+  }
+
+  const personalInstitution = await findOwnedPersonalInstitution(session.user.id);
+  if (personalInstitution) {
+    redirect(`/institution/${personalInstitution.slug}`);
   }
 
   return <PersonalInstitutionCreateShell expectedUserId={session.user.id} />;

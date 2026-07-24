@@ -142,7 +142,7 @@ describe("listSavedCompetitions", () => {
         competitionId: "comp_1",
         slug: "lomba-a",
         title: "Lomba A",
-        category: "technology",
+        category: "hackathon",
         mode: "individual",
         registrationEndAt: new Date("2026-06-01"),
         status: "published",

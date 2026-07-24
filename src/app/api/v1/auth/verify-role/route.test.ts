@@ -3,9 +3,9 @@
 import type { Session } from "next-auth";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { getServerSessionMock, markRoleAsVerifiedStubMock } = vi.hoisted(() => ({
+const { getServerSessionMock, markRoleAsVerifiedMock } = vi.hoisted(() => ({
   getServerSessionMock: vi.fn<() => Promise<Session | null>>(),
-  markRoleAsVerifiedStubMock: vi.fn(),
+  markRoleAsVerifiedMock: vi.fn(),
 }));
 
 vi.mock("next-auth", () => ({
@@ -21,7 +21,7 @@ vi.mock("@/server/auth/role-verification", async (importOriginal) => {
     await importOriginal<typeof import("@/server/auth/role-verification")>();
   return {
     ...actual,
-    markRoleAsVerifiedStub: markRoleAsVerifiedStubMock,
+    markRoleAsVerified: markRoleAsVerifiedMock,
   };
 });
 
@@ -47,7 +47,22 @@ const buildRequest = (body: unknown) =>
     body: JSON.stringify(body),
   }) as unknown as Parameters<typeof POST>[0];
 
-describe("POST /api/v1/auth/verify-role (stub completion)", () => {
+// The four onboarding fields a candidate verification must carry (parity with signup paths).
+const candidateProfileFields = {
+  fullName: "Dinda Putri",
+  phoneNumber: "0812345678",
+  occupation: "college_student",
+  dateOfBirth: "2000-01-15",
+};
+
+// The recruiter affiliation form a recruiter verification must carry.
+const recruiterVerificationFields = {
+  fullName: "Rendra Wijaya",
+  mobileNumber: "0812345678",
+  corporateEmail: "rendra@corp.co.id",
+};
+
+describe("POST /api/v1/auth/verify-role", () => {
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -57,7 +72,7 @@ describe("POST /api/v1/auth/verify-role (stub completion)", () => {
 
     const response = await POST(buildRequest({ role: "recruiter" }));
     expect(response.status).toBe(401);
-    expect(markRoleAsVerifiedStubMock).not.toHaveBeenCalled();
+    expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
   });
 
   it("returns 400 invalid_role when the role field is missing", async () => {
@@ -68,7 +83,7 @@ describe("POST /api/v1/auth/verify-role (stub completion)", () => {
 
     expect(response.status).toBe(400);
     expect(body.error.code).toBe("invalid_role");
-    expect(markRoleAsVerifiedStubMock).not.toHaveBeenCalled();
+    expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
   });
 
   it("returns 400 invalid_role when the role field is a non-verifiable value", async () => {
@@ -97,7 +112,7 @@ describe("POST /api/v1/auth/verify-role (stub completion)", () => {
 
   it("propagates 409 role_already_verified from the service layer", async () => {
     getServerSessionMock.mockResolvedValue(buildSession());
-    markRoleAsVerifiedStubMock.mockRejectedValue(
+    markRoleAsVerifiedMock.mockRejectedValue(
       new RoleVerificationError(
         "role_already_verified",
         409,
@@ -105,26 +120,78 @@ describe("POST /api/v1/auth/verify-role (stub completion)", () => {
       ),
     );
 
-    const response = await POST(buildRequest({ role: "candidate" }));
+    const response = await POST(
+      buildRequest({ role: "candidate", ...candidateProfileFields }),
+    );
     const body = (await response.json()) as { error: { code: string } };
 
     expect(response.status).toBe(409);
     expect(body.error.code).toBe("role_already_verified");
   });
 
+  it("returns 400 and does not call the service when a candidate omits its onboarding profile", async () => {
+    getServerSessionMock.mockResolvedValue(buildSession());
+
+    const response = await POST(buildRequest({ role: "candidate" }));
+
+    expect(response.status).toBe(400);
+    expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 and does not call the service when a recruiter omits the affiliation form", async () => {
+    getServerSessionMock.mockResolvedValue(buildSession());
+
+    const response = await POST(buildRequest({ role: "recruiter" }));
+
+    expect(response.status).toBe(400);
+    expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
+  });
+
   it("happy path: flips recruiter on a candidate-only account and returns recruiter dashboard", async () => {
     getServerSessionMock.mockResolvedValue(buildSession());
-    markRoleAsVerifiedStubMock.mockResolvedValue({
+    markRoleAsVerifiedMock.mockResolvedValue({
       candidateVerified: true,
       recruiterVerified: true,
     });
 
-    const response = await POST(buildRequest({ role: "recruiter" }));
+    const response = await POST(
+      buildRequest({ role: "recruiter", ...recruiterVerificationFields }),
+    );
     const body = (await response.json()) as { verified: string; redirectTo: string };
 
     expect(response.status).toBe(200);
     expect(body.verified).toBe("recruiter");
     expect(body.redirectTo).toBe("/recruiter-dashboard");
-    expect(markRoleAsVerifiedStubMock).toHaveBeenCalledWith("u_1", "recruiter");
+    // Recruiter verification passes null for the candidate profile and the parsed form.
+    expect(markRoleAsVerifiedMock).toHaveBeenCalledWith("u_1", "recruiter", null, {
+      fullName: "Rendra Wijaya",
+      mobileNumber: "0812345678",
+      corporateEmail: "rendra@corp.co.id",
+    });
+  });
+
+  it("happy path: verifies candidate on a recruiter-only account and passes the onboarding profile", async () => {
+    getServerSessionMock.mockResolvedValue(
+      buildSession({ role: "recruiter", verifiedRoles: ["recruiter"] }),
+    );
+    markRoleAsVerifiedMock.mockResolvedValue({
+      candidateVerified: true,
+      recruiterVerified: true,
+    });
+
+    const response = await POST(
+      buildRequest({ role: "candidate", ...candidateProfileFields }),
+    );
+    const body = (await response.json()) as { verified: string; redirectTo: string };
+
+    expect(response.status).toBe(200);
+    expect(body.verified).toBe("candidate");
+    expect(body.redirectTo).toBe("/candidate-dashboard");
+    expect(markRoleAsVerifiedMock).toHaveBeenCalledWith(
+      "u_1",
+      "candidate",
+      candidateProfileFields,
+      null,
+    );
   });
 });

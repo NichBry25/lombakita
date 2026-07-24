@@ -2,14 +2,36 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/competitions/competition-public-service");
 
-import { and, desc, eq, gte, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitions,
+  competitionPrizes,
+  competitionRegistrations,
+  competitionRounds,
+  competitionTags,
+  institutionSocialLinks,
   institutions,
   type CompetitionCategory,
   type CompetitionMode,
 } from "@/server/db/schema";
+import { isR2Available, generatePresignedGetUrl } from "@/server/storage/r2.client";
 import { logger } from "@/lib/logger";
 import { getMeilisearchClient } from "@/server/search/client";
 import { isMeilisearchAvailable } from "@/server/search/availability";
@@ -70,19 +92,14 @@ type PublicListingRow = {
   isFeatured: boolean;
   institutionSlug: string;
   institutionDisplayName: string | null;
-  institutionType: InstitutionType | null;
+  institutionType: InstitutionType;
   institutionOwnerUsername: string | null;
 };
 
 // Resolve the joined institution name through the display-name helper, then drop the type/owner
 // projection columns so the public shape stays exactly PublicCompetitionItem.
 const mapPublicListingRow = (row: PublicListingRow): PublicCompetitionItem => {
-  const {
-    institutionDisplayName,
-    institutionType,
-    institutionOwnerUsername,
-    ...rest
-  } = row;
+  const { institutionDisplayName, institutionType, institutionOwnerUsername, ...rest } = row;
   return {
     ...rest,
     institutionName: getInstitutionDisplayName(
@@ -119,6 +136,8 @@ export type PublicListingFilters = {
   q?: string;
   category?: string;
   mode?: string;
+  status?: string;
+  teamSize?: string;
   institutionSlug?: string;
   sort?: string;
   page?: number;
@@ -169,23 +188,96 @@ const buildDbOrderBy = (sort: PublicListingSort) => {
   return [...FEATURED_SORT_EXPRS, desc(competitions.createdAt)]; // created_desc default
 };
 
+// Registration-phase filter. Absent/unknown status returns the default "hide expired" clause
+// (F15), so the un-filtered listing is unchanged. Only status="closed" surfaces past-deadline
+// competitions. "closing" = under 7 days left, matching the competition card badge window.
+const buildStatusCondition = (status: string | undefined): SQL => {
+  const start = competitions.registrationStartAt;
+  const end = competitions.registrationEndAt;
+  if (status === "upcoming") {
+    return and(isNotNull(start), gt(start, sql`now()`))!;
+  }
+  if (status === "open") {
+    return and(
+      or(isNull(start), lte(start, sql`now()`))!,
+      or(isNull(end), gte(end, sql`now() + interval '7 days'`))!,
+    )!;
+  }
+  if (status === "closing") {
+    return and(
+      or(isNull(start), lte(start, sql`now()`))!,
+      isNotNull(end),
+      gte(end, sql`now()`),
+      lt(end, sql`now() + interval '7 days'`),
+    )!;
+  }
+  if (status === "closed") {
+    return and(isNotNull(end), lt(end, sql`now()`))!;
+  }
+  return or(isNull(end), gte(end, sql`now()`))!;
+};
+
+// Team-size bucket filter (DB-only; the Meilisearch index carries no team columns). Range
+// overlap, mode-aware: individual-only competitions accept a solo participant; team/both
+// competitions carry an allowed [min, max] range.
+const buildTeamSizeCondition = (bucket: string | undefined): SQL | undefined => {
+  const min = competitions.minTeamSize;
+  const max = competitions.maxTeamSize;
+  const mode = competitions.mode;
+  if (bucket === "solo") {
+    return or(eq(mode, "individual"), eq(mode, "both"), and(isNotNull(min), lte(min, 1)));
+  }
+  if (bucket === "small") {
+    return and(
+      inArray(mode, ["team", "both"]),
+      or(isNull(min), lte(min, 4))!,
+      or(isNull(max), gte(max, 2))!,
+    )!;
+  }
+  if (bucket === "large") {
+    return and(inArray(mode, ["team", "both"]), or(isNull(max), gte(max, 5))!)!;
+  }
+  return undefined;
+};
+
+// A query with no letters or digits (e.g. only punctuation like ";") carries no searchable
+// term. Meilisearch normalizes it to an empty query and runs a placeholder search that returns
+// the entire catalog — so such queries must never reach the search path, and must match no
+// competition on the DB path.
+const hasSearchableQuery = (q: string | undefined): boolean =>
+  Boolean(q && /[\p{L}\p{N}]/u.test(q));
+
+// Meili routing (spec §6): the index lacks registrationStartAt and team-size fields, so any
+// active status/teamSize filter forces the DB path to avoid partial filtering + count drift.
+// A token-less query is also kept off the search path (it would placeholder-match everything).
+export const resolveUseSearch = (filters: PublicListingFilters, meiliAvailable: boolean): boolean =>
+  hasSearchableQuery(filters.q) && meiliAvailable && !filters.status && !filters.teamSize;
+
 const buildDbWhere = (filters: PublicListingFilters) => {
   const conditions = [
     eq(competitions.status, "published"),
     isNull(competitions.deletedAt),
-    // F15: hide competitions whose registration deadline has passed. Null deadline = no deadline.
-    or(isNull(competitions.registrationEndAt), gte(competitions.registrationEndAt, sql`now()`))!,
+    buildStatusCondition(filters.status),
   ];
 
   if (filters.q?.trim()) {
-    const term = `%${filters.q.trim()}%`;
-    conditions.push(or(ilike(competitions.title, term), ilike(competitions.description, term))!);
+    if (hasSearchableQuery(filters.q)) {
+      const term = `%${filters.q.trim()}%`;
+      conditions.push(or(ilike(competitions.title, term), ilike(competitions.description, term))!);
+    } else {
+      // Token-less query (punctuation/symbols only) cannot match any competition.
+      conditions.push(sql`false`);
+    }
   }
   if (filters.category && isCompetitionCategory(filters.category)) {
     conditions.push(eq(competitions.category, filters.category));
   }
   if (filters.mode && isCompetitionMode(filters.mode)) {
     conditions.push(eq(competitions.mode, filters.mode));
+  }
+  const teamSizeCondition = buildTeamSizeCondition(filters.teamSize);
+  if (teamSizeCondition) {
+    conditions.push(teamSizeCondition);
   }
   if (filters.institutionSlug) {
     conditions.push(eq(institutions.slug, filters.institutionSlug.trim().toLowerCase()));
@@ -309,7 +401,10 @@ const listFromMeilisearch = async (
         eq(competitions.status, "published"),
         isNull(competitions.deletedAt),
         inArray(competitions.id, ids),
-        or(isNull(competitions.registrationEndAt), gte(competitions.registrationEndAt, sql`now()`))!,
+        or(
+          isNull(competitions.registrationEndAt),
+          gte(competitions.registrationEndAt, sql`now()`),
+        )!,
       ),
     );
 
@@ -330,15 +425,17 @@ export const listPublicCompetitions = async (
   filters: PublicListingFilters,
   db: Database = getDb(),
 ): Promise<PublicListingResult> => {
-  const useSearch = Boolean(filters.q) && isMeilisearchAvailable();
+  const useSearch = resolveUseSearch(filters, isMeilisearchAvailable());
 
   if (useSearch) {
     try {
       const meiliResult = await listFromMeilisearch(filters, db);
-      // Only trust Meilisearch results when the index actually returned hits.
-      // An empty result here usually means the index is stale (e.g. competitions published
-      // before the BullMQ worker ran). Fall through to DB ILIKE search in that case.
-      if (meiliResult.meta.total > 0) return meiliResult;
+      // Only trust Meilisearch results when the index actually hydrated rows from the DB.
+      // Meili's estimatedTotalHits can be non-zero while DB hydration yields nothing — a stale
+      // index (competition re-indexed under a different id, or indexed before a change) reports
+      // a phantom count with an empty grid. Check the hydrated data, not the estimate, and fall
+      // through to DB ILIKE search when nothing hydrated.
+      if (meiliResult.data.length > 0) return meiliResult;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.warn("competition-public-listing.meilisearch-fallback", {
@@ -354,6 +451,34 @@ export const listPublicCompetitions = async (
   }
 
   return listFromDb(filters, db);
+};
+
+// Featured competitions for the homepage. Same published + not-deleted + live-deadline guards as
+// the public listing, restricted to is_featured, ordered by featured_order (NULLS LAST). No paging
+// — the homepage renders a small fixed set.
+export const listFeaturedCompetitions = async (
+  limit = 6,
+  db: Database = getDb(),
+): Promise<PublicCompetitionItem[]> => {
+  const rows = await db
+    .select(PUBLIC_LISTING_COLUMNS)
+    .from(competitions)
+    .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
+    .where(
+      and(
+        eq(competitions.status, "published"),
+        isNull(competitions.deletedAt),
+        eq(competitions.isFeatured, true),
+        or(
+          isNull(competitions.registrationEndAt),
+          gte(competitions.registrationEndAt, sql`now()`),
+        )!,
+      ),
+    )
+    .orderBy(sql`${competitions.featuredOrder} ASC NULLS LAST`, desc(competitions.createdAt))
+    .limit(limit);
+
+  return rows.map(mapPublicListingRow);
 };
 
 // ── Detail ────────────────────────────────────────────────────────────────────
@@ -385,12 +510,33 @@ const PUBLIC_DETAIL_COLUMNS = {
   eventStartAt: competitions.eventStartAt,
   eventEndAt: competitions.eventEndAt,
   feeAmount: competitions.feeAmount,
+  eligibilityNote: competitions.eligibilityNote,
   publishedAt: competitions.publishedAt,
+  institutionId: institutions.id,
   institutionSlug: institutions.slug,
   institutionDisplayName: institutions.displayName,
   institutionType: institutions.institutionType,
   institutionOwnerUsername: institutionOwnerUsernameSql,
+  institutionLogoR2Key: institutions.logoR2Key,
+  institutionAbout: institutions.about,
+  institutionContactName: institutions.contactName,
+  institutionContactEmail: institutions.contactEmail,
+  institutionContactPhone: institutions.contactPhone,
+  institutionWebsiteUrl: institutions.websiteUrl,
 } as const;
+
+const LOGO_GET_URL_EXPIRY_SECONDS = 3600;
+
+// Sign a fresh GET URL for the organizer logo at render time (private R2 object). Returns null when
+// no logo is stored, storage is unconfigured, or signing fails — the UI falls back to a placeholder.
+const resolveOrganizerLogoUrl = async (logoR2Key: string | null): Promise<string | null> => {
+  if (!logoR2Key || !isR2Available()) return null;
+  try {
+    return await generatePresignedGetUrl(logoR2Key, LOGO_GET_URL_EXPIRY_SECONDS);
+  } catch {
+    return null;
+  }
+};
 
 export type PublicCompetitionDetail = {
   id: string;
@@ -406,13 +552,57 @@ export type PublicCompetitionDetail = {
   eventStartAt: Date | null;
   eventEndAt: Date | null;
   feeAmount: string | null;
+  eligibilityNote: string | null;
+  tags: string[];
   publishedAt: Date | null;
+  registrantCount: number;
+  prizes: Array<{
+    rankLabel: string | null;
+    title: string;
+    description: string | null;
+    cashAmount: string | null;
+    isCertificate: boolean;
+  }>;
+  // Sum of prize cash amounts (display only). Null when no prize carries a cash amount.
+  prizePoolTotal: number | null;
+  rounds: Array<{
+    title: string;
+    description: string | null;
+    startsAt: Date | null;
+    endsAt: Date | null;
+    platformLabel: string | null;
+  }>;
   organizer: {
     slug: string;
     name: string;
     logoUrl: string | null;
+    about: string | null;
+    contactName: string | null;
+    contactEmail: string | null;
+    contactPhone: string | null;
+    websiteUrl: string | null;
+    socialLinks: Array<{ platform: string; url: string }>;
   };
   ctaState: RegistrationCTAState;
+};
+
+// Count of non-cancelled registrations for a competition — the public "terdaftar" figure.
+// Confirmed rows only (pending_payment is not reachable in MVP; cancelled rows are excluded).
+// A team registration is a single row, so this counts entries (individual participants + teams).
+export const countPublicRegistrants = async (
+  competitionId: string,
+  db: Database = getDb(),
+): Promise<number> => {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        eq(competitionRegistrations.competitionId, competitionId),
+        eq(competitionRegistrations.status, "confirmed"),
+      ),
+    );
+  return row?.count ?? 0;
 };
 
 export const getPublicCompetitionDetail = async (
@@ -435,6 +625,49 @@ export const getPublicCompetitionDetail = async (
 
   if (!row) return null;
 
+  const [registrantCount, logoUrl, socialLinks, prizes, rounds, tagRows] = await Promise.all([
+    countPublicRegistrants(row.id, db),
+    resolveOrganizerLogoUrl(row.institutionLogoR2Key),
+    db
+      .select({ platform: institutionSocialLinks.platform, url: institutionSocialLinks.url })
+      .from(institutionSocialLinks)
+      .where(eq(institutionSocialLinks.institutionId, row.institutionId)),
+    db
+      .select({
+        rankLabel: competitionPrizes.rankLabel,
+        title: competitionPrizes.title,
+        description: competitionPrizes.description,
+        cashAmount: competitionPrizes.cashAmount,
+        isCertificate: competitionPrizes.isCertificate,
+      })
+      .from(competitionPrizes)
+      .where(eq(competitionPrizes.competitionId, row.id))
+      .orderBy(asc(competitionPrizes.sortOrder)),
+    db
+      .select({
+        title: competitionRounds.title,
+        description: competitionRounds.description,
+        startsAt: competitionRounds.startsAt,
+        endsAt: competitionRounds.endsAt,
+        platformLabel: competitionRounds.platformLabel,
+      })
+      .from(competitionRounds)
+      .where(eq(competitionRounds.competitionId, row.id))
+      .orderBy(asc(competitionRounds.sortOrder)),
+    db
+      .select({ tag: competitionTags.tag })
+      .from(competitionTags)
+      .where(eq(competitionTags.competitionId, row.id))
+      .orderBy(asc(competitionTags.tag)),
+  ]);
+  const tags = tagRows.map((r) => r.tag);
+
+  const prizePoolSum = prizes.reduce(
+    (sum, prize) => sum + (prize.cashAmount ? parseFloat(prize.cashAmount) : 0),
+    0,
+  );
+  const prizePoolTotal = prizePoolSum > 0 ? prizePoolSum : null;
+
   return {
     id: row.id,
     slug: row.slug,
@@ -449,14 +682,26 @@ export const getPublicCompetitionDetail = async (
     eventStartAt: row.eventStartAt,
     eventEndAt: row.eventEndAt,
     feeAmount: row.feeAmount,
+    eligibilityNote: row.eligibilityNote,
+    tags,
     publishedAt: row.publishedAt,
+    registrantCount,
+    prizes,
+    prizePoolTotal,
+    rounds,
     organizer: {
       slug: row.institutionSlug,
       name: getInstitutionDisplayName(
         { displayName: row.institutionDisplayName, institutionType: row.institutionType },
         { username: row.institutionOwnerUsername },
       ),
-      logoUrl: null,
+      logoUrl,
+      about: row.institutionAbout,
+      contactName: row.institutionContactName,
+      contactEmail: row.institutionContactEmail,
+      contactPhone: row.institutionContactPhone,
+      websiteUrl: row.institutionWebsiteUrl,
+      socialLinks,
     },
     ctaState: deriveCTAState(row.registrationStartAt, row.registrationEndAt),
   };

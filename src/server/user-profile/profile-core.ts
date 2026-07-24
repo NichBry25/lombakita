@@ -1,26 +1,25 @@
 import { NextResponse } from "next/server";
 import { RESERVED_WORDS } from "@/lib/username/reserved-words";
+import {
+  emptyProfileCollections,
+  type OwnerResume,
+  type ProfileCollections,
+  type PublicResume,
+} from "@/server/user-profile/profile-collections-core";
 
 // ---------------------------------------------------------------------------
 // Field scope constants
 // ---------------------------------------------------------------------------
 
-// Fields tagged "shared" are readable and writable by any verified account.
-// Fields tagged "candidate" require candidateVerifiedAt IS NOT NULL.
-// Fields tagged "recruiter" require recruiterVerifiedAt IS NOT NULL.
-// These are compile-time constants enforced at the application layer only —
-// no DB column carries scope metadata.
+// The remaining scalar profile fields are all "shared": readable and writable by any account, no
+// per-role gating. The former candidate-scoped and recruiter-scoped scalar fields were retired
+// (their data now lives in the role-agnostic profile collections). The "candidate"/"recruiter"
+// scope values are retained in the type for forward compatibility but currently unused.
 export const FIELD_SCOPES = {
   displayName: "shared",
   bio: "shared",
   location: "shared",
   avatarUrl: "shared",
-  university: "candidate",
-  major: "candidate",
-  graduationYear: "candidate",
-  roleTitle: "recruiter",
-  organizationName: "recruiter",
-  websiteUrl: "recruiter",
 } as const;
 
 export type ProfileFieldName = keyof typeof FIELD_SCOPES;
@@ -45,32 +44,31 @@ export type OwnerProfileResponse = {
   role: string;
   candidateVerified: boolean;
   recruiterVerified: boolean;
+  // True when the recruiter account is a Trusted Recruiter (tier `elevated`) — the public
+  // publish-authority signal. Derived, never the raw tier value.
+  trustedRecruiter: boolean;
   displayName: ProfileFieldValue<string>;
   bio: ProfileFieldValue<string>;
   location: ProfileFieldValue<string>;
   avatarUrl: ProfileFieldValue<string>;
-  university: ProfileFieldValue<string>;
-  major: ProfileFieldValue<string>;
-  graduationYear: ProfileFieldValue<number>;
-  roleTitle: ProfileFieldValue<string>;
-  organizationName: ProfileFieldValue<string>;
-  websiteUrl: ProfileFieldValue<string>;
+  resume: OwnerResume | null;
+  collections: ProfileCollections;
 };
 
-// Public API response — scope-gated fields are omitted entirely.
-// No ProfileFieldValue wrappers; plain values only.
+// Public API response — plain scalar values plus the same role-agnostic collections the owner
+// sees (the detail collections are not scope-gated). Verification booleans are exposed as a public
+// trust signal (which roles this account has verified), not as a data-scoping mechanism.
 export type PublicProfileResponse = {
   username: string;
   displayName: string | null;
   bio: string | null;
   location: string | null;
   avatarUrl: string | null;
-  university?: string | null;
-  major?: string | null;
-  graduationYear?: number | null;
-  roleTitle?: string | null;
-  organizationName?: string | null;
-  websiteUrl?: string | null;
+  candidateVerified: boolean;
+  recruiterVerified: boolean;
+  trustedRecruiter: boolean;
+  resume: PublicResume | null;
+  collections: ProfileCollections;
 };
 
 // ---------------------------------------------------------------------------
@@ -99,24 +97,22 @@ export const toFieldValue = <T>(
   return { status: "populated", value };
 };
 
-// Builds the owner-scoped profile response from raw DB data.
-export const buildOwnerProfileResponse = (row: {
-  username: string;
-  email: string;
-  role: string;
-  candidateVerifiedAt: Date | null;
-  recruiterVerifiedAt: Date | null;
-  displayName: string | null;
-  summary: string | null;
-  location: string | null;
-  avatarUrl: string | null;
-  university: string | null;
-  major: string | null;
-  graduationYear: number | null;
-  roleTitle: string | null;
-  organizationName: string | null;
-  websiteUrl: string | null;
-}): OwnerProfileResponse => {
+// Builds the owner-scoped profile response from raw DB data plus the user's detail collections.
+export const buildOwnerProfileResponse = (
+  row: {
+    username: string;
+    email: string;
+    role: string;
+    candidateVerifiedAt: Date | null;
+    recruiterVerifiedAt: Date | null;
+    recruiterVerificationTier: "unverified" | "minimal" | "elevated";
+    displayName: string | null;
+    summary: string | null;
+    location: string | null;
+    avatarUrl: string | null;
+  },
+  collections: ProfileCollections = emptyProfileCollections(),
+): OwnerProfileResponse => {
   const cv = row.candidateVerifiedAt !== null;
   const rv = row.recruiterVerifiedAt !== null;
 
@@ -126,61 +122,44 @@ export const buildOwnerProfileResponse = (row: {
     role: row.role,
     candidateVerified: cv,
     recruiterVerified: rv,
+    trustedRecruiter: row.recruiterVerificationTier === "elevated",
     displayName: toFieldValue(row.displayName, "shared", cv, rv),
     bio: toFieldValue(row.summary, "shared", cv, rv),
     location: toFieldValue(row.location, "shared", cv, rv),
     avatarUrl: toFieldValue(row.avatarUrl, "shared", cv, rv),
-    university: toFieldValue(row.university, "candidate", cv, rv),
-    major: toFieldValue(row.major, "candidate", cv, rv),
-    graduationYear: toFieldValue(row.graduationYear, "candidate", cv, rv),
-    roleTitle: toFieldValue(row.roleTitle, "recruiter", cv, rv),
-    organizationName: toFieldValue(row.organizationName, "recruiter", cv, rv),
-    websiteUrl: toFieldValue(row.websiteUrl, "recruiter", cv, rv),
+    // Resume is enriched by the service layer (needs an async presigned URL); null by default.
+    resume: null,
+    collections,
   };
 };
 
-// Builds the public profile response. Scope-gated fields are omitted entirely.
-export const buildPublicProfileResponse = (row: {
-  username: string;
-  candidateVerifiedAt: Date | null;
-  recruiterVerifiedAt: Date | null;
-  displayName: string | null;
-  summary: string | null;
-  location: string | null;
-  avatarUrl: string | null;
-  university: string | null;
-  major: string | null;
-  graduationYear: number | null;
-  roleTitle: string | null;
-  organizationName: string | null;
-  websiteUrl: string | null;
-}): PublicProfileResponse => {
-  const cv = row.candidateVerifiedAt !== null;
-  const rv = row.recruiterVerifiedAt !== null;
-
-  const profile: PublicProfileResponse = {
+// Builds the public profile response from raw DB data plus the user's detail collections.
+export const buildPublicProfileResponse = (
+  row: {
+    username: string;
+    candidateVerifiedAt: Date | null;
+    recruiterVerifiedAt: Date | null;
+    recruiterVerificationTier: "unverified" | "minimal" | "elevated";
+    displayName: string | null;
+    summary: string | null;
+    location: string | null;
+    avatarUrl: string | null;
+  },
+  collections: ProfileCollections = emptyProfileCollections(),
+): PublicProfileResponse => {
+  return {
     username: row.username,
     displayName: row.displayName,
     bio: row.summary,
     location: row.location,
     avatarUrl: row.avatarUrl,
+    candidateVerified: row.candidateVerifiedAt !== null,
+    recruiterVerified: row.recruiterVerifiedAt !== null,
+    trustedRecruiter: row.recruiterVerificationTier === "elevated",
+    // Resume is enriched by the service layer (only when resume_public); null by default.
+    resume: null,
+    collections,
   };
-
-  // Candidate-scoped fields: only emitted if candidate role is verified.
-  if (cv) {
-    profile.university = row.university;
-    profile.major = row.major;
-    profile.graduationYear = row.graduationYear;
-  }
-
-  // Recruiter-scoped fields: only emitted if recruiter role is verified.
-  if (rv) {
-    profile.roleTitle = row.roleTitle;
-    profile.organizationName = row.organizationName;
-    profile.websiteUrl = row.websiteUrl;
-  }
-
-  return profile;
 };
 
 // ---------------------------------------------------------------------------
@@ -256,15 +235,10 @@ export const parseUsername = (value: unknown): string => {
 // PATCH input validation
 // ---------------------------------------------------------------------------
 
-const SHARED_WRITABLE_FIELDS = new Set(["displayName", "bio", "location", "avatarUrl"]);
-const CANDIDATE_WRITABLE_FIELDS = new Set(["university", "major", "graduationYear"]);
-const RECRUITER_WRITABLE_FIELDS = new Set(["roleTitle", "organizationName", "websiteUrl"]);
-const ALL_WRITABLE_FIELDS = new Set([
-  "username",
-  ...SHARED_WRITABLE_FIELDS,
-  ...CANDIDATE_WRITABLE_FIELDS,
-  ...RECRUITER_WRITABLE_FIELDS,
-]);
+// avatarUrl is intentionally NOT writable here — the avatar is managed by the file-upload
+// endpoints (upload → record key), not by this scalar PATCH.
+const SHARED_WRITABLE_FIELDS = new Set(["displayName", "bio", "location"]);
+const ALL_WRITABLE_FIELDS = new Set(["username", ...SHARED_WRITABLE_FIELDS]);
 
 const PROTECTED_FIELDS = new Set([
   "id",
@@ -286,22 +260,12 @@ const PROTECTED_FIELDS = new Set([
 
 const MAX_BIO_LENGTH = 300;
 const MAX_TEXT_LENGTH = 120;
-const MAX_URL_LENGTH = 500;
-const GRAD_YEAR_MIN = 1950;
-const GRAD_YEAR_MAX = 2040;
 
 export type ProfilePatch = {
   username?: string;
   displayName?: string | null;
   bio?: string | null;
   location?: string | null;
-  avatarUrl?: string | null;
-  university?: string | null;
-  major?: string | null;
-  graduationYear?: number | null;
-  roleTitle?: string | null;
-  organizationName?: string | null;
-  websiteUrl?: string | null;
 };
 
 type ProfileInputErrorCode =
@@ -346,49 +310,9 @@ const parseOptionalText = (key: string, value: unknown, maxLen: number): string 
   return trimmed;
 };
 
-const parseOptionalUrl = (key: string, value: unknown): string | null => {
-  const text = parseOptionalText(key, value, MAX_URL_LENGTH);
-  if (text === null) return null;
-  try {
-    const url = new URL(text);
-    if (url.protocol !== "https:" && url.protocol !== "http:") {
-      throw new Error("invalid protocol");
-    }
-  } catch {
-    throw new ProfileInputError("profile_invalid_value", `${key} must be a valid URL`, {
-      fields: [key],
-    });
-  }
-  return text;
-};
-
-const parseOptionalGraduationYear = (value: unknown): number | null => {
-  if (value === null) return null;
-  if (typeof value !== "number" || !Number.isInteger(value)) {
-    throw new ProfileInputError(
-      "profile_invalid_value",
-      "graduationYear must be an integer or null",
-      { fields: ["graduationYear"] },
-    );
-  }
-  if (value < GRAD_YEAR_MIN || value > GRAD_YEAR_MAX) {
-    throw new ProfileInputError(
-      "profile_invalid_value",
-      `graduationYear must be between ${GRAD_YEAR_MIN} and ${GRAD_YEAR_MAX}`,
-      { fields: ["graduationYear"] },
-    );
-  }
-  return value;
-};
-
-// Parses and validates a PATCH payload. Enforces scope: candidate-scoped fields require
-// candidateVerified=true; recruiter-scoped fields require recruiterVerified=true.
-// Throws ProfileInputError (code="profile_scope_violation") for any scope violation.
-export const parseProfilePatch = (
-  payload: unknown,
-  candidateVerified: boolean,
-  recruiterVerified: boolean,
-): ProfilePatch => {
+// Parses and validates a PATCH payload for the scalar profile fields. All remaining writable
+// fields are shared (no per-role scope gating), so this no longer needs verification state.
+export const parseProfilePatch = (payload: unknown): ProfilePatch => {
   if (!isRecord(payload)) {
     throw new ProfileInputError(
       "profile_invalid_payload",
@@ -421,30 +345,6 @@ export const parseProfilePatch = (
     });
   }
 
-  // Scope violations: candidate fields when candidate role not verified.
-  if (!candidateVerified) {
-    const violations = keys.filter((k) => CANDIDATE_WRITABLE_FIELDS.has(k));
-    if (violations.length > 0) {
-      throw new ProfileInputError(
-        "profile_scope_violation",
-        "Candidate profile fields require the candidate role to be verified on this account",
-        { fields: violations, requiredRole: "candidate" },
-      );
-    }
-  }
-
-  // Scope violations: recruiter fields when recruiter role not verified.
-  if (!recruiterVerified) {
-    const violations = keys.filter((k) => RECRUITER_WRITABLE_FIELDS.has(k));
-    if (violations.length > 0) {
-      throw new ProfileInputError(
-        "profile_scope_violation",
-        "Recruiter profile fields require the recruiter role to be verified on this account",
-        { fields: violations, requiredRole: "recruiter" },
-      );
-    }
-  }
-
   const patch: ProfilePatch = {};
 
   if ("username" in payload) {
@@ -461,38 +361,6 @@ export const parseProfilePatch = (
 
   if ("location" in payload) {
     patch.location = parseOptionalText("location", payload.location, MAX_TEXT_LENGTH);
-  }
-
-  if ("avatarUrl" in payload) {
-    patch.avatarUrl = parseOptionalUrl("avatarUrl", payload.avatarUrl);
-  }
-
-  if ("university" in payload) {
-    patch.university = parseOptionalText("university", payload.university, MAX_TEXT_LENGTH);
-  }
-
-  if ("major" in payload) {
-    patch.major = parseOptionalText("major", payload.major, MAX_TEXT_LENGTH);
-  }
-
-  if ("graduationYear" in payload) {
-    patch.graduationYear = parseOptionalGraduationYear(payload.graduationYear);
-  }
-
-  if ("roleTitle" in payload) {
-    patch.roleTitle = parseOptionalText("roleTitle", payload.roleTitle, MAX_TEXT_LENGTH);
-  }
-
-  if ("organizationName" in payload) {
-    patch.organizationName = parseOptionalText(
-      "organizationName",
-      payload.organizationName,
-      MAX_TEXT_LENGTH,
-    );
-  }
-
-  if ("websiteUrl" in payload) {
-    patch.websiteUrl = parseOptionalUrl("websiteUrl", payload.websiteUrl);
   }
 
   return patch;

@@ -13,6 +13,7 @@ describe("institution-core", () => {
     const parsed = parseInstitutionWorkspaceCreateInput({
       displayName: "Universitas Bina Sarana",
       slug: "  BINUS  Jakarta!!  ",
+      institutionType: "university",
     });
 
     expect(parsed.slug).toBe("binus-jakarta");
@@ -49,7 +50,11 @@ describe("institution-core", () => {
   it("rejects a user-provided slug that matches a reserved word with institution_slug_reserved", () => {
     const error = (() => {
       try {
-        parseInstitutionWorkspaceCreateInput({ displayName: "Admin Org", slug: "admin" });
+        parseInstitutionWorkspaceCreateInput({
+          displayName: "Admin Org",
+          slug: "admin",
+          institutionType: "company",
+        });
         return null;
       } catch (e) {
         return e;
@@ -67,7 +72,10 @@ describe("institution-core", () => {
     for (const reservedName of ["Admin", "Settings", "api"]) {
       const error = (() => {
         try {
-          parseInstitutionWorkspaceCreateInput({ displayName: reservedName });
+          parseInstitutionWorkspaceCreateInput({
+            displayName: reservedName,
+            institutionType: "company",
+          });
           return null;
         } catch (e) {
           return e;
@@ -85,10 +93,56 @@ describe("institution-core", () => {
   });
 
   it("accepts a multi-word displayName whose tokens individually overlap reserved words", () => {
-    const parsed = parseInstitutionWorkspaceCreateInput({ displayName: "Admin University" });
+    const parsed = parseInstitutionWorkspaceCreateInput({
+      displayName: "Admin University",
+      institutionType: "company",
+    });
 
     expect(parsed.displayName).toBe("Admin University");
     expect(parsed.slug).toBeNull();
+  });
+
+  it("requires a full institutionType at creation and returns it", () => {
+    const parsed = parseInstitutionWorkspaceCreateInput({
+      displayName: "Yayasan Harapan",
+      institutionType: "foundation",
+    });
+
+    expect(parsed.institutionType).toBe("foundation");
+  });
+
+  it("rejects a missing institutionType", () => {
+    const error = (() => {
+      try {
+        parseInstitutionWorkspaceCreateInput({ displayName: "Tanpa Tipe" });
+        return null;
+      } catch (e) {
+        return e;
+      }
+    })();
+
+    expect(error).toBeInstanceOf(InstitutionWorkspaceInputError);
+    const cast = error as InstitutionWorkspaceInputError;
+    expect(cast.code).toBe("institution_invalid_value");
+    expect(cast.details?.fields).toContain("institutionType");
+  });
+
+  it("rejects `personal` as a create-time institutionType (personal has its own path)", () => {
+    expect(() =>
+      parseInstitutionWorkspaceCreateInput({
+        displayName: "Bukan Personal",
+        institutionType: "personal",
+      }),
+    ).toThrow(InstitutionWorkspaceInputError);
+  });
+
+  it("rejects an unrecognized institutionType", () => {
+    expect(() =>
+      parseInstitutionWorkspaceCreateInput({
+        displayName: "Tipe Aneh",
+        institutionType: "community",
+      }),
+    ).toThrow(InstitutionWorkspaceInputError);
   });
 
   it("substitutes the fallback base when auto-derivation lands on a reserved word", () => {

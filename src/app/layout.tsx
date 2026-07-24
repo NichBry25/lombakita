@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { DM_Mono, DM_Sans, DM_Serif_Display } from "next/font/google";
+import { DM_Sans, Young_Serif } from "next/font/google";
 import { ApplicationHeader } from "@/components/navigation/application-header";
 import { SiteFooter } from "@/components/navigation/site-footer";
 import { publicEnv } from "@/config/env";
@@ -8,19 +8,13 @@ import "./globals.css";
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
+  subsets: ["latin", "latin-ext"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const dmMono = DM_Mono({
-  variable: "--font-dm-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
-});
-
-const dmSerifDisplay = DM_Serif_Display({
-  variable: "--font-dm-serif",
-  subsets: ["latin"],
+const youngSerif = Young_Serif({
+  variable: "--font-young-serif",
+  subsets: ["latin", "latin-ext"],
   weight: "400",
 });
 
@@ -37,7 +31,7 @@ export default function RootLayout({
   return (
     <html
       lang="id"
-      className={`${dmSans.variable} ${dmMono.variable} ${dmSerifDisplay.variable} h-full antialiased`}
+      className={`${dmSans.variable} ${youngSerif.variable} h-full antialiased`}
       data-theme="light"
       suppressHydrationWarning
     >

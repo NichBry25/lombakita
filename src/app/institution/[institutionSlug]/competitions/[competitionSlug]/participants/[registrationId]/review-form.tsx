@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { CompetitionRegistrationReviewStatus } from "@/server/db/schema";
 import { REVIEW_STATUS_LABELS, REVIEW_STATUS_ORDER } from "../review-status-labels";
 import { useToast } from "@/components/ui/primitives";
-import { Button } from "@/components/ui";
+import { Button, SelectField } from "@/components/ui";
 
 type Props = {
   apiPath: string;
@@ -80,20 +80,18 @@ export function ReviewForm({
           )}
         </p>
       )}
-      <label className="form-field">
+      <div className="form-field">
         <span className="form-label">Status tinjauan</span>
-        <select
-          className="form-select"
+        <SelectField
+          label="Status tinjauan"
           value={status}
-          onChange={(e) => setStatus(e.target.value as CompetitionRegistrationReviewStatus)}
-        >
-          {REVIEW_STATUS_ORDER.map((value) => (
-            <option key={value} value={value}>
-              {REVIEW_STATUS_LABELS[value]}
-            </option>
-          ))}
-        </select>
-      </label>
+          onChange={(value) => setStatus(value as CompetitionRegistrationReviewStatus)}
+          options={REVIEW_STATUS_ORDER.map((value) => ({
+            value,
+            label: REVIEW_STATUS_LABELS[value],
+          }))}
+        />
+      </div>
 
       <label className="form-field">
         <span className="form-label">Catatan internal</span>

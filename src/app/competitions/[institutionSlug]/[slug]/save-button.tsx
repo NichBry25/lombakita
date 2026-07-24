@@ -49,10 +49,16 @@ export function SaveButton({ competitionId, initialSaved, expectedUserId }: Prop
   return (
     <Button
       type="button"
-      variant={saved ? "gold" : "outline"}
+      variant={saved ? "secondary" : "outline"}
       size="lg"
       fullWidth
-      leadingIcon={<Icon name={saved ? "check" : "bookmark"} size="md" />}
+      leadingIcon={
+        <Icon
+          name="bookmark"
+          size="md"
+          className={saved ? "icon-bookmark-selected" : undefined}
+        />
+      }
       onClick={handleToggle}
       disabled={loading}
     >

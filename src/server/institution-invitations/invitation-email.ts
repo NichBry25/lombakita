@@ -7,9 +7,9 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 assertServerOnly("server/institution-invitations/invitation-email");
 
 const ROLE_LABELS: Record<string, string> = {
-  institution_owner: "Pemilik Institusi",
-  institution_staff: "Staf Institusi",
-  institution_member: "Anggota Institusi",
+  institution_owner: "Pemilik institusi",
+  institution_staff: "Staf institusi",
+  institution_member: "Anggota institusi",
 };
 
 const resolveBaseUrl = (): string => {
@@ -63,7 +63,7 @@ export const sendInstitutionInvitationEmail = async (options: {
 
   const isClaim = options.mode === "claim";
   const actionUrl = isClaim ? buildClaimSignupUrl(options.rawToken as string) : buildInboxUrl();
-  const ctaLabel = isClaim ? "Daftar untuk Menerima" : "Buka Kotak Masuk";
+  const ctaLabel = isClaim ? "Daftar untuk menerima" : "Buka kotak masuk";
   const leadLine = isClaim
     ? `Buat akun Lombakita dengan email ini untuk menerima undangan sebagai ${roleLabel}.`
     : `Buka kotak masuk Anda di Lombakita untuk menerima atau menolak undangan sebagai ${roleLabel}.`;

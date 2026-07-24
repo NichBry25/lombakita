@@ -1,0 +1,402 @@
+/*
+ * Lombakita brand tokens.
+ *
+ * Values derive from the Lombakita Brand Book v2 (docs/product/ui-preferences.md).
+ * Every foreground/background pair defined here meets WCAG AA (4.5:1) in both themes.
+ * Where the brand book's own pairing failed AA, the accessible substitute is noted
+ * inline at the token.
+ */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* Brand constants */
+  --brand-palm: #14453d;
+  --brand-palm-ink: #0e332d;
+  --brand-tangerine: #f4632a;
+  --brand-terracotta: #c6491b;
+  --brand-paper: #fbf6eb;
+  --brand-lime: #d0f05e;
+  --brand-lime-deep: #9db53c;
+  --brand-peach: #ffd3b0;
+  --brand-blush: #ffe9da;
+  --brand-mist: #e4ede4;
+
+  /* Semantic surfaces and ink */
+  --color-bg: #fbf6eb;
+  --color-surface: #ffffff;
+  --color-raised: #ffffff;
+  --color-inset: #f4eee0;
+  --color-ink: #14453d;
+  --color-ink-soft: #3d5c56;
+  --color-ink-faint: #5c7571;
+  --color-line: #e3dccb;
+  --color-line-soft: #efe9da;
+  --color-brand-surface: #14453d;
+  --color-brand-ink: #fbf6eb;
+  --color-link: #1c5f52;
+  --color-link-hover: #14453d;
+
+  /*
+   * Action. Solid fills that carry label text use terracotta, not tangerine:
+   * white on tangerine is 3.15:1 and fails AA. Terracotta is the same hue family
+   * at 4.81:1. Pure tangerine stays available as --color-action-bright for
+   * display type, icons, dots, borders and non-text fills.
+   */
+  --color-action: #c6491b;
+  --color-action-hover: #ab3f17;
+  --color-action-ink: #ffffff;
+  --color-action-bright: #f4632a;
+  --color-action-soft: #ffe9da;
+
+  /* Accent. Lime is a highlighter (background); olive carries accent text. */
+  --color-accent: #667923;
+  --color-accent-bg: #edf7d0;
+  --color-highlight: #d0f05e;
+  --color-highlight-ink: #14453d;
+
+  /* State surfaces */
+  --color-disabled-surface: #f0ebdd;
+  --color-disabled-text: #5c7571;
+  --color-disabled-border: #d8d1bf;
+  --color-success-surface: #e7f2e3;
+  --color-success-text: #2a5b33;
+  --color-success-border: #a9cda6;
+  --color-warning-surface: #fdf0d2;
+  --color-warning-text: #7a5410;
+  --color-warning-border: #e0c377;
+  --color-error-surface: #fbe7df;
+  --color-error-text: #9b3617;
+  --color-error-border: #e8ae94;
+  --color-info-surface: #e4ede4;
+  --color-info-text: #29564e;
+  --color-info-border: #a8c4bc;
+
+  /*
+   * Status. The dot carries the hue, the label carries the contrast — the brand
+   * book requires dot + label + date, so status never depends on colour alone.
+   */
+  --color-status-open-bg: #edf7d0;
+  --color-status-open-dot: #9db53c;
+  --color-status-open-text: #14453d;
+  --color-status-closing-bg: #ffe9da;
+  --color-status-closing-dot: #f4632a;
+  --color-status-closing-text: #8f3512;
+  --color-status-closed-bg: #e8e6de;
+  --color-status-closed-dot: #8a9a95;
+  --color-status-closed-text: #415c57;
+
+  /* Glass. Opaque fallbacks are required wherever backdrop-filter is unavailable. */
+  --glass-chrome-fallback: #fffdf8;
+  --glass-focus-fallback: #ffffff;
+  --glass-overlay-fallback: #1d4b43;
+  --glass-chrome-fill: rgba(255, 255, 255, 0.72);
+  --glass-focus-fill: rgba(255, 255, 255, 0.88);
+  --glass-overlay-fill: rgba(20, 69, 61, 0.64);
+  --glass-edge: rgba(255, 255, 255, 0.82);
+  --glass-structure-line: rgba(20, 69, 61, 0.12);
+  --glass-shadow-color: rgba(20, 69, 61, 0.16);
+  --glass-blur-chrome: 22px;
+  --glass-blur-focus: 18px;
+  --glass-blur-overlay: 20px;
+
+  /* Glow backdrops. Glass never sits directly on flat paper. */
+  --glow-peach: rgba(255, 211, 176, 0.9);
+  --glow-blush: rgba(255, 233, 218, 0.75);
+  --glow-lime: rgba(208, 240, 94, 0.22);
+
+  /* Overlay */
+  --overlay-scrim: rgba(7, 27, 23, 0.62);
+  --overlay-highlight: rgba(251, 246, 235, 0.14);
+  --cover-overlay: rgba(7, 27, 23, 0.78);
+
+  /* Focus */
+  --focus-color: #14453d;
+  --focus-width: 2px;
+  --focus-offset: 3px;
+  --focus-halo: rgba(20, 69, 61, 0.22);
+
+  /* Skeleton */
+  --skeleton-base: #ece5d5;
+  --skeleton-highlight: #fbf6eb;
+}
+
+/*
+ * Dark theme. The brand book specifies no dark mode; this palette is derived
+ * from Palm Ink as the base so the identity holds. All pairs verified at AA.
+ */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-bg: #071b17;
+  --color-surface: #0e332d;
+  --color-raised: #14453d;
+  --color-inset: #0a2621;
+  --color-ink: #f1ede2;
+  --color-ink-soft: #a8c0b8;
+  --color-ink-faint: #7e958e;
+  --color-line: #1e4a42;
+  --color-line-soft: #163b34;
+  --color-brand-surface: #0e332d;
+  --color-brand-ink: #fbf6eb;
+  --color-link: #b9dfa4;
+  --color-link-hover: #d0f05e;
+
+  --color-action: #c6491b;
+  --color-action-hover: #d9541f;
+  --color-action-ink: #ffffff;
+  --color-action-bright: #f4632a;
+  --color-action-soft: #3a2419;
+
+  --color-accent: #d0f05e;
+  --color-accent-bg: #22402c;
+  --color-highlight: #d0f05e;
+  --color-highlight-ink: #14453d;
+
+  --color-disabled-surface: #12302a;
+  --color-disabled-text: #7e958e;
+  --color-disabled-border: #24544a;
+  --color-success-surface: #12301f;
+  --color-success-text: #9bd7ae;
+  --color-success-border: #2f5f42;
+  --color-warning-surface: #302916;
+  --color-warning-text: #f0d07c;
+  --color-warning-border: #655427;
+  --color-error-surface: #33201a;
+  --color-error-text: #f5ad8e;
+  --color-error-border: #70433b;
+  --color-info-surface: #152e2a;
+  --color-info-text: #a9cfc4;
+  --color-info-border: #2d5951;
+
+  --color-status-open-bg: #1c3a22;
+  --color-status-open-dot: #9db53c;
+  --color-status-open-text: #c3e27a;
+  --color-status-closing-bg: #3a2419;
+  --color-status-closing-dot: #f4632a;
+  --color-status-closing-text: #ffb088;
+  --color-status-closed-bg: #17302b;
+  --color-status-closed-dot: #6d847e;
+  --color-status-closed-text: #9db3ac;
+
+  --glass-chrome-fallback: #10352e;
+  --glass-focus-fallback: #14453d;
+  --glass-overlay-fallback: #0b2a24;
+  --glass-chrome-fill: rgba(14, 51, 45, 0.74);
+  --glass-focus-fill: rgba(20, 69, 61, 0.88);
+  --glass-overlay-fill: rgba(7, 27, 23, 0.7);
+  --glass-edge: rgba(241, 237, 226, 0.14);
+  --glass-structure-line: rgba(241, 237, 226, 0.12);
+  --glass-shadow-color: rgba(0, 0, 0, 0.46);
+
+  --glow-peach: rgba(196, 118, 68, 0.24);
+  --glow-blush: rgba(160, 96, 60, 0.18);
+  --glow-lime: rgba(208, 240, 94, 0.12);
+
+  --overlay-scrim: rgba(3, 14, 11, 0.76);
+  --overlay-highlight: rgba(241, 237, 226, 0.1);
+  --cover-overlay: rgba(3, 14, 11, 0.82);
+
+  --focus-color: #d0f05e;
+  --focus-halo: rgba(208, 240, 94, 0.24);
+
+  --skeleton-base: #163b34;
+  --skeleton-highlight: #24544a;
+}
+
+:root {
+  /* Typography. Young Serif ships weight 400 only; DM Sans carries data. */
+  --font-display: var(--font-young-serif), Georgia, serif;
+  --font-body: var(--font-dm-sans), system-ui, sans-serif;
+  --font-data: var(--font-dm-sans), system-ui, sans-serif;
+
+  --text-hero: clamp(2.25rem, 5.2vw, 3.75rem);
+  --text-detail-hero: clamp(1.875rem, 4vw, 2.875rem);
+  --text-page-title: clamp(1.75rem, 3.6vw, 2.5rem);
+  --text-section-title: clamp(1.375rem, 2.4vw, 1.875rem);
+  --text-card-title: 1.3125rem;
+  --text-lead: 1.0625rem;
+  --text-body: 0.9375rem;
+  --text-search: 1rem;
+  --text-body-sm: 0.875rem;
+  --text-meta: 0.8125rem;
+  --text-micro: 0.6875rem;
+  --text-data-lg: 1.75rem;
+  --text-button-sm: 0.84375rem;
+  --text-button: 0.90625rem;
+  --text-button-lg: 1rem;
+  --text-brand: 1.375rem;
+  --text-footer-title: 1.5rem;
+  --text-empty-title: 1.75rem;
+  --text-brand-mobile: 1.25rem;
+
+  --leading-tight: 1.05;
+  --leading-heading: 1.18;
+  --leading-body: 1.65;
+  --leading-prose: 1.7;
+  --tracking-heading: -0.015em;
+  --tracking-label: 0.09em;
+
+  /* Spacing */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-1-5: 0.375rem;
+  --space-2: 0.5rem;
+  --space-2-5: 0.625rem;
+  --space-3: 0.75rem;
+  --space-3-5: 0.875rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-5-5: 1.375rem;
+  --space-6: 1.5rem;
+  --space-7: 1.75rem;
+  --space-8: 2rem;
+  --space-9: 2.25rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-14: 3.5rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+
+  /* Shape. Controls are pills; content blocks stay rounded rectangles. */
+  --radius-control: 999px;
+  --radius-input: 14px;
+  --radius-card: 18px;
+  --radius-feature: 24px;
+  --radius-pill: 999px;
+  --radius-circle: 50%;
+  --border-thin: 1px;
+  --border-strong: 2px;
+
+  /* Controls */
+  --control-height-sm: 2.75rem;
+  --control-height-md: 3rem;
+  --control-height-lg: 3.25rem;
+  --control-select-min: 10rem;
+  --touch-target: 2.75rem;
+  --icon-stroke: 2px;
+  --icon-sm: 0.875rem;
+  --icon-md: 1.125rem;
+  --icon-lg: 1.375rem;
+  --icon-xl: 2.25rem;
+  --icon-chip: 2.5rem;
+
+  /* Content geometry */
+  --content-max: 75rem;
+  --content-prose: 43.75rem;
+  --content-search: 48rem;
+  --content-form: 42rem;
+  --content-narrow: 32rem;
+  --content-toast: 22.5rem;
+  --content-auth-min: 22rem;
+  --content-footer-column: 8rem;
+  --content-table-wide: 56rem;
+  --viewport-min: 20rem;
+  --content-detail-rail: 21.25rem;
+  --cover-list-height: 10.5rem;
+  --cover-detail-height: 14.375rem;
+  --skeleton-media-min: calc(var(--control-height-lg) * 3.25);
+  --page-padding: 1.75rem;
+  --page-padding-mobile: 1.125rem;
+  --header-height: 4rem;
+  --grid-gap: 1.375rem;
+  --detail-gap: 2.25rem;
+  --wordmark-header-width: 6.75rem;
+  --wordmark-header-height: 2.75rem;
+  --wordmark-header-mobile-width: 6rem;
+  --wordmark-header-mobile-height: 2.5rem;
+  --wordmark-footer-width: 8rem;
+  --wordmark-footer-height: 4.75rem;
+  --wordmark-hero-width: 9.5rem;
+  --wordmark-hero-height: 5.75rem;
+
+  /* Elevation. Warm shadows, tinted palm rather than neutral grey. */
+  --shadow-sm: 0 1px 2px rgba(20, 69, 61, 0.05), 0 1px 3px rgba(20, 69, 61, 0.06);
+  --shadow-md: 0 4px 14px -4px rgba(20, 69, 61, 0.12), 0 2px 6px -2px rgba(20, 69, 61, 0.08);
+  --shadow-lg: 0 24px 48px -16px rgba(20, 69, 61, 0.2), 0 8px 20px -8px rgba(20, 69, 61, 0.12);
+  --shadow-glass: 0 12px 32px -12px var(--glass-shadow-color), inset 0 1px 0 var(--glass-edge);
+  --shadow-action: 0 8px 20px -8px rgba(198, 73, 27, 0.45);
+
+  /* Layers */
+  --z-base: 0;
+  --z-content: 1;
+  --z-sticky-tabs: 20;
+  --z-chip-rail: 30;
+  --z-dropdown: 40;
+  --z-header: 50;
+  --z-modal: 100;
+  --z-toast: 110;
+
+  /* Motion */
+  --ease-primary: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --duration-fast: 200ms;
+  --duration-card: 280ms;
+  --duration-accordion: 320ms;
+  --duration-theme: 400ms;
+  --duration-rise: 500ms;
+  --duration-pulse: 1600ms;
+  --motion-lift-control: -1px;
+  --motion-lift-card: -4px;
+  --motion-arrow: 4px;
+  --motion-rise: 14px;
+
+  /*
+   * Signature motif. Blob radii mask participant photography — a blob never floats
+   * empty. Waves are always cut by an edge. Marquee is consumer-facing only, one
+   * per screen, and stops (does not vanish) under reduced motion.
+   */
+  --blob-radius-a: 62% 38% 46% 54% / 54% 44% 56% 46%;
+  --blob-radius-b: 44% 56% 62% 38% / 42% 58% 42% 58%;
+  --wave-height: 4.5rem;
+  --wave-radius-peach: 45% 58% 0 0 / 80% 72% 0 0;
+  --wave-radius-terracotta: 58% 43% 0 0 / 74% 86% 0 0;
+  --marquee-duration: 26s;
+  --marquee-height: 2.75rem;
+
+  /*
+   * Lime marker: highlights one word in a headline, never a phrase. Painted as a
+   * highlighter band (a gradient sized shorter than the line box and dropped onto
+   * the lowercase body) so it hugs the word instead of boxing the full line height.
+   */
+  --marker-fill: var(--color-highlight);
+  --marker-ink: var(--color-highlight-ink);
+  --marker-padding-x: 0.14em;
+  --marker-band-height: 0.94em;
+  --marker-band-offset: 74%;
+  --marker-radius: 3px;
+
+  /*
+   * Text and chips that sit on category/cover artwork. The pastel washes are
+   * procedural artwork with no dark variant, so their overlaid ink and chips
+   * stay light-theme regardless of the active theme — theme-reactive ink over
+   * a permanently-light wash would fail contrast in dark mode.
+   */
+  --on-cover-ink: #14453d;
+  --on-cover-ink-soft: #3d5c56;
+  --on-cover-chip: rgba(255, 255, 255, 0.88);
+
+  /* Category cover art hues (deterministic per category). */
+  --category-hue-kti: 208;
+  --category-hue-business: 42;
+  --category-hue-uiux: 268;
+  --category-hue-hackathon: 200;
+  --category-hue-debate: 350;
+  --category-hue-essay: 24;
+  --category-hue-photography: 168;
+  --category-hue-film: 300;
+  --category-hue-olympiad: 222;
+  --category-hue-pitch: 140;
+  --category-hue-engineering: 250;
+  --category-hue-finance: 120;
+  --category-hue-law: 320;
+  --category-hue-data-science: 190;
+  --category-hue-programming: 235;
+  --category-hue-marketing: 6;
+  --category-hue-esports: 285;
+  --category-hue-quiz: 65;
+  --category-wash-saturation: 55%;
+  --category-wash-lightness: 90%;
+  --category-blob-saturation: 62%;
+  --category-blob-lightness: 52%;
+}

@@ -184,7 +184,7 @@ describe("assertSessionMatchesExpectedUser — cross-session form-submission gua
     if (header !== undefined) {
       headers.set("X-Expected-User-Id", header);
     }
-    return new Request("http://localhost/api/v1/students/me/eligibility", {
+    return new Request("http://localhost/api/v1/candidate/me/profile", {
       method: "PATCH",
       headers,
     });

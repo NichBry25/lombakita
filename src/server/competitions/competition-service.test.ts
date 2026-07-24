@@ -8,15 +8,12 @@ import {
 import { PUBLIC_COMPETITION_COLUMNS } from "@/server/competitions/competition-access";
 import type { CompetitionRow } from "@/server/competitions/competition-access";
 
-const {
-  assertCompetitionAccess,
-  assertInstitutionVerified,
-  assertInstitutionNotSuspended,
-} = vi.hoisted(() => ({
-  assertCompetitionAccess: vi.fn(),
-  assertInstitutionVerified: vi.fn(),
-  assertInstitutionNotSuspended: vi.fn(),
-}));
+const { assertCompetitionAccess, assertActorIsTrustedRecruiter, assertInstitutionNotSuspended } =
+  vi.hoisted(() => ({
+    assertCompetitionAccess: vi.fn(),
+    assertActorIsTrustedRecruiter: vi.fn(),
+    assertInstitutionNotSuspended: vi.fn(),
+  }));
 
 vi.mock("@/server/competitions/competition-access", async () => {
   const actual = await vi.importActual<typeof import("@/server/competitions/competition-access")>(
@@ -25,7 +22,7 @@ vi.mock("@/server/competitions/competition-access", async () => {
   return {
     ...actual,
     assertCompetitionAccess,
-    assertInstitutionVerified,
+    assertActorIsTrustedRecruiter,
     assertInstitutionNotSuspended,
   };
 });
@@ -108,7 +105,7 @@ describe("F2 — same-status transitions return 422", () => {
     );
   });
 
-  it("does not call assertInstitutionVerified on same-status draft → draft", async () => {
+  it("does not call assertActorIsTrustedRecruiter on same-status draft → draft", async () => {
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({ status: "draft" }),
       membershipRole: "institution_owner",
@@ -117,7 +114,7 @@ describe("F2 — same-status transitions return 422", () => {
     await expect(
       transitionCompetitionStatus("user_1", "comp_1", "draft", stubDb),
     ).rejects.toBeInstanceOf(CompetitionError);
-    expect(assertInstitutionVerified).not.toHaveBeenCalled();
+    expect(assertActorIsTrustedRecruiter).not.toHaveBeenCalled();
   });
 });
 
@@ -175,7 +172,7 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
         maxTeamSize: 4,
         title: "Lomba Tim",
         description: "Deskripsi lengkap",
-        category: "technology",
+        category: "hackathon",
         registrationStartAt: future(2),
         registrationEndAt: future(10),
         eventStartAt: future(20),
@@ -183,7 +180,7 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
       }),
       membershipRole: "institution_owner",
     });
-    assertInstitutionVerified.mockResolvedValue(undefined);
+    assertActorIsTrustedRecruiter.mockResolvedValue(undefined);
     assertInstitutionNotSuspended.mockResolvedValue(undefined);
 
     await expect(
@@ -195,6 +192,39 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
     });
   });
 
+  it("rejects publish with 403 competition_recruiter_not_trusted when the actor is not Trusted", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({
+        status: "draft",
+        mode: "individual",
+        title: "Lomba Individu",
+        description: "Deskripsi lengkap",
+        category: "hackathon",
+        registrationStartAt: future(2),
+        registrationEndAt: future(10),
+        eventStartAt: future(20),
+        eventEndAt: future(25),
+      }),
+      membershipRole: "institution_owner",
+    });
+    assertActorIsTrustedRecruiter.mockRejectedValue(
+      new CompetitionError(
+        "competition_recruiter_not_trusted",
+        403,
+        "Publishing requires a Trusted Recruiter account — complete recruiter verification first",
+      ),
+    );
+
+    await expect(
+      transitionCompetitionStatus("user_1", "comp_1", "published", stubDb),
+    ).rejects.toMatchObject({
+      code: "competition_recruiter_not_trusted",
+      httpStatus: 403,
+    });
+    // The trust gate fires before the suspension read — no institution lookup happens.
+    expect(assertInstitutionNotSuspended).not.toHaveBeenCalled();
+  });
+
   it("validatePublishChecklist passes for an otherwise-identical team competition with minTeamSize=2", async () => {
     // Proves the rejection above is attributable to the floor, not another field — same valid
     // dates/title/category, only minTeamSize differs. Checked at the pure-validation layer so the
@@ -203,7 +233,7 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
     const result = validatePublishChecklist({
       title: "Lomba Tim",
       description: "Deskripsi lengkap",
-      category: "technology",
+      category: "hackathon",
       mode: "team",
       minTeamSize: 2,
       maxTeamSize: 4,
@@ -223,7 +253,12 @@ describe("F5 — updateCompetitionDraft secondary floor (Step 6.5b)", () => {
 
   it("rejects patching minTeamSize=1 on a team-mode draft competition", async () => {
     assertCompetitionAccess.mockResolvedValue({
-      competition: baseCompetition({ status: "draft", mode: "team", minTeamSize: 2, maxTeamSize: 4 }),
+      competition: baseCompetition({
+        status: "draft",
+        mode: "team",
+        minTeamSize: 2,
+        maxTeamSize: 4,
+      }),
       membershipRole: "institution_owner",
     });
     await expect(
@@ -232,7 +267,12 @@ describe("F5 — updateCompetitionDraft secondary floor (Step 6.5b)", () => {
   });
 
   it("allows patching minTeamSize=3 on a team-mode draft competition", async () => {
-    const updatedRow = baseCompetition({ status: "draft", mode: "team", minTeamSize: 3, maxTeamSize: 4 });
+    const updatedRow = baseCompetition({
+      status: "draft",
+      mode: "team",
+      minTeamSize: 3,
+      maxTeamSize: 4,
+    });
     const db = {
       update: vi.fn().mockReturnValue({
         set: vi.fn().mockReturnValue({
@@ -243,7 +283,12 @@ describe("F5 — updateCompetitionDraft secondary floor (Step 6.5b)", () => {
       }),
     } as unknown as Database;
     assertCompetitionAccess.mockResolvedValue({
-      competition: baseCompetition({ status: "draft", mode: "team", minTeamSize: 2, maxTeamSize: 4 }),
+      competition: baseCompetition({
+        status: "draft",
+        mode: "team",
+        minTeamSize: 2,
+        maxTeamSize: 4,
+      }),
       membershipRole: "institution_owner",
     });
     const result = await updateCompetitionDraft("user_1", "comp_1", { minTeamSize: 3 }, db);
@@ -269,9 +314,7 @@ describe("F14 — createCompetitionDraft defaults mode to individual", () => {
       values: vi.fn((vals: Record<string, unknown>) => {
         capturedValues = vals;
         return {
-          returning: vi.fn().mockResolvedValue([
-            { ...baseCompetition(), mode: vals.mode ?? null },
-          ]),
+          returning: vi.fn().mockResolvedValue([{ ...baseCompetition(), mode: vals.mode ?? null }]),
         };
       }),
     };
@@ -301,7 +344,13 @@ describe("F14 — createCompetitionDraft defaults mode to individual", () => {
 
     await createCompetitionDraft(
       "user_1",
-      { institutionSlug: "test-inst", title: "Lomba Tim", description: "Deskripsi", slug: null, mode: "team" },
+      {
+        institutionSlug: "test-inst",
+        title: "Lomba Tim",
+        description: "Deskripsi",
+        slug: null,
+        mode: "team",
+      },
       db,
     );
 
@@ -311,17 +360,18 @@ describe("F14 — createCompetitionDraft defaults mode to individual", () => {
 
 // G6 — institution-scoped competition slug lookup (Step 6.5b)
 describe("getCompetitionIdByInstitutionAndSlug", () => {
-  const makeSlugDb = (rows: Array<{ id: string }>) => ({
-    select: vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        innerJoin: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue(rows),
+  const makeSlugDb = (rows: Array<{ id: string }>) =>
+    ({
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          innerJoin: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockResolvedValue(rows),
+            }),
           }),
         }),
       }),
-    }),
-  }) as unknown as Database;
+    }) as unknown as Database;
 
   it("returns the competitionId when institution+slug match", async () => {
     const db = makeSlugDb([{ id: "comp_abc" }]);

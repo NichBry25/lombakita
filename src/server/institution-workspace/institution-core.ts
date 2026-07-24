@@ -5,6 +5,11 @@ import type {
   InstitutionStatus,
   InstitutionType,
 } from "@/server/db/schema";
+import {
+  FULL_INSTITUTION_TYPES,
+  isFullInstitutionType,
+  type FullInstitutionType,
+} from "@/server/institution-workspace/institution-type";
 import { RESERVED_WORDS } from "@/lib/username/reserved-words";
 
 const MIN_DISPLAY_NAME_LENGTH = 2;
@@ -13,7 +18,7 @@ const MIN_SLUG_LENGTH = 3;
 const MAX_SLUG_LENGTH = 64;
 const FALLBACK_SLUG_BASE = "institusi";
 
-const CREATE_FIELDS = ["displayName", "slug"] as const;
+const CREATE_FIELDS = ["displayName", "slug", "institutionType"] as const;
 const UPDATE_FIELDS = ["displayName", "slug"] as const;
 
 const PROTECTED_FIELDS = [
@@ -36,9 +41,9 @@ export type InstitutionWorkspaceShell = {
   displayName: string;
   slug: string;
   status: InstitutionStatus;
-  // Step 6.5f.1 — null for a legacy/undeclared full institution; "personal" for the capped
-  // single-member type; a full subtype once declared via F10 (Step 6.5g).
-  institutionType: InstitutionType | null;
+  // "personal" for the capped single-member type; a full subtype for every other institution.
+  // Never null — institution_type is NOT NULL and set at creation.
+  institutionType: InstitutionType;
   ownerMembership: {
     membershipId: string;
     membershipRole: InstitutionMembershipRole;
@@ -52,6 +57,9 @@ export type InstitutionWorkspaceShell = {
 export type InstitutionWorkspaceCreateInput = {
   displayName: string;
   slug: string | null;
+  // A full institution declares its subtype at creation. `personal` is not accepted here — a
+  // personal institution is created through POST /api/v1/institutions/personal.
+  institutionType: FullInstitutionType;
 };
 
 export type InstitutionWorkspaceSettingsPatch = {
@@ -94,6 +102,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
+// Exported as parseInstitutionDisplayName below so the type-upgrade path can validate the official
+// institution name it collects with exactly the rules the create and settings paths apply.
 const parseDisplayName = (value: unknown): string => {
   if (typeof value !== "string") {
     throw new InstitutionWorkspaceInputError(
@@ -270,12 +280,31 @@ export const parseInstitutionWorkspaceCreateInput = (
     );
   }
 
+  if (!("institutionType" in record)) {
+    throw new InstitutionWorkspaceInputError(
+      "institution_invalid_value",
+      "institutionType is required",
+      { fields: ["institutionType"] },
+    );
+  }
+
+  // Only the four full subtypes are valid here. `personal` (and any unrecognized value) is rejected —
+  // a personal institution has its own create path.
+  if (!isFullInstitutionType(record.institutionType)) {
+    throw new InstitutionWorkspaceInputError(
+      "institution_invalid_value",
+      `institutionType must be one of: ${FULL_INSTITUTION_TYPES.join(", ")}`,
+      { fields: ["institutionType"] },
+    );
+  }
+
   const displayName = parseDisplayName(record.displayName);
   const slug = "slug" in record ? parseSlug(record.slug) : null;
 
   return {
     displayName,
     slug,
+    institutionType: record.institutionType,
   };
 };
 
@@ -295,6 +324,11 @@ export const parseInstitutionWorkspaceSettingsPatch = (
 
   return patch;
 };
+
+// Standalone display-name validation for callers that supply a name outside the create/settings
+// payload shapes — currently the personal→full type upgrade, which collects the official
+// institution name in its own form.
+export const parseInstitutionDisplayName = (value: unknown): string => parseDisplayName(value);
 
 export const parseInstitutionSlugParam = (value: string): string => {
   const normalized = normalizeInstitutionSlug(value);

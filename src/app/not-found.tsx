@@ -10,7 +10,7 @@ export default function NotFoundPage() {
         <p className="eyebrow">404</p>
         <h1>Halaman tidak ditemukan.</h1>
         <p>Alamat yang Anda buka tidak tersedia atau sudah dipindahkan.</p>
-        <ButtonLink href="/competitions" variant="gold">
+        <ButtonLink href="/competitions" variant="secondary">
           Jelajahi kompetisi
         </ButtonLink>
       </section>

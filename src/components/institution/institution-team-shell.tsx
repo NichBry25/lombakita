@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
+import { Button, EmptyState, PageHeader, SelectField, Skeleton } from "@/components/ui";
+import { getInstitutionRoleLabel } from "@/lib/access/role-labels";
 
 type Invitation = {
   id: string;
@@ -153,15 +154,25 @@ export const InstitutionTeamShell = ({
               onChange={(e) => setIdentifier(e.target.value)}
               required
             />
-            <select
-              className="form-select"
+            <SelectField
+              label="Peran"
               value={inviteRole}
-              onChange={(e) => setInviteRole(e.target.value as typeof inviteRole)}
-            >
-              <option value="institution_staff">Staf</option>
-              <option value="institution_owner">Pemilik</option>
-              <option value="institution_member">Anggota</option>
-            </select>
+              onChange={(value) => setInviteRole(value as typeof inviteRole)}
+              options={[
+                {
+                  value: "institution_staff",
+                  label: getInstitutionRoleLabel("institution_staff"),
+                },
+                {
+                  value: "institution_owner",
+                  label: getInstitutionRoleLabel("institution_owner"),
+                },
+                {
+                  value: "institution_member",
+                  label: getInstitutionRoleLabel("institution_member"),
+                },
+              ]}
+            />
             <Button type="submit" disabled={isSubmitting} loading={isSubmitting}>
               {isSubmitting ? "Mengirim..." : "Undang"}
             </Button>
@@ -211,7 +222,7 @@ export const InstitutionTeamShell = ({
                 {invitations.map((inv) => (
                   <tr key={inv.id}>
                     <td>{inv.invitedEmail}</td>
-                    <td>{inv.invitedRole.replace(/_/g, " ")}</td>
+                    <td>{getInstitutionRoleLabel(inv.invitedRole)}</td>
                     <td className="data-text">{formatDate(inv.expiresAt)}</td>
                     <td>
                       <Button

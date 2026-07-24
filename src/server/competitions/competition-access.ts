@@ -6,6 +6,7 @@ import {
   competitions,
   institutionMemberships,
   institutions,
+  users,
   type CompetitionCategory,
   type CompetitionMode,
   type CompetitionStatus,
@@ -13,6 +14,7 @@ import {
   type InstitutionType,
   type InstitutionVerificationStatus,
 } from "@/server/db/schema";
+import { meetsRecruiterTier, OPPORTUNITY_PUBLISH_MIN_TIER } from "@/server/auth/recruiter-tier";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import {
@@ -181,9 +183,33 @@ export const assertCompetitionRead = async (
   return { competition, membershipRole: role };
 };
 
-// Asserts that the institution's verification_status is "verified". Used by the publish
-// transition guard. Throws CompetitionError 422 with code competition_institution_not_verified
-// when the institution is not yet verified.
+// Recruiter trust gate for publishing. The acting account must hold the Trusted Recruiter tier
+// (`elevated`); sandboxed recruiters (`minimal`) may draft but not publish. Reads the tier from
+// the DB (not the JWT) so a fresh platform-ops approval takes effect on the next request.
+// Throws CompetitionError 403 competition_recruiter_not_trusted otherwise.
+export const assertActorIsTrustedRecruiter = async (
+  actorUserId: string,
+  db: Database = getDb(),
+): Promise<void> => {
+  const [row] = await db
+    .select({ recruiterVerificationTier: users.recruiterVerificationTier })
+    .from(users)
+    .where(eq(users.id, actorUserId))
+    .limit(1);
+
+  if (!row || !meetsRecruiterTier(row.recruiterVerificationTier, OPPORTUNITY_PUBLISH_MIN_TIER)) {
+    throw new CompetitionError(
+      "competition_recruiter_not_trusted",
+      403,
+      "Publishing requires a Trusted Recruiter account — complete recruiter verification first",
+    );
+  }
+};
+
+// Asserts that the institution's verification_status is "verified". No longer wired into the
+// publish transition (superseded by assertActorIsTrustedRecruiter, the account-level trust
+// gate); parked for the Phase 7 payout path, where institution-level document verification
+// becomes the money gate. Throws CompetitionError 422 competition_institution_not_verified.
 export const assertInstitutionVerified = async (
   institutionId: string,
   db: Database = getDb(),

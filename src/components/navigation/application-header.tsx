@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { signOut, useSession } from "next-auth/react";
 import { NotificationBell } from "@/app/notification-bell";
 import { ButtonLink, Icon } from "@/components/ui";
 
@@ -32,6 +33,7 @@ function resolveInitialTheme(): ThemeName {
 
 export function ApplicationHeader() {
   const pathname = usePathname();
+  const { status } = useSession();
   const [theme, setTheme] = useState<ThemeName>("light");
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -66,11 +68,8 @@ export function ApplicationHeader() {
     <header className="site-header" data-scrolled={scrolled ? "true" : "false"}>
       <div className="header-inner">
         <Link href="/" className="brand-lockup" aria-label="Lombakita.id, beranda">
-          <span className="brand-mark" aria-hidden="true">
-            <Icon name="trophy" size="md" />
-          </span>
-          <span className="brand-name">Lombakita</span>
-          <span className="brand-domain">.id</span>
+          <span className="brand-wordmark brand-wordmark-primary" aria-hidden="true" />
+          <span className="brand-wordmark brand-wordmark-reversed" aria-hidden="true" />
         </Link>
 
         <nav className="desktop-nav" aria-label="Navigasi utama">
@@ -97,7 +96,7 @@ export function ApplicationHeader() {
             data-size="md"
             aria-label="Kompetisi tersimpan"
           >
-            <Icon name="bookmark" size="md" />
+            <Icon name="bookmark" size="lg" />
           </Link>
           <NotificationBell />
           <button
@@ -108,19 +107,49 @@ export function ApplicationHeader() {
             onClick={toggleTheme}
             aria-label={theme === "light" ? "Gunakan tema gelap" : "Gunakan tema terang"}
           >
-            <Icon name={theme === "light" ? "moon" : "sun"} size="md" />
+            <Icon name={theme === "light" ? "moon" : "sun"} size="lg" />
           </button>
-          <ButtonLink href="/auth/login" variant="ghost" size="sm" className="header-auth-action">
-            Masuk
-          </ButtonLink>
-          <ButtonLink
-            href="/auth/register"
-            variant="primary"
-            size="sm"
-            className="header-auth-action"
-          >
-            Daftar
-          </ButtonLink>
+          {status === "loading" ? null : status === "authenticated" ? (
+            <>
+              <Link
+                href="/profile"
+                className="ui-button icon-button header-auth-action"
+                data-variant="ghost"
+                data-size="md"
+                aria-label="Profil dan akun saya"
+              >
+                <Icon name="user" size="lg" />
+              </Link>
+              <button
+                type="button"
+                className="ui-button header-auth-action"
+                data-variant="outline"
+                data-size="sm"
+                onClick={() => void signOut({ callbackUrl: "/" })}
+              >
+                Keluar
+              </button>
+            </>
+          ) : (
+            <>
+              <ButtonLink
+                href="/auth/login"
+                variant="ghost"
+                size="sm"
+                className="header-auth-action"
+              >
+                Masuk
+              </ButtonLink>
+              <ButtonLink
+                href="/auth/register"
+                variant="primary"
+                size="sm"
+                className="header-auth-action"
+              >
+                Daftar
+              </ButtonLink>
+            </>
+          )}
           <button
             type="button"
             className="ui-button icon-button mobile-nav-toggle"
@@ -156,12 +185,32 @@ export function ApplicationHeader() {
         <Link href="/saved" className="header-nav-link" onClick={() => setMenuOpen(false)}>
           Tersimpan
         </Link>
-        <Link href="/auth/login" className="header-nav-link" onClick={() => setMenuOpen(false)}>
-          Masuk
-        </Link>
-        <Link href="/auth/register" className="header-nav-link" onClick={() => setMenuOpen(false)}>
-          Daftar akun
-        </Link>
+        {status === "loading" ? null : status === "authenticated" ? (
+          <>
+            <Link href="/profile" className="header-nav-link" onClick={() => setMenuOpen(false)}>
+              Profil saya
+            </Link>
+            <button
+              type="button"
+              className="header-nav-link"
+              onClick={() => {
+                setMenuOpen(false);
+                void signOut({ callbackUrl: "/" });
+              }}
+            >
+              Keluar
+            </button>
+          </>
+        ) : (
+          <>
+            <Link href="/auth/login" className="header-nav-link" onClick={() => setMenuOpen(false)}>
+              Masuk
+            </Link>
+            <Link href="/auth/register" className="header-nav-link" onClick={() => setMenuOpen(false)}>
+              Daftar akun
+            </Link>
+          </>
+        )}
       </nav>
     </header>
   );

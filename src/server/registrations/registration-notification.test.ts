@@ -7,19 +7,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockGetDb,
-  checkStudentEligibility,
   enqueueRegistrationConfirmed,
   enqueueRegistrationCancelled,
 } = vi.hoisted(() => ({
   mockGetDb: vi.fn(),
-  checkStudentEligibility: vi.fn(),
   enqueueRegistrationConfirmed: vi.fn(),
   enqueueRegistrationCancelled: vi.fn(),
 }));
 
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
-vi.mock("@/server/eligibility/eligibility-service", () => ({ checkStudentEligibility }));
 vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 vi.mock("@/server/async/enqueue", () => ({
   enqueueRegistrationConfirmed,
@@ -79,7 +76,6 @@ describe("createIndividualRegistration — notification enqueue", () => {
 
   it("calls enqueueRegistrationConfirmed once on successful registration", async () => {
     enqueueRegistrationConfirmed.mockResolvedValue({});
-    checkStudentEligibility.mockResolvedValue({ status: "eligible", reasons: [] });
     const db = makeDb(
       [
         [{ id: "comp_1", status: "published", mode: "individual", registrationEndAt: FUTURE }],
@@ -97,22 +93,7 @@ describe("createIndividualRegistration — notification enqueue", () => {
     );
   });
 
-  it("does NOT call enqueueRegistrationConfirmed when eligibility check fails", async () => {
-    checkStudentEligibility.mockResolvedValue({ status: "ineligible_age", reasons: ["age"] });
-    const db = makeDb([
-      [{ id: "comp_1", status: "published", mode: "individual", registrationEndAt: FUTURE }],
-    ]);
-    mockGetDb.mockReturnValue(db);
-
-    await expect(
-      createIndividualRegistration("stud_1", "comp_1", db as never, NOW),
-    ).rejects.toBeInstanceOf(RegistrationError);
-
-    expect(enqueueRegistrationConfirmed).not.toHaveBeenCalled();
-  });
-
   it("does NOT call enqueueRegistrationConfirmed when duplicate registration exists", async () => {
-    checkStudentEligibility.mockResolvedValue({ status: "eligible", reasons: [] });
     const db = makeDb([
       [{ id: "comp_1", status: "published", mode: "individual", registrationEndAt: FUTURE }],
       [{ id: "reg_existing", status: "confirmed" }],
@@ -128,7 +109,6 @@ describe("createIndividualRegistration — notification enqueue", () => {
 
   it("returns the registration even when enqueue throws (fire-and-forget)", async () => {
     enqueueRegistrationConfirmed.mockRejectedValue(new Error("redis_down"));
-    checkStudentEligibility.mockResolvedValue({ status: "eligible", reasons: [] });
     const db = makeDb(
       [
         [{ id: "comp_1", status: "published", mode: "individual", registrationEndAt: FUTURE }],

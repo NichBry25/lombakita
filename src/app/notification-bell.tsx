@@ -115,7 +115,7 @@ export function NotificationBell() {
       data-size="md"
       aria-label={hasUnread ? `Kotak masuk, ${unreadCount} belum dibaca` : "Kotak masuk"}
     >
-      <Icon name="inbox" size="md" />
+      <Icon name="inbox" size="lg" />
       {hasUnread ? <span className="notification-badge">{unreadCount}</span> : null}
     </Link>
   );

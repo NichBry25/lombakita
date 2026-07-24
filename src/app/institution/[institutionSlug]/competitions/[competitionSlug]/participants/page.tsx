@@ -13,11 +13,21 @@ import {
 } from "@/server/participants/participant-service";
 import { REVIEW_STATUS_LABELS } from "./review-status-labels";
 import { ButtonLink, EmptyState, PageHeader } from "@/components/ui";
+import { formatDisplayToken } from "@/lib/text/capitalize";
 
 type Props = {
   params: Promise<{ institutionSlug: string; competitionSlug: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
+
+const REGISTRATION_STATUS_LABELS: Record<string, string> = {
+  confirmed: "Dikonfirmasi",
+  cancelled: "Dibatalkan",
+  pending: "Menunggu",
+};
+
+const getRegistrationStatusLabel = (status: string): string =>
+  REGISTRATION_STATUS_LABELS[status] ?? formatDisplayToken(status);
 
 export default async function ParticipantsPage({ params, searchParams }: Props) {
   const session = await getCurrentSession();
@@ -146,7 +156,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
           <strong className="data-text">{result.counts.confirmed}</strong>
         </div>
         <div className="summary-stat">
-          <span>Pending</span>
+          <span>Menunggu</span>
           <strong className="data-text">{result.counts.pending}</strong>
         </div>
         <div className="summary-stat">
@@ -222,7 +232,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
                             : "closing"
                       }
                     >
-                      {p.status}
+                      {getRegistrationStatusLabel(p.status)}
                     </span>
                   </td>
                   <td className="data-text">

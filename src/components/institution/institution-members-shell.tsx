@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
+import { getInstitutionRoleLabel } from "@/lib/access/role-labels";
 
 type MemberRole = "institution_owner" | "institution_staff" | "institution_member";
 
@@ -39,12 +40,6 @@ const formatDate = (iso: string): string => {
     month: "short",
     year: "numeric",
   });
-};
-
-const ROLE_LABELS: Record<MemberRole, string> = {
-  institution_owner: "Owner",
-  institution_staff: "Staf",
-  institution_member: "Member",
 };
 
 const BASE_URL = (institutionSlug: string) =>
@@ -207,7 +202,7 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
                       </td>
                       <td>{member.email}</td>
                       <td>
-                        <span className="status-badge">{ROLE_LABELS[member.role]}</span>
+                        <span className="status-badge">{getInstitutionRoleLabel(member.role)}</span>
                       </td>
                       <td className="data-text">{formatDate(member.joinedAt)}</td>
                       <td>
@@ -222,7 +217,7 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
                                 onClick={() => void onRoleChange(member.membershipId, role)}
                                 type="button"
                               >
-                                {isActing ? "..." : `Jadikan ${ROLE_LABELS[role]}`}
+                                {isActing ? "..." : `Jadikan ${getInstitutionRoleLabel(role)}`}
                               </Button>
                             ))}
                             <Button

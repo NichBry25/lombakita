@@ -41,10 +41,7 @@ import {
   processRegistrationConfirmedJob,
   type RegistrationConfirmedJob,
 } from "./registration-confirmed";
-import {
-  processCompetitionEditedJob,
-  type CompetitionEditedJob,
-} from "./competition-edited";
+import { processCompetitionEditedJob, type CompetitionEditedJob } from "./competition-edited";
 import {
   processCompetitionCancelledJob,
   type CompetitionCancelledJob,
@@ -121,7 +118,7 @@ describe("registration-confirmed dual-write", () => {
       expect.anything(),
       "stud_1",
       "registration_confirmed",
-      "Pendaftaran Dikonfirmasi",
+      "Pendaftaran dikonfirmasi",
       expect.stringContaining("Hackathon 2026"),
     );
   });
@@ -157,22 +154,20 @@ describe("competition-edited fan-out", () => {
       expect.anything(),
       "u_1",
       "competition_edited",
-      "Kompetisi Diperbarui",
+      "Kompetisi diperbarui",
       expect.stringContaining("Hackathon 2026"),
     );
     expect(mockWriteNotification).toHaveBeenCalledWith(
       expect.anything(),
       "u_2",
       "competition_edited",
-      "Kompetisi Diperbarui",
+      "Kompetisi diperbarui",
       expect.stringContaining("Hackathon 2026"),
     );
   });
 
   it("summarizes the changed fields into a broad category in the notification body", async () => {
-    mockGetDb.mockReturnValue(
-      makeDb([[COMP_ROW], [{ userId: "u_1", email: "a@test.com" }]]),
-    );
+    mockGetDb.mockReturnValue(makeDb([[COMP_ROW], [{ userId: "u_1", email: "a@test.com" }]]));
     mockSendCompetitionEditedEmail.mockResolvedValue(undefined);
     mockWriteNotification.mockResolvedValue(undefined);
 
@@ -183,7 +178,7 @@ describe("competition-edited fan-out", () => {
       expect.anything(),
       "u_1",
       "competition_edited",
-      "Kompetisi Diperbarui",
+      "Kompetisi diperbarui",
       expect.stringContaining("jadwal"),
     );
     expect(mockSendCompetitionEditedEmail).toHaveBeenCalledWith(
@@ -192,9 +187,7 @@ describe("competition-edited fan-out", () => {
   });
 
   it("does not rethrow when the notification write fails but the email succeeds", async () => {
-    mockGetDb.mockReturnValue(
-      makeDb([[COMP_ROW], [{ userId: "u_1", email: "a@test.com" }]]),
-    );
+    mockGetDb.mockReturnValue(makeDb([[COMP_ROW], [{ userId: "u_1", email: "a@test.com" }]]));
     mockWriteNotification.mockRejectedValue(new Error("notifications table gone"));
     mockSendCompetitionEditedEmail.mockResolvedValue(undefined);
 
@@ -222,15 +215,13 @@ describe("competition-cancelled fan-out", () => {
       expect.anything(),
       "u_1",
       "competition_cancelled",
-      "Kompetisi Dibatalkan",
+      "Kompetisi dibatalkan",
       expect.stringContaining("Hackathon 2026"),
     );
   });
 
   it("does not rethrow when the notification write fails but the email succeeds", async () => {
-    mockGetDb.mockReturnValue(
-      makeDb([[COMP_ROW], [{ userId: "u_1", email: "a@test.com" }]]),
-    );
+    mockGetDb.mockReturnValue(makeDb([[COMP_ROW], [{ userId: "u_1", email: "a@test.com" }]]));
     mockWriteNotification.mockRejectedValue(new Error("notifications table gone"));
     mockSendCompetitionCancelledEmail.mockResolvedValue(undefined);
 

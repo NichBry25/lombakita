@@ -9,7 +9,7 @@ vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn(
 import {
   getUnverifiedRoles,
   isSecondRoleVerificationPromptDue,
-  markRoleAsVerifiedStub,
+  markRoleAsVerified,
   RoleVerificationError,
 } from "./role-verification";
 
@@ -92,8 +92,27 @@ describe("isSecondRoleVerificationPromptDue", () => {
   });
 });
 
-describe("markRoleAsVerifiedStub", () => {
-  // Helper that produces a tx with a select returning `row` and a no-op update().set().where().
+describe("markRoleAsVerified", () => {
+  // Candidate onboarding profile written in the same transaction as the candidate verification
+  // grant (parity with the credentials- and OAuth-signup candidacy paths).
+  const candidateProfileFixture = {
+    fullName: "Dinda Putri",
+    phoneNumber: "0812345678",
+    occupation: "college_student",
+    dateOfBirth: "2000-01-15",
+  } as const;
+
+  // Recruiter affiliation form written in the same transaction as the recruiter grant, entering
+  // the account into the platform-ops trust review queue.
+  const recruiterVerificationFixture = {
+    fullName: "Rendra Wijaya",
+    mobileNumber: "0812345678",
+    corporateEmail: "rendra@corp.co.id",
+  } as const;
+
+  // Helper that produces a tx with a select returning `row`, a no-op update().set().where(), and
+  // an insert().values() chain that captures the onboarding write (candidate profile upsert or
+  // recruiter submission insert).
   const buildTxDb = (row: unknown | null) => {
     const selectChain = {
       from: vi.fn(),
@@ -109,29 +128,102 @@ describe("markRoleAsVerifiedStub", () => {
     };
     updateChain.set.mockReturnValue(updateChain);
 
+    const captures: { candidateProfileInsert: Record<string, unknown> | null } = {
+      candidateProfileInsert: null,
+    };
+    const insertChain = {
+      values: vi.fn((v: Record<string, unknown>) => {
+        captures.candidateProfileInsert = v;
+        return insertChain;
+      }),
+      onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
+      onConflictDoNothing: vi.fn().mockResolvedValue(undefined),
+    };
+
     const tx = {
       select: vi.fn().mockReturnValue(selectChain),
       update: vi.fn().mockReturnValue(updateChain),
+      insert: vi.fn().mockReturnValue(insertChain),
     };
 
     const db = {
       transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(tx)),
     };
 
-    return { db, tx, updateChain };
+    return { db, tx, updateChain, captures };
   };
 
-  it("flips candidateVerifiedAt for an unverified candidate", async () => {
-    const { db, updateChain } = buildTxDb({
+  it("flips candidateVerifiedAt and writes the onboarding profile for an unverified candidate", async () => {
+    const { db, updateChain, captures } = buildTxDb({
       candidateVerifiedAt: null,
       recruiterVerifiedAt: new Date(),
     });
 
-    const result = await markRoleAsVerifiedStub("u1", "candidate", db as never);
+    const result = await markRoleAsVerified(
+      "u1",
+      "candidate",
+      candidateProfileFixture,
+      null,
+      db as never,
+    );
 
     expect(updateChain.set).toHaveBeenCalled();
     expect(result.candidateVerified).toBe(true);
     expect(result.recruiterVerified).toBe(true);
+    // Onboarding profile is written in the same transaction (parity with signup paths).
+    expect(captures.candidateProfileInsert).toMatchObject({
+      userId: "u1",
+      fullName: "Dinda Putri",
+      occupation: "college_student",
+      dateOfBirth: "2000-01-15",
+    });
+  });
+
+  it("throws candidate_profile_required when verifying candidate with no onboarding profile", async () => {
+    const { db, tx } = buildTxDb({
+      candidateVerifiedAt: null,
+      recruiterVerifiedAt: new Date(),
+    });
+
+    await expect(markRoleAsVerified("u1", "candidate", null, null, db as never)).rejects.toMatchObject(
+      {
+        code: "candidate_profile_required",
+        status: 400,
+      },
+    );
+    // Fail closed before opening the transaction.
+    expect(tx.update).not.toHaveBeenCalled();
+  });
+
+  it("throws recruiter_verification_required when verifying recruiter with no affiliation form", async () => {
+    const { db, tx } = buildTxDb({
+      candidateVerifiedAt: new Date(),
+      recruiterVerifiedAt: null,
+    });
+
+    await expect(markRoleAsVerified("u1", "recruiter", null, null, db as never)).rejects.toMatchObject({
+      code: "recruiter_verification_required",
+      status: 400,
+    });
+    // Fail closed before opening the transaction.
+    expect(tx.update).not.toHaveBeenCalled();
+  });
+
+  it("writes the recruiter trust submission in the same transaction as the recruiter grant", async () => {
+    const { db, captures } = buildTxDb({
+      candidateVerifiedAt: new Date(),
+      recruiterVerifiedAt: null,
+    });
+
+    await markRoleAsVerified("u1", "recruiter", null, recruiterVerificationFixture, db as never);
+
+    expect(captures.candidateProfileInsert).toMatchObject({
+      userId: "u1",
+      fullName: "Rendra Wijaya",
+      mobileNumber: "0812345678",
+      corporateEmail: "rendra@corp.co.id",
+      emailDomainFlag: true,
+    });
   });
 
   it("throws role_already_verified when target role is already verified", async () => {
@@ -140,7 +232,9 @@ describe("markRoleAsVerifiedStub", () => {
       recruiterVerifiedAt: null,
     });
 
-    await expect(markRoleAsVerifiedStub("u1", "candidate", db as never)).rejects.toMatchObject({
+    await expect(
+      markRoleAsVerified("u1", "candidate", candidateProfileFixture, null, db as never),
+    ).rejects.toMatchObject({
       code: "role_already_verified",
       status: 409,
     });
@@ -149,9 +243,9 @@ describe("markRoleAsVerifiedStub", () => {
   it("throws user_not_found when the row does not exist", async () => {
     const { db } = buildTxDb(null);
 
-    await expect(markRoleAsVerifiedStub("u1", "candidate", db as never)).rejects.toBeInstanceOf(
-      RoleVerificationError,
-    );
+    await expect(
+      markRoleAsVerified("u1", "candidate", candidateProfileFixture, null, db as never),
+    ).rejects.toBeInstanceOf(RoleVerificationError);
   });
 
   // Step 4.0c (4.0c-T3) — When the second-role stub flips recruiter to verified, the
@@ -165,7 +259,7 @@ describe("markRoleAsVerifiedStub", () => {
       recruiterVerifiedAt: null,
     });
 
-    await markRoleAsVerifiedStub("u1", "recruiter", db as never);
+    await markRoleAsVerified("u1", "recruiter", null, recruiterVerificationFixture, db as never);
 
     // Both writes must land in a single .set() call — the helper only invokes update().set()
     // once per call, so the assertion below confirms both fields ride the same statement.
@@ -181,7 +275,7 @@ describe("markRoleAsVerifiedStub", () => {
       recruiterVerifiedAt: new Date(),
     });
 
-    await markRoleAsVerifiedStub("u1", "candidate", db as never);
+    await markRoleAsVerified("u1", "candidate", candidateProfileFixture, null, db as never);
 
     const setArg = updateChain.set.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(setArg).toHaveProperty("candidateVerifiedAt");

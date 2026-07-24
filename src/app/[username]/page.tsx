@@ -1,7 +1,36 @@
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { Icon, PageHeader } from "@/components/ui";
+import { Icon } from "@/components/ui";
+import { ProfileDetailSections } from "@/components/profile/profile-detail-sections";
 import { getCurrentSession } from "@/server/auth/session";
+import { deriveProfileHeader } from "@/server/user-profile/profile-collections-core";
 import { getPublicProfile, isUsernameOwnedBy } from "@/server/user-profile/profile-service";
+
+// Renders a validated http(s) URL as its bare host for compact display.
+function displayUrl(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ username: string }>;
+}): Promise<Metadata> {
+  const { username } = await params;
+  const profile = await getPublicProfile(username);
+  if (!profile) {
+    return { title: "Profil tidak ditemukan · Lombakita" };
+  }
+  const name = profile.displayName ?? `@${profile.username}`;
+  return {
+    title: `${name} · Lombakita`,
+    description: profile.bio ?? `Profil ${name} di Lombakita.`,
+  };
+}
 
 export default async function PublicProfilePage({
   params,
@@ -23,100 +52,111 @@ export default async function PublicProfilePage({
   const profile = await getPublicProfile(username);
   if (!profile) notFound();
 
+  const displayName = profile.displayName ?? `@${profile.username}`;
+  const { affiliation, websiteUrl } = deriveProfileHeader(profile.collections);
+
   return (
-    <main className="page-shell app-page public-profile-page">
-      <PageHeader
-        eyebrow="Profil publik"
-        title={profile.displayName ?? profile.username}
-        description={`@${profile.username}`}
-      />
+    <main className="page-shell app-page pf-page">
+      <article className="pf-card">
+        <div className="pf-banner" aria-hidden="true" />
+        <div className="pf-identity">
+          <div className="pf-identity-head">
+            <span className="pf-avatar">
+              {profile.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={profile.avatarUrl} alt="" />
+              ) : (
+                <Icon name="user" size="xl" aria-hidden="true" />
+              )}
+            </span>
+          </div>
 
-      <section className="public-profile-hero brand-band">
-        <div className="public-profile-avatar" aria-hidden={!profile.avatarUrl}>
-          {profile.avatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={profile.avatarUrl} alt={profile.displayName ?? profile.username} />
+          <div className="pf-name-block">
+            <h1 className="pf-name">{displayName}</h1>
+            <p className="pf-handle">@{profile.username}</p>
+
+            {profile.bio && <p className="pf-headline">{profile.bio}</p>}
+
+            {(affiliation || profile.location) && (
+              <div className="pf-meta">
+                {affiliation && (
+                  <span className="pf-meta-item">
+                    <Icon name="building" size="sm" className="pf-meta-icon" />
+                    {affiliation}
+                  </span>
+                )}
+                {profile.location && (
+                  <span className="pf-meta-item">
+                    <Icon name="pin" size="sm" className="pf-meta-icon" />
+                    {profile.location}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {websiteUrl && (
+              <a
+                className="pf-website"
+                href={websiteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Icon name="link" size="sm" aria-hidden="true" />
+                {displayUrl(websiteUrl)}
+              </a>
+            )}
+
+            {(profile.candidateVerified || profile.recruiterVerified) && (
+              <div className="pf-badges">
+                {profile.candidateVerified && (
+                  <span className="status-badge" data-status="open">
+                    <Icon name="check" size="sm" aria-hidden="true" />
+                    Kandidat terverifikasi
+                  </span>
+                )}
+                {profile.recruiterVerified && !profile.trustedRecruiter && (
+                  <span className="status-badge" data-status="open">
+                    <Icon name="check" size="sm" aria-hidden="true" />
+                    Rekruter terverifikasi
+                  </span>
+                )}
+                {profile.trustedRecruiter && (
+                  <span className="status-badge" data-status="open">
+                    <Icon name="check" size="sm" aria-hidden="true" />
+                    Rekruter Terpercaya
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </article>
+
+      {profile.resume && (
+        <section className="content-section">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Dokumen</p>
+              <h2>Resume</h2>
+            </div>
+          </div>
+          {profile.resume.downloadUrl ? (
+            <a
+              className="pf-website"
+              href={profile.resume.downloadUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Icon name="inbox" size="sm" aria-hidden="true" />
+              Unduh resume
+            </a>
           ) : (
-            <Icon name="user" size="xl" />
+            <p className="pf-entry-sub">{profile.resume.fileName}</p>
           )}
-        </div>
-        <div className="stack-sm">
-          <p className="data-text">@{profile.username}</p>
-          {profile.bio && <p className="public-profile-bio">{profile.bio}</p>}
-          {profile.location && (
-            <p className="public-profile-location">
-              <Icon name="pin" size="sm" />
-              {profile.location}
-            </p>
-          )}
-        </div>
-      </section>
-
-      {"university" in profile && (
-        <section className="content-section public-profile-section">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Kandidat</p>
-              <h2>Riwayat pendidikan</h2>
-            </div>
-          </div>
-          <dl className="profile-detail-list">
-            {profile.university && (
-              <div>
-                <dt>Universitas</dt>
-                <dd>{profile.university}</dd>
-              </div>
-            )}
-            {profile.major && (
-              <div>
-                <dt>Jurusan</dt>
-                <dd>{profile.major}</dd>
-              </div>
-            )}
-            {profile.graduationYear && (
-              <div>
-                <dt>Tahun lulus</dt>
-                <dd className="data-text">{profile.graduationYear}</dd>
-              </div>
-            )}
-          </dl>
         </section>
       )}
 
-      {"roleTitle" in profile && (
-        <section className="content-section public-profile-section">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Rekruter</p>
-              <h2>Identitas profesional</h2>
-            </div>
-          </div>
-          <dl className="profile-detail-list">
-            {profile.roleTitle && (
-              <div>
-                <dt>Jabatan</dt>
-                <dd>{profile.roleTitle}</dd>
-              </div>
-            )}
-            {profile.organizationName && (
-              <div>
-                <dt>Organisasi</dt>
-                <dd>{profile.organizationName}</dd>
-              </div>
-            )}
-            {profile.websiteUrl && (
-              <div>
-                <dt>Website</dt>
-                <dd>
-                  <a href={profile.websiteUrl} target="_blank" rel="noopener noreferrer">
-                    {profile.websiteUrl}
-                  </a>
-                </dd>
-              </div>
-            )}
-          </dl>
-        </section>
-      )}
+      <ProfileDetailSections collections={profile.collections} variant="public" />
     </main>
   );
 }

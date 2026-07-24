@@ -2,7 +2,6 @@ import { notFound, redirect } from "next/navigation";
 import { sessionHasRole } from "@/lib/access/roles";
 import { getCurrentSession } from "@/server/auth/session";
 import { getPublicCompetitionDetail } from "@/server/competitions/competition-public-service";
-import { checkStudentEligibility } from "@/server/eligibility/eligibility-service";
 import { getStudentRegistration } from "@/server/registrations/registration-service";
 import { getTeamForCompetitionAndCandidate } from "@/server/teams/team-service";
 import { IndividualRegistrationSection } from "./individual-section";
@@ -55,26 +54,19 @@ export default async function CompetitionRegistrationPage({
     ? await getStudentRegistration(session.user.id, competition.id)
     : null;
 
-  // Team side: load team snapshot + per-member eligibility so the section renders fully
-  // server-side. After every client mutation the section calls router.refresh() which re-runs
-  // this page and re-fetches all of this.
+  // Team side: load team snapshot so the section renders fully server-side. After every client
+  // mutation the section calls router.refresh() which re-runs this page and re-fetches all of this.
   const teamSnapshot = supportsTeams
     ? await getTeamForCompetitionAndCandidate(session.user.id, competition.id)
     : null;
-  const teamMembersWithEligibility = teamSnapshot
-    ? await Promise.all(
-        teamSnapshot.roster.map(async (m) => {
-          const elig = await checkStudentEligibility(m.userId);
-          return {
-            membershipId: m.membershipId,
-            userId: m.userId,
-            role: m.role,
-            displayName: m.displayName,
-            email: m.email,
-            eligibility: { status: elig.status, reasons: elig.reasons },
-          };
-        }),
-      )
+  const teamMembers = teamSnapshot
+    ? teamSnapshot.roster.map((m) => ({
+        membershipId: m.membershipId,
+        userId: m.userId,
+        role: m.role,
+        displayName: m.displayName,
+        email: m.email,
+      }))
     : [];
   const teamPendingInvitations = teamSnapshot
     ? teamSnapshot.pendingInvitations.map((p) => ({
@@ -143,7 +135,7 @@ export default async function CompetitionRegistrationPage({
                 }
               : null
           }
-          initialMembers={teamMembersWithEligibility}
+          initialMembers={teamMembers}
           initialPendingInvitations={teamPendingInvitations}
         />
       )}

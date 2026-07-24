@@ -27,8 +27,6 @@ type Props = {
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
-  registration_ineligible:
-    "Akun Anda belum memenuhi syarat. Lengkapi profil kelayakan terlebih dahulu.",
   competition_not_published: "Kompetisi tidak tersedia untuk pendaftaran.",
   competition_wrong_mode: "Kompetisi ini hanya menerima pendaftaran tim.",
   registration_deadline_passed: "Batas waktu pendaftaran telah terlewat.",
@@ -91,7 +89,7 @@ function CancelReasonForm({
           data-variant="danger"
           data-size="sm"
         >
-          Batalkan Pendaftaran
+          Batalkan pendaftaran
         </button>
       </div>
     </div>
@@ -168,7 +166,7 @@ export function IndividualRegistrationSection({
   const handleCancel = () => {
     if (!registration) return;
     openModal({
-      title: "Batalkan Pendaftaran",
+      title: "Batalkan pendaftaran",
       closeable: true,
       actions: [],
       body: <CancelReasonForm onConfirm={submitCancel} onCancel={closeModal} />,
@@ -197,7 +195,7 @@ export function IndividualRegistrationSection({
               data-variant="danger"
               data-size="sm"
             >
-              {loading ? "..." : "Batalkan Pendaftaran"}
+              {loading ? "..." : "Batalkan pendaftaran"}
             </button>
             <p className="form-help">Pembatalan tunduk pada kebijakan penyelenggara.</p>
           </div>

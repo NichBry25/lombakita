@@ -66,7 +66,7 @@ export const processRegistrationCancelledJob = async (
     {
       userId: studentId,
       type: NOTIFICATION_TYPES.registrationCancelled,
-      title: "Pendaftaran Dibatalkan",
+      title: "Pendaftaran dibatalkan",
       body: `Pendaftaranmu untuk kompetisi "${competition.title}" telah dibatalkan.`,
     },
     { event: "registration.cancelled", jobId: job.id ?? undefined },

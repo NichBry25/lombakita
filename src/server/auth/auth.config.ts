@@ -232,9 +232,21 @@ export const authOptions: NextAuthOptions = {
     CredentialsProvider({
       id: OAUTH_FINALIZE_PROVIDER_ID,
       name: "oauth-finalize",
+      // A candidate signup carries the four onboarding fields, and a recruiter signup carries the
+      // affiliation form (fullName/mobileNumber/corporateEmail); authorizeOAuthFinalize parses
+      // whichever set matches the declared role (shared parseCandidateProfileInput /
+      // parseRecruiterVerificationInput) and writes the corresponding data in the finalize
+      // transaction. Each signup leaves the other role's fields empty. The HMAC identity carrier
+      // is unchanged.
       credentials: {
         carrier: { label: "Carrier", type: "text" },
         role: { label: "Role", type: "text" },
+        fullName: { label: "Full name", type: "text" },
+        phoneNumber: { label: "Phone number", type: "text" },
+        occupation: { label: "Occupation", type: "text" },
+        dateOfBirth: { label: "Date of birth", type: "text" },
+        mobileNumber: { label: "Mobile number", type: "text" },
+        corporateEmail: { label: "Corporate email", type: "text" },
       },
       async authorize(credentials) {
         const finalized = await authorizeOAuthFinalize(credentials).catch((error: unknown) => {

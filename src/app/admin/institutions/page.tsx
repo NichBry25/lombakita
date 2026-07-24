@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
+import { Button, EmptyState, PageHeader, SelectField, Skeleton } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 
 type VerificationStatus = "pending_verification" | "under_review" | "verified" | "rejected";
@@ -36,8 +36,8 @@ type ListResponse = {
 };
 
 const STATUS_LABELS: Record<VerificationStatus, string> = {
-  pending_verification: "Menunggu Verifikasi",
-  under_review: "Sedang Ditinjau",
+  pending_verification: "Menunggu verifikasi",
+  under_review: "Sedang ditinjau",
   verified: "Terverifikasi",
   rejected: "Ditolak",
 };
@@ -121,7 +121,7 @@ function RejectInstitutionForm({
           Batal
         </Button>
         <Button variant="danger" disabled={busy} loading={busy} onClick={() => void submit()}>
-          {busy ? "Memproses..." : "Tolak Institusi"}
+          {busy ? "Memproses..." : "Tolak institusi"}
         </Button>
       </div>
     </div>
@@ -202,7 +202,7 @@ export default function AdminInstitutionsPage() {
 
   const openRejectModal = (id: string, displayName: string) => {
     openModal({
-      title: "Tolak Institusi",
+      title: "Tolak institusi",
       body: (
         <RejectInstitutionForm
           institutionId={id}
@@ -264,21 +264,22 @@ export default function AdminInstitutionsPage() {
         <label htmlFor="institution-status-filter" className="form-label">
           Filter status
         </label>
-        <select
+        <SelectField
           id="institution-status-filter"
+          label="Filter status"
           value={statusFilter}
-          onChange={(e) => {
-            setStatusFilter(e.target.value);
+          onChange={(value) => {
+            setStatusFilter(value);
             setPage(1);
           }}
-          className="form-select"
-        >
-          <option value="">Semua</option>
-          <option value="pending_verification">Menunggu Verifikasi</option>
-          <option value="under_review">Sedang Ditinjau</option>
-          <option value="verified">Terverifikasi</option>
-          <option value="rejected">Ditolak</option>
-        </select>
+          options={[
+            { value: "", label: "Semua" },
+            { value: "pending_verification", label: "Menunggu verifikasi" },
+            { value: "under_review", label: "Sedang ditinjau" },
+            { value: "verified", label: "Terverifikasi" },
+            { value: "rejected", label: "Ditolak" },
+          ]}
+        />
       </div>
 
       {loading && (
@@ -375,7 +376,7 @@ export default function AdminInstitutionsPage() {
                           size="sm"
                           onClick={() => void toggleAudit(row.id, row.id)}
                         >
-                          {row.auditExpanded ? "Sembunyikan" : "Lihat Log"}
+                          {row.auditExpanded ? "Sembunyikan" : "Lihat log"}
                         </Button>
                       </td>
                     </tr>
