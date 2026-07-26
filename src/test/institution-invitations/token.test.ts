@@ -62,18 +62,27 @@ describe("parseInvitationCreateInput — role validation", () => {
   it.each(["institution_owner", "institution_staff", "institution_member"])(
     "accepts role %s",
     (role) => {
-      const result = parseInvitationCreateInput({ invitedIdentifier: validEmail, invitedRole: role });
+      const result = parseInvitationCreateInput({
+        invitedIdentifier: validEmail,
+        invitedRole: role,
+      });
       expect(result.invitedRole).toBe(role);
     },
   );
 
   it("rejects legacy institution_admin value with invitation_invalid_role", () => {
     expect(() =>
-      parseInvitationCreateInput({ invitedIdentifier: validEmail, invitedRole: "institution_admin" }),
+      parseInvitationCreateInput({
+        invitedIdentifier: validEmail,
+        invitedRole: "institution_admin",
+      }),
     ).toThrow(InstitutionInvitationError);
 
     try {
-      parseInvitationCreateInput({ invitedIdentifier: validEmail, invitedRole: "institution_admin" });
+      parseInvitationCreateInput({
+        invitedIdentifier: validEmail,
+        invitedRole: "institution_admin",
+      });
     } catch (err) {
       expect((err as InstitutionInvitationError).code).toBe("invitation_invalid_role");
       expect((err as InstitutionInvitationError).httpStatus).toBe(400);
@@ -87,9 +96,9 @@ describe("parseInvitationCreateInput — role validation", () => {
   });
 
   it("rejects a missing role field", () => {
-    expect(() =>
-      parseInvitationCreateInput({ invitedIdentifier: validEmail }),
-    ).toThrow(InstitutionInvitationError);
+    expect(() => parseInvitationCreateInput({ invitedIdentifier: validEmail })).toThrow(
+      InstitutionInvitationError,
+    );
   });
 });
 

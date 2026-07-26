@@ -125,9 +125,7 @@ describe("enqueueResultPublished", () => {
       publishedAt: PUBLISHED_AT,
     });
 
-    expect(queue.getJob).toHaveBeenCalledWith(
-      `result.published__reg_1__${PUBLISHED_AT.getTime()}`,
-    );
+    expect(queue.getJob).toHaveBeenCalledWith(`result.published__reg_1__${PUBLISHED_AT.getTime()}`);
   });
 
   it("produces a DISTINCT job id for a later re-publish so it is not deduped", async () => {

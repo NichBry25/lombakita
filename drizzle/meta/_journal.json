@@ -316,6 +316,13 @@
       "when": 1784867627618,
       "tag": "0044_blue_black_tom",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1784908509885,
+      "tag": "0045_furry_harpoon",
+      "breakpoints": true
     }
   ]
 }

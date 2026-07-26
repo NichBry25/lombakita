@@ -37,7 +37,15 @@ describe("GET /api/v1/me/inbox", () => {
   it("returns 200 with { items, unreadCount } for an authenticated user", async () => {
     requireAuthenticatedSession.mockResolvedValue(session("user_1"));
     listUserInbox.mockResolvedValue([
-      { kind: "notification", id: "n1", type: "registration_confirmed", title: "T", body: "B", readAt: null, createdAt: new Date() },
+      {
+        kind: "notification",
+        id: "n1",
+        type: "registration_confirmed",
+        title: "T",
+        body: "B",
+        readAt: null,
+        createdAt: new Date(),
+      },
     ]);
     countUnreadInboxItems.mockResolvedValue(1);
 

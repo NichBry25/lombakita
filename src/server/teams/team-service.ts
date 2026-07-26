@@ -104,10 +104,7 @@ const assertCompetitionTeamPlayable = (
       "This competition does not accept team registration",
     );
   }
-  if (
-    !competition.registrationEndAt ||
-    competition.registrationEndAt.getTime() <= now.getTime()
-  ) {
+  if (!competition.registrationEndAt || competition.registrationEndAt.getTime() <= now.getTime()) {
     throw new TeamError(
       "team_competition_registration_closed",
       "Registration window for this competition has closed",
@@ -158,9 +155,7 @@ const loadActiveRoster = async (teamId: string, db: Database): Promise<TeamRoste
     .from(teamMemberships)
     .innerJoin(users, eq(users.id, teamMemberships.userId))
     .leftJoin(userProfiles, eq(userProfiles.userId, teamMemberships.userId))
-    .where(
-      and(eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")),
-    )
+    .where(and(eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")))
     .orderBy(teamMemberships.joinedAt);
 };
 
@@ -349,14 +344,9 @@ export const disbandTeam = async (
     await tx
       .update(teamMemberships)
       .set({ status: "removed" })
-      .where(
-        and(eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")),
-      );
+      .where(and(eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")));
 
-    await tx
-      .update(teams)
-      .set({ status: "cancelled", updatedAt: now })
-      .where(eq(teams.id, teamId));
+    await tx.update(teams).set({ status: "cancelled", updatedAt: now }).where(eq(teams.id, teamId));
   });
 
   logger.info("team.disbanded", { teamId });
@@ -610,9 +600,7 @@ export const cancelTeamInvitationByToken = async (
   const [invitation] = await db
     .select({ id: teamInvitations.id, status: teamInvitations.status })
     .from(teamInvitations)
-    .where(
-      and(eq(teamInvitations.tokenHash, tokenHash), eq(teamInvitations.teamId, teamId)),
-    )
+    .where(and(eq(teamInvitations.tokenHash, tokenHash), eq(teamInvitations.teamId, teamId)))
     .limit(1);
 
   if (!invitation) {
@@ -733,10 +721,7 @@ export const acceptTeamInvitationForUser = async (
       });
     } catch (error) {
       if (pgErrorCode(error) === "23505") {
-        throw new TeamError(
-          "team_candidate_already_member",
-          "You are already on this team",
-        );
+        throw new TeamError("team_candidate_already_member", "You are already on this team");
       }
       throw error;
     }
@@ -850,4 +835,3 @@ export const removeTeamMember = async (
     byCaptain: isCaptainRemove && !isSelfRemove,
   });
 };
-

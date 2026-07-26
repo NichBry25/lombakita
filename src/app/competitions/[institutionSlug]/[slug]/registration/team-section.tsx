@@ -11,6 +11,7 @@ import {
 import { getTeamRoleLabel } from "@/lib/access/role-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import { useModal, useToast } from "@/components/ui/primitives";
+import { Button, Icon } from "@/components/ui";
 
 type Member = {
   membershipId: string;
@@ -148,15 +149,9 @@ function CreateTeamForm(props: Props) {
           required
           className="form-input"
         />
-        <button
-          type="submit"
-          disabled={busy}
-          className="ui-button"
-          data-variant="primary"
-          data-size="md"
-        >
-          {busy ? "Membuat…" : "Buat tim"}
-        </button>
+        <Button type="submit" loading={busy} variant="primary" size="md">
+          Buat tim
+        </Button>
       </form>
     </div>
   );
@@ -188,25 +183,18 @@ function TeamCancelReasonForm({
         className="form-textarea"
       />
       <div className="modal-actions">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="ui-button"
-          data-variant="outline"
-          data-size="sm"
-        >
+        <Button type="button" onClick={onCancel} variant="outline" size="sm">
           Kembali
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           disabled={trimmed.length === 0}
           onClick={() => onConfirm(trimmed)}
-          className="ui-button"
-          data-variant="danger"
-          data-size="sm"
+          variant="danger"
+          size="sm"
         >
           Batalkan pendaftaran tim
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -229,7 +217,11 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
   const isCaptain = team.captainId === props.expectedUserId;
   const status = team.status;
 
-  const [busy, setBusy] = useState(false);
+  // The roster runs many one-off actions from the same component. Tracking *which* one is in
+  // flight (rather than a single boolean) puts the spinner on the button the user pressed while
+  // still locking every other control.
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const busy = pendingAction !== null;
   // a username OR an email; resolved server-side.
   const [inviteIdentifier, setInviteIdentifier] = useState("");
 
@@ -248,8 +240,13 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     return null;
   })();
 
-  const executeAction = async (label: string, url: string, init: RequestInit) => {
-    setBusy(true);
+  const executeAction = async (
+    actionKey: string,
+    label: string,
+    url: string,
+    init: RequestInit,
+  ) => {
+    setPendingAction(actionKey);
     try {
       const res = await sessionFetch(props.expectedUserId, url, init);
       if (!res.ok) {
@@ -261,13 +258,13 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     } catch {
       addToast({ type: "error", message: `Gagal ${label}.` });
     } finally {
-      setBusy(false);
+      setPendingAction(null);
     }
   };
 
   const onInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    await executeAction("mengirim undangan", `/api/v1/teams/${team.id}/invitations`, {
+    await executeAction("invite", "mengirim undangan", `/api/v1/teams/${team.id}/invitations`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ invitedIdentifier: inviteIdentifier }),
@@ -276,14 +273,20 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
   };
 
   const onCancelInvite = (tokenHash: string) =>
-    executeAction("membatalkan undangan", `/api/v1/teams/${team.id}/invitations/${tokenHash}`, {
-      method: "DELETE",
-    });
+    executeAction(
+      `cancel-invite:${tokenHash}`,
+      "membatalkan undangan",
+      `/api/v1/teams/${team.id}/invitations/${tokenHash}`,
+      { method: "DELETE" },
+    );
 
   const onRemoveMember = (membershipId: string) =>
-    executeAction("menghapus anggota", `/api/v1/teams/${team.id}/memberships/${membershipId}`, {
-      method: "DELETE",
-    });
+    executeAction(
+      `remove-member:${membershipId}`,
+      "menghapus anggota",
+      `/api/v1/teams/${team.id}/memberships/${membershipId}`,
+      { method: "DELETE" },
+    );
 
   const onDisband = () =>
     openModal({
@@ -294,7 +297,9 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
           label: "Bubarkan tim",
           autoClose: true,
           onClick: () => {
-            void executeAction("membubarkan tim", `/api/v1/teams/${team.id}`, { method: "DELETE" });
+            void executeAction("disband", "membubarkan tim", `/api/v1/teams/${team.id}`, {
+              method: "DELETE",
+            });
           },
         },
         { label: "Batal", onClick: () => {} },
@@ -311,6 +316,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
           autoClose: true,
           onClick: () => {
             void executeAction(
+              `leave:${membershipId}`,
               "meninggalkan tim",
               `/api/v1/teams/${team.id}/memberships/${membershipId}`,
               { method: "DELETE" },
@@ -323,6 +329,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
   const onSubmitTeam = () =>
     executeAction(
+      "submit-team",
       "mendaftarkan tim",
       `/api/v1/competitions/${props.competitionId}/teams/${team.id}/registrations`,
       { method: "POST" },
@@ -330,7 +337,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
   const submitTeamCancel = async (reason: string) => {
     closeModal();
-    setBusy(true);
+    setPendingAction("cancel-submission");
     try {
       const res = await sessionFetch(
         props.expectedUserId,
@@ -351,7 +358,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     } catch {
       addToast({ type: "error", message: "Terjadi kesalahan jaringan. Coba lagi." });
     } finally {
-      setBusy(false);
+      setPendingAction(null);
     }
   };
 
@@ -450,26 +457,26 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               </span>
             </span>
             {isCaptain && m.role !== "captain" && status === "forming" && (
-              <button
+              <Button
                 onClick={() => onRemoveMember(m.membershipId)}
+                loading={pendingAction === `remove-member:${m.membershipId}`}
                 disabled={busy}
-                className="ui-button"
-                data-variant="danger"
-                data-size="sm"
+                variant="danger"
+                size="sm"
               >
                 Hapus
-              </button>
+              </Button>
             )}
             {!isCaptain && m.userId === props.expectedUserId && status === "forming" && (
-              <button
+              <Button
                 onClick={() => onLeave(m.membershipId)}
+                loading={pendingAction === `leave:${m.membershipId}`}
                 disabled={busy}
-                className="ui-button"
-                data-variant="danger"
-                data-size="sm"
+                variant="danger"
+                size="sm"
               >
                 Tinggalkan
-              </button>
+              </Button>
             )}
           </li>
         ))}
@@ -483,15 +490,15 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               <li key={p.id} className="team-member-row">
                 <span className="team-member-name">{p.invitedEmail}</span>
                 {isCaptain && status === "forming" && (
-                  <button
+                  <Button
                     onClick={() => onCancelInvite(p.tokenHash)}
+                    loading={pendingAction === `cancel-invite:${p.tokenHash}`}
                     disabled={busy}
-                    className="ui-button"
-                    data-variant="danger"
-                    data-size="sm"
+                    variant="danger"
+                    size="sm"
                   >
                     Batalkan
-                  </button>
+                  </Button>
                 )}
               </li>
             ))}
@@ -512,15 +519,15 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               disabled={busy || atCapacity}
               className="form-input"
             />
-            <button
+            <Button
               type="submit"
+              loading={pendingAction === "invite"}
               disabled={busy || atCapacity}
-              className="ui-button"
-              data-variant="primary"
-              data-size="md"
+              variant="primary"
+              size="md"
             >
               Undang
-            </button>
+            </Button>
           </form>
           {atCapacity && <p className="form-error">Tim telah mencapai kapasitas maksimum.</p>}
         </>
@@ -529,38 +536,38 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       {isCaptain && (
         <div className="team-primary-actions">
           {status === "forming" && (
-            <button
+            <Button
               onClick={onSubmitTeam}
+              loading={pendingAction === "submit-team"}
               disabled={busy || submitDisabledReason !== null}
               title={submitDisabledReason ?? ""}
-              className="ui-button"
-              data-variant="primary"
-              data-size="md"
+              variant="primary"
+              size="md"
             >
-              {busy ? "Memproses…" : "Daftarkan tim"}
-            </button>
+              Daftarkan tim
+            </Button>
           )}
           {status === "submitted" && (
-            <button
+            <Button
               onClick={onCancelSubmission}
+              loading={pendingAction === "cancel-submission"}
               disabled={busy}
-              className="ui-button"
-              data-variant="danger"
-              data-size="md"
+              variant="danger"
+              size="md"
             >
               Batalkan pendaftaran tim
-            </button>
+            </Button>
           )}
           {status === "forming" && (
-            <button
+            <Button
               onClick={onDisband}
+              loading={pendingAction === "disband"}
               disabled={busy}
-              className="ui-button"
-              data-variant="danger"
-              data-size="md"
+              variant="danger"
+              size="md"
             >
               Bubarkan tim
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -571,15 +578,15 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
       {sizeBelowMin && status === "forming" && (
         <div>
-          <button
+          <Button
             type="button"
             onClick={handleBackOut}
-            className="ui-button"
-            data-variant="ghost"
-            data-size="sm"
+            variant="ghost"
+            size="sm"
+            leadingIcon={<Icon name="arrow-left" size="sm" />}
           >
-            ← Kembali ke detail kompetisi
-          </button>
+            Detail kompetisi
+          </Button>
         </div>
       )}
 

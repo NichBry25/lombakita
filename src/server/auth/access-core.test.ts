@@ -73,7 +73,11 @@ describe("access-core", () => {
   it("forbids a recruiter gate for a candidate-only account", () => {
     const session = assertAuthenticatedSession(
       buildSession({
-        user: { id: "cand_only", role: "candidate", verifiedRoles: ["candidate"] } as Session["user"],
+        user: {
+          id: "cand_only",
+          role: "candidate",
+          verifiedRoles: ["candidate"],
+        } as Session["user"],
       }),
     );
 

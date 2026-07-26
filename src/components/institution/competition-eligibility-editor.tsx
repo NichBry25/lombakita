@@ -105,8 +105,8 @@ export const CompetitionEligibilityEditor = ({
               onChange={(event) => setNote(event.target.value)}
             />
           </div>
-          <Button type="button" onClick={saveNote} disabled={isSaving} loading={isSaving}>
-            {isSaving ? "Menyimpan..." : "Simpan"}
+          <Button type="button" onClick={saveNote} loading={isSaving}>
+            Simpan
           </Button>
         </div>
       )}

@@ -85,18 +85,18 @@ describe("editNote", () => {
       select: vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue(
-              noteExists ? [{ id: "n1", createdById: "ops1" }] : [],
-            ),
+            limit: vi.fn().mockResolvedValue(noteExists ? [{ id: "n1", createdById: "ops1" }] : []),
           }),
         }),
       }),
       update: vi.fn().mockReturnValue({
         set: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
-            returning: vi.fn().mockResolvedValue([
-              { id: "n1", note: newText, createdById: "ops1", createdAt: new Date() },
-            ]),
+            returning: vi
+              .fn()
+              .mockResolvedValue([
+                { id: "n1", note: newText, createdById: "ops1", createdAt: new Date() },
+              ]),
           }),
         }),
       }),

@@ -204,7 +204,7 @@ function FormActions({
 
   return (
     <div className="pf-editor-form-actions">
-      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={onSubmit}>
+      <Button type="button" variant="outline" size="sm" loading={busy} onClick={onSubmit}>
         {submitLabel}
       </Button>
       <Button type="button" variant="ghost" size="sm" onClick={onCancel}>

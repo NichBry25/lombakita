@@ -8,6 +8,7 @@ import {
   isRecruiterTier,
   type RecruiterVerificationTier,
 } from "@/server/auth/recruiter-tier";
+import { sweepOrphanedObjectsForAccount } from "@/server/recruiter-verification/recruiter-verification-service";
 
 assertServerOnly("server/recruiter-tier/recruiter-tier-service");
 
@@ -84,11 +85,7 @@ export const elevateRecruiterTier = async (
   const current = await getRecruiterTierForAccount(accountId, db);
 
   if (!current) {
-    throw new RecruiterTierElevationError(
-      "tier_account_not_found",
-      404,
-      "Account not found",
-    );
+    throw new RecruiterTierElevationError("tier_account_not_found", 404, "Account not found");
   }
 
   if (!current.recruiterVerified) {
@@ -113,7 +110,10 @@ export const elevateRecruiterTier = async (
       updatedAt: sql`now()`,
     })
     .where(
-      and(eq(users.id, accountId), eq(users.recruiterVerificationTier, current.recruiterVerificationTier)),
+      and(
+        eq(users.id, accountId),
+        eq(users.recruiterVerificationTier, current.recruiterVerificationTier),
+      ),
     );
 
   logger.info("recruiter_tier.elevated", {
@@ -122,6 +122,11 @@ export const elevateRecruiterTier = async (
     from: current.recruiterVerificationTier,
     to: ELEVATION_TARGET_TIER,
   });
+
+  // This manual path bypasses the review flow's terminal orphan sweep, so run it here: reclaim any
+  // upload the account left behind on its still-pending submission. Best-effort — never blocks the
+  // elevation it follows.
+  await sweepOrphanedObjectsForAccount(accountId, db);
 
   return { accountId, tier: ELEVATION_TARGET_TIER, changed: true };
 };

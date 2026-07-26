@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui";
 import {
   readErrorCode,
   SESSION_MISMATCH_CODE,
@@ -17,6 +18,7 @@ import { useModal, useToast } from "@/components/ui/primitives";
 // no inline error state.
 
 type InviteKind = "institution" | "team";
+type InviteAction = "accept" | "decline";
 
 const ENDPOINT_SEGMENT: Record<InviteKind, string> = {
   institution: "institution",
@@ -46,10 +48,11 @@ export function InboxInviteActions({
   const router = useRouter();
   const { openModal } = useModal();
   const { addToast } = useToast();
-  const [busy, setBusy] = useState(false);
+  // Which action is in flight, so the spinner lands on the button the user actually pressed.
+  const [runningAction, setRunningAction] = useState<InviteAction | null>(null);
 
-  const run = async (action: "accept" | "decline") => {
-    setBusy(true);
+  const run = async (action: InviteAction) => {
+    setRunningAction(action);
     try {
       const res = await sessionFetch(
         expectedUserId,
@@ -70,11 +73,11 @@ export function InboxInviteActions({
     } catch {
       addToast({ type: "error", message: "Terjadi kesalahan jaringan. Coba lagi." });
     } finally {
-      setBusy(false);
+      setRunningAction(null);
     }
   };
 
-  const confirm = (action: "accept" | "decline") => {
+  const confirm = (action: InviteAction) => {
     openModal({
       title: action === "accept" ? "Terima undangan?" : "Tolak undangan?",
       body:
@@ -98,26 +101,26 @@ export function InboxInviteActions({
 
   return (
     <div className="inbox-actions">
-      <button
+      <Button
         type="button"
-        disabled={busy}
+        variant="primary"
+        size="sm"
+        loading={runningAction === "accept"}
+        disabled={runningAction !== null}
         onClick={() => confirm("accept")}
-        className="ui-button"
-        data-variant="primary"
-        data-size="sm"
       >
         Terima
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
-        disabled={busy}
+        variant="outline"
+        size="sm"
+        loading={runningAction === "decline"}
+        disabled={runningAction !== null}
         onClick={() => confirm("decline")}
-        className="ui-button"
-        data-variant="outline"
-        data-size="sm"
       >
         Tolak
-      </button>
+      </Button>
     </div>
   );
 }

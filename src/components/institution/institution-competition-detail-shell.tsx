@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, ButtonLink, EmptyState, PageHeader, Skeleton } from "@/components/ui";
+import {
+  Button,
+  ButtonLink,
+  EmptyState,
+  PageHeader,
+  Skeleton,
+  usePageTransition,
+} from "@/components/ui";
 import { useModal } from "@/components/ui/primitives";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
@@ -77,9 +84,13 @@ export const InstitutionCompetitionDetailShell = ({
   competitionId: string;
 }) => {
   const { openModal } = useModal();
+  const { begin: beginPageTransition } = usePageTransition();
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Several lifecycle actions live side by side; the key records which one is running so only
+  // that button spins while the rest stay locked.
+  const [pendingAction, setPendingAction] = useState<ActionKind | "delete" | null>(null);
+  const isSubmitting = pendingAction !== null;
   const [feedback, setFeedback] = useState<Feedback>(null);
 
   const load = useCallback(async () => {
@@ -107,24 +118,24 @@ export const InstitutionCompetitionDetailShell = ({
   }, [load]);
 
   const onAction = async (action: ActionKind) => {
-    setIsSubmitting(true);
+    setPendingAction(action);
     setFeedback(null);
     const url = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}/${action}`;
     const response = await fetch(url, { method: "POST", credentials: "include" });
     if (!response.ok) {
       const { message, failures } = await extractError(response);
       setFeedback({ type: "error", message, failures });
-      setIsSubmitting(false);
+      setPendingAction(null);
       return;
     }
     setFeedback({ type: "success", message: actionLabel[action] });
-    setIsSubmitting(false);
+    setPendingAction(null);
     void load();
   };
 
   const onDelete = async () => {
     if (!confirm("Hapus draf ini?")) return;
-    setIsSubmitting(true);
+    setPendingAction("delete");
     setFeedback(null);
     const response = await fetch(`/api/v1/competitions/${encodeURIComponent(competitionId)}`, {
       method: "DELETE",
@@ -133,9 +144,11 @@ export const InstitutionCompetitionDetailShell = ({
     if (!response.ok && response.status !== 204) {
       const { message } = await extractError(response);
       setFeedback({ type: "error", message });
-      setIsSubmitting(false);
+      setPendingAction(null);
       return;
     }
+    // Deleting the draft leaves this page for the competition list.
+    beginPageTransition("Menghapus draf…");
     window.location.href = `/institution/${encodeURIComponent(institutionSlug)}/competitions`;
   };
 
@@ -179,7 +192,7 @@ export const InstitutionCompetitionDetailShell = ({
         title={competition.title}
         description={`/${competition.slug}`}
         backHref={`/institution/${institutionSlug}/competitions`}
-        backLabel="Daftar kompetisi"
+        backLabel="Kompetisi"
         actions={
           <span
             className="status-badge"
@@ -255,18 +268,30 @@ export const InstitutionCompetitionDetailShell = ({
         </div>
         {isDraft ? (
           <div className="record-actions">
-            <Button onClick={() => onAction("publish")} disabled={isSubmitting} type="button">
+            <Button
+              onClick={() => onAction("publish")}
+              loading={pendingAction === "publish"}
+              disabled={isSubmitting}
+              type="button"
+            >
               Publish
             </Button>
             <Button
               variant="outline"
               onClick={() => onAction("archive")}
+              loading={pendingAction === "archive"}
               disabled={isSubmitting}
               type="button"
             >
               Arsipkan
             </Button>
-            <Button variant="danger" onClick={onDelete} disabled={isSubmitting} type="button">
+            <Button
+              variant="danger"
+              onClick={onDelete}
+              loading={pendingAction === "delete"}
+              disabled={isSubmitting}
+              type="button"
+            >
               Hapus draf
             </Button>
           </div>
@@ -293,6 +318,7 @@ export const InstitutionCompetitionDetailShell = ({
                   ],
                 })
               }
+              loading={pendingAction === "unpublish"}
               disabled={isSubmitting}
               type="button"
             >
@@ -301,6 +327,7 @@ export const InstitutionCompetitionDetailShell = ({
             <Button
               variant="outline"
               onClick={() => onAction("archive")}
+              loading={pendingAction === "archive"}
               disabled={isSubmitting}
               type="button"
             >

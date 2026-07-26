@@ -65,7 +65,7 @@ export default async function CandidateResultDetailPage({ params }: Props) {
         title={registration.competitionTitle}
         description="Keputusan resmi yang telah dipublikasikan oleh penyelenggara."
         backHref="/candidate-dashboard/results"
-        backLabel="Semua hasil"
+        backLabel="Semua"
         actions={
           <ButtonLink
             href={`/competitions/${registration.institutionSlug}/${registration.competitionSlug}`}

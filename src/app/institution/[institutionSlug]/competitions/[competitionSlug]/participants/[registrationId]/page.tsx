@@ -75,7 +75,7 @@ export default async function RegistrationReviewPage({ params }: Props) {
         title="Detail peserta"
         description="Catatan internal dan hasil publik dikelola secara terpisah."
         backHref={listPath}
-        backLabel="Daftar peserta"
+        backLabel="Peserta"
       />
       <ReviewForm
         apiPath={reviewApiPath}

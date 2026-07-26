@@ -92,27 +92,17 @@ export default async function SavedCompetitionsPage({
       {result.meta.totalPages > 1 ? (
         <nav className="pagination" aria-label="Halaman kompetisi tersimpan">
           {page > 1 ? (
-            <Link
-              className="ui-button"
-              data-variant="outline"
-              data-size="sm"
-              href={`/saved?page=${page - 1}`}
-            >
+            <ButtonLink variant="outline" size="sm" href={`/saved?page=${page - 1}`}>
               ← Sebelumnya
-            </Link>
+            </ButtonLink>
           ) : null}
           <span className="pagination-status data-text">
             Halaman {result.meta.page} dari {result.meta.totalPages}
           </span>
           {page < result.meta.totalPages ? (
-            <Link
-              className="ui-button"
-              data-variant="outline"
-              data-size="sm"
-              href={`/saved?page=${page + 1}`}
-            >
+            <ButtonLink variant="outline" size="sm" href={`/saved?page=${page + 1}`}>
               Berikutnya →
-            </Link>
+            </ButtonLink>
           ) : null}
         </nav>
       ) : null}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui";
 import {
   readErrorCode,
   SESSION_MISMATCH_CODE,
@@ -16,6 +17,8 @@ type ClientSubmission = {
 } | null;
 
 type Feedback = { type: "error" | "success"; message: string } | null;
+
+type SubmissionStep = "upload-url" | "save" | "finalize";
 
 type SubmissionShellProps = {
   expectedUserId: string;
@@ -50,7 +53,10 @@ export const SubmissionShell = ({
 }: SubmissionShellProps) => {
   const [submission, setSubmission] = useState<ClientSubmission>(initialSubmission);
   const [feedback, setFeedback] = useState<Feedback>(null);
-  const [loading, setLoading] = useState(false);
+  // Three independent steps share this component; tracking which one is running keeps the
+  // spinner on the pressed step while the other steps stay locked.
+  const [pendingStep, setPendingStep] = useState<SubmissionStep | null>(null);
+  const loading = pendingStep !== null;
   const [uploadUrl, setUploadUrl] = useState<string | null>(null);
 
   const [fileKey, setFileKey] = useState("");
@@ -77,7 +83,7 @@ export const SubmissionShell = ({
   const requestUploadUrl = async () => {
     setFeedback(null);
     setUploadUrl(null);
-    setLoading(true);
+    setPendingStep("upload-url");
     try {
       const res = await sessionFetch(expectedUserId, `${url}/upload-url`, {
         method: "POST",
@@ -101,13 +107,13 @@ export const SubmissionShell = ({
     } catch {
       setFeedback({ type: "error", message: "Network error" });
     } finally {
-      setLoading(false);
+      setPendingStep(null);
     }
   };
 
   const saveSubmission = async () => {
     setFeedback(null);
-    setLoading(true);
+    setPendingStep("save");
     try {
       const payload: Record<string, unknown> = { fileKey, fileName };
       if (fileSizeBytes.trim().length > 0) payload.fileSizeBytes = Number(fileSizeBytes);
@@ -128,13 +134,13 @@ export const SubmissionShell = ({
     } catch {
       setFeedback({ type: "error", message: "Network error" });
     } finally {
-      setLoading(false);
+      setPendingStep(null);
     }
   };
 
   const finalizeSubmission = async () => {
     setFeedback(null);
-    setLoading(true);
+    setPendingStep("finalize");
     try {
       const res = await sessionFetch(expectedUserId, `${url}/finalize`, { method: "POST" });
       if (!res.ok) {
@@ -147,7 +153,7 @@ export const SubmissionShell = ({
     } catch {
       setFeedback({ type: "error", message: "Network error" });
     } finally {
-      setLoading(false);
+      setPendingStep(null);
     }
   };
 
@@ -211,16 +217,16 @@ export const SubmissionShell = ({
               <h2>Minta upload URL (R2)</h2>
             </div>
           </div>
-          <button
+          <Button
             type="button"
             onClick={requestUploadUrl}
+            loading={pendingStep === "upload-url"}
             disabled={loading}
-            className="ui-button"
-            data-variant="outline"
-            data-size="md"
+            variant="outline"
+            size="md"
           >
             Minta upload URL
-          </button>
+          </Button>
           {uploadUrl ? <p className="submission-url data-text">Upload URL: {uploadUrl}</p> : null}
         </section>
       ) : null}
@@ -270,16 +276,16 @@ export const SubmissionShell = ({
               onChange={(e) => setFileMimeType(e.target.value)}
             />
           </label>
-          <button
+          <Button
             type="button"
             onClick={saveSubmission}
+            loading={pendingStep === "save"}
             disabled={loading}
-            className="ui-button"
-            data-variant="primary"
-            data-size="md"
+            variant="primary"
+            size="md"
           >
             Simpan submission
-          </button>
+          </Button>
         </section>
       ) : null}
 
@@ -293,16 +299,16 @@ export const SubmissionShell = ({
             </div>
           </div>
           <p className="muted-copy">Setelah difinalisasi, submission tidak dapat diubah.</p>
-          <button
+          <Button
             type="button"
             onClick={finalizeSubmission}
+            loading={pendingStep === "finalize"}
             disabled={loading}
-            className="ui-button"
-            data-variant="secondary"
-            data-size="md"
+            variant="secondary"
+            size="md"
           >
             Finalisasi submission
-          </button>
+          </Button>
         </section>
       ) : null}
     </div>

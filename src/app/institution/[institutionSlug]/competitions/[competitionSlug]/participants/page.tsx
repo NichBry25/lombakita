@@ -113,7 +113,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
         title="Peserta"
         description={`Tinjau pendaftaran, submission, dan hasil untuk ${competitionSlug}.`}
         backHref={`/institution/${institutionSlug}/competitions/${competitionSlug}`}
-        backLabel="Konsol kompetisi"
+        backLabel="Kembali"
       />
 
       <section className="export-toolbar glass-chrome" aria-label="Ekspor data kompetisi">

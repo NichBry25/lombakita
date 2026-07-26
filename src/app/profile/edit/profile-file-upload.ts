@@ -3,10 +3,7 @@ import {
   SESSION_MISMATCH_MESSAGE,
   sessionFetch,
 } from "@/lib/session/session-fetch";
-import {
-  PROFILE_FILE_RULES,
-  type ProfileFileKind,
-} from "@/server/user-profile/profile-files-core";
+import { PROFILE_FILE_RULES, type ProfileFileKind } from "@/server/user-profile/profile-files-core";
 
 export type UploadOutcome = { ok: true } | { ok: false; message: string };
 
@@ -23,7 +20,9 @@ const messageFor = (data: { error?: { code?: string; message?: string } }): stri
   return mapped ?? data.error?.message ?? "Terjadi kesalahan. Coba lagi.";
 };
 
-const readJson = async (res: Response): Promise<{ error?: { code?: string; message?: string } } & Record<string, unknown>> => {
+const readJson = async (
+  res: Response,
+): Promise<{ error?: { code?: string; message?: string } } & Record<string, unknown>> => {
   try {
     return await res.json();
   } catch {

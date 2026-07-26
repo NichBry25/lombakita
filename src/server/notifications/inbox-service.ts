@@ -55,10 +55,7 @@ export type InboxTeamInviteItem = {
   createdAt: Date;
 };
 
-export type InboxItem =
-  | InboxNotificationItem
-  | InboxInstitutionInviteItem
-  | InboxTeamInviteItem;
+export type InboxItem = InboxNotificationItem | InboxInstitutionInviteItem | InboxTeamInviteItem;
 
 export const listUserInbox = async (
   userId: string,

@@ -51,6 +51,7 @@ export const RESERVED_WORDS: readonly string[] = [
   // so reserving these keeps the create surfaces collision-free.
   "personal",
   "workspace",
+  "create",
 
   // --- Carried forward from the Step 2.1 RESERVED_USERNAMES set ---
   // Kept so centralising the list does not regress the username namespace.

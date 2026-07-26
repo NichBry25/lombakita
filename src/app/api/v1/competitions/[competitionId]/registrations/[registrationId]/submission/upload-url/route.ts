@@ -41,10 +41,15 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
         ? body.fileMimeType.trim()
         : null;
 
-    const grant = await generateSubmissionUploadUrl(competitionId, registrationId, session.user.id, {
-      fileName,
-      fileMimeType,
-    });
+    const grant = await generateSubmissionUploadUrl(
+      competitionId,
+      registrationId,
+      session.user.id,
+      {
+        fileName,
+        fileMimeType,
+      },
+    );
     return NextResponse.json(grant);
   } catch (error) {
     if (error instanceof SubmissionError) return toSubmissionErrorResponse(error);

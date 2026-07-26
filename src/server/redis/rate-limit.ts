@@ -46,7 +46,9 @@ const ensureConnected = async (redis: ReturnType<typeof getRedisClient>): Promis
 // Runs a Redis command through the shared client, throwing on any failure. Callers decide whether to
 // fail open (catch → allow) or fail closed (let it throw). Throws synchronously via getRedisClient()
 // if REDIS_URL is unset, so every caller guards on serverEnv.redisUrl first.
-const runRedisCommand = async <T>(run: (redis: ReturnType<typeof getRedisClient>) => Promise<T>): Promise<T> => {
+const runRedisCommand = async <T>(
+  run: (redis: ReturnType<typeof getRedisClient>) => Promise<T>,
+): Promise<T> => {
   const redis = getRedisClient();
   await ensureConnected(redis);
   return run(redis);

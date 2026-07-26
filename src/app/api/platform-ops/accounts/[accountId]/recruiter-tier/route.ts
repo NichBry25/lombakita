@@ -23,11 +23,7 @@ export async function PATCH(
     const { accountId } = await context.params;
 
     if (typeof accountId !== "string" || accountId.length === 0) {
-      throw new RecruiterTierElevationError(
-        "tier_invalid_payload",
-        400,
-        "Account id is required",
-      );
+      throw new RecruiterTierElevationError("tier_invalid_payload", 400, "Account id is required");
     }
 
     let body: unknown;

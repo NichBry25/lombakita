@@ -162,6 +162,9 @@ export const InstitutionCompetitionEditShell = ({
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Publish shares the submit lock with Save but needs its own flag so the spinner lands on the
+  // button that was actually pressed.
+  const [isPublishing, setIsPublishing] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
 
   const [title, setTitle] = useState("");
@@ -352,18 +355,22 @@ export const InstitutionCompetitionEditShell = ({
 
   const onPublish = async () => {
     setIsSubmitting(true);
+    setIsPublishing(true);
     setFeedback(null);
     const url = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}/publish`;
-    const response = await fetch(url, { method: "POST", credentials: "include" });
-    if (!response.ok) {
-      const { message, failures } = await extractError(response);
-      setFeedback({ type: "error", message, failures });
+    try {
+      const response = await fetch(url, { method: "POST", credentials: "include" });
+      if (!response.ok) {
+        const { message, failures } = await extractError(response);
+        setFeedback({ type: "error", message, failures });
+        return;
+      }
+      setFeedback({ type: "success", message: "Status diterbitkan (published)." });
+      void load();
+    } finally {
       setIsSubmitting(false);
-      return;
+      setIsPublishing(false);
     }
-    setFeedback({ type: "success", message: "Status diterbitkan (published)." });
-    setIsSubmitting(false);
-    void load();
   };
 
   // F13: intercept in-app back navigation when form is dirty. Use competition slug for the
@@ -707,14 +714,19 @@ export const InstitutionCompetitionEditShell = ({
             <Button
               type="button"
               onClick={() => onSave()}
-              disabled={isSubmitting}
               loading={isSubmitting}
               leadingIcon={<Icon name="save" />}
             >
-              {isSubmitting ? "Menyimpan..." : "Simpan"}
+              Simpan
             </Button>
             {isDraft ? (
-              <Button variant="secondary" type="button" onClick={onPublish} disabled={isSubmitting}>
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={onPublish}
+                loading={isPublishing}
+                disabled={isSubmitting}
+              >
                 Publish
               </Button>
             ) : null}

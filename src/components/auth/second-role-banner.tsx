@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
-import { Icon } from "@/components/ui";
+import { Button, ButtonLink, Icon } from "@/components/ui";
 import type { VerifiableRole } from "@/server/auth/role-verification";
 
 type SecondRoleBannerProps = {
@@ -61,23 +60,12 @@ export function SecondRoleBanner({ unverifiedRole, userId }: SecondRoleBannerPro
         {copy.headline}
       </span>
       <span className="second-role-banner-actions">
-        <Link
-          href={`/auth/verify-role?as=${unverifiedRole}`}
-          className="ui-button"
-          data-variant="primary"
-          data-size="sm"
-        >
+        <ButtonLink href={`/auth/verify-role?as=${unverifiedRole}`} variant="primary" size="sm">
           {copy.cta}
-        </Link>
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="ui-button"
-          data-variant="ghost"
-          data-size="sm"
-        >
+        </ButtonLink>
+        <Button type="button" onClick={onDismiss} variant="ghost" size="sm">
           Tutup
-        </button>
+        </Button>
       </span>
     </div>
   );

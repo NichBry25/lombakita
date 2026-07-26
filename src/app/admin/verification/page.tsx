@@ -62,11 +62,12 @@ function ReviewPanelBody({
   onReviewed: () => void;
 }) {
   const [notes, setNotes] = useState("");
-  const [loading, setLoading] = useState(false);
+  // Which decision is in flight, so the spinner lands on the button the reviewer pressed.
+  const [pendingDecision, setPendingDecision] = useState<"approved" | "rejected" | null>(null);
   const { addToast } = useToast();
 
   const submitDecision = async (decision: "approved" | "rejected") => {
-    setLoading(true);
+    setPendingDecision(decision);
     try {
       const res = await fetch(`/api/platform-ops/verification/submissions/${detail.id}`, {
         method: "PATCH",
@@ -83,7 +84,7 @@ function ReviewPanelBody({
     } catch {
       addToast({ type: "error", message: "Terjadi kesalahan saat memproses keputusan." });
     } finally {
-      setLoading(false);
+      setPendingDecision(null);
     }
   };
 
@@ -140,18 +141,23 @@ function ReviewPanelBody({
       </div>
 
       <div className="modal-actions">
-        <Button variant="outline" onClick={() => closeModal()} disabled={loading}>
+        <Button variant="outline" onClick={() => closeModal()} disabled={pendingDecision !== null}>
           Batal
         </Button>
-        <Button variant="danger" onClick={() => void submitDecision("rejected")} disabled={loading}>
-          {loading ? "Memproses..." : "Tolak"}
+        <Button
+          variant="danger"
+          onClick={() => void submitDecision("rejected")}
+          loading={pendingDecision === "rejected"}
+          disabled={pendingDecision !== null}
+        >
+          Tolak
         </Button>
         <Button
           onClick={() => void submitDecision("approved")}
-          disabled={loading}
-          loading={loading}
+          loading={pendingDecision === "approved"}
+          disabled={pendingDecision !== null}
         >
-          {loading ? "Memproses..." : "Setujui"}
+          Setujui
         </Button>
       </div>
     </div>
@@ -161,6 +167,7 @@ function ReviewPanelBody({
 export default function AdminVerificationPage() {
   const [items, setItems] = useState<PendingItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [openingReviewId, setOpeningReviewId] = useState<string | null>(null);
   const { openModal, closeModal } = useModal();
   const { addToast } = useToast();
 
@@ -186,6 +193,7 @@ export default function AdminVerificationPage() {
   }, [fetchPending]);
 
   const openReview = async (submissionId: string) => {
+    setOpeningReviewId(submissionId);
     try {
       const res = await fetch(`/api/platform-ops/verification/submissions/${submissionId}`);
       if (!res.ok) {
@@ -207,6 +215,8 @@ export default function AdminVerificationPage() {
       });
     } catch {
       addToast({ type: "error", message: "Terjadi kesalahan saat memuat detail." });
+    } finally {
+      setOpeningReviewId(null);
     }
   };
 
@@ -281,7 +291,11 @@ export default function AdminVerificationPage() {
                     {new Date(item.submittedAt).toLocaleDateString("id-ID")}
                   </td>
                   <td>
-                    <Button onClick={() => void openReview(item.id)} size="sm">
+                    <Button
+                      onClick={() => void openReview(item.id)}
+                      loading={openingReviewId === item.id}
+                      size="sm"
+                    >
                       Tinjau
                     </Button>
                   </td>

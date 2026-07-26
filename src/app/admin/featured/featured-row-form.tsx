@@ -73,8 +73,8 @@ export function FeaturedRowForm({
         aria-label="Urutan unggulan"
         className="form-input featured-order-input"
       />
-      <Button type="submit" disabled={saving} loading={saving} size="sm">
-        {saving ? "..." : "Simpan"}
+      <Button type="submit" loading={saving} size="sm">
+        Simpan
       </Button>
     </form>
   );

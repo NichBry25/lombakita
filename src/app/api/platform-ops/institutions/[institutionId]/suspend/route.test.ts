@@ -36,7 +36,11 @@ const params = (institutionId: string) => ({ params: Promise.resolve({ instituti
 
 beforeEach(() => {
   requireSessionRole.mockResolvedValue(opsSession);
-  suspendInstitution.mockResolvedValue({ institutionId: "i1", suspendedAt: "x", suspensionReason: "p" });
+  suspendInstitution.mockResolvedValue({
+    institutionId: "i1",
+    suspendedAt: "x",
+    suspensionReason: "p",
+  });
 });
 afterEach(() => vi.clearAllMocks());
 

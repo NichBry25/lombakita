@@ -8,11 +8,13 @@ import {
   RecruiterVerificationError,
   toRecruiterVerificationErrorResponse,
 } from "@/server/recruiter-verification/recruiter-verification-core";
-import { attachDocumentToPendingSubmission } from "@/server/recruiter-verification/recruiter-verification-service";
+import { prepareVerificationDocumentUpload } from "@/server/recruiter-verification/recruiter-verification-service";
 
-// POST — attach an optional affiliation-proof document to the caller's open submission and
-// receive a presigned PUT URL for the direct-to-R2 upload. Documents are a queue-priority signal
-// and reviewer evidence only — never a grant condition. 404 when no open submission exists.
+// POST — presign step for an optional affiliation-proof document. Validates the declared file
+// against the allowlist and returns a presigned PUT URL plus the server-chosen R2 key; the browser
+// uploads to R2, then calls the finalize route to have the bytes inspected and the document row
+// written. Documents are a queue-priority signal and reviewer evidence only — never a grant
+// condition. 404 when no open submission exists.
 export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireSessionRole(["recruiter"]);
@@ -50,7 +52,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const result = await attachDocumentToPendingSubmission(session.user.id, {
+    const result = await prepareVerificationDocumentUpload(session.user.id, {
       originalFileName,
       contentType,
       fileSizeBytes,

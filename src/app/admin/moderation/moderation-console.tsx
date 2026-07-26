@@ -244,9 +244,11 @@ function UserPanel() {
   const { addToast } = useToast();
   const [email, setEmail] = useState("");
   const [result, setResult] = useState<UserResult | null>(null);
+  const [searching, setSearching] = useState(false);
 
   const lookup = async () => {
     setResult(null);
+    setSearching(true);
     try {
       const res = await fetch(`/api/platform-ops/users/lookup?email=${encodeURIComponent(email)}`);
       if (!res.ok) {
@@ -257,6 +259,8 @@ function UserPanel() {
       setResult(data.user);
     } catch {
       addToast({ type: "error", message: "Kesalahan jaringan." });
+    } finally {
+      setSearching(false);
     }
   };
 
@@ -301,7 +305,7 @@ function UserPanel() {
           onChange={(e) => setEmail(e.target.value)}
           placeholder="user@example.com"
         />
-        <Button size="sm" onClick={() => void lookup()}>
+        <Button size="sm" loading={searching} onClick={() => void lookup()}>
           Cari
         </Button>
       </div>
@@ -352,9 +356,11 @@ function InstitutionPanel() {
   const { addToast } = useToast();
   const [slug, setSlug] = useState("");
   const [result, setResult] = useState<InstitutionResult | null>(null);
+  const [searching, setSearching] = useState(false);
 
   const lookup = async () => {
     setResult(null);
+    setSearching(true);
     try {
       const res = await fetch(
         `/api/platform-ops/institutions/lookup?slug=${encodeURIComponent(slug)}`,
@@ -367,6 +373,8 @@ function InstitutionPanel() {
       setResult(data.institution);
     } catch {
       addToast({ type: "error", message: "Kesalahan jaringan." });
+    } finally {
+      setSearching(false);
     }
   };
 
@@ -412,7 +420,7 @@ function InstitutionPanel() {
           placeholder="nama-institusi atau Nama Institusi"
           aria-label="Cari institusi berdasarkan slug atau nama"
         />
-        <Button size="sm" onClick={() => void lookup()}>
+        <Button size="sm" loading={searching} onClick={() => void lookup()}>
           Cari
         </Button>
       </div>

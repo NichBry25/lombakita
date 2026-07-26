@@ -54,11 +54,7 @@ describe("DELETE /api/v1/institutions/[institutionSlug]/members/[membershipId]",
   it("returns 403 when caller is not institution owner or staff", async () => {
     requireAuthenticatedSession.mockResolvedValue(ownerSession);
     removeMember.mockRejectedValue(
-      new AccessError(
-        "forbidden",
-        403,
-        "institution_owner or institution_staff access required",
-      ),
+      new AccessError("forbidden", 403, "institution_owner or institution_staff access required"),
     );
 
     const response = await DELETE(

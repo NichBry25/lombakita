@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { signIn } from "next-auth/react";
-import { SelectField } from "@/components/ui";
+import { Button, SelectField, usePageTransition } from "@/components/ui";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 
 // Step 6.5d — minimal-proof OAuth role picker. Reached after a brand-new Google user is routed to
@@ -60,6 +60,7 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
   const [stage, setStage] = useState<Stage>("choose");
   const [isSubmitting, setIsSubmitting] = useState<"candidate" | "recruiter" | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { begin: beginPageTransition } = usePageTransition();
 
   // Candidate onboarding fields — collected on the candidateOnboarding stage and forwarded with the
   // finalize request.
@@ -92,6 +93,9 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
       });
 
       if (result?.ok && result.url) {
+        // A full document navigation into the signed-in app; hold the blocking screen until the
+        // browser leaves rather than dropping the user back onto a finished-looking form.
+        beginPageTransition("Menyiapkan akun Anda…");
         window.location.assign(result.url);
         return;
       }
@@ -264,27 +268,26 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
             </div>
 
             <div className="auth-form-actions">
-              <button
+              <Button
                 type="button"
                 onClick={() => {
                   setErrorMessage(null);
                   setStage("choose");
                 }}
-                className="ui-button"
-                data-variant="ghost"
-                data-size="sm"
+                variant="ghost"
+                size="sm"
               >
                 Kembali
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
+                loading={isSubmitting === "candidate"}
                 disabled={isSubmitting !== null}
-                className="ui-button"
-                data-variant="primary"
-                data-size="md"
+                variant="primary"
+                size="md"
               >
-                {isSubmitting === "candidate" ? "Membuat akun..." : "Selesaikan pendaftaran"}
-              </button>
+                Selesai
+              </Button>
             </div>
           </form>
         ) : null}
@@ -342,27 +345,26 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
             </div>
 
             <div className="auth-form-actions">
-              <button
+              <Button
                 type="button"
                 onClick={() => {
                   setErrorMessage(null);
                   setStage("choose");
                 }}
-                className="ui-button"
-                data-variant="ghost"
-                data-size="sm"
+                variant="ghost"
+                size="sm"
               >
                 Kembali
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
+                loading={isSubmitting === "recruiter"}
                 disabled={isSubmitting !== null}
-                className="ui-button"
-                data-variant="primary"
-                data-size="md"
+                variant="primary"
+                size="md"
               >
-                {isSubmitting === "recruiter" ? "Membuat akun..." : "Selesaikan pendaftaran"}
-              </button>
+                Selesai
+              </Button>
             </div>
           </form>
         ) : null}

@@ -1,5 +1,5 @@
-import { PageLoading } from "@/components/ui";
+import { FormPageSkeleton } from "@/components/ui";
 
 export default function AuthLoading() {
-  return <PageLoading label="Memuat autentikasi" />;
+  return <FormPageSkeleton label="Memuat autentikasi" fields={2} />;
 }

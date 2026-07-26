@@ -36,10 +36,7 @@ const OWNER_CAP_LOCK_NAMESPACE = "inst_owner_cap:";
 //
 // Must be called inside a db.transaction(), before the cap count, in the same transaction as the
 // mutation it guards.
-export const acquireOwnerCapLock = async (
-  tx: TransactionClient,
-  userId: string,
-): Promise<void> => {
+export const acquireOwnerCapLock = async (tx: TransactionClient, userId: string): Promise<void> => {
   const lockKey = `${OWNER_CAP_LOCK_NAMESPACE}${userId}`;
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
 };

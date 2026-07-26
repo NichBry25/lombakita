@@ -15,9 +15,9 @@ describe("parseUploadRequest", () => {
       fileName: "me.png",
       mimeType: "image/png",
     });
-    expect(parseUploadRequest("resume", { fileName: "cv.pdf", mimeType: "application/pdf" }).mimeType).toBe(
-      "application/pdf",
-    );
+    expect(
+      parseUploadRequest("resume", { fileName: "cv.pdf", mimeType: "application/pdf" }).mimeType,
+    ).toBe("application/pdf");
   });
 
   it("rejects a disallowed mime type", () => {

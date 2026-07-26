@@ -239,10 +239,10 @@ export const InstitutionProfileShell = ({
                 variant="outline"
                 size="sm"
                 onClick={uploadLogo}
-                disabled={!logoFile || logoBusy}
+                disabled={!logoFile}
                 loading={logoBusy}
               >
-                {logoBusy ? "Mengunggah..." : "Unggah logo"}
+                Unggah logo
               </Button>
             </div>
 
@@ -340,11 +340,10 @@ export const InstitutionProfileShell = ({
             <Button
               type="button"
               onClick={() => onSubmit()}
-              disabled={isSaving}
               loading={isSaving}
               leadingIcon={<Icon name="save" />}
             >
-              {isSaving ? "Menyimpan..." : "Simpan profil"}
+              Simpan profil
             </Button>
           </div>
         ) : null}

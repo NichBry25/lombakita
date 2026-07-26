@@ -211,11 +211,10 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
           <Button
             type="button"
             onClick={() => handleSubmit()}
-            disabled={saving}
             loading={saving}
             leadingIcon={<Icon name="save" />}
           >
-            {saving ? "Menyimpan..." : "Simpan"}
+            Simpan
           </Button>
         </div>
       </FormActionBar>

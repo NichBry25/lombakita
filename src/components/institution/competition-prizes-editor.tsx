@@ -224,8 +224,8 @@ export const CompetitionPrizesEditor = ({
               label="Tambah hadiah"
               onClick={() => setRows((prev) => [...prev, emptyRow()])}
             />
-            <Button type="button" onClick={savePrizes} disabled={isSaving} loading={isSaving}>
-              {isSaving ? "Menyimpan..." : "Simpan"}
+            <Button type="button" onClick={savePrizes} loading={isSaving}>
+              Simpan
             </Button>
           </div>
         </div>

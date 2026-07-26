@@ -36,7 +36,7 @@ export default async function SubmissionPage({
         title={`Submission — ${view.competitionTitle}`}
         description="Siapkan metadata berkas, simpan versi kerja, lalu finalisasi ketika seluruh detail sudah benar."
         backHref="/candidate-dashboard"
-        backLabel="Dasbor kandidat"
+        backLabel="Dasbor"
       />
 
       <SubmissionShell

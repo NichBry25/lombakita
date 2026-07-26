@@ -80,7 +80,7 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
   }, [loadMembers]);
 
   const onRoleChange = async (membershipId: string, newRole: MemberRole) => {
-    setPendingAction(membershipId);
+    setPendingAction(`${membershipId}:role:${newRole}`);
     setFeedback(null);
 
     const response = await fetch(
@@ -115,7 +115,7 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
     if (!confirmRemove) return;
 
     const { membershipId } = confirmRemove;
-    setPendingAction(membershipId);
+    setPendingAction(`${membershipId}:remove`);
     setConfirmRemove(null);
     setFeedback(null);
 
@@ -146,7 +146,7 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
         title="Manajemen anggota"
         description="Tinjau anggota aktif, sesuaikan peran, dan cabut akses bila diperlukan."
         backHref={`/institution/${institutionSlug}`}
-        backLabel="Panel institusi"
+        backLabel="Kembali"
       />
 
       {feedback ? (
@@ -191,7 +191,7 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
               <tbody>
                 {members.map((member) => {
                   const isSelf = member.userId === actorUserId;
-                  const isActing = pendingAction === member.membershipId;
+                  const isActing = pendingAction?.startsWith(`${member.membershipId}:`) ?? false;
                   const otherRoles = ROLE_OPTIONS.filter((role) => role !== member.role);
 
                   return (
@@ -213,16 +213,18 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
                                 key={role}
                                 variant="outline"
                                 size="sm"
+                                loading={pendingAction === `${member.membershipId}:role:${role}`}
                                 disabled={isActing}
                                 onClick={() => void onRoleChange(member.membershipId, role)}
                                 type="button"
                               >
-                                {isActing ? "..." : `Jadikan ${getInstitutionRoleLabel(role)}`}
+                                {`Jadikan ${getInstitutionRoleLabel(role)}`}
                               </Button>
                             ))}
                             <Button
                               variant="danger"
                               size="sm"
+                              loading={pendingAction === `${member.membershipId}:remove`}
                               disabled={isActing}
                               onClick={() => onConfirmRemove(member)}
                               type="button"

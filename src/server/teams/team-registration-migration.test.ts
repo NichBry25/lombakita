@@ -10,19 +10,13 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 
-const MIGRATION_PATH = join(
-  process.cwd(),
-  "drizzle",
-  "0021_many_alex_power.sql",
-);
+const MIGRATION_PATH = join(process.cwd(), "drizzle", "0021_many_alex_power.sql");
 
 const text = readFileSync(MIGRATION_PATH, "utf-8");
 
 describe("migration 0021 — competition_registrations team linkage", () => {
   it("adds the team_id column as nullable text", () => {
-    expect(text).toMatch(
-      /ALTER TABLE "competition_registrations" ADD COLUMN "team_id" text;/,
-    );
+    expect(text).toMatch(/ALTER TABLE "competition_registrations" ADD COLUMN "team_id" text;/);
   });
 
   it("adds the team_id FK with ON DELETE CASCADE", () => {
@@ -38,9 +32,7 @@ describe("migration 0021 — competition_registrations team linkage", () => {
   });
 
   it("adds the type/team_id co-presence CHECK constraint", () => {
-    expect(text).toMatch(
-      /ADD CONSTRAINT "competition_registrations_type_team_id_chk"[\s\S]*CHECK/,
-    );
+    expect(text).toMatch(/ADD CONSTRAINT "competition_registrations_type_team_id_chk"[\s\S]*CHECK/);
     // Both branches of the CHECK present. Drizzle qualifies column refs with the table name.
     expect(text).toMatch(/"registration_type" = 'team'/);
     expect(text).toMatch(/"team_id" IS NOT NULL/);

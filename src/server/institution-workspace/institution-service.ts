@@ -1,4 +1,4 @@
-import { and, count, eq, ne, sql, type SQL } from "drizzle-orm";
+import { and, count, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
 import { AccessError } from "@/server/auth/access-core";
 import { enqueueCompetitionSearchSync } from "@/server/async/enqueue";
 import { logger } from "@/lib/logger";
@@ -28,6 +28,7 @@ import {
   buildInstitutionSlugCandidate,
   deriveInstitutionSlugBase,
   normalizeInstitutionSlug,
+  parseInstitutionDescription,
   parseInstitutionDisplayName,
   parseInstitutionSlugParam,
   parseInstitutionWorkspaceCreateInput,
@@ -47,6 +48,7 @@ import { acquireOwnerCapLock } from "@/server/institution-workspace/owner-cap-lo
 const MAX_SLUG_ATTEMPTS = 20;
 const NEW_INSTITUTION_DEFAULT_STATUS = "inactive";
 const OWNER_ROLE = "institution_owner";
+const STAFF_ROLE = "institution_staff";
 const ACTIVE_MEMBERSHIP_STATUS = "active";
 
 // Accepts either a top-level Database handle or a transaction handle, so slug-sync helpers can run
@@ -61,6 +63,7 @@ type InstitutionWorkspaceRow = {
   institutionSlug: string;
   institutionStatus: InstitutionWorkspaceShell["status"];
   institutionType: InstitutionType;
+  institutionDescription: string | null;
   institutionCreatedAt: Date;
   institutionUpdatedAt: Date;
   membershipId: string;
@@ -85,6 +88,7 @@ const mapInstitutionWorkspace = (
     slug: row.institutionSlug,
     status: row.institutionStatus,
     institutionType: row.institutionType,
+    description: row.institutionDescription,
     ownerMembership: {
       membershipId: row.membershipId,
       membershipRole: row.membershipRole,
@@ -148,6 +152,7 @@ const findInstitutionWorkspaceByOwnerAndSlug = async (
       institutionSlug: institutions.slug,
       institutionStatus: institutions.status,
       institutionType: institutions.institutionType,
+      institutionDescription: institutions.description,
       institutionCreatedAt: institutions.createdAt,
       institutionUpdatedAt: institutions.updatedAt,
       membershipId: institutionMemberships.id,
@@ -171,6 +176,99 @@ const findInstitutionWorkspaceByOwnerAndSlug = async (
     .limit(1);
 
   return row ?? null;
+};
+
+export type UserInstitutionMembership = {
+  institutionId: string;
+  slug: string;
+  displayName: string;
+  // Short institution description, or null when unset. Surfaced on the recruiter dashboard list.
+  description: string | null;
+  role: typeof OWNER_ROLE | typeof STAFF_ROLE;
+  isOwner: boolean;
+  // Count of the institution's active operational members (owner + staff), so the dashboard can show
+  // team size. institution_member is excluded — cosmetic-at-launch, no operational surface (CCR-09).
+  staffCount: number;
+};
+
+// Lists the institutions an account actively participates in as owner or staff, for the recruiter
+// dashboard. institution_member memberships are excluded (CCR-09 — members have no operational
+// surface). A personal institution stores no display name; the owner username resolves it through
+// getInstitutionDisplayName, sourced from the correlated owner-username subquery.
+export const listUserInstitutionMemberships = async (
+  userId: string,
+  db: Database = getDb(),
+): Promise<UserInstitutionMembership[]> => {
+  const rows = await db
+    .select({
+      institutionId: institutions.id,
+      slug: institutions.slug,
+      displayName: institutions.displayName,
+      institutionType: institutions.institutionType,
+      description: institutions.description,
+      membershipRole: institutionMemberships.membershipRole,
+    })
+    .from(institutionMemberships)
+    .innerJoin(institutions, eq(institutions.id, institutionMemberships.institutionId))
+    .where(
+      and(
+        eq(institutionMemberships.userId, userId),
+        eq(institutionMemberships.status, ACTIVE_MEMBERSHIP_STATUS),
+        inArray(institutionMemberships.membershipRole, [OWNER_ROLE, STAFF_ROLE]),
+      ),
+    )
+    .orderBy(institutions.createdAt);
+
+  const staffCountByInstitution = await countActiveOperationalMembers(
+    rows.map((row) => row.institutionId),
+    db,
+  );
+
+  return rows.map((row) => ({
+    institutionId: row.institutionId,
+    slug: row.slug,
+    // Personal institutions render as a generic "Personal" here rather than the owner-derived
+    // "<username>'s Institution" the global helper produces.
+    displayName: isPersonalInstitutionType(row.institutionType)
+      ? "Personal"
+      : getInstitutionDisplayName({
+          displayName: row.displayName,
+          institutionType: row.institutionType,
+        }),
+    description: row.description,
+    role: row.membershipRole as typeof OWNER_ROLE | typeof STAFF_ROLE,
+    isOwner: row.membershipRole === OWNER_ROLE,
+    staffCount: staffCountByInstitution.get(row.institutionId) ?? 0,
+  }));
+};
+
+// Counts active operational members (owner + staff, excluding cosmetic institution_member) per
+// institution for a set of institution ids, in one grouped query. Returns a map keyed by
+// institutionId; an institution with no counted members is simply absent (caller defaults to 0).
+const countActiveOperationalMembers = async (
+  institutionIds: string[],
+  db: Database,
+): Promise<Map<string, number>> => {
+  if (institutionIds.length === 0) {
+    return new Map();
+  }
+
+  const rows = await db
+    .select({
+      institutionId: institutionMemberships.institutionId,
+      value: count(),
+    })
+    .from(institutionMemberships)
+    .where(
+      and(
+        inArray(institutionMemberships.institutionId, institutionIds),
+        eq(institutionMemberships.status, ACTIVE_MEMBERSHIP_STATUS),
+        inArray(institutionMemberships.membershipRole, [OWNER_ROLE, STAFF_ROLE]),
+      ),
+    )
+    .groupBy(institutionMemberships.institutionId);
+
+  return new Map(rows.map((row) => [row.institutionId, row.value]));
 };
 
 // "is full/standard" SQL predicate: anything that is not personal. institution_type is NOT NULL,
@@ -301,6 +399,7 @@ const insertInstitutionWithOwner = async (
             institutionSlug: institutions.slug,
             institutionStatus: institutions.status,
             institutionType: institutions.institutionType,
+            institutionDescription: institutions.description,
             institutionCreatedAt: institutions.createdAt,
             institutionUpdatedAt: institutions.updatedAt,
           });
@@ -736,9 +835,13 @@ export const upgradeInstitutionType = async (
   institutionId: string,
   nextType: FullInstitutionType,
   displayNameInput: unknown,
+  descriptionInput: unknown,
   db: Database = getDb(),
 ): Promise<UpgradeInstitutionTypeResult> => {
   const displayName = parseInstitutionDisplayName(displayNameInput);
+  // Optional: a provided description is written on upgrade; when omitted/blank (null) the existing
+  // personal-institution description is preserved rather than cleared.
+  const description = parseInstitutionDescription(descriptionInput);
 
   return db.transaction(async (tx) => {
     // 1. Serialize same-owner cap-guarded mutations before counting. The count below ranges over the
@@ -838,6 +941,7 @@ export const upgradeInstitutionType = async (
         institutionType: nextType,
         displayName,
         slug: resolvedSlug,
+        ...(description !== null ? { description } : {}),
         verificationStatus: "pending_verification",
         verifiedAt: null,
         updatedAt: sql`now()`,
@@ -910,6 +1014,7 @@ export const updateInstitutionWorkspaceForOwnerBySlug = async (
   const updates: {
     displayName?: string;
     slug?: string;
+    description?: string | null;
     updatedAt?: ReturnType<typeof sql>;
   } = {};
 
@@ -923,6 +1028,12 @@ export const updateInstitutionWorkspaceForOwnerBySlug = async (
 
   if (!isPersonal && patch.slug !== undefined && patch.slug !== current.institutionSlug) {
     updates.slug = patch.slug;
+  }
+
+  // Description is editable for every institution type (personal included) — unlike name/slug, it is
+  // not derived from the owner username. Persist when the patch carried it and the value changed.
+  if (patch.description !== undefined && patch.description !== current.institutionDescription) {
+    updates.description = patch.description;
   }
 
   if (Object.keys(updates).length === 0) {
@@ -1143,6 +1254,7 @@ export const upgradeInstitutionTypeForOwnerBySlug = async (
   institutionSlug: string,
   nextType: FullInstitutionType,
   displayNameInput: unknown,
+  descriptionInput: unknown,
   db: Database = getDb(),
 ): Promise<UpgradeInstitutionTypeResult> => {
   const normalizedSlug = parseInstitutionSlugParam(institutionSlug);
@@ -1162,6 +1274,7 @@ export const upgradeInstitutionTypeForOwnerBySlug = async (
     row.institutionId,
     nextType,
     displayNameInput,
+    descriptionInput,
     db,
   );
 

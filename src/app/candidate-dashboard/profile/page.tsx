@@ -25,7 +25,7 @@ export default async function CandidateProfilePage() {
         title="Data kandidat"
         description="Perbarui data yang kamu isi saat mendaftar sebagai kandidat."
         backHref="/candidate-dashboard"
-        backLabel="Kembali ke dasbor"
+        backLabel="Dasbor"
       />
 
       {profile ? (
@@ -42,8 +42,7 @@ export default async function CandidateProfilePage() {
         </section>
       ) : (
         <p className="feedback" data-tone="warning">
-          Data kandidat Anda belum tersedia. Data ini biasanya diisi saat pendaftaran akun
-          kandidat.
+          Data kandidat Anda belum tersedia. Data ini biasanya diisi saat pendaftaran akun kandidat.
         </p>
       )}
     </main>

@@ -39,7 +39,13 @@ const getReq = (qs: string) => new Request(`http://localhost/api/platform-ops/no
 
 beforeEach(() => {
   requireSessionRole.mockResolvedValue(opsSession);
-  addNote.mockResolvedValue({ id: "n1", note: "x", createdById: "ops1", createdByName: null, createdAt: new Date() });
+  addNote.mockResolvedValue({
+    id: "n1",
+    note: "x",
+    createdById: "ops1",
+    createdByName: null,
+    createdAt: new Date(),
+  });
   listNotes.mockResolvedValue([]);
 });
 afterEach(() => vi.clearAllMocks());

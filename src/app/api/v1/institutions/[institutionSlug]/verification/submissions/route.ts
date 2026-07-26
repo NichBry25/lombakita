@@ -8,10 +8,7 @@ import {
 
 type RouteContext = { params: Promise<{ institutionSlug: string }> };
 
-export async function GET(
-  _request: Request,
-  context: RouteContext,
-): Promise<Response> {
+export async function GET(_request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireAuthenticatedSession();
     const { institutionSlug } = await context.params;

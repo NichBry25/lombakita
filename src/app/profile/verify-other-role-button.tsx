@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui";
 import { SHOW_SECOND_ROLE_PROMPT_EVENT } from "@/components/auth/second-role-prompt-modal";
 
 // Client button on /profile that re-triggers the second-role-prompt modal even after the user
@@ -11,14 +12,8 @@ export function VerifyOtherRoleButton({ unverifiedRoleLabel }: { unverifiedRoleL
   };
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="ui-button"
-      data-variant="outline"
-      data-size="sm"
-    >
+    <Button type="button" onClick={onClick} variant="outline" size="sm">
       Verifikasi sebagai {unverifiedRoleLabel}
-    </button>
+    </Button>
   );
 }

@@ -11,6 +11,7 @@ import {
   IconButton,
   PageHeader,
   SelectField,
+  usePageTransition,
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import {
@@ -70,17 +71,23 @@ export const InstitutionUpgradeShell = ({
   const router = useRouter();
   const { openModal } = useModal();
   const { addToast } = useToast();
+  const { runAndNavigate } = usePageTransition();
 
   const nameFieldId = useId();
   const nameHintId = `${nameFieldId}-hint`;
+  const descriptionFieldId = useId();
+  const descriptionHintId = `${descriptionFieldId}-hint`;
   const blockedNoticeId = useId();
 
   const [targetType, setTargetType] = useState<FullInstitutionType>("company");
   const [displayName, setDisplayName] = useState("");
+  const [description, setDescription] = useState("");
   const [nameInvalid, setNameInvalid] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const submitUpgrade = async () => {
+  // Returns whether the upgrade actually navigated, so the blocking screen is dismissed on a
+  // rejected upgrade and held through the redirect on a successful one.
+  const requestUpgrade = async (): Promise<boolean> => {
     setSubmitting(true);
     try {
       const response = await sessionFetch(
@@ -89,13 +96,17 @@ export const InstitutionUpgradeShell = ({
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ targetType, displayName: displayName.trim() }),
+          body: JSON.stringify({
+            targetType,
+            displayName: displayName.trim(),
+            description: description.trim().length > 0 ? description.trim() : null,
+          }),
         },
       );
 
       if (!response.ok) {
         addToast({ type: "error", message: await extractErrorMessage(response) });
-        return;
+        return false;
       }
 
       const data = (await response.json()) as UpgradeResponse;
@@ -105,10 +116,14 @@ export const InstitutionUpgradeShell = ({
       });
       // The slug is re-derived from the official name, so the old URL no longer resolves.
       router.replace(`/institution/${data.slug}`);
+      return true;
     } finally {
       setSubmitting(false);
     }
   };
+
+  const submitUpgrade = () =>
+    runAndNavigate(requestUpgrade, { message: "Meningkatkan institusi…" });
 
   const confirmUpgrade = () => {
     const trimmedName = displayName.trim();
@@ -212,6 +227,27 @@ export const InstitutionUpgradeShell = ({
           </span>
         </div>
 
+        <div className="form-field">
+          <label htmlFor={descriptionFieldId} className="form-label">
+            Deskripsi institusi (opsional)
+          </label>
+          <textarea
+            id={descriptionFieldId}
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Deskripsi singkat institusi baru Anda."
+            className="form-input"
+            rows={4}
+            maxLength={500}
+            aria-describedby={descriptionHintId}
+          />
+          <span id={descriptionHintId}>
+            <FormHelp>
+              Tampil pada daftar institusi Anda. Dapat diubah kapan saja di pengaturan institusi.
+            </FormHelp>
+          </span>
+        </div>
+
         {!canUpgrade && (
           <Feedback id={blockedNoticeId} tone="warning">
             Peningkatan institusi hanya tersedia untuk Rekruter Terpercaya. Selesaikan verifikasi
@@ -229,13 +265,13 @@ export const InstitutionUpgradeShell = ({
         <div className="form-action-bar-end">
           <Button
             type="button"
-            disabled={submitting || !canUpgrade}
+            disabled={!canUpgrade}
             loading={submitting}
             onClick={confirmUpgrade}
             leadingIcon={<Icon name="building" />}
             aria-describedby={canUpgrade ? undefined : blockedNoticeId}
           >
-            {submitting ? "Memproses..." : "Tingkatkan institusi"}
+            Tingkatkan institusi
           </Button>
         </div>
       </FormActionBar>

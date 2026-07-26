@@ -4,6 +4,11 @@ import { ChangeEvent, FormEvent, useState } from "react";
 import { Button } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { sessionFetch } from "@/lib/session/session-fetch";
+import {
+  getFileExtension,
+  mimeTypeForExtension,
+  preValidateVerificationDocument,
+} from "@/lib/recruiter-verification/verification-document";
 
 type SubmissionStatus = "pending_review" | "approved" | "rejected";
 
@@ -45,15 +50,40 @@ export function RecruiterVerificationPanel({
   const [uploadBusy, setUploadBusy] = useState(false);
 
   const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
-    setSelectedFile(event.target.files?.[0] ?? null);
+    const file = event.target.files?.[0] ?? null;
+    if (file) {
+      const problem = preValidateVerificationDocument({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      });
+      if (problem) {
+        addToast({ type: "error", message: problem });
+        event.target.value = "";
+        setSelectedFile(null);
+        return;
+      }
+    }
+    setSelectedFile(file);
   };
 
   const uploadDocument = async () => {
     if (!selectedFile || uploadBusy) return;
 
+    // The content type is derived from the extension so it matches what the presigned PUT binds and
+    // what the server re-derives from the bytes — the browser's own file.type can be empty.
+    const contentType = mimeTypeForExtension(getFileExtension(selectedFile.name));
+    if (!contentType) {
+      addToast({
+        type: "error",
+        message: "Format tidak didukung. Unggah PDF, JPG, PNG, atau WebP.",
+      });
+      return;
+    }
+
     setUploadBusy(true);
     try {
-      const requestResponse = await sessionFetch(
+      const presignResponse = await sessionFetch(
         userId,
         "/api/v1/recruiter/me/verification/documents",
         {
@@ -61,14 +91,14 @@ export function RecruiterVerificationPanel({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             originalFileName: selectedFile.name,
-            contentType: selectedFile.type || "application/octet-stream",
+            contentType,
             fileSizeBytes: selectedFile.size,
           }),
         },
       );
 
-      if (!requestResponse.ok) {
-        const payload = (await requestResponse.json().catch(() => null)) as {
+      if (!presignResponse.ok) {
+        const payload = (await presignResponse.json().catch(() => null)) as {
           error?: { message?: string };
         } | null;
         addToast({
@@ -78,16 +108,40 @@ export function RecruiterVerificationPanel({
         return;
       }
 
-      const { uploadUrl } = (await requestResponse.json()) as { uploadUrl: string };
+      const { uploadUrl, r2Key } = (await presignResponse.json()) as {
+        uploadUrl: string;
+        r2Key: string;
+      };
 
       const putResponse = await fetch(uploadUrl, {
         method: "PUT",
-        headers: { "content-type": selectedFile.type || "application/octet-stream" },
+        headers: { "content-type": contentType },
         body: selectedFile,
       });
 
       if (!putResponse.ok) {
         addToast({ type: "error", message: "Unggahan ke penyimpanan gagal. Coba lagi." });
+        return;
+      }
+
+      const finalizeResponse = await sessionFetch(
+        userId,
+        "/api/v1/recruiter/me/verification/documents/finalize",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ r2Key, originalFileName: selectedFile.name }),
+        },
+      );
+
+      if (!finalizeResponse.ok) {
+        const payload = (await finalizeResponse.json().catch(() => null)) as {
+          error?: { message?: string };
+        } | null;
+        addToast({
+          type: "error",
+          message: payload?.error?.message ?? "Berkas ditolak saat verifikasi. Coba berkas lain.",
+        });
         return;
       }
 
@@ -193,13 +247,22 @@ export function RecruiterVerificationPanel({
           <input
             id="rv-document"
             type="file"
+            accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
             onChange={handleFileSelect}
             className="form-input"
           />
-          <p className="form-hint">Melampirkan dokumen dapat mempercepat peninjauan.</p>
+          <p className="form-hint">
+            PDF, JPG, PNG, atau WebP (maks. 10 MB). Melampirkan dokumen dapat mempercepat
+            peninjauan.
+          </p>
         </div>
-        <Button type="button" disabled={!selectedFile || uploadBusy} onClick={uploadDocument}>
-          {uploadBusy ? "Mengunggah..." : "Unggah dokumen"}
+        <Button
+          type="button"
+          disabled={!selectedFile}
+          loading={uploadBusy}
+          onClick={uploadDocument}
+        >
+          Unggah dokumen
         </Button>
       </section>
     );
@@ -272,8 +335,8 @@ export function RecruiterVerificationPanel({
           <p className="form-hint">Email domain korporat mempercepat antrean peninjauan Anda.</p>
         </div>
 
-        <Button type="submit" disabled={busy}>
-          {busy ? "Mengirim..." : "Kirim untuk ditinjau"}
+        <Button type="submit" loading={busy}>
+          Kirim untuk ditinjau
         </Button>
       </form>
     </section>

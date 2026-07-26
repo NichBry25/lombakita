@@ -153,8 +153,8 @@ export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
           </p>
         </div>
 
-        <Button type="submit" disabled={busy} data-testid="verify-role-recruiter">
-          {busy ? "Memproses..." : "Selesai"}
+        <Button type="submit" loading={busy} data-testid="verify-role-recruiter">
+          Selesai
         </Button>
       </form>
     );
@@ -249,8 +249,8 @@ export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
         />
       </div>
 
-      <Button type="submit" disabled={busy} data-testid="verify-role-candidate">
-        {busy ? "Memproses..." : "Selesai"}
+      <Button type="submit" loading={busy} data-testid="verify-role-candidate">
+        Selesai
       </Button>
     </form>
   );

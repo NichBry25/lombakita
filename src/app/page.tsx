@@ -161,12 +161,7 @@ export default async function HomePage() {
                 Kelola publikasi, peserta, submission, dan hasil melalui satu ruang kerja institusi.
               </p>
             </div>
-            <ButtonLink
-              href="/institution/workspace"
-              variant="secondary"
-              size="lg"
-              prefetch={false}
-            >
+            <ButtonLink href="/institution/create" variant="secondary" size="lg" prefetch={false}>
               Buka ruang kerja
               <Icon name="arrow-right" size="md" />
             </ButtonLink>

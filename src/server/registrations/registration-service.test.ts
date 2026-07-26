@@ -306,7 +306,13 @@ describe("cancelRegistration enforcement chain", () => {
     const { db, spies } = makeQueuedDb(
       [
         [reg],
-        [baseCompetition({ allowCancellation: true, cancellationCutoffDays: 7, eventStartAt: FUTURE })],
+        [
+          baseCompetition({
+            allowCancellation: true,
+            cancellationCutoffDays: 7,
+            eventStartAt: FUTURE,
+          }),
+        ],
       ],
       { updateReturning: [updated] },
     );

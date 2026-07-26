@@ -27,6 +27,7 @@ vi.mock("next/link", () => {
   return {
     default: ({ children, href }: { children: unknown; href: string }) =>
       React.createElement("a", { href }, children),
+    useLinkStatus: () => ({ pending: false }),
   };
 });
 vi.mock("@/server/auth/session", () => ({ getCurrentSession: mockGetCurrentSession }));

@@ -1,6 +1,7 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { joinClassNames } from "./class-names";
+import { ButtonLink } from "./button";
+import { Icon } from "./icon";
 
 type PageHeaderProps = {
   title: string;
@@ -25,10 +26,16 @@ export function PageHeader({
     <header className={joinClassNames("page-heading", className)}>
       <div className="page-heading-main">
         {backHref ? (
-          <Link href={backHref} className="page-heading-back">
-            <span aria-hidden="true">←</span>
+          <ButtonLink
+            href={backHref}
+            variant="ghost"
+            size="sm"
+            leadingIcon={<Icon name="arrow-left" size="sm" />}
+            className="page-heading-back"
+            title={backLabel}
+          >
             {backLabel}
-          </Link>
+          </ButtonLink>
         ) : null}
         {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
         <h1>{title}</h1>

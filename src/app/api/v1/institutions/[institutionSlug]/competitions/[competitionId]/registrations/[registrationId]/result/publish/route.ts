@@ -3,7 +3,11 @@ import { requireAuthenticatedSession } from "@/server/auth/session";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { getDb } from "@/server/db/client";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
-import { ResultError, toResultErrorResponse, publishResult } from "@/server/participants/result-service";
+import {
+  ResultError,
+  toResultErrorResponse,
+  publishResult,
+} from "@/server/participants/result-service";
 import { enqueueResultPublished } from "@/server/async/enqueue";
 import { logger } from "@/lib/logger";
 

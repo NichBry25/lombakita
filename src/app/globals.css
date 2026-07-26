@@ -202,15 +202,20 @@ svg {
   font-size: var(--text-lead);
 }
 
+/*
+ * Renders as a ghost .ui-button (icon + label) — see PageHeader. The label can be a dynamic
+ * value (e.g. a competition title, up to 200 chars), so it's capped and truncated here rather
+ * than letting a long back-destination name stretch the pill across the viewport.
+ */
 .page-heading-back {
-  display: inline-flex;
   width: fit-content;
-  min-height: var(--touch-target);
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-ink-soft);
-  font-size: var(--text-body-sm);
-  text-decoration: none;
+  max-width: min(20rem, 100%);
+}
+
+.page-heading-back > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .page-heading-actions {
@@ -342,6 +347,33 @@ svg {
 
 .hub-card-arrow {
   color: var(--brand-tangerine);
+}
+
+/* Tangerine action card: the brand's solid orange fill uses terracotta (white label at 4.81:1;
+   pure tangerine fails AA behind text) framed by a tangerine border and peach offset, so the
+   panel reads as the primary "do this" action. */
+.hub-card--action {
+  border-color: var(--brand-tangerine);
+  background: var(--color-action);
+  color: var(--color-action-ink);
+  box-shadow: var(--space-2) var(--space-2) 0 var(--brand-peach);
+}
+
+.hub-card--action:hover {
+  border-color: var(--brand-tangerine);
+  background: var(--color-action-hover);
+  color: var(--color-action-ink);
+}
+
+.hub-card--action h2,
+.hub-card--action h3,
+.hub-card--action p {
+  color: var(--color-action-ink);
+}
+
+.hub-card--action .hub-card-icon {
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--color-action-ink);
 }
 
 .stack-xs,
@@ -986,6 +1018,59 @@ svg {
   min-height: var(--skeleton-media-min);
 }
 
+.skeleton[data-variant="eyebrow"] {
+  width: var(--skeleton-eyebrow-width);
+  height: var(--space-2-5);
+}
+
+/* Control placeholders repeat the real control geometry so the page does not jump on swap. */
+.skeleton[data-variant="button"] {
+  width: var(--skeleton-button-width);
+  height: var(--control-height-md);
+  border-radius: var(--radius-control);
+}
+
+.skeleton[data-variant="chip"] {
+  width: var(--skeleton-chip-width);
+  height: var(--control-height-sm);
+  border-radius: var(--radius-pill);
+}
+
+.skeleton[data-variant="block"] {
+  width: 100%;
+  height: var(--control-height-md);
+}
+
+.skeleton[data-width="full"] {
+  width: 100%;
+}
+
+.skeleton[data-width="wide"] {
+  width: 78%;
+}
+
+.skeleton[data-width="half"] {
+  width: 50%;
+}
+
+.skeleton[data-width="narrow"] {
+  width: 32%;
+}
+
+/* On the deep-palm bands the warm-paper placeholder would glare, so it inverts to a tint. */
+.brand-band .skeleton {
+  background: color-mix(in srgb, var(--brand-paper) 18%, transparent);
+}
+
+.brand-band .skeleton::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--brand-paper) 14%, transparent),
+    transparent
+  );
+}
+
 .skeleton-card {
   display: grid;
   gap: var(--space-4);
@@ -993,6 +1078,44 @@ svg {
   border: var(--border-thin) solid var(--color-line);
   border-radius: var(--radius-card);
   background: var(--color-surface);
+}
+
+/*
+ * Layout scaffolding for the route-level skeleton archetypes. Everything else about their
+ * geometry comes from the real page classes they reuse (page-heading, content-section,
+ * competition-grid, detail-layout), so these only cover the shapes with no live counterpart.
+ */
+.skeleton-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.skeleton-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.skeleton-table {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* Auto columns so the row adapts to whatever column count the archetype was given. */
+.skeleton-table-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.skeleton-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--skeleton-stat-min), 1fr));
+  gap: var(--grid-gap);
 }
 
 .primitive-showcase {
@@ -1077,6 +1200,80 @@ svg {
   to {
     transform: translateX(100%);
   }
+}
+
+/*
+ * Spinner — the in-element pending signal.
+ *
+ * Inherits `currentColor` so it reads correctly inside every button variant without a
+ * per-variant rule. Only `transform` is animated, so it stays on the compositor.
+ */
+.spinner {
+  display: inline-block;
+  flex: none;
+  box-sizing: border-box;
+  border: var(--border-strong) solid
+    color-mix(in srgb, currentColor var(--spinner-track-strength), transparent);
+  border-block-start-color: currentColor;
+  border-radius: var(--radius-circle);
+  animation: spinner-rotate var(--duration-spinner) linear infinite;
+}
+
+.spinner[data-size="sm"] {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+}
+
+.spinner[data-size="md"] {
+  width: var(--icon-md);
+  height: var(--icon-md);
+}
+
+.spinner[data-size="lg"] {
+  width: var(--icon-xl);
+  height: var(--icon-xl);
+  border-width: var(--border-strong);
+}
+
+@keyframes spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * Page-transition screen — the blocking signal for "your action is saving and you are being
+ * taken somewhere". Opaque rather than a scrim: it replaces the page you are leaving, so a
+ * half-visible stale form never reads as still-editable.
+ */
+.page-transition {
+  position: fixed;
+  inset: var(--space-0);
+  z-index: var(--z-page-transition);
+  display: grid;
+  place-items: center;
+  padding: var(--page-padding);
+  background: var(--color-bg);
+}
+
+.page-transition-panel {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-5);
+  text-align: center;
+}
+
+.page-transition-panel .brand-wordmark {
+  width: var(--wordmark-hero-width);
+  height: var(--wordmark-hero-height);
+}
+
+.page-transition-message {
+  max-width: var(--content-narrow);
+  color: var(--color-ink-soft);
+  font-family: var(--font-body);
+  font-size: var(--text-lead);
+  text-wrap: pretty;
 }
 
 /* Application chrome */
@@ -1226,6 +1423,71 @@ button.header-nav-link {
 .mobile-nav[data-open="true"] {
   display: grid;
   gap: var(--space-1);
+}
+
+.header-dashboard-menu-root {
+  position: relative;
+  display: inline-flex;
+}
+
+.header-dashboard-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+}
+
+.header-dashboard-chevron {
+  transition: transform var(--duration-fast) ease;
+}
+
+.header-dashboard-trigger[aria-expanded="true"] .header-dashboard-chevron {
+  transform: rotate(180deg);
+}
+
+/* Menu panel — same focus-glass-with-opaque-fallback treatment as .filter-dropdown-menu. */
+.header-dashboard-panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  z-index: var(--z-dropdown);
+  display: grid;
+  min-width: 10rem;
+  margin: 0;
+  padding: var(--space-1);
+  border: 1px solid var(--glass-structure-line);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--glass-focus-fallback) 97%, transparent);
+  box-shadow: var(--shadow-glass);
+}
+
+.header-dashboard-menuitem {
+  display: flex;
+  align-items: center;
+  min-height: var(--touch-target);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-input);
+  color: var(--color-ink);
+  font-size: var(--text-button);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.header-dashboard-menuitem:hover,
+.header-dashboard-menuitem:focus-visible {
+  background: var(--brand-mist);
+  outline: none;
+}
+
+.header-dashboard-menuitem[aria-current="page"] {
+  background: var(--color-inset);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header-dashboard-chevron {
+    transition: none;
+  }
 }
 
 .notification-link {
@@ -3144,30 +3406,54 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   gap: var(--space-2);
 }
 
+/*
+ * Toasts are chrome glass, so they need a glow to sit on — glass never lands on flat
+ * paper. Each item paints its own peach glow behind itself (.toast-item::before) rather
+ * than the region painting one, so a single toast is not framed by a stack-sized wash.
+ */
 .toast-region {
   position: fixed;
   inset-inline-end: var(--page-padding);
-  inset-block-end: var(--page-padding);
+  inset-block-end: max(var(--page-padding), env(safe-area-inset-bottom));
   z-index: var(--z-toast);
   display: flex;
   width: min(calc(100% - (var(--page-padding) * 2)), var(--content-toast));
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-2-5);
+  /* The gaps between toasts stay clickable; each item takes pointer events back. */
+  pointer-events: none;
 }
 
 .toast-item {
+  --toast-tint: var(--color-info-surface);
+  --toast-hue: var(--color-info-text);
+  --toast-edge: var(--color-info-border);
+
+  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: start;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border: var(--border-thin) solid var(--color-info-border);
-  border-inline-start-width: var(--space-1);
-  border-radius: var(--radius-input);
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border: var(--border-thin) solid var(--toast-edge);
+  border-radius: var(--radius-card);
   background: var(--glass-chrome-fallback);
   box-shadow:
     0 24px 52px -34px var(--glow-peach),
-    var(--shadow-lg);
+    var(--shadow-glass);
+  pointer-events: auto;
+  animation: toast-enter var(--duration-fast) var(--ease-primary) both;
+}
+
+.toast-item::before {
+  position: absolute;
+  z-index: -1;
+  border-radius: var(--radius-feature);
+  background: radial-gradient(120% 120% at 85% 100%, var(--glow-peach), transparent 68%);
+  content: "";
+  /* No top extent: stacked toasts would otherwise lay two glows over the same gap. */
+  inset: 0 calc(var(--space-3) * -1) calc(var(--space-3) * -1);
+  pointer-events: none;
 }
 
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -3178,46 +3464,80 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   }
 }
 
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .toast-item[data-toast-type="success"] {
-  border-color: var(--color-success-border);
+  --toast-tint: var(--color-success-surface);
+  --toast-hue: var(--color-success-text);
+  --toast-edge: var(--color-success-border);
 }
 
 .toast-item[data-toast-type="warning"] {
-  border-color: var(--color-warning-border);
+  --toast-tint: var(--color-warning-surface);
+  --toast-hue: var(--color-warning-text);
+  --toast-edge: var(--color-warning-border);
 }
 
 .toast-item[data-toast-type="error"] {
-  border-color: var(--color-error-border);
+  --toast-tint: var(--color-error-surface);
+  --toast-hue: var(--color-error-text);
+  --toast-edge: var(--color-error-border);
+}
+
+/* Icon chip: soft type tint on a blob, no outline — the brand book's chip treatment. */
+.toast-icon {
+  display: grid;
+  width: var(--icon-chip);
+  height: var(--icon-chip);
+  place-items: center;
+  border-radius: var(--blob-radius-a);
+  background: var(--toast-tint);
+  color: var(--toast-hue);
+}
+
+.toast-copy {
+  display: grid;
+  gap: var(--space-1);
 }
 
 .toast-label {
-  margin-block-start: var(--space-1);
-  color: var(--color-info-text);
+  color: var(--toast-hue);
   font-family: var(--font-data);
   font-size: var(--text-micro);
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: var(--tracking-label);
+  line-height: 1;
   text-transform: uppercase;
 }
 
-.toast-item[data-toast-type="success"] .toast-label {
-  color: var(--color-success-text);
-}
-
-.toast-item[data-toast-type="warning"] .toast-label {
-  color: var(--color-warning-text);
-}
-
-.toast-item[data-toast-type="error"] .toast-label {
-  color: var(--color-error-text);
-}
-
 .toast-message {
+  margin: var(--space-0);
+  overflow-wrap: anywhere;
   color: var(--color-ink);
   font-size: var(--text-body-sm);
+  line-height: var(--leading-body);
 }
 
-.toast-close,
+.toast-close {
+  color: var(--color-ink-soft);
+}
+
+/* Theme-aware hover: the shared icon-button hover tint is a fixed light mist. */
+.toast-close:hover:not(:disabled) {
+  background: var(--color-inset);
+  color: var(--color-ink);
+}
+
 .modal-close {
   display: inline-grid;
   width: var(--touch-target);
@@ -3231,7 +3551,6 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
 }
 
-.toast-close:hover,
 .modal-close:hover {
   background: var(--color-inset);
   color: var(--color-ink);
@@ -4775,18 +5094,6 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   line-height: var(--leading-body);
 }
 
-.page-loading-heading {
-  display: grid;
-  max-width: var(--content-prose);
-  gap: var(--space-3);
-}
-
-.page-loading-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--grid-gap);
-}
-
 .participants-table,
 .audit-log-table,
 .institution-members-table,
@@ -4798,8 +5105,7 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 @media (max-width: 940px) {
-  .hub-grid,
-  .page-loading-grid {
+  .hub-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -4874,8 +5180,7 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .hub-grid,
-  .page-loading-grid {
+  .hub-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -5024,7 +5329,7 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
 
   .toast-region {
     inset-inline: var(--page-padding-mobile);
-    inset-block-end: var(--page-padding-mobile);
+    inset-block-end: max(var(--page-padding-mobile), env(safe-area-inset-bottom));
     width: auto;
   }
 
@@ -5207,6 +5512,16 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
 
   .skeleton::after {
     display: none;
+  }
+
+  /*
+   * The spinner is information, not decoration. The blanket animation kill above would
+   * freeze the only signal that an action is running, so it is slowed rather than stopped —
+   * that removes the vestibular trigger while keeping the meaning.
+   */
+  .spinner {
+    animation-duration: var(--duration-spinner-reduced) !important;
+    animation-iteration-count: infinite !important;
   }
 
   .home-marquee-track {

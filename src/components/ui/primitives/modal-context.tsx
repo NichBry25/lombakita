@@ -51,7 +51,9 @@ export function ModalProvider({ children }: { children: ReactNode }) {
 export function useModal(): Pick<ModalContextValue, "openModal" | "closeModal"> {
   const ctx = useContext(ModalContext);
   if (!ctx) {
-    throw new Error("useModal must be used inside <ModalProvider> (part of <UIPrimitivesProvider>)");
+    throw new Error(
+      "useModal must be used inside <ModalProvider> (part of <UIPrimitivesProvider>)",
+    );
   }
   return { openModal: ctx.openModal, closeModal: ctx.closeModal };
 }
@@ -59,7 +61,9 @@ export function useModal(): Pick<ModalContextValue, "openModal" | "closeModal"> 
 export function useModalState(): ModalContextValue {
   const ctx = useContext(ModalContext);
   if (!ctx) {
-    throw new Error("useModalState must be used inside <ModalProvider> (part of <UIPrimitivesProvider>)");
+    throw new Error(
+      "useModalState must be used inside <ModalProvider> (part of <UIPrimitivesProvider>)",
+    );
   }
   return ctx;
 }

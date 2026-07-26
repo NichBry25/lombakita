@@ -238,9 +238,7 @@ export const enqueueResultPublished = async (input: {
   teamId?: string;
   publishedAt: Date;
 }): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.resultPublished>> => {
-  const base = input.teamId
-    ? `${input.competitionId}__${input.teamId}`
-    : input.registrationId;
+  const base = input.teamId ? `${input.competitionId}__${input.teamId}` : input.registrationId;
   const idempotencyKey = `${base}__${input.publishedAt.getTime()}`;
   return enqueueAsyncJob({
     jobName: ASYNC_JOB_NAMES.resultPublished,

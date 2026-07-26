@@ -28,7 +28,10 @@ export class ModerationError extends Error {
 }
 
 export const toModerationErrorResponse = (error: ModerationError): NextResponse =>
-  NextResponse.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+  NextResponse.json(
+    { error: { code: error.code, message: error.message } },
+    { status: error.status },
+  );
 
 // Audit event type literals written to platform_ops_audit_logs. Centralised so the service layer
 // and any future reader share one source of truth.

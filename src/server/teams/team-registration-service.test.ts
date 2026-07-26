@@ -12,10 +12,7 @@ vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import {
-  cancelTeamRegistration,
-  submitTeamRegistration,
-} from "./team-registration-service";
+import { cancelTeamRegistration, submitTeamRegistration } from "./team-registration-service";
 
 type SelectResult = unknown[];
 
@@ -69,7 +66,9 @@ const makeDb = (selectQueue: SelectResult[], options: DbOptions = {}) => {
         where: vi.fn().mockReturnValue({
           returning: vi
             .fn()
-            .mockResolvedValueOnce(options.txTeamUpdateReturning ?? options.txUpdateReturning ?? []),
+            .mockResolvedValueOnce(
+              options.txTeamUpdateReturning ?? options.txUpdateReturning ?? [],
+            ),
         }),
       }),
     })),
@@ -211,13 +210,7 @@ describe("submitTeamRegistration — pre-transaction gates", () => {
         txTeamUpdateReturning: [{ id: "team_1" }],
       },
     );
-    const result = await submitTeamRegistration(
-      "cap_1",
-      "comp_1",
-      "team_1",
-      db as never,
-      NOW,
-    );
+    const result = await submitTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW);
     expect(result.status).toBe("submitted");
   });
 
@@ -291,13 +284,7 @@ describe("submitTeamRegistration — pre-transaction gates", () => {
         txTeamUpdateReturning: [{ id: "team_1" }],
       },
     );
-    const result = await submitTeamRegistration(
-      "cap_1",
-      "comp_1",
-      "team_1",
-      db as never,
-      NOW,
-    );
+    const result = await submitTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW);
     expect(result.status).toBe("submitted");
     expect(result.registrations.length).toBe(2);
   });
@@ -339,12 +326,7 @@ describe("submitTeamRegistration — transactional behaviour", () => {
 
   it("throws team_state_conflict when TOCTOU race leaves CAS UPDATE rowless", async () => {
     const { db } = makeDb(
-      [
-        [team()],
-        [competition({ minTeamSize: 1 })],
-        [{ membershipId: "m1", userId: "u_cap" }],
-        [],
-      ],
+      [[team()], [competition({ minTeamSize: 1 })], [{ membershipId: "m1", userId: "u_cap" }], []],
       {
         txInsertReturning: [{ id: "reg_1", studentId: "u_cap", status: "confirmed" }],
         txTeamUpdateReturning: [], // CAS returned 0 rows
@@ -358,12 +340,7 @@ describe("submitTeamRegistration — transactional behaviour", () => {
 
   it("translates Postgres 23505 to team_member_already_registered", async () => {
     const { db } = makeDb(
-      [
-        [team()],
-        [competition({ minTeamSize: 1 })],
-        [{ membershipId: "m1", userId: "u_cap" }],
-        [],
-      ],
+      [[team()], [competition({ minTeamSize: 1 })], [{ membershipId: "m1", userId: "u_cap" }], []],
       {
         txInsertError: Object.assign(new Error("dup"), { code: "23505" }),
       },
@@ -377,12 +354,7 @@ describe("submitTeamRegistration — transactional behaviour", () => {
   // 4.4-Sch-M1 — defense-in-depth: surface a typed 422 if the CHECK constraint ever fires.
   it("translates Postgres 23514 (CHECK violation) to team_registration_invariant_violation", async () => {
     const { db } = makeDb(
-      [
-        [team()],
-        [competition({ minTeamSize: 1 })],
-        [{ membershipId: "m1", userId: "u_cap" }],
-        [],
-      ],
+      [[team()], [competition({ minTeamSize: 1 })], [{ membershipId: "m1", userId: "u_cap" }], []],
       {
         txInsertError: Object.assign(new Error("check failed"), { code: "23514" }),
       },
@@ -402,12 +374,7 @@ describe("submitTeamRegistration — transactional behaviour", () => {
       cause: { code: "23514" },
     });
     const { db } = makeDb(
-      [
-        [team()],
-        [competition({ minTeamSize: 1 })],
-        [{ membershipId: "m1", userId: "u_cap" }],
-        [],
-      ],
+      [[team()], [competition({ minTeamSize: 1 })], [{ membershipId: "m1", userId: "u_cap" }], []],
       { txInsertError: wrapped },
     );
 
@@ -464,10 +431,7 @@ describe("cancelTeamRegistration", () => {
   });
 
   it("rejects cancellation_not_supported_for_paid for a paid competition", async () => {
-    const { db } = makeDb([
-      [team({ status: "submitted" })],
-      [competition({ feeAmount: "50000" })],
-    ]);
+    const { db } = makeDb([[team({ status: "submitted" })], [competition({ feeAmount: "50000" })]]);
     await expect(
       cancelTeamRegistration("cap_1", "comp_1", "team_1", "alasan", db as never, NOW),
     ).rejects.toMatchObject({ code: "cancellation_not_supported_for_paid" });
@@ -499,9 +463,7 @@ describe("cancelTeamRegistration", () => {
                 where: vi.fn().mockReturnValue({
                   returning: vi
                     .fn()
-                    .mockResolvedValue([
-                      { id: "reg_1", studentId: "u_cap", status: "cancelled" },
-                    ]),
+                    .mockResolvedValue([{ id: "reg_1", studentId: "u_cap", status: "cancelled" }]),
                 }),
               }),
             };

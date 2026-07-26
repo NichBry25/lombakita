@@ -24,8 +24,7 @@ export async function GET(): Promise<NextResponse<HealthResponse>> {
   const checks = {
     db: dbResult.status === "fulfilled" ? ("ok" as const) : ("error" as const),
     redis: redisResult.status === "fulfilled" ? ("ok" as const) : ("error" as const),
-    meilisearch:
-      meilisearchResult.status === "fulfilled" ? ("ok" as const) : ("error" as const),
+    meilisearch: meilisearchResult.status === "fulfilled" ? ("ok" as const) : ("error" as const),
   };
 
   const allOk = checks.db === "ok" && checks.redis === "ok" && checks.meilisearch === "ok";

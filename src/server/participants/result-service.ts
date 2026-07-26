@@ -98,7 +98,11 @@ export const parseResultDraftInput = (payload: unknown): ResultDraftInput => {
   const allowedKeys = new Set(["resultLabel", "resultNotes"]);
   const unknownKeys = Object.keys(payload).filter((key) => !allowedKeys.has(key));
   if (unknownKeys.length > 0) {
-    throw new ResultError("result_invalid_payload", 400, "Request body contains unsupported fields");
+    throw new ResultError(
+      "result_invalid_payload",
+      400,
+      "Request body contains unsupported fields",
+    );
   }
 
   const input: ResultDraftInput = {};
@@ -173,7 +177,11 @@ const loadRegistrationMeta = async (
     .limit(1);
 
   if (!row) return null;
-  return { registrationType: row.registrationType, teamId: row.teamId, teamName: row.teamName ?? null };
+  return {
+    registrationType: row.registrationType,
+    teamId: row.teamId,
+    teamName: row.teamName ?? null,
+  };
 };
 
 // ─── Service functions ───────────────────────────────────────────────────────
@@ -196,20 +204,18 @@ export const getResultForInstitution = async (
 
   let activeMemberCount: number | null = null;
   if (meta.teamId) {
-    const [countRow] = await db
-      .select({ count: sql<number>`COUNT(*)::int` })
-      .from(
-        db
-          .select({ id: competitionRegistrations.id })
-          .from(competitionRegistrations)
-          .where(
-            and(
-              eq(competitionRegistrations.teamId, meta.teamId),
-              eq(competitionRegistrations.competitionId, competitionId),
-            ),
-          )
-          .as("members"),
-      );
+    const [countRow] = await db.select({ count: sql<number>`COUNT(*)::int` }).from(
+      db
+        .select({ id: competitionRegistrations.id })
+        .from(competitionRegistrations)
+        .where(
+          and(
+            eq(competitionRegistrations.teamId, meta.teamId),
+            eq(competitionRegistrations.competitionId, competitionId),
+          ),
+        )
+        .as("members"),
+    );
     activeMemberCount = countRow?.count ?? 0;
   }
 
@@ -588,7 +594,10 @@ export const listCandidatePublishedResults = async (
       publishedAt: competitionResults.publishedAt,
     })
     .from(competitionRegistrations)
-    .innerJoin(competitionResults, eq(competitionResults.registrationId, competitionRegistrations.id))
+    .innerJoin(
+      competitionResults,
+      eq(competitionResults.registrationId, competitionRegistrations.id),
+    )
     .innerJoin(competitions, eq(competitions.id, competitionRegistrations.competitionId))
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
     .where(

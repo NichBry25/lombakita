@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from "react";
 import { joinClassNames } from "./class-names";
 import { Icon, type IconName } from "./icon";
+import { LinkPendingSlot } from "./link-pending";
+import { Spinner } from "./spinner";
 
 export type ButtonVariant = "primary" | "secondary" | "outline" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
@@ -14,6 +16,11 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   leadingIcon?: ReactNode;
 };
 
+/**
+ * While `loading` is set the button keeps its own label and takes the spinner into the
+ * leading slot. The label is what tells the user which action is running, so it is never
+ * swapped out for generic loading text, and the fixed slot keeps the button from resizing.
+ */
 export function Button({
   variant = "primary",
   size = "md",
@@ -34,11 +41,12 @@ export function Button({
       data-variant={variant}
       data-size={size}
       data-full-width={fullWidth ? "true" : undefined}
+      data-loading={loading ? "true" : undefined}
       aria-busy={loading || undefined}
       disabled={disabled || loading}
     >
-      {leadingIcon}
-      <span>{loading ? "Memuat…" : children}</span>
+      {loading ? <Spinner size={size === "lg" ? "md" : "sm"} /> : leadingIcon}
+      <span>{children}</span>
     </button>
   );
 }
@@ -50,6 +58,10 @@ type ButtonLinkProps = ComponentProps<typeof Link> & {
   leadingIcon?: ReactNode;
 };
 
+/**
+ * A navigating button. It has no `loading` prop because it owns no action to await — the
+ * pending state is the navigation itself, which `LinkPendingSlot` reads from the Link.
+ */
 export function ButtonLink({
   variant = "primary",
   size = "md",
@@ -67,7 +79,7 @@ export function ButtonLink({
       data-size={size}
       data-full-width={fullWidth ? "true" : undefined}
     >
-      {leadingIcon}
+      <LinkPendingSlot leadingIcon={leadingIcon} />
       <span>{children}</span>
     </Link>
   );
@@ -84,6 +96,8 @@ type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 // Icon-only button for actions whose glyph is unambiguous (logout, delete, share, back).
 // The glyph is decorative (aria-hidden via Icon); the button carries the accessible name.
+// While loading the glyph is replaced by the spinner — the accessible name is unchanged, so
+// the control keeps announcing what it does while `aria-busy` reports that it is running.
 export function IconButton({
   label,
   icon,
@@ -102,12 +116,13 @@ export function IconButton({
       className={joinClassNames("ui-icon-button", className)}
       data-variant={variant}
       data-size={size}
+      data-loading={loading ? "true" : undefined}
       aria-label={label}
       title={label}
       aria-busy={loading || undefined}
       disabled={disabled || loading}
     >
-      <Icon name={icon} />
+      {loading ? <Spinner size="sm" /> : <Icon name={icon} />}
     </button>
   );
 }

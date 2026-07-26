@@ -41,8 +41,13 @@ describe("GET /api/v1/institutions/[institutionSlug]/competitions/[competitionId
 
   it("(a) returns 200 with text/csv header for valid institution_owner", async () => {
     requireAuthenticatedSession.mockResolvedValue(ownerSession);
-    requireAdminInstitutionBySlug.mockResolvedValue({ institutionId: "inst_1", actorMembershipId: "mem_1" });
-    exportRegistrantsAsCsv.mockResolvedValue("﻿registration_id,registration_type\nreg_1,individual");
+    requireAdminInstitutionBySlug.mockResolvedValue({
+      institutionId: "inst_1",
+      actorMembershipId: "mem_1",
+    });
+    exportRegistrantsAsCsv.mockResolvedValue(
+      "﻿registration_id,registration_type\nreg_1,individual",
+    );
 
     const res = await GET(makeGet(), makeParams());
     expect(res.status).toBe(200);
@@ -53,8 +58,13 @@ describe("GET /api/v1/institutions/[institutionSlug]/competitions/[competitionId
 
   it("(b) returns 200 with header-only CSV when no registrants (empty export)", async () => {
     requireAuthenticatedSession.mockResolvedValue(ownerSession);
-    requireAdminInstitutionBySlug.mockResolvedValue({ institutionId: "inst_1", actorMembershipId: "mem_1" });
-    exportRegistrantsAsCsv.mockResolvedValue("﻿registration_id,registration_type,team_name,is_captain,participant_name,participant_email,registration_status,internal_review_status,has_submission,submission_finalized,registered_at");
+    requireAdminInstitutionBySlug.mockResolvedValue({
+      institutionId: "inst_1",
+      actorMembershipId: "mem_1",
+    });
+    exportRegistrantsAsCsv.mockResolvedValue(
+      "﻿registration_id,registration_type,team_name,is_captain,participant_name,participant_email,registration_status,internal_review_status,has_submission,submission_finalized,registered_at",
+    );
 
     const res = await GET(makeGet(), makeParams());
     expect(res.status).toBe(200);
@@ -84,7 +94,10 @@ describe("GET /api/v1/institutions/[institutionSlug]/competitions/[competitionId
 
   it("(e) returns 404 when the competition does not belong to the institution", async () => {
     requireAuthenticatedSession.mockResolvedValue(ownerSession);
-    requireAdminInstitutionBySlug.mockResolvedValue({ institutionId: "inst_1", actorMembershipId: "mem_1" });
+    requireAdminInstitutionBySlug.mockResolvedValue({
+      institutionId: "inst_1",
+      actorMembershipId: "mem_1",
+    });
     const { ExportOwnershipError } = await import("@/server/participants/export-service");
     exportRegistrantsAsCsv.mockRejectedValue(new ExportOwnershipError());
 

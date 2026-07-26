@@ -67,13 +67,7 @@ export type PublicResume = {
   downloadUrl: string | null;
 };
 
-export const SOCIAL_PLATFORMS = [
-  "linkedin",
-  "github",
-  "instagram",
-  "x",
-  "website",
-] as const;
+export const SOCIAL_PLATFORMS = ["linkedin", "github", "instagram", "x", "website"] as const;
 export type SocialPlatform = (typeof SOCIAL_PLATFORMS)[number];
 
 export type SocialLinkEntry = {
@@ -271,7 +265,8 @@ export const parseExperienceInput = (payload: unknown): ExperienceInput => {
     );
   }
   const startDate = parseOptionalDate("startDate", payload.startDate);
-  const isCurrent = payload.isCurrent === undefined ? false : parseBool("isCurrent", payload.isCurrent);
+  const isCurrent =
+    payload.isCurrent === undefined ? false : parseBool("isCurrent", payload.isCurrent);
   const endDate = isCurrent ? null : parseOptionalDate("endDate", payload.endDate);
   if (startDate && endDate && endDate < startDate) {
     throw new ProfileCollectionError(
@@ -390,8 +385,7 @@ export const deriveProfileHeader = (
 ): { affiliation: string | null; websiteUrl: string | null } => {
   const current =
     collections.experiences.find((entry) => entry.isCurrent) ?? collections.experiences[0];
-  const affiliation =
-    current?.organizationName ?? collections.educations[0]?.school ?? null;
+  const affiliation = current?.organizationName ?? collections.educations[0]?.school ?? null;
   const websiteUrl =
     collections.socialLinks.find((link) => link.platform === "website")?.url ?? null;
   return { affiliation, websiteUrl };

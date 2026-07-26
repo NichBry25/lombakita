@@ -38,8 +38,16 @@ function makeDb(
   const makeChain = (returning: () => Promise<unknown[]>) => {
     const c: Record<string, unknown> = {};
     for (const m of [
-      "from", "innerJoin", "leftJoin", "where", "limit",
-      "orderBy", "values", "onConflictDoUpdate", "onConflictDoNothing", "set",
+      "from",
+      "innerJoin",
+      "leftJoin",
+      "where",
+      "limit",
+      "orderBy",
+      "values",
+      "onConflictDoUpdate",
+      "onConflictDoNothing",
+      "set",
     ]) {
       c[m] = vi.fn(() => c);
     }
@@ -92,8 +100,8 @@ describe("finalizeSubmission — notification enqueue", () => {
 
     const db = makeDb(
       [
-        [confirmedRegistrationRow],          // loadRegistrationWithCompetition
-        [{ ...submissionRow, finalizedAt: null }],  // getSubmissionRow (existing, not finalized)
+        [confirmedRegistrationRow], // loadRegistrationWithCompetition
+        [{ ...submissionRow, finalizedAt: null }], // getSubmissionRow (existing, not finalized)
       ],
       { updateReturn: [submissionRow] },
     );
@@ -129,13 +137,9 @@ describe("finalizeSubmission — notification enqueue", () => {
   it("returns the finalized submission even when enqueue throws (fire-and-forget)", async () => {
     enqueueSubmissionFinalized.mockRejectedValue(new Error("redis_down"));
 
-    const db = makeDb(
-      [
-        [confirmedRegistrationRow],
-        [{ ...submissionRow, finalizedAt: null }],
-      ],
-      { updateReturn: [submissionRow] },
-    );
+    const db = makeDb([[confirmedRegistrationRow], [{ ...submissionRow, finalizedAt: null }]], {
+      updateReturn: [submissionRow],
+    });
     mockGetDb.mockReturnValue(db);
 
     const result = await finalizeSubmission("comp_1", "reg_1", "stud_1", db as never);
@@ -151,15 +155,21 @@ describe("createOrReplaceSubmission — no notification enqueue", () => {
 
   it("does NOT call enqueueSubmissionFinalized on file upload/replace", async () => {
     mockIsR2Available.mockReturnValue(true);
-    const db = makeDb(
-      [[confirmedRegistrationRow]],
-      { insertReturn: [{ ...submissionRow, finalizedAt: null }] },
-    );
+    const db = makeDb([[confirmedRegistrationRow]], {
+      insertReturn: [{ ...submissionRow, finalizedAt: null }],
+    });
     mockGetDb.mockReturnValue(db);
 
     await createOrReplaceSubmission(
-      "comp_1", "reg_1", "stud_1",
-      { fileKey: "submissions/reg_1/file.pdf", fileName: "file.pdf", fileSizeBytes: null, fileMimeType: null },
+      "comp_1",
+      "reg_1",
+      "stud_1",
+      {
+        fileKey: "submissions/reg_1/file.pdf",
+        fileName: "file.pdf",
+        fileSizeBytes: null,
+        fileMimeType: null,
+      },
       db as never,
       NOW,
     );

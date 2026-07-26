@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentSession } from "@/server/auth/session";
 import { getDb } from "@/server/db/client";
@@ -56,7 +55,7 @@ export default async function InboxPage() {
           description="Notifikasi, undangan institusi, dan undangan tim akan muncul di sini."
           action={
             <ButtonLink href="/" variant="outline">
-              Kembali ke beranda
+              Kembali
             </ButtonLink>
           }
         />
@@ -120,10 +119,6 @@ export default async function InboxPage() {
           })}
         </ul>
       )}
-
-      <Link href="/" className="page-heading-back">
-        ← Beranda
-      </Link>
     </main>
   );
 }

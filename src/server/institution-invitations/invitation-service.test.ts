@@ -68,7 +68,12 @@ describe("acceptInstitutionInvitationForUser — session-id match", () => {
   it("accepts when session.user.id === target_user_id (no existing membership)", async () => {
     const tx = makeTx([[baseInvitation()], []]); // invitation, membership-check empty
     await expect(
-      acceptInstitutionInvitationForUser(INVITATION_ID, TARGET_USER, ["recruiter"], makeDb(tx) as never),
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["recruiter"],
+        makeDb(tx) as never,
+      ),
     ).resolves.toBeUndefined();
     expect(tx.insert).toHaveBeenCalled();
   });
@@ -76,7 +81,12 @@ describe("acceptInstitutionInvitationForUser — session-id match", () => {
   it("returns non-leaking 404 when the caller is NOT the target user", async () => {
     const tx = makeTx([[baseInvitation({ targetUserId: "someone_else" })]]);
     await expect(
-      acceptInstitutionInvitationForUser(INVITATION_ID, TARGET_USER, ["recruiter"], makeDb(tx) as never),
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["recruiter"],
+        makeDb(tx) as never,
+      ),
     ).rejects.toMatchObject({ code: "invitation_not_found", httpStatus: 404 });
     expect(tx.insert).not.toHaveBeenCalled();
   });
@@ -84,21 +94,36 @@ describe("acceptInstitutionInvitationForUser — session-id match", () => {
   it("returns 404 when the invitation does not exist", async () => {
     const tx = makeTx([[]]);
     await expect(
-      acceptInstitutionInvitationForUser(INVITATION_ID, TARGET_USER, ["recruiter"], makeDb(tx) as never),
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["recruiter"],
+        makeDb(tx) as never,
+      ),
     ).rejects.toMatchObject({ code: "invitation_not_found", httpStatus: 404 });
   });
 
   it("a pending_claim row (null target) is unacceptable — 404 for everyone", async () => {
     const tx = makeTx([[baseInvitation({ status: "pending_claim", targetUserId: null })]]);
     await expect(
-      acceptInstitutionInvitationForUser(INVITATION_ID, TARGET_USER, ["recruiter"], makeDb(tx) as never),
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["recruiter"],
+        makeDb(tx) as never,
+      ),
     ).rejects.toMatchObject({ code: "invitation_not_found", httpStatus: 404 });
   });
 
   it("returns 410 when the invitation has expired", async () => {
     const tx = makeTx([[baseInvitation({ expiresAt: PAST })]]);
     await expect(
-      acceptInstitutionInvitationForUser(INVITATION_ID, TARGET_USER, ["recruiter"], makeDb(tx) as never),
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["recruiter"],
+        makeDb(tx) as never,
+      ),
     ).rejects.toMatchObject({ code: "invitation_not_actionable", httpStatus: 410 });
     expect(tx.insert).not.toHaveBeenCalled();
   });
@@ -108,7 +133,12 @@ describe("acceptInstitutionInvitationForUser — CCR-08 verification gate at acc
   it("blocks a candidate-only account from an institution_staff invite", async () => {
     const tx = makeTx([[baseInvitation({ invitedRole: "institution_staff" })]]);
     await expect(
-      acceptInstitutionInvitationForUser(INVITATION_ID, TARGET_USER, ["candidate"], makeDb(tx) as never),
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["candidate"],
+        makeDb(tx) as never,
+      ),
     ).rejects.toMatchObject({ code: "invitation_role_verification_required", httpStatus: 403 });
     expect(tx.insert).not.toHaveBeenCalled();
   });
@@ -116,28 +146,48 @@ describe("acceptInstitutionInvitationForUser — CCR-08 verification gate at acc
   it("blocks a candidate-only account from an institution_owner invite", async () => {
     const tx = makeTx([[baseInvitation({ invitedRole: "institution_owner" })]]);
     await expect(
-      acceptInstitutionInvitationForUser(INVITATION_ID, TARGET_USER, ["candidate"], makeDb(tx) as never),
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["candidate"],
+        makeDb(tx) as never,
+      ),
     ).rejects.toMatchObject({ code: "invitation_role_verification_required", httpStatus: 403 });
   });
 
   it("allows a candidate-only account to accept an institution_member invite", async () => {
     const tx = makeTx([[baseInvitation({ invitedRole: "institution_member" })], []]);
     await expect(
-      acceptInstitutionInvitationForUser(INVITATION_ID, TARGET_USER, ["candidate"], makeDb(tx) as never),
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["candidate"],
+        makeDb(tx) as never,
+      ),
     ).resolves.toBeUndefined();
   });
 
   it("allows a recruiter-verified account to accept an institution_owner invite", async () => {
     const tx = makeTx([[baseInvitation({ invitedRole: "institution_owner" })], []]);
     await expect(
-      acceptInstitutionInvitationForUser(INVITATION_ID, TARGET_USER, ["recruiter"], makeDb(tx) as never),
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["recruiter"],
+        makeDb(tx) as never,
+      ),
     ).resolves.toBeUndefined();
   });
 
   it("blocks acceptance when already a member (409)", async () => {
     const tx = makeTx([[baseInvitation()], [{ id: "mem_1" }]]);
     await expect(
-      acceptInstitutionInvitationForUser(INVITATION_ID, TARGET_USER, ["recruiter"], makeDb(tx) as never),
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["recruiter"],
+        makeDb(tx) as never,
+      ),
     ).rejects.toMatchObject({ code: "invitation_already_member", httpStatus: 409 });
   });
 });
@@ -168,9 +218,7 @@ const ADMIN_ROW = [
 const PERSONAL_ADMIN_ROW = [
   { institutionId: "inst_p", institutionDisplayName: "Pribadi", institutionType: "personal" },
 ];
-const CREATE_RETURNING = [
-  { id: "inv_new", invitedEmail: "x@e.com", expiresAt: FUTURE },
-];
+const CREATE_RETURNING = [{ id: "inv_new", invitedEmail: "x@e.com", expiresAt: FUTURE }];
 
 describe("createInstitutionInvitation — resolution + dual-channel enqueue", () => {
   it("email matching a verified account → status pending + target_user_id set", async () => {

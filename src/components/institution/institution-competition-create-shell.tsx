@@ -126,13 +126,8 @@ export const InstitutionCompetitionCreateShell = ({
           onClick={() => router.push(backHref)}
         />
         <div className="form-action-bar-end">
-          <Button
-            type="button"
-            onClick={() => onSubmit()}
-            disabled={isSubmitting}
-            loading={isSubmitting}
-          >
-            {isSubmitting ? "Menyimpan..." : "Buat draf"}
+          <Button type="button" onClick={() => onSubmit()} loading={isSubmitting}>
+            Buat draf
           </Button>
         </div>
       </FormActionBar>

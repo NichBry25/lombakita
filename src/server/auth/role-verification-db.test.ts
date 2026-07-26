@@ -185,12 +185,12 @@ describe("markRoleAsVerified", () => {
       recruiterVerifiedAt: new Date(),
     });
 
-    await expect(markRoleAsVerified("u1", "candidate", null, null, db as never)).rejects.toMatchObject(
-      {
-        code: "candidate_profile_required",
-        status: 400,
-      },
-    );
+    await expect(
+      markRoleAsVerified("u1", "candidate", null, null, db as never),
+    ).rejects.toMatchObject({
+      code: "candidate_profile_required",
+      status: 400,
+    });
     // Fail closed before opening the transaction.
     expect(tx.update).not.toHaveBeenCalled();
   });
@@ -201,7 +201,9 @@ describe("markRoleAsVerified", () => {
       recruiterVerifiedAt: null,
     });
 
-    await expect(markRoleAsVerified("u1", "recruiter", null, null, db as never)).rejects.toMatchObject({
+    await expect(
+      markRoleAsVerified("u1", "recruiter", null, null, db as never),
+    ).rejects.toMatchObject({
       code: "recruiter_verification_required",
       status: 400,
     });

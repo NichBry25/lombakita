@@ -1,21 +1,25 @@
 // @vitest-environment node
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetDb, getRecruiterTierForAccount } = vi.hoisted(() => ({
+const { mockGetDb, getRecruiterTierForAccount, mockSweepForAccount } = vi.hoisted(() => ({
   mockGetDb: vi.fn(),
   getRecruiterTierForAccount: vi.fn(),
+  mockSweepForAccount: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
 vi.mock("@/server/auth/recruiter-tier", async () => {
-  const actual =
-    await vi.importActual<typeof import("@/server/auth/recruiter-tier")>(
-      "@/server/auth/recruiter-tier",
-    );
+  const actual = await vi.importActual<typeof import("@/server/auth/recruiter-tier")>(
+    "@/server/auth/recruiter-tier",
+  );
   return { ...actual, getRecruiterTierForAccount };
 });
+// Isolate the tier service from the verification module; assert the orphan sweep wiring directly.
+vi.mock("@/server/recruiter-verification/recruiter-verification-service", () => ({
+  sweepOrphanedObjectsForAccount: mockSweepForAccount,
+}));
 
 import {
   elevateRecruiterTier,
@@ -76,6 +80,8 @@ describe("parseElevationInput", () => {
 });
 
 describe("elevateRecruiterTier", () => {
+  afterEach(() => vi.clearAllMocks());
+
   it("throws tier_account_not_found (404) when target account is missing", async () => {
     getRecruiterTierForAccount.mockResolvedValue(null);
     const { db } = buildUpdateDb();
@@ -110,6 +116,8 @@ describe("elevateRecruiterTier", () => {
 
     expect(result).toEqual({ accountId: "u1", tier: "elevated", changed: true });
     expect(updateChain.set).toHaveBeenCalled();
+    // The manual elevation path runs the orphan sweep it would otherwise bypass.
+    expect(mockSweepForAccount).toHaveBeenCalledWith("u1", db);
   });
 
   it("returns changed=false and skips UPDATE when already elevated (idempotent)", async () => {
@@ -123,6 +131,8 @@ describe("elevateRecruiterTier", () => {
 
     expect(result).toEqual({ accountId: "u1", tier: "elevated", changed: false });
     expect(updateChain.set).not.toHaveBeenCalled();
+    // No elevation happened, so no sweep runs on the idempotent fast-path.
+    expect(mockSweepForAccount).not.toHaveBeenCalled();
   });
 
   // Step 4.0c (4.0c-T1) — Concurrent platform-ops elevation requests on the same account.

@@ -108,8 +108,8 @@ export const CompetitionTagsEditor = ({
               </label>
             ))}
           </div>
-          <Button type="button" onClick={saveTags} disabled={isSaving} loading={isSaving}>
-            {isSaving ? "Menyimpan..." : "Simpan"}
+          <Button type="button" onClick={saveTags} loading={isSaving}>
+            Simpan
           </Button>
         </div>
       )}

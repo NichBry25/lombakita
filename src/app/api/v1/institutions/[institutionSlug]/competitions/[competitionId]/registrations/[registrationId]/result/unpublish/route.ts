@@ -3,7 +3,11 @@ import { requireAuthenticatedSession } from "@/server/auth/session";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { getDb } from "@/server/db/client";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
-import { ResultError, toResultErrorResponse, unpublishResult } from "@/server/participants/result-service";
+import {
+  ResultError,
+  toResultErrorResponse,
+  unpublishResult,
+} from "@/server/participants/result-service";
 
 type RouteContext = {
   params: Promise<{ institutionSlug: string; competitionId: string; registrationId: string }>;
@@ -21,7 +25,13 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
       db,
     );
 
-    const result = await unpublishResult(institutionId, competitionId, registrationId, actorMembershipId, db);
+    const result = await unpublishResult(
+      institutionId,
+      competitionId,
+      registrationId,
+      actorMembershipId,
+      db,
+    );
     return NextResponse.json({ result });
   } catch (error) {
     if (error instanceof ResultError) return toResultErrorResponse(error);

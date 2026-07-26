@@ -10,10 +10,7 @@ const { enqueueCompetitionSearchSync } = vi.hoisted(() => ({
 }));
 vi.mock("@/server/async/enqueue", () => ({ enqueueCompetitionSearchSync }));
 
-import {
-  setFeaturedPlacement,
-  FeaturedPlacementError,
-} from "./featured-placement-service";
+import { setFeaturedPlacement, FeaturedPlacementError } from "./featured-placement-service";
 import type { Database } from "@/server/db/client";
 
 const makeSelectDb = (
@@ -110,11 +107,7 @@ describe("setFeaturedPlacement", () => {
 
   it("succeeds for published competition and returns isFeatured + featuredOrder", async () => {
     const { db } = makeSelectDb({ id: "comp_1", status: "published" });
-    const result = await setFeaturedPlacement(
-      "comp_1",
-      { isFeatured: true, featuredOrder: 3 },
-      db,
-    );
+    const result = await setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 3 }, db);
     expect(result).toEqual({ isFeatured: true, featuredOrder: 3 });
   });
 
@@ -150,11 +143,7 @@ describe("setFeaturedPlacement", () => {
   it("does not throw when enqueue fails — DB write still succeeds", async () => {
     enqueueCompetitionSearchSync.mockRejectedValueOnce(new Error("redis down"));
     const { db } = makeSelectDb({ id: "comp_1", status: "published" });
-    const result = await setFeaturedPlacement(
-      "comp_1",
-      { isFeatured: true, featuredOrder: 2 },
-      db,
-    );
+    const result = await setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 2 }, db);
     expect(result).toEqual({ isFeatured: true, featuredOrder: 2 });
   });
 });

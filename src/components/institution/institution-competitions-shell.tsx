@@ -60,7 +60,7 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
         title="Kompetisi"
         description={`Kelola seluruh kompetisi yang diterbitkan melalui ${institutionSlug}.`}
         backHref={`/institution/${institutionSlug}`}
-        backLabel="Panel institusi"
+        backLabel="Kembali"
         actions={
           <>
             <ButtonLink

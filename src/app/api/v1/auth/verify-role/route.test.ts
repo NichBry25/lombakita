@@ -17,8 +17,7 @@ vi.mock("@/server/auth/auth.config", () => ({
 }));
 
 vi.mock("@/server/auth/role-verification", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/server/auth/role-verification")>();
+  const actual = await importOriginal<typeof import("@/server/auth/role-verification")>();
   return {
     ...actual,
     markRoleAsVerified: markRoleAsVerifiedMock,
@@ -120,9 +119,7 @@ describe("POST /api/v1/auth/verify-role", () => {
       ),
     );
 
-    const response = await POST(
-      buildRequest({ role: "candidate", ...candidateProfileFields }),
-    );
+    const response = await POST(buildRequest({ role: "candidate", ...candidateProfileFields }));
     const body = (await response.json()) as { error: { code: string } };
 
     expect(response.status).toBe(409);
@@ -179,9 +176,7 @@ describe("POST /api/v1/auth/verify-role", () => {
       recruiterVerified: true,
     });
 
-    const response = await POST(
-      buildRequest({ role: "candidate", ...candidateProfileFields }),
-    );
+    const response = await POST(buildRequest({ role: "candidate", ...candidateProfileFields }));
     const body = (await response.json()) as { verified: string; redirectTo: string };
 
     expect(response.status).toBe(200);

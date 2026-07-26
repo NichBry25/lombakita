@@ -39,7 +39,13 @@ const ctx = { params: Promise.resolve({ noteId: "n1" }) };
 
 beforeEach(() => {
   requireSessionRole.mockResolvedValue(opsSession);
-  editNote.mockResolvedValue({ id: "n1", note: "updated", createdById: "ops1", createdByName: null, createdAt: new Date() });
+  editNote.mockResolvedValue({
+    id: "n1",
+    note: "updated",
+    createdById: "ops1",
+    createdByName: null,
+    createdAt: new Date(),
+  });
 });
 afterEach(() => vi.clearAllMocks());
 

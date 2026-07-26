@@ -38,6 +38,11 @@ vi.mock("@/components/ui", () => ({
     </button>
   ),
   PageHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
+  usePageTransition: () => ({
+    begin: vi.fn(),
+    end: vi.fn(),
+    runAndNavigate: (action: () => Promise<boolean>) => action(),
+  }),
 }));
 vi.mock("@/components/ui/primitives", () => ({
   useToast: () => ({ addToast: mockAddToast }),

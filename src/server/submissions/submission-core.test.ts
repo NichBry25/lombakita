@@ -42,13 +42,19 @@ describe("isSubmissionWindowOpen", () => {
 
   it("returns false when eventStartAt is null", () => {
     expect(
-      isSubmissionWindowOpen({ eventStartAt: null, eventEndAt: END }, new Date("2026-06-15T00:00:00.000Z")),
+      isSubmissionWindowOpen(
+        { eventStartAt: null, eventEndAt: END },
+        new Date("2026-06-15T00:00:00.000Z"),
+      ),
     ).toBe(false);
   });
 
   it("returns false when eventEndAt is null", () => {
     expect(
-      isSubmissionWindowOpen({ eventStartAt: START, eventEndAt: null }, new Date("2026-06-15T00:00:00.000Z")),
+      isSubmissionWindowOpen(
+        { eventStartAt: START, eventEndAt: null },
+        new Date("2026-06-15T00:00:00.000Z"),
+      ),
     ).toBe(false);
   });
 

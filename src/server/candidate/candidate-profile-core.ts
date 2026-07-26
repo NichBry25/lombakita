@@ -161,9 +161,7 @@ const editableFieldSet = new Set<string>(EDITABLE_FIELDS);
 
 // Partial patch for the /candidate-dashboard editor. At least one editable field is required;
 // unknown fields are rejected so a client cannot smuggle in server-managed columns.
-export const parseCandidateProfileUpdatePatch = (
-  payload: unknown,
-): CandidateProfileUpdatePatch => {
+export const parseCandidateProfileUpdatePatch = (payload: unknown): CandidateProfileUpdatePatch => {
   if (!isRecord(payload)) {
     throw new CandidateProfileError(
       "candidate_profile_invalid_payload",

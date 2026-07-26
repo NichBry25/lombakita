@@ -28,9 +28,6 @@ export default async function InstitutionMembersPage({ params }: InstitutionMemb
   }
 
   return (
-    <InstitutionMembersShell
-      institutionSlug={institutionSlug}
-      actorUserId={session.user.id}
-    />
+    <InstitutionMembersShell institutionSlug={institutionSlug} actorUserId={session.user.id} />
   );
 }

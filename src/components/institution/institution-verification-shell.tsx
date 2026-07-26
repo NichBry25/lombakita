@@ -338,12 +338,11 @@ export const InstitutionVerificationShell = ({
         <div className="form-action-bar-end">
           <Button
             type="button"
-            disabled={submitting}
             onClick={() => void handleSubmit()}
             loading={submitting}
             leadingIcon={<Icon name="upload" />}
           >
-            {submitting ? "Mengirim..." : "Kirim dokumen"}
+            Kirim dokumen
           </Button>
         </div>
       </FormActionBar>

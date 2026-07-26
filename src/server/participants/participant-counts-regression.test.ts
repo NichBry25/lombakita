@@ -20,10 +20,7 @@ import type { ParticipantCounts } from "@/server/participants/participant-servic
 
 describe("participant counts query — pending_payment literal regression guard", () => {
   it("uses 'pending_payment' (not 'pending') as the status literal in the aggregate counts filter", () => {
-    const source = readFileSync(
-      resolve("src/server/participants/participant-service.ts"),
-      "utf-8",
-    );
+    const source = readFileSync(resolve("src/server/participants/participant-service.ts"), "utf-8");
 
     // The counts query must reference 'pending_payment' for the pending count.
     expect(source).toContain("= 'pending_payment'");

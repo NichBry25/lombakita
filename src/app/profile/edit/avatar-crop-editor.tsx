@@ -81,7 +81,9 @@ export function AvatarCropEditor({
     const newW = natural.w * baseScale * z;
     const newH = natural.h * baseScale * z;
     setScale(z);
-    setOffset(clampOffset({ x: VIEWPORT / 2 - fx * newW, y: VIEWPORT / 2 - fy * newH }, newW, newH));
+    setOffset(
+      clampOffset({ x: VIEWPORT / 2 - fx * newW, y: VIEWPORT / 2 - fy * newH }, newW, newH),
+    );
   };
 
   // Latest crop state for the imperative getCropped (which is created once). Mirrored via an

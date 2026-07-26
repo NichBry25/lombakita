@@ -23,7 +23,8 @@ export async function POST(request: Request): Promise<Response> {
 
     const result = await addNote(session.user.id, {
       targetUserId: typeof raw.targetUserId === "string" ? raw.targetUserId : null,
-      targetInstitutionId: typeof raw.targetInstitutionId === "string" ? raw.targetInstitutionId : null,
+      targetInstitutionId:
+        typeof raw.targetInstitutionId === "string" ? raw.targetInstitutionId : null,
       note: typeof raw.note === "string" ? raw.note : "",
     });
 

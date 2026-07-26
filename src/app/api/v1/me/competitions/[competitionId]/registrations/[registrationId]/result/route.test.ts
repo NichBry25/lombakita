@@ -19,7 +19,12 @@ vi.mock("@/server/participants/result-service", async (importActual) => {
 import { GET } from "@/app/api/v1/me/competitions/[competitionId]/registrations/[registrationId]/result/route";
 
 const candidateSession = {
-  user: { id: "cand_1", role: "candidate", email: "cand@example.com", verifiedRoles: ["candidate"] },
+  user: {
+    id: "cand_1",
+    role: "candidate",
+    email: "cand@example.com",
+    verifiedRoles: ["candidate"],
+  },
   expires: "2099-01-01T00:00:00.000Z",
 };
 

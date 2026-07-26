@@ -80,8 +80,8 @@ describe("generatePresignedPutUrl", () => {
   it("throws when bucket is not configured", async () => {
     applyEnv({ r2Bucket: undefined as unknown as string });
     const { generatePresignedPutUrl } = await import("@/server/storage/r2.client");
-    await expect(
-      generatePresignedPutUrl("submissions/reg_1/file.pdf", null, 900),
-    ).rejects.toThrow("R2_BUCKET is not configured");
+    await expect(generatePresignedPutUrl("submissions/reg_1/file.pdf", null, 900)).rejects.toThrow(
+      "R2_BUCKET is not configured",
+    );
   });
 });
