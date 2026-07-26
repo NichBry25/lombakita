@@ -54,7 +54,12 @@ export type ParticipantRecord = {
     teamName: string;
     captainDisplayName: string | null;
     activeMemberCount: number;
-    members: Array<{ userId: string; displayName: string | null; username: string; isCaptain: boolean }>;
+    members: Array<{
+      userId: string;
+      displayName: string | null;
+      username: string;
+      isCaptain: boolean;
+    }>;
   } | null;
   submission: SubmissionView | null;
   // Institution-internal review state (Step 5.2) — never returned to candidates.
@@ -117,9 +122,7 @@ export const listCompetitionParticipants = async (
   const [comp] = await db
     .select({ id: competitions.id })
     .from(competitions)
-    .where(
-      and(eq(competitions.id, competitionId), eq(competitions.institutionId, institutionId)),
-    )
+    .where(and(eq(competitions.id, competitionId), eq(competitions.institutionId, institutionId)))
     .limit(1);
 
   if (!comp) return EMPTY_RESULT;
@@ -226,7 +229,13 @@ export const listCompetitionParticipants = async (
     .filter((r) => r.registrationType === "team" && r.teamId != null)
     .map((r) => r.teamId as string);
 
-  type TeamMemberRow = { teamId: string; userId: string; displayName: string | null; username: string; isCaptain: boolean };
+  type TeamMemberRow = {
+    teamId: string;
+    userId: string;
+    displayName: string | null;
+    username: string;
+    isCaptain: boolean;
+  };
   const membersByTeam = new Map<string, TeamMemberRow[]>();
   if (teamIds.length > 0) {
     const memberRows = await db
@@ -241,9 +250,7 @@ export const listCompetitionParticipants = async (
       .innerJoin(users, eq(users.id, teamMemberships.userId))
       .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
       .innerJoin(teams, eq(teams.id, teamMemberships.teamId))
-      .where(
-        and(inArray(teamMemberships.teamId, teamIds), eq(teamMemberships.status, "active")),
-      );
+      .where(and(inArray(teamMemberships.teamId, teamIds), eq(teamMemberships.status, "active")));
     for (const m of memberRows) {
       const list = membersByTeam.get(m.teamId) ?? [];
       list.push({

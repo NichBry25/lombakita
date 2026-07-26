@@ -2,12 +2,13 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { mockRequireSessionRole, mockGetCandidateProfile, mockUpdateCandidateProfile } =
-  vi.hoisted(() => ({
+const { mockRequireSessionRole, mockGetCandidateProfile, mockUpdateCandidateProfile } = vi.hoisted(
+  () => ({
     mockRequireSessionRole: vi.fn(),
     mockGetCandidateProfile: vi.fn(),
     mockUpdateCandidateProfile: vi.fn(),
-  }));
+  }),
+);
 
 vi.mock("@/server/auth/session", () => ({
   requireSessionRole: mockRequireSessionRole,

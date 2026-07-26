@@ -10,7 +10,7 @@ const resolveBaseUrl = (): string => {
 };
 
 const buildDashboardUrl = (): string => {
-  return new URL("/institution/workspace", resolveBaseUrl()).toString();
+  return new URL("/institution/create", resolveBaseUrl()).toString();
 };
 
 const buildContactUrl = (): string => {

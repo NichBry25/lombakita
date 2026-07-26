@@ -29,9 +29,9 @@ const makeSequencedDb = (results: unknown[][]): Database => {
 describe("assertPersonalInstitutionIndividualMode", () => {
   it("rejects team mode for a personal institution (422)", async () => {
     const db = makeSequencedDb([[{ institutionType: "personal" }]]);
-    await expect(assertPersonalInstitutionIndividualMode("inst_p", "team", db)).rejects.toMatchObject(
-      { code: "competition_personal_individual_only", httpStatus: 422 },
-    );
+    await expect(
+      assertPersonalInstitutionIndividualMode("inst_p", "team", db),
+    ).rejects.toMatchObject({ code: "competition_personal_individual_only", httpStatus: 422 });
   });
 
   it("rejects both mode for a personal institution (422)", async () => {
@@ -64,9 +64,9 @@ describe("assertPersonalInstitutionIndividualMode", () => {
 
   it("throws 404 when the institution does not exist", async () => {
     const db = makeSequencedDb([[]]);
-    await expect(assertPersonalInstitutionIndividualMode("inst_x", "individual", db)).rejects.toMatchObject(
-      { code: "competition_not_found", httpStatus: 404 },
-    );
+    await expect(
+      assertPersonalInstitutionIndividualMode("inst_x", "individual", db),
+    ).rejects.toMatchObject({ code: "competition_not_found", httpStatus: 404 });
   });
 });
 

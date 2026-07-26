@@ -45,6 +45,7 @@ export const InstitutionTeamShell = ({
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cancellingInvitationId, setCancellingInvitationId] = useState<string | null>(null);
   // Step 6.5e — a username OR an email; resolved server-side.
   const [identifier, setIdentifier] = useState("");
   const [inviteRole, setInviteRole] = useState<
@@ -107,6 +108,15 @@ export const InstitutionTeamShell = ({
   };
 
   const onCancel = async (invitationId: string) => {
+    setCancellingInvitationId(invitationId);
+    try {
+      await cancelInvitation(invitationId);
+    } finally {
+      setCancellingInvitationId(null);
+    }
+  };
+
+  const cancelInvitation = async (invitationId: string) => {
     const response = await fetch(
       `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/invitations/${encodeURIComponent(invitationId)}/cancel`,
       { method: "PATCH", credentials: "include" },
@@ -129,7 +139,7 @@ export const InstitutionTeamShell = ({
         title="Staf dan undangan"
         description="Undang pengelola baru dan pantau undangan yang belum dijawab."
         backHref={`/institution/${institutionSlug}`}
-        backLabel="Panel institusi"
+        backLabel="Kembali"
       />
 
       <section className="content-section">
@@ -173,8 +183,8 @@ export const InstitutionTeamShell = ({
                 },
               ]}
             />
-            <Button type="submit" disabled={isSubmitting} loading={isSubmitting}>
-              {isSubmitting ? "Mengirim..." : "Undang"}
+            <Button type="submit" loading={isSubmitting}>
+              Undang
             </Button>
           </form>
         )}
@@ -228,6 +238,8 @@ export const InstitutionTeamShell = ({
                       <Button
                         variant="danger"
                         size="sm"
+                        loading={cancellingInvitationId === inv.id}
+                        disabled={cancellingInvitationId !== null}
                         onClick={() => void onCancel(inv.id)}
                         type="button"
                       >

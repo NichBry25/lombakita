@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { ButtonLink } from "@/components/ui";
 import { AuthEntry } from "@/components/auth/auth-entry";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 import { OAuthRolePicker } from "@/components/auth/oauth-role-picker";
@@ -85,9 +85,9 @@ export default async function LoginPage(props: {
                 halaman masuk.
               </p>
             </div>
-            <Link className="ui-button" data-variant="primary" data-size="md" href="/auth/login">
+            <ButtonLink variant="primary" size="md" href="/auth/login">
               Kembali ke halaman masuk
-            </Link>
+            </ButtonLink>
           </div>
         </AuthPageFrame>
       );

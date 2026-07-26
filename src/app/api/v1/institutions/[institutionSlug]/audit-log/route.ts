@@ -29,7 +29,8 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     const rawLimit = parseInt(url.searchParams.get("limit") ?? String(DEFAULT_LIMIT), 10);
 
     const page = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
-    const limit = Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.min(rawLimit, MAX_LIMIT) : DEFAULT_LIMIT;
+    const limit =
+      Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.min(rawLimit, MAX_LIMIT) : DEFAULT_LIMIT;
     const offset = (page - 1) * limit;
 
     const [events, countRows] = await Promise.all([
@@ -42,7 +43,10 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
           createdAt: institutionAuditLogs.createdAt,
         })
         .from(institutionAuditLogs)
-        .leftJoin(institutionMemberships, eq(institutionMemberships.id, institutionAuditLogs.targetMembershipId))
+        .leftJoin(
+          institutionMemberships,
+          eq(institutionMemberships.id, institutionAuditLogs.targetMembershipId),
+        )
         .leftJoin(users, eq(users.id, institutionMemberships.userId))
         .where(eq(institutionAuditLogs.institutionId, institutionId))
         .orderBy(desc(institutionAuditLogs.createdAt))

@@ -12,12 +12,15 @@ import {
   FormTextarea,
   Skeleton,
   SkeletonCard,
+  Spinner,
+  usePageTransition,
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 
 export function DevPrimitivesClient() {
   const { openModal } = useModal();
   const { addToast } = useToast();
+  const { begin } = usePageTransition();
 
   function openTwoActionModal() {
     openModal({
@@ -94,7 +97,42 @@ export function DevPrimitivesClient() {
           <Button variant="ghost">Aksi tenang</Button>
           <Button variant="danger">Aksi destruktif</Button>
           <Button disabled>Nonaktif</Button>
-          <Button loading>Memuat</Button>
+        </div>
+      </section>
+
+      <section className="stack-md">
+        <div className="stack-xs">
+          <p className="eyebrow">Status menunggu</p>
+          <h2 className="section-title">Tiga sinyal pemuatan</h2>
+          <p className="muted-copy">
+            Aksi tanpa pindah halaman memakai spinner di dalam tombol; aksi yang berpindah halaman
+            memakai layar transisi; perpindahan halaman murni memakai kerangka rute.
+          </p>
+        </div>
+        <div className="cluster">
+          <Button variant="primary" loading>
+            Simpan
+          </Button>
+          <Button variant="secondary" loading>
+            Publikasikan
+          </Button>
+          <Button variant="outline" loading>
+            Kirim ulasan
+          </Button>
+          <Button variant="danger" loading size="sm">
+            Hapus
+          </Button>
+          <Button variant="primary" loading size="lg">
+            Daftarkan tim
+          </Button>
+        </div>
+        <div className="cluster">
+          <Spinner size="sm" />
+          <Spinner size="md" />
+          <Spinner size="lg" />
+          <Button variant="outline" onClick={() => begin("Menyimpan…")}>
+            Pratinjau layar transisi
+          </Button>
         </div>
       </section>
 

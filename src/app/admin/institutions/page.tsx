@@ -117,11 +117,11 @@ function RejectInstitutionForm({
         />
       </div>
       <div className="modal-actions">
-        <Button variant="outline" onClick={onClose}>
+        <Button variant="outline" onClick={onClose} disabled={busy}>
           Batal
         </Button>
-        <Button variant="danger" disabled={busy} loading={busy} onClick={() => void submit()}>
-          {busy ? "Memproses..." : "Tolak institusi"}
+        <Button variant="danger" loading={busy} onClick={() => void submit()}>
+          Tolak institusi
         </Button>
       </div>
     </div>
@@ -137,6 +137,8 @@ export default function AdminInstitutionsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  // Rows each carry their own controls, so the key records which row-action is running.
+  const [pendingRowAction, setPendingRowAction] = useState<string | null>(null);
 
   const fetchInstitutions = useCallback(async () => {
     setLoading(true);
@@ -192,7 +194,9 @@ export default function AdminInstitutionsPage() {
   };
 
   const handleTransition = async (institutionId: string, targetStatus: VerificationStatus) => {
+    setPendingRowAction(`transition:${institutionId}:${targetStatus}`);
     const result = await performTransition(institutionId, targetStatus);
+    setPendingRowAction(null);
     if (!result.ok) {
       addToast({ type: "error", message: `Gagal: ${result.message}` });
       return;
@@ -219,6 +223,7 @@ export default function AdminInstitutionsPage() {
   const toggleAudit = async (rowId: string, institutionId: string) => {
     const row = rows.find((r) => r.id === rowId);
     if (!row) return;
+    setPendingRowAction(`audit:${rowId}`);
 
     if (row.auditExpanded && row.auditLog) {
       setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, auditExpanded: false } : r)));
@@ -355,6 +360,9 @@ export default function AdminInstitutionsPage() {
                                 key={t.targetStatus}
                                 variant={t.targetStatus === "rejected" ? "danger" : "primary"}
                                 size="sm"
+                                loading={
+                                  pendingRowAction === `transition:${row.id}:${t.targetStatus}`
+                                }
                                 disabled={actionLoading}
                                 onClick={() => {
                                   if (t.needsReason) {
@@ -374,6 +382,7 @@ export default function AdminInstitutionsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          loading={pendingRowAction === `audit:${row.id}`}
                           onClick={() => void toggleAudit(row.id, row.id)}
                         >
                           {row.auditExpanded ? "Sembunyikan" : "Lihat log"}

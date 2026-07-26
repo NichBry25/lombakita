@@ -3,7 +3,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { SignOutButton } from "@/components/auth/sign-out-button";
-import { Button, ButtonLink, FormActionBar, Icon, IconButton, PageHeader } from "@/components/ui";
+import {
+  Button,
+  ButtonLink,
+  FormActionBar,
+  Icon,
+  IconButton,
+  PageHeader,
+  usePageTransition,
+} from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   readErrorCode,
@@ -44,13 +52,20 @@ const extractErrorMessage = async (response: Response): Promise<string> => {
 export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUserId: string }) => {
   const router = useRouter();
   const { addToast } = useToast();
+  const { runAndNavigate } = usePageTransition();
   const [isCreating, setIsCreating] = useState(false);
   const [created, setCreated] = useState<CreatedInstitution | null>(null);
 
   // No name or slug input: a personal institution's name derives from your username and its slug is
   // derived through the shared slug path. Creation is a single submit.
-  const onSubmit = async (event?: React.FormEvent<HTMLFormElement>) => {
+  const onSubmit = (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
+    return runAndNavigate(createInstitution, { message: "Membuat institusi personal…" });
+  };
+
+  // Returns whether a navigation was started, so a rejected create drops the blocking screen
+  // instead of leaving the user staring at it.
+  const createInstitution = async (): Promise<boolean> => {
     setIsCreating(true);
 
     const response = await sessionFetch(expectedUserId, "/api/v1/institutions/personal", {
@@ -62,7 +77,7 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
     if (!response.ok) {
       addToast({ type: "error", message: await extractErrorMessage(response) });
       setIsCreating(false);
-      return;
+      return false;
     }
 
     const data = (await response.json()) as PersonalInstitutionResponse;
@@ -73,6 +88,7 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
     addToast({ type: "success", message: "Institusi personal berhasil dibuat." });
     setIsCreating(false);
     router.replace(`/institution/${data.institution.slug}`);
+    return true;
   };
 
   return (
@@ -136,13 +152,8 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
         <IconButton icon="arrow-left" label="Kembali ke beranda" onClick={() => router.push("/")} />
         {!created ? (
           <div className="form-action-bar-end">
-            <Button
-              type="button"
-              onClick={() => onSubmit()}
-              disabled={isCreating}
-              loading={isCreating}
-            >
-              {isCreating ? "Menyimpan..." : "Buat institusi personal"}
+            <Button type="button" onClick={() => onSubmit()} loading={isCreating}>
+              Buat institusi personal
             </Button>
           </div>
         ) : null}

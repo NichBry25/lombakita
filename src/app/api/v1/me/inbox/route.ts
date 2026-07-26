@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 import { withApiAuth } from "@/server/auth/api-guard";
 import { getDb } from "@/server/db/client";
-import {
-  countUnreadInboxItems,
-  listUserInbox,
-} from "@/server/notifications/inbox-service";
+import { countUnreadInboxItems, listUserInbox } from "@/server/notifications/inbox-service";
 
 // Step 6.5.1 — unified inbox read endpoint. Not role-scoped: any authenticated user (candidate or
 // recruiter) reads their OWN inbox. `withApiAuth` runs `assertAuthenticatedSession()` only — no

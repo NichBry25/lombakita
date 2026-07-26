@@ -92,8 +92,8 @@ export function CompetitionReviewForm({ competitionId, expectedUserId, initialRe
           onChange={(event) => setBody(event.target.value)}
         />
       </div>
-      <Button type="submit" disabled={isSaving} loading={isSaving}>
-        {isSaving ? "Menyimpan..." : initialReview ? "Perbarui ulasan" : "Kirim ulasan"}
+      <Button type="submit" loading={isSaving}>
+        {initialReview ? "Perbarui ulasan" : "Kirim ulasan"}
       </Button>
     </form>
   );

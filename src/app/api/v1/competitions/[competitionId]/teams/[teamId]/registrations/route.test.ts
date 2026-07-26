@@ -26,14 +26,11 @@ const makeContext = () => ({
   params: Promise.resolve({ competitionId: "comp_1", teamId: "team_1" }),
 });
 
-const makeRequest = (
-  method: "POST" | "DELETE",
-  headers: Record<string, string> = {},
-) =>
-  new Request(
-    "http://localhost/api/v1/competitions/comp_1/teams/team_1/registrations",
-    { method, headers },
-  );
+const makeRequest = (method: "POST" | "DELETE", headers: Record<string, string> = {}) =>
+  new Request("http://localhost/api/v1/competitions/comp_1/teams/team_1/registrations", {
+    method,
+    headers,
+  });
 
 afterEach(() => vi.clearAllMocks());
 
@@ -93,9 +90,7 @@ describe("POST /api/v1/competitions/[competitionId]/teams/[teamId]/registrations
 
   it("forwards team_member_already_registered with 409", async () => {
     requireSessionRole.mockResolvedValue(candidateSession);
-    submitTeamRegistration.mockRejectedValue(
-      new TeamError("team_member_already_registered", "x"),
-    );
+    submitTeamRegistration.mockRejectedValue(new TeamError("team_member_already_registered", "x"));
     const res = await POST(makeRequest("POST"), makeContext());
     expect(res.status).toBe(409);
   });
@@ -121,10 +116,7 @@ describe("POST /api/v1/competitions/[competitionId]/teams/[teamId]/registrations
       status: "submitted",
       registrations: [],
     });
-    const res = await POST(
-      makeRequest("POST", { "X-Expected-User-Id": "cand_1" }),
-      makeContext(),
-    );
+    const res = await POST(makeRequest("POST", { "X-Expected-User-Id": "cand_1" }), makeContext());
     expect(res.status).toBe(201);
   });
 });

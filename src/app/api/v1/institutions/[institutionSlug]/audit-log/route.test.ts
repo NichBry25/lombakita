@@ -55,10 +55,19 @@ describe("GET /api/v1/institutions/[institutionSlug]/audit-log", () => {
 
   it("(a) returns 200 with institution-scoped events for institution_owner", async () => {
     requireAuthenticatedSession.mockResolvedValue(ownerSession);
-    requireAdminInstitutionBySlug.mockResolvedValue({ institutionId: "inst_1", actorMembershipId: "mem_1" });
+    requireAdminInstitutionBySlug.mockResolvedValue({
+      institutionId: "inst_1",
+      actorMembershipId: "mem_1",
+    });
 
     const events = [
-      { id: "evt_1", eventType: "review_status_changed", actorName: "Budi", metadata: {}, createdAt: new Date() },
+      {
+        id: "evt_1",
+        eventType: "review_status_changed",
+        actorName: "Budi",
+        metadata: {},
+        createdAt: new Date(),
+      },
     ];
     // Two calls: events query + count query
     mockSelect
@@ -77,7 +86,10 @@ describe("GET /api/v1/institutions/[institutionSlug]/audit-log", () => {
 
   it("(b) returns empty events array when no audit log entries", async () => {
     requireAuthenticatedSession.mockResolvedValue(ownerSession);
-    requireAdminInstitutionBySlug.mockResolvedValue({ institutionId: "inst_1", actorMembershipId: "mem_1" });
+    requireAdminInstitutionBySlug.mockResolvedValue({
+      institutionId: "inst_1",
+      actorMembershipId: "mem_1",
+    });
 
     mockSelect
       .mockReturnValueOnce(makeSelectChain([], 0))
@@ -111,10 +123,19 @@ describe("GET /api/v1/institutions/[institutionSlug]/audit-log", () => {
 
   it("(e) does not expose raw membership_id or institution_id in response", async () => {
     requireAuthenticatedSession.mockResolvedValue(ownerSession);
-    requireAdminInstitutionBySlug.mockResolvedValue({ institutionId: "inst_1", actorMembershipId: "mem_1" });
+    requireAdminInstitutionBySlug.mockResolvedValue({
+      institutionId: "inst_1",
+      actorMembershipId: "mem_1",
+    });
 
     const events = [
-      { id: "evt_1", eventType: "result_published", actorName: "Staff A", metadata: { competitionId: "comp_1" }, createdAt: new Date() },
+      {
+        id: "evt_1",
+        eventType: "result_published",
+        actorName: "Staff A",
+        metadata: { competitionId: "comp_1" },
+        createdAt: new Date(),
+      },
     ];
     mockSelect
       .mockReturnValueOnce(makeSelectChain(events, 1))

@@ -127,9 +127,7 @@ export const exportRegistrantsAsCsv = async (
   const dataRows = rows.map((r) => {
     const name = r.participantName ?? r.participantUsername ?? "";
     const isCaptain =
-      r.registrationType === "team" && r.teamId != null
-        ? r.studentId === r.captainId
-        : null;
+      r.registrationType === "team" && r.teamId != null ? r.studentId === r.captainId : null;
     const hasSubmission = r.submissionRegistrationId != null;
     const finalized = hasSubmission ? r.submissionFinalizedAt != null : null;
 

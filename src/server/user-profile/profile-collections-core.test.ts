@@ -21,7 +21,9 @@ describe("parseExperienceInput", () => {
   });
 
   it("requires title and organizationName", () => {
-    expect(() => parseExperienceInput({ organizationName: "Acme" })).toThrow(ProfileCollectionError);
+    expect(() => parseExperienceInput({ organizationName: "Acme" })).toThrow(
+      ProfileCollectionError,
+    );
     expect(() => parseExperienceInput({ title: "Engineer" })).toThrow(ProfileCollectionError);
   });
 
@@ -70,9 +72,9 @@ describe("parseEducationInput", () => {
   });
 
   it("rejects endYear before startYear", () => {
-    expect(() =>
-      parseEducationInput({ school: "UI", startYear: 2024, endYear: 2020 }),
-    ).toThrow(ProfileCollectionError);
+    expect(() => parseEducationInput({ school: "UI", startYear: 2024, endYear: 2020 })).toThrow(
+      ProfileCollectionError,
+    );
   });
 
   it("rejects a year outside the allowed range", () => {
@@ -109,9 +111,9 @@ describe("parseSocialLinkInput", () => {
   });
 
   it("rejects an unknown platform", () => {
-    expect(() =>
-      parseSocialLinkInput({ platform: "myspace", url: "https://example.com" }),
-    ).toThrow(ProfileCollectionError);
+    expect(() => parseSocialLinkInput({ platform: "myspace", url: "https://example.com" })).toThrow(
+      ProfileCollectionError,
+    );
   });
 
   it("requires a valid URL", () => {

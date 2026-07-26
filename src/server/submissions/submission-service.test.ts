@@ -383,12 +383,7 @@ describe("getSubmissionViewForRegistration", () => {
     // loadRegistrationWithCompetition → [row], then canAccessRegistration → false (no DB call for individual).
     // getSubmissionViewForRegistration must return null.
     const { db } = createDbMock([[individualRegRow]]);
-    const view = await getSubmissionViewForRegistration(
-      "reg_1",
-      "stud_other",
-      db,
-      NOW_IN_WINDOW,
-    );
+    const view = await getSubmissionViewForRegistration("reg_1", "stud_other", db, NOW_IN_WINDOW);
     expect(view).toBeNull();
   });
 });

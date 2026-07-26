@@ -11,10 +11,7 @@ import {
   type RegistrationRecord,
 } from "@/server/registrations/registration-core";
 import { logger } from "@/lib/logger";
-import {
-  enqueueRegistrationConfirmed,
-  enqueueRegistrationCancelled,
-} from "@/server/async/enqueue";
+import { enqueueRegistrationConfirmed, enqueueRegistrationCancelled } from "@/server/async/enqueue";
 
 const REGISTRATION_COLUMNS = {
   id: competitionRegistrations.id,
@@ -331,17 +328,11 @@ export const cancelRegistration = async (
   // event_start_at or cutoff fails closed. (The DB CHECK guarantees a cutoff when allow=true.)
   const cutoffDays = competition.cancellationCutoffDays;
   if (!competition.eventStartAt || cutoffDays === null) {
-    throw new RegistrationError(
-      "cancellation_window_closed",
-      "The cancellation window is closed",
-    );
+    throw new RegistrationError("cancellation_window_closed", "The cancellation window is closed");
   }
   const windowEnd = competition.eventStartAt.getTime() - cutoffDays * DAY_MS;
   if (now.getTime() > windowEnd) {
-    throw new RegistrationError(
-      "cancellation_window_closed",
-      "The cancellation window has closed",
-    );
+    throw new RegistrationError("cancellation_window_closed", "The cancellation window has closed");
   }
 
   const [updated] = await db

@@ -154,14 +154,8 @@ export function ResultForm({
         <div className="record-actions">
           {status === "draft" && (
             <>
-              <Button
-                variant="outline"
-                type="button"
-                onClick={handleSaveDraft}
-                disabled={saving}
-                loading={saving}
-              >
-                {saving ? "Menyimpan…" : "Simpan draf"}
+              <Button variant="outline" type="button" onClick={handleSaveDraft} loading={saving}>
+                Simpan draf
               </Button>
               {(() => {
                 const isDisabled = publishing || !label.trim();

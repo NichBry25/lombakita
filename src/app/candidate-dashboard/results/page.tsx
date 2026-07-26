@@ -25,7 +25,7 @@ export default async function CandidateResultsPage() {
         title="Hasil kompetisi"
         description="Hasil yang telah dipublikasikan untuk pendaftaranmu."
         backHref="/candidate-dashboard"
-        backLabel="Dasbor kandidat"
+        backLabel="Dasbor"
       />
 
       {results.length === 0 ? (

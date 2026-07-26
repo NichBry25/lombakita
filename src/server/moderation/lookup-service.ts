@@ -151,7 +151,9 @@ export const lookupInstitutionBySlugOrName = async (
       )`,
     })
     .from(institutions)
-    .where(sql`lower(${institutions.slug}) = lower(${query}) OR lower(${institutions.displayName}) = lower(${query})`)
+    .where(
+      sql`lower(${institutions.slug}) = lower(${query}) OR lower(${institutions.displayName}) = lower(${query})`,
+    )
     .limit(1);
 
   return row ? mapInstitutionLookupRow(row) : null;

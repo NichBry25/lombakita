@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Button } from "@/components/ui";
 import {
   readErrorCode,
   SESSION_MISMATCH_CODE,
@@ -49,15 +50,8 @@ export function MarkReadButton({
   };
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={pending}
-      className="ui-button"
-      data-variant="outline"
-      data-size="sm"
-    >
-      {pending ? "Menandai…" : "Tandai dibaca"}
-    </button>
+    <Button type="button" onClick={onClick} loading={pending} variant="outline" size="sm">
+      Tandai dibaca
+    </Button>
   );
 }

@@ -18,7 +18,7 @@ export function SiteFooter() {
         </div>
         <div className="footer-links">
           <h3>Penyelenggara</h3>
-          <Link href="/institution/workspace">Ruang kerja institusi</Link>
+          <Link href="/institution/create">Ruang kerja institusi</Link>
           <Link href="/recruiter-dashboard">Dashboard penyelenggara</Link>
           <Link href="/profile">Profil dan pengaturan</Link>
         </div>

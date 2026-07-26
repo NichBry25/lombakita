@@ -2,10 +2,7 @@ import { requireAuthenticatedSession } from "@/server/auth/session";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { getDb } from "@/server/db/client";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
-import {
-  ExportOwnershipError,
-  exportRegistrantsAsCsv,
-} from "@/server/participants/export-service";
+import { ExportOwnershipError, exportRegistrantsAsCsv } from "@/server/participants/export-service";
 
 type RouteContext = {
   params: Promise<{ institutionSlug: string; competitionId: string }>;

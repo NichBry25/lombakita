@@ -2,6 +2,8 @@ import type { SVGProps } from "react";
 import { joinClassNames } from "./class-names";
 
 export type IconName =
+  | "alert-circle"
+  | "alert-triangle"
   | "arrow-left"
   | "arrow-right"
   | "bookmark"
@@ -13,6 +15,7 @@ export type IconName =
   | "download"
   | "edit"
   | "inbox"
+  | "info"
   | "link"
   | "logout"
   | "menu"
@@ -21,6 +24,7 @@ export type IconName =
   | "plus"
   | "save"
   | "search"
+  | "settings"
   | "share"
   | "sun"
   | "trash"
@@ -36,6 +40,22 @@ type IconProps = Omit<SVGProps<SVGSVGElement>, "children"> & {
 
 function IconPaths({ name }: { name: IconName }) {
   switch (name) {
+    case "alert-circle":
+      return (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7.5v5" />
+          <path d="M12 16.25h.01" />
+        </>
+      );
+    case "alert-triangle":
+      return (
+        <>
+          <path d="M12 3.8 21 19.3a1 1 0 0 1-.87 1.5H3.87A1 1 0 0 1 3 19.3Z" />
+          <path d="M12 9.5v4" />
+          <path d="M12 17h.01" />
+        </>
+      );
     case "arrow-left":
       return (
         <>
@@ -96,6 +116,14 @@ function IconPaths({ name }: { name: IconName }) {
           <path d="M4 14h4l2 3h4l2-3h4" />
         </>
       );
+    case "info":
+      return (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v5.5" />
+          <path d="M12 7.75h.01" />
+        </>
+      );
     case "link":
       return (
         <>
@@ -147,6 +175,13 @@ function IconPaths({ name }: { name: IconName }) {
         <>
           <circle cx="11" cy="11" r="7" />
           <path d="m20 20-4-4" />
+        </>
+      );
+    case "settings":
+      return (
+        <>
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82A1.65 1.65 0 0 0 3 13.09H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
         </>
       );
     case "share":

@@ -24,7 +24,7 @@ export default async function ActivatedPage(props: { searchParams?: Promise<{ em
           <p>Verifikasi berhasil. Lanjutkan login menggunakan email dan password Anda.</p>
         </div>
         <ButtonLink href={signInHref} variant="primary">
-          Lanjut ke login
+          Lanjut ke Login
         </ButtonLink>
       </div>
     </AuthPageFrame>

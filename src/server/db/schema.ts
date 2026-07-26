@@ -475,6 +475,12 @@ export const institutions = pgTable(
     // no staff/member invites); full subtypes are unconstrained by those caps. See institution-type.ts
     // for the predicates and the type-transition state machine.
     institutionType: institutionTypeEnum("institution_type").notNull(),
+    // Short free-text description of the institution, editable in institution settings for EVERY
+    // type (personal included) and surfaced on the recruiter dashboard institution list. Nullable —
+    // an institution that has not written one falls back to a placeholder. Distinct from the
+    // full-only public organizer `about` field below (which drives the competition-detail
+    // "Penyelenggara" surface and is edited on the separate /settings/profile sub-page).
+    description: text("description"),
     verificationStatus: institutionVerificationStatusEnum("verification_status")
       .notNull()
       .default("pending_verification"),

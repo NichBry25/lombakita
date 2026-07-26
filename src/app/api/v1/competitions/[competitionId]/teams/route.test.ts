@@ -58,9 +58,7 @@ describe("POST /api/v1/competitions/[competitionId]/teams", () => {
 
   it("forwards TeamError with the correct status", async () => {
     requireSessionRole.mockResolvedValue(candidateSession);
-    createTeam.mockRejectedValue(
-      new TeamError("team_competition_mode_not_allowed", "Wrong mode"),
-    );
+    createTeam.mockRejectedValue(new TeamError("team_competition_mode_not_allowed", "Wrong mode"));
     const res = await POST(makeJsonRequest({ name: "x" }), makeContext());
     expect(res.status).toBe(422);
     const body = await res.json();

@@ -30,7 +30,11 @@ describe("claimPendingInvitationsForUser", () => {
 
   it("returns zero counts when nothing matches (no rows claimed)", async () => {
     const db = makeDb([], []);
-    const result = await claimPendingInvitationsForUser("user_1", "nobody@example.com", db as never);
+    const result = await claimPendingInvitationsForUser(
+      "user_1",
+      "nobody@example.com",
+      db as never,
+    );
     expect(result).toEqual({ institutionInvitationsClaimed: 0, teamInvitationsClaimed: 0 });
   });
 

@@ -1,5 +1,5 @@
-import { PageLoading } from "@/components/ui";
+import { DashboardPageSkeleton } from "@/components/ui";
 
 export default function InstitutionLoading() {
-  return <PageLoading label="Memuat workspace institusi" />;
+  return <DashboardPageSkeleton label="Memuat institusi" />;
 }

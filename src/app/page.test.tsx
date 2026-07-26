@@ -15,6 +15,7 @@ vi.mock("next/link", () => {
   return {
     default: ({ children, href, ...rest }: { children: unknown; href: string }) =>
       React.createElement("a", { href, ...rest }, children),
+    useLinkStatus: () => ({ pending: false }),
   };
 });
 vi.mock("@/server/competitions/competition-public-service", () => ({

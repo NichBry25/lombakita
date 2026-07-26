@@ -5,10 +5,7 @@ assertServerOnly("server/teams/team-registration-service");
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
-import {
-  enqueueRegistrationConfirmed,
-  enqueueRegistrationCancelled,
-} from "@/server/async/enqueue";
+import { enqueueRegistrationConfirmed, enqueueRegistrationCancelled } from "@/server/async/enqueue";
 import {
   competitionRegistrations,
   competitions,
@@ -110,9 +107,7 @@ const loadActiveMemberUserIds = async (
   return db
     .select({ membershipId: teamMemberships.id, userId: teamMemberships.userId })
     .from(teamMemberships)
-    .where(
-      and(eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")),
-    );
+    .where(and(eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")));
 };
 
 // Assert that the caller is the active captain of this team and that the team belongs to the
@@ -181,15 +176,9 @@ export const submitTeamRegistration = async (
     competition.registrationStartAt &&
     competition.registrationStartAt.getTime() > now.getTime()
   ) {
-    throw new TeamError(
-      "registration_not_yet_open",
-      "Registration window has not yet opened",
-    );
+    throw new TeamError("registration_not_yet_open", "Registration window has not yet opened");
   }
-  if (
-    !competition.registrationEndAt ||
-    competition.registrationEndAt.getTime() <= now.getTime()
-  ) {
+  if (!competition.registrationEndAt || competition.registrationEndAt.getTime() <= now.getTime()) {
     throw new TeamError("registration_window_closed", "Registration window has closed");
   }
 

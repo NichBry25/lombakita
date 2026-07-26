@@ -637,7 +637,14 @@ describe("upgradeInstitutionType", () => {
       [{ institutionId: "inst_1" }],
       [{ id: "comp_1" }, { id: "comp_2" }],
     ]);
-    const result = await upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db);
+    const result = await upgradeInstitutionType(
+      "actor_1",
+      "inst_1",
+      "company",
+      OFFICIAL_NAME,
+      null,
+      db,
+    );
     expect(result).toEqual({
       institutionId: "inst_1",
       previousType: "personal",
@@ -664,6 +671,7 @@ describe("upgradeInstitutionType", () => {
       "inst_1",
       "university",
       OFFICIAL_NAME,
+      null,
       db,
     );
     expect(result.previousType).toBeNull();
@@ -681,7 +689,14 @@ describe("upgradeInstitutionType", () => {
       [{ institutionId: "inst_1" }],
       [],
     ]);
-    const result = await upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db);
+    const result = await upgradeInstitutionType(
+      "actor_1",
+      "inst_1",
+      "company",
+      OFFICIAL_NAME,
+      null,
+      db,
+    );
     expect(result.slug).toBe("yayasan-harapan-2");
   });
 
@@ -697,21 +712,28 @@ describe("upgradeInstitutionType", () => {
       [{ institutionId: "inst_1" }],
       [],
     ]);
-    const result = await upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db);
+    const result = await upgradeInstitutionType(
+      "actor_1",
+      "inst_1",
+      "company",
+      OFFICIAL_NAME,
+      null,
+      db,
+    );
     expect(result.slug).toBe("yayasan-harapan-2");
   });
 
   it("rejects an invalid official name before touching the database", async () => {
     const db = makeSequencedDb([ELEVATED]);
     await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "company", "x", db),
+      upgradeInstitutionType("actor_1", "inst_1", "company", "x", null, db),
     ).rejects.toMatchObject({ code: "institution_invalid_value" });
   });
 
   it("refuses an upgrade when the actor is below the elevated tier", async () => {
     const db = makeSequencedDb([MINIMAL]);
     await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db),
+      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, null, db),
     ).rejects.toMatchObject({
       code: "institution_upgrade_tier_insufficient",
       status: 403,
@@ -721,14 +743,14 @@ describe("upgradeInstitutionType", () => {
   it("refuses an upgrade when the recruiter mode is not verified", async () => {
     const db = makeSequencedDb([UNVERIFIED]);
     await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db),
+      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, null, db),
     ).rejects.toBeInstanceOf(InstitutionUpgradeError);
   });
 
   it("returns 404 when the institution does not exist", async () => {
     const db = makeSequencedDb([ELEVATED, []]);
     await expect(
-      upgradeInstitutionType("actor_1", "inst_x", "company", OFFICIAL_NAME, db),
+      upgradeInstitutionType("actor_1", "inst_x", "company", OFFICIAL_NAME, null, db),
     ).rejects.toMatchObject({
       code: "institution_not_found",
       status: 404,
@@ -741,7 +763,7 @@ describe("upgradeInstitutionType", () => {
       [{ institutionType: "personal", ownerMembershipId: null, slug: "nikau-bryan" }],
     ]);
     await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db),
+      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, null, db),
     ).rejects.toMatchObject({
       code: "institution_upgrade_forbidden",
       status: 403,
@@ -754,7 +776,7 @@ describe("upgradeInstitutionType", () => {
       [{ institutionType: "company", ownerMembershipId: "m1", slug: "acme" }],
     ]);
     await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "foundation", OFFICIAL_NAME, db),
+      upgradeInstitutionType("actor_1", "inst_1", "foundation", OFFICIAL_NAME, null, db),
     ).rejects.toBeInstanceOf(InstitutionTypeTransitionError);
   });
 
@@ -765,7 +787,7 @@ describe("upgradeInstitutionType", () => {
       [{ value: MAX_INSTITUTIONS_PER_RECRUITER }], // already at the limit → +1 exceeds
     ]);
     await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db),
+      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, null, db),
     ).rejects.toMatchObject({
       code: "institution_upgrade_limit_reached",
       status: 409,
@@ -781,7 +803,7 @@ describe("upgradeInstitutionType", () => {
       [], // update returning empty → concurrent modification
     ]);
     await expect(
-      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, db),
+      upgradeInstitutionType("actor_1", "inst_1", "company", OFFICIAL_NAME, null, db),
     ).rejects.toMatchObject({
       code: "institution_upgrade_conflict",
       status: 409,
@@ -824,6 +846,7 @@ describe("upgradeInstitutionType", () => {
       "inst_1",
       "company",
       OFFICIAL_NAME,
+      null,
       db as unknown as Database,
     );
 

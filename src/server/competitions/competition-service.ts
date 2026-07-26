@@ -578,9 +578,7 @@ export const updateCompetitionDraft = async (
   // consistent. An explicit sub-floor team min is rejected here rather than silently raised.
   const effectiveMode = patch.mode !== undefined ? patch.mode : competition.mode;
   const patchTouchesSizeOrMode =
-    patch.mode !== undefined ||
-    patch.minTeamSize !== undefined ||
-    patch.maxTeamSize !== undefined;
+    patch.mode !== undefined || patch.minTeamSize !== undefined || patch.maxTeamSize !== undefined;
   if (effectiveMode && patchTouchesSizeOrMode) {
     const effectiveMin =
       patch.minTeamSize !== undefined ? patch.minTeamSize : competition.minTeamSize;

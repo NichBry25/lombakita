@@ -211,16 +211,15 @@ describe("updateRegistrationReview", () => {
 
   it("(g) audit write — insert is called inside the transaction with review_status_changed action", async () => {
     let capturedInsertValues: unknown = null;
-    const selects = [
-      [{ id: "comp_1" }],
-      [{ registrationType: "individual", teamId: null }],
-    ];
+    const selects = [[{ id: "comp_1" }], [{ registrationType: "individual", teamId: null }]];
     const db: Record<string, unknown> = {
       transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(db),
       select: () => {
         const result = selects.shift() ?? [];
         const c: Record<string, unknown> = {
-          from: () => c, leftJoin: () => c, where: () => c,
+          from: () => c,
+          leftJoin: () => c,
+          where: () => c,
           limit: () => Promise.resolve(result),
           then: (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve),
         };
@@ -228,14 +227,19 @@ describe("updateRegistrationReview", () => {
       },
       update: () => {
         const c: Record<string, unknown> = {
-          set: () => c, where: () => c,
-          returning: () => Promise.resolve([{ internalReviewStatus: "shortlisted", internalNotes: null }]),
+          set: () => c,
+          where: () => c,
+          returning: () =>
+            Promise.resolve([{ internalReviewStatus: "shortlisted", internalNotes: null }]),
         };
         return c;
       },
       insert: () => {
         const c: Record<string, unknown> = {
-          values: (vals: unknown) => { capturedInsertValues = vals; return c; },
+          values: (vals: unknown) => {
+            capturedInsertValues = vals;
+            return c;
+          },
           then: (resolve: (v: unknown) => unknown) => Promise.resolve([]).then(resolve),
         };
         return c;
@@ -243,7 +247,12 @@ describe("updateRegistrationReview", () => {
     };
 
     await updateRegistrationReview(
-      "inst_1", "comp_1", "reg_1", { internalReviewStatus: "shortlisted" }, "mem_1", db as never,
+      "inst_1",
+      "comp_1",
+      "reg_1",
+      { internalReviewStatus: "shortlisted" },
+      "mem_1",
+      db as never,
     );
 
     expect(capturedInsertValues).not.toBeNull();
@@ -263,7 +272,15 @@ describe("getRegistrationReview", () => {
     const db = createDbMock({
       selects: [
         [{ id: "comp_1" }],
-        [{ internalReviewStatus: "under_review", internalNotes: "abc", registrationType: "individual", teamId: null, teamName: null }],
+        [
+          {
+            internalReviewStatus: "under_review",
+            internalNotes: "abc",
+            registrationType: "individual",
+            teamId: null,
+            teamName: null,
+          },
+        ],
       ],
     });
     const result = await getRegistrationReview("inst_1", "comp_1", "reg_1", db);
@@ -280,7 +297,15 @@ describe("getRegistrationReview", () => {
     const db = createDbMock({
       selects: [
         [{ id: "comp_1" }],
-        [{ internalReviewStatus: "pending_review", internalNotes: null, registrationType: "team", teamId: "team_1", teamName: "Alpha Team" }],
+        [
+          {
+            internalReviewStatus: "pending_review",
+            internalNotes: null,
+            registrationType: "team",
+            teamId: "team_1",
+            teamName: "Alpha Team",
+          },
+        ],
         [{ count: 4 }],
       ],
     });

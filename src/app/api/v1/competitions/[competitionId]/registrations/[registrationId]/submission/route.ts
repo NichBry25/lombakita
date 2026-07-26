@@ -9,10 +9,7 @@ import {
   SubmissionError,
   toSubmissionErrorResponse,
 } from "@/server/submissions/submission-core";
-import {
-  createOrReplaceSubmission,
-  getSubmission,
-} from "@/server/submissions/submission-service";
+import { createOrReplaceSubmission, getSubmission } from "@/server/submissions/submission-service";
 
 type RouteContext = {
   params: Promise<{ competitionId: string; registrationId: string }>;

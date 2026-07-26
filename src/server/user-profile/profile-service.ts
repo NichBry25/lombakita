@@ -18,10 +18,7 @@ import {
 } from "@/server/user-profile/profile-core";
 import { getProfileCollections } from "@/server/user-profile/profile-collections-service";
 import { resolveProfileFileUrl } from "@/server/user-profile/profile-files-service";
-import type {
-  OwnerResume,
-  PublicResume,
-} from "@/server/user-profile/profile-collections-core";
+import type { OwnerResume, PublicResume } from "@/server/user-profile/profile-collections-core";
 
 type UserProfileRow = {
   id: string;
@@ -235,9 +232,10 @@ export const updateOwnerProfile = async (
     type UsersSet = Parameters<typeof tx.update>[0] extends typeof users
       ? Parameters<ReturnType<typeof tx.update>["set"]>[0]
       : never;
-    const usersSet: { updatedAt: ReturnType<typeof sql>; username?: string; name?: string | null } = {
-      updatedAt: sql`now()`,
-    };
+    const usersSet: { updatedAt: ReturnType<typeof sql>; username?: string; name?: string | null } =
+      {
+        updatedAt: sql`now()`,
+      };
     if (patch.username !== undefined) usersSet.username = patch.username;
     if (patch.displayName !== undefined) usersSet.name = patch.displayName;
 
@@ -275,13 +273,10 @@ export const updateOwnerProfile = async (
       }
     }
 
-    await tx
-      .insert(userProfiles)
-      .values(insertValues)
-      .onConflictDoUpdate({
-        target: userProfiles.userId,
-        set: updateSet,
-      });
+    await tx.insert(userProfiles).values(insertValues).onConflictDoUpdate({
+      target: userProfiles.userId,
+      set: updateSet,
+    });
   });
 
   // Re-sync the renamed institution's published competitions so the cached institutionSlug in the

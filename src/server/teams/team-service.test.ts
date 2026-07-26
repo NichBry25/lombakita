@@ -252,7 +252,13 @@ describe("inviteTeamMember invariants", () => {
   it("rejects with team_not_captain when caller is not the captain", async () => {
     const { db } = makeDb([[baseTeam({ captainId: "other" })]]);
     await expect(
-      inviteTeamMember("cand_imposter", "team_1", { invitedIdentifier: "x@y.io" }, db as never, NOW),
+      inviteTeamMember(
+        "cand_imposter",
+        "team_1",
+        { invitedIdentifier: "x@y.io" },
+        db as never,
+        NOW,
+      ),
     ).rejects.toMatchObject({ code: "team_not_captain" });
   });
 
@@ -267,7 +273,13 @@ describe("inviteTeamMember invariants", () => {
     // selectQueue order: team, competition, resolution(username) — no match.
     const { db } = makeDb([[baseTeam()], [baseCompetition()], []]);
     await expect(
-      inviteTeamMember("cand_captain", "team_1", { invitedIdentifier: "ghost_user" }, db as never, NOW),
+      inviteTeamMember(
+        "cand_captain",
+        "team_1",
+        { invitedIdentifier: "ghost_user" },
+        db as never,
+        NOW,
+      ),
     ).rejects.toMatchObject({ code: "team_invite_recipient_not_found" });
   });
 
@@ -281,7 +293,13 @@ describe("inviteTeamMember invariants", () => {
       [{ count: 1 }], // pending invites (one outstanding; incl. pending_claim)
     ]);
     await expect(
-      inviteTeamMember("cand_captain", "team_1", { invitedIdentifier: "fourth@y.io" }, db as never, NOW),
+      inviteTeamMember(
+        "cand_captain",
+        "team_1",
+        { invitedIdentifier: "fourth@y.io" },
+        db as never,
+        NOW,
+      ),
     ).rejects.toMatchObject({ code: "team_at_capacity" });
   });
 
@@ -478,18 +496,15 @@ describe("acceptTeamInvitationForUser — session-id match + candidate gate", ()
   });
 
   it("accepts when caller is the candidate-verified target and not already on a team", async () => {
-    const { db } = makeDb(
-      [],
-      {
-        transactionSelectQueue: [
-          [targetInvitation()],
-          [baseTeam()],
-          [{ id: "cand_invitee", candidateVerifiedAt: NOW }],
-          [], // no existing team for competition
-        ],
-        transactionInsertReturning: [{ id: "mem_1" }],
-      },
-    );
+    const { db } = makeDb([], {
+      transactionSelectQueue: [
+        [targetInvitation()],
+        [baseTeam()],
+        [{ id: "cand_invitee", candidateVerifiedAt: NOW }],
+        [], // no existing team for competition
+      ],
+      transactionInsertReturning: [{ id: "mem_1" }],
+    });
     await expect(
       acceptTeamInvitationForUser("inv_1", "cand_invitee", db as never, NOW),
     ).resolves.toMatchObject({ teamId: "team_1" });
@@ -530,7 +545,15 @@ describe("removeTeamMember invariants", () => {
   it("rejects with team_captain_cannot_leave when membership row is the captain", async () => {
     const { db } = makeDb([
       [baseTeam()],
-      [{ id: "mem_captain", teamId: "team_1", userId: "cand_captain", role: "captain", status: "active" }],
+      [
+        {
+          id: "mem_captain",
+          teamId: "team_1",
+          userId: "cand_captain",
+          role: "captain",
+          status: "active",
+        },
+      ],
     ]);
     await expect(
       removeTeamMember("cand_captain", "team_1", "mem_captain", db as never),
@@ -547,7 +570,15 @@ describe("removeTeamMember invariants", () => {
   it("allows captain to remove a non-captain member", async () => {
     const { db } = makeDb([
       [baseTeam()],
-      [{ id: "mem_other", teamId: "team_1", userId: "cand_other", role: "member", status: "active" }],
+      [
+        {
+          id: "mem_other",
+          teamId: "team_1",
+          userId: "cand_other",
+          role: "member",
+          status: "active",
+        },
+      ],
     ]);
     await expect(
       removeTeamMember("cand_captain", "team_1", "mem_other", db as never),
@@ -567,7 +598,15 @@ describe("removeTeamMember invariants", () => {
   it("rejects with team_forbidden when caller is neither captain nor the member themselves", async () => {
     const { db } = makeDb([
       [baseTeam()],
-      [{ id: "mem_other", teamId: "team_1", userId: "cand_other", role: "member", status: "active" }],
+      [
+        {
+          id: "mem_other",
+          teamId: "team_1",
+          userId: "cand_other",
+          role: "member",
+          status: "active",
+        },
+      ],
     ]);
     await expect(
       removeTeamMember("cand_imposter", "team_1", "mem_other", db as never),
@@ -599,10 +638,7 @@ describe("disbandTeam invariants", () => {
 // G6 — cancelTeamInvitationByToken (token-keyed cancel, Step 6.5b)
 describe("cancelTeamInvitationByToken", () => {
   it("cancels a pending invitation looked up by tokenHash", async () => {
-    const { db } = makeDb(
-      [[baseTeam()], [baseInvitation()]],
-      { updateReturning: [] },
-    );
+    const { db } = makeDb([[baseTeam()], [baseInvitation()]], { updateReturning: [] });
     await expect(
       cancelTeamInvitationByToken("cand_captain", "team_1", TOKEN_HASH, db as never),
     ).resolves.toBeUndefined();

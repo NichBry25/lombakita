@@ -86,7 +86,11 @@ export const parseReviewUpdatePayload = (payload: unknown): ReviewUpdatePatch =>
   const allowedKeys = new Set(["internalReviewStatus", "internalNotes"]);
   const unknownKeys = Object.keys(payload).filter((key) => !allowedKeys.has(key));
   if (unknownKeys.length > 0) {
-    throw new ReviewError("review_invalid_payload", 400, "Request body contains unsupported fields");
+    throw new ReviewError(
+      "review_invalid_payload",
+      400,
+      "Request body contains unsupported fields",
+    );
   }
 
   const hasStatus = "internalReviewStatus" in payload;
@@ -193,9 +197,7 @@ export const getRegistrationReview = async (
     const [countRow] = await db
       .select({ count: sql<number>`COUNT(*)::int` })
       .from(teamMemberships)
-      .where(
-        and(eq(teamMemberships.teamId, row.teamId), eq(teamMemberships.status, "active")),
-      );
+      .where(and(eq(teamMemberships.teamId, row.teamId), eq(teamMemberships.status, "active")));
     activeMemberCount = countRow?.count ?? 0;
   }
 

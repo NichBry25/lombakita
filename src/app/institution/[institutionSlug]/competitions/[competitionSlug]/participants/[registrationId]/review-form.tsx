@@ -104,8 +104,8 @@ export function ReviewForm({
       </label>
 
       <div>
-        <Button type="button" onClick={onSave} disabled={saving} loading={saving}>
-          {saving ? "Menyimpan…" : "Simpan tinjauan"}
+        <Button type="button" onClick={onSave} loading={saving}>
+          Simpan tinjauan
         </Button>
       </div>
     </section>

@@ -19,7 +19,12 @@ export async function GET(request: Request): Promise<Response> {
     const result = await lookupInstitutionBySlugOrName(slug.trim());
     if (!result) {
       return NextResponse.json(
-        { error: { code: "institution_not_found", message: "No institution matches that slug or name" } },
+        {
+          error: {
+            code: "institution_not_found",
+            message: "No institution matches that slug or name",
+          },
+        },
         { status: 404 },
       );
     }

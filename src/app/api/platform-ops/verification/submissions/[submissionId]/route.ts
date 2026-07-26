@@ -10,10 +10,7 @@ import {
 
 type RouteContext = { params: Promise<{ submissionId: string }> };
 
-export async function GET(
-  _request: Request,
-  context: RouteContext,
-): Promise<Response> {
+export async function GET(_request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireSessionRole(["platform_ops"]);
     const { submissionId } = await context.params;
@@ -34,10 +31,7 @@ export async function GET(
   }
 }
 
-export async function PATCH(
-  request: Request,
-  context: RouteContext,
-): Promise<Response> {
+export async function PATCH(request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireSessionRole(["platform_ops"]);
     const { submissionId } = await context.params;
@@ -56,7 +50,9 @@ export async function PATCH(
     const decision = raw.decision;
     if (decision !== "approved" && decision !== "rejected") {
       return NextResponse.json(
-        { error: { code: "invalid_payload", message: "decision must be 'approved' or 'rejected'" } },
+        {
+          error: { code: "invalid_payload", message: "decision must be 'approved' or 'rejected'" },
+        },
         { status: 400 },
       );
     }

@@ -77,8 +77,20 @@ const teamRow = {
 };
 
 // Member detail rows returned by the batch member-details query (Query 4).
-const cap1Member = { teamId: "team_1", userId: "cap_1", displayName: "Budi Santoso", username: "captain_andi", captainId: "cap_1" };
-const mem2Member = { teamId: "team_1", userId: "mem_2", displayName: "Siti Rahayu", username: "siti", captainId: "cap_1" };
+const cap1Member = {
+  teamId: "team_1",
+  userId: "cap_1",
+  displayName: "Budi Santoso",
+  username: "captain_andi",
+  captainId: "cap_1",
+};
+const mem2Member = {
+  teamId: "team_1",
+  userId: "mem_2",
+  displayName: "Siti Rahayu",
+  username: "siti",
+  captainId: "cap_1",
+};
 
 const oneConfirmedAgg = {
   total: 1,
@@ -147,7 +159,13 @@ describe("listCompetitionParticipants", () => {
     const threeMembers = [
       cap1Member,
       mem2Member,
-      { teamId: "team_1", userId: "mem_3", displayName: "Rizki Maulana", username: "rizki", captainId: "cap_1" },
+      {
+        teamId: "team_1",
+        userId: "mem_3",
+        displayName: "Rizki Maulana",
+        username: "rizki",
+        captainId: "cap_1",
+      },
     ];
     const { db } = createDbMock([
       [{ id: "comp_1" }],

@@ -26,9 +26,7 @@ const TIER_RANK: Record<RecruiterVerificationTier, number> = {
 };
 
 export const isRecruiterTier = (value: unknown): value is RecruiterVerificationTier => {
-  return (
-    typeof value === "string" && (RECRUITER_TIERS as readonly string[]).includes(value)
-  );
+  return typeof value === "string" && (RECRUITER_TIERS as readonly string[]).includes(value);
 };
 
 // Named threshold for the institution opportunity creation gate. Step 4.0c locks this at

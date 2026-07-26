@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/recruiter-verification/recruiter-verification-service");
 
-import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
 import {
@@ -18,7 +18,26 @@ import {
   RecruiterVerificationError,
   type RecruiterVerificationInput,
 } from "@/server/recruiter-verification/recruiter-verification-core";
-import { generatePresignedPutUrl, isR2Available } from "@/server/storage/r2.client";
+import {
+  buildContentDisposition,
+  extensionMatchesMimeType,
+  formatVerificationDownloadName,
+  getFileExtension,
+  isAllowedDocumentMimeType,
+  mimeTypeForExtension,
+  sanitizeFileName,
+  VERIFICATION_DOCUMENT_MAX_BYTES,
+} from "@/lib/recruiter-verification/verification-document";
+import { detectFileType } from "@/server/storage/file-signature";
+import {
+  deleteObject,
+  generatePresignedGetUrl,
+  generatePresignedPutUrl,
+  headObject,
+  isR2Available,
+  listObjects,
+  readObjectHead,
+} from "@/server/storage/r2.client";
 
 // Recruiter trust verification — persistence layer.
 // A submission is the reviewable unit: created when a recruiter completes the affiliation form,
@@ -130,28 +149,27 @@ export const getLatestRecruiterVerificationForUser = async (
   return { submission, documents };
 };
 
-const PRESIGNED_URL_EXPIRY_SECONDS = 3600;
+const PRESIGNED_UPLOAD_EXPIRY_SECONDS = 300;
+const PRESIGNED_DOWNLOAD_EXPIRY_SECONDS = 300;
+// Bytes read from the head of an uploaded object for magic-byte inspection — every accepted format
+// carries its signature well within this window.
+const SIGNATURE_READ_BYTES = 4096;
 
-export type AttachedDocumentWithUploadUrl = {
-  document: RecruiterVerificationDocumentRecord;
-  uploadUrl: string;
-};
-
-// Attaches an affiliation-proof document to the caller's open submission and returns a presigned
-// PUT URL for the direct-to-R2 upload (same flow as institution verification documents). 404
-// when no open submission exists — documents cannot be attached to reviewed history rows.
-export const attachDocumentToPendingSubmission = async (
-  userId: string,
-  file: { originalFileName: string; fileSizeBytes: number; contentType: string },
-  db: Database = getDb(),
-): Promise<AttachedDocumentWithUploadUrl> => {
+const assertStorageAvailable = (): void => {
   if (!isR2Available()) {
     throw new RecruiterVerificationError(
       "recruiter_verification_storage_unavailable",
       "Document storage is unavailable",
     );
   }
+};
 
+// Returns the account's single open submission id, or null when it has none. Documents can only be
+// attached to a submission that is still awaiting review — never to reviewed history rows.
+export const findPendingSubmissionIdForUser = async (
+  userId: string,
+  db: Database = getDb(),
+): Promise<string | null> => {
   const [pending] = await db
     .select({ id: recruiterVerificationSubmissions.id })
     .from(recruiterVerificationSubmissions)
@@ -163,26 +181,251 @@ export const attachDocumentToPendingSubmission = async (
     )
     .limit(1);
 
-  if (!pending) {
+  return pending?.id ?? null;
+};
+
+// Resolves the caller's single open submission id, or 404s.
+const requirePendingSubmissionId = async (userId: string, db: Database): Promise<string> => {
+  const pendingId = await findPendingSubmissionIdForUser(userId, db);
+  if (!pendingId) {
     throw new RecruiterVerificationError(
       "recruiter_verification_not_found",
       "No verification submission is awaiting review for this account",
     );
   }
+  return pendingId;
+};
 
-  const r2Key = `recruiter-verification/${userId}/${pending.id}/${crypto.randomUUID()}`;
+// Best-effort garbage collection of orphaned upload objects for one submission. An object is
+// orphaned when it sits under the submission's R2 prefix but no document row references it — the
+// result of an upload that was PUT to R2 but never finalized, or a replaced attempt. Never throws:
+// a storage hiccup must not break the upload or review it runs beside. `respectAge` skips objects
+// younger than the upload window so an in-flight upload from another tab is never deleted; the
+// terminal review sweep passes false because no new upload can arrive once the submission leaves
+// the pending queue.
+export const sweepOrphanedSubmissionObjects = async (
+  userId: string,
+  submissionId: string,
+  options: { respectAge: boolean },
+  db: Database = getDb(),
+): Promise<void> => {
+  if (!isR2Available()) return;
+
+  const prefix = `recruiter-verification/${userId}/${submissionId}/`;
+  try {
+    const objects = await listObjects(prefix);
+    if (objects.length === 0) return;
+
+    const rows = await db
+      .select({ r2Key: recruiterVerificationDocuments.r2Key })
+      .from(recruiterVerificationDocuments)
+      .where(eq(recruiterVerificationDocuments.submissionId, submissionId));
+    const referenced = new Set(rows.map((row) => row.r2Key));
+
+    const cutoff = Date.now() - PRESIGNED_UPLOAD_EXPIRY_SECONDS * 1000;
+    for (const object of objects) {
+      if (referenced.has(object.key)) continue;
+      if (options.respectAge && object.lastModified && object.lastModified.getTime() > cutoff) {
+        continue;
+      }
+      await deleteObject(object.key);
+    }
+  } catch (error) {
+    logger.warn("recruiter_verification.orphan_sweep_failed", {
+      submissionId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
+// Account-level entry point for the sweep: reclaims orphaned upload objects for an account's open
+// submission, if it has one. Used by the platform-ops manual tier-elevation path, which turns an
+// account Trusted without going through the review flow's terminal sweep. No-op when the account
+// has no pending submission or storage is unconfigured; never throws.
+export const sweepOrphanedObjectsForAccount = async (
+  userId: string,
+  db: Database = getDb(),
+): Promise<void> => {
+  if (!isR2Available()) return;
+  try {
+    const submissionId = await findPendingSubmissionIdForUser(userId, db);
+    if (!submissionId) return;
+    await sweepOrphanedSubmissionObjects(userId, submissionId, { respectAge: true }, db);
+  } catch (error) {
+    logger.warn("recruiter_verification.account_orphan_sweep_failed", {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
+export type PreparedDocumentUpload = { uploadUrl: string; r2Key: string };
+
+// Presign step of the affiliation-document upload. Validates the declared file against the
+// allowlist (extension ↔ type agreement, size cap) and returns a presigned PUT URL plus the
+// server-chosen R2 key. No document row is written here — the row is created only after the
+// finalize step has inspected the actual uploaded bytes, so an abandoned or forged upload never
+// becomes a visible document. The declared values are advisory at this stage.
+export const prepareVerificationDocumentUpload = async (
+  userId: string,
+  file: { originalFileName: string; contentType: string; fileSizeBytes: number },
+  db: Database = getDb(),
+): Promise<PreparedDocumentUpload> => {
+  assertStorageAvailable();
+
+  const mimeForExtension = mimeTypeForExtension(getFileExtension(file.originalFileName));
+  if (!mimeForExtension) {
+    throw new RecruiterVerificationError(
+      "recruiter_verification_document_type_not_allowed",
+      "Only PDF, JPG, PNG, or WebP files are accepted",
+    );
+  }
+  if (!isAllowedDocumentMimeType(file.contentType) || file.contentType !== mimeForExtension) {
+    throw new RecruiterVerificationError(
+      "recruiter_verification_document_type_not_allowed",
+      "The declared file type does not match its extension",
+    );
+  }
+  if (!Number.isFinite(file.fileSizeBytes) || file.fileSizeBytes <= 0) {
+    throw new RecruiterVerificationError(
+      "recruiter_verification_document_invalid",
+      "The file is empty",
+    );
+  }
+  if (file.fileSizeBytes > VERIFICATION_DOCUMENT_MAX_BYTES) {
+    throw new RecruiterVerificationError(
+      "recruiter_verification_document_too_large",
+      "The file exceeds the 10 MB limit",
+    );
+  }
+
+  const pendingId = await requirePendingSubmissionId(userId, db);
+
+  // Reclaim any object left behind by an earlier abandoned or replaced upload before minting a new
+  // one, so orphans do not accumulate across attempts.
+  await sweepOrphanedSubmissionObjects(userId, pendingId, { respectAge: true }, db);
+
+  const r2Key = `recruiter-verification/${userId}/${pendingId}/${crypto.randomUUID()}`;
   const uploadUrl = await generatePresignedPutUrl(
     r2Key,
     file.contentType,
-    PRESIGNED_URL_EXPIRY_SECONDS,
+    PRESIGNED_UPLOAD_EXPIRY_SECONDS,
   );
+  return { uploadUrl, r2Key };
+};
+
+// Finalize step: run after the browser has PUT the file to R2. Verifies the stored object against
+// the real, server-observed truth — its actual byte size (HEAD) and its magic-byte-detected type
+// (a ranged read of the header) — and only then writes the document row. A file whose bytes are
+// not an accepted type, whose type disagrees with its extension, or that exceeds the size cap is
+// deleted from storage and rejected; no row is created. The persisted content type is the detected
+// one, never the client-declared value.
+export const finalizeVerificationDocumentUpload = async (
+  userId: string,
+  input: { r2Key: string; originalFileName: string },
+  db: Database = getDb(),
+): Promise<RecruiterVerificationDocumentRecord> => {
+  assertStorageAvailable();
+
+  const pendingId = await requirePendingSubmissionId(userId, db);
+  const expectedPrefix = `recruiter-verification/${userId}/${pendingId}/`;
+  if (!input.r2Key.startsWith(expectedPrefix)) {
+    throw new RecruiterVerificationError(
+      "recruiter_verification_document_invalid",
+      "The upload key is not scoped to this submission",
+    );
+  }
+
+  const head = await headObject(input.r2Key);
+  if (!head) {
+    throw new RecruiterVerificationError(
+      "recruiter_verification_document_not_found",
+      "The uploaded file was not found in storage",
+    );
+  }
+  if (head.sizeBytes <= 0 || head.sizeBytes > VERIFICATION_DOCUMENT_MAX_BYTES) {
+    await deleteObject(input.r2Key);
+    throw new RecruiterVerificationError(
+      "recruiter_verification_document_too_large",
+      "The file exceeds the 10 MB limit",
+    );
+  }
+
+  const headBytes = await readObjectHead(input.r2Key, SIGNATURE_READ_BYTES);
+  const detected = detectFileType(headBytes);
+  if (!detected || !extensionMatchesMimeType(input.originalFileName, detected)) {
+    await deleteObject(input.r2Key);
+    throw new RecruiterVerificationError(
+      "recruiter_verification_document_invalid",
+      "The file content does not match an accepted document type",
+    );
+  }
 
   const [row] = await db
     .insert(recruiterVerificationDocuments)
-    .values({ submissionId: pending.id, r2Key, ...file })
+    .values({
+      submissionId: pendingId,
+      r2Key: input.r2Key,
+      originalFileName: sanitizeFileName(input.originalFileName),
+      fileSizeBytes: head.sizeBytes,
+      contentType: detected,
+    })
     .returning();
   if (!row) throw new Error("insert returned no row");
-  return { document: row, uploadUrl };
+
+  // Reclaim any prior un-finalized upload for this submission now that a valid document exists.
+  await sweepOrphanedSubmissionObjects(userId, pendingId, { respectAge: true }, db);
+
+  return row;
+};
+
+export type VerificationDocumentUrl = { url: string };
+
+// Platform-ops read access to an affiliation document. Mints a short-lived presigned GET URL with
+// a bound response content type (the validated type, so the browser never sniffs) and a
+// Content-Disposition: `inline` to view in a browser tab, or `attachment` with the
+// `<username>_verification_<original name>` filename to download. 404 when the document id is
+// unknown. Authorization (platform_ops) is enforced at the route.
+export const resolveVerificationDocumentUrlForOps = async (
+  documentId: string,
+  disposition: "inline" | "attachment",
+  db: Database = getDb(),
+): Promise<VerificationDocumentUrl> => {
+  assertStorageAvailable();
+
+  const [doc] = await db
+    .select({
+      r2Key: recruiterVerificationDocuments.r2Key,
+      originalFileName: recruiterVerificationDocuments.originalFileName,
+      contentType: recruiterVerificationDocuments.contentType,
+      username: users.username,
+    })
+    .from(recruiterVerificationDocuments)
+    .innerJoin(
+      recruiterVerificationSubmissions,
+      eq(recruiterVerificationSubmissions.id, recruiterVerificationDocuments.submissionId),
+    )
+    .innerJoin(users, eq(users.id, recruiterVerificationSubmissions.userId))
+    .where(eq(recruiterVerificationDocuments.id, documentId))
+    .limit(1);
+
+  if (!doc) {
+    throw new RecruiterVerificationError(
+      "recruiter_verification_document_not_found",
+      "Document not found",
+    );
+  }
+
+  const dispositionFileName =
+    disposition === "attachment"
+      ? formatVerificationDownloadName(doc.username, doc.originalFileName)
+      : doc.originalFileName;
+
+  const url = await generatePresignedGetUrl(doc.r2Key, PRESIGNED_DOWNLOAD_EXPIRY_SECONDS, {
+    responseContentType: doc.contentType,
+    responseContentDisposition: buildContentDisposition(disposition, dispositionFileName),
+  });
+  return { url };
 };
 
 // Vouch signal: called when the user accepts an owner/staff invitation from an institution with
@@ -208,15 +451,23 @@ export const markRecruiterSubmissionVouched = async (
   return updated.length > 0;
 };
 
+export type PendingVerificationDocument = {
+  id: string;
+  originalFileName: string;
+  contentType: string;
+};
+
 export type PendingRecruiterVerificationEntry = {
   submission: RecruiterVerificationSubmissionRecord;
   submitter: { email: string | null; username: string | null; name: string | null };
   hasDocuments: boolean;
+  documents: PendingVerificationDocument[];
 };
 
 // Review queue for platform ops, priority-ordered: vouched submissions first, then corporate
 // email domain, then documents attached, then oldest first. Priority reorders the queue only —
-// approval is always a human decision.
+// approval is always a human decision. Each entry carries its attached documents so the reviewer
+// can view or download the affiliation proof inline.
 export const listPendingRecruiterVerifications = async (
   db: Database = getDb(),
 ): Promise<PendingRecruiterVerificationEntry[]> => {
@@ -243,10 +494,36 @@ export const listPendingRecruiterVerifications = async (
       recruiterVerificationSubmissions.submittedAt,
     );
 
+  if (rows.length === 0) return [];
+
+  const submissionIds = rows.map((row) => row.submission.id);
+  const documentRows = await db
+    .select({
+      id: recruiterVerificationDocuments.id,
+      submissionId: recruiterVerificationDocuments.submissionId,
+      originalFileName: recruiterVerificationDocuments.originalFileName,
+      contentType: recruiterVerificationDocuments.contentType,
+    })
+    .from(recruiterVerificationDocuments)
+    .where(inArray(recruiterVerificationDocuments.submissionId, submissionIds))
+    .orderBy(desc(recruiterVerificationDocuments.createdAt));
+
+  const documentsBySubmission = new Map<string, PendingVerificationDocument[]>();
+  for (const document of documentRows) {
+    const list = documentsBySubmission.get(document.submissionId) ?? [];
+    list.push({
+      id: document.id,
+      originalFileName: document.originalFileName,
+      contentType: document.contentType,
+    });
+    documentsBySubmission.set(document.submissionId, list);
+  }
+
   return rows.map((row) => ({
     submission: row.submission,
     submitter: { email: row.email, username: row.username, name: row.name },
     hasDocuments: row.hasDocuments,
+    documents: documentsBySubmission.get(row.submission.id) ?? [],
   }));
 };
 
@@ -339,6 +616,11 @@ export const reviewRecruiterVerification = async (
     reviewerUserId,
     decision,
   });
+
+  // Terminal sweep: the submission has left the pending queue, so no further upload can arrive and
+  // any object not referenced by a document row is a definite orphan. Best-effort and post-commit —
+  // it never affects the review outcome.
+  await sweepOrphanedSubmissionObjects(result.userId, submissionId, { respectAge: false }, db);
 
   return result;
 };

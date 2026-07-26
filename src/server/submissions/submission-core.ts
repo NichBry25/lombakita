@@ -108,7 +108,10 @@ export const parseSubmissionFileMetadata = (
   input: unknown,
 ): ValidatedFileMetadata | SubmissionError => {
   if (!isRecord(input)) {
-    return new SubmissionError("submission_invalid_payload", "Submission metadata must be an object");
+    return new SubmissionError(
+      "submission_invalid_payload",
+      "Submission metadata must be an object",
+    );
   }
 
   const { fileKey, fileName, fileSizeBytes, fileMimeType } = input;
@@ -134,9 +137,13 @@ export const parseSubmissionFileMetadata = (
       );
     }
     if (fileSizeBytes > SUBMISSIONS_MAX_FILE_SIZE_BYTES) {
-      return new SubmissionError("submission_invalid_payload", "fileSizeBytes exceeds maximum size", {
-        details: { maxBytes: SUBMISSIONS_MAX_FILE_SIZE_BYTES },
-      });
+      return new SubmissionError(
+        "submission_invalid_payload",
+        "fileSizeBytes exceeds maximum size",
+        {
+          details: { maxBytes: SUBMISSIONS_MAX_FILE_SIZE_BYTES },
+        },
+      );
     }
     normalizedSize = fileSizeBytes;
   }

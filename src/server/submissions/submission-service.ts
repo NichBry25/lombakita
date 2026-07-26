@@ -337,9 +337,13 @@ export const createOrReplaceSubmission = async (
   if (!row) {
     // Conflict matched a finalized row — the WHERE guard blocked the update and the conflict
     // blocked the insert. The submission is locked.
-    throw new SubmissionError("submission_finalized", "Submission has been finalized and is locked", {
-      status: 422,
-    });
+    throw new SubmissionError(
+      "submission_finalized",
+      "Submission has been finalized and is locked",
+      {
+        status: 422,
+      },
+    );
   }
 
   return row;

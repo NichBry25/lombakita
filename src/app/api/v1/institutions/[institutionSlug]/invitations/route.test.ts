@@ -40,7 +40,10 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedIdentifier: "staff@example.com", invitedRole: "institution_staff" }),
+      body: JSON.stringify({
+        invitedIdentifier: "staff@example.com",
+        invitedRole: "institution_staff",
+      }),
     });
 
     const response = await POST(request as never, {
@@ -65,7 +68,10 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedIdentifier: "staff@example.com", invitedRole: "institution_staff" }),
+      body: JSON.stringify({
+        invitedIdentifier: "staff@example.com",
+        invitedRole: "institution_staff",
+      }),
     });
 
     const response = await POST(request as never, {
@@ -90,7 +96,10 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedIdentifier: "staff@example.com", invitedRole: "institution_staff" }),
+      body: JSON.stringify({
+        invitedIdentifier: "staff@example.com",
+        invitedRole: "institution_staff",
+      }),
     });
 
     const response = await POST(request as never, {
@@ -115,7 +124,10 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedIdentifier: "staff@example.com", invitedRole: "institution_staff" }),
+      body: JSON.stringify({
+        invitedIdentifier: "staff@example.com",
+        invitedRole: "institution_staff",
+      }),
     });
 
     const response = await POST(request as never, {
@@ -135,7 +147,10 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedIdentifier: "staff@example.com", invitedRole: "institution_staff" }),
+      body: JSON.stringify({
+        invitedIdentifier: "staff@example.com",
+        invitedRole: "institution_staff",
+      }),
     });
 
     const response = await POST(request as never, {
@@ -152,7 +167,10 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedIdentifier: "owner@example.com", invitedRole: "institution_owner" }),
+      body: JSON.stringify({
+        invitedIdentifier: "owner@example.com",
+        invitedRole: "institution_owner",
+      }),
     });
 
     const response = await POST(request as never, {
@@ -173,7 +191,10 @@ describe("POST /api/v1/institutions/[institutionSlug]/invitations", () => {
     const request = new Request("http://localhost", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedIdentifier: "member@example.com", invitedRole: "institution_member" }),
+      body: JSON.stringify({
+        invitedIdentifier: "member@example.com",
+        invitedRole: "institution_member",
+      }),
     });
 
     const response = await POST(request as never, {

@@ -30,9 +30,8 @@ const run = async (): Promise<void> => {
   const { getDb } = await import("@/server/db/client");
   const { users } = await import("@/server/db/schema");
   const { eq } = await import("drizzle-orm");
-  const { listSavedCompetitions } = await import(
-    "@/server/saved-competitions/saved-competition-service"
-  );
+  const { listSavedCompetitions } =
+    await import("@/server/saved-competitions/saved-competition-service");
 
   const db = getDb();
   const results: CheckResult[] = [];
@@ -59,24 +58,54 @@ const run = async (): Promise<void> => {
 
   // ── SAVE-1: { limit: 5 } returns exactly 5 data rows ───────────────────────
   const preview = await listSavedCompetitions(user.id, { limit: 5 }, db);
-  record("SAVE-1", "{ limit: 5 } returns exactly 5 items in data array", preview.data.length === 5, `got ${preview.data.length}`);
+  record(
+    "SAVE-1",
+    "{ limit: 5 } returns exactly 5 items in data array",
+    preview.data.length === 5,
+    `got ${preview.data.length}`,
+  );
 
   // ── SAVE-2: meta.total reflects all 6 saves (not capped) ───────────────────
-  record("SAVE-2", "meta.total is 6 (full count, not capped by limit)", preview.meta.total === 6, `got ${preview.meta.total}`);
+  record(
+    "SAVE-2",
+    "meta.total is 6 (full count, not capped by limit)",
+    preview.meta.total === 6,
+    `got ${preview.meta.total}`,
+  );
 
   // ── SAVE-3: meta.totalPages is 2 — ceil(6/5) ───────────────────────────────
-  record("SAVE-3", "meta.totalPages is 2 (ceil(6/5))", preview.meta.totalPages === 2, `got ${preview.meta.totalPages}`);
+  record(
+    "SAVE-3",
+    "meta.totalPages is 2 (ceil(6/5))",
+    preview.meta.totalPages === 2,
+    `got ${preview.meta.totalPages}`,
+  );
 
   // ── SAVE-4: meta.limit echoes back the requested limit ─────────────────────
-  record("SAVE-4", "meta.limit echoes back 5", preview.meta.limit === 5, `got ${preview.meta.limit}`);
+  record(
+    "SAVE-4",
+    "meta.limit echoes back 5",
+    preview.meta.limit === 5,
+    `got ${preview.meta.limit}`,
+  );
 
   // ── SAVE-5: all preview items are available (published competitions) ─────────
   const allAvailable = preview.data.every((i) => i.savedStatus === "available");
-  record("SAVE-5", "all 5 preview items have savedStatus = 'available'", allAvailable, `statuses: ${preview.data.map((i) => i.savedStatus).join(", ")}`);
+  record(
+    "SAVE-5",
+    "all 5 preview items have savedStatus = 'available'",
+    allAvailable,
+    `statuses: ${preview.data.map((i) => i.savedStatus).join(", ")}`,
+  );
 
   // ── SAVE-6: { limit: 100 } returns all 6 saves ─────────────────────────────
   const full = await listSavedCompetitions(user.id, { limit: 100 }, db);
-  record("SAVE-6", "{ limit: 100 } returns all 6 saves", full.data.length === 6, `got ${full.data.length}`);
+  record(
+    "SAVE-6",
+    "{ limit: 100 } returns all 6 saves",
+    full.data.length === 6,
+    `got ${full.data.length}`,
+  );
 
   // ── SAVE-7: all 6 seeded titles present in the full list ────────────────────
   const expectedTitles = [
@@ -89,12 +118,22 @@ const run = async (): Promise<void> => {
   ];
   const returnedTitles = full.data.map((i) => i.title);
   const allPresent = expectedTitles.every((t) => returnedTitles.includes(t));
-  record("SAVE-7", "all 6 seeded titles present in full list", allPresent, `found: ${returnedTitles.join(" | ")}`);
+  record(
+    "SAVE-7",
+    "all 6 seeded titles present in full list",
+    allPresent,
+    `found: ${returnedTitles.join(" | ")}`,
+  );
 
   // ── SAVE-8: preview titles are a subset of the full 6 ──────────────────────
   const previewTitles = preview.data.map((i) => i.title);
   const subsetOk = previewTitles.every((t) => returnedTitles.includes(t));
-  record("SAVE-8", "preview 5 titles are a strict subset of the full 6", subsetOk, `preview: ${previewTitles.join(" | ")}`);
+  record(
+    "SAVE-8",
+    "preview 5 titles are a strict subset of the full 6",
+    subsetOk,
+    `preview: ${previewTitles.join(" | ")}`,
+  );
 
   // ── Summary ─────────────────────────────────────────────────────────────────
   console.log("─────────────────────────────────────────────────────");

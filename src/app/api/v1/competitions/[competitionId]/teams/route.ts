@@ -5,10 +5,7 @@ import {
 } from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
 import { TeamError, toTeamErrorResponse } from "@/server/teams/team-core";
-import {
-  createTeam,
-  getTeamForCompetitionAndCandidate,
-} from "@/server/teams/team-service";
+import { createTeam, getTeamForCompetitionAndCandidate } from "@/server/teams/team-service";
 
 type RouteContext = { params: Promise<{ competitionId: string }> };
 

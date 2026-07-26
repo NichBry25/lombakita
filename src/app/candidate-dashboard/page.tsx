@@ -49,11 +49,13 @@ export default async function CandidateDashboardPage() {
         description="Pantau pendaftaran, tenggat, hasil, dan peluang yang kamu simpan."
         actions={
           <>
-            <ButtonLink href="/candidate-dashboard/profile" variant="outline" size="sm">
-              Data kandidat
-            </ButtonLink>
-            <ButtonLink href="/competitions" variant="primary" size="sm">
-              Jelajahi kompetisi
+            <ButtonLink
+              href="/candidate-dashboard/profile"
+              variant="primary"
+              size="sm"
+              leadingIcon={<Icon name="settings" size="sm" />}
+            >
+              Pengaturan
             </ButtonLink>
           </>
         }
@@ -177,22 +179,20 @@ export default async function CandidateDashboardPage() {
                     >
                       {getCandidateRegistrationStatusLabel(reg.registrationStatus)}
                     </span>
-                    <Link
-                      className="ui-button"
-                      data-variant="ghost"
-                      data-size="sm"
+                    <ButtonLink
+                      variant="ghost"
+                      size="sm"
                       href={`/competitions/${reg.institutionSlug}/${reg.competitionSlug}/registration/`}
                     >
                       Detail
-                    </Link>
-                    <Link
-                      className="ui-button"
-                      data-variant="outline"
-                      data-size="sm"
+                    </ButtonLink>
+                    <ButtonLink
+                      variant="outline"
+                      size="sm"
                       href={`/candidate-dashboard/registrations/${reg.id}`}
                     >
                       Submission
-                    </Link>
+                    </ButtonLink>
                   </div>
                 </li>
               );
@@ -252,22 +252,20 @@ export default async function CandidateDashboardPage() {
                     >
                       {getCandidateRegistrationStatusLabel(reg.registrationStatus)}
                     </span>
-                    <Link
-                      className="ui-button"
-                      data-variant="ghost"
-                      data-size="sm"
+                    <ButtonLink
+                      variant="ghost"
+                      size="sm"
                       href={`/competitions/${reg.institutionSlug}/${reg.competitionSlug}/registration/`}
                     >
                       Detail
-                    </Link>
-                    <Link
-                      className="ui-button"
-                      data-variant="outline"
-                      data-size="sm"
+                    </ButtonLink>
+                    <ButtonLink
+                      variant="outline"
+                      size="sm"
                       href={`/candidate-dashboard/registrations/${reg.id}`}
                     >
                       Submission
-                    </Link>
+                    </ButtonLink>
                   </div>
                 </li>
               );

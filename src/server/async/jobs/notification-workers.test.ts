@@ -39,10 +39,7 @@ import {
   processRegistrationCancelledJob,
   type RegistrationCancelledJob,
 } from "./registration-cancelled";
-import {
-  processSubmissionFinalizedJob,
-  type SubmissionFinalizedJob,
-} from "./submission-finalized";
+import { processSubmissionFinalizedJob, type SubmissionFinalizedJob } from "./submission-finalized";
 import { processResultPublishedJob, type ResultPublishedJob } from "./result-published";
 
 // ── DB mock helper ────────────────────────────────────────────────────────────
@@ -106,9 +103,7 @@ const makeFinalizedJob = (
     },
   }) as unknown as SubmissionFinalizedJob;
 
-const makeResultJob = (
-  overrides: Partial<ResultPublishedJob["data"]> = {},
-): ResultPublishedJob =>
+const makeResultJob = (overrides: Partial<ResultPublishedJob["data"]> = {}): ResultPublishedJob =>
   ({
     id: "job_4",
     data: {
@@ -287,8 +282,7 @@ describe("processResultPublishedJob", () => {
         innerJoin: () => chain,
         leftJoin: () => chain,
         limit: () => Promise.resolve(queue.shift() ?? []),
-        then: (resolve: (v: unknown) => void) =>
-          Promise.resolve(queue.shift() ?? []).then(resolve),
+        then: (resolve: (v: unknown) => void) => Promise.resolve(queue.shift() ?? []).then(resolve),
       };
       return chain;
     };

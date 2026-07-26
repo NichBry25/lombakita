@@ -6,12 +6,12 @@ import { useEffect, useState } from "react";
 import { signOut, useSession } from "next-auth/react";
 import { NotificationBell } from "@/app/notification-bell";
 import { ButtonLink, Icon } from "@/components/ui";
+import { HeaderDashboardMenu } from "@/components/navigation/header-dashboard-menu";
 
 const HEADER_SCROLL_THRESHOLD_PX = 8;
 
 const PRIMARY_NAVIGATION = [
   { href: "/competitions", label: "Jelajahi" },
-  { href: "/institution/workspace", label: "Penyelenggara" },
   { href: "/#tentang", label: "Tentang" },
 ] as const;
 
@@ -19,9 +19,6 @@ type ThemeName = "light" | "dark";
 
 function isCurrentNavigationItem(pathname: string, href: string) {
   if (href === "/competitions") return pathname.startsWith("/competitions");
-  if (href === "/institution/workspace") {
-    return pathname.startsWith("/institution") || pathname.startsWith("/recruiter-dashboard");
-  }
   return false;
 }
 
@@ -83,6 +80,7 @@ export function ApplicationHeader() {
               {item.label}
             </Link>
           ))}
+          {status === "authenticated" ? <HeaderDashboardMenu pathname={pathname} /> : null}
         </nav>
 
         <div className="header-actions">
@@ -187,6 +185,22 @@ export function ApplicationHeader() {
         </Link>
         {status === "loading" ? null : status === "authenticated" ? (
           <>
+            <Link
+              href="/candidate-dashboard"
+              className="header-nav-link"
+              aria-current={pathname.startsWith("/candidate-dashboard") ? "page" : undefined}
+              onClick={() => setMenuOpen(false)}
+            >
+              Dasbor kandidat
+            </Link>
+            <Link
+              href="/recruiter-dashboard"
+              className="header-nav-link"
+              aria-current={pathname.startsWith("/recruiter-dashboard") ? "page" : undefined}
+              onClick={() => setMenuOpen(false)}
+            >
+              Dasbor rekruter
+            </Link>
             <Link href="/profile" className="header-nav-link" onClick={() => setMenuOpen(false)}>
               Profil saya
             </Link>
@@ -206,7 +220,11 @@ export function ApplicationHeader() {
             <Link href="/auth/login" className="header-nav-link" onClick={() => setMenuOpen(false)}>
               Masuk
             </Link>
-            <Link href="/auth/register" className="header-nav-link" onClick={() => setMenuOpen(false)}>
+            <Link
+              href="/auth/register"
+              className="header-nav-link"
+              onClick={() => setMenuOpen(false)}
+            >
               Daftar akun
             </Link>
           </>

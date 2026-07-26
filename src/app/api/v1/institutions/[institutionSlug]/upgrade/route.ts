@@ -62,6 +62,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       institutionSlug,
       targetType,
       raw.displayName,
+      raw.description,
     );
 
     return NextResponse.json(

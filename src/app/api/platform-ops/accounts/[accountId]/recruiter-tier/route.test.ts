@@ -3,28 +3,32 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 
-const { requireSessionRole, elevateRecruiterTier, parseElevationInput, RecruiterTierElevationError } =
-  vi.hoisted(() => {
-    class RecruiterTierElevationError extends Error {
-      constructor(
-        public readonly code:
-          | "tier_invalid_payload"
-          | "tier_invalid_target"
-          | "tier_account_not_found"
-          | "tier_target_not_recruiter_verified",
-        public readonly status: 400 | 404 | 422,
-        message: string,
-      ) {
-        super(message);
-      }
+const {
+  requireSessionRole,
+  elevateRecruiterTier,
+  parseElevationInput,
+  RecruiterTierElevationError,
+} = vi.hoisted(() => {
+  class RecruiterTierElevationError extends Error {
+    constructor(
+      public readonly code:
+        | "tier_invalid_payload"
+        | "tier_invalid_target"
+        | "tier_account_not_found"
+        | "tier_target_not_recruiter_verified",
+      public readonly status: 400 | 404 | 422,
+      message: string,
+    ) {
+      super(message);
     }
-    return {
-      requireSessionRole: vi.fn(),
-      elevateRecruiterTier: vi.fn(),
-      parseElevationInput: vi.fn(),
-      RecruiterTierElevationError,
-    };
-  });
+  }
+  return {
+    requireSessionRole: vi.fn(),
+    elevateRecruiterTier: vi.fn(),
+    parseElevationInput: vi.fn(),
+    RecruiterTierElevationError,
+  };
+});
 
 vi.mock("@/server/auth/session", () => ({ requireSessionRole }));
 vi.mock("@/server/recruiter-tier/recruiter-tier-service", () => ({
@@ -53,7 +57,11 @@ const makeParams = (accountId: string) => ({
 
 beforeEach(() => {
   parseElevationInput.mockImplementation((payload: unknown) => {
-    if (typeof payload === "object" && payload !== null && (payload as { tier?: string }).tier === "elevated") {
+    if (
+      typeof payload === "object" &&
+      payload !== null &&
+      (payload as { tier?: string }).tier === "elevated"
+    ) {
       return { tier: "elevated" };
     }
     throw new RecruiterTierElevationError(

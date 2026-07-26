@@ -34,7 +34,12 @@ vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: 
 vi.mock("@/server/auth/credentials-auth", () => ({ authenticateWithEmailPassword: vi.fn() }));
 vi.mock("@/server/db/client", () => ({ getDb: getDbMock }));
 vi.mock("@/server/db/schema", () => ({
-  users: { id: "id", suspendedAt: "suspended_at", candidateVerifiedAt: "c", recruiterVerifiedAt: "r" },
+  users: {
+    id: "id",
+    suspendedAt: "suspended_at",
+    candidateVerifiedAt: "c",
+    recruiterVerifiedAt: "r",
+  },
   accounts: {},
   sessions: {},
   verificationTokens: {},

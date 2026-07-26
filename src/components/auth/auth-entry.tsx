@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { signIn } from "next-auth/react";
-import { SelectField } from "@/components/ui";
+import { Button, SelectField, usePageTransition } from "@/components/ui";
 import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
 
 // Step 6.5d.1 — method-first single-page auth entry. Replaces the 6.5b two-page login/register
@@ -94,6 +94,7 @@ export const AuthEntry = ({
     verifiedNotice ? "Email berhasil diverifikasi. Silakan masuk dengan password Anda." : null,
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { begin: beginPageTransition } = usePageTransition();
 
   const resetMessages = () => {
     setStatusMessage(null);
@@ -101,6 +102,9 @@ export const AuthEntry = ({
   };
 
   const startGoogle = () => {
+    // Hands off to Google's consent screen. That is a full document navigation, so the blocking
+    // screen stays up until the browser leaves this page.
+    beginPageTransition("Menghubungkan ke Google…");
     void signIn("google", { callbackUrl: callbackUrl ?? "/" });
   };
 
@@ -112,6 +116,7 @@ export const AuthEntry = ({
     } catch {
       /* sessionStorage unavailable — modal simply will not auto-open this session */
     }
+    beginPageTransition("Menyiapkan akun Anda…");
     window.location.assign(url);
   };
 
@@ -126,6 +131,7 @@ export const AuthEntry = ({
     // 6.5c — suspended accounts are blocked in `authorize`; route the distinct signal to the
     // public /suspended page. No second-role flag is set on this branch.
     if (result?.error?.toUpperCase().includes("ACCOUNT_SUSPENDED")) {
+      beginPageTransition("Mengalihkan…");
       window.location.assign("/suspended");
       return;
     }
@@ -454,24 +460,12 @@ export const AuthEntry = ({
           </div>
 
           <div className="auth-form-actions">
-            <button
-              type="button"
-              onClick={backToChoose}
-              className="ui-button"
-              data-variant="ghost"
-              data-size="sm"
-            >
+            <Button type="button" onClick={backToChoose} variant="ghost" size="sm">
               Ganti metode
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="ui-button"
-              data-variant="primary"
-              data-size="md"
-            >
-              {isSubmitting ? "Memproses..." : "Lanjut"}
-            </button>
+            </Button>
+            <Button type="submit" loading={isSubmitting} variant="primary" size="md">
+              Lanjut
+            </Button>
           </div>
           <p className="form-help">
             Belum punya akun? Masukkan email &amp; password, lalu pilih peran di langkah berikutnya.
@@ -486,27 +480,21 @@ export const AuthEntry = ({
             verifikasi di inbox/spam Anda, atau kirim ulang di bawah ini.
           </p>
           <div className="auth-form-actions">
-            <button
-              type="button"
-              onClick={backToEntry}
-              className="ui-button"
-              data-variant="ghost"
-              data-size="sm"
-            >
+            <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
               Kembali
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              disabled={isResending || !verificationEnabled}
+              loading={isResending}
+              disabled={!verificationEnabled}
               onClick={() => {
                 void onResend();
               }}
-              className="ui-button"
-              data-variant="outline"
-              data-size="sm"
+              variant="outline"
+              size="sm"
             >
-              {isResending ? "Mengirim..." : "Kirim ulang verifikasi"}
-            </button>
+              Kirim ulang verifikasi
+            </Button>
           </div>
         </div>
       ) : null}
@@ -561,21 +549,15 @@ export const AuthEntry = ({
                 }}
                 className="auth-role-option"
               >
-                <strong>{isSubmitting ? "Membuat akun..." : entry.label}</strong>
+                <strong>{entry.label}</strong>
                 <span>{entry.hint}</span>
               </button>
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={backToEntry}
-            className="ui-button"
-            data-variant="ghost"
-            data-size="sm"
-          >
+          <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
             Kembali
-          </button>
+          </Button>
 
           {!verificationEnabled ? (
             <p className="feedback" data-tone="warning">
@@ -645,24 +627,12 @@ export const AuthEntry = ({
           </div>
 
           <div className="auth-form-actions">
-            <button
-              type="button"
-              onClick={backToSignup}
-              className="ui-button"
-              data-variant="ghost"
-              data-size="sm"
-            >
+            <Button type="button" onClick={backToSignup} variant="ghost" size="sm">
               Kembali
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="ui-button"
-              data-variant="primary"
-              data-size="md"
-            >
-              {isSubmitting ? "Membuat akun..." : "Selesaikan pendaftaran"}
-            </button>
+            </Button>
+            <Button type="submit" loading={isSubmitting} variant="primary" size="md">
+              Selesai
+            </Button>
           </div>
         </form>
       ) : null}
@@ -721,24 +691,12 @@ export const AuthEntry = ({
           </div>
 
           <div className="auth-form-actions">
-            <button
-              type="button"
-              onClick={backToSignup}
-              className="ui-button"
-              data-variant="ghost"
-              data-size="sm"
-            >
+            <Button type="button" onClick={backToSignup} variant="ghost" size="sm">
               Kembali
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="ui-button"
-              data-variant="primary"
-              data-size="md"
-            >
-              {isSubmitting ? "Membuat akun..." : "Selesaikan pendaftaran"}
-            </button>
+            </Button>
+            <Button type="submit" loading={isSubmitting} variant="primary" size="md">
+              Selesai
+            </Button>
           </div>
         </form>
       ) : null}

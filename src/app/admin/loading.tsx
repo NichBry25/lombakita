@@ -1,5 +1,5 @@
-import { PageLoading } from "@/components/ui";
+import { DashboardPageSkeleton } from "@/components/ui";
 
 export default function AdminLoading() {
-  return <PageLoading label="Memuat Platform Ops" />;
+  return <DashboardPageSkeleton label="Memuat Platform Ops" />;
 }

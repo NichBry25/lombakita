@@ -242,8 +242,8 @@ export const CompetitionRoundsEditor = ({
               label="Tambah tahapan"
               onClick={() => setRows((prev) => [...prev, emptyRow()])}
             />
-            <Button type="button" onClick={saveRounds} disabled={isSaving} loading={isSaving}>
-              {isSaving ? "Menyimpan..." : "Simpan"}
+            <Button type="button" onClick={saveRounds} loading={isSaving}>
+              Simpan
             </Button>
           </div>
         </div>

@@ -117,10 +117,7 @@ export const parseUploadRequest = (
 // Validates the record payload sent after the browser has uploaded to R2. Size and mime are
 // client-declared (DEC-0066 boundary — no server-side byte inspection at MVP); the key-prefix
 // ownership check is applied by the service (it needs the userId / certId).
-export const parseFileMetadata = (
-  kind: ProfileFileKind,
-  payload: unknown,
-): ProfileFileMetadata => {
+export const parseFileMetadata = (kind: ProfileFileKind, payload: unknown): ProfileFileMetadata => {
   if (!isRecord(payload)) {
     throw new ProfileFileError("profile_file_invalid_payload", "Body must be a JSON object");
   }
@@ -137,7 +134,10 @@ export const parseFileMetadata = (
     !Number.isInteger(payload.sizeBytes) ||
     payload.sizeBytes <= 0
   ) {
-    throw new ProfileFileError("profile_file_invalid_payload", "sizeBytes must be a positive integer");
+    throw new ProfileFileError(
+      "profile_file_invalid_payload",
+      "sizeBytes must be a positive integer",
+    );
   }
   if (payload.sizeBytes > PROFILE_FILE_RULES[kind].maxBytes) {
     throw new ProfileFileError("profile_file_too_large", "File exceeds the maximum allowed size");

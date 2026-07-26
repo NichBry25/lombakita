@@ -79,7 +79,7 @@ export default async function InstitutionHubPage({ params }: InstitutionHubPageP
         title={institutionSlug}
         description="Pusat kerja untuk identitas institusi, penyelenggaraan kompetisi, dan tata kelola anggota."
         backHref="/recruiter-dashboard"
-        backLabel="Dasbor rekruter"
+        backLabel="Dasbor"
       />
       <nav aria-label="Fitur institusi">
         <ul className="hub-grid institution-hub-grid">

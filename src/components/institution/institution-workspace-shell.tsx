@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { SignOutButton } from "@/components/auth/sign-out-button";
 import { useRouter } from "next/navigation";
 import {
   Button,
@@ -127,7 +126,7 @@ export const InstitutionWorkspaceShell = () => {
     setCreatedInstitutionSlug(nextSlug);
     setFeedback({
       type: "success",
-      message: "Workspace institusi berhasil dibuat. Lanjutkan ke pengaturan institusi.",
+      message: "Institusi berhasil dibuat. Lanjutkan ke pengaturan.",
     });
     setIsCreating(false);
   };
@@ -135,8 +134,8 @@ export const InstitutionWorkspaceShell = () => {
   return (
     <main className="page-shell app-page institution-form-page">
       <PageHeader
-        eyebrow="Workspace baru"
-        title="Buat workspace institusi"
+        eyebrow="Institusi baru"
+        title="Buat institusi"
         description="Tetapkan identitas dasar ruang penyelenggara. Slug dapat dikosongkan agar dibuat otomatis."
       />
 
@@ -200,13 +199,6 @@ export const InstitutionWorkspaceShell = () => {
         </form>
       </section>
 
-      <div className="page-secondary-actions">
-        <SignOutButton />
-        <ButtonLink href="/" prefetch={false} variant="ghost" size="sm">
-          Kembali ke beranda
-        </ButtonLink>
-      </div>
-
       <FormActionBar>
         <IconButton
           icon="arrow-left"
@@ -214,13 +206,8 @@ export const InstitutionWorkspaceShell = () => {
           onClick={() => router.push("/recruiter-dashboard")}
         />
         <div className="form-action-bar-end">
-          <Button
-            type="button"
-            onClick={() => onSubmit()}
-            disabled={isCreating}
-            loading={isCreating}
-          >
-            {isCreating ? "Menyimpan..." : "Buat workspace"}
+          <Button type="button" onClick={() => onSubmit()} loading={isCreating}>
+            Buat workspace
           </Button>
         </div>
       </FormActionBar>

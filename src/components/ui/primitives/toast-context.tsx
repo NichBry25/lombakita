@@ -35,22 +35,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const addToast = useCallback(
-    (config: ToastConfig): string => {
-      const id = crypto.randomUUID();
-      const duration = config.duration ?? 5000;
-      setToasts((prev) => [...prev, { ...config, id }]);
-      if (duration > 0) {
-        const handle = setTimeout(() => {
-          timersRef.current.delete(id);
-          setToasts((prev) => prev.filter((t) => t.id !== id));
-        }, duration);
-        timersRef.current.set(id, handle);
-      }
-      return id;
-    },
-    [],
-  );
+  const addToast = useCallback((config: ToastConfig): string => {
+    const id = crypto.randomUUID();
+    const duration = config.duration ?? 5000;
+    setToasts((prev) => [...prev, { ...config, id }]);
+    if (duration > 0) {
+      const handle = setTimeout(() => {
+        timersRef.current.delete(id);
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, duration);
+      timersRef.current.set(id, handle);
+    }
+    return id;
+  }, []);
 
   return (
     <ToastContext.Provider value={{ toasts, addToast, removeToast }}>
@@ -62,7 +59,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 export function useToast(): Pick<ToastContextValue, "addToast" | "removeToast"> {
   const ctx = useContext(ToastContext);
   if (!ctx) {
-    throw new Error("useToast must be used inside <ToastProvider> (part of <UIPrimitivesProvider>)");
+    throw new Error(
+      "useToast must be used inside <ToastProvider> (part of <UIPrimitivesProvider>)",
+    );
   }
   return { addToast: ctx.addToast, removeToast: ctx.removeToast };
 }
@@ -70,7 +69,9 @@ export function useToast(): Pick<ToastContextValue, "addToast" | "removeToast"> 
 export function useToastState(): ToastContextValue {
   const ctx = useContext(ToastContext);
   if (!ctx) {
-    throw new Error("useToastState must be used inside <ToastProvider> (part of <UIPrimitivesProvider>)");
+    throw new Error(
+      "useToastState must be used inside <ToastProvider> (part of <UIPrimitivesProvider>)",
+    );
   }
   return ctx;
 }

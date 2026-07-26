@@ -117,10 +117,7 @@ export const resumeSetVisibility = (request: Request): Promise<Response> =>
 
 // ── Certificate file ──────────────────────────────────────────────────────────
 
-export const certificationFileUploadUrl = (
-  request: Request,
-  certId: string,
-): Promise<Response> =>
+export const certificationFileUploadUrl = (request: Request, certId: string): Promise<Response> =>
   runOwned(request, async (userId) => {
     const req = parseUploadRequest("certification", await readJson(request));
     return grantResponse(await generateCertificationFileUploadUrl(userId, certId, req));

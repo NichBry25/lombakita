@@ -44,7 +44,10 @@ describe("getInstitutionDisplayName", () => {
       getInstitutionDisplayName({ displayName: null, institutionType: "personal" }, null),
     ).toBe("Personal Institution");
     expect(
-      getInstitutionDisplayName({ displayName: null, institutionType: "personal" }, { username: null }),
+      getInstitutionDisplayName(
+        { displayName: null, institutionType: "personal" },
+        { username: null },
+      ),
     ).toBe("Personal Institution");
   });
 

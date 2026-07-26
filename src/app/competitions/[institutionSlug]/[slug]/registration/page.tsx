@@ -33,7 +33,7 @@ export default async function CompetitionRegistrationPage({
           title="Hanya kandidat yang dapat mendaftar"
           description="Akun kandidat yang terverifikasi diperlukan untuk memulai pendaftaran kompetisi."
           backHref={detailPath}
-          backLabel="Kembali ke detail kompetisi"
+          backLabel="Detail"
         />
         <p className="feedback" data-tone="warning">
           Akun Anda bukan akun kandidat. Masuk dengan akun kandidat untuk mendaftar ke kompetisi

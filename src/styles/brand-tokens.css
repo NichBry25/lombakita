@@ -120,6 +120,10 @@
   /* Skeleton */
   --skeleton-base: #ece5d5;
   --skeleton-highlight: #fbf6eb;
+  --skeleton-eyebrow-width: 7rem;
+  --skeleton-button-width: 8.5rem;
+  --skeleton-chip-width: 5.5rem;
+  --skeleton-stat-min: 13rem;
 }
 
 /*
@@ -327,6 +331,8 @@
   --z-header: 50;
   --z-modal: 100;
   --z-toast: 110;
+  /* The blocking page-transition screen outranks every other layer by design. */
+  --z-page-transition: 120;
 
   /* Motion */
   --ease-primary: cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -336,6 +342,14 @@
   --duration-theme: 400ms;
   --duration-rise: 500ms;
   --duration-pulse: 1600ms;
+  /*
+   * Spinner rotation. A spinner is the only signal that an action is running, so unlike
+   * decorative motion it keeps animating under reduced motion — it slows down instead of
+   * stopping, which removes the vestibular trigger without removing the information.
+   */
+  --duration-spinner: 720ms;
+  --duration-spinner-reduced: 1800ms;
+  --spinner-track-strength: 26%;
   --motion-lift-control: -1px;
   --motion-lift-card: -4px;
   --motion-arrow: 4px;

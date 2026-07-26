@@ -80,7 +80,7 @@ export default async function AuditLogPage({ params, searchParams }: Props) {
         title="Log audit"
         description={`Riwayat perubahan penting untuk ${institutionSlug}, diurutkan dari yang terbaru.`}
         backHref={`/institution/${institutionSlug}`}
-        backLabel="Panel institusi"
+        backLabel="Kembali"
       />
 
       {events.length === 0 ? (

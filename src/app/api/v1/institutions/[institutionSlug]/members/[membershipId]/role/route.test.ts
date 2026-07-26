@@ -45,12 +45,7 @@ describe("PATCH /api/v1/institutions/[institutionSlug]/members/[membershipId]/ro
 
     expect(response.status).toBe(200);
     expect(body.updated).toBe(true);
-    expect(changeMemberRole).toHaveBeenCalledWith(
-      "actor_1",
-      "test-org",
-      "m2",
-      "institution_owner",
-    );
+    expect(changeMemberRole).toHaveBeenCalledWith("actor_1", "test-org", "m2", "institution_owner");
   });
 
   it("allows demotion to institution_member", async () => {
@@ -88,11 +83,7 @@ describe("PATCH /api/v1/institutions/[institutionSlug]/members/[membershipId]/ro
   it("returns 403 when called by non-owner/non-staff", async () => {
     requireAuthenticatedSession.mockResolvedValue(ownerSession);
     changeMemberRole.mockRejectedValue(
-      new AccessError(
-        "forbidden",
-        403,
-        "institution_owner or institution_staff access required",
-      ),
+      new AccessError("forbidden", 403, "institution_owner or institution_staff access required"),
     );
 
     const response = await PATCH(
@@ -155,7 +146,11 @@ describe("PATCH /api/v1/institutions/[institutionSlug]/members/[membershipId]/ro
   it("returns 422 when demoting last owner (last_owner_demotion_forbidden)", async () => {
     requireAuthenticatedSession.mockResolvedValue(ownerSession);
     changeMemberRole.mockRejectedValue(
-      new MemberError("last_owner_demotion_forbidden", 422, "An institution must have at least one owner"),
+      new MemberError(
+        "last_owner_demotion_forbidden",
+        422,
+        "An institution must have at least one owner",
+      ),
     );
 
     const response = await PATCH(

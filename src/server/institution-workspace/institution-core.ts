@@ -16,10 +16,11 @@ const MIN_DISPLAY_NAME_LENGTH = 2;
 const MAX_DISPLAY_NAME_LENGTH = 160;
 const MIN_SLUG_LENGTH = 3;
 const MAX_SLUG_LENGTH = 64;
+const MAX_DESCRIPTION_LENGTH = 500;
 const FALLBACK_SLUG_BASE = "institusi";
 
 const CREATE_FIELDS = ["displayName", "slug", "institutionType"] as const;
-const UPDATE_FIELDS = ["displayName", "slug"] as const;
+const UPDATE_FIELDS = ["displayName", "slug", "description"] as const;
 
 const PROTECTED_FIELDS = [
   "id",
@@ -44,6 +45,8 @@ export type InstitutionWorkspaceShell = {
   // "personal" for the capped single-member type; a full subtype for every other institution.
   // Never null — institution_type is NOT NULL and set at creation.
   institutionType: InstitutionType;
+  // Short free-text description, editable in settings for every type. Null when unset.
+  description: string | null;
   ownerMembership: {
     membershipId: string;
     membershipRole: InstitutionMembershipRole;
@@ -65,6 +68,9 @@ export type InstitutionWorkspaceCreateInput = {
 export type InstitutionWorkspaceSettingsPatch = {
   displayName?: string;
   slug?: string;
+  // Present when the payload carried `description`. `null` clears the stored description; a
+  // non-empty string sets it. Editable for every institution type (personal included).
+  description?: string | null;
 };
 
 // Maximum number of institutions a single recruiter account may own. Shared constant —
@@ -135,6 +141,39 @@ const parseDisplayName = (value: unknown): string => {
       "displayName resolves to a reserved word and cannot be used as an institution name",
       { fields: ["displayName"] },
       422,
+    );
+  }
+
+  return normalized;
+};
+
+// Optional free-text description. `null` (or an empty/whitespace-only string) clears it; any other
+// string is trimmed and capped at MAX_DESCRIPTION_LENGTH. Anything that is neither a string nor null
+// is rejected. Returns the normalized value or null — the caller persists null to clear the column.
+const parseDescription = (value: unknown): string | null => {
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw new InstitutionWorkspaceInputError(
+      "institution_invalid_value",
+      `description must be a string of at most ${MAX_DESCRIPTION_LENGTH} characters, or null`,
+      { fields: ["description"] },
+    );
+  }
+
+  const normalized = value.trim();
+
+  if (normalized.length === 0) {
+    return null;
+  }
+
+  if (normalized.length > MAX_DESCRIPTION_LENGTH) {
+    throw new InstitutionWorkspaceInputError(
+      "institution_invalid_value",
+      `description must be a string of at most ${MAX_DESCRIPTION_LENGTH} characters, or null`,
+      { fields: ["description"] },
     );
   }
 
@@ -322,6 +361,10 @@ export const parseInstitutionWorkspaceSettingsPatch = (
     patch.slug = parseSlug(record.slug);
   }
 
+  if ("description" in record) {
+    patch.description = parseDescription(record.description);
+  }
+
   return patch;
 };
 
@@ -329,6 +372,16 @@ export const parseInstitutionWorkspaceSettingsPatch = (
 // payload shapes — currently the personal→full type upgrade, which collects the official
 // institution name in its own form.
 export const parseInstitutionDisplayName = (value: unknown): string => parseDisplayName(value);
+
+// Standalone optional-description validation for the personal→full upgrade, which collects an
+// optional description in its own form. `undefined` (field omitted) yields null; the same rules as
+// the settings-patch path otherwise.
+export const parseInstitutionDescription = (value: unknown): string | null => {
+  if (value === undefined) {
+    return null;
+  }
+  return parseDescription(value);
+};
 
 export const parseInstitutionSlugParam = (value: string): string => {
   const normalized = normalizeInstitutionSlug(value);

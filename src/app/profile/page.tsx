@@ -93,12 +93,7 @@ export default async function OwnerProfilePage() {
             )}
 
             {websiteUrl && (
-              <a
-                className="pf-website"
-                href={websiteUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
+              <a className="pf-website" href={websiteUrl} target="_blank" rel="noopener noreferrer">
                 <Icon name="link" size="sm" aria-hidden="true" />
                 {displayUrl(websiteUrl)}
               </a>
@@ -114,7 +109,7 @@ export default async function OwnerProfilePage() {
               {profile.recruiterVerified && !profile.trustedRecruiter && (
                 <span className="status-badge" data-status="open">
                   <Icon name="check" size="sm" aria-hidden="true" />
-                  Rekruter terverifikasi
+                  Rekruter Terverifikasi
                 </span>
               )}
               {profile.trustedRecruiter && (

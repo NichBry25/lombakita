@@ -143,11 +143,10 @@ export const CandidateProfileEditor = ({ expectedUserId, initial }: Props) => {
           <Button
             type="button"
             onClick={() => onSubmit()}
-            disabled={isSaving}
             loading={isSaving}
             leadingIcon={<Icon name="save" />}
           >
-            {isSaving ? "Menyimpan..." : "Simpan perubahan"}
+            Simpan
           </Button>
         </div>
       </FormActionBar>

@@ -32,9 +32,7 @@ describe("deriveUpcomingDeadlines", () => {
   });
 
   it("excludes dates in the past (not strictly in the future)", () => {
-    const regs = [
-      reg({ registrationEndAt: PAST, eventStartAt: PAST }),
-    ];
+    const regs = [reg({ registrationEndAt: PAST, eventStartAt: PAST })];
     expect(deriveUpcomingDeadlines(regs, NOW)).toEqual([]);
   });
 
@@ -44,13 +42,19 @@ describe("deriveUpcomingDeadlines", () => {
   });
 
   it("returns registration_closes and event_starts labels correctly", () => {
-    const regs = [
-      reg({ registrationEndAt: D1, eventStartAt: D2, competitionTitle: "Hackathon" }),
-    ];
+    const regs = [reg({ registrationEndAt: D1, eventStartAt: D2, competitionTitle: "Hackathon" })];
     const result = deriveUpcomingDeadlines(regs, NOW);
     expect(result).toHaveLength(2);
-    expect(result[0]).toMatchObject({ label: "registration_closes", date: D1, competitionTitle: "Hackathon" });
-    expect(result[1]).toMatchObject({ label: "event_starts", date: D2, competitionTitle: "Hackathon" });
+    expect(result[0]).toMatchObject({
+      label: "registration_closes",
+      date: D1,
+      competitionTitle: "Hackathon",
+    });
+    expect(result[1]).toMatchObject({
+      label: "event_starts",
+      date: D2,
+      competitionTitle: "Hackathon",
+    });
   });
 
   it("returns at most 3 deadlines even when more exist", () => {
@@ -79,7 +83,9 @@ describe("deriveUpcomingDeadlines", () => {
     ];
     const result = deriveUpcomingDeadlines(regs, NOW);
     // Only one entry for D1 registration_closes
-    expect(result.filter((r) => r.label === "registration_closes" && r.date === D1)).toHaveLength(1);
+    expect(result.filter((r) => r.label === "registration_closes" && r.date === D1)).toHaveLength(
+      1,
+    );
   });
 
   it("returns empty array when all registrations are cancelled", () => {

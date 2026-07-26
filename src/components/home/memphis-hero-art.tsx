@@ -291,9 +291,7 @@ function renderMotif(motif: number, ink: string): ReactElement {
             const row = Math.floor(cell / 4);
             const col = cell % 4;
             if ((row + col) % 2 !== 0) return null;
-            return (
-              <rect key={cell} x={col * 25} y={row * 25} width="25" height="25" fill={ink} />
-            );
+            return <rect key={cell} x={col * 25} y={row * 25} width="25" height="25" fill={ink} />;
           })}
         </svg>
       );
@@ -303,9 +301,7 @@ function renderMotif(motif: number, ink: string): ReactElement {
           {Array.from({ length: 16 }, (_, cell) => {
             const row = Math.floor(cell / 4);
             const col = cell % 4;
-            return (
-              <circle key={cell} cx={12.5 + col * 25} cy={12.5 + row * 25} r="8" fill={ink} />
-            );
+            return <circle key={cell} cx={12.5 + col * 25} cy={12.5 + row * 25} r="8" fill={ink} />;
           })}
         </svg>
       );

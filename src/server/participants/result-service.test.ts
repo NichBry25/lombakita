@@ -169,7 +169,9 @@ describe("publishResult", () => {
       ],
     });
 
-    const err = await catchResultAsync(() => publishResult("inst_1", "comp_1", "reg_1", "user_1", db));
+    const err = await catchResultAsync(() =>
+      publishResult("inst_1", "comp_1", "reg_1", "user_1", db),
+    );
     expect(err.code).toBe("result_label_required");
     expect(err.httpStatus).toBe(422);
   });
@@ -183,7 +185,9 @@ describe("publishResult", () => {
       ],
     });
 
-    const err = await catchResultAsync(() => publishResult("inst_1", "comp_1", "reg_1", "user_1", db));
+    const err = await catchResultAsync(() =>
+      publishResult("inst_1", "comp_1", "reg_1", "user_1", db),
+    );
     expect(err.code).toBe("result_label_required");
     expect(err.httpStatus).toBe(422);
   });
@@ -203,10 +207,10 @@ describe("publishResult", () => {
     const memberRow2 = { ...memberRow1, id: "res_2", registrationId: "reg_2" };
     const db = createDbMock({
       selects: [
-        [{ id: "comp_1" }],                                                        // ownsCompetition
-        [{ registrationType: "team", teamId: "team_1", teamName: "Tim Alpha" }],   // loadRegistrationMeta
-        [{ resultLabel: "Finalis", resultNotes: null }],                           // label check (inside tx)
-        [{ id: "reg_1" }, { id: "reg_2" }],                                        // member reg IDs (inside tx)
+        [{ id: "comp_1" }], // ownsCompetition
+        [{ registrationType: "team", teamId: "team_1", teamName: "Tim Alpha" }], // loadRegistrationMeta
+        [{ resultLabel: "Finalis", resultNotes: null }], // label check (inside tx)
+        [{ id: "reg_1" }, { id: "reg_2" }], // member reg IDs (inside tx)
       ],
       inserts: [[memberRow1, memberRow2]], // upsert returns all member rows
     });
@@ -219,7 +223,9 @@ describe("publishResult", () => {
   it("(e) cross-institution registration → 404", async () => {
     const db = createDbMock({ selects: [[]] }); // ownsCompetition returns empty
 
-    const err = await catchResultAsync(() => publishResult("inst_X", "comp_1", "reg_1", "user_1", db));
+    const err = await catchResultAsync(() =>
+      publishResult("inst_X", "comp_1", "reg_1", "user_1", db),
+    );
     expect(err.code).toBe("result_registration_not_found");
     expect(err.httpStatus).toBe(404);
   });
@@ -228,7 +234,11 @@ describe("publishResult", () => {
     // This test guards the core fix: only reg_captain has a draft result row;
     // reg_member_2 has no result row yet. publishResult must include BOTH in
     // the INSERT … ON CONFLICT DO UPDATE so the non-captain gets a row created.
-    let capturedValues: Array<{ registrationId: string; resultStatus: string; resultLabel: string | null }> = [];
+    let capturedValues: Array<{
+      registrationId: string;
+      resultStatus: string;
+      resultLabel: string | null;
+    }> = [];
 
     let selectCall = 0;
     const selectResults: Record<number, unknown[]> = {
@@ -266,8 +276,28 @@ describe("publishResult", () => {
             Promise.resolve(
               capturedValues.length > 0
                 ? [
-                    { id: "r1", registrationId: "reg_captain", competitionId: "comp_1", resultStatus: "published", resultLabel: "Juara 1", resultNotes: null, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() },
-                    { id: "r2", registrationId: "reg_member_2", competitionId: "comp_1", resultStatus: "published", resultLabel: "Juara 1", resultNotes: null, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() },
+                    {
+                      id: "r1",
+                      registrationId: "reg_captain",
+                      competitionId: "comp_1",
+                      resultStatus: "published",
+                      resultLabel: "Juara 1",
+                      resultNotes: null,
+                      publishedAt: new Date(),
+                      createdAt: new Date(),
+                      updatedAt: new Date(),
+                    },
+                    {
+                      id: "r2",
+                      registrationId: "reg_member_2",
+                      competitionId: "comp_1",
+                      resultStatus: "published",
+                      resultLabel: "Juara 1",
+                      resultNotes: null,
+                      publishedAt: new Date(),
+                      createdAt: new Date(),
+                      updatedAt: new Date(),
+                    },
                   ]
                 : [],
             ),
@@ -304,16 +334,30 @@ describe("publishResult", () => {
       select: () => {
         const result = selectResults.shift() ?? [];
         const c: Record<string, unknown> = {
-          from: () => c, innerJoin: () => c, leftJoin: () => c, where: () => c,
+          from: () => c,
+          innerJoin: () => c,
+          leftJoin: () => c,
+          where: () => c,
           limit: () => Promise.resolve(result),
           then: (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve),
         };
         return c;
       },
       update: () => {
-        const resultRow = { id: "res_1", registrationId: "reg_1", competitionId: "comp_1", resultStatus: "published", resultLabel: "Juara 1", resultNotes: null, publishedAt: new Date(), createdAt: new Date(), updatedAt: new Date() };
+        const resultRow = {
+          id: "res_1",
+          registrationId: "reg_1",
+          competitionId: "comp_1",
+          resultStatus: "published",
+          resultLabel: "Juara 1",
+          resultNotes: null,
+          publishedAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
         const c: Record<string, unknown> = {
-          set: () => c, where: () => c,
+          set: () => c,
+          where: () => c,
           returning: () => Promise.resolve([resultRow]),
         };
         return c;
@@ -379,7 +423,9 @@ describe("unpublishResult", () => {
   it("cross-institution registration → 404", async () => {
     const db = createDbMock({ selects: [[]] });
 
-    const err = await catchResultAsync(() => unpublishResult("inst_X", "comp_1", "reg_1", "user_1", db));
+    const err = await catchResultAsync(() =>
+      unpublishResult("inst_X", "comp_1", "reg_1", "user_1", db),
+    );
     expect(err.code).toBe("result_registration_not_found");
     expect(err.httpStatus).toBe(404);
   });
@@ -411,7 +457,13 @@ describe("upsertResultDraft", () => {
       inserts: [[draftRow]],
     });
 
-    const result = await upsertResultDraft("inst_1", "comp_1", "reg_1", { resultLabel: "Juara 2" }, db);
+    const result = await upsertResultDraft(
+      "inst_1",
+      "comp_1",
+      "reg_1",
+      { resultLabel: "Juara 2" },
+      db,
+    );
     expect(result.resultStatus).toBe("draft");
     expect(result.resultLabel).toBe("Juara 2");
   });
@@ -483,10 +535,7 @@ describe("getPublishedResultForCandidate", () => {
 
   it("(e) returns resultLabel and resultNotes when published", async () => {
     const db = createDbMock({
-      selects: [
-        [{ studentId: "cand_1" }],
-        [{ resultLabel: "Finalis", resultNotes: "Selamat!" }],
-      ],
+      selects: [[{ studentId: "cand_1" }], [{ resultLabel: "Finalis", resultNotes: "Selamat!" }]],
     });
     const result = await getPublishedResultForCandidate("cand_1", "comp_1", "reg_1", db);
     expect(result).toEqual({ resultLabel: "Finalis", resultNotes: "Selamat!" });
@@ -494,10 +543,7 @@ describe("getPublishedResultForCandidate", () => {
 
   it("(f) does not expose result_status or published_at in the return value", async () => {
     const db = createDbMock({
-      selects: [
-        [{ studentId: "cand_1" }],
-        [{ resultLabel: "Winner", resultNotes: null }],
-      ],
+      selects: [[{ studentId: "cand_1" }], [{ resultLabel: "Winner", resultNotes: null }]],
     });
     const result = await getPublishedResultForCandidate("cand_1", "comp_1", "reg_1", db);
     expect(result).not.toBeNull();

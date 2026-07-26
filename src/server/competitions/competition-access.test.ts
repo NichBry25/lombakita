@@ -5,7 +5,10 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/server/db/client", () => ({ getDb: vi.fn() }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
 
-import { assertInstitutionNotSuspended, hasActiveRegistrationsForCompetition } from "./competition-access";
+import {
+  assertInstitutionNotSuspended,
+  hasActiveRegistrationsForCompetition,
+} from "./competition-access";
 import { CompetitionError } from "./competition-core";
 
 // Build a db.select() chain where .from().where() resolves to the pre-staged row.

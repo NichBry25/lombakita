@@ -19,9 +19,7 @@ export const VERIFIABLE_ROLES = ["candidate", "recruiter"] as const;
 export type VerifiableRole = (typeof VERIFIABLE_ROLES)[number];
 
 export const isVerifiableRole = (value: unknown): value is VerifiableRole => {
-  return (
-    typeof value === "string" && (VERIFIABLE_ROLES as readonly string[]).includes(value)
-  );
+  return typeof value === "string" && (VERIFIABLE_ROLES as readonly string[]).includes(value);
 };
 
 export type VerificationState = {
@@ -215,4 +213,3 @@ export const markRoleAsVerified = async (
 export const dashboardPathForRole = (role: VerifiableRole): string => {
   return role === "candidate" ? "/candidate-dashboard" : "/recruiter-dashboard";
 };
-

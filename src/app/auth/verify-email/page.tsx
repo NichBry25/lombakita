@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { ButtonLink } from "@/components/ui";
 import { redirect } from "next/navigation";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 import { CredentialsAuthError, verifyRegistrationEmailToken } from "@/server/auth/credentials-auth";
@@ -86,9 +86,9 @@ export default async function VerifyEmailPage(props: {
           <h1>{state.title}</h1>
           <p>{state.description}</p>
         </div>
-        <Link className="ui-button" data-variant="primary" data-size="md" href={signInHref}>
+        <ButtonLink variant="primary" size="md" href={signInHref}>
           Kembali ke login
-        </Link>
+        </ButtonLink>
       </div>
     </AuthPageFrame>
   );

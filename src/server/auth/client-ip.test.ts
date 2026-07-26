@@ -13,9 +13,9 @@ const fromMap =
 
 describe("extractClientIp", () => {
   it("takes the first hop of x-forwarded-for (the real client on Vercel)", () => {
-    expect(extractClientIp(fromMap({ "x-forwarded-for": "203.0.113.7, 70.41.3.18, 150.172.238.178" }))).toBe(
-      "203.0.113.7",
-    );
+    expect(
+      extractClientIp(fromMap({ "x-forwarded-for": "203.0.113.7, 70.41.3.18, 150.172.238.178" })),
+    ).toBe("203.0.113.7");
   });
 
   it("trims whitespace around the first forwarded hop", () => {

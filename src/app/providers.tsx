@@ -3,6 +3,7 @@
 import { SessionProvider } from "next-auth/react";
 import type { ReactNode } from "react";
 import { SecondRolePromptModal } from "@/components/auth/second-role-prompt-modal";
+import { PageTransitionProvider } from "@/components/ui/page-transition";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 
 // Step 4.0b — root-level next-auth SessionProvider. Required so client components that call
@@ -16,12 +17,17 @@ import { UIPrimitivesProvider } from "@/components/ui/primitives";
 //
 // UIPrimitivesProvider (Step 6.5.2) — mounts ModalProvider + ToastProvider once at the root.
 // All surfaces consume useModal / useToast from @/components/ui/primitives.
+//
+// PageTransitionProvider owns the blocking full-page loading screen shown while an action
+// saves and then navigates. Surfaces consume usePageTransition from @/components/ui.
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
     <SessionProvider>
       <UIPrimitivesProvider>
-        {children}
-        <SecondRolePromptModal />
+        <PageTransitionProvider>
+          {children}
+          <SecondRolePromptModal />
+        </PageTransitionProvider>
       </UIPrimitivesProvider>
     </SessionProvider>
   );

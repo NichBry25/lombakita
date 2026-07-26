@@ -29,4 +29,3 @@ describe("VERIFIABLE_ROLES is the user-level dual-mode set", () => {
     expect([...VERIFIABLE_ROLES].sort()).toEqual(["candidate", "recruiter"]);
   });
 });
-

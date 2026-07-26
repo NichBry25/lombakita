@@ -56,31 +56,34 @@ afterEach(() => vi.clearAllMocks());
 
 describe("PATCH /api/platform-ops/competitions/[competitionId]/featured", () => {
   it("returns 200 with result for published competition", async () => {
-    const res = await PATCH(makeRequest({ isFeatured: true, featuredOrder: 1 }), makeParams("comp_1"));
+    const res = await PATCH(
+      makeRequest({ isFeatured: true, featuredOrder: 1 }),
+      makeParams("comp_1"),
+    );
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ isFeatured: true, featuredOrder: 1 });
   });
 
   it("returns 403 when session is not platform_ops (candidate)", async () => {
-    requireSessionRole.mockRejectedValueOnce(
-      new AccessError("forbidden", 403, "Forbidden"),
-    );
+    requireSessionRole.mockRejectedValueOnce(new AccessError("forbidden", 403, "Forbidden"));
     const res = await PATCH(makeRequest({ isFeatured: true }), makeParams("comp_1"));
     expect(res.status).toBe(403);
   });
 
   it("returns 403 when session is institution_owner (not platform_ops)", async () => {
-    requireSessionRole.mockRejectedValueOnce(
-      new AccessError("forbidden", 403, "Forbidden"),
-    );
+    requireSessionRole.mockRejectedValueOnce(new AccessError("forbidden", 403, "Forbidden"));
     const res = await PATCH(makeRequest({ isFeatured: true }), makeParams("comp_1"));
     expect(res.status).toBe(403);
   });
 
   it("returns 409 when competition is not published (draft)", async () => {
     setFeaturedPlacement.mockRejectedValueOnce(
-      new FeaturedPlacementError("competition_not_published", 409, "Only published competitions can be featured"),
+      new FeaturedPlacementError(
+        "competition_not_published",
+        409,
+        "Only published competitions can be featured",
+      ),
     );
     const res = await PATCH(makeRequest({ isFeatured: true }), makeParams("comp_draft"));
     expect(res.status).toBe(409);
@@ -90,7 +93,11 @@ describe("PATCH /api/platform-ops/competitions/[competitionId]/featured", () => 
 
   it("returns 409 when competition is archived (not published)", async () => {
     setFeaturedPlacement.mockRejectedValueOnce(
-      new FeaturedPlacementError("competition_not_published", 409, "Only published competitions can be featured"),
+      new FeaturedPlacementError(
+        "competition_not_published",
+        409,
+        "Only published competitions can be featured",
+      ),
     );
     const res = await PATCH(makeRequest({ isFeatured: true }), makeParams("comp_archived"));
     expect(res.status).toBe(409);
@@ -117,13 +124,19 @@ describe("PATCH /api/platform-ops/competitions/[competitionId]/featured", () => 
   });
 
   it("returns 400 when featuredOrder is not an integer", async () => {
-    const res = await PATCH(makeRequest({ isFeatured: true, featuredOrder: 1.5 }), makeParams("comp_1"));
+    const res = await PATCH(
+      makeRequest({ isFeatured: true, featuredOrder: 1.5 }),
+      makeParams("comp_1"),
+    );
     expect(res.status).toBe(400);
   });
 
   it("accepts null featuredOrder", async () => {
     setFeaturedPlacement.mockResolvedValueOnce({ isFeatured: true, featuredOrder: null });
-    const res = await PATCH(makeRequest({ isFeatured: true, featuredOrder: null }), makeParams("comp_1"));
+    const res = await PATCH(
+      makeRequest({ isFeatured: true, featuredOrder: null }),
+      makeParams("comp_1"),
+    );
     expect(res.status).toBe(200);
   });
 

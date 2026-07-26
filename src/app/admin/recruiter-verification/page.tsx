@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 
+type PendingDocument = { id: string; originalFileName: string; contentType: string };
+
 type PendingItem = {
   submission: {
     id: string;
@@ -16,6 +18,7 @@ type PendingItem = {
   };
   submitter: { email: string | null; username: string | null; name: string | null };
   hasDocuments: boolean;
+  documents: PendingDocument[];
 };
 
 // Priority label reflects the ordering the server applied (vouched → corporate email →
@@ -31,6 +34,8 @@ export default function RecruiterVerificationQueuePage() {
   const { openModal, closeModal } = useModal();
   const { addToast } = useToast();
   const [items, setItems] = useState<PendingItem[] | null>(null);
+  // Each queue row owns several controls; the key keeps the spinner on the pressed one.
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   // Fetches the pending queue and returns the list (or [] on any failure, with a toast). Pure
   // fetch — no setState — so it is safe to await from both the mount effect and post-review.
@@ -69,29 +74,59 @@ export default function RecruiterVerificationQueuePage() {
       decision: "approve" | "reject",
       rejectionReason: string | null,
     ) => {
-      const response = await fetch(
-        `/api/platform-ops/recruiter-verification/submissions/${submissionId}`,
-        {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ decision, rejectionReason }),
-        },
-      );
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
-        addToast({ type: "error", message: payload?.error?.message ?? "Peninjauan gagal." });
-        return;
+      setPendingAction(`review:${submissionId}`);
+      try {
+        const response = await fetch(
+          `/api/platform-ops/recruiter-verification/submissions/${submissionId}`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ decision, rejectionReason }),
+          },
+        );
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => null)) as {
+            error?: { message?: string };
+          } | null;
+          addToast({ type: "error", message: payload?.error?.message ?? "Peninjauan gagal." });
+          return;
+        }
+        addToast({
+          type: "success",
+          message: decision === "approve" ? "Disetujui sebagai Rekruter Terpercaya." : "Ditolak.",
+        });
+        closeModal();
+        void reload();
+      } finally {
+        setPendingAction(null);
       }
-      addToast({
-        type: "success",
-        message: decision === "approve" ? "Disetujui sebagai Rekruter Terpercaya." : "Ditolak.",
-      });
-      closeModal();
-      void reload();
     },
     [addToast, closeModal, reload],
+  );
+
+  // Opens a document via a freshly minted presigned URL — `inline` views it in a new tab,
+  // `attachment` downloads it as `<username>_verification_<original name>`. The presigned URL is
+  // short-lived and only ever handed to platform_ops.
+  const openDocument = useCallback(
+    async (documentId: string, disposition: "inline" | "attachment") => {
+      setPendingAction(`document:${documentId}:${disposition}`);
+      try {
+        const response = await fetch(
+          `/api/platform-ops/recruiter-verification/documents/${documentId}?disposition=${disposition}`,
+        );
+        if (!response.ok) {
+          addToast({ type: "error", message: "Gagal membuka dokumen." });
+          return;
+        }
+        const { url } = (await response.json()) as { url: string };
+        window.open(url, "_blank", "noopener,noreferrer");
+      } catch {
+        addToast({ type: "error", message: "Gagal membuka dokumen karena gangguan koneksi." });
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [addToast],
   );
 
   const confirmReject = (item: PendingItem) => {
@@ -184,6 +219,35 @@ export default function RecruiterVerificationQueuePage() {
                   <dd>{item.hasDocuments ? "Terlampir" : "Tidak ada"}</dd>
                 </div>
               </dl>
+              {item.documents.length > 0 ? (
+                <ul className="stack-sm">
+                  {item.documents.map((document) => (
+                    <li key={document.id} className="section-heading">
+                      <span className="muted-copy">{document.originalFileName}</span>
+                      <div className="auth-form-actions">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          loading={pendingAction === `document:${document.id}:inline`}
+                          onClick={() => void openDocument(document.id, "inline")}
+                        >
+                          Lihat
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          loading={pendingAction === `document:${document.id}:attachment`}
+                          onClick={() => void openDocument(document.id, "attachment")}
+                        >
+                          Unduh
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               <div className="auth-form-actions">
                 <Button type="button" variant="ghost" size="sm" onClick={() => confirmReject(item)}>
                   Tolak
@@ -191,6 +255,7 @@ export default function RecruiterVerificationQueuePage() {
                 <Button
                   type="button"
                   size="sm"
+                  loading={pendingAction === `review:${item.submission.id}`}
                   onClick={() => void review(item.submission.id, "approve", null)}
                 >
                   Setujui sebagai Terpercaya

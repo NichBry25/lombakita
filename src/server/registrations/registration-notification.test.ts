@@ -5,15 +5,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const {
-  mockGetDb,
-  enqueueRegistrationConfirmed,
-  enqueueRegistrationCancelled,
-} = vi.hoisted(() => ({
-  mockGetDb: vi.fn(),
-  enqueueRegistrationConfirmed: vi.fn(),
-  enqueueRegistrationCancelled: vi.fn(),
-}));
+const { mockGetDb, enqueueRegistrationConfirmed, enqueueRegistrationCancelled } = vi.hoisted(
+  () => ({
+    mockGetDb: vi.fn(),
+    enqueueRegistrationConfirmed: vi.fn(),
+    enqueueRegistrationCancelled: vi.fn(),
+  }),
+);
 
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
@@ -110,10 +108,7 @@ describe("createIndividualRegistration — notification enqueue", () => {
   it("returns the registration even when enqueue throws (fire-and-forget)", async () => {
     enqueueRegistrationConfirmed.mockRejectedValue(new Error("redis_down"));
     const db = makeDb(
-      [
-        [{ id: "comp_1", status: "published", mode: "individual", registrationEndAt: FUTURE }],
-        [],
-      ],
+      [[{ id: "comp_1", status: "published", mode: "individual", registrationEndAt: FUTURE }], []],
       { insertReturn: [confirmedReg] },
     );
     mockGetDb.mockReturnValue(db);
@@ -197,7 +192,12 @@ describe("cancelRegistration — notification enqueue", () => {
     mockGetDb.mockReturnValue(db);
 
     const result = await cancelRegistration(
-      "stud_1", "comp_1", "reg_1", "ganti rencana", db as never, NOW,
+      "stud_1",
+      "comp_1",
+      "reg_1",
+      "ganti rencana",
+      db as never,
+      NOW,
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
 

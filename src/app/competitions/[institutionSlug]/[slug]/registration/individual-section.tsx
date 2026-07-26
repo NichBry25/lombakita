@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import {
   SESSION_MISMATCH_CODE,
@@ -72,25 +73,18 @@ function CancelReasonForm({
         className="form-textarea"
       />
       <div className="modal-actions">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="ui-button"
-          data-variant="outline"
-          data-size="sm"
-        >
+        <Button type="button" onClick={onCancel} variant="outline" size="sm">
           Kembali
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           disabled={trimmed.length === 0}
           onClick={() => onConfirm(trimmed)}
-          className="ui-button"
-          data-variant="danger"
-          data-size="sm"
+          variant="danger"
+          size="sm"
         >
           Batalkan pendaftaran
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -188,15 +182,9 @@ export function IndividualRegistrationSection({
             ✓ Terdaftar
           </span>
           <div className="stack-xs">
-            <button
-              onClick={handleCancel}
-              disabled={loading}
-              className="ui-button"
-              data-variant="danger"
-              data-size="sm"
-            >
-              {loading ? "..." : "Batalkan pendaftaran"}
-            </button>
+            <Button onClick={handleCancel} loading={loading} variant="danger" size="sm">
+              Batalkan pendaftaran
+            </Button>
             <p className="form-help">Pembatalan tunduk pada kebijakan penyelenggara.</p>
           </div>
         </div>
@@ -208,15 +196,16 @@ export function IndividualRegistrationSection({
           <p className="form-help">Pendaftaran ulang tidak tersedia untuk MVP.</p>
         </div>
       ) : (
-        <button
+        <Button
           onClick={handleRegister}
-          disabled={loading || ctaState !== "open"}
-          className="ui-button registration-primary-action"
-          data-variant="primary"
-          data-size="lg"
+          loading={loading}
+          disabled={ctaState !== "open"}
+          className="registration-primary-action"
+          variant="primary"
+          size="lg"
         >
-          {loading ? "..." : modeLabel}
-        </button>
+          {modeLabel}
+        </Button>
       )}
     </section>
   );

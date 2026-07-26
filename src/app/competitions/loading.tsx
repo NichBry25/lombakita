@@ -1,5 +1,5 @@
-import { PageLoading } from "@/components/ui";
+import { ListPageSkeleton } from "@/components/ui";
 
 export default function CompetitionsLoading() {
-  return <PageLoading label="Memuat kompetisi" />;
+  return <ListPageSkeleton label="Memuat kompetisi" />;
 }

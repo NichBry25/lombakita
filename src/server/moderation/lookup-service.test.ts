@@ -4,7 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
 
-import { lookupInstitutionBySlug, lookupInstitutionBySlugOrName, lookupUserByEmail } from "./lookup-service";
+import {
+  lookupInstitutionBySlug,
+  lookupInstitutionBySlugOrName,
+  lookupUserByEmail,
+} from "./lookup-service";
 import type { Database } from "@/server/db/client";
 
 const makeDb = (row: Record<string, unknown> | null) =>
@@ -109,13 +113,19 @@ describe("F20 — lookupInstitutionBySlugOrName", () => {
   });
 
   it("resolves when matched by slug", async () => {
-    const res = await lookupInstitutionBySlugOrName("universitas-nusantara", makeDb(institutionRow));
+    const res = await lookupInstitutionBySlugOrName(
+      "universitas-nusantara",
+      makeDb(institutionRow),
+    );
     expect(res?.id).toBe("i2");
     expect(res?.slug).toBe("universitas-nusantara");
   });
 
   it("resolves when matched by display name", async () => {
-    const res = await lookupInstitutionBySlugOrName("Universitas Nusantara", makeDb(institutionRow));
+    const res = await lookupInstitutionBySlugOrName(
+      "Universitas Nusantara",
+      makeDb(institutionRow),
+    );
     expect(res?.id).toBe("i2");
     expect(res?.name).toBe("Universitas Nusantara");
   });

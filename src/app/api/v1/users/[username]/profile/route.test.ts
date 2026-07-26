@@ -44,7 +44,17 @@ describe("GET /api/v1/users/[username]/profile", () => {
       recruiterVerified: false,
       collections: {
         experiences: [],
-        educations: [{ id: "e1", school: "UI", degree: null, fieldOfStudy: "CS", startYear: null, endYear: 2024, description: null }],
+        educations: [
+          {
+            id: "e1",
+            school: "UI",
+            degree: null,
+            fieldOfStudy: "CS",
+            startYear: null,
+            endYear: 2024,
+            description: null,
+          },
+        ],
         skills: [],
         certifications: [],
         socialLinks: [],

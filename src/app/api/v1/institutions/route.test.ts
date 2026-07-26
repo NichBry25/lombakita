@@ -24,10 +24,9 @@ vi.mock("@/server/institution-workspace/institution-service", () => ({
 // Step 6.5f.1 — full-institution creation now asserts the elevated recruiter tier. Stub the
 // assertion (resolves by default) while keeping the real error class + threshold constant.
 vi.mock("@/server/auth/recruiter-tier", async () => {
-  const actual =
-    await vi.importActual<typeof import("@/server/auth/recruiter-tier")>(
-      "@/server/auth/recruiter-tier",
-    );
+  const actual = await vi.importActual<typeof import("@/server/auth/recruiter-tier")>(
+    "@/server/auth/recruiter-tier",
+  );
   return { ...actual, assertRecruiterTier };
 });
 
