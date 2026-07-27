@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Icon, PageHeader } from "@/components/ui";
 import { isInstitutionAdminBySlug } from "@/server/institution-members/member-service";
-import { getCurrentSession } from "@/server/auth/session";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { loadInstitutionTypeBySlug } from "@/server/institution-workspace/institution-service";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 
@@ -11,17 +11,9 @@ type InstitutionHubPageProps = {
 };
 
 export default async function InstitutionHubPage({ params }: InstitutionHubPageProps) {
-  const session = await getCurrentSession();
   const { institutionSlug } = await params;
   const base = `/institution/${institutionSlug}`;
-
-  if (!session?.user?.id) {
-    redirect(`/auth/login?callbackUrl=${encodeURIComponent(base)}`);
-  }
-
-  if (!session.user.verifiedRoles.includes("recruiter")) {
-    redirect("/");
-  }
+  const session = await requireRolePage("recruiter", { callbackPath: base });
 
   const isMember = await isInstitutionAdminBySlug(session.user.id, institutionSlug);
   if (!isMember) {
@@ -77,7 +69,7 @@ export default async function InstitutionHubPage({ params }: InstitutionHubPageP
       <PageHeader
         eyebrow="Panel institusi"
         title={institutionSlug}
-        description="Pusat kerja untuk identitas institusi, penyelenggaraan kompetisi, dan tata kelola anggota."
+        description="Kelola profil institusi, kompetisi, dan anggota."
         backHref="/recruiter-dashboard"
         backLabel="Dasbor"
       />

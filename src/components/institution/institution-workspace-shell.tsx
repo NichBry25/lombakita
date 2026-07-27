@@ -4,27 +4,17 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
-  ButtonLink,
   FormActionBar,
   IconButton,
   PageHeader,
   SelectField,
+  usePageTransition,
 } from "@/components/ui";
+import { useToast } from "@/components/ui/primitives";
 // Type-only: importing the enum VALUE would pull the Drizzle schema into the client bundle. The
 // exhaustive Record below is the compile-time guarantee instead — a new full subtype fails to build
 // until it is given a label here.
 import type { FullInstitutionType } from "@/server/institution-workspace/institution-type";
-
-type InstitutionCreationResponse = {
-  institution: {
-    institutionId: string;
-    displayName: string;
-    slug: string;
-    status: "active" | "inactive" | "suspended";
-    createdAt: string;
-    updatedAt: string;
-  };
-};
 
 const TYPE_LABELS: Record<FullInstitutionType, string> = {
   company: "Perusahaan",
@@ -38,17 +28,6 @@ const TYPE_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => ({
   label,
 }));
 
-type FeedbackState =
-  | {
-      type: "success";
-      message: string;
-    }
-  | {
-      type: "error";
-      message: string;
-    }
-  | null;
-
 const extractErrorMessage = async (response: Response): Promise<string> => {
   try {
     const payload = (await response.json()) as {
@@ -57,9 +36,9 @@ const extractErrorMessage = async (response: Response): Promise<string> => {
       };
     };
 
-    return payload.error?.message ?? "Permintaan workspace institusi gagal diproses.";
+    return payload.error?.message ?? "Permintaan ruang kerja institusi gagal diproses.";
   } catch {
-    return "Permintaan workspace institusi gagal diproses.";
+    return "Permintaan ruang kerja institusi gagal diproses.";
   }
 };
 
@@ -69,20 +48,20 @@ export const InstitutionWorkspaceShell = () => {
   const [slug, setSlug] = useState("");
   const [institutionType, setInstitutionType] = useState<FullInstitutionType>("company");
   const [isCreating, setIsCreating] = useState(false);
-  const [createdInstitutionSlug, setCreatedInstitutionSlug] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const { addToast } = useToast();
+  const { runAndNavigate } = usePageTransition();
 
-  const onSubmit = async (event?: React.FormEvent<HTMLFormElement>) => {
+  const onSubmit = (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
+    return runAndNavigate(createInstitution, { message: "Membuat institusi…" });
+  };
 
-    setFeedback(null);
-
+  // Returns whether a navigation was started, so a rejected create drops the blocking screen
+  // instead of leaving the user staring at it.
+  const createInstitution = async (): Promise<boolean> => {
     if (displayName.trim().length < 2) {
-      setFeedback({
-        type: "error",
-        message: "Nama institusi minimal terdiri dari 2 karakter.",
-      });
-      return;
+      addToast({ type: "error", message: "Nama institusi minimal terdiri dari 2 karakter." });
+      return false;
     }
 
     setIsCreating(true);
@@ -112,23 +91,15 @@ export const InstitutionWorkspaceShell = () => {
     if (!response.ok) {
       const message = await extractErrorMessage(response);
 
-      setFeedback({
-        type: "error",
-        message,
-      });
+      addToast({ type: "error", message });
       setIsCreating(false);
-      return;
+      return false;
     }
 
-    const data = (await response.json()) as InstitutionCreationResponse;
-    const nextSlug = data.institution.slug;
-
-    setCreatedInstitutionSlug(nextSlug);
-    setFeedback({
-      type: "success",
-      message: "Institusi berhasil dibuat. Lanjutkan ke pengaturan.",
-    });
+    addToast({ type: "success", message: "Institusi berhasil dibuat." });
     setIsCreating(false);
+    router.replace("/recruiter-dashboard");
+    return true;
   };
 
   return (
@@ -136,7 +107,7 @@ export const InstitutionWorkspaceShell = () => {
       <PageHeader
         eyebrow="Institusi baru"
         title="Buat institusi"
-        description="Tetapkan identitas dasar ruang penyelenggara. Slug dapat dikosongkan agar dibuat otomatis."
+        description="Isi identitas institusi. Slug bisa dikosongkan — kami buatkan otomatis."
       />
 
       <section className="content-section">
@@ -168,7 +139,7 @@ export const InstitutionWorkspaceShell = () => {
 
           <div className="form-field">
             <label className="form-label" htmlFor="institution-slug">
-              Slug (opsional)
+              Slug (Opsional)
             </label>
             <input
               id="institution-slug"
@@ -178,24 +149,6 @@ export const InstitutionWorkspaceShell = () => {
               placeholder="universitas-nusantara"
             />
           </div>
-
-          {feedback ? (
-            <p className="feedback" data-tone={feedback.type} role="status">
-              {feedback.message}
-            </p>
-          ) : null}
-
-          {createdInstitutionSlug ? (
-            <div className="record-actions">
-              <ButtonLink
-                href={`/institution/${createdInstitutionSlug}/settings`}
-                prefetch={false}
-                variant="outline"
-              >
-                Buka pengaturan
-              </ButtonLink>
-            </div>
-          ) : null}
         </form>
       </section>
 
@@ -207,7 +160,7 @@ export const InstitutionWorkspaceShell = () => {
         />
         <div className="form-action-bar-end">
           <Button type="button" onClick={() => onSubmit()} loading={isCreating}>
-            Buat workspace
+            Buat institusi
           </Button>
         </div>
       </FormActionBar>

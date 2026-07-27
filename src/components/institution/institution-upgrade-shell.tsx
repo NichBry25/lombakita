@@ -1,10 +1,9 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
-  Feedback,
   FormActionBar,
   FormHelp,
   Icon,
@@ -84,6 +83,17 @@ export const InstitutionUpgradeShell = ({
   const [description, setDescription] = useState("");
   const [nameInvalid, setNameInvalid] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!canUpgrade) {
+      addToast({
+        type: "warning",
+        message:
+          "Peningkatan institusi hanya tersedia untuk Rekruter Terpercaya. Selesaikan verifikasi akun Anda terlebih dahulu.",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canUpgrade]);
 
   // Returns whether the upgrade actually navigated, so the blocking screen is dismissed on a
   // rejected upgrade and held through the redirect on a successful one.
@@ -229,7 +239,7 @@ export const InstitutionUpgradeShell = ({
 
         <div className="form-field">
           <label htmlFor={descriptionFieldId} className="form-label">
-            Deskripsi institusi (opsional)
+            Deskripsi institusi (Opsional)
           </label>
           <textarea
             id={descriptionFieldId}
@@ -249,10 +259,10 @@ export const InstitutionUpgradeShell = ({
         </div>
 
         {!canUpgrade && (
-          <Feedback id={blockedNoticeId} tone="warning">
+          <span id={blockedNoticeId} className="sr-only">
             Peningkatan institusi hanya tersedia untuk Rekruter Terpercaya. Selesaikan verifikasi
             akun Anda terlebih dahulu.
-          </Feedback>
+          </span>
         )}
       </section>
 

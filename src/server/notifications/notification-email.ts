@@ -232,3 +232,43 @@ export const sendCompetitionCancelledEmail = async (options: {
     recipientId: options.recipientId,
   });
 };
+
+export const sendRecruiterVerificationRejectedEmail = async (options: {
+  toEmail: string;
+  recipientId: string;
+  rejectionReason: string;
+  resubmissionAllowed: boolean;
+}): Promise<void> => {
+  const { apiKey, from } = assertResendConfigured();
+
+  const nextStep = options.resubmissionAllowed
+    ? "Perbarui data dan dokumen Anda di dasbor rekruter, lalu ajukan ulang."
+    : "Akun Anda tidak dapat mengirim permohonan baru. Hubungi tim dukungan jika Anda merasa keputusan ini keliru.";
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from,
+    to: options.toEmail,
+    subject: "Permohonan Rekruter Terpercaya ditolak",
+    text: [
+      "Permohonan verifikasi Rekruter Terpercaya Anda ditolak.",
+      "",
+      `Alasan: ${options.rejectionReason}`,
+      "",
+      nextStep,
+      "",
+      `Buka dasbor Anda di ${resolveBaseUrl()}/recruiter-dashboard.`,
+    ].join("\n"),
+  });
+
+  if (error) {
+    throw new Error(
+      `Resend recruiter verification rejected email dispatch failed: ${error.message}`,
+    );
+  }
+
+  logger.info("notification.sent", {
+    event: "recruiter.verification.rejected",
+    recipientId: options.recipientId,
+  });
+};

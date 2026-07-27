@@ -86,8 +86,8 @@ export type GoogleSignInInput = {
 // flag is read as part of the SAME user lookup this resolver already needs. A DB error therefore
 // propagates out of signIn → next-auth redirects to /error → no session is issued (login denied).
 // This matches "DB error at login time → login denied"; it does NOT change the per-request
-// session-callback gate (loadSuspendedAt), which remains fail-open with the access-layer 403 as
-// defense in depth.
+// session-callback gate (loadLiveAccountState), which remains fail-open with the access-layer 403
+// as defense in depth.
 export const resolveGoogleSignIn = async (
   input: GoogleSignInInput,
   db: Database = getDb(),

@@ -141,7 +141,7 @@ export function ResultForm({
         </label>
 
         <label className="form-field">
-          <span className="form-label">Catatan hasil (opsional)</span>
+          <span className="form-label">Catatan hasil (Opsional)</span>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -157,30 +157,19 @@ export function ResultForm({
               <Button variant="outline" type="button" onClick={handleSaveDraft} loading={saving}>
                 Simpan draf
               </Button>
-              {(() => {
-                const isDisabled = publishing || !label.trim();
-                return (
-                  <Button
-                    type="button"
-                    onClick={handlePublish}
-                    disabled={isDisabled}
-                    loading={publishing}
-                  >
-                    {publishing ? "Menerbitkan…" : "Terbitkan"}
-                  </Button>
-                );
-              })()}
+              <Button
+                type="button"
+                onClick={handlePublish}
+                loading={publishing}
+                disabled={!label.trim()}
+              >
+                Terbitkan
+              </Button>
             </>
           )}
           {status === "published" && (
-            <Button
-              variant="danger"
-              type="button"
-              onClick={handleUnpublish}
-              disabled={unpublishing}
-              loading={unpublishing}
-            >
-              {unpublishing ? "Membatalkan…" : "Batalkan publikasi"}
+            <Button variant="danger" type="button" onClick={handleUnpublish} loading={unpublishing}>
+              Batalkan publikasi
             </Button>
           )}
         </div>

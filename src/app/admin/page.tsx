@@ -5,7 +5,7 @@ const ADMIN_LINKS = [
   {
     href: "/admin/institutions",
     label: "Verifikasi institusi",
-    description: "Kelola status dan riwayat verifikasi workspace.",
+    description: "Kelola status dan riwayat verifikasi institusi.",
     icon: "building" as const,
   },
   {
@@ -39,8 +39,8 @@ export default function AdminHubPage() {
     <main className="page-shell app-page admin-page">
       <PageHeader
         eyebrow="Operasi platform"
-        title="Panel Platform Ops"
-        description="Pusat kendali verifikasi, moderasi, dan kurasi kualitas platform."
+        title="Panel Platform Operations"
+        description="Kelola verifikasi, moderasi, dan kompetisi unggulan."
       />
       <nav>
         <ul className="hub-grid admin-hub-grid">
@@ -54,9 +54,6 @@ export default function AdminHubPage() {
                   <h2>{label}</h2>
                   <p>{description}</p>
                 </div>
-                <span className="hub-card-arrow" aria-hidden="true">
-                  →
-                </span>
               </Link>
             </li>
           ))}

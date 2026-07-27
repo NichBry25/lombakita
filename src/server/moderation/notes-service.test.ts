@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
 
-import { addNote, editNote, listNotes } from "./notes-service";
+import { addNote, editNote, listNotes, NOTE_EDITED_EVENT } from "./notes-service";
 import type { Database } from "@/server/db/client";
 
 const makeInsertDb = () => {
@@ -81,14 +81,15 @@ describe("addNote target invariant", () => {
 // F21 — in-place note editing (Step 6.5b)
 describe("editNote", () => {
   const makeEditDb = (noteExists: boolean, newText = "updated text") => {
-    const db = {
-      select: vi.fn().mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue(noteExists ? [{ id: "n1", createdById: "ops1" }] : []),
-          }),
-        }),
-      }),
+    const existingNote = {
+      id: "n1",
+      note: "original text",
+      createdById: "ops1",
+      targetUserId: "user_1",
+      targetInstitutionId: null,
+    };
+    const insertChain = { values: vi.fn().mockResolvedValue(undefined) };
+    const tx = {
       update: vi.fn().mockReturnValue({
         set: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
@@ -100,8 +101,21 @@ describe("editNote", () => {
           }),
         }),
       }),
+      insert: vi.fn().mockReturnValue(insertChain),
+    };
+    const db = {
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue(noteExists ? [existingNote] : []),
+          }),
+        }),
+      }),
+      update: tx.update,
+      insert: tx.insert,
+      transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) => run(tx)),
     } as unknown as Database;
-    return { db };
+    return { db, insertChain, existingNote };
   };
 
   it("returns updated note on success", async () => {
@@ -109,6 +123,37 @@ describe("editNote", () => {
     const res = await editNote("ops1", "n1", "corrected note", db);
     expect(res.note).toBe("corrected note");
     expect(res.id).toBe("n1");
+  });
+
+  // An edit overwrites in place and any ops actor may edit any note, so the replaced text is only
+  // recoverable if the audit row captures it.
+  it("captures the replaced text and the original author in the audit row", async () => {
+    const { db, insertChain } = makeEditDb(true, "corrected note");
+
+    await editNote("ops2", "n1", "corrected note", db);
+
+    expect(insertChain.values).toHaveBeenCalledWith({
+      actorUserId: "ops2",
+      targetUserId: "user_1",
+      targetInstitutionId: null,
+      eventType: NOTE_EDITED_EVENT,
+      metadata: {
+        noteId: "n1",
+        previousNote: "original text",
+        noteAuthorId: "ops1",
+      },
+    });
+    // Overwrite and audit row land together or not at all.
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes no audit row when the note does not exist", async () => {
+    const { db, insertChain } = makeEditDb(false);
+
+    await expect(editNote("ops1", "missing", "new text", db)).rejects.toMatchObject({
+      code: "note_not_found",
+    });
+    expect(insertChain.values).not.toHaveBeenCalled();
   });
 
   it("throws note_not_found when the note does not exist", async () => {

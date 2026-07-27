@@ -33,17 +33,27 @@ vi.mock("@/server/storage/r2.client", () => ({
 }));
 vi.mock("@/lib/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
+const { mockEnqueueRejected } = vi.hoisted(() => ({
+  mockEnqueueRejected: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("@/server/async/enqueue", () => ({
+  enqueueRecruiterVerificationRejected: mockEnqueueRejected,
+}));
+
 const { mockGetDb } = vi.hoisted(() => ({ mockGetDb: vi.fn() }));
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
 
 import { recruiterVerificationSubmissions, users } from "@/server/db/schema";
 import {
+  deleteVerificationDocumentForUser,
   finalizeVerificationDocumentUpload,
-  listPendingRecruiterVerifications,
+  listRecruiterVerificationQueue,
   prepareVerificationDocumentUpload,
   resolveVerificationDocumentUrlForOps,
   reviewRecruiterVerification,
+  setRecruiterResubmissionAllowed,
   submitRecruiterVerification,
+  withdrawRecruiterVerification,
   sweepOrphanedObjectsForAccount,
   sweepOrphanedSubmissionObjects,
 } from "./recruiter-verification-service";
@@ -63,10 +73,14 @@ const buildReviewDb = (opts: {
   const captured = {
     userTierUpdated: false,
     auditInserted: null as Record<string, unknown> | null,
+    submissionSet: null as Record<string, unknown> | null,
   };
 
   const submissionUpdateChain = {
-    set: vi.fn(() => submissionUpdateChain),
+    set: vi.fn((values: Record<string, unknown>) => {
+      captured.submissionSet = values;
+      return submissionUpdateChain;
+    }),
     where: vi.fn(() => ({ returning: vi.fn().mockResolvedValue(opts.submissionReturn) })),
   };
   const usersUpdateChain = {
@@ -97,8 +111,17 @@ const buildReviewDb = (opts: {
     })),
   };
 
+  // The post-commit orphan sweep runs against this same db handle and reads the submission's
+  // referenced document keys; with none referenced, every listed object is an orphan candidate and
+  // only the age guard decides whether it is deleted.
+  const sweepSelectChain = {
+    from: vi.fn(() => sweepSelectChain),
+    where: vi.fn().mockResolvedValue([]),
+  };
+
   const db = {
     transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(tx)),
+    select: vi.fn(() => sweepSelectChain),
   };
 
   return { db, captured };
@@ -112,13 +135,9 @@ describe("reviewRecruiterVerification", () => {
     });
     mockGetDb.mockReturnValue(db);
 
-    const result = await reviewRecruiterVerification(
-      "ops_1",
-      "sub_1",
-      "approve",
-      null,
-      db as never,
-    );
+    const result = await reviewRecruiterVerification("ops_1", "sub_1", "approve", null, {
+      db: db as never,
+    });
 
     expect(result).toEqual({ submissionId: "sub_1", userId: "u_1", status: "approved" });
     expect(captured.userTierUpdated).toBe(true);
@@ -136,7 +155,7 @@ describe("reviewRecruiterVerification", () => {
     mockGetDb.mockReturnValue(db);
 
     await expect(
-      reviewRecruiterVerification("ops_1", "sub_1", "reject", "   ", db as never),
+      reviewRecruiterVerification("ops_1", "sub_1", "reject", "   ", { db: db as never }),
     ).rejects.toMatchObject({ code: "recruiter_verification_invalid_value" });
     expect(db.transaction).not.toHaveBeenCalled();
   });
@@ -153,7 +172,7 @@ describe("reviewRecruiterVerification", () => {
       "sub_1",
       "reject",
       "Tidak dapat memverifikasi afiliasi",
-      db as never,
+      { db: db as never },
     );
 
     expect(result.status).toBe("rejected");
@@ -164,6 +183,95 @@ describe("reviewRecruiterVerification", () => {
     });
   });
 
+  it("reject: defaults to allowing the recruiter to reopen, and notifies them", async () => {
+    const { db } = buildReviewDb({
+      submissionReturn: [{ userId: "u_1" }],
+      existingSubmission: [],
+    });
+    mockGetDb.mockReturnValue(db);
+
+    await reviewRecruiterVerification("ops_1", "sub_1", "reject", "Dokumen tidak jelas", {
+      db: db as never,
+    });
+
+    expect(mockEnqueueRejected).toHaveBeenCalledWith(
+      expect.objectContaining({
+        submissionId: "sub_1",
+        userId: "u_1",
+        rejectionReason: "Dokumen tidak jelas",
+        resubmissionAllowed: true,
+      }),
+    );
+  });
+
+  it("reject: records the reviewer's bar on the row, in the audit row, and in the notice", async () => {
+    const { db, captured } = buildReviewDb({
+      submissionReturn: [{ userId: "u_1" }],
+      existingSubmission: [],
+    });
+    mockGetDb.mockReturnValue(db);
+
+    await reviewRecruiterVerification("ops_1", "sub_1", "reject", "Penipuan", {
+      allowResubmission: false,
+      db: db as never,
+    });
+
+    expect(captured.submissionSet).toMatchObject({ resubmissionAllowed: false });
+    expect(captured.auditInserted?.metadata).toMatchObject({ resubmissionAllowed: false });
+    expect(mockEnqueueRejected).toHaveBeenCalledWith(
+      expect.objectContaining({ resubmissionAllowed: false }),
+    );
+  });
+
+  it("reject: a notification enqueue failure never fails the committed review", async () => {
+    const { db } = buildReviewDb({
+      submissionReturn: [{ userId: "u_1" }],
+      existingSubmission: [],
+    });
+    mockGetDb.mockReturnValue(db);
+    mockEnqueueRejected.mockRejectedValueOnce(new Error("redis down"));
+
+    const result = await reviewRecruiterVerification("ops_1", "sub_1", "reject", "Alasan", {
+      db: db as never,
+    });
+
+    expect(result.status).toBe("rejected");
+  });
+
+  it("reject: the orphan sweep keeps its age guard so an in-flight upload survives", async () => {
+    const { db } = buildReviewDb({
+      submissionReturn: [{ userId: "u_1" }],
+      existingSubmission: [],
+    });
+    mockGetDb.mockReturnValue(db);
+    // A freshly uploaded object the recruiter is still working on, inside the upload window.
+    mockListObjects.mockResolvedValueOnce([
+      { key: "recruiter-verification/u_1/sub_1/in-flight", lastModified: new Date() },
+    ]);
+
+    await reviewRecruiterVerification("ops_1", "sub_1", "reject", "Alasan", { db: db as never });
+
+    // A rejected submission stays editable, so the sweep must not reclaim a live upload.
+    expect(mockListObjects).toHaveBeenCalledWith("recruiter-verification/u_1/sub_1/");
+    expect(mockDeleteObject).not.toHaveBeenCalled();
+  });
+
+  it("approve: the orphan sweep is terminal and reclaims even a just-uploaded object", async () => {
+    const { db } = buildReviewDb({
+      submissionReturn: [{ userId: "u_1" }],
+      existingSubmission: [],
+    });
+    mockGetDb.mockReturnValue(db);
+    mockListObjects.mockResolvedValueOnce([
+      { key: "recruiter-verification/u_1/sub_1/in-flight", lastModified: new Date() },
+    ]);
+
+    await reviewRecruiterVerification("ops_1", "sub_1", "approve", null, { db: db as never });
+
+    // Approval is terminal — no further upload can arrive, so the age guard is unnecessary.
+    expect(mockDeleteObject).toHaveBeenCalledWith("recruiter-verification/u_1/sub_1/in-flight");
+  });
+
   it("throws already_reviewed (409) when the CAS flip matches no pending row but the row exists", async () => {
     const { db } = buildReviewDb({
       submissionReturn: [],
@@ -172,7 +280,7 @@ describe("reviewRecruiterVerification", () => {
     mockGetDb.mockReturnValue(db);
 
     await expect(
-      reviewRecruiterVerification("ops_1", "sub_1", "approve", null, db as never),
+      reviewRecruiterVerification("ops_1", "sub_1", "approve", null, { db: db as never }),
     ).rejects.toMatchObject({ code: "recruiter_verification_already_reviewed", status: 409 });
   });
 
@@ -181,63 +289,189 @@ describe("reviewRecruiterVerification", () => {
     mockGetDb.mockReturnValue(db);
 
     await expect(
-      reviewRecruiterVerification("ops_1", "missing", "approve", null, db as never),
+      reviewRecruiterVerification("ops_1", "missing", "approve", null, { db: db as never }),
     ).rejects.toMatchObject({ code: "recruiter_verification_not_found", status: 404 });
   });
 });
 
 describe("submitRecruiterVerification", () => {
-  const buildSubmitDb = (accountRow: Array<{ recruiterVerificationTier: string }>) => {
+  // Three sequential selects in order: the account tier, the editable-submission lookup, and (only
+  // when the CAS matches nothing) the diagnostic re-read of the row's current state.
+  const buildSubmitDb = (opts: {
+    accountRow: Array<{ recruiterVerificationTier: string }>;
+    editableRow?: Array<{ id: string }>;
+    queuedReturn?: Array<Record<string, unknown>>;
+    diagnosticRow?: Array<{ status: string; resubmissionAllowed: boolean }>;
+  }) => {
+    const captured = { updateSet: null as Record<string, unknown> | null };
     const selectChain = {
       from: vi.fn(() => selectChain),
       where: vi.fn(() => selectChain),
-      limit: vi.fn().mockResolvedValue(accountRow),
+      orderBy: vi.fn(() => selectChain),
+      limit: vi
+        .fn()
+        .mockResolvedValueOnce(opts.accountRow)
+        .mockResolvedValueOnce(opts.editableRow ?? [])
+        .mockResolvedValueOnce(opts.diagnosticRow ?? []),
     };
-    return {
+    const db = {
       select: vi.fn(() => selectChain),
       insert: vi.fn(() => ({
         values: vi.fn(() => ({ returning: vi.fn().mockResolvedValue([{ id: "sub_new" }]) })),
       })),
+      update: vi.fn(() => ({
+        set: vi.fn((values: Record<string, unknown>) => {
+          captured.updateSet = values;
+          return {
+            where: vi.fn(() => ({
+              returning: vi.fn().mockResolvedValue(opts.queuedReturn ?? []),
+            })),
+          };
+        }),
+      })),
     };
+    return Object.assign(db, { captured });
+  };
+
+  const INPUT = {
+    fullName: "Rendra Wijaya",
+    mobileNumber: "0812345678",
+    corporateEmail: null,
   };
 
   it("refuses when the account is already Trusted (elevated)", async () => {
-    const db = buildSubmitDb([{ recruiterVerificationTier: "elevated" }]);
+    const db = buildSubmitDb({ accountRow: [{ recruiterVerificationTier: "elevated" }] });
     mockGetDb.mockReturnValue(db);
 
-    await expect(
-      submitRecruiterVerification(
-        "u_1",
-        { fullName: "Rendra Wijaya", mobileNumber: "0812345678", corporateEmail: null },
-        db as never,
-      ),
-    ).rejects.toMatchObject({ code: "recruiter_already_trusted", status: 409 });
+    await expect(submitRecruiterVerification("u_1", INPUT, db as never)).rejects.toMatchObject({
+      code: "recruiter_already_trusted",
+      status: 409,
+    });
   });
 
-  it("inserts a submission for a sandboxed (minimal) account", async () => {
-    const db = buildSubmitDb([{ recruiterVerificationTier: "minimal" }]);
+  it("inserts a first submission when the account has nothing editable", async () => {
+    const db = buildSubmitDb({
+      accountRow: [{ recruiterVerificationTier: "minimal" }],
+      editableRow: [],
+    });
     mockGetDb.mockReturnValue(db);
 
-    const row = await submitRecruiterVerification(
-      "u_1",
-      {
-        fullName: "Rendra Wijaya",
-        mobileNumber: "0812345678",
-        corporateEmail: "rendra@corp.co.id",
-      },
-      db as never,
-    );
+    const row = await submitRecruiterVerification("u_1", INPUT, db as never);
 
     expect(row).toEqual({ id: "sub_new" });
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("queues the existing editable row rather than inserting a second one", async () => {
+    const db = buildSubmitDb({
+      accountRow: [{ recruiterVerificationTier: "minimal" }],
+      editableRow: [{ id: "sub_draft" }],
+      queuedReturn: [{ id: "sub_draft", status: "pending_review" }],
+    });
+    mockGetDb.mockReturnValue(db);
+
+    const row = await submitRecruiterVerification("u_1", INPUT, db as never);
+
+    expect(row).toMatchObject({ id: "sub_draft" });
+    // Moving the same row is what carries the attached documents into the queue; a fresh insert
+    // would strand them.
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(db.captured.updateSet).toMatchObject({ status: "pending_review" });
+    expect(db.captured.updateSet).toHaveProperty("submittedAt");
+  });
+
+  it("keeps the applicant's queue position — it bumps submitted_at but never first_submitted_at", async () => {
+    const db = buildSubmitDb({
+      accountRow: [{ recruiterVerificationTier: "minimal" }],
+      editableRow: [{ id: "sub_draft" }],
+      queuedReturn: [{ id: "sub_draft", status: "pending_review" }],
+    });
+    mockGetDb.mockReturnValue(db);
+
+    await submitRecruiterVerification("u_1", INPUT, db as never);
+
+    // The queue orders by first_submitted_at, so leaving it untouched is what stops a revise-and-
+    // resend from costing the applicant their place in line.
+    expect(db.captured.updateSet).toHaveProperty("submittedAt");
+    expect(db.captured.updateSet).not.toHaveProperty("firstSubmittedAt");
+  });
+
+  it("refuses when the reviewer barred the account, diagnosing the bar rather than a race", async () => {
+    const db = buildSubmitDb({
+      accountRow: [{ recruiterVerificationTier: "minimal" }],
+      editableRow: [{ id: "sub_rejected" }],
+      // The CAS carries `resubmission_allowed = true`, so a barred row matches nothing.
+      queuedReturn: [],
+      diagnosticRow: [{ status: "rejected", resubmissionAllowed: false }],
+    });
+    mockGetDb.mockReturnValue(db);
+
+    await expect(submitRecruiterVerification("u_1", INPUT, db as never)).rejects.toMatchObject({
+      code: "recruiter_verification_resubmission_blocked",
+      status: 409,
+    });
+  });
+
+  it("reports a lost race as already_pending, not as a bar", async () => {
+    const db = buildSubmitDb({
+      accountRow: [{ recruiterVerificationTier: "minimal" }],
+      editableRow: [{ id: "sub_rejected" }],
+      queuedReturn: [],
+      diagnosticRow: [{ status: "pending_review", resubmissionAllowed: true }],
+    });
+    mockGetDb.mockReturnValue(db);
+
+    await expect(submitRecruiterVerification("u_1", INPUT, db as never)).rejects.toMatchObject({
+      code: "recruiter_verification_already_pending",
+      status: 409,
+    });
   });
 });
 
-// db whose pending-submission lookup returns `pendingRows`, capturing any inserted document row.
+describe("withdrawRecruiterVerification", () => {
+  const buildWithdrawDb = (updateReturn: Array<Record<string, unknown>>) => {
+    const captured = { updateSet: null as Record<string, unknown> | null };
+    const db = {
+      update: vi.fn(() => ({
+        set: vi.fn((values: Record<string, unknown>) => {
+          captured.updateSet = values;
+          return {
+            where: vi.fn(() => ({ returning: vi.fn().mockResolvedValue(updateReturn) })),
+          };
+        }),
+      })),
+    };
+    return Object.assign(db, { captured });
+  };
+
+  it("moves a queued submission back to draft so its documents become editable", async () => {
+    const db = buildWithdrawDb([{ id: "sub_1", status: "draft" }]);
+    mockGetDb.mockReturnValue(db);
+
+    const row = await withdrawRecruiterVerification("u_1", db as never);
+
+    expect(row).toMatchObject({ id: "sub_1" });
+    expect(db.captured.updateSet).toEqual({ status: "draft" });
+  });
+
+  it("404s when nothing is awaiting review — including when a verdict won the race", async () => {
+    const db = buildWithdrawDb([]);
+    mockGetDb.mockReturnValue(db);
+
+    await expect(withdrawRecruiterVerification("u_1", db as never)).rejects.toMatchObject({
+      code: "recruiter_verification_not_found",
+      status: 404,
+    });
+  });
+});
+
+// db whose editable-submission lookup returns `pendingRows`, capturing any inserted document row.
 const buildDocumentDb = (pendingRows: Array<{ id: string }>) => {
   const captured = { inserted: null as Record<string, unknown> | null };
   const selectChain = {
     from: vi.fn(() => selectChain),
     where: vi.fn(() => selectChain),
+    orderBy: vi.fn(() => selectChain),
     limit: vi.fn().mockResolvedValue(pendingRows),
   };
   const db = {
@@ -427,6 +661,76 @@ describe("finalizeVerificationDocumentUpload", () => {
   });
 });
 
+describe("deleteVerificationDocumentForUser", () => {
+  // db whose editable-submission lookup returns `pendingRows` and whose delete returns
+  // `deletedRows`, capturing whether a delete was attempted at all.
+  const buildDeleteDb = (
+    pendingRows: Array<{ id: string }>,
+    deletedRows: Array<{ r2Key: string }>,
+  ) => {
+    const selectChain = {
+      from: vi.fn(() => selectChain),
+      where: vi.fn(() => selectChain),
+      orderBy: vi.fn(() => selectChain),
+      limit: vi.fn().mockResolvedValue(pendingRows),
+    };
+    const deleteChain = {
+      where: vi.fn(() => ({ returning: vi.fn().mockResolvedValue(deletedRows) })),
+    };
+    return {
+      select: vi.fn(() => selectChain),
+      delete: vi.fn(() => deleteChain),
+    };
+  };
+
+  it("removes the row and then the stored object", async () => {
+    const db = buildDeleteDb(
+      [{ id: "sub_1" }],
+      [{ r2Key: "recruiter-verification/u_1/sub_1/abc" }],
+    );
+    mockGetDb.mockReturnValue(db);
+
+    await deleteVerificationDocumentForUser("u_1", "doc_1", db as never);
+
+    expect(db.delete).toHaveBeenCalled();
+    expect(mockDeleteObject).toHaveBeenCalledWith("recruiter-verification/u_1/sub_1/abc");
+  });
+
+  it("404s when the document is not on the caller's open submission, leaving storage untouched", async () => {
+    const db = buildDeleteDb([{ id: "sub_1" }], []);
+    mockGetDb.mockReturnValue(db);
+
+    await expect(
+      deleteVerificationDocumentForUser("u_1", "doc_other", db as never),
+    ).rejects.toMatchObject({ code: "recruiter_verification_document_not_found", status: 404 });
+    expect(mockDeleteObject).not.toHaveBeenCalled();
+  });
+
+  it("404s when the account has no submission awaiting review, before any delete", async () => {
+    const db = buildDeleteDb([], []);
+    mockGetDb.mockReturnValue(db);
+
+    await expect(
+      deleteVerificationDocumentForUser("u_1", "doc_1", db as never),
+    ).rejects.toMatchObject({ code: "recruiter_verification_not_found", status: 404 });
+    expect(db.delete).not.toHaveBeenCalled();
+    expect(mockDeleteObject).not.toHaveBeenCalled();
+  });
+
+  it("keeps the row deleted when the storage delete fails", async () => {
+    const db = buildDeleteDb(
+      [{ id: "sub_1" }],
+      [{ r2Key: "recruiter-verification/u_1/sub_1/abc" }],
+    );
+    mockGetDb.mockReturnValue(db);
+    mockDeleteObject.mockRejectedValueOnce(new Error("r2 down"));
+
+    await expect(
+      deleteVerificationDocumentForUser("u_1", "doc_1", db as never),
+    ).resolves.toBeUndefined();
+  });
+});
+
 describe("resolveVerificationDocumentUrlForOps", () => {
   const buildResolveDb = (rows: Array<Record<string, unknown>>) => {
     const chain = {
@@ -485,7 +789,7 @@ describe("resolveVerificationDocumentUrlForOps", () => {
   });
 });
 
-describe("listPendingRecruiterVerifications", () => {
+describe("listRecruiterVerificationQueue", () => {
   it("groups each submission's documents into its entry", async () => {
     const rowsChain = {
       from: vi.fn(() => rowsChain),
@@ -518,7 +822,7 @@ describe("listPendingRecruiterVerifications", () => {
     };
     mockGetDb.mockReturnValue(db);
 
-    const result = await listPendingRecruiterVerifications(db as never);
+    const result = await listRecruiterVerificationQueue(db as never);
 
     expect(result).toHaveLength(1);
     expect(result[0]?.documents).toEqual([
@@ -601,12 +905,12 @@ describe("sweepOrphanedSubmissionObjects", () => {
 });
 
 describe("sweepOrphanedObjectsForAccount", () => {
-  // db whose pending lookup (.limit) returns `pendingRows` and whose document-key query (awaited
-  // after .where) returns `referencedKeys`.
+  // db whose editable-submission lookup (.orderBy().limit()) returns `pendingRows` and whose
+  // document-key query (awaited after .where) returns `referencedKeys`.
   const buildAccountDb = (pendingRows: Array<{ id: string }>, referencedKeys: string[]) => {
     const referencedRows = referencedKeys.map((r2Key) => ({ r2Key }));
     const whereResult = {
-      limit: vi.fn().mockResolvedValue(pendingRows),
+      orderBy: vi.fn(() => ({ limit: vi.fn().mockResolvedValue(pendingRows) })),
       then: (onFulfilled: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) =>
         Promise.resolve(referencedRows).then(onFulfilled, onRejected),
     };
@@ -616,7 +920,7 @@ describe("sweepOrphanedObjectsForAccount", () => {
 
   const OLD = new Date(Date.now() - 60 * 60 * 1000);
 
-  it("sweeps the account's pending submission's orphans", async () => {
+  it("sweeps the account's editable submission's orphans", async () => {
     const db = buildAccountDb([{ id: "sub_1" }], ["recruiter-verification/u_1/sub_1/keep"]);
     mockGetDb.mockReturnValue(db);
     mockListObjects.mockResolvedValueOnce([
@@ -631,7 +935,7 @@ describe("sweepOrphanedObjectsForAccount", () => {
     expect(mockDeleteObject).toHaveBeenCalledWith("recruiter-verification/u_1/sub_1/orphan");
   });
 
-  it("no-ops when the account has no pending submission", async () => {
+  it("no-ops when the account has no editable submission", async () => {
     const db = buildAccountDb([], []);
     mockGetDb.mockReturnValue(db);
 
@@ -645,4 +949,87 @@ describe("sweepOrphanedObjectsForAccount", () => {
 // Guards against an accidental import removal — the service must reference these schema tables.
 it("references the recruiter verification schema tables", () => {
   expect(recruiterVerificationSubmissions).toBeDefined();
+});
+
+describe("setRecruiterResubmissionAllowed", () => {
+  // tx whose update returns `updateReturn` and whose select returns `existing`, capturing the
+  // audit row so the event type can be asserted.
+  const buildFlagDb = (
+    updateReturn: Array<{ userId: string }>,
+    existing: Array<{ status: string; resubmissionAllowed: boolean }>,
+  ) => {
+    const captured = { auditInserted: null as Record<string, unknown> | null };
+    const updateChain = {
+      set: vi.fn(() => updateChain),
+      where: vi.fn(() => ({ returning: vi.fn().mockResolvedValue(updateReturn) })),
+    };
+    const selectChain = {
+      from: vi.fn(() => selectChain),
+      where: vi.fn(() => selectChain),
+      limit: vi.fn().mockResolvedValue(existing),
+    };
+    const tx = {
+      update: vi.fn(() => updateChain),
+      select: vi.fn(() => selectChain),
+      insert: vi.fn(() => ({
+        values: vi.fn((v: Record<string, unknown>) => {
+          captured.auditInserted = v;
+          return Promise.resolve(undefined);
+        }),
+      })),
+    };
+    const db = { transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)) };
+    return { db, captured };
+  };
+
+  it("lifts the bar and audits the change", async () => {
+    const { db, captured } = buildFlagDb([{ userId: "u_1" }], []);
+    mockGetDb.mockReturnValue(db);
+
+    await setRecruiterResubmissionAllowed("ops_1", "sub_1", true, db as never);
+
+    expect(captured.auditInserted).toMatchObject({
+      actorUserId: "ops_1",
+      targetUserId: "u_1",
+      eventType: "recruiter_verification.resubmission_allowed",
+    });
+  });
+
+  it("imposes a bar and audits it under a distinct event type", async () => {
+    const { db, captured } = buildFlagDb([{ userId: "u_1" }], []);
+    mockGetDb.mockReturnValue(db);
+
+    await setRecruiterResubmissionAllowed("ops_1", "sub_1", false, db as never);
+
+    expect(captured.auditInserted).toMatchObject({
+      eventType: "recruiter_verification.resubmission_blocked",
+    });
+  });
+
+  it("is idempotent — a repeat click files no second audit row", async () => {
+    const { db, captured } = buildFlagDb([], [{ status: "rejected", resubmissionAllowed: true }]);
+    mockGetDb.mockReturnValue(db);
+
+    await setRecruiterResubmissionAllowed("ops_1", "sub_1", true, db as never);
+
+    expect(captured.auditInserted).toBeNull();
+  });
+
+  it("refuses on a submission that is not rejected", async () => {
+    const { db } = buildFlagDb([], [{ status: "pending_review", resubmissionAllowed: true }]);
+    mockGetDb.mockReturnValue(db);
+
+    await expect(
+      setRecruiterResubmissionAllowed("ops_1", "sub_1", false, db as never),
+    ).rejects.toMatchObject({ code: "recruiter_verification_already_reviewed", status: 409 });
+  });
+
+  it("404s when the submission does not exist", async () => {
+    const { db } = buildFlagDb([], []);
+    mockGetDb.mockReturnValue(db);
+
+    await expect(
+      setRecruiterResubmissionAllowed("ops_1", "missing", true, db as never),
+    ).rejects.toMatchObject({ code: "recruiter_verification_not_found", status: 404 });
+  });
 });

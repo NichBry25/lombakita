@@ -30,7 +30,12 @@ vi.mock("./candidate-profile-editor", () => ({
 import CandidateProfilePage from "@/app/candidate-dashboard/profile/page";
 
 const validSession = {
-  user: { id: "u_candidate", email: "c@example.com" },
+  user: {
+    id: "u_candidate",
+    email: "c@example.com",
+    role: "candidate",
+    verifiedRoles: ["candidate"],
+  },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 

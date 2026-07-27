@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ButtonLink, EmptyState, Icon, PageHeader, Skeleton } from "@/components/ui";
+import { useToast } from "@/components/ui/primitives";
 import { capitalizeWord } from "@/lib/text/capitalize";
 
 type Competition = {
@@ -12,8 +13,6 @@ type Competition = {
   status: "draft" | "published" | "archived";
   createdAt: string;
 };
-
-type FeedbackState = { type: "success" | "error"; message: string } | null;
 
 const extractErrorMessage = async (response: Response): Promise<string> => {
   try {
@@ -27,7 +26,7 @@ const extractErrorMessage = async (response: Response): Promise<string> => {
 export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionSlug: string }) => {
   const [items, setItems] = useState<Competition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const { addToast } = useToast();
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -37,14 +36,14 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
     );
     if (!response.ok) {
       const message = await extractErrorMessage(response);
-      setFeedback({ type: "error", message });
+      addToast({ type: "error", message });
       setIsLoading(false);
       return;
     }
     const data = (await response.json()) as { competitions: Competition[] };
     setItems(data.competitions);
     setIsLoading(false);
-  }, [institutionSlug]);
+  }, [institutionSlug, addToast]);
 
   useEffect(() => {
     const id = window.setTimeout(() => {
@@ -148,12 +147,6 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
           </ul>
         )}
       </section>
-
-      {feedback ? (
-        <p role="status" className="feedback" data-tone={feedback.type}>
-          {feedback.message}
-        </p>
-      ) : null}
     </main>
   );
 };

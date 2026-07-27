@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Button, EmptyState, PageHeader, SelectField, Skeleton } from "@/components/ui";
+import { Button, EmptyState, PageHeader, Pagination, SelectField, Skeleton } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 
 type VerificationStatus = "pending_verification" | "under_review" | "verified" | "rejected";
@@ -149,7 +149,7 @@ export default function AdminInstitutionsPage() {
       if (res.status === 403) {
         addToast({
           type: "error",
-          message: "Akses ditolak. Halaman ini hanya untuk platform_ops.",
+          message: "Akses ditolak. Halaman ini hanya untuk tim Platform Operations.",
         });
         return;
       }
@@ -260,7 +260,7 @@ export default function AdminInstitutionsPage() {
         title="Verifikasi institusi"
         description="Kelola transisi status dan jejak audit institusi terdaftar."
         backHref="/admin"
-        backLabel="Panel Platform Ops"
+        backLabel="Panel Platform Operations"
         actions={<span className="status-badge data-text">{total} institusi</span>}
       />
 
@@ -432,29 +432,12 @@ export default function AdminInstitutionsPage() {
       )}
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <nav className="pagination" aria-label="Halaman institusi">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
-          >
-            &larr; Sebelumnya
-          </Button>
-          <span className="pagination-status data-text">
-            Halaman {page} / {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Berikutnya &rarr;
-          </Button>
-        </nav>
-      )}
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        label="Halaman institusi"
+        onPageChange={setPage}
+      />
     </main>
   );
 }

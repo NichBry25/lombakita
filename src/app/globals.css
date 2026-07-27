@@ -1409,8 +1409,13 @@ button.header-nav-link {
   letter-spacing: var(--tracking-label);
 }
 
-.mobile-nav-toggle,
 .mobile-nav {
+  display: none;
+}
+
+/* The toggle is a .ui-icon-button, whose own `display` is declared later in this file at equal
+   specificity. Qualifying the selector keeps the desktop hide winning regardless of source order. */
+.ui-icon-button.mobile-nav-toggle {
   display: none;
 }
 
@@ -2371,6 +2376,42 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   filter: invert(1);
 }
 
+/* ---- Native file inputs ----
+   `display: flex` + `gap` on a file input only reaches its internal button and
+   filename text in Chromium; Safari and Firefox don't propagate flex layout into
+   the control's shadow content the same way. `line-height` and `vertical-align`
+   are standard inline-layout properties every engine honors consistently, so
+   they center the control without depending on that quirk. */
+input.form-input[type="file"] {
+  height: var(--control-height-md);
+  min-height: var(--control-height-md);
+  padding-block: 0;
+  line-height: var(--control-height-md);
+  cursor: pointer;
+  color: var(--color-ink-soft);
+}
+
+input.form-input[type="file"]::file-selector-button {
+  vertical-align: middle;
+  margin: 0;
+  margin-inline-end: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-inset);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--text-meta);
+  font-weight: 600;
+  line-height: normal;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-primary);
+}
+
+input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
+  background: var(--color-disabled-surface);
+}
+
 /* ---- Icon-only button ---- */
 .ui-icon-button {
   display: inline-grid;
@@ -2403,12 +2444,45 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   cursor: not-allowed;
 }
 
+/* An icon-only control still has to carry the weight of the action it replaced, so the
+   variants mirror .ui-button rather than collapsing every converted action into a ghost. */
+.ui-icon-button[data-variant="primary"] {
+  background: var(--color-action);
+  color: var(--color-action-ink);
+  box-shadow: var(--shadow-action);
+}
+
+.ui-icon-button[data-variant="primary"]:hover:not(:disabled) {
+  background: var(--color-action-strong, var(--color-action));
+}
+
+.ui-icon-button[data-variant="secondary"] {
+  background: var(--brand-palm);
+  color: var(--brand-paper);
+}
+
+.ui-icon-button[data-variant="secondary"]:hover:not(:disabled) {
+  background: var(--brand-palm-ink, var(--brand-palm));
+}
+
+.ui-icon-button[data-variant="outline"] {
+  border-color: var(--brand-palm);
+  color: var(--brand-palm);
+}
+
 .ui-icon-button[data-variant="danger"] {
   color: var(--color-error-text);
 }
 
 .ui-icon-button[data-variant="danger"]:hover:not(:disabled) {
   background: var(--color-error-surface);
+}
+
+/* Anchors have no :disabled, and IconButtonLink is the only icon control that can be
+   inert while still focusable, so the disabled look keys off aria-disabled too. */
+.ui-icon-button[aria-disabled="true"] {
+  color: var(--color-disabled-text);
+  cursor: not-allowed;
 }
 
 /* ---- Page-level sticky form action bar (global Save + Back) ---- */
@@ -4551,8 +4625,7 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .personal-institution-card,
-.personal-institution-created,
-.personal-institution-form {
+.personal-institution-created {
   display: grid;
   gap: var(--space-5);
 }
@@ -4750,6 +4823,39 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
 .management-detail-grid dd {
   margin: var(--space-0);
   color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+.detail-grid {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-0);
+}
+
+.detail-grid > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.detail-grid dt {
+  flex-shrink: 0;
+  color: var(--color-ink-faint);
+  font-size: var(--text-micro);
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.detail-grid dt::after {
+  content: ":";
+}
+
+.detail-grid dd {
+  margin: var(--space-0);
+  color: var(--color-ink);
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
@@ -5159,8 +5265,8 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
     display: none;
   }
 
-  .mobile-nav-toggle {
-    display: inline-flex;
+  .ui-icon-button.mobile-nav-toggle {
+    display: inline-grid;
   }
 
   .header-inner {

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui";
+import { useToast } from "@/components/ui/primitives";
 import {
   readErrorCode,
   SESSION_MISMATCH_CODE,
@@ -15,8 +16,6 @@ type ClientSubmission = {
   version: number;
   finalizedAt: string | null;
 } | null;
-
-type Feedback = { type: "error" | "success"; message: string } | null;
 
 type SubmissionStep = "upload-url" | "save" | "finalize";
 
@@ -52,12 +51,24 @@ export const SubmissionShell = ({
   initialSubmission,
 }: SubmissionShellProps) => {
   const [submission, setSubmission] = useState<ClientSubmission>(initialSubmission);
-  const [feedback, setFeedback] = useState<Feedback>(null);
+  const { addToast } = useToast();
   // Three independent steps share this component; tracking which one is running keeps the
   // spinner on the pressed step while the other steps stay locked.
   const [pendingStep, setPendingStep] = useState<SubmissionStep | null>(null);
   const loading = pendingStep !== null;
   const [uploadUrl, setUploadUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (registrationCancelled) {
+      addToast({ type: "error", message: "Pendaftaran dibatalkan — submission ditutup." });
+    } else if (!windowOpen) {
+      addToast({
+        type: "warning",
+        message: "Jendela submission belum dibuka atau sudah ditutup.",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registrationCancelled, windowOpen]);
 
   const [fileKey, setFileKey] = useState("");
   const [fileName, setFileName] = useState("");
@@ -71,9 +82,9 @@ export const SubmissionShell = ({
   const surfaceError = async (res: Response) => {
     const code = await readErrorCode(res);
     if (code === SESSION_MISMATCH_CODE) {
-      setFeedback({ type: "error", message: SESSION_MISMATCH_MESSAGE });
+      addToast({ type: "error", message: SESSION_MISMATCH_MESSAGE });
     } else {
-      setFeedback({
+      addToast({
         type: "error",
         message: code ? `Error: ${code}` : `Error (HTTP ${res.status})`,
       });
@@ -81,7 +92,6 @@ export const SubmissionShell = ({
   };
 
   const requestUploadUrl = async () => {
-    setFeedback(null);
     setUploadUrl(null);
     setPendingStep("upload-url");
     try {
@@ -100,19 +110,18 @@ export const SubmissionShell = ({
       const body = (await res.json()) as { uploadUrl: string; fileKey: string };
       setUploadUrl(body.uploadUrl);
       setFileKey(body.fileKey);
-      setFeedback({
+      addToast({
         type: "success",
-        message: "Upload URL berhasil dibuat. Salin fileKey di bawah.",
+        message: "Berkas siap diunggah.",
       });
     } catch {
-      setFeedback({ type: "error", message: "Network error" });
+      addToast({ type: "error", message: "Gangguan koneksi. Coba lagi." });
     } finally {
       setPendingStep(null);
     }
   };
 
   const saveSubmission = async () => {
-    setFeedback(null);
     setPendingStep("save");
     try {
       const payload: Record<string, unknown> = { fileKey, fileName };
@@ -130,16 +139,15 @@ export const SubmissionShell = ({
       }
       const body = (await res.json()) as { submission: unknown };
       setSubmission(toClientSubmission(body.submission));
-      setFeedback({ type: "success", message: "Submission tersimpan." });
+      addToast({ type: "success", message: "Submission tersimpan." });
     } catch {
-      setFeedback({ type: "error", message: "Network error" });
+      addToast({ type: "error", message: "Gangguan koneksi. Coba lagi." });
     } finally {
       setPendingStep(null);
     }
   };
 
   const finalizeSubmission = async () => {
-    setFeedback(null);
     setPendingStep("finalize");
     try {
       const res = await sessionFetch(expectedUserId, `${url}/finalize`, { method: "POST" });
@@ -149,9 +157,9 @@ export const SubmissionShell = ({
       }
       const body = (await res.json()) as { submission: unknown };
       setSubmission(toClientSubmission(body.submission));
-      setFeedback({ type: "success", message: "Submission difinalisasi." });
+      addToast({ type: "success", message: "Submission difinalisasi." });
     } catch {
-      setFeedback({ type: "error", message: "Network error" });
+      addToast({ type: "error", message: "Gangguan koneksi. Coba lagi." });
     } finally {
       setPendingStep(null);
     }
@@ -192,29 +200,13 @@ export const SubmissionShell = ({
         )}
       </section>
 
-      {registrationCancelled ? (
-        <p className="feedback" data-tone="error">
-          Pendaftaran dibatalkan — submission ditutup.
-        </p>
-      ) : !windowOpen ? (
-        <p className="feedback" data-tone="warning">
-          Jendela submission belum dibuka atau sudah ditutup.
-        </p>
-      ) : null}
-
-      {feedback ? (
-        <p className="feedback" data-tone={feedback.type === "error" ? "error" : "success"}>
-          {feedback.message}
-        </p>
-      ) : null}
-
       {!finalized && !registrationCancelled && windowOpen ? (
         <section className="content-section submission-step">
           <div className="submission-step-heading">
             <span className="submission-step-number data-text">01</span>
             <div>
               <p className="eyebrow">Unggah berkas</p>
-              <h2>Minta upload URL (R2)</h2>
+              <h2>Siapkan unggahan berkas</h2>
             </div>
           </div>
           <Button
@@ -225,7 +217,7 @@ export const SubmissionShell = ({
             variant="outline"
             size="md"
           >
-            Minta upload URL
+            Siapkan unggahan
           </Button>
           {uploadUrl ? <p className="submission-url data-text">Upload URL: {uploadUrl}</p> : null}
         </section>
@@ -260,7 +252,7 @@ export const SubmissionShell = ({
             />
           </label>
           <label className="form-field">
-            <span className="form-label">fileSizeBytes (opsional)</span>
+            <span className="form-label">fileSizeBytes (Opsional)</span>
             <input
               className="form-input"
               value={fileSizeBytes}
@@ -269,7 +261,7 @@ export const SubmissionShell = ({
             />
           </label>
           <label className="form-field">
-            <span className="form-label">fileMimeType (opsional)</span>
+            <span className="form-label">fileMimeType (Opsional)</span>
             <input
               className="form-input"
               value={fileMimeType}

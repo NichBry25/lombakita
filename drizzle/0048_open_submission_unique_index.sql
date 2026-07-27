@@ -1,0 +1,2 @@
+DROP INDEX "recruiter_verification_submissions_user_pending_unique_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX "recruiter_verification_submissions_user_pending_unique_idx" ON "recruiter_verification_submissions" USING btree ("user_id") WHERE "recruiter_verification_submissions"."status" in ('draft', 'pending_review');

@@ -29,7 +29,7 @@ export function AuthPageFrame({
         </div>
         <div className="auth-context-note">
           <Icon name="check" size="sm" />
-          <span>Identitas akun dan peran diverifikasi sebelum akses diberikan.</span>
+          <span>Email diverifikasi sebelum akun aktif.</span>
         </div>
       </section>
       <section className="auth-card">{children}</section>

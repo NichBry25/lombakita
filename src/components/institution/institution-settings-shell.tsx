@@ -12,6 +12,7 @@ import {
   Skeleton,
   usePageTransition,
 } from "@/components/ui";
+import { useToast } from "@/components/ui/primitives";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 
 // User-facing pill label per institution type. Single-word values are capitalized (§13.3); the
@@ -43,17 +44,6 @@ type InstitutionSettingsResponse = {
   };
 };
 
-type FeedbackState =
-  | {
-      type: "success";
-      message: string;
-    }
-  | {
-      type: "error";
-      message: string;
-    }
-  | null;
-
 const extractErrorMessage = async (response: Response): Promise<string> => {
   try {
     const payload = (await response.json()) as {
@@ -71,6 +61,7 @@ const extractErrorMessage = async (response: Response): Promise<string> => {
 export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug: string }) => {
   const router = useRouter();
   const { begin: beginPageTransition } = usePageTransition();
+  const { addToast } = useToast();
   const [activeSlug, setActiveSlug] = useState(institutionSlug);
   const [displayName, setDisplayName] = useState("");
   const [slug, setSlug] = useState("");
@@ -82,11 +73,9 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
   const [institutionType, setInstitutionType] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [feedback, setFeedback] = useState<FeedbackState>(null);
 
   const loadInstitution = useCallback(async () => {
     setIsLoading(true);
-    setFeedback(null);
 
     const response = await fetch(
       `/api/v1/institutions/${encodeURIComponent(activeSlug)}/settings`,
@@ -98,10 +87,7 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
 
     if (!response.ok) {
       const message = await extractErrorMessage(response);
-      setFeedback({
-        type: "error",
-        message,
-      });
+      addToast({ type: "error", message });
       setIsLoading(false);
       return;
     }
@@ -115,7 +101,7 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
     setIsPersonal(data.institution.institutionType === "personal");
     setInstitutionType(data.institution.institutionType);
     setIsLoading(false);
-  }, [activeSlug]);
+  }, [activeSlug, addToast]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -133,23 +119,16 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
     // A personal institution has no editable name (it derives from the owner username), so the name
     // length check is skipped and only the slug is sent.
     if (!isPersonal && displayName.trim().length < 2) {
-      setFeedback({
-        type: "error",
-        message: "Nama institusi minimal terdiri dari 2 karakter.",
-      });
+      addToast({ type: "error", message: "Nama institusi minimal terdiri dari 2 karakter." });
       return;
     }
 
     if (slug.trim().length < 3) {
-      setFeedback({
-        type: "error",
-        message: "Slug minimal terdiri dari 3 karakter.",
-      });
+      addToast({ type: "error", message: "Slug minimal terdiri dari 3 karakter." });
       return;
     }
 
     setIsSaving(true);
-    setFeedback(null);
 
     // Description is editable for every type; name/slug only for full institutions (personal derives
     // both from the owner username). Empty description clears the stored value (null).
@@ -176,11 +155,7 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
 
     if (!response.ok) {
       const message = await extractErrorMessage(response);
-
-      setFeedback({
-        type: "error",
-        message,
-      });
+      addToast({ type: "error", message });
       setIsSaving(false);
       return;
     }
@@ -194,10 +169,7 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
     setStatus(data.institution.status);
     setIsPersonal(data.institution.institutionType === "personal");
     setInstitutionType(data.institution.institutionType);
-    setFeedback({
-      type: "success",
-      message: "Pengaturan institusi berhasil disimpan.",
-    });
+    addToast({ type: "success", message: "Pengaturan institusi berhasil disimpan." });
     setIsSaving(false);
 
     // A renamed institution moves to a new URL. Only that branch is a page change, so the
@@ -283,7 +255,7 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
                 onChange={(event) => setDescription(event.target.value)}
                 rows={4}
                 maxLength={500}
-                placeholder="Deskripsi singkat institusi (opsional)."
+                placeholder="Deskripsi singkat institusi (Opsional)."
               />
               <p className="form-help">
                 Deskripsi singkat yang tampil pada daftar institusi Anda. Maksimal 500 karakter.
@@ -301,12 +273,6 @@ export const InstitutionSettingsShell = ({ institutionSlug }: { institutionSlug:
                 readOnly
               />
             </div>
-
-            {feedback ? (
-              <p className="feedback" data-tone={feedback.type} role="status">
-                {feedback.message}
-              </p>
-            ) : null}
           </form>
         )}
       </section>

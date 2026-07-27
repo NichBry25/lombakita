@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { ParticipantsFilterForm } from "./filter-form";
 import { AccessError } from "@/server/auth/access-core";
-import { getCurrentSession } from "@/server/auth/session";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { getDb } from "@/server/db/client";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import { getCompetitionIdByInstitutionAndSlug } from "@/server/competitions/competition-service";
@@ -12,7 +12,7 @@ import {
   type ParticipantRecord,
 } from "@/server/participants/participant-service";
 import { REVIEW_STATUS_LABELS } from "./review-status-labels";
-import { ButtonLink, EmptyState, PageHeader } from "@/components/ui";
+import { ButtonLink, EmptyState, Icon, PageHeader, Pagination } from "@/components/ui";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 
 type Props = {
@@ -30,18 +30,11 @@ const getRegistrationStatusLabel = (status: string): string =>
   REGISTRATION_STATUS_LABELS[status] ?? formatDisplayToken(status);
 
 export default async function ParticipantsPage({ params, searchParams }: Props) {
-  const session = await getCurrentSession();
   const { institutionSlug, competitionSlug } = await params;
   const sp = await searchParams;
 
   const path = `/institution/${institutionSlug}/competitions/${competitionSlug}/participants`;
-
-  if (!session?.user?.id) {
-    redirect(`/auth/login?callbackUrl=${encodeURIComponent(path)}`);
-  }
-  if (!session.user.verifiedRoles.includes("recruiter")) {
-    redirect("/");
-  }
+  const session = await requireRolePage("recruiter", { callbackPath: path });
 
   const db = getDb();
   let institutionId: string;
@@ -100,11 +93,8 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
     return qs ? `?${qs}` : "";
   };
 
-  const prevHref = page > 1 ? `${path}${buildSearchParams({ page: String(page - 1) })}` : null;
-  const nextHref =
-    page < result.pagination.totalPages
-      ? `${path}${buildSearchParams({ page: String(page + 1) })}`
-      : null;
+  const buildPageHref = (target: number): string =>
+    `${path}${buildSearchParams({ page: String(target) })}`;
 
   return (
     <main className="page-shell app-page participants-page">
@@ -124,7 +114,8 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
           data-variant="outline"
           data-size="sm"
         >
-          Export registrants
+          <Icon name="download" size="sm" />
+          <span>Pendaftar</span>
         </a>
         <a
           href={`/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/export/submissions`}
@@ -133,7 +124,8 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
           data-variant="outline"
           data-size="sm"
         >
-          Export submissions
+          <Icon name="download" size="sm" />
+          <span>Submission</span>
         </a>
         <a
           href={`/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/export/results`}
@@ -142,7 +134,8 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
           data-variant="outline"
           data-size="sm"
         >
-          Export results
+          <Icon name="download" size="sm" />
+          <span>Hasil</span>
         </a>
       </section>
 
@@ -265,31 +258,12 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
         </div>
       )}
 
-      {result.pagination.totalPages > 1 && (
-        <nav className="pagination" aria-label="Halaman peserta">
-          {prevHref ? (
-            <ButtonLink href={prevHref} variant="outline" size="sm">
-              ← Sebelumnya
-            </ButtonLink>
-          ) : (
-            <span className="ui-button" data-variant="outline" data-size="sm" aria-disabled="true">
-              ← Sebelumnya
-            </span>
-          )}
-          <span className="pagination-status data-text">
-            Halaman {result.pagination.page} dari {result.pagination.totalPages}
-          </span>
-          {nextHref ? (
-            <ButtonLink href={nextHref} variant="outline" size="sm">
-              Selanjutnya →
-            </ButtonLink>
-          ) : (
-            <span className="ui-button" data-variant="outline" data-size="sm" aria-disabled="true">
-              Selanjutnya →
-            </span>
-          )}
-        </nav>
-      )}
+      <Pagination
+        page={result.pagination.page}
+        totalPages={result.pagination.totalPages}
+        label="Halaman peserta"
+        hrefFor={buildPageHref}
+      />
     </main>
   );
 }

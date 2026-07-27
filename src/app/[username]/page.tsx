@@ -106,7 +106,7 @@ export default async function PublicProfilePage({
                 {profile.candidateVerified && (
                   <span className="status-badge" data-status="open">
                     <Icon name="check" size="sm" aria-hidden="true" />
-                    Kandidat terverifikasi
+                    Kandidat Terverifikasi
                   </span>
                 )}
                 {profile.recruiterVerified && !profile.trustedRecruiter && (

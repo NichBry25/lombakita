@@ -30,6 +30,8 @@ export const toRecruiterVerificationView = (data: RecruiterVerificationWithDocum
       corporateEmail: submission.corporateEmail,
       vouchedAt: submission.vouchedAt,
       rejectionReason: submission.rejectionReason,
+      resubmissionAllowed: submission.resubmissionAllowed,
+      resubmissionCount: submission.resubmissionCount,
       submittedAt: submission.submittedAt,
       reviewedAt: submission.reviewedAt,
     },
@@ -56,9 +58,10 @@ export async function GET(): Promise<Response> {
   }
 }
 
-// POST — submit (or re-submit after rejection) the recruiter affiliation form. The account stays
-// sandboxed (tier `minimal`) until platform ops approve. 409 when an open submission already
-// exists or the account is already Trusted.
+// POST — submit the recruiter affiliation form, or reopen a rejected submission with its
+// documents intact. The account stays sandboxed (tier `minimal`) until platform ops approve.
+// 409 when a submission is already awaiting review, the account is already Trusted, or the
+// reviewer barred this account from reapplying.
 export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireSessionRole(["recruiter"]);

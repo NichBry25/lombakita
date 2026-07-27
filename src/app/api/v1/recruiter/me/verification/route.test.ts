@@ -37,6 +37,9 @@ const reviewedSubmission = {
   status: "rejected" as const,
   reviewerUserId: "ops_SECRET_reviewer_id",
   rejectionReason: "Dokumen tidak jelas",
+  resubmissionAllowed: true,
+  resubmissionCount: 1,
+  firstSubmittedAt: NOW,
   submittedAt: NOW,
   reviewedAt: NOW,
 };
@@ -125,6 +128,8 @@ describe("toRecruiterVerificationView", () => {
         "mobileNumber",
         "reviewedAt",
         "rejectionReason",
+        "resubmissionAllowed",
+        "resubmissionCount",
         "status",
         "submittedAt",
         "vouchedAt",

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getCurrentSession } from "@/server/auth/session";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { isInstitutionAdminBySlug } from "@/server/institution-members/member-service";
 import { loadInstitutionTypeBySlug } from "@/server/institution-workspace/institution-service";
 import {
@@ -30,14 +30,7 @@ export default async function InstitutionVerificationPage({
   const { institutionSlug } = await params;
   const base = `/institution/${institutionSlug}/verification`;
 
-  const session = await getCurrentSession();
-  if (!session?.user?.id) {
-    redirect(`/auth/login?callbackUrl=${encodeURIComponent(base)}`);
-  }
-
-  if (!session.user.verifiedRoles.includes("recruiter")) {
-    redirect("/");
-  }
+  const session = await requireRolePage("recruiter", { callbackPath: base });
 
   const isMember = await isInstitutionAdminBySlug(session.user.id, institutionSlug);
   if (!isMember) {

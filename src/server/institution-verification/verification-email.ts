@@ -42,7 +42,7 @@ export const sendInstitutionVerifiedEmail = async (options: {
       "Terima kasih telah bergabung dengan Lombakita.",
     ].join("\n"),
     html: `
-      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #0f1012;">
+      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #14453d;">
         <h2 style="margin-bottom: 12px;">Institusi terverifikasi</h2>
         <p style="margin: 0 0 12px;">
           Selamat! Institusi <strong>${options.institutionDisplayName}</strong> Anda telah berhasil diverifikasi di Lombakita.
@@ -51,11 +51,11 @@ export const sendInstitutionVerifiedEmail = async (options: {
           Anda kini dapat memublikasikan kompetisi dan mengelola anggota tim melalui dasbor institusi.
         </p>
         <p style="margin: 0 0 16px;">
-          <a href="${dashboardUrl}" style="background: #355795; color: #f4f8ff; text-decoration: none; padding: 10px 16px; border-radius: 8px; display: inline-block;">
+          <a href="${dashboardUrl}" style="background: #c6491b; color: #ffffff; text-decoration: none; padding: 10px 16px; border-radius: 8px; display: inline-block;">
             Buka dasbor
           </a>
         </p>
-        <p style="margin: 0; color: #4a5565;">Terima kasih telah bergabung dengan Lombakita.</p>
+        <p style="margin: 0; color: #3d5c56;">Terima kasih telah bergabung dengan Lombakita.</p>
       </div>
     `,
   });
@@ -95,20 +95,20 @@ export const sendInstitutionRejectedEmail = async (options: {
       contactUrl,
     ].join("\n"),
     html: `
-      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #0f1012;">
+      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #14453d;">
         <h2 style="margin-bottom: 12px;">Permohonan verifikasi ditolak</h2>
         <p style="margin: 0 0 12px;">
           Permohonan verifikasi untuk institusi <strong>${options.institutionDisplayName}</strong> tidak dapat disetujui saat ini.
         </p>
-        <div style="background: #f5f5f5; border-left: 3px solid #d00; padding: 10px 14px; margin: 0 0 16px; border-radius: 0 6px 6px 0;">
-          <p style="margin: 0; font-weight: bold; font-size: 13px; color: #555;">Alasan penolakan</p>
+        <div style="background: #ffe9da; border-left: 3px solid #c6491b; padding: 10px 14px; margin: 0 0 16px; border-radius: 0 6px 6px 0;">
+          <p style="margin: 0; font-weight: bold; font-size: 13px; color: #8f3512;">Alasan penolakan</p>
           <p style="margin: 6px 0 0; font-size: 14px;">${options.rejectionReason}</p>
         </div>
         <p style="margin: 0 0 16px;">
           Jika Anda memiliki pertanyaan atau ingin mengajukan banding, silakan hubungi tim dukungan kami.
         </p>
         <p style="margin: 0 0 16px;">
-          <a href="${contactUrl}" style="background: #355795; color: #f4f8ff; text-decoration: none; padding: 10px 16px; border-radius: 8px; display: inline-block;">
+          <a href="${contactUrl}" style="background: #c6491b; color: #ffffff; text-decoration: none; padding: 10px 16px; border-radius: 8px; display: inline-block;">
             Hubungi dukungan
           </a>
         </p>

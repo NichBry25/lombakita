@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Button } from "@/components/ui";
+import { IconButton } from "@/components/ui";
 import {
   readErrorCode,
   SESSION_MISMATCH_CODE,
@@ -48,8 +48,13 @@ export function DeleteNotificationButton({
   };
 
   return (
-    <Button type="button" onClick={onClick} loading={pending} variant="ghost" size="sm">
-      Hapus
-    </Button>
+    <IconButton
+      icon="trash"
+      label="Hapus notifikasi"
+      variant="danger"
+      size="sm"
+      onClick={onClick}
+      loading={pending}
+    />
   );
 }

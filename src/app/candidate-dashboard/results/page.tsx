@@ -1,20 +1,13 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { EmptyState, PageHeader } from "@/components/ui";
-import { getCurrentSession } from "@/server/auth/session";
-import { getUnverifiedRoles } from "@/server/auth/role-verification";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { listCandidatePublishedResults } from "@/server/participants/result-service";
 
 export default async function CandidateResultsPage() {
-  const session = await getCurrentSession();
-  if (!session?.user?.id) {
-    redirect("/auth/login?callbackUrl=/candidate-dashboard/results");
-  }
-
-  const unverified = await getUnverifiedRoles(session.user.id);
-  if (unverified.includes("candidate")) {
-    redirect("/auth/verify-role?as=candidate");
-  }
+  const session = await requireRolePage("candidate", {
+    callbackPath: "/candidate-dashboard/results",
+    missingRoleRedirect: "/auth/verify-role?as=candidate",
+  });
 
   const results = await listCandidatePublishedResults(session.user.id);
 

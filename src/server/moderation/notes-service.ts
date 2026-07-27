@@ -1,10 +1,14 @@
 import { desc, eq } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
-import { platformOpsNotes, users } from "@/server/db/schema";
+import { platformOpsAuditLogs, platformOpsNotes, users } from "@/server/db/schema";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { ModerationError } from "@/server/moderation/moderation-core";
 
 assertServerOnly("server/moderation/notes-service");
+
+// Creating a note needs no audit row — the note itself records its author and time. Only an edit
+// destroys prior state, so only an edit is audited.
+export const NOTE_EDITED_EVENT = "platform_ops_note.edited";
 
 export type NoteTarget = {
   targetUserId?: string | null;
@@ -83,7 +87,13 @@ export const editNote = async (
   }
 
   const [existing] = await db
-    .select({ id: platformOpsNotes.id, createdById: platformOpsNotes.createdById })
+    .select({
+      id: platformOpsNotes.id,
+      note: platformOpsNotes.note,
+      createdById: platformOpsNotes.createdById,
+      targetUserId: platformOpsNotes.targetUserId,
+      targetInstitutionId: platformOpsNotes.targetInstitutionId,
+    })
     .from(platformOpsNotes)
     .where(eq(platformOpsNotes.id, noteId))
     .limit(1);
@@ -92,16 +102,39 @@ export const editNote = async (
     throw new ModerationError("note_not_found", 404, "Note not found");
   }
 
-  const [row] = await db
-    .update(platformOpsNotes)
-    .set({ note: trimmed })
-    .where(eq(platformOpsNotes.id, noteId))
-    .returning({
-      id: platformOpsNotes.id,
-      note: platformOpsNotes.note,
-      createdById: platformOpsNotes.createdById,
-      createdAt: platformOpsNotes.createdAt,
-    });
+  // An edit overwrites the note in place, and any platform_ops actor may edit any note regardless
+  // of who wrote it. Without this the replaced text would be unrecoverable and the fact that
+  // someone else rewrote another operator's note would leave no trace at all. The previous text is
+  // captured in the audit row, in the same transaction as the overwrite.
+  const [row] = await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(platformOpsNotes)
+      .set({ note: trimmed })
+      .where(eq(platformOpsNotes.id, noteId))
+      .returning({
+        id: platformOpsNotes.id,
+        note: platformOpsNotes.note,
+        createdById: platformOpsNotes.createdById,
+        createdAt: platformOpsNotes.createdAt,
+      });
+
+    if (updated.length > 0) {
+      await tx.insert(platformOpsAuditLogs).values({
+        actorUserId,
+        // The note's own XOR target carries over, satisfying the audit table's target CHECK.
+        targetUserId: existing.targetUserId,
+        targetInstitutionId: existing.targetInstitutionId,
+        eventType: NOTE_EDITED_EVENT,
+        metadata: {
+          noteId,
+          previousNote: existing.note,
+          noteAuthorId: existing.createdById,
+        },
+      });
+    }
+
+    return updated;
+  });
 
   if (!row) throw new Error("Failed to update platform ops note");
   return { ...row, createdByName: null };

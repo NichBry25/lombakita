@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { AccessError } from "@/server/auth/access-core";
 import { getDb, type Database } from "@/server/db/client";
 import {
@@ -14,6 +14,10 @@ import {
   getInstitutionDisplayName,
   institutionOwnerUsernameSql,
 } from "@/server/institution-workspace/institution-display-name";
+import {
+  isPersonalInstitutionType,
+  PERSONAL_INSTITUTION_TYPE,
+} from "@/server/institution-workspace/institution-type";
 import {
   assertValidTransition,
   isVerificationStatus,
@@ -60,6 +64,14 @@ export type VerifyResult = {
 
 const PAGE_SIZE = 20;
 
+// A personal institution has no document verification: it IS its owner, and that owner is vetted
+// by the account-level Trusted Recruiter review. `createVerificationSubmission` refuses one
+// outright, so a personal row could only ever sit in this queue as a permanently inert entry an
+// operator has no evidence to act on. Excluded from both the page query and the count so
+// pagination and the total agree. A personal→full upgrade resets verification_status, so an
+// upgraded institution enters this queue on its own merits.
+const NON_PERSONAL_INSTITUTION = ne(institutions.institutionType, PERSONAL_INSTITUTION_TYPE);
+
 const requirePlatformOps = (actorRole: string): void => {
   if (actorRole !== "platform_ops") {
     throw new AccessError("forbidden", 403, "platform_ops access required");
@@ -82,6 +94,10 @@ export const listInstitutionsForPlatformOps = async (options: {
     typeof options.statusFilter === "string" && isVerificationStatus(options.statusFilter)
       ? eq(institutions.verificationStatus, options.statusFilter)
       : undefined;
+
+  const listWhere = statusWhere
+    ? and(NON_PERSONAL_INSTITUTION, statusWhere)
+    : NON_PERSONAL_INSTITUTION;
 
   const rows = await db
     .select({
@@ -109,7 +125,7 @@ export const listInstitutionsForPlatformOps = async (options: {
       )`,
     })
     .from(institutions)
-    .where(statusWhere)
+    .where(listWhere)
     .orderBy(desc(institutions.createdAt))
     .limit(PAGE_SIZE)
     .offset(offset);
@@ -118,7 +134,7 @@ export const listInstitutionsForPlatformOps = async (options: {
   const [countRow] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(institutions)
-    .where(statusWhere);
+    .where(listWhere);
 
   // Resolve the display name through the helper: a personal institution stores NULL and derives its
   // name from the owner username; full/legacy institutions use the stored value.
@@ -190,6 +206,17 @@ export const verifyInstitution = async (options: {
 
   if (!current) {
     throw new VerificationError("verification_not_found", 404, "Institution not found");
+  }
+
+  // Personal institutions are filtered out of the platform-ops queue, so this only fires for a
+  // request made directly against the endpoint by id. It is the actual guard, not a courtesy:
+  // without it the hidden row would still accept a transition and write a meaningless audit entry.
+  if (isPersonalInstitutionType(current.institutionType)) {
+    throw new VerificationError(
+      "institution_verification_not_applicable",
+      409,
+      "A personal institution has no document verification to review",
+    );
   }
 
   assertValidTransition(current.verificationStatus, options.targetStatus);

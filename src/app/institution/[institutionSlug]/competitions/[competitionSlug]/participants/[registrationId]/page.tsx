@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { AccessError } from "@/server/auth/access-core";
-import { getCurrentSession } from "@/server/auth/session";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { getDb } from "@/server/db/client";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import { getCompetitionIdByInstitutionAndSlug } from "@/server/competitions/competition-service";
@@ -18,17 +18,11 @@ type Props = {
 
 export default async function RegistrationReviewPage({ params }: Props) {
   const { institutionSlug, competitionSlug, registrationId } = await params;
-  const session = await getCurrentSession();
 
   const listPath = `/institution/${institutionSlug}/competitions/${competitionSlug}/participants`;
   const selfPath = `${listPath}/${registrationId}`;
 
-  if (!session?.user?.id) {
-    redirect(`/auth/login?callbackUrl=${encodeURIComponent(selfPath)}`);
-  }
-  if (!session.user.verifiedRoles.includes("recruiter")) {
-    redirect("/");
-  }
+  const session = await requireRolePage("recruiter", { callbackPath: selfPath });
 
   const db = getDb();
   let institutionId: string;
@@ -73,7 +67,7 @@ export default async function RegistrationReviewPage({ params }: Props) {
       <PageHeader
         eyebrow="Tinjauan peserta"
         title="Detail peserta"
-        description="Catatan internal dan hasil publik dikelola secara terpisah."
+        description="Catatan internal tidak terlihat oleh peserta."
         backHref={listPath}
         backLabel="Peserta"
       />

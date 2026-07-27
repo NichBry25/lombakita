@@ -8,12 +8,27 @@ import {
 import { PUBLIC_COMPETITION_COLUMNS } from "@/server/competitions/competition-access";
 import type { CompetitionRow } from "@/server/competitions/competition-access";
 
-const { assertCompetitionAccess, assertActorIsTrustedRecruiter, assertInstitutionNotSuspended } =
-  vi.hoisted(() => ({
-    assertCompetitionAccess: vi.fn(),
-    assertActorIsTrustedRecruiter: vi.fn(),
-    assertInstitutionNotSuspended: vi.fn(),
-  }));
+const {
+  assertCompetitionAccess,
+  assertActorIsTrustedRecruiter,
+  assertInstitutionNotSuspended,
+  enqueueCompetitionSearchSync,
+  enqueueCompetitionEdited,
+  enqueueCompetitionCancelled,
+} = vi.hoisted(() => ({
+  assertCompetitionAccess: vi.fn(),
+  assertActorIsTrustedRecruiter: vi.fn(),
+  assertInstitutionNotSuspended: vi.fn(),
+  enqueueCompetitionSearchSync: vi.fn(async () => ({})),
+  enqueueCompetitionEdited: vi.fn(async () => ({})),
+  enqueueCompetitionCancelled: vi.fn(async () => ({})),
+}));
+
+vi.mock("@/server/async/enqueue", () => ({
+  enqueueCompetitionSearchSync,
+  enqueueCompetitionEdited,
+  enqueueCompetitionCancelled,
+}));
 
 vi.mock("@/server/competitions/competition-access", async () => {
   const actual = await vi.importActual<typeof import("@/server/competitions/competition-access")>(
@@ -397,5 +412,104 @@ describe("getCompetitionIdByInstitutionAndSlug", () => {
     expect(idA).toBe("comp_1");
     expect(idB).toBe("comp_2");
     expect(idA).not.toBe(idB);
+  });
+});
+
+// A personal institution is never document-verified — it has no documents, and it is excluded
+// from the platform-ops verification queue for exactly that reason. These tests pin the
+// consequence that matters: excluding it costs it no capability. Publishing is gated on the
+// ACCOUNT-level Trusted Recruiter check plus the personal reach cap, and reads nothing about the
+// institution's verification_status (assertInstitutionVerified has no caller on this path).
+describe("personal institution publish — capability is independent of institution verification", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  const future = (days: number): Date => {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d;
+  };
+
+  const publishableDraft = () =>
+    baseCompetition({
+      status: "draft",
+      mode: "individual",
+      title: "Lomba Individu",
+      description: "Deskripsi lengkap",
+      category: "hackathon",
+      registrationStartAt: future(2),
+      registrationEndAt: future(10),
+      eventStartAt: future(20),
+      eventEndAt: future(25),
+    });
+
+  // Serves exactly the reads the publish path is expected to make, in order:
+  //   1. loadInstitutionTypeById  → 'personal'
+  //   2. published-competition count for the reach cap
+  // Anything beyond that — a re-wired institution-verification lookup, for instance — draws an
+  // empty result and fails the transition, so this mock is the tripwire, not just a stub.
+  const makePersonalPublishDb = (publishedCount: number) => {
+    const selectResults: unknown[][] = [[{ institutionType: "personal" }], [{ count: publishedCount }]];
+    let selectCall = 0;
+    const capturedUpdates: Record<string, unknown>[] = [];
+
+    const selectNode = (result: unknown[]): Record<string, unknown> => {
+      const n: Record<string, unknown> = {};
+      for (const method of ["from", "innerJoin", "orderBy"]) n[method] = () => n;
+      n.where = () => {
+        const terminal = { ...n } as Record<string, unknown>;
+        terminal.then = (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve);
+        return terminal;
+      };
+      n.limit = () => Promise.resolve(result);
+      return n;
+    };
+
+    const db = {
+      select: () => selectNode(selectResults[selectCall++] ?? []),
+      update: () => ({
+        set: (values: Record<string, unknown>) => {
+          capturedUpdates.push(values);
+          return {
+            where: () => ({
+              returning: () =>
+                Promise.resolve([{ ...publishableDraft(), status: "published", publishedAt: new Date() }]),
+            }),
+          };
+        },
+      }),
+    } as unknown as Database;
+
+    return { db, capturedUpdates };
+  };
+
+  it("publishes an individual-mode competition for a personal institution under the cap", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: publishableDraft(),
+      membershipRole: "institution_owner",
+    });
+    assertActorIsTrustedRecruiter.mockResolvedValue(undefined);
+    assertInstitutionNotSuspended.mockResolvedValue(undefined);
+    const { db, capturedUpdates } = makePersonalPublishDb(1);
+
+    const result = await transitionCompetitionStatus("user_1", "comp_1", "published", db);
+
+    expect(result.competition.status).toBe("published");
+    expect(capturedUpdates[0]).toMatchObject({ status: "published" });
+    // The account-level trust gate is what authorizes this publish.
+    expect(assertActorIsTrustedRecruiter).toHaveBeenCalledTimes(1);
+  });
+
+  it("still enforces the personal reach cap — the capability is bounded, not unconditional", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: publishableDraft(),
+      membershipRole: "institution_owner",
+    });
+    assertActorIsTrustedRecruiter.mockResolvedValue(undefined);
+    assertInstitutionNotSuspended.mockResolvedValue(undefined);
+    const { db } = makePersonalPublishDb(2);
+
+    await expect(
+      transitionCompetitionStatus("user_1", "comp_1", "published", db),
+    ).rejects.toMatchObject({ code: "competition_personal_publish_limit", httpStatus: 422 });
   });
 });

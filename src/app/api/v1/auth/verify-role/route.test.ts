@@ -189,4 +189,26 @@ describe("POST /api/v1/auth/verify-role", () => {
       null,
     );
   });
+
+  // An operational account is created as a candidate or recruiter before being promoted, so it
+  // carries a participant verification timestamp it must never be able to build on. Granting
+  // itself the other participant role here would file its own trust submission, which the same
+  // account can then approve from the platform-ops queue.
+  it.each(["platform_ops", "finance_ops"] as const)(
+    "refuses a %s session and writes nothing",
+    async (role) => {
+      getServerSessionMock.mockResolvedValue(buildSession({ role, verifiedRoles: ["candidate"] }));
+
+      const response = await POST(
+        buildRequest({
+          role: "recruiter",
+          fullName: "Rendra Wijaya",
+          mobileNumber: "0812345678",
+        }),
+      );
+
+      expect(response.status).toBe(403);
+      expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
+    },
+  );
 });

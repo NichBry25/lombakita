@@ -1,26 +1,17 @@
-import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { getCurrentSession } from "@/server/auth/session";
+import { requireRolePage } from "@/server/auth/page-guard";
 
 const PAGE_PATH = "/admin/institutions";
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {
-  const session = await getCurrentSession();
-
-  if (!session?.user?.id) {
-    redirect(`/auth/login?callbackUrl=${encodeURIComponent(PAGE_PATH)}`);
-  }
-
-  if (session.user.role !== "platform_ops") {
-    redirect("/");
-  }
+  await requireRolePage("platform_ops", { callbackPath: PAGE_PATH });
 
   return (
     <div className="admin-shell">
-      <nav className="admin-nav glass-chrome" aria-label="Navigasi Platform Ops">
+      <nav className="admin-nav glass-chrome" aria-label="Navigasi Platform Operations">
         <Link href="/admin" className="admin-nav-brand">
-          Platform Ops
+          Platform Operations
         </Link>
         <div className="admin-nav-links">
           <Link href="/admin/institutions">Institusi</Link>

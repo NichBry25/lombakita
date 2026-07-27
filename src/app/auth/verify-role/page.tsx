@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 import { ButtonLink, Feedback } from "@/components/ui";
+import { isSelfServiceRole } from "@/lib/access/roles";
 import { getCurrentSession } from "@/server/auth/session";
 import {
   dashboardPathForRole,
@@ -24,6 +25,13 @@ export default async function VerifyRolePage(props: { searchParams?: Promise<{ a
     redirect("/auth/login?callbackUrl=/");
   }
 
+  // Only a self-service account may acquire a participant role. Operational accounts still carry
+  // the candidate or recruiter verification they were created with, but must not collect another
+  // — mirrors the role gate on the completion endpoint.
+  if (!isSelfServiceRole(session.user.role)) {
+    redirect("/");
+  }
+
   const searchParams = await props.searchParams;
   const asParam = searchParams?.as;
 
@@ -31,8 +39,8 @@ export default async function VerifyRolePage(props: { searchParams?: Promise<{ a
     return (
       <AuthPageFrame
         eyebrow="Verifikasi peran"
-        title="Peran menentukan jalur verifikasi yang tepat."
-        description="Kandidat dan rekruter memiliki kebutuhan akses yang berbeda dan diverifikasi secara terpisah."
+        title="Pilih peran Anda."
+        description="Kandidat dan rekruter diverifikasi terpisah."
       >
         <div className="auth-state stack-md">
           <span className="auth-state-icon" data-tone="error" aria-hidden="true">
@@ -66,7 +74,7 @@ export default async function VerifyRolePage(props: { searchParams?: Promise<{ a
     <AuthPageFrame
       eyebrow="Verifikasi peran"
       title="Lengkapi data untuk membuka akses."
-      description="Setiap peran melewati jalur verifikasi tersendiri agar tindakan kandidat dan penyelenggara tetap dapat dipertanggungjawabkan."
+      description="Kandidat dan rekruter diverifikasi terpisah. Anda bisa menambah peran lain nanti."
     >
       <div className="stack-md">
         <header className="auth-entry-header">

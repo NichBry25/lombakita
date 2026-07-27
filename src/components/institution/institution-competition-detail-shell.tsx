@@ -5,11 +5,12 @@ import {
   Button,
   ButtonLink,
   EmptyState,
+  IconButtonLink,
   PageHeader,
   Skeleton,
   usePageTransition,
 } from "@/components/ui";
-import { useModal } from "@/components/ui/primitives";
+import { useModal, useToast } from "@/components/ui/primitives";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
@@ -41,10 +42,12 @@ type PublishValidationFailure = {
   message: string;
 };
 
-type Feedback =
-  | { type: "success"; message: string }
-  | { type: "error"; message: string; failures?: PublishValidationFailure[] }
-  | null;
+const formatFailures = (failures: PublishValidationFailure[] | undefined): string => {
+  if (!failures || failures.length === 0) return "";
+  return failures
+    .map((f) => `${getCompetitionFieldLabel(f.field)} — ${capitalizeFirst(f.message)}`)
+    .join("; ");
+};
 
 const extractError = async (
   response: Response,
@@ -84,6 +87,7 @@ export const InstitutionCompetitionDetailShell = ({
   competitionId: string;
 }) => {
   const { openModal } = useModal();
+  const { addToast } = useToast();
   const { begin: beginPageTransition } = usePageTransition();
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -91,7 +95,6 @@ export const InstitutionCompetitionDetailShell = ({
   // that button spins while the rest stay locked.
   const [pendingAction, setPendingAction] = useState<ActionKind | "delete" | null>(null);
   const isSubmitting = pendingAction !== null;
-  const [feedback, setFeedback] = useState<Feedback>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -101,14 +104,14 @@ export const InstitutionCompetitionDetailShell = ({
     });
     if (!response.ok) {
       const { message } = await extractError(response);
-      setFeedback({ type: "error", message });
+      addToast({ type: "error", message });
       setIsLoading(false);
       return;
     }
     const data = (await response.json()) as { competition: Competition };
     setCompetition(data.competition);
     setIsLoading(false);
-  }, [competitionId]);
+  }, [competitionId, addToast]);
 
   useEffect(() => {
     const id = window.setTimeout(() => {
@@ -117,39 +120,66 @@ export const InstitutionCompetitionDetailShell = ({
     return () => window.clearTimeout(id);
   }, [load]);
 
+  useEffect(() => {
+    if (competition?.status === "archived") {
+      addToast({ type: "info", message: "Kompetisi sudah diarsipkan (terminal)." });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [competition?.status]);
+
   const onAction = async (action: ActionKind) => {
     setPendingAction(action);
-    setFeedback(null);
     const url = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}/${action}`;
     const response = await fetch(url, { method: "POST", credentials: "include" });
     if (!response.ok) {
       const { message, failures } = await extractError(response);
-      setFeedback({ type: "error", message, failures });
+      const failureText = formatFailures(failures);
+      addToast({
+        type: "error",
+        message: failureText ? `${message} (${failureText})` : message,
+      });
       setPendingAction(null);
       return;
     }
-    setFeedback({ type: "success", message: actionLabel[action] });
+    addToast({ type: "success", message: actionLabel[action] });
     setPendingAction(null);
     void load();
   };
 
-  const onDelete = async () => {
-    if (!confirm("Hapus draf ini?")) return;
+  const runDelete = async () => {
     setPendingAction("delete");
-    setFeedback(null);
     const response = await fetch(`/api/v1/competitions/${encodeURIComponent(competitionId)}`, {
       method: "DELETE",
       credentials: "include",
     });
     if (!response.ok && response.status !== 204) {
       const { message } = await extractError(response);
-      setFeedback({ type: "error", message });
+      addToast({ type: "error", message });
       setPendingAction(null);
       return;
     }
     // Deleting the draft leaves this page for the competition list.
     beginPageTransition("Menghapus draf…");
     window.location.href = `/institution/${encodeURIComponent(institutionSlug)}/competitions`;
+  };
+
+  const confirmDelete = () => {
+    openModal({
+      title: "Hapus draf ini?",
+      closeable: true,
+      body: "Draf kompetisi ini akan dihapus permanen. Tindakan ini tidak dapat dibatalkan.",
+      actions: [
+        { label: "Batal", variant: "secondary", autoClose: true, onClick: () => {} },
+        {
+          label: "Hapus draf",
+          variant: "danger",
+          autoClose: true,
+          onClick: () => {
+            void runDelete();
+          },
+        },
+      ],
+    });
   };
 
   if (isLoading) {
@@ -170,7 +200,7 @@ export const InstitutionCompetitionDetailShell = ({
         <EmptyState
           icon="trophy"
           title="Kompetisi tidak ditemukan."
-          description={feedback?.message ?? "Data kompetisi tidak dapat dimuat."}
+          description="Data kompetisi tidak dapat dimuat."
           action={
             <ButtonLink href={`/institution/${institutionSlug}/competitions`} variant="outline">
               Kembali ke daftar
@@ -209,15 +239,15 @@ export const InstitutionCompetitionDetailShell = ({
             <p className="eyebrow">Ringkasan konfigurasi</p>
             <h2>Informasi kompetisi</h2>
           </div>
-          <ButtonLink
+          <IconButtonLink
             href={`/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(
               competition.slug,
             )}/edit`}
+            icon="edit"
+            label="Edit kompetisi"
             variant="outline"
             size="sm"
-          >
-            Edit
-          </ButtonLink>
+          />
         </div>
         <dl className="management-detail-grid">
           <div>
@@ -272,25 +302,22 @@ export const InstitutionCompetitionDetailShell = ({
               onClick={() => onAction("publish")}
               loading={pendingAction === "publish"}
               disabled={isSubmitting}
-              type="button"
             >
-              Publish
+              Terbitkan
             </Button>
             <Button
               variant="outline"
               onClick={() => onAction("archive")}
               loading={pendingAction === "archive"}
               disabled={isSubmitting}
-              type="button"
             >
               Arsipkan
             </Button>
             <Button
               variant="danger"
-              onClick={onDelete}
+              onClick={confirmDelete}
               loading={pendingAction === "delete"}
               disabled={isSubmitting}
-              type="button"
             >
               Hapus draf
             </Button>
@@ -308,7 +335,7 @@ export const InstitutionCompetitionDetailShell = ({
                   actions: [
                     { label: "Batal", variant: "secondary", autoClose: true, onClick: () => {} },
                     {
-                      label: "Tarik publikasi & batalkan pendaftaran",
+                      label: "Tarik publikasi",
                       variant: "danger",
                       autoClose: true,
                       onClick: () => {
@@ -320,43 +347,20 @@ export const InstitutionCompetitionDetailShell = ({
               }
               loading={pendingAction === "unpublish"}
               disabled={isSubmitting}
-              type="button"
             >
-              Unpublish (batalkan semua pendaftaran)
+              Tarik publikasi
             </Button>
             <Button
               variant="outline"
               onClick={() => onAction("archive")}
               loading={pendingAction === "archive"}
               disabled={isSubmitting}
-              type="button"
             >
               Arsipkan
             </Button>
           </div>
         ) : null}
-        {isArchived ? (
-          <p className="feedback" data-tone="info">
-            Kompetisi sudah diarsipkan (terminal).
-          </p>
-        ) : null}
       </section>
-
-      {feedback ? (
-        <div role="status" className="feedback" data-tone={feedback.type}>
-          <p>{feedback.message}</p>
-          {feedback.type === "error" && feedback.failures && feedback.failures.length > 0 ? (
-            <ul>
-              {feedback.failures.map((f) => (
-                <li key={`${f.field}-${f.code}`}>
-                  <strong>{getCompetitionFieldLabel(f.field)}</strong> —{" "}
-                  {capitalizeFirst(f.message)}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
     </main>
   );
 };

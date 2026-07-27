@@ -81,7 +81,7 @@ describe("HomePage", () => {
     expect(html).not.toContain("Kompetisi ternama");
     expect(html).not.toContain("featured-carousel");
     // Rest of the page still renders.
-    expect(html).toContain("Satu tempat untuk beragam arena");
+    expect(html).toContain("Pilih arenamu");
   });
 
   it("degrades to no featured rail — and records the failure — when the fetch throws", async () => {
@@ -91,7 +91,7 @@ describe("HomePage", () => {
     const html = renderToStaticMarkup(await HomePage());
 
     expect(html).toContain("Temukan kompetisi yang");
-    expect(html).toContain("Satu tempat untuk beragam arena");
+    expect(html).toContain("Pilih arenamu");
     expect(html).not.toContain("Kompetisi ternama");
 
     // Degraded, but not silently — the failure is logged for observability.

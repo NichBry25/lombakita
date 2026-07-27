@@ -81,7 +81,7 @@ export function CompetitionReviewForm({ competitionId, expectedUserId, initialRe
       </div>
       <div className="form-field">
         <label className="form-label" htmlFor="review-body">
-          Ulasan (opsional)
+          Ulasan (Opsional)
         </label>
         <textarea
           id="review-body"

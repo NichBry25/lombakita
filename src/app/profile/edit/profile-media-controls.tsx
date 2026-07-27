@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Icon } from "@/components/ui";
+import { Button, Icon, IconButton } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import type { OwnerResume } from "@/server/user-profile/profile-collections-core";
 import { AvatarCropEditor, type AvatarCropApi } from "./avatar-crop-editor";
@@ -120,9 +120,14 @@ export function AvatarUpload({
           Foto
         </Button>
         {currentUrl && (
-          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onRemove}>
-            Hapus
-          </Button>
+          <IconButton
+            icon="trash"
+            label="Hapus foto profil"
+            variant="danger"
+            size="sm"
+            disabled={busy}
+            onClick={onRemove}
+          />
         )}
         <p className="pf-media-hint">JPG, PNG, atau WebP · maks 5 MB</p>
       </div>
@@ -240,9 +245,14 @@ export function ResumeSection({
             >
               Resume
             </Button>
-            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onRemove}>
-              Hapus
-            </Button>
+            <IconButton
+              icon="trash"
+              label="Hapus resume"
+              variant="danger"
+              size="sm"
+              disabled={busy}
+              onClick={onRemove}
+            />
           </div>
         </div>
       ) : (

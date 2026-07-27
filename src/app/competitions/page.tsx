@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Button, Icon, SkeletonCard } from "@/components/ui";
+import { Button, Icon, Pagination, SkeletonCard } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
@@ -277,28 +277,13 @@ export default function PublicCompetitionsPage() {
             </div>
           )}
 
-          {meta && meta.totalPages > 1 ? (
-            <nav className="pagination" aria-label="Halaman hasil kompetisi">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
-                disabled={page <= 1}
-              >
-                Sebelumnya
-              </Button>
-              <span className="pagination-status data-text">
-                Halaman {meta.page} / {meta.totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPage((currentPage) => Math.min(meta.totalPages, currentPage + 1))}
-                disabled={page >= meta.totalPages}
-              >
-                Berikutnya
-              </Button>
-            </nav>
+          {meta ? (
+            <Pagination
+              page={meta.page}
+              totalPages={meta.totalPages}
+              label="Halaman hasil kompetisi"
+              onPageChange={setPage}
+            />
           ) : null}
         </section>
       </div>

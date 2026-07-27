@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { isSelfServiceRole } from "@/lib/access/roles";
 import { Button, Icon } from "@/components/ui";
 
 // Global event name. Components can dispatch this on `window` to manually re-trigger the modal
@@ -81,6 +82,10 @@ export function SecondRolePromptModal() {
   }, []);
 
   if (status !== "authenticated" || !session?.user) return null;
+
+  // An operational account carries the participant verification it was created with, so it would
+  // otherwise be offered the second role here — an offer the verify-role endpoint refuses.
+  if (!isSelfServiceRole(session.user.role)) return null;
 
   const verified = Array.isArray(session.user.verifiedRoles) ? session.user.verifiedRoles : [];
   const verifiedRoleCandidates = verified.filter(isCandidateOrRecruiter);

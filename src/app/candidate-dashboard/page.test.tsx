@@ -50,7 +50,12 @@ const FUTURE = new Date("2026-12-01T00:00:00.000Z");
 const NOW_TS = new Date("2026-06-01T12:00:00.000Z");
 
 const validSession = {
-  user: { id: "u_candidate", email: "c@example.com" },
+  user: {
+    id: "u_candidate",
+    email: "c@example.com",
+    role: "candidate",
+    verifiedRoles: ["candidate"],
+  },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
@@ -145,7 +150,12 @@ describe("Step 9 & 10 — Session guard redirects", () => {
 
   it("Step 9 — redirects recruiter-only session (unverified candidate) to verify-role", async () => {
     mockGetCurrentSession.mockResolvedValue({
-      user: { id: "u_recruiter", email: "r@example.com" },
+      user: {
+        id: "u_recruiter",
+        email: "r@example.com",
+        role: "recruiter",
+        verifiedRoles: ["recruiter"],
+      },
       expires: new Date(Date.now() + 60_000).toISOString(),
     });
     mockGetUnverifiedRoles.mockResolvedValue(["candidate"]);

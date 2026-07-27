@@ -193,7 +193,7 @@ export function IndividualRegistrationSection({
           <span className="status-badge" data-status="closed">
             Pendaftaran dibatalkan
           </span>
-          <p className="form-help">Pendaftaran ulang tidak tersedia untuk MVP.</p>
+          <p className="form-help">Pendaftaran ulang belum tersedia.</p>
         </div>
       ) : (
         <Button

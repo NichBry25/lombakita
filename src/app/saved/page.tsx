@@ -1,9 +1,7 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { sessionHasRole } from "@/lib/access/roles";
-import { getCurrentSession } from "@/server/auth/session";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { listSavedCompetitions } from "@/server/saved-competitions/saved-competition-service";
-import { ButtonLink, EmptyState, Icon, PageHeader } from "@/components/ui";
+import { ButtonLink, EmptyState, Icon, PageHeader, Pagination } from "@/components/ui";
 
 const formatDate = (d: Date | null) =>
   d
@@ -19,11 +17,7 @@ export default async function SavedCompetitionsPage({
 }: {
   searchParams: Promise<{ page?: string }>;
 }) {
-  const session = await getCurrentSession();
-
-  if (!session || !sessionHasRole(session.user.role, session.user.verifiedRoles, "candidate")) {
-    redirect("/auth/login");
-  }
+  const session = await requireRolePage("candidate", { callbackPath: "/saved" });
 
   const { page: pageParam } = await searchParams;
   const page = pageParam ? Number.parseInt(pageParam, 10) : 1;
@@ -35,7 +29,7 @@ export default async function SavedCompetitionsPage({
       <PageHeader
         eyebrow="Koleksi pribadi"
         title="Kompetisi tersimpan"
-        description="Kumpulan peluang yang ingin kamu pertimbangkan, tersusun untuk dibaca kembali."
+        description="Peluang yang kamu simpan untuk dibaca lagi."
         actions={
           <ButtonLink href="/competitions" variant="primary" size="sm">
             Jelajahi kompetisi
@@ -47,7 +41,7 @@ export default async function SavedCompetitionsPage({
         <EmptyState
           icon="bookmark"
           title="Belum ada kompetisi tersimpan."
-          description="Gunakan tombol simpan pada halaman detail kompetisi untuk membangun daftar pertimbanganmu."
+          description="Gunakan tombol simpan di halaman detail kompetisi untuk mengisi daftar ini."
           action={
             <ButtonLink href="/competitions" variant="outline">
               Jelajahi kompetisi
@@ -89,23 +83,12 @@ export default async function SavedCompetitionsPage({
         </ul>
       )}
 
-      {result.meta.totalPages > 1 ? (
-        <nav className="pagination" aria-label="Halaman kompetisi tersimpan">
-          {page > 1 ? (
-            <ButtonLink variant="outline" size="sm" href={`/saved?page=${page - 1}`}>
-              ← Sebelumnya
-            </ButtonLink>
-          ) : null}
-          <span className="pagination-status data-text">
-            Halaman {result.meta.page} dari {result.meta.totalPages}
-          </span>
-          {page < result.meta.totalPages ? (
-            <ButtonLink variant="outline" size="sm" href={`/saved?page=${page + 1}`}>
-              Berikutnya →
-            </ButtonLink>
-          ) : null}
-        </nav>
-      ) : null}
+      <Pagination
+        page={result.meta.page}
+        totalPages={result.meta.totalPages}
+        label="Halaman kompetisi tersimpan"
+        hrefFor={(target) => `/saved?page=${target}`}
+      />
     </main>
   );
 }

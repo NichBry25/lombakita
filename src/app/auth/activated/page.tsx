@@ -11,8 +11,8 @@ export default async function ActivatedPage(props: { searchParams?: Promise<{ em
   return (
     <AuthPageFrame
       eyebrow="Verifikasi email"
-      title="Akses dimulai dari identitas yang terkonfirmasi."
-      description="Email yang terverifikasi menjaga akun dan setiap tindakan berikutnya tetap terhubung dengan pemilik yang tepat."
+      title="Akun Anda siap."
+      description="Simpan kompetisi, daftar, dan pantau hasilnya dari satu dasbor."
     >
       <div className="auth-state stack-md">
         <span className="auth-state-icon" aria-hidden="true">
@@ -24,7 +24,7 @@ export default async function ActivatedPage(props: { searchParams?: Promise<{ em
           <p>Verifikasi berhasil. Lanjutkan login menggunakan email dan password Anda.</p>
         </div>
         <ButtonLink href={signInHref} variant="primary">
-          Lanjut ke Login
+          Lanjut ke halaman masuk
         </ButtonLink>
       </div>
     </AuthPageFrame>

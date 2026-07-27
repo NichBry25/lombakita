@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation";
 import { AccessError } from "@/server/auth/access-core";
-import { getCurrentSession } from "@/server/auth/session";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { getDb } from "@/server/db/client";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { desc, eq, sql } from "drizzle-orm";
 import { institutionAuditLogs, users } from "@/server/db/schema";
-import { ButtonLink, EmptyState, PageHeader } from "@/components/ui";
+import { EmptyState, PageHeader, Pagination } from "@/components/ui";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 
 type Props = {
@@ -14,18 +14,11 @@ type Props = {
 };
 
 export default async function AuditLogPage({ params, searchParams }: Props) {
-  const session = await getCurrentSession();
   const { institutionSlug } = await params;
   const sp = await searchParams;
 
   const path = `/institution/${institutionSlug}/audit-log`;
-
-  if (!session?.user?.id) {
-    redirect(`/auth/login?callbackUrl=${encodeURIComponent(path)}`);
-  }
-  if (!session.user.verifiedRoles.includes("recruiter")) {
-    redirect("/");
-  }
+  const session = await requireRolePage("recruiter", { callbackPath: path });
 
   const db = getDb();
   let institutionId: string;
@@ -70,9 +63,6 @@ export default async function AuditLogPage({ params, searchParams }: Props) {
   const total = countRows[0]?.count ?? 0;
   const totalPages = total > 0 ? Math.ceil(total / limit) : 0;
 
-  const prevHref = page > 1 ? `${path}?page=${page - 1}` : null;
-  const nextHref = page < totalPages ? `${path}?page=${page + 1}` : null;
-
   return (
     <main className="page-shell app-page audit-log-page">
       <PageHeader
@@ -87,7 +77,7 @@ export default async function AuditLogPage({ params, searchParams }: Props) {
         <EmptyState
           icon="inbox"
           title="Belum ada entri audit."
-          description="Tindakan administratif dan perubahan penting akan tercatat di sini."
+          description="Tindakan administratif dan perubahan penting akan muncul di sini."
         />
       ) : (
         <section className="content-section">
@@ -125,31 +115,12 @@ export default async function AuditLogPage({ params, searchParams }: Props) {
         </section>
       )}
 
-      {totalPages > 1 && (
-        <nav className="pagination" aria-label="Halaman log audit">
-          {prevHref ? (
-            <ButtonLink href={prevHref} variant="outline" size="sm">
-              ← Sebelumnya
-            </ButtonLink>
-          ) : (
-            <span className="ui-button" data-variant="outline" data-size="sm" aria-disabled="true">
-              ← Sebelumnya
-            </span>
-          )}
-          <span className="pagination-status data-text">
-            Halaman {page} dari {totalPages}
-          </span>
-          {nextHref ? (
-            <ButtonLink href={nextHref} variant="outline" size="sm">
-              Selanjutnya →
-            </ButtonLink>
-          ) : (
-            <span className="ui-button" data-variant="outline" data-size="sm" aria-disabled="true">
-              Selanjutnya →
-            </span>
-          )}
-        </nav>
-      )}
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        label="Halaman log audit"
+        hrefFor={(target) => `${path}?page=${target}`}
+      />
     </main>
   );
 }

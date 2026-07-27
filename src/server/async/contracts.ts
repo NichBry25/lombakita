@@ -22,6 +22,7 @@ export const ASYNC_JOB_NAMES = {
   competitionCancelled: "competition.cancelled",
   institutionInvitationDispatch: "institution.invitation.dispatch",
   teamInvitationDispatch: "team.invitation.dispatch",
+  recruiterVerificationRejected: "recruiter.verification.rejected",
 } as const;
 
 export type AsyncJobName = (typeof ASYNC_JOB_NAMES)[keyof typeof ASYNC_JOB_NAMES];
@@ -100,6 +101,19 @@ export type TeamInvitationDispatchPayload = {
   rawToken: string;
 };
 
+// Recruiter trust verification rejected. The reason and the reopen decision are carried on the
+// payload rather than re-read at job-run time: the recruiter may reopen the submission before the
+// job runs, at which point the row no longer reflects the verdict this notification is about.
+// `epoch` is the rejection timestamp folded into the idempotency key (DEC-0081) so each distinct
+// rejection of the same submission produces its own notification.
+export type RecruiterVerificationRejectedPayload = {
+  submissionId: string;
+  userId: string;
+  rejectionReason: string;
+  resubmissionAllowed: boolean;
+  epoch: number;
+};
+
 export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.probePing]: AsyncProbeJobPayload;
   [ASYNC_JOB_NAMES.competitionSearchSync]: CompetitionSearchSyncPayload;
@@ -111,6 +125,7 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.competitionCancelled]: CompetitionCancelledPayload;
   [ASYNC_JOB_NAMES.institutionInvitationDispatch]: InstitutionInvitationDispatchPayload;
   [ASYNC_JOB_NAMES.teamInvitationDispatch]: TeamInvitationDispatchPayload;
+  [ASYNC_JOB_NAMES.recruiterVerificationRejected]: RecruiterVerificationRejectedPayload;
 };
 
 export const ASYNC_JOB_QUEUE_BY_NAME = {
@@ -124,4 +139,5 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   [ASYNC_JOB_NAMES.competitionCancelled]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.institutionInvitationDispatch]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.teamInvitationDispatch]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.recruiterVerificationRejected]: ASYNC_QUEUE_NAMES.notifications,
 } as const satisfies Record<AsyncJobName, AsyncQueueName>;

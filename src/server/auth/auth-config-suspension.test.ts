@@ -2,16 +2,19 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Step 6.2 — session callback reads live suspended_at on every session resolution. This test
-// drives the callback directly with a getDb mock whose SELECT returns a configurable row.
+// The session callback reads live suspended_at on every session resolution. This test drives the
+// callback directly with a getDb mock whose SELECT returns a configurable row.
 
-let suspendedAtRow: { suspendedAt: Date | null } | null = { suspendedAt: null };
+let accountRow: { role: string | null; suspendedAt: Date | null } | null = {
+  role: "candidate",
+  suspendedAt: null,
+};
 
 const getDbMock = vi.fn(() => ({
   select: vi.fn().mockReturnValue({
     from: vi.fn().mockReturnValue({
       where: vi.fn().mockReturnValue({
-        limit: vi.fn().mockResolvedValue(suspendedAtRow ? [suspendedAtRow] : []),
+        limit: vi.fn().mockResolvedValue(accountRow ? [accountRow] : []),
       }),
     }),
   }),
@@ -36,6 +39,7 @@ vi.mock("@/server/db/client", () => ({ getDb: getDbMock }));
 vi.mock("@/server/db/schema", () => ({
   users: {
     id: "id",
+    role: "role",
     suspendedAt: "suspended_at",
     candidateVerifiedAt: "c",
     recruiterVerifiedAt: "r",
@@ -66,7 +70,7 @@ type SessionCb = (args: {
 }) => Promise<{ user?: Record<string, unknown> }>;
 
 const callSession = async (suspendedAt: Date | null) => {
-  suspendedAtRow = { suspendedAt };
+  accountRow = { role: "candidate", suspendedAt };
   const { authOptions } = await import("@/server/auth/auth.config");
   const cb = authOptions.callbacks?.session as unknown as SessionCb;
   return cb({
@@ -76,7 +80,7 @@ const callSession = async (suspendedAt: Date | null) => {
 };
 
 beforeEach(() => {
-  suspendedAtRow = { suspendedAt: null };
+  accountRow = { role: "candidate", suspendedAt: null };
 });
 afterEach(() => {
   vi.clearAllMocks();

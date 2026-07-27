@@ -9,7 +9,10 @@ type VerificationErrorCode =
   | "verification_invalid_transition"
   | "verification_not_found"
   | "verification_reason_required"
-  | "verification_invalid_payload";
+  | "verification_invalid_payload"
+  // Shares its string with the SubmissionError of the same name: both mean "this institution
+  // has no document verification to act on" and a client can branch on the one code.
+  | "institution_verification_not_applicable";
 
 export class VerificationError extends Error {
   constructor(

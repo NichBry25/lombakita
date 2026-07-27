@@ -222,15 +222,14 @@ export const CompetitionRoundsEditor = ({
                   onChange={(event) => updateRow(index, { description: event.target.value })}
                 />
               </div>
-              <Button
-                type="button"
+              <IconButton
+                icon="trash"
+                label={`Hapus tahapan ${index + 1}`}
                 variant="danger"
                 size="sm"
                 className="remove-row-button"
                 onClick={() => setRows((prev) => prev.filter((_, i) => i !== index))}
-              >
-                Hapus
-              </Button>
+              />
             </div>
           ))}
 

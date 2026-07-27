@@ -116,7 +116,7 @@ export default async function LoginPage(props: {
     <AuthPageFrame
       eyebrow="Akses terarah"
       title="Satu akun untuk menemukan dan mengelola peluang."
-      description="Pilih metode masuk terlebih dahulu. Kami akan menuntun langkah berikutnya tanpa mencampur peran atau identitas akun."
+      description="Masuk atau daftar dari satu halaman. Kami akan menuntun langkah berikutnya."
     >
       <div className="stack-md">
         <AuthEntry
@@ -125,12 +125,8 @@ export default async function LoginPage(props: {
           callbackUrl={callbackUrl}
           initialEmail={email}
           verifiedNotice={verified}
+          initialErrorMessage={error ? mapSignInPageError(error) : undefined}
         />
-        {error ? (
-          <p className="feedback" data-tone="error">
-            {mapSignInPageError(error)}
-          </p>
-        ) : null}
       </div>
     </AuthPageFrame>
   );

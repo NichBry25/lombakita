@@ -30,9 +30,9 @@ export default async function AdminFeaturedPage() {
       <PageHeader
         eyebrow="Kurasi penemuan"
         title="Kompetisi unggulan"
-        description="Atur kompetisi terbit yang mendapatkan prioritas di permukaan penemuan publik."
+        description="Atur kompetisi yang tampil lebih dulu di halaman kompetisi."
         backHref="/admin"
-        backLabel="Panel Platform Ops"
+        backLabel="Panel Platform Operations"
         actions={<span className="status-badge data-text">{rows.length} terbit</span>}
       />
 
@@ -40,7 +40,7 @@ export default async function AdminFeaturedPage() {
         <EmptyState
           icon="trophy"
           title="Tidak ada kompetisi diterbitkan."
-          description="Kompetisi akan tersedia untuk dikurasi setelah statusnya published."
+          description="Kompetisi bisa dipilih setelah statusnya Terbit."
         />
       )}
 

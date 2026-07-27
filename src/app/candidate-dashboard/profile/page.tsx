@@ -1,20 +1,13 @@
-import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/ui";
-import { getCurrentSession } from "@/server/auth/session";
-import { getUnverifiedRoles } from "@/server/auth/role-verification";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { getCandidateProfile } from "@/server/candidate/candidate-profile-service";
 import { CandidateProfileEditor } from "./candidate-profile-editor";
 
 export default async function CandidateProfilePage() {
-  const session = await getCurrentSession();
-  if (!session?.user?.id) {
-    redirect("/auth/login?callbackUrl=/candidate-dashboard/profile");
-  }
-
-  const unverified = await getUnverifiedRoles(session.user.id);
-  if (unverified.includes("candidate")) {
-    redirect("/auth/verify-role?as=candidate");
-  }
+  const session = await requireRolePage("candidate", {
+    callbackPath: "/candidate-dashboard/profile",
+    missingRoleRedirect: "/auth/verify-role?as=candidate",
+  });
 
   const profile = await getCandidateProfile(session.user.id);
 

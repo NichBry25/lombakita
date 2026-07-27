@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { SecondRoleBanner } from "@/components/auth/second-role-banner";
 import { ButtonLink, EmptyState, Icon, PageHeader } from "@/components/ui";
 import { formatDisplayToken } from "@/lib/text/capitalize";
-import { getCurrentSession } from "@/server/auth/session";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { getUnverifiedRoles } from "@/server/auth/role-verification";
 import {
   listCandidateIndividualRegistrations,
@@ -19,18 +18,13 @@ const getCandidateRegistrationStatusLabel = (status: string): string => {
 };
 
 export default async function CandidateDashboardPage() {
-  const session = await getCurrentSession();
-  if (!session?.user?.id) {
-    redirect("/auth/login?callbackUrl=/candidate-dashboard");
-  }
+  const session = await requireRolePage("candidate", {
+    callbackPath: "/candidate-dashboard",
+    missingRoleRedirect: "/auth/verify-role?as=candidate",
+  });
 
+  // Onboarding state, not authorization: drives whether the second-role banner is offered.
   const unverified = await getUnverifiedRoles(session.user.id);
-
-  // DEC-0060 — access to role-scoped surfaces is derived per-request from verification state.
-  if (unverified.includes("candidate")) {
-    redirect("/auth/verify-role?as=candidate");
-  }
-
   const showRecruiterBanner = unverified.includes("recruiter");
 
   const [individualRegs, teamRegs, savedResult] = await Promise.all([
@@ -100,7 +94,7 @@ export default async function CandidateDashboardPage() {
           <EmptyState
             icon="calendar"
             title="Tidak ada tenggat mendatang."
-            description="Tenggat pendaftaran dan tanggal mulai yang relevan akan muncul di sini."
+            description="Daftar kompetisi untuk melihat tenggatnya di sini."
           />
         ) : (
           <ul className="record-list">
@@ -140,7 +134,7 @@ export default async function CandidateDashboardPage() {
           <EmptyState
             icon="user"
             title="Belum ada pendaftaran individu."
-            description="Kompetisi yang kamu daftarkan sendiri akan tersusun di sini."
+            description="Kompetisi yang kamu daftarkan sendiri akan muncul di sini."
           />
         ) : (
           <ul className="record-list">

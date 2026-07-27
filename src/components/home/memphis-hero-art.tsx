@@ -23,13 +23,15 @@ const TANGERINE = "#f4632a";
 const TERRACOTTA = "#c6491b";
 const PAPER = "#fbf6eb";
 const LIME = "#d0f05e";
+const LIME_DEEP = "#9db53c";
 const PEACH = "#ffd3b0";
-const COBALT = "#4b4bff";
-const MAGENTA = "#e91e9c";
+const BLUSH = "#ffe9da";
+const MIST = "#e4ede4";
 
 /*
- * Curated ground/ink pairs. Brand tones dominate; cobalt and magenta are the acid
- * pops. Every pair keeps the motif legible on its ground.
+ * Curated ground/ink pairs, drawn only from the brand book palette (Brand Book
+ * v2 — docs/product/ui-preferences.md). Every pair keeps the motif legible on
+ * its ground.
  */
 type ColorPair = { ground: string; ink: string };
 const PAIRS: ColorPair[] = [
@@ -45,12 +47,12 @@ const PAIRS: ColorPair[] = [
   { ground: PAPER, ink: TERRACOTTA },
   { ground: PAPER, ink: TANGERINE },
   { ground: TERRACOTTA, ink: PAPER },
-  { ground: PEACH, ink: COBALT },
-  { ground: COBALT, ink: LIME },
-  { ground: COBALT, ink: PAPER },
-  { ground: MAGENTA, ink: PAPER },
-  { ground: MAGENTA, ink: LIME },
-  { ground: PALM_INK, ink: COBALT },
+  { ground: BLUSH, ink: TERRACOTTA },
+  { ground: BLUSH, ink: PALM },
+  { ground: MIST, ink: PALM },
+  { ground: PALM_INK, ink: LIME },
+  { ground: LIME_DEEP, ink: PALM_INK },
+  { ground: TANGERINE, ink: PALM_INK },
 ];
 
 /*

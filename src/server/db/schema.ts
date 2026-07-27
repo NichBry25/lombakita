@@ -1332,7 +1332,10 @@ export type NotificationRecord = typeof notifications.$inferSelect;
 // An institution owner submits identity documents to platform ops for review. On approval,
 // verification_status transitions to verified; on upgrade (personal → full), the type flip and
 // display_name persistence happen in the same transaction.
+// `draft` is used by recruiter verification only: a submission the applicant has withdrawn from
+// the review queue in order to revise it. Institution verification never writes it.
 export const verificationSubmissionStatusEnum = pgEnum("verification_submission_status", [
+  "draft",
   "pending_review",
   "approved",
   "rejected",
@@ -1422,7 +1425,25 @@ export const recruiterVerificationSubmissions = pgTable(
     vouchedAt: timestamp("vouched_at", { mode: "date", withTimezone: true }),
     status: verificationSubmissionStatusEnum("status").notNull().default("pending_review"),
     reviewerUserId: text("reviewer_user_id").references(() => users.id, { onDelete: "set null" }),
+    // Reason for the most recent rejection. Retained across a reopen so the reviewer of a
+    // resubmission can see what the previous verdict objected to.
     rejectionReason: text("rejection_reason"),
+    // Whether the recruiter may reopen this submission after a rejection. Set by the reviewer at
+    // rejection time and reversible from the platform-ops queue.
+    resubmissionAllowed: boolean("resubmission_allowed").notNull().default(true),
+    // How many times the recruiter has reopened this submission after a rejection. 0 = the account
+    // has never been rejected; the review queue reads it to distinguish a first application from a
+    // resubmission.
+    resubmissionCount: integer("resubmission_count").notNull().default(0),
+    // When this account FIRST entered the review queue. Written once at creation and never
+    // touched again — this is what the queue orders by, so revising and resending does not cost
+    // the applicant their place in line.
+    firstSubmittedAt: timestamp("first_submitted_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    // When the submission was most recently sent for review. Bumped on every withdraw-resubmit and
+    // every reopen-after-rejection, so a reviewer can see how fresh the current attempt is. It does
+    // NOT affect queue order.
     submittedAt: timestamp("submitted_at", { mode: "date", withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -1430,10 +1451,12 @@ export const recruiterVerificationSubmissions = pgTable(
   },
   (table) => [
     index("recruiter_verification_submissions_user_id_idx").on(table.userId),
-    // At most one open submission per account; rejected/approved history rows are unaffected.
+    // At most one OPEN submission per account, where open means awaiting review or withdrawn for
+    // revision. Covering both prevents an account holding a draft and a queued submission at once.
+    // rejected/approved history rows are unaffected.
     uniqueIndex("recruiter_verification_submissions_user_pending_unique_idx")
       .on(table.userId)
-      .where(sql`${table.status} = 'pending_review'`),
+      .where(sql`${table.status} in ('draft', 'pending_review')`),
     // Review-queue scan: only pending rows, ordered by submission time.
     index("recruiter_verification_submissions_pending_submitted_idx")
       .on(table.submittedAt)

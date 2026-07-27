@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { InstitutionCompetitionEditShell } from "@/components/institution/institution-competition-edit-shell";
 import { CompetitionPrizesEditor } from "@/components/institution/competition-prizes-editor";
@@ -6,7 +6,7 @@ import { CompetitionRoundsEditor } from "@/components/institution/competition-ro
 import { CompetitionTagsEditor } from "@/components/institution/competition-tags-editor";
 import { CompetitionEligibilityEditor } from "@/components/institution/competition-eligibility-editor";
 import { AccessError } from "@/server/auth/access-core";
-import { getCurrentSession } from "@/server/auth/session";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import { getCompetitionIdByInstitutionAndSlug } from "@/server/competitions/competition-service";
 import { loadInstitutionTypeBySlug } from "@/server/institution-workspace/institution-service";
@@ -15,15 +15,9 @@ import { isPersonalInstitutionType } from "@/server/institution-workspace/instit
 type Props = { params: Promise<{ institutionSlug: string; competitionSlug: string }> };
 
 export default async function InstitutionCompetitionEditPage({ params }: Props) {
-  const session = await getCurrentSession();
   const { institutionSlug, competitionSlug } = await params;
   const path = `/institution/${institutionSlug}/competitions/${competitionSlug}/edit`;
-  if (!session?.user?.id) {
-    redirect(`/auth/login?callbackUrl=${encodeURIComponent(path)}`);
-  }
-  if (!session.user.verifiedRoles.includes("recruiter")) {
-    redirect("/");
-  }
+  const session = await requireRolePage("recruiter", { callbackPath: path });
 
   let competitionId: string;
   try {

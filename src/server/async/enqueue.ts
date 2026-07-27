@@ -250,3 +250,26 @@ export const enqueueResultPublished = async (input: {
     },
   });
 };
+
+// Idempotency key includes the rejection timestamp (DEC-0081) so a recruiter rejected, reopened,
+// and rejected again is notified each time, while a true double-enqueue of the same verdict
+// dedups. Fire-and-forget from the review path — callers must catch errors.
+export const enqueueRecruiterVerificationRejected = async (input: {
+  submissionId: string;
+  userId: string;
+  rejectionReason: string;
+  resubmissionAllowed: boolean;
+  epoch: number;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.recruiterVerificationRejected>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.recruiterVerificationRejected,
+    idempotencyKey: `${input.submissionId}__${input.epoch}`,
+    payload: {
+      submissionId: input.submissionId,
+      userId: input.userId,
+      rejectionReason: input.rejectionReason,
+      resubmissionAllowed: input.resubmissionAllowed,
+      epoch: input.epoch,
+    },
+  });
+};

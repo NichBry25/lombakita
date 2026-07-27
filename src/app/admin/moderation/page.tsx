@@ -10,7 +10,7 @@ export default function AdminModerationPage() {
         title="Moderasi & dukungan"
         description="Cari pengguna atau institusi untuk menangguhkan, memulihkan, dan menambah catatan internal."
         backHref="/admin"
-        backLabel="Panel Platform Ops"
+        backLabel="Panel Platform Operations"
       />
       <ModerationConsole />
     </main>

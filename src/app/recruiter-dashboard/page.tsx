@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { SecondRoleBanner } from "@/components/auth/second-role-banner";
 import { Icon, PageHeader } from "@/components/ui";
-import { getCurrentSession } from "@/server/auth/session";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { getUnverifiedRoles } from "@/server/auth/role-verification";
 import { getRecruiterTierForAccount } from "@/server/auth/recruiter-tier";
 import { getLatestRecruiterVerificationForUser } from "@/server/recruiter-verification/recruiter-verification-service";
@@ -15,22 +14,16 @@ import { RecruiterVerificationPanel } from "@/app/recruiter-dashboard/recruiter-
 // Minimal-proof recruiter dashboard. Hosts the second-role banner and the recruiter trust
 // verification panel (submit / pending / rejected / Trusted).
 export default async function RecruiterDashboardPage() {
-  const session = await getCurrentSession();
-  if (!session?.user?.id) {
-    redirect("/auth/login?callbackUrl=/recruiter-dashboard");
-  }
+  const session = await requireRolePage("recruiter", {
+    callbackPath: "/recruiter-dashboard",
+    missingRoleRedirect: "/auth/verify-role?as=recruiter",
+  });
 
+  // Onboarding state, not authorization: drives whether the second-role banner is offered.
+  // requireRolePage already guarantees this session can act as recruiter, so there is no
+  // "unverified recruiter" branch to render here — only the candidate side can still be unverified.
   const unverified = await getUnverifiedRoles(session.user.id);
-
-  // DEC-0060 — access to role-scoped surfaces is derived per-request from verification state.
-  // A candidate-only account direct-URL'ing here must not reach the dashboard body (including
-  // the elevated-tier section); redirect to the recruiter verification entry point.
-  if (unverified.includes("recruiter")) {
-    redirect("/auth/verify-role?as=recruiter");
-  }
-
   const showCandidateBanner = unverified.includes("candidate");
-  const recruiterIsVerified = !unverified.includes("recruiter");
 
   const [tierState, latestVerification, institutions, personalInstitution] = await Promise.all([
     getRecruiterTierForAccount(session.user.id),
@@ -48,7 +41,7 @@ export default async function RecruiterDashboardPage() {
       <PageHeader
         eyebrow="Ruang penyelenggara"
         title="Dasbor rekruter"
-        description="Kelola identitas penyelenggara dan masuk ke workspace institusi Anda."
+        description="Kelola identitas penyelenggara dan buka ruang kerja institusi Anda."
       />
 
       {showCandidateBanner ? (
@@ -113,31 +106,35 @@ export default async function RecruiterDashboardPage() {
         )}
       </section>
 
-      {recruiterIsVerified ? (
-        <RecruiterVerificationPanel
-          userId={session.user.id}
-          isTrusted={isTrusted}
-          submission={
-            latestVerification
-              ? {
-                  id: latestVerification.submission.id,
-                  status: latestVerification.submission.status,
-                  rejectionReason: latestVerification.submission.rejectionReason,
-                  corporateEmail: latestVerification.submission.corporateEmail,
-                  vouchedAt: latestVerification.submission.vouchedAt
-                    ? latestVerification.submission.vouchedAt.toISOString()
-                    : null,
-                }
-              : null
-          }
-          documents={
-            latestVerification?.documents.map((d) => ({
-              id: d.id,
-              originalFileName: d.originalFileName,
-            })) ?? []
-          }
-        />
-      ) : null}
+      <RecruiterVerificationPanel
+        userId={session.user.id}
+        isTrusted={isTrusted}
+        submission={
+          latestVerification
+            ? {
+                id: latestVerification.submission.id,
+                status: latestVerification.submission.status,
+                rejectionReason: latestVerification.submission.rejectionReason,
+                resubmissionAllowed: latestVerification.submission.resubmissionAllowed,
+                resubmissionCount: latestVerification.submission.resubmissionCount,
+                fullName: latestVerification.submission.fullName,
+                mobileNumber: latestVerification.submission.mobileNumber,
+                corporateEmail: latestVerification.submission.corporateEmail,
+                vouchedAt: latestVerification.submission.vouchedAt
+                  ? latestVerification.submission.vouchedAt.toISOString()
+                  : null,
+              }
+            : null
+        }
+        documents={
+          latestVerification?.documents.map((d) => ({
+            id: d.id,
+            originalFileName: d.originalFileName,
+            fileSizeBytes: d.fileSizeBytes,
+            createdAt: d.createdAt.toISOString(),
+          })) ?? []
+        }
+      />
     </main>
   );
 }

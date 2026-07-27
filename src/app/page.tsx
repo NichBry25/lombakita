@@ -32,9 +32,9 @@ const DISCOVERY_CATEGORIES = [
 ] as const;
 
 const TRUST_MARKERS = [
-  "Informasi terstruktur",
-  "Tenggat yang jelas",
-  "Alur pendaftaran terpadu",
+  "Penyelenggara terverifikasi",
+  "Tenggat di setiap kartu",
+  "Daftar tanpa pindah situs",
 ] as const;
 
 const MARQUEE_WORDS = ["Temukan", "Daftar", "Berkarya", "Menang"] as const;
@@ -71,8 +71,7 @@ export default async function HomePage() {
                 berikutmu.
               </h1>
               <p className="home-hero-lead">
-                Jelajahi kompetisi dengan informasi yang jernih, tenggat yang tegas, dan
-                penyelenggara yang dapat kamu kenali.
+                Jelajahi kompetisi dari penyelenggara yang bisa kamu percaya.
               </p>
             </div>
 
@@ -117,7 +116,7 @@ export default async function HomePage() {
           <header className="home-section-header">
             <div className="stack-xs">
               <p className="eyebrow">Jelajahi berdasarkan minat</p>
-              <h2 className="section-title">Satu tempat untuk beragam arena</h2>
+              <h2 className="section-title">Pilih arenamu</h2>
             </div>
           </header>
 

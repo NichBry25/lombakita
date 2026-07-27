@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
+import { Button, EmptyState, IconButton, PageHeader, Skeleton } from "@/components/ui";
+import { useToast } from "@/components/ui/primitives";
 import { getInstitutionRoleLabel } from "@/lib/access/role-labels";
 
 type MemberRole = "institution_owner" | "institution_staff" | "institution_member";
@@ -20,8 +21,6 @@ type Member = {
   role: MemberRole;
   joinedAt: string;
 };
-
-type FeedbackState = { type: "success" | "error"; message: string } | null;
 
 type ConfirmRemove = { membershipId: string; name: string | null; email: string } | null;
 
@@ -53,7 +52,7 @@ type Props = {
 export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props) => {
   const [members, setMembers] = useState<Member[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const { addToast } = useToast();
   const [confirmRemove, setConfirmRemove] = useState<ConfirmRemove>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
@@ -81,7 +80,6 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
 
   const onRoleChange = async (membershipId: string, newRole: MemberRole) => {
     setPendingAction(`${membershipId}:role:${newRole}`);
-    setFeedback(null);
 
     const response = await fetch(
       `${BASE_URL(institutionSlug)}/${encodeURIComponent(membershipId)}/role`,
@@ -97,11 +95,11 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
 
     if (!response.ok) {
       const message = await extractErrorMessage(response);
-      setFeedback({ type: "error", message });
+      addToast({ type: "error", message });
       return;
     }
 
-    setFeedback({ type: "success", message: "Peran berhasil diperbarui." });
+    addToast({ type: "success", message: "Peran berhasil diperbarui." });
     void loadMembers();
   };
 
@@ -117,7 +115,6 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
     const { membershipId } = confirmRemove;
     setPendingAction(`${membershipId}:remove`);
     setConfirmRemove(null);
-    setFeedback(null);
 
     const response = await fetch(
       `${BASE_URL(institutionSlug)}/${encodeURIComponent(membershipId)}`,
@@ -131,11 +128,11 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
 
     if (!response.ok) {
       const message = await extractErrorMessage(response);
-      setFeedback({ type: "error", message });
+      addToast({ type: "error", message });
       return;
     }
 
-    setFeedback({ type: "success", message: "Anggota berhasil dihapus." });
+    addToast({ type: "success", message: "Anggota berhasil dihapus." });
     void loadMembers();
   };
 
@@ -148,12 +145,6 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
         backHref={`/institution/${institutionSlug}`}
         backLabel="Kembali"
       />
-
-      {feedback ? (
-        <p className="feedback" data-tone={feedback.type} role="status">
-          {feedback.message}
-        </p>
-      ) : null}
 
       <section className="content-section">
         <div className="section-heading">
@@ -172,7 +163,7 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
           <EmptyState
             icon="users"
             title="Belum ada anggota aktif."
-            description="Anggota yang menerima undangan akan muncul dalam daftar ini."
+            description="Undang pengelola untuk menambah anggota di sini."
           />
         ) : (
           <div className="table-scroll">
@@ -221,16 +212,15 @@ export const InstitutionMembersShell = ({ institutionSlug, actorUserId }: Props)
                                 {`Jadikan ${getInstitutionRoleLabel(role)}`}
                               </Button>
                             ))}
-                            <Button
+                            <IconButton
+                              icon="trash"
+                              label={`Hapus ${member.name ?? member.email}`}
                               variant="danger"
                               size="sm"
                               loading={pendingAction === `${member.membershipId}:remove`}
                               disabled={isActing}
                               onClick={() => onConfirmRemove(member)}
-                              type="button"
-                            >
-                              Hapus
-                            </Button>
+                            />
                           </div>
                         )}
                       </td>

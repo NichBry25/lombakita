@@ -13,7 +13,7 @@ import {
   SelectField,
   Skeleton,
 } from "@/components/ui";
-import { useModal } from "@/components/ui/primitives";
+import { useModal, useToast } from "@/components/ui/primitives";
 import { COMPETITION_CATEGORY_OPTIONS } from "@/lib/competitions/categories";
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { COMPETITION_MODE_OPTIONS } from "@/lib/competitions/modes";
@@ -49,11 +49,6 @@ type PublishValidationFailure = {
   code: "missing" | "out_of_order" | "not_in_future";
   message: string;
 };
-
-type Feedback =
-  | { type: "success"; message: string }
-  | { type: "error"; message: string; failures?: PublishValidationFailure[] }
-  | null;
 
 type FormSnapshot = {
   title: string;
@@ -96,6 +91,13 @@ const extractError = async (
   } catch {
     return { message: "Permintaan gagal diproses." };
   }
+};
+
+const formatFailures = (failures: PublishValidationFailure[] | undefined): string => {
+  if (!failures || failures.length === 0) return "";
+  return failures
+    .map((f) => `${getCompetitionFieldLabel(f.field)} — ${capitalizeFirst(f.message)}`)
+    .join("; ");
 };
 
 const cutoffOrNull = (value: string): number | null => {
@@ -158,6 +160,7 @@ export const InstitutionCompetitionEditShell = ({
 }) => {
   const router = useRouter();
   const { openModal } = useModal();
+  const { addToast } = useToast();
 
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -165,7 +168,6 @@ export const InstitutionCompetitionEditShell = ({
   // Publish shares the submit lock with Save but needs its own flag so the spinner lands on the
   // button that was actually pressed.
   const [isPublishing, setIsPublishing] = useState(false);
-  const [feedback, setFeedback] = useState<Feedback>(null);
 
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
@@ -210,7 +212,7 @@ export const InstitutionCompetitionEditShell = ({
     });
     if (!response.ok) {
       const { message } = await extractError(response);
-      setFeedback({ type: "error", message });
+      addToast({ type: "error", message });
       setIsLoading(false);
       return;
     }
@@ -260,7 +262,7 @@ export const InstitutionCompetitionEditShell = ({
       cutoffDays: loadedCutoffDays,
     });
     setIsLoading(false);
-  }, [competitionId]);
+  }, [competitionId, addToast]);
 
   useEffect(() => {
     const id = window.setTimeout(() => {
@@ -279,10 +281,40 @@ export const InstitutionCompetitionEditShell = ({
     return () => window.removeEventListener("beforeunload", handler);
   }, [isDirty]);
 
+  useEffect(() => {
+    if (competition?.status === "published") {
+      addToast({
+        type: "info",
+        message:
+          "Kompetisi ini sudah terbit. Perubahan yang memengaruhi peserta akan mengirim notifikasi. Perubahan yang membatalkan pendaftaran yang ada akan ditolak.",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [competition?.status]);
+
+  useEffect(() => {
+    if (competition && competition.status !== "draft" && competition.status !== "published") {
+      addToast({
+        type: "error",
+        message: `Kompetisi berstatus ${capitalizeWord(competition.status)} tidak dapat diubah.`,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [competition?.status]);
+
+  useEffect(() => {
+    if (isPersonal) {
+      addToast({
+        type: "info",
+        message: "Institusi personal hanya dapat menjalankan kompetisi mode individu.",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPersonal]);
+
   const onSave = async (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     setIsSubmitting(true);
-    setFeedback(null);
 
     const patch: Record<string, unknown> = {
       title,
@@ -339,16 +371,16 @@ export const InstitutionCompetitionEditShell = ({
           ),
           actions: [{ label: "Mengerti", variant: "primary", autoClose: true, onClick: () => {} }],
         });
-        setFeedback({ type: "error", message });
+        addToast({ type: "error", message });
         setIsSubmitting(false);
         return;
       }
-      setFeedback({ type: "error", message });
+      addToast({ type: "error", message });
       setIsSubmitting(false);
       return;
     }
 
-    setFeedback({ type: "success", message: "Perubahan tersimpan." });
+    addToast({ type: "success", message: "Perubahan tersimpan." });
     setIsSubmitting(false);
     void load();
   };
@@ -356,16 +388,19 @@ export const InstitutionCompetitionEditShell = ({
   const onPublish = async () => {
     setIsSubmitting(true);
     setIsPublishing(true);
-    setFeedback(null);
     const url = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}/publish`;
     try {
       const response = await fetch(url, { method: "POST", credentials: "include" });
       if (!response.ok) {
         const { message, failures } = await extractError(response);
-        setFeedback({ type: "error", message, failures });
+        const failureText = formatFailures(failures);
+        addToast({
+          type: "error",
+          message: failureText ? `${message} (${failureText})` : message,
+        });
         return;
       }
-      setFeedback({ type: "success", message: "Status diterbitkan (published)." });
+      addToast({ type: "success", message: "Status diterbitkan (published)." });
       void load();
     } finally {
       setIsSubmitting(false);
@@ -423,7 +458,7 @@ export const InstitutionCompetitionEditShell = ({
         <EmptyState
           icon="trophy"
           title="Kompetisi tidak ditemukan."
-          description={feedback?.message ?? "Formulir kompetisi tidak dapat dimuat."}
+          description="Formulir kompetisi tidak dapat dimuat."
           action={
             <ButtonLink href={`/institution/${institutionSlug}/competitions`} variant="outline">
               Kembali ke daftar
@@ -458,18 +493,7 @@ export const InstitutionCompetitionEditShell = ({
         }
       />
 
-      {competition.status === "published" ? (
-        <p className="feedback" data-tone="info">
-          Kompetisi ini sudah terbit. Perubahan yang memengaruhi peserta akan mengirim notifikasi.
-          Perubahan yang membatalkan pendaftaran yang ada akan ditolak.
-        </p>
-      ) : null}
-
-      {!isEditable ? (
-        <p className="feedback" data-tone="error">
-          Kompetisi berstatus <code>{capitalizeWord(competition.status)}</code> tidak dapat diubah.
-        </p>
-      ) : (
+      {!isEditable ? null : (
         <form onSubmit={onSave} className="competition-edit-form">
           <section className="content-section">
             <div className="section-heading">
@@ -535,11 +559,6 @@ export const InstitutionCompetitionEditShell = ({
             {isPublished ? (
               <p className="form-help">
                 Format peserta dan ukuran tim tidak dapat diubah setelah kompetisi terbit.
-              </p>
-            ) : null}
-            {isPersonal ? (
-              <p className="feedback" data-tone="info">
-                Institusi personal hanya dapat menjalankan kompetisi mode individu.
               </p>
             ) : null}
             <div className="form-field">
@@ -686,22 +705,6 @@ export const InstitutionCompetitionEditShell = ({
         </form>
       )}
 
-      {feedback ? (
-        <div role="status" className="feedback" data-tone={feedback.type}>
-          <p>{feedback.message}</p>
-          {feedback.type === "error" && feedback.failures && feedback.failures.length > 0 ? (
-            <ul>
-              {feedback.failures.map((f) => (
-                <li key={`${f.field}-${f.code}`}>
-                  <strong>{getCompetitionFieldLabel(f.field)}</strong> —{" "}
-                  {capitalizeFirst(f.message)}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
-
       {children}
 
       <FormActionBar>
@@ -727,7 +730,7 @@ export const InstitutionCompetitionEditShell = ({
                 loading={isPublishing}
                 disabled={isSubmitting}
               >
-                Publish
+                Terbitkan
               </Button>
             ) : null}
           </div>

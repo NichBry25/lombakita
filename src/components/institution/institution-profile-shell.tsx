@@ -241,6 +241,7 @@ export const InstitutionProfileShell = ({
                 onClick={uploadLogo}
                 disabled={!logoFile}
                 loading={logoBusy}
+                leadingIcon={<Icon name="upload" size="sm" />}
               >
                 Unggah logo
               </Button>

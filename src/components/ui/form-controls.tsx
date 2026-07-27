@@ -67,7 +67,3 @@ export function FormSelect({
 export function FormHelp({ children }: { children: ReactNode }) {
   return <p className="form-help">{children}</p>;
 }
-
-export function FormError({ children }: { children: ReactNode }) {
-  return <p className="form-error">{children}</p>;
-}

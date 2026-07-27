@@ -20,6 +20,7 @@ type RecruiterVerificationErrorCode =
   | "recruiter_already_trusted"
   | "recruiter_verification_not_found"
   | "recruiter_verification_already_reviewed"
+  | "recruiter_verification_resubmission_blocked"
   | "recruiter_verification_storage_unavailable"
   | "recruiter_verification_document_type_not_allowed"
   | "recruiter_verification_document_too_large"
@@ -33,6 +34,7 @@ const STATUS_BY_CODE: Record<RecruiterVerificationErrorCode, 400 | 404 | 409 | 4
   recruiter_already_trusted: 409,
   recruiter_verification_not_found: 404,
   recruiter_verification_already_reviewed: 409,
+  recruiter_verification_resubmission_blocked: 409,
   recruiter_verification_storage_unavailable: 503,
   recruiter_verification_document_type_not_allowed: 422,
   recruiter_verification_document_too_large: 422,

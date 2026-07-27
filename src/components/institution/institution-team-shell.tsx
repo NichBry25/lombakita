@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button, EmptyState, PageHeader, SelectField, Skeleton } from "@/components/ui";
+import { useToast } from "@/components/ui/primitives";
 import { getInstitutionRoleLabel } from "@/lib/access/role-labels";
 
 type Invitation = {
@@ -12,8 +13,6 @@ type Invitation = {
   expiresAt: string;
   createdAt: string;
 };
-
-type FeedbackState = { type: "success" | "error"; message: string } | null;
 
 const extractErrorMessage = async (response: Response): Promise<string> => {
   try {
@@ -51,7 +50,18 @@ export const InstitutionTeamShell = ({
   const [inviteRole, setInviteRole] = useState<
     "institution_owner" | "institution_staff" | "institution_member"
   >("institution_staff");
-  const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const { addToast } = useToast();
+
+  useEffect(() => {
+    if (isPersonal) {
+      addToast({
+        type: "info",
+        message:
+          "Institusi personal hanya bisa memiliki satu anggota, sehingga tidak dapat mengundang staf atau anggota.",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPersonal]);
 
   const loadInvitations = useCallback(async () => {
     setIsLoading(true);
@@ -82,7 +92,6 @@ export const InstitutionTeamShell = ({
     if (!identifier.trim()) return;
 
     setIsSubmitting(true);
-    setFeedback(null);
 
     const response = await fetch(
       `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/invitations`,
@@ -96,13 +105,13 @@ export const InstitutionTeamShell = ({
 
     if (!response.ok) {
       const message = await extractErrorMessage(response);
-      setFeedback({ type: "error", message });
+      addToast({ type: "error", message });
       setIsSubmitting(false);
       return;
     }
 
     setIdentifier("");
-    setFeedback({ type: "success", message: "Undangan berhasil dikirim." });
+    addToast({ type: "success", message: "Undangan berhasil dikirim." });
     setIsSubmitting(false);
     void loadInvitations();
   };
@@ -124,11 +133,11 @@ export const InstitutionTeamShell = ({
 
     if (!response.ok) {
       const message = await extractErrorMessage(response);
-      setFeedback({ type: "error", message });
+      addToast({ type: "error", message });
       return;
     }
 
-    setFeedback({ type: "success", message: "Undangan dibatalkan." });
+    addToast({ type: "success", message: "Undangan dibatalkan." });
     void loadInvitations();
   };
 
@@ -149,12 +158,7 @@ export const InstitutionTeamShell = ({
             <h2>Tambah pengelola</h2>
           </div>
         </div>
-        {isPersonal ? (
-          <p className="feedback" data-tone="info">
-            Institusi personal hanya bisa memiliki satu anggota, sehingga tidak dapat mengundang
-            staf atau anggota.
-          </p>
-        ) : (
+        {isPersonal ? null : (
           <form className="institution-invite-form" onSubmit={onInvite}>
             <input
               className="form-input"
@@ -188,12 +192,6 @@ export const InstitutionTeamShell = ({
             </Button>
           </form>
         )}
-
-        {feedback ? (
-          <p className="feedback" data-tone={feedback.type} role="status">
-            {feedback.message}
-          </p>
-        ) : null}
       </section>
 
       <section className="content-section">
@@ -213,7 +211,7 @@ export const InstitutionTeamShell = ({
           <EmptyState
             icon="inbox"
             title="Tidak ada undangan tertunda."
-            description="Undangan yang dikirim akan tersusun di sini sampai dijawab atau dibatalkan."
+            description="Undangan yang dikirim akan muncul di sini sampai dijawab atau dibatalkan."
           />
         ) : (
           <div className="table-scroll">

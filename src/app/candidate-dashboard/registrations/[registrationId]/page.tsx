@@ -1,8 +1,7 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { SubmissionShell } from "@/components/submissions/submission-shell";
 import { PageHeader } from "@/components/ui";
-import { getCurrentSession } from "@/server/auth/session";
-import { getUnverifiedRoles } from "@/server/auth/role-verification";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { getSubmissionViewForRegistration } from "@/server/submissions/submission-service";
 
 export default async function SubmissionPage({
@@ -10,16 +9,10 @@ export default async function SubmissionPage({
 }: {
   params: Promise<{ registrationId: string }>;
 }) {
-  const session = await getCurrentSession();
-  if (!session?.user?.id) {
-    redirect("/auth/login?callbackUrl=/candidate-dashboard");
-  }
-
-  // DEC-0060 — candidate capability is derived per-request from verification state.
-  const unverified = await getUnverifiedRoles(session.user.id);
-  if (unverified.includes("candidate")) {
-    redirect("/auth/verify-role?as=candidate");
-  }
+  const session = await requireRolePage("candidate", {
+    callbackPath: "/candidate-dashboard",
+    missingRoleRedirect: "/auth/verify-role?as=candidate",
+  });
 
   const { registrationId } = await params;
   const view = await getSubmissionViewForRegistration(registrationId, session.user.id);

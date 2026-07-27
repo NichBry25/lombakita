@@ -15,7 +15,7 @@ type RouteParams = { params: Promise<{ competitionId: string }> };
 // After a successful DB write, competition.search.sync is enqueued (fire-and-forget).
 export async function PATCH(request: Request, { params }: RouteParams): Promise<Response> {
   try {
-    await requireSessionRole(["platform_ops"]);
+    const session = await requireSessionRole(["platform_ops"]);
     const { competitionId } = await params;
 
     if (typeof competitionId !== "string" || competitionId.length === 0) {
@@ -62,7 +62,7 @@ export async function PATCH(request: Request, { params }: RouteParams): Promise<
       featuredOrder = rawOrder;
     }
 
-    const result = await setFeaturedPlacement(competitionId, {
+    const result = await setFeaturedPlacement(session.user.id, competitionId, {
       isFeatured: rawBody.isFeatured,
       featuredOrder,
     });

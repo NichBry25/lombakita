@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { InstitutionMembersShell } from "@/components/institution/institution-members-shell";
-import { getCurrentSession } from "@/server/auth/session";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { isInstitutionAdminBySlug } from "@/server/institution-members/member-service";
 
 type InstitutionMembersPageProps = {
@@ -10,17 +10,9 @@ type InstitutionMembersPageProps = {
 };
 
 export default async function InstitutionMembersPage({ params }: InstitutionMembersPageProps) {
-  const session = await getCurrentSession();
   const { institutionSlug } = await params;
   const membersPath = `/institution/${institutionSlug}/members`;
-
-  if (!session?.user?.id) {
-    redirect(`/auth/login?callbackUrl=${encodeURIComponent(membersPath)}`);
-  }
-
-  if (!session.user.verifiedRoles.includes("recruiter")) {
-    redirect("/");
-  }
+  const session = await requireRolePage("recruiter", { callbackPath: membersPath });
 
   const isAdmin = await isInstitutionAdminBySlug(session.user.id, institutionSlug);
   if (!isAdmin) {

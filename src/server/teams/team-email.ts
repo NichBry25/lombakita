@@ -77,7 +77,7 @@ export const sendTeamInvitationEmail = async (options: {
       "Jika Anda tidak merasa diundang, abaikan email ini.",
     ].join("\n"),
     html: `
-      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #0f1012;">
+      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #14453d;">
         <h2 style="margin-bottom: 12px;">Undangan tim Lombakita</h2>
         <p style="margin: 0 0 12px;">
           <strong>${inviterLabel}</strong> mengundang Anda untuk bergabung dengan tim
@@ -86,7 +86,7 @@ export const sendTeamInvitationEmail = async (options: {
         </p>
         <p style="margin: 0 0 16px;">${leadLine}</p>
         <p style="margin: 0 0 16px;">
-          <a href="${actionUrl}" style="background: #355795; color: #f4f8ff; text-decoration: none; padding: 10px 16px; border-radius: 8px; display: inline-block;">
+          <a href="${actionUrl}" style="background: #c6491b; color: #ffffff; text-decoration: none; padding: 10px 16px; border-radius: 8px; display: inline-block;">
             ${ctaLabel}
           </a>
         </p>
@@ -94,7 +94,7 @@ export const sendTeamInvitationEmail = async (options: {
         <p style="word-break: break-all; margin: 0 0 12px;">
           <a href="${actionUrl}">${actionUrl}</a>
         </p>
-        <p style="margin: 0; color: #4a5565;">Undangan ini berlaku hingga ${expiryFormatted}.</p>
+        <p style="margin: 0; color: #3d5c56;">Undangan ini berlaku hingga ${expiryFormatted}.</p>
       </div>
     `,
   });
