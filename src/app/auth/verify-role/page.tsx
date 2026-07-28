@@ -38,7 +38,6 @@ export default async function VerifyRolePage(props: { searchParams?: Promise<{ a
   if (!isVerifiableRole(asParam)) {
     return (
       <AuthPageFrame
-        eyebrow="Verifikasi peran"
         title="Pilih peran Anda."
         description="Kandidat dan rekruter diverifikasi terpisah."
       >
@@ -72,7 +71,6 @@ export default async function VerifyRolePage(props: { searchParams?: Promise<{ a
 
   return (
     <AuthPageFrame
-      eyebrow="Verifikasi peran"
       title="Lengkapi data untuk membuka akses."
       description="Kandidat dan rekruter diverifikasi terpisah. Anda bisa menambah peran lain nanti."
     >

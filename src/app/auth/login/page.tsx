@@ -70,7 +70,6 @@ export default async function LoginPage(props: {
     if (!claims) {
       return (
         <AuthPageFrame
-          eyebrow="Sesi akses"
           title="Mulai kembali dengan sesi yang aman."
           description="Tautan pendaftaran Google bersifat terbatas dan tidak dapat digunakan setelah kedaluwarsa."
         >
@@ -114,7 +113,6 @@ export default async function LoginPage(props: {
 
   return (
     <AuthPageFrame
-      eyebrow="Akses terarah"
       title="Satu akun untuk menemukan dan mengelola peluang."
       description="Masuk atau daftar dari satu halaman. Kami akan menuntun langkah berikutnya."
     >

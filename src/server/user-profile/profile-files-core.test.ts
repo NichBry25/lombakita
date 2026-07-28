@@ -32,6 +32,18 @@ describe("parseUploadRequest", () => {
   it("requires a fileName", () => {
     expect(() => parseUploadRequest("avatar", { mimeType: "image/png" })).toThrow(ProfileFileError);
   });
+
+  it("accepts the same image types for a banner as for an avatar", () => {
+    expect(PROFILE_FILE_RULES.banner.mimeTypes).toEqual(PROFILE_FILE_RULES.avatar.mimeTypes);
+    expect(
+      parseUploadRequest("banner", { fileName: "cover.webp", mimeType: "image/webp" }).mimeType,
+    ).toBe("image/webp");
+  });
+
+  it("stores banners under their own key prefix", () => {
+    expect(PROFILE_FILE_RULES.banner.prefix).toBe("banners");
+    expect(PROFILE_FILE_RULES.banner.prefix).not.toBe(PROFILE_FILE_RULES.avatar.prefix);
+  });
 });
 
 describe("parseFileMetadata", () => {
@@ -62,6 +74,22 @@ describe("parseFileMetadata", () => {
 
   it("rejects a missing fileKey", () => {
     expect(() => parseFileMetadata("avatar", { ...valid, fileKey: "" })).toThrow(ProfileFileError);
+  });
+
+  it("applies the banner's own size ceiling, which is larger than the avatar's", () => {
+    expect(PROFILE_FILE_RULES.banner.maxBytes).toBeGreaterThan(PROFILE_FILE_RULES.avatar.maxBytes);
+
+    const overAvatarUnderBanner = PROFILE_FILE_RULES.avatar.maxBytes + 1;
+    const bannerPayload = {
+      fileKey: "banners/u1/abc",
+      fileName: "cover.jpg",
+      mimeType: "image/jpeg",
+      sizeBytes: overAvatarUnderBanner,
+    };
+    expect(parseFileMetadata("banner", bannerPayload).sizeBytes).toBe(overAvatarUnderBanner);
+    expect(() =>
+      parseFileMetadata("avatar", { ...bannerPayload, fileKey: "avatars/u1/a" }),
+    ).toThrow(ProfileFileError);
   });
 });
 

@@ -156,9 +156,6 @@ export default async function HomePage() {
             <div className="stack-sm">
               <p className="eyebrow">Untuk penyelenggara</p>
               <h2>Bangun ruang kompetisi yang dipercaya peserta.</h2>
-              <p>
-                Kelola publikasi, peserta, submission, dan hasil melalui satu ruang kerja institusi.
-              </p>
             </div>
             <ButtonLink href="/institution/create" variant="secondary" size="lg" prefetch={false}>
               Buka ruang kerja

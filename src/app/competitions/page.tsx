@@ -1,11 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Button, Icon, Pagination, SkeletonCard } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
-import { getCompetitionModeLabel } from "@/lib/competitions/modes";
+import { CompetitionCard } from "@/components/competitions/competition-card";
 import { CompetitionFilters } from "./competition-filters";
 
 type Competition = {
@@ -30,30 +28,6 @@ type Meta = {
   totalPages: number;
   searchEngine: "meilisearch" | "db";
 };
-
-function formatDeadline(value: string | null) {
-  if (!value) return "Tanpa batas waktu";
-  return new Date(value).toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function resolveRegistrationStatus(value: string | null) {
-  if (!value) return { value: "open", label: "Dibuka" } as const;
-
-  const millisecondsRemaining = new Date(value).getTime() - Date.now();
-  if (millisecondsRemaining <= 0) return { value: "closed", label: "Ditutup" } as const;
-  if (millisecondsRemaining < 7 * 24 * 60 * 60 * 1000) {
-    return { value: "closing", label: "Segera ditutup" } as const;
-  }
-  return { value: "open", label: "Dibuka" } as const;
-}
-
-function truncateDescription(description: string) {
-  return description.length > 160 ? `${description.slice(0, 160)}…` : description;
-}
 
 export default function PublicCompetitionsPage() {
   const { addToast } = useToast();
@@ -124,7 +98,6 @@ export default function PublicCompetitionsPage() {
       <section className="brand-band listing-hero">
         <div className="content-shell listing-hero-inner">
           <div className="stack-sm listing-heading">
-            <p className="eyebrow">Discovery</p>
             <h1>Temukan kompetisi yang layak kamu kejar.</h1>
             <p>
               Cari berdasarkan judul, lalu saring arena yang paling sesuai dengan minat dan waktumu.
@@ -213,67 +186,9 @@ export default function PublicCompetitionsPage() {
             </div>
           ) : (
             <div className="competition-grid">
-              {items.map((competition) => {
-                const detailPath = `/competitions/${competition.institutionSlug}/${competition.slug}`;
-                const registrationStatus = resolveRegistrationStatus(competition.registrationEndAt);
-                return (
-                  <article className="competition-card" key={competition.id}>
-                    <Link
-                      href={detailPath}
-                      className="competition-cover"
-                      data-category={competition.category ?? "other"}
-                      aria-label={`Buka ${competition.title}`}
-                    >
-                      <span className="competition-cover-icon" aria-hidden="true">
-                        <Icon name="trophy" size="lg" />
-                      </span>
-                      <span className="competition-cover-label">
-                        {competition.category
-                          ? getCompetitionCategoryLabel(competition.category)
-                          : "Kompetisi"}
-                      </span>
-                    </Link>
-
-                    <div className="competition-card-body">
-                      <div className="competition-card-badges">
-                        {competition.isFeatured ? (
-                          <span className="status-badge" data-status="featured">
-                            Pilihan editor
-                          </span>
-                        ) : null}
-                        {competition.mode ? (
-                          <span className="status-badge">
-                            {getCompetitionModeLabel(competition.mode)}
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <div className="stack-xs">
-                        <Link href={detailPath} className="competition-title-link">
-                          {competition.title}
-                        </Link>
-                        <p className="competition-organizer">{competition.institutionName}</p>
-                      </div>
-
-                      {competition.description ? (
-                        <p className="competition-description">
-                          {truncateDescription(competition.description)}
-                        </p>
-                      ) : null}
-
-                      <div className="competition-card-footer">
-                        <span className="status-badge" data-status={registrationStatus.value}>
-                          {registrationStatus.label} ·{" "}
-                          {formatDeadline(competition.registrationEndAt)}
-                        </span>
-                        <span className="competition-card-arrow" aria-hidden="true">
-                          <Icon name="arrow-right" size="md" />
-                        </span>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
+              {items.map((competition) => (
+                <CompetitionCard key={competition.id} competition={competition} />
+              ))}
             </div>
           )}
 

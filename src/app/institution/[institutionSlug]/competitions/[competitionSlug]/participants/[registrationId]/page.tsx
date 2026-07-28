@@ -65,7 +65,6 @@ export default async function RegistrationReviewPage({ params }: Props) {
   return (
     <main className="page-shell app-page participant-review-page">
       <PageHeader
-        eyebrow="Tinjauan peserta"
         title="Detail peserta"
         description="Catatan internal tidak terlihat oleh peserta."
         backHref={listPath}

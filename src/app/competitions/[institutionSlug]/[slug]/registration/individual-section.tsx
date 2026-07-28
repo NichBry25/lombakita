@@ -171,7 +171,6 @@ export function IndividualRegistrationSection({
     <section className="content-section registration-path-card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Jalur 01</p>
           <h2>Individu</h2>
         </div>
       </div>

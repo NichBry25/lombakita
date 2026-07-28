@@ -259,7 +259,6 @@ export default function RecruiterVerificationQueuePage() {
   return (
     <main className="page-shell app-page admin-page">
       <PageHeader
-        eyebrow="Operasi platform"
         title="Verifikasi rekruter"
         description="Antrean permohonan Rekruter Terpercaya, diurutkan berdasarkan prioritas."
       />

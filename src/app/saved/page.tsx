@@ -27,7 +27,6 @@ export default async function SavedCompetitionsPage({
   return (
     <main className="page-shell app-page saved-page">
       <PageHeader
-        eyebrow="Koleksi pribadi"
         title="Kompetisi tersimpan"
         description="Peluang yang kamu simpan untuk dibaca lagi."
         actions={

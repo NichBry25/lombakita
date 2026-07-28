@@ -115,6 +115,34 @@ export const deleteAvatar = async (userId: string, db: Database = getDb()): Prom
     .where(eq(userProfiles.userId, userId));
 };
 
+// ── Banner ────────────────────────────────────────────────────────────────
+
+export const generateBannerUploadUrl = async (
+  userId: string,
+  request: ProfileFileUploadRequest,
+  now: Date = new Date(),
+): Promise<UploadUrlGrant> => {
+  assertR2Available();
+  const fileKey = `${PROFILE_FILE_RULES.banner.prefix}/${userId}/${randomUUID()}`;
+  return mintUploadUrl(fileKey, request, now);
+};
+
+export const recordBanner = async (
+  userId: string,
+  metadata: ProfileFileMetadata,
+  db: Database = getDb(),
+): Promise<void> => {
+  assertKeyPrefix(metadata.fileKey, `${PROFILE_FILE_RULES.banner.prefix}/${userId}/`);
+  await upsertProfileColumns(userId, { bannerR2Key: metadata.fileKey }, db);
+};
+
+export const deleteBanner = async (userId: string, db: Database = getDb()): Promise<void> => {
+  await db
+    .update(userProfiles)
+    .set({ bannerR2Key: null, updatedAt: new Date() })
+    .where(eq(userProfiles.userId, userId));
+};
+
 // ── Resume ──────────────────────────────────────────────────────────────────
 
 export const generateResumeUploadUrl = async (

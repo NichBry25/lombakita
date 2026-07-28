@@ -7,9 +7,14 @@ vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn(
 vi.mock("@/server/institution-verification/verification-email", () => ({
   sendInstitutionVerifiedEmail: vi.fn(async () => {}),
   sendInstitutionRejectedEmail: vi.fn(async () => {}),
+  sendInstitutionVerificationRevokedEmail: vi.fn(async () => {}),
 }));
 
 import { VerificationError } from "./verification-core";
+import {
+  sendInstitutionRejectedEmail,
+  sendInstitutionVerificationRevokedEmail,
+} from "./verification-email";
 import { listInstitutionsForPlatformOps, verifyInstitution } from "./verification-service";
 
 // ─── Condition inspection ─────────────────────────────────────────────────────
@@ -279,5 +284,193 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
     expect(result.auditEntry.toStatus).toBe("verified");
     expect(writes.updates).toBe(1);
     expect(writes.inserts).toBe(1);
+  });
+});
+
+describe("verifyInstitution — revocation and concurrent-decision safety", () => {
+  // Same shape as makeVerifyDb above, but the UPDATE's result is configurable: an empty array is
+  // what Postgres returns when the CAS predicate no longer matches, i.e. another actor moved the
+  // institution first.
+  const makeTransitionDb = (currentRow: Record<string, unknown>, updateResult: unknown[]) => {
+    const writes = { updates: 0, inserts: 0 };
+    const updateWhere: unknown[] = [];
+
+    const selectNode = (result: unknown[]): Record<string, unknown> => {
+      const n: Record<string, unknown> = {};
+      for (const method of ["from", "innerJoin", "where", "orderBy"]) n[method] = () => n;
+      n.limit = () => Promise.resolve(result);
+      n.then = (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve);
+      return n;
+    };
+
+    const selects = [[currentRow], [{ email: "owner@contoh.co.id", username: "owner" }]];
+    let call = 0;
+
+    const db: Record<string, unknown> = {
+      select: () => selectNode(selects[call++] ?? []),
+      update: () => {
+        writes.updates += 1;
+        return {
+          set: () => ({
+            where: (condition: unknown) => {
+              updateWhere.push(condition);
+              return { returning: () => Promise.resolve(updateResult) };
+            },
+          }),
+        };
+      },
+      insert: () => {
+        writes.inserts += 1;
+        return {
+          values: (payload: Record<string, unknown>) => ({
+            returning: () =>
+              Promise.resolve([
+                {
+                  id: "audit_1",
+                  actorUserId: "ops_1",
+                  fromStatus: payload.fromStatus,
+                  toStatus: payload.toStatus,
+                  reason: payload.reason ?? null,
+                  createdAt: new Date(),
+                },
+              ]),
+          }),
+        };
+      },
+    };
+    db.transaction = async (fn: (tx: unknown) => Promise<unknown>) => fn(db);
+
+    return { db: db as never, writes, updateWhere };
+  };
+
+  const verifiedInstitution = {
+    id: "inst_1",
+    displayName: "PT Contoh",
+    institutionType: "company" as const,
+    verificationStatus: "verified" as const,
+  };
+
+  it("revokes a verified institution, recording the reason and the from→to in the audit trail", async () => {
+    const { db, writes } = makeTransitionDb(verifiedInstitution, [
+      {
+        id: "inst_1",
+        verificationStatus: "rejected",
+        verifiedAt: new Date(),
+        rejectedAt: new Date(),
+        rejectionReason: "Dokumen NPWP tidak sesuai catatan resmi",
+      },
+    ]);
+
+    const result = await verifyInstitution({
+      institutionId: "inst_1",
+      targetStatus: "rejected",
+      reason: "Dokumen NPWP tidak sesuai catatan resmi",
+      actorUserId: "ops_1",
+      actorRole: "platform_ops",
+      db,
+    });
+
+    expect(result.institution.verificationStatus).toBe("rejected");
+    // verified→rejected is what makes this a revocation rather than a denial — it is the only
+    // record that tells the two apart, so it has to be written exactly this way.
+    expect(result.auditEntry.fromStatus).toBe("verified");
+    expect(result.auditEntry.toStatus).toBe("rejected");
+    expect(result.auditEntry.reason).toBe("Dokumen NPWP tidak sesuai catatan resmi");
+    expect(writes.updates).toBe(1);
+    expect(writes.inserts).toBe(1);
+  });
+
+  it("pins the UPDATE to the status the decision was made against", async () => {
+    const { db, updateWhere } = makeTransitionDb(verifiedInstitution, [
+      {
+        id: "inst_1",
+        verificationStatus: "rejected",
+        verifiedAt: new Date(),
+        rejectedAt: new Date(),
+        rejectionReason: "alasan",
+      },
+    ]);
+
+    await verifyInstitution({
+      institutionId: "inst_1",
+      targetStatus: "rejected",
+      reason: "alasan",
+      actorUserId: "ops_1",
+      actorRole: "platform_ops",
+      db,
+    });
+
+    // Without verification_status in the WHERE clause the transition is last-write-wins and the
+    // loser's audit row describes a change that never happened.
+    const condition = flattenCondition(updateWhere[0]);
+    expect(condition).toContain("verification_status");
+    expect(condition).toContain("verified");
+  });
+
+  it("returns 409 and writes no audit row when another actor decided first", async () => {
+    // Zero rows updated: the institution was 'verified' when this request read it, and something
+    // else moved it before the UPDATE ran.
+    const { db, writes } = makeTransitionDb(verifiedInstitution, []);
+
+    const error = await verifyInstitution({
+      institutionId: "inst_1",
+      targetStatus: "rejected",
+      reason: "alasan",
+      actorUserId: "ops_1",
+      actorRole: "platform_ops",
+      db,
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(VerificationError);
+    expect(error).toMatchObject({ code: "verification_transition_conflict", status: 409 });
+    expect(writes.inserts).toBe(0);
+  });
+
+  it("notifies the owner that a verification was revoked, not that an application was rejected", async () => {
+    vi.mocked(sendInstitutionVerificationRevokedEmail).mockClear();
+    vi.mocked(sendInstitutionRejectedEmail).mockClear();
+
+    const { db } = makeTransitionDb(verifiedInstitution, [
+      {
+        id: "inst_1",
+        verificationStatus: "rejected",
+        verifiedAt: new Date(),
+        rejectedAt: new Date(),
+        rejectionReason: "Dokumen tidak lagi valid",
+      },
+    ]);
+
+    await verifyInstitution({
+      institutionId: "inst_1",
+      targetStatus: "rejected",
+      reason: "Dokumen tidak lagi valid",
+      actorUserId: "ops_1",
+      actorRole: "platform_ops",
+      db,
+    });
+
+    // The owner never filed anything here — a "permohonan ditolak" email would describe an event
+    // that did not happen.
+    expect(sendInstitutionRejectedEmail).not.toHaveBeenCalled();
+    expect(sendInstitutionVerificationRevokedEmail).toHaveBeenCalledWith({
+      toEmail: "owner@contoh.co.id",
+      institutionDisplayName: "PT Contoh",
+      revocationReason: "Dokumen tidak lagi valid",
+    });
+  });
+
+  it("still refuses verified → under_review — un-verifying is only ever an explicit revocation", async () => {
+    const { db, writes } = makeTransitionDb(verifiedInstitution, []);
+
+    const error = await verifyInstitution({
+      institutionId: "inst_1",
+      targetStatus: "under_review",
+      actorUserId: "ops_1",
+      actorRole: "platform_ops",
+      db,
+    }).catch((e: unknown) => e);
+
+    expect(error).toMatchObject({ code: "verification_invalid_transition", status: 409 });
+    expect(writes.updates).toBe(0);
   });
 });

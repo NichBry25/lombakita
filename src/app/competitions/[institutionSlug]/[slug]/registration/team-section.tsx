@@ -84,7 +84,6 @@ export function CompetitionTeamSection(props: Props) {
     <section className="content-section registration-path-card team-registration-card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Jalur 02</p>
           <h2>Tim</h2>
           <p>
             {props.competitionMode === "both"
@@ -538,7 +537,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               type="text"
               value={inviteIdentifier}
               onChange={(e) => setInviteIdentifier(e.target.value)}
-              placeholder="Username atau email"
+              placeholder="Username atau Email"
               required
               disabled={busy || atCapacity}
               className="form-input"

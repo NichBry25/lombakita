@@ -29,7 +29,6 @@ export default async function CompetitionRegistrationPage({
     return (
       <main className="page-shell app-page registration-page">
         <PageHeader
-          eyebrow="Akses pendaftaran"
           title="Hanya kandidat yang dapat mendaftar"
           description="Akun kandidat yang terverifikasi diperlukan untuk memulai pendaftaran kompetisi."
           backHref={detailPath}
@@ -82,7 +81,6 @@ export default async function CompetitionRegistrationPage({
   return (
     <main className="page-shell app-page registration-page">
       <PageHeader
-        eyebrow="Pendaftaran kompetisi"
         title="Daftarkan diri"
         description={
           competition.mode === "both"

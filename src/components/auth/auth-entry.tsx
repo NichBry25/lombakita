@@ -436,7 +436,6 @@ export const AuthEntry = ({
   return (
     <div className="auth-entry">
       <header className="auth-entry-header">
-        <p className="eyebrow">Akses akun</p>
         <h1>Masuk atau daftar</h1>
         <p>Pilih cara Anda ingin melanjutkan.</p>
       </header>

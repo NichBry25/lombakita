@@ -1,28 +1,73 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { Icon, PageHeader } from "@/components/ui";
+import { notFound, redirect } from "next/navigation";
+import { ButtonLink, Icon, PageHeader } from "@/components/ui";
+import { InstitutionPublicView } from "@/components/institution/institution-public-view";
 import { isInstitutionAdminBySlug } from "@/server/institution-members/member-service";
+import { getCurrentSession } from "@/server/auth/session";
 import { requireRolePage } from "@/server/auth/page-guard";
-import { loadInstitutionTypeBySlug } from "@/server/institution-workspace/institution-service";
+import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
+import { getPublicInstitution } from "@/server/institution-workspace/institution-public-service";
+import { listPublicCompetitions } from "@/server/competitions/competition-public-service";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 
 type InstitutionHubPageProps = {
   params: Promise<{ institutionSlug: string }>;
+  searchParams: Promise<{ tampilan?: string }>;
 };
 
-export default async function InstitutionHubPage({ params }: InstitutionHubPageProps) {
-  const { institutionSlug } = await params;
-  const base = `/institution/${institutionSlug}`;
-  const session = await requireRolePage("recruiter", { callbackPath: base });
+// How many of the institution's published competitions the public page shows before pointing at
+// the full listing.
+const PUBLIC_COMPETITION_LIMIT = 12;
 
-  const isMember = await isInstitutionAdminBySlug(session.user.id, institutionSlug);
-  if (!isMember) {
-    redirect("/recruiter-dashboard");
+// Owners and staff land on the management board; everyone else — signed out, signed in as a
+// candidate, or a member of a different institution — sees the organizer's public page at the same
+// URL. `?tampilan=publik` lets an owner look at their own public page, which they otherwise never
+// could.
+const PUBLIC_VIEW_PARAM = "publik";
+
+export async function generateMetadata({ params }: InstitutionHubPageProps): Promise<Metadata> {
+  const { institutionSlug } = await params;
+  const institution = await getPublicInstitution(institutionSlug);
+  if (!institution) {
+    return { title: "Institusi tidak ditemukan · Lombakita" };
+  }
+  return {
+    title: `${institution.name} · Lombakita`,
+    description:
+      institution.description ?? `Kompetisi yang diselenggarakan ${institution.name} di Lombakita.`,
+  };
+}
+
+export default async function InstitutionHubPage({
+  params,
+  searchParams,
+}: InstitutionHubPageProps) {
+  const { institutionSlug } = await params;
+  const { tampilan } = await searchParams;
+  const base = `/institution/${institutionSlug}`;
+
+  // The guard deliberately runs AFTER the membership check rather than before it: this URL is now
+  // a public page for anyone who is not running the institution, so requiring a recruiter session
+  // up front would bounce every visitor to sign-in.
+  const session = await getCurrentSession();
+  const isAdmin = session?.user?.id
+    ? await isInstitutionAdminBySlug(session.user.id, institutionSlug)
+    : false;
+
+  if (!isAdmin || tampilan === PUBLIC_VIEW_PARAM) {
+    return renderPublicView(institutionSlug);
   }
 
+  await requireRolePage("recruiter", { callbackPath: base });
+
   // The /verification route serves the type upgrade for a personal institution and document
-  // verification for a full one, so its entry in this hub is labelled for whichever it will render.
-  const isPersonal = isPersonalInstitutionType(await loadInstitutionTypeBySlug(institutionSlug));
+  // verification for a full one, so its entry in this hub is labelled for whichever it will render —
+  // and, once a full institution is verified, for the result rather than for an action it no longer
+  // has.
+  const verificationSummary = await loadInstitutionVerificationSummaryBySlug(institutionSlug);
+  const isPersonal = isPersonalInstitutionType(verificationSummary?.institutionType ?? null);
+  const isVerified = verificationSummary?.verificationStatus === "verified";
 
   const links = [
     {
@@ -32,15 +77,15 @@ export default async function InstitutionHubPage({ params }: InstitutionHubPageP
       icon: "trophy" as const,
     },
     {
-      href: `${base}/members`,
-      label: "Anggota",
-      description: "Kelola akses staf dan anggota workspace.",
+      href: `${base}/team`,
+      label: "Tim",
+      description: "Kelola anggota, peran, dan undangan pengelola.",
       icon: "users" as const,
     },
     {
       href: `${base}/settings`,
       label: "Pengaturan",
-      description: "Perbarui identitas dan konfigurasi institusi.",
+      description: "Perbarui identitas institusi dan profil penyelenggara.",
       icon: "building" as const,
     },
     isPersonal
@@ -53,7 +98,9 @@ export default async function InstitutionHubPage({ params }: InstitutionHubPageP
       : {
           href: `${base}/verification`,
           label: "Verifikasi dokumen",
-          description: "Ajukan bukti resmi dan pantau status tinjauan.",
+          description: isVerified
+            ? "Institusi ini sudah terverifikasi. Lihat hasil peninjauannya."
+            : "Ajukan bukti resmi dan pantau status tinjauan.",
           icon: "check" as const,
         },
     {
@@ -67,11 +114,21 @@ export default async function InstitutionHubPage({ params }: InstitutionHubPageP
   return (
     <main className="page-shell app-page institution-hub-page">
       <PageHeader
-        eyebrow="Panel institusi"
-        title={institutionSlug}
+        title={verificationSummary?.displayName || institutionSlug}
         description="Kelola profil institusi, kompetisi, dan anggota."
         backHref="/recruiter-dashboard"
         backLabel="Dasbor"
+        actions={
+          isPersonal ? null : (
+            <ButtonLink
+              href={`${base}?tampilan=${PUBLIC_VIEW_PARAM}`}
+              variant="primary"
+              leadingIcon={<Icon name="eye" size="sm" aria-hidden="true" />}
+            >
+              Lihat halaman publik
+            </ButtonLink>
+          )
+        }
       />
       <nav aria-label="Fitur institusi">
         <ul className="hub-grid institution-hub-grid">
@@ -92,4 +149,23 @@ export default async function InstitutionHubPage({ params }: InstitutionHubPageP
       </nav>
     </main>
   );
+}
+
+// A personal institution has no identity of its own — its name, photo and banner are all the
+// owner's — so its public page is that person's profile rather than a near-duplicate of it.
+async function renderPublicView(institutionSlug: string) {
+  const institution = await getPublicInstitution(institutionSlug);
+  if (!institution) notFound();
+
+  if (isPersonalInstitutionType(institution.institutionType)) {
+    if (!institution.personalOwnerUsername) notFound();
+    redirect(`/${institution.personalOwnerUsername}`);
+  }
+
+  const { data: competitions } = await listPublicCompetitions({
+    institutionSlug: institution.slug,
+    limit: PUBLIC_COMPETITION_LIMIT,
+  });
+
+  return <InstitutionPublicView institution={institution} competitions={competitions} />;
 }

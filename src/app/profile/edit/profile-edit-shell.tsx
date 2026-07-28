@@ -11,7 +11,7 @@ import {
 import { Button, FormActionBar, Icon, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { ProfileCollectionsEditor } from "./profile-collections-editor";
-import { AvatarUpload, ResumeSection } from "./profile-media-controls";
+import { AvatarUpload, BannerUpload, ResumeSection } from "./profile-media-controls";
 
 type Props = {
   profile: OwnerProfileResponse;
@@ -73,6 +73,8 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
   const [location, setLocation] = useState(fieldValue(profile.location));
   const currentAvatarUrl =
     profile.avatarUrl.status === "populated" ? profile.avatarUrl.value : null;
+  const currentBannerUrl =
+    profile.bannerUrl.status === "populated" ? profile.bannerUrl.value : null;
 
   const [saving, setSaving] = useState(false);
 
@@ -163,6 +165,10 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
           <div className="form-field profile-edit-field">
             <span className="form-label">Foto profil</span>
             <AvatarUpload expectedUserId={expectedUserId} currentUrl={currentAvatarUrl} />
+          </div>
+          <div className="form-field profile-edit-field">
+            <span className="form-label">Sampul profil</span>
+            <BannerUpload expectedUserId={expectedUserId} currentUrl={currentBannerUrl} />
           </div>
         </section>
       </form>

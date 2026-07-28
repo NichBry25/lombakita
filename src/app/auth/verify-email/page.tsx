@@ -74,7 +74,6 @@ export default async function VerifyEmailPage(props: {
 
   return (
     <AuthPageFrame
-      eyebrow="Verifikasi email"
       title="Tautan verifikasi hanya berlaku sekali."
       description="Jika tautan sudah tidak berlaku, minta tautan baru dari halaman masuk."
     >

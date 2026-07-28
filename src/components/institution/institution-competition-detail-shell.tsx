@@ -220,7 +220,6 @@ export const InstitutionCompetitionDetailShell = ({
       <PageHeader
         eyebrow="Konsol kompetisi"
         title={competition.title}
-        description={`/${competition.slug}`}
         backHref={`/institution/${institutionSlug}/competitions`}
         backLabel="Kompetisi"
         actions={

@@ -10,7 +10,6 @@ export default async function ActivatedPage(props: { searchParams?: Promise<{ em
 
   return (
     <AuthPageFrame
-      eyebrow="Verifikasi email"
       title="Akun Anda siap."
       description="Simpan kompetisi, daftar, dan pantau hasilnya dari satu dasbor."
     >
@@ -19,7 +18,6 @@ export default async function ActivatedPage(props: { searchParams?: Promise<{ em
           <Icon name="check" size="lg" />
         </span>
         <div className="stack-xs">
-          <p className="eyebrow">Email terverifikasi</p>
           <h1>Akun Anda sudah aktif</h1>
           <p>Verifikasi berhasil. Lanjutkan login menggunakan email dan password Anda.</p>
         </div>

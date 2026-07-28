@@ -320,7 +320,7 @@ function UserPanel() {
       {result && (
         <div className="moderation-result">
           <div>
-            <strong>{result.name ?? "(tanpa nama)"}</strong> · {result.email} · peran:{" "}
+            <strong>{result.name ?? "(tanpa nama)"}</strong> · {result.email} · Peran:{" "}
             {getAppRoleLabel(result.appRole)}
           </div>
           <div className="moderation-status-row">
@@ -414,7 +414,7 @@ function InstitutionPanel() {
       </div>
       <div className="moderation-lookup-form">
         <label htmlFor="institution-lookup-slug" className="form-label">
-          Slug / nama
+          Slug / Nama
         </label>
         <input
           id="institution-lookup-slug"

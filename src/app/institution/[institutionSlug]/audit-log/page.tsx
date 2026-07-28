@@ -66,7 +66,6 @@ export default async function AuditLogPage({ params, searchParams }: Props) {
   return (
     <main className="page-shell app-page audit-log-page">
       <PageHeader
-        eyebrow="Tata kelola institusi"
         title="Log audit"
         description={`Riwayat perubahan penting untuk ${institutionSlug}, diurutkan dari yang terbaru.`}
         backHref={`/institution/${institutionSlug}`}

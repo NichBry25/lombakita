@@ -14,7 +14,6 @@ export default async function CandidateProfilePage() {
   return (
     <main className="page-shell app-page candidate-dashboard">
       <PageHeader
-        eyebrow="Ruang kandidat"
         title="Data kandidat"
         description="Perbarui data yang kamu isi saat mendaftar sebagai kandidat."
         backHref="/candidate-dashboard"

@@ -264,6 +264,9 @@ export const userProfiles = pgTable("user_profiles", {
   // stored as an R2 object key in `avatar_r2_key`; the read path presigns a short-lived GET URL.
   avatarUrl: text("avatar_url"),
   avatarR2Key: text("avatar_r2_key"),
+  // Wide header image behind the profile identity block, stored as an R2 object key and presigned
+  // on read like the avatar. Cropped client-side to a fixed 4:1 frame before upload.
+  bannerR2Key: text("banner_r2_key"),
   summary: text("summary"),
   location: text("location"),
   // Single resume per user (uploaded to R2). `resume_public` gates whether it appears on the
@@ -498,6 +501,10 @@ export const institutions = pgTable(
     // a placeholder mark. `logoR2Key` is a private R2 object key; the read path signs a fresh GET
     // URL at render time (never a stored public URL). These fields are descriptive only.
     logoR2Key: text("logo_r2_key"),
+    // Wide header image on the public institution page, same 4:1 frame as the profile banner.
+    // Personal institutions never write either key — their logo and banner are derived from the
+    // owner's own profile at read time (see resolveInstitutionMedia).
+    bannerR2Key: text("banner_r2_key"),
     about: text("about"),
     contactName: text("contact_name"),
     contactEmail: text("contact_email"),
@@ -1375,6 +1382,14 @@ export const institutionVerificationSubmissions = pgTable(
       table.institutionId,
       table.status,
     ),
+    // At most one queued submission per institution. Institution verification never writes
+    // `draft` (recruiter-only), so unlike the recruiter-side equivalent this only needs to cover
+    // `pending_review`. Belt-and-braces alongside the pg_advisory_xact_lock in
+    // acquireInstitutionSubmissionLock — confirmed zero pre-existing duplicates against the live
+    // DB before adding this (INST-VERIF-D1).
+    uniqueIndex("institution_verification_submissions_pending_unique_idx")
+      .on(table.institutionId)
+      .where(sql`${table.status} = 'pending_review'`),
   ],
 );
 

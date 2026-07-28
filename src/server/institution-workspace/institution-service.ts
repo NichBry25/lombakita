@@ -15,13 +15,13 @@ import {
   institutions,
   users,
   type InstitutionType,
+  type InstitutionVerificationStatus,
 } from "@/server/db/schema";
 import {
   parseInstitutionProfileInput,
   InstitutionProfileInputError,
   type InstitutionSocialPlatform,
 } from "@/server/institution-workspace/institution-profile-core";
-import { isR2Available, generatePresignedPutUrl } from "@/server/storage/r2.client";
 import {
   InstitutionWorkspaceInputError,
   MAX_INSTITUTIONS_PER_RECRUITER,
@@ -42,7 +42,15 @@ import {
   PERSONAL_INSTITUTION_TYPE,
   type FullInstitutionType,
 } from "@/server/institution-workspace/institution-type";
-import { getInstitutionDisplayName } from "@/server/institution-workspace/institution-display-name";
+import {
+  getInstitutionDisplayName,
+  institutionOwnerUsernameSql,
+} from "@/server/institution-workspace/institution-display-name";
+import {
+  institutionOwnerAvatarKeySql,
+  institutionOwnerBannerKeySql,
+} from "@/server/institution-workspace/institution-media";
+import { resolveInstitutionMediaUrls } from "@/server/institution-workspace/institution-media-urls";
 import { acquireOwnerCapLock } from "@/server/institution-workspace/owner-cap-lock";
 
 const MAX_SLUG_ATTEMPTS = 20;
@@ -120,7 +128,7 @@ const hasAnyMembershipForInstitutionSlug = async (
   return Boolean(row);
 };
 
-const buildInstitutionWorkspaceAccessDeniedError = async (
+export const buildInstitutionWorkspaceAccessDeniedError = async (
   userId: string,
   institutionSlug: string,
   db: Database,
@@ -140,7 +148,7 @@ const buildInstitutionWorkspaceAccessDeniedError = async (
 // userId IS the owner username — exactly what getInstitutionDisplayName needs for a personal row.
 type InstitutionWorkspaceOwnerRow = InstitutionWorkspaceRow & { ownerUsername: string | null };
 
-const findInstitutionWorkspaceByOwnerAndSlug = async (
+export const findInstitutionWorkspaceByOwnerAndSlug = async (
   userId: string,
   institutionSlug: string,
   db: Database,
@@ -182,13 +190,21 @@ export type UserInstitutionMembership = {
   institutionId: string;
   slug: string;
   displayName: string;
-  // Short institution description, or null when unset. Surfaced on the recruiter dashboard list.
+  // The public organizer bio (full institutions only), or null when unset.
+  about: string | null;
+  // The legacy internal description. Retained only as the dashboard-card fallback for institutions
+  // that have no `about` — personal institutions, which carry no public organizer profile, and
+  // full institutions that have not written one yet.
   description: string | null;
   role: typeof OWNER_ROLE | typeof STAFF_ROLE;
   isOwner: boolean;
   // Count of the institution's active operational members (owner + staff), so the dashboard can show
   // team size. institution_member is excluded — cosmetic-at-launch, no operational surface (CCR-09).
   staffCount: number;
+  // Presigned display URLs, null when nothing is stored or R2 is unavailable. A personal institution
+  // resolves to its owner's avatar and banner (resolveInstitutionMediaKeys).
+  logoUrl: string | null;
+  bannerUrl: string | null;
 };
 
 // Lists the institutions an account actively participates in as owner or staff, for the recruiter
@@ -205,8 +221,13 @@ export const listUserInstitutionMemberships = async (
       slug: institutions.slug,
       displayName: institutions.displayName,
       institutionType: institutions.institutionType,
+      about: institutions.about,
       description: institutions.description,
       membershipRole: institutionMemberships.membershipRole,
+      logoR2Key: institutions.logoR2Key,
+      bannerR2Key: institutions.bannerR2Key,
+      ownerAvatarKey: institutionOwnerAvatarKeySql,
+      ownerBannerKey: institutionOwnerBannerKeySql,
     })
     .from(institutionMemberships)
     .innerJoin(institutions, eq(institutions.id, institutionMemberships.institutionId))
@@ -224,22 +245,38 @@ export const listUserInstitutionMemberships = async (
     db,
   );
 
-  return rows.map((row) => ({
-    institutionId: row.institutionId,
-    slug: row.slug,
-    // Personal institutions render as a generic "Personal" here rather than the owner-derived
-    // "<username>'s Institution" the global helper produces.
-    displayName: isPersonalInstitutionType(row.institutionType)
-      ? "Personal"
-      : getInstitutionDisplayName({
-          displayName: row.displayName,
+  return await Promise.all(
+    rows.map(async (row) => {
+      const { logoUrl, bannerUrl } = await resolveInstitutionMediaUrls(
+        {
           institutionType: row.institutionType,
-        }),
-    description: row.description,
-    role: row.membershipRole as typeof OWNER_ROLE | typeof STAFF_ROLE,
-    isOwner: row.membershipRole === OWNER_ROLE,
-    staffCount: staffCountByInstitution.get(row.institutionId) ?? 0,
-  }));
+          logoR2Key: row.logoR2Key,
+          bannerR2Key: row.bannerR2Key,
+        },
+        { avatarR2Key: row.ownerAvatarKey, bannerR2Key: row.ownerBannerKey },
+      );
+
+      return {
+        institutionId: row.institutionId,
+        slug: row.slug,
+        // Personal institutions render as a generic "Personal" here rather than the owner-derived
+        // "<username>'s Institution" the global helper produces.
+        displayName: isPersonalInstitutionType(row.institutionType)
+          ? "Personal"
+          : getInstitutionDisplayName({
+              displayName: row.displayName,
+              institutionType: row.institutionType,
+            }),
+        about: row.about,
+        description: row.description,
+        role: row.membershipRole as typeof OWNER_ROLE | typeof STAFF_ROLE,
+        isOwner: row.membershipRole === OWNER_ROLE,
+        staffCount: staffCountByInstitution.get(row.institutionId) ?? 0,
+        logoUrl,
+        bannerUrl,
+      };
+    }),
+  );
 };
 
 // Counts active operational members (owner + staff, excluding cosmetic institution_member) per
@@ -1093,7 +1130,11 @@ export type InstitutionProfileView = {
   contactEmail: string | null;
   contactPhone: string | null;
   websiteUrl: string | null;
-  hasLogo: boolean;
+  // Presigned read URLs, not stored paths. For a personal institution these resolve to the owner's
+  // own profile photo and banner, which is why the surface reports them as URLs rather than as
+  // "has an upload" flags — the images exist, they are just not this institution's to edit.
+  logoUrl: string | null;
+  bannerUrl: string | null;
   socialLinks: Array<{ platform: InstitutionSocialPlatform; url: string }>;
   isEditable: boolean;
 };
@@ -1116,7 +1157,11 @@ export const getInstitutionProfileForOwnerBySlug = async (
       contactEmail: institutions.contactEmail,
       contactPhone: institutions.contactPhone,
       websiteUrl: institutions.websiteUrl,
+      institutionType: institutions.institutionType,
       logoR2Key: institutions.logoR2Key,
+      bannerR2Key: institutions.bannerR2Key,
+      ownerAvatarKey: institutionOwnerAvatarKeySql,
+      ownerBannerKey: institutionOwnerBannerKeySql,
     })
     .from(institutions)
     .where(eq(institutions.id, current.institutionId));
@@ -1126,13 +1171,23 @@ export const getInstitutionProfileForOwnerBySlug = async (
     .from(institutionSocialLinks)
     .where(eq(institutionSocialLinks.institutionId, current.institutionId));
 
+  const { logoUrl, bannerUrl } = await resolveInstitutionMediaUrls(
+    {
+      institutionType: row?.institutionType ?? null,
+      logoR2Key: row?.logoR2Key ?? null,
+      bannerR2Key: row?.bannerR2Key ?? null,
+    },
+    { avatarR2Key: row?.ownerAvatarKey ?? null, bannerR2Key: row?.ownerBannerKey ?? null },
+  );
+
   return {
     about: row?.about ?? null,
     contactName: row?.contactName ?? null,
     contactEmail: row?.contactEmail ?? null,
     contactPhone: row?.contactPhone ?? null,
     websiteUrl: row?.websiteUrl ?? null,
-    hasLogo: Boolean(row?.logoR2Key),
+    logoUrl,
+    bannerUrl,
     socialLinks: links,
     isEditable: !isPersonalInstitutionType(current.institutionType ?? null),
   };
@@ -1194,56 +1249,8 @@ export const updateInstitutionProfileForOwnerBySlug = async (
   return getInstitutionProfileForOwnerBySlug(userId, normalizedSlug, db);
 };
 
-// Presigned-PUT logo upload for the owner's institution. Mirrors the recruiter-verification and
-// submission upload pattern: verify ownership, mint a namespaced R2 key, presign the PUT, and store
-// the key. Personal institutions carry no public profile and are refused. 503 when storage is
-// unconfigured (mirrors isR2Available degradation elsewhere).
-const LOGO_UPLOAD_URL_EXPIRY_SECONDS = 300;
-
-export const generateInstitutionLogoUploadUrl = async (
-  userId: string,
-  institutionSlug: string,
-  file: { contentType: string },
-  db: Database = getDb(),
-): Promise<{ uploadUrl: string }> => {
-  const normalizedSlug = parseInstitutionSlugParam(institutionSlug);
-  const current = await findInstitutionWorkspaceByOwnerAndSlug(userId, normalizedSlug, db);
-  if (!current) {
-    throw await buildInstitutionWorkspaceAccessDeniedError(userId, normalizedSlug, db);
-  }
-
-  if (isPersonalInstitutionType(current.institutionType ?? null)) {
-    throw new InstitutionProfileInputError(
-      "institution_profile_not_editable",
-      "A personal institution does not have a public organizer profile",
-      undefined,
-      403,
-    );
-  }
-
-  if (!isR2Available()) {
-    throw new InstitutionProfileInputError(
-      "institution_profile_storage_unavailable",
-      "Logo storage is unavailable",
-      undefined,
-      503,
-    );
-  }
-
-  const r2Key = `institution-logos/${current.institutionId}/${crypto.randomUUID()}`;
-  const uploadUrl = await generatePresignedPutUrl(
-    r2Key,
-    file.contentType,
-    LOGO_UPLOAD_URL_EXPIRY_SECONDS,
-  );
-
-  await db
-    .update(institutions)
-    .set({ logoR2Key: r2Key, updatedAt: sql`now()` })
-    .where(eq(institutions.id, current.institutionId));
-
-  return { uploadUrl };
-};
+// Logo and banner upload live in institution-media-service.ts, which also owns the personal-
+// institution derivation both images share.
 
 // Slug-keyed entry point for the owner-initiated type upgrade. Resolves the slug to an id, delegates
 // every guard to upgradeInstitutionType (which owns the lock, tier, ownership, transition, and cap
@@ -1309,4 +1316,46 @@ export const loadInstitutionTypeBySlug = async (
     .where(eq(institutions.slug, normalized))
     .limit(1);
   return row?.institutionType ?? null;
+};
+
+export type InstitutionVerificationSummary = {
+  institutionType: InstitutionType;
+  verificationStatus: InstitutionVerificationStatus;
+  verifiedAt: Date | null;
+  rejectionReason: string | null;
+  displayName: string;
+};
+
+// Everything the /institution/[slug]/verification page needs to choose its surface: the type decides
+// between the upgrade and the document-verification view, and the status decides whether that view
+// still accepts a submission or only reports the verdict already reached. Returns null for a slug
+// that does not resolve.
+export const loadInstitutionVerificationSummaryBySlug = async (
+  institutionSlug: string,
+  db: Database = getDb(),
+): Promise<InstitutionVerificationSummary | null> => {
+  const normalized = normalizeInstitutionSlug(institutionSlug);
+  const [row] = await db
+    .select({
+      institutionType: institutions.institutionType,
+      verificationStatus: institutions.verificationStatus,
+      verifiedAt: institutions.verifiedAt,
+      rejectionReason: institutions.rejectionReason,
+      rawDisplayName: institutions.displayName,
+      ownerUsername: institutionOwnerUsernameSql,
+    })
+    .from(institutions)
+    .where(eq(institutions.slug, normalized))
+    .limit(1);
+  if (!row) {
+    return null;
+  }
+  const { rawDisplayName, ownerUsername, ...rest } = row;
+  return {
+    ...rest,
+    displayName: getInstitutionDisplayName(
+      { displayName: rawDisplayName, institutionType: row.institutionType },
+      { username: ownerUsername },
+    ),
+  };
 };

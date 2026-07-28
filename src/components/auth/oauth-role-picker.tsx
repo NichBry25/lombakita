@@ -160,13 +160,11 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
 
   return (
     <AuthPageFrame
-      eyebrow="Pendaftaran Google"
       title="Tetapkan peran utama untuk memulai."
       description="Kandidat mencari kompetisi, rekruter menerbitkannya. Anda bisa menambah peran lain nanti."
     >
       <div className="auth-entry">
         <header className="auth-entry-header">
-          <p className="eyebrow">Langkah terakhir</p>
           <h1>Selesaikan pendaftaran dengan Google</h1>
         </header>
         <p className="auth-intro-copy">

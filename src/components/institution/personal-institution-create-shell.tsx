@@ -91,7 +91,6 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
   return (
     <main className="page-shell app-page personal-institution-page">
       <PageHeader
-        eyebrow="Ruang penyelenggara personal"
         title="Buat institusi personal"
         description="Untuk menyelenggarakan kompetisi sendiri. Nama institusi mengikuti username Anda."
       />

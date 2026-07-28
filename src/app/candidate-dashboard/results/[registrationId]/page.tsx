@@ -57,7 +57,6 @@ export default async function CandidateResultDetailPage({ params }: Props) {
       <PageHeader
         eyebrow="Hasil kompetisi"
         title={registration.competitionTitle}
-        description="Keputusan resmi yang telah dipublikasikan oleh penyelenggara."
         backHref="/candidate-dashboard/results"
         backLabel="Semua"
         actions={

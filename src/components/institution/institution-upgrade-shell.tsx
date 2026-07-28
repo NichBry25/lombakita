@@ -74,13 +74,10 @@ export const InstitutionUpgradeShell = ({
 
   const nameFieldId = useId();
   const nameHintId = `${nameFieldId}-hint`;
-  const descriptionFieldId = useId();
-  const descriptionHintId = `${descriptionFieldId}-hint`;
   const blockedNoticeId = useId();
 
   const [targetType, setTargetType] = useState<FullInstitutionType>("company");
   const [displayName, setDisplayName] = useState("");
-  const [description, setDescription] = useState("");
   const [nameInvalid, setNameInvalid] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -109,7 +106,6 @@ export const InstitutionUpgradeShell = ({
           body: JSON.stringify({
             targetType,
             displayName: displayName.trim(),
-            description: description.trim().length > 0 ? description.trim() : null,
           }),
         },
       );
@@ -177,7 +173,6 @@ export const InstitutionUpgradeShell = ({
   return (
     <main className="page-shell app-page institution-upgrade-page">
       <PageHeader
-        eyebrow="Tingkat institusi"
         title="Tingkatkan level institusi"
         description="Ubah institusi personal Anda menjadi institusi resmi agar dapat menyelenggarakan lebih banyak kompetisi, membuka mode tim, dan mengundang staf."
       />
@@ -233,27 +228,6 @@ export const InstitutionUpgradeShell = ({
           <span id={nameHintId}>
             <FormHelp>
               Nama ini menggantikan nama personal Anda dan menentukan alamat baru institusi.
-            </FormHelp>
-          </span>
-        </div>
-
-        <div className="form-field">
-          <label htmlFor={descriptionFieldId} className="form-label">
-            Deskripsi institusi (Opsional)
-          </label>
-          <textarea
-            id={descriptionFieldId}
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Deskripsi singkat institusi baru Anda."
-            className="form-input"
-            rows={4}
-            maxLength={500}
-            aria-describedby={descriptionHintId}
-          />
-          <span id={descriptionHintId}>
-            <FormHelp>
-              Tampil pada daftar institusi Anda. Dapat diubah kapan saja di pengaturan institusi.
             </FormHelp>
           </span>
         </div>

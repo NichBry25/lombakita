@@ -38,7 +38,6 @@ export default function AdminHubPage() {
   return (
     <main className="page-shell app-page admin-page">
       <PageHeader
-        eyebrow="Operasi platform"
         title="Panel Platform Operations"
         description="Kelola verifikasi, moderasi, dan kompetisi unggulan."
       />

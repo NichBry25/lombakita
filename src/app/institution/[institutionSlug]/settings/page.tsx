@@ -23,5 +23,7 @@ export default async function InstitutionSettingsPage({ params }: InstitutionSet
     redirect("/");
   }
 
-  return <InstitutionSettingsShell institutionSlug={institutionSlug} />;
+  return (
+    <InstitutionSettingsShell institutionSlug={institutionSlug} expectedUserId={session.user.id} />
+  );
 }

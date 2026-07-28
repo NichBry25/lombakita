@@ -4,7 +4,6 @@ import { ButtonLink, Icon } from "@/components/ui";
 export default function VerifyRequestPage() {
   return (
     <AuthPageFrame
-      eyebrow="Periksa email"
       title="Satu langkah lagi sebelum akun aktif."
       description="Tautan verifikasi dikirim ke alamat yang digunakan saat pendaftaran."
     >

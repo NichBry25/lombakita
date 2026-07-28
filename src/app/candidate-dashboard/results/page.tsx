@@ -14,7 +14,6 @@ export default async function CandidateResultsPage() {
   return (
     <main className="page-shell app-page candidate-results-page">
       <PageHeader
-        eyebrow="Keputusan penyelenggara"
         title="Hasil kompetisi"
         description="Hasil yang telah dipublikasikan untuk pendaftaranmu."
         backHref="/candidate-dashboard"

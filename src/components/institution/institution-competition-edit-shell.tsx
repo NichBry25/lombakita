@@ -480,7 +480,6 @@ export const InstitutionCompetitionEditShell = ({
       <PageHeader
         eyebrow="Editor kompetisi"
         title={competition.title}
-        description={`/${competition.slug} · ${institutionSlug}`}
         actions={
           <span
             className="status-badge"
@@ -552,7 +551,6 @@ export const InstitutionCompetitionEditShell = ({
           <section className="content-section">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Format partisipasi</p>
                 <h2>Mode dan ukuran tim</h2>
               </div>
             </div>

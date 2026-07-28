@@ -99,7 +99,6 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
   return (
     <main className="page-shell app-page participants-page">
       <PageHeader
-        eyebrow="Konsol partisipasi"
         title="Peserta"
         description={`Tinjau pendaftaran, submission, dan hasil untuk ${competitionSlug}.`}
         backHref={`/institution/${institutionSlug}/competitions/${competitionSlug}`}

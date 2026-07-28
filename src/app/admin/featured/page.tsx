@@ -28,11 +28,8 @@ export default async function AdminFeaturedPage() {
   return (
     <main className="page-shell app-page admin-page">
       <PageHeader
-        eyebrow="Kurasi penemuan"
         title="Kompetisi unggulan"
         description="Atur kompetisi yang tampil lebih dulu di halaman kompetisi."
-        backHref="/admin"
-        backLabel="Panel Platform Operations"
         actions={<span className="status-badge data-text">{rows.length} terbit</span>}
       />
 

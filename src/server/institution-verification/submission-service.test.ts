@@ -68,6 +68,8 @@ type DbMockOpts = {
   onSet?: (payload: Record<string, unknown>) => void;
   // Receives every .values() payload passed to an insert, in call order.
   onInsertValues?: (payload: Record<string, unknown>) => void;
+  // Receives every raw SQL statement issued, in call order — the advisory lock is the only one.
+  onExecute?: (statement: unknown) => void;
 };
 
 function createDbMock(opts: DbMockOpts) {
@@ -79,9 +81,10 @@ function createDbMock(opts: DbMockOpts) {
     select: () => selectChain(selects.shift() ?? []),
     update: () => updateChain(updates.shift() ?? [], opts.onSet),
     insert: () => insertChain(inserts.shift() ?? [], opts.onInsertValues),
-    // Harmless no-op: no path under test issues raw SQL any more, but keeping the handle means a
-    // future one fails on its assertion rather than on a missing mock method.
-    execute: () => Promise.resolve([]),
+    execute: (statement: unknown) => {
+      opts.onExecute?.(statement);
+      return Promise.resolve([]);
+    },
   };
   db.transaction = async (fn: (tx: unknown) => Promise<unknown>) => fn(db);
   return db as never;
@@ -105,6 +108,7 @@ describe("createVerificationSubmission", () => {
   const ownerRow = {
     institutionId: "inst_1",
     institutionType: "company",
+    verificationStatus: "pending_verification",
     membershipId: "mem_1",
   };
 
@@ -127,7 +131,10 @@ describe("createVerificationSubmission", () => {
 
   it("happy path — a full institution submitting its own type's documents", async () => {
     const db = createDbMock({
-      selects: [[ownerRow]], // resolveOwnerInstitution
+      selects: [
+        [ownerRow], // resolveOwnerInstitution
+        [], // open-submission guard: nothing awaiting review
+      ],
       inserts: [
         [submissionRow], // institutionVerificationSubmissions insert
         [], // institutionVerificationDocuments insert
@@ -145,7 +152,7 @@ describe("createVerificationSubmission", () => {
   it("records the submission against the institution's own type (no client-supplied type)", async () => {
     const setPayloads: Record<string, unknown>[] = [];
     const db = createDbMock({
-      selects: [[ownerRow]],
+      selects: [[ownerRow], []],
       inserts: [[submissionRow], [], []],
       onInsertValues: (v) => setPayloads.push(v),
     });
@@ -198,6 +205,51 @@ describe("createVerificationSubmission", () => {
     expect((err as SubmissionError).status).toBe(422);
     const details = (err as SubmissionError).details;
     expect((details as { missingDocuments: string[] }).missingDocuments).toContain("npwp");
+  });
+
+  it("refuses a new submission once the institution is already verified", async () => {
+    const verifiedOwnerRow = { ...ownerRow, verificationStatus: "verified" };
+    const db = createDbMock({ selects: [[verifiedOwnerRow]] });
+
+    const err = await catchAsync(() =>
+      createVerificationSubmission("alice", companyDocs, "user_1", db),
+    );
+    expect(err).toBeInstanceOf(SubmissionError);
+    expect((err as SubmissionError).code).toBe("institution_already_verified");
+    expect((err as SubmissionError).status).toBe(409);
+  });
+
+  it("refuses a new submission while one is still awaiting review", async () => {
+    const db = createDbMock({
+      selects: [
+        [ownerRow],
+        [{ id: "sub_open" }], // open-submission guard finds a queued submission
+      ],
+    });
+
+    const err = await catchAsync(() =>
+      createVerificationSubmission("alice", companyDocs, "user_1", db),
+    );
+    expect(err).toBeInstanceOf(SubmissionError);
+    expect((err as SubmissionError).code).toBe("verification_submission_already_pending");
+    expect((err as SubmissionError).status).toBe(409);
+  });
+
+  it("takes the per-institution advisory lock before reading the open-submission guard", async () => {
+    // Without the lock the guard is phantom-vulnerable: two concurrent submissions both read an
+    // empty queue and both insert. Asserting the statement runs at all is what keeps a future edit
+    // from quietly dropping it.
+    const statements: unknown[] = [];
+    const db = createDbMock({
+      selects: [[ownerRow], []],
+      inserts: [[submissionRow], [], []],
+      onExecute: (statement) => statements.push(statement),
+    });
+
+    await createVerificationSubmission("alice", companyDocs, "user_1", db);
+
+    expect(statements).toHaveLength(1);
+    expect(JSON.stringify(statements[0])).toContain("pg_advisory_xact_lock");
   });
 });
 
@@ -293,6 +345,36 @@ describe("reviewVerificationSubmission", () => {
 
     expect(result.submissionId).toBe("sub_1");
     expect(result.status).toBe("approved");
+  });
+
+  it("refuses to approve a submission for an institution that is already verified", async () => {
+    // verified→verified is not a legal transition, so a stale queue tab cannot re-approve an
+    // institution and stamp a second verified_at over the original decision.
+    const db = createDbMock({
+      selects: [[companySub], [{ ...companyInst, verificationStatus: "verified" }]],
+    });
+
+    const err = await catchAsync(() =>
+      reviewVerificationSubmission("sub_1", "approved", null, "ops_1", "platform_ops", db),
+    );
+    expect((err as { code: string }).code).toBe("verification_invalid_transition");
+    expect((err as { status: number }).status).toBe(409);
+  });
+
+  it("returns 409 when the institution's status changed between reading and approving", async () => {
+    // Zero rows updated: the CAS predicate no longer matches, because a revocation or another
+    // approval landed first. The submission must not be marked approved on top of it.
+    const db = createDbMock({
+      selects: [[companySub], [companyInst]],
+      updates: [[]],
+    });
+
+    const err = await catchAsync(() =>
+      reviewVerificationSubmission("sub_1", "approved", null, "ops_1", "platform_ops", db),
+    );
+    expect(err).toBeInstanceOf(SubmissionError);
+    expect((err as SubmissionError).code).toBe("verification_transition_conflict");
+    expect((err as SubmissionError).status).toBe(409);
   });
 
   it("approval only transitions verification_status — it never writes institution_type", async () => {

@@ -127,7 +127,6 @@ export function SecondRolePromptModal() {
           <Icon name="user" size="lg" />
         </span>
         <div className="stack-xs">
-          <p className="eyebrow">Perluas peran</p>
           <h2 id="second-role-prompt-title" className="modal-title">
             {copy.headline}
           </h2>

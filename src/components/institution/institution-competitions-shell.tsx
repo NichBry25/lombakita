@@ -55,7 +55,6 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
   return (
     <main className="page-shell app-page competition-management-page">
       <PageHeader
-        eyebrow="Portofolio institusi"
         title="Kompetisi"
         description={`Kelola seluruh kompetisi yang diterbitkan melalui ${institutionSlug}.`}
         backHref={`/institution/${institutionSlug}`}

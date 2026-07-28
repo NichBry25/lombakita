@@ -105,7 +105,6 @@ export const InstitutionWorkspaceShell = () => {
   return (
     <main className="page-shell app-page institution-form-page">
       <PageHeader
-        eyebrow="Institusi baru"
         title="Buat institusi"
         description="Isi identitas institusi. Slug bisa dikosongkan — kami buatkan otomatis."
       />

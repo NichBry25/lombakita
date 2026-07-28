@@ -228,7 +228,6 @@ export const SubmissionShell = ({
           <div className="submission-step-heading">
             <span className="submission-step-number data-text">02</span>
             <div>
-              <p className="eyebrow">Metadata</p>
               <h2>Simpan metadata submission</h2>
             </div>
           </div>
@@ -286,7 +285,6 @@ export const SubmissionShell = ({
           <div className="submission-step-heading">
             <span className="submission-step-number data-text">03</span>
             <div>
-              <p className="eyebrow">Kunci submission</p>
               <h2>Finalisasi</h2>
             </div>
           </div>

@@ -7,6 +7,7 @@ import {
   reviewVerificationSubmission,
   SubmissionError,
 } from "@/server/institution-verification/submission-service";
+import { VerificationError } from "@/server/institution-verification/verification-core";
 
 type RouteContext = { params: Promise<{ submissionId: string }> };
 
@@ -79,6 +80,14 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
     if (error instanceof RecruiterTierError) {
       return NextResponse.json(
         { error: { code: error.code, message: error.message, details: error.details } },
+        { status: error.status },
+      );
+    }
+    // Raised when the approval's status transition is refused — the institution moved (a revocation,
+    // another approval) between this reviewer opening the queue and deciding.
+    if (error instanceof VerificationError) {
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
         { status: error.status },
       );
     }

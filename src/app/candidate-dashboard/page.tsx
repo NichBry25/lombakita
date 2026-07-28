@@ -38,7 +38,6 @@ export default async function CandidateDashboardPage() {
   return (
     <main className="page-shell app-page candidate-dashboard">
       <PageHeader
-        eyebrow="Ruang kandidat"
         title="Dasbor kandidat"
         description="Pantau pendaftaran, tenggat, hasil, dan peluang yang kamu simpan."
         actions={
@@ -273,7 +272,6 @@ export default async function CandidateDashboardPage() {
           <Icon name="trophy" size="lg" />
         </span>
         <div className="stack-xs">
-          <p className="eyebrow">Hasil kompetisi</p>
           <h2>Hasil yang telah dipublikasikan</h2>
           <p>Lihat keputusan penyelenggara untuk pendaftaran yang kamu ikuti.</p>
         </div>

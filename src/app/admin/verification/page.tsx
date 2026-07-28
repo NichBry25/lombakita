@@ -223,11 +223,8 @@ export default function AdminVerificationPage() {
   return (
     <main className="page-shell app-page admin-page">
       <PageHeader
-        eyebrow="Keputusan terkontrol"
         title="Antrean verifikasi dokumen"
         description="Tinjau bukti institusi yang masih menunggu keputusan Platform Operations."
-        backHref="/admin"
-        backLabel="Panel Platform Operations"
         actions={<span className="status-badge data-text">{items.length} menunggu</span>}
       />
 

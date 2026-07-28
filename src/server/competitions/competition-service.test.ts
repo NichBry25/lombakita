@@ -448,7 +448,10 @@ describe("personal institution publish — capability is independent of institut
   // Anything beyond that — a re-wired institution-verification lookup, for instance — draws an
   // empty result and fails the transition, so this mock is the tripwire, not just a stub.
   const makePersonalPublishDb = (publishedCount: number) => {
-    const selectResults: unknown[][] = [[{ institutionType: "personal" }], [{ count: publishedCount }]];
+    const selectResults: unknown[][] = [
+      [{ institutionType: "personal" }],
+      [{ count: publishedCount }],
+    ];
     let selectCall = 0;
     const capturedUpdates: Record<string, unknown>[] = [];
 
@@ -472,7 +475,9 @@ describe("personal institution publish — capability is independent of institut
           return {
             where: () => ({
               returning: () =>
-                Promise.resolve([{ ...publishableDraft(), status: "published", publishedAt: new Date() }]),
+                Promise.resolve([
+                  { ...publishableDraft(), status: "published", publishedAt: new Date() },
+                ]),
             }),
           };
         },

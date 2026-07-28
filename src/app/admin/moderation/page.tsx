@@ -6,11 +6,8 @@ export default function AdminModerationPage() {
   return (
     <main className="page-shell app-page admin-page admin-moderation-page">
       <PageHeader
-        eyebrow="Keamanan dan dukungan"
         title="Moderasi & dukungan"
         description="Cari pengguna atau institusi untuk menangguhkan, memulihkan, dan menambah catatan internal."
-        backHref="/admin"
-        backLabel="Panel Platform Operations"
       />
       <ModerationConsole />
     </main>

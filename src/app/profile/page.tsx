@@ -3,6 +3,7 @@ import { getCurrentSession } from "@/server/auth/session";
 import { getOwnerProfile } from "@/server/user-profile/profile-service";
 import type { ProfileFieldValue } from "@/server/user-profile/profile-core";
 import { deriveProfileHeader } from "@/server/user-profile/profile-collections-core";
+import { IdentityBanner } from "@/components/media/identity-banner";
 import { ProfileDetailSections } from "@/components/profile/profile-detail-sections";
 import { VerifyOtherRoleButton } from "./verify-other-role-button";
 import { Icon, IconButtonLink } from "@/components/ui";
@@ -39,7 +40,7 @@ export default async function OwnerProfilePage() {
   return (
     <main className="page-shell app-page pf-page">
       <article className="pf-card">
-        <div className="pf-banner" aria-hidden="true" />
+        <IdentityBanner bannerUrl={populatedValue(profile.bannerUrl)} />
         <div className="pf-identity">
           <div className="pf-identity-head">
             <span className="pf-avatar">

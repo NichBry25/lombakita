@@ -63,7 +63,6 @@ export const InstitutionCompetitionCreateShell = ({
   return (
     <main className="page-shell app-page competition-form-page">
       <PageHeader
-        eyebrow="Kompetisi baru"
         title="Buat draf kompetisi"
         description="Mulai dengan identitas inti. Detail jadwal, format, dan publikasi diatur setelah draf dibuat."
       />
@@ -104,7 +103,7 @@ export const InstitutionCompetitionCreateShell = ({
             label="Kategori"
             id="create-category-label"
             value={category}
-            placeholder="— Pilih —"
+            placeholder="Pilih"
             options={[...COMPETITION_CATEGORY_OPTIONS]}
             onChange={setCategory}
           />

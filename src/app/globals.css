@@ -294,6 +294,105 @@ svg {
   font-size: var(--text-meta);
 }
 
+/* The organizer's own imagery as a card: banner band across the top, logo overlapping its lower
+   edge, then the name and membership meta. Same banner-plus-avatar geometry as the public
+   institution page, so an owner recognises their own card from what visitors see. Both images are
+   decorative — the card names the institution in text — so markup hides them from assistive
+   technology. */
+.institution-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--grid-gap);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.institution-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color var(--duration-card) var(--ease-primary),
+    box-shadow var(--duration-card) var(--ease-primary),
+    transform var(--duration-card) var(--ease-primary);
+}
+
+.institution-card:hover {
+  border-color: var(--color-ink-faint);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(var(--motion-lift-card));
+}
+
+/* The 4:1 frame uploaded banners are cropped to. Without an upload it falls back to the palm
+   band, peach glow and wave crest of .pf-banner, scaled to this height. */
+.institution-card-banner {
+  position: relative;
+  aspect-ratio: 4 / 1;
+  overflow: hidden;
+  background:
+    radial-gradient(125% 150% at 82% -20%, var(--brand-peach) 0%, transparent 52%),
+    var(--color-brand-surface);
+}
+
+.institution-card-banner::after {
+  position: absolute;
+  inset: auto -8% -0.5rem;
+  height: 1.75rem;
+  border-radius: var(--wave-radius-peach);
+  background: var(--brand-peach);
+  opacity: 0.92;
+  content: "";
+  pointer-events: none;
+}
+
+.institution-card-banner-uploaded::after {
+  content: none;
+}
+
+.institution-card-banner-image {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+.institution-card-body {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  padding: var(--space-0) var(--space-5) var(--space-5);
+}
+
+.institution-card-logo {
+  --institution-card-logo-size: 3.25rem;
+  position: relative;
+  z-index: var(--z-content);
+  display: inline-grid;
+  inline-size: var(--institution-card-logo-size);
+  block-size: var(--institution-card-logo-size);
+  margin-block: calc(var(--institution-card-logo-size) / -2) var(--space-2);
+  place-items: center;
+  overflow: hidden;
+  border: var(--space-1) solid var(--color-surface);
+  border-radius: var(--blob-radius-a);
+  background: var(--color-inset);
+  color: var(--color-ink-faint);
+  box-shadow: var(--shadow-sm);
+}
+
+.institution-card-logo img {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
 .record-actions {
   display: flex;
   flex: none;
@@ -312,7 +411,7 @@ svg {
 .hub-card {
   display: grid;
   min-height: calc(var(--control-height-lg) * 2.75);
-  align-content: space-between;
+  align-content: start;
   gap: var(--space-5);
   padding: var(--space-5);
   border: var(--border-thin) solid var(--color-line);
@@ -2304,11 +2403,18 @@ button.header-nav-link {
   transform: rotate(180deg);
 }
 
+/* Never narrower than its trigger, but free to grow past it: a trigger sized by an `auto`
+   grid column is often narrower than the longest option label, and pinning both edges to the
+   trigger clipped that label. Clamped so a long label wraps instead of running off-screen. */
 .select-field-menu {
   position: absolute;
   top: calc(100% + var(--space-2));
-  inset-inline: 0;
+  inset-inline-start: 0;
+  inset-inline-end: auto;
   z-index: var(--z-dropdown);
+  width: max-content;
+  min-width: 100%;
+  max-width: min(24rem, calc(100vw - var(--space-6) * 2));
   max-height: 18rem;
   overflow-y: auto;
   margin: 0;
@@ -4160,6 +4266,20 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   pointer-events: none;
 }
 
+/* An uploaded banner replaces the decorative treatment entirely — the wave crest would cut across
+   the user's own image. The gradient stays underneath as the loading/absent state. */
+.pf-banner-uploaded::after {
+  content: none;
+}
+
+.pf-banner-image {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
 .pf-identity {
   display: grid;
   gap: var(--space-4);
@@ -4480,6 +4600,31 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   object-fit: cover;
 }
 
+/* The banner preview is too wide to sit beside its controls the way the avatar does. */
+.pf-media-stacked {
+  display: grid;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+.pf-media-banner {
+  position: relative;
+  display: block;
+  inline-size: 100%;
+  aspect-ratio: 4;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background:
+    radial-gradient(125% 150% at 82% -20%, var(--brand-peach) 0%, transparent 52%),
+    var(--color-brand-surface);
+}
+
+.pf-media-banner img {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
 .pf-media-actions {
   display: flex;
   flex-wrap: wrap;
@@ -4494,53 +4639,66 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   font-size: var(--text-meta);
 }
 
-/* Avatar crop modal */
-.avatar-crop {
+/* Image crop modal — shared by the avatar (1:1) and banner (4:1) croppers. The viewport takes the
+   width it is given and derives its height from the frame ratio, which the editor sets inline. */
+.image-crop {
   display: grid;
   justify-items: center;
   gap: var(--space-4);
   color: var(--color-ink);
 }
 
-.avatar-crop-viewport {
+.image-crop-viewport {
   position: relative;
-  inline-size: 264px;
-  block-size: 264px;
-  max-inline-size: 100%;
+  inline-size: 100%;
+  max-inline-size: 400px;
   overflow: hidden;
-  border-radius: var(--blob-radius-a);
   background: var(--color-inset);
   cursor: grab;
   touch-action: none;
 }
 
-.avatar-crop-viewport:active {
+.image-crop-viewport-blob {
+  border-radius: var(--blob-radius-a);
+}
+
+.image-crop-viewport-rect {
+  border-radius: var(--radius-card);
+}
+
+.image-crop-viewport:active {
   cursor: grabbing;
 }
 
-.avatar-crop-viewport img {
+/* The crop window is focusable so it can be panned with the arrow keys. */
+.image-crop-viewport:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+
+.image-crop-viewport img {
   position: absolute;
   max-width: none;
   user-select: none;
   -webkit-user-drag: none;
 }
 
-.avatar-crop-zoom {
+.image-crop-zoom {
   display: flex;
-  inline-size: 264px;
-  max-inline-size: 100%;
+  inline-size: 100%;
+  max-inline-size: 400px;
   align-items: center;
   gap: var(--space-3);
   font-size: var(--text-body-sm);
   color: var(--color-ink-soft);
 }
 
-.avatar-crop-zoom input[type="range"] {
+.image-crop-zoom input[type="range"] {
   flex: 1;
   accent-color: var(--color-action);
 }
 
-.avatar-crop-hint {
+.image-crop-hint {
   margin: var(--space-0);
   color: var(--color-ink-faint);
   font-size: var(--text-meta);
@@ -4654,7 +4812,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 .institution-form-page,
-.institution-team-page,
 .institution-verification-page {
   max-width: var(--content-prose);
 }
@@ -4690,6 +4847,11 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: end;
   gap: var(--space-3);
+}
+
+/* The role column is `auto`, so without a floor the trigger shrinks to its shortest label. */
+.institution-invite-form .select-field {
+  min-width: var(--control-select-min);
 }
 
 .table-actions {
@@ -5040,7 +5202,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   border-radius: var(--radius-card);
 }
 
-.admin-filter-toolbar .form-select {
+.admin-filter-toolbar .select-field {
   min-width: var(--control-select-min);
 }
 
@@ -5245,7 +5407,8 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     grid-row: 1;
   }
 
-  .competition-grid {
+  .competition-grid,
+  .institution-card-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -5279,6 +5442,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .primitive-surface-grid,
   .detail-information-grid,
   .competition-grid,
+  .institution-card-grid,
   .summary-grid,
   .saved-grid,
   .submission-summary,

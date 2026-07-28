@@ -1,9 +1,11 @@
-// Types, limits, and validation for profile file uploads (avatar, resume, certificate file).
-// Client-safe (no `next/server` import) so the browser upload helper can reuse the mime/size
+// Types, limits, and validation for profile file uploads (avatar, banner, resume, certificate
+// file). Client-safe (no `next/server` import) so the browser upload helper can reuse the mime/size
 // rules to pre-validate before requesting an upload URL. The HTTP response mapping lives in the
 // server-only route helper.
 
-export type ProfileFileKind = "avatar" | "resume" | "certification";
+import { IMAGE_UPLOAD_MIME_TYPES } from "@/lib/media/image-frames";
+
+export type ProfileFileKind = "avatar" | "banner" | "resume" | "certification";
 
 // Per-kind rules. `prefix` is the R2 key namespace; the full key is server-chosen so a client can
 // never forge a key scoped to another user (or another certification).
@@ -14,7 +16,12 @@ export const PROFILE_FILE_RULES: Record<
   avatar: {
     prefix: "avatars",
     maxBytes: 5 * 1024 * 1024,
-    mimeTypes: ["image/jpeg", "image/png", "image/webp"],
+    mimeTypes: IMAGE_UPLOAD_MIME_TYPES,
+  },
+  banner: {
+    prefix: "banners",
+    maxBytes: 8 * 1024 * 1024,
+    mimeTypes: IMAGE_UPLOAD_MIME_TYPES,
   },
   resume: {
     prefix: "resumes",

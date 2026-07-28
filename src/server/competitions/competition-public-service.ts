@@ -44,6 +44,11 @@ import {
   getInstitutionDisplayName,
   institutionOwnerUsernameSql,
 } from "@/server/institution-workspace/institution-display-name";
+import {
+  institutionOwnerAvatarKeySql,
+  institutionOwnerBannerKeySql,
+  resolveInstitutionMediaKeys,
+} from "@/server/institution-workspace/institution-media";
 import type { InstitutionType } from "@/server/db/schema";
 
 // Public listing columns — includes institution display name joined from the institutions table.
@@ -518,6 +523,11 @@ const PUBLIC_DETAIL_COLUMNS = {
   institutionType: institutions.institutionType,
   institutionOwnerUsername: institutionOwnerUsernameSql,
   institutionLogoR2Key: institutions.logoR2Key,
+  institutionBannerR2Key: institutions.bannerR2Key,
+  // A personal institution shows its owner's profile imagery in place of the logo and banner it
+  // cannot upload.
+  institutionOwnerAvatarKey: institutionOwnerAvatarKeySql,
+  institutionOwnerBannerKey: institutionOwnerBannerKeySql,
   institutionAbout: institutions.about,
   institutionContactName: institutions.contactName,
   institutionContactEmail: institutions.contactEmail,
@@ -625,9 +635,21 @@ export const getPublicCompetitionDetail = async (
 
   if (!row) return null;
 
+  const { logoKey } = resolveInstitutionMediaKeys(
+    {
+      institutionType: row.institutionType,
+      logoR2Key: row.institutionLogoR2Key,
+      bannerR2Key: row.institutionBannerR2Key,
+    },
+    {
+      avatarR2Key: row.institutionOwnerAvatarKey,
+      bannerR2Key: row.institutionOwnerBannerKey,
+    },
+  );
+
   const [registrantCount, logoUrl, socialLinks, prizes, rounds, tagRows] = await Promise.all([
     countPublicRegistrants(row.id, db),
-    resolveOrganizerLogoUrl(row.institutionLogoR2Key),
+    resolveOrganizerLogoUrl(logoKey),
     db
       .select({ platform: institutionSocialLinks.platform, url: institutionSocialLinks.url })
       .from(institutionSocialLinks)

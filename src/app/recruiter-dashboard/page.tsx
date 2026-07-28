@@ -39,7 +39,6 @@ export default async function RecruiterDashboardPage() {
   return (
     <main className="page-shell app-page recruiter-dashboard">
       <PageHeader
-        eyebrow="Ruang penyelenggara"
         title="Dasbor rekruter"
         description="Kelola identitas penyelenggara dan buka ruang kerja institusi Anda."
       />
@@ -86,14 +85,43 @@ export default async function RecruiterDashboardPage() {
       <section className="content-section" aria-label="Institusi Anda">
         <h2>Institusi Anda</h2>
         {institutions.length > 0 ? (
-          <ul className="record-list">
+          <ul className="institution-card-grid">
             {institutions.map((institution) => (
-              <li className="record-row" key={institution.institutionId}>
-                <div className="record-row-main">
+              <li className="institution-card" key={institution.institutionId}>
+                {/* Purely the organizer's own imagery — the card names the institution in text, so
+                    neither the banner nor the logo carries anything for assistive technology. */}
+                <span
+                  className={`institution-card-banner${
+                    institution.bannerUrl ? " institution-card-banner-uploaded" : ""
+                  }`}
+                  aria-hidden="true"
+                >
+                  {institution.bannerUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={institution.bannerUrl}
+                      alt=""
+                      className="institution-card-banner-image"
+                    />
+                  ) : null}
+                </span>
+                <div className="institution-card-body">
+                  <span className="institution-card-logo" aria-hidden="true">
+                    {institution.logoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={institution.logoUrl} alt="" />
+                    ) : (
+                      <Icon name="building" size="lg" />
+                    )}
+                  </span>
                   <Link className="record-row-title" href={`/institution/${institution.slug}`}>
                     {institution.displayName}
                   </Link>
-                  <p className="record-meta">{institution.description ?? "Belum ada deskripsi."}</p>
+                  {/* The public organizer bio is the authored field; `description` survives only as
+                      the fallback for institutions that carry no organizer profile. */}
+                  <p className="record-meta">
+                    {institution.about ?? institution.description ?? "Belum ada deskripsi."}
+                  </p>
                   <span className="record-meta">
                     {institution.isOwner ? "Pemilik" : "Staf"} · {institution.staffCount} anggota
                   </span>

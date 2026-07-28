@@ -8,8 +8,17 @@ describe("assertValidTransition", () => {
   const validCases: [InstitutionVerificationStatus, InstitutionVerificationStatus][] = [
     ["pending_verification", "under_review"],
     ["pending_verification", "rejected"],
+    // What approving a document submission actually does. Previously refused here while the
+    // submission path wrote it anyway, so the rulebook described a rule the product did not follow.
+    ["pending_verification", "verified"],
     ["under_review", "verified"],
     ["under_review", "rejected"],
+    // Revocation. Reason is mandatory — parseVerifyInput enforces that for every 'rejected' target.
+    ["verified", "rejected"],
+    // The way back for a denied or revoked institution: re-open for review, or approve the fresh
+    // submission it filed.
+    ["rejected", "under_review"],
+    ["rejected", "verified"],
   ];
 
   it.each(validCases)("allows %s → %s", (from, to) => {
@@ -17,12 +26,11 @@ describe("assertValidTransition", () => {
   });
 
   const invalidCases: [InstitutionVerificationStatus, InstitutionVerificationStatus][] = [
-    ["pending_verification", "verified"],
+    // Un-verifying is only ever an explicit, reasoned revocation — never a quiet drop back into
+    // the review queue.
     ["verified", "under_review"],
-    ["verified", "rejected"],
+    // pending_verification is the state an institution is created in. Nothing returns to it.
     ["verified", "pending_verification"],
-    ["rejected", "under_review"],
-    ["rejected", "verified"],
     ["rejected", "pending_verification"],
     ["under_review", "pending_verification"],
   ];

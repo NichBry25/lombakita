@@ -341,7 +341,6 @@ export function RecruiterVerificationPanel({
       <section className="content-section recruiter-tier-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Kredibilitas penyelenggara</p>
             <h2>Rekruter Terpercaya</h2>
           </div>
           <span className="status-badge" data-status="open">
@@ -489,7 +488,6 @@ export function RecruiterVerificationPanel({
       <section className="content-section recruiter-tier-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Kredibilitas penyelenggara</p>
             <h2>Menunggu peninjauan</h2>
           </div>
           <span className="status-badge">Diproses</span>
@@ -520,7 +518,6 @@ export function RecruiterVerificationPanel({
       <section className="content-section recruiter-tier-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Kredibilitas penyelenggara</p>
             <h2>Lengkapi permohonan</h2>
           </div>
           <span className="status-badge" data-status="closed">
@@ -551,7 +548,6 @@ export function RecruiterVerificationPanel({
       <section className="content-section recruiter-tier-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Kredibilitas penyelenggara</p>
             <h2>Permohonan ditolak</h2>
           </div>
           <span className="status-badge" data-status="closed">
@@ -576,7 +572,6 @@ export function RecruiterVerificationPanel({
       <section className="content-section recruiter-tier-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Kredibilitas penyelenggara</p>
             <h2>Perbaiki dan ajukan ulang</h2>
           </div>
           <span className="status-badge" data-status="closed">
@@ -602,7 +597,6 @@ export function RecruiterVerificationPanel({
     <section className="content-section recruiter-tier-card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Kredibilitas penyelenggara</p>
           <h2>Jadi Rekruter Terpercaya</h2>
         </div>
       </div>
