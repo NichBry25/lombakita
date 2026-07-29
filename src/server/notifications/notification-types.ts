@@ -17,6 +17,8 @@ export const NOTIFICATION_TYPES = {
   competitionEdited: "competition_edited",
   competitionCancelled: "competition_cancelled",
   recruiterVerificationRejected: "recruiter_verification_rejected",
+  registrationDocumentRequested: "registration_document_requested",
+  registrationDocumentReviewed: "registration_document_reviewed",
 } as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES];

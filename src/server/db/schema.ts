@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -1065,6 +1066,113 @@ export const competitionRegistrations = pgTable(
     ),
   ],
 );
+
+// Participant document verification.
+//
+// An organizer asks ONE named participant for ONE named document by a named date. The request
+// hangs off a single competition_registrations row, so a team of four is four independent
+// requests — proof of personal status is personal, and nobody hands their ID card to their
+// captain. This is the deliberate opposite of updateRegistrationReview, which fans a review
+// verdict out across every row sharing a team_id.
+//
+// A request is orthogonal to participation: it never gates registration, submission, results, or
+// the participant count. It is also independent of competition phase — an organizer may ask
+// during registration, mid-competition, or after results are published.
+//
+// `unfulfilled` is deliberately NOT a value here. A lapsed request is derived
+// (status = 'requested' AND due_at < now()), so no scheduled job is needed to keep the column
+// honest and the state can never drift from the clock.
+export const registrationDocumentRequestStatusEnum = pgEnum(
+  "registration_document_request_status",
+  ["requested", "submitted", "accepted", "rejected", "cancelled"],
+);
+
+export type RegistrationDocumentRequestStatus =
+  (typeof registrationDocumentRequestStatusEnum.enumValues)[number];
+
+export const competitionDocumentRequests = pgTable(
+  "competition_document_requests",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    registrationId: text("registration_id").notNull(),
+    title: text("title").notNull(),
+    instructions: text("instructions"),
+    dueAt: timestamp("due_at", { mode: "date", withTimezone: true }).notNull(),
+    status: registrationDocumentRequestStatusEnum("status").notNull().default("requested"),
+    requestedByUserId: text("requested_by_user_id"),
+    // Stamped when the first file finalizes. Compared against due_at to mark a late response;
+    // a late upload is still accepted, because nothing about a request blocks the candidate.
+    submittedAt: timestamp("submitted_at", { mode: "date", withTimezone: true }),
+    reviewedByUserId: text("reviewed_by_user_id"),
+    reviewedAt: timestamp("reviewed_at", { mode: "date", withTimezone: true }),
+    // Reason for the most recent rejection. Retained when a rejection reopens the request for a
+    // re-upload, so the candidate keeps seeing what was wrong with the previous attempt.
+    reviewNote: text("review_note"),
+    // Counts rejections, not uploads, so a later reviewer can tell a first attempt from a third.
+    revisionCount: integer("revision_count").notNull().default(0),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    // Foreign keys are named explicitly. Drizzle's auto-generated names concatenate both table
+    // names and would run to 77-81 characters here, past Postgres's 63-character identifier
+    // limit, where they are silently truncated on creation and then diverge from this file.
+    foreignKey({
+      columns: [table.registrationId],
+      foreignColumns: [competitionRegistrations.id],
+      name: "competition_document_requests_registration_id_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.requestedByUserId],
+      foreignColumns: [users.id],
+      name: "competition_document_requests_requested_by_fk",
+    }).onDelete("set null"),
+    foreignKey({
+      columns: [table.reviewedByUserId],
+      foreignColumns: [users.id],
+      name: "competition_document_requests_reviewed_by_fk",
+    }).onDelete("set null"),
+    index("competition_document_requests_registration_id_idx").on(table.registrationId),
+    // At most one OPEN request per participant, where open means awaiting an upload or awaiting a
+    // verdict. Closed rows are unaffected, which is what lets an organizer raise a fresh request
+    // months later — after results, for instance.
+    uniqueIndex("competition_document_requests_open_unique_idx")
+      .on(table.registrationId)
+      .where(sql`${table.status} in ('requested', 'submitted')`),
+  ],
+);
+
+// Files attached to a document request. Mirrors recruiter_verification_documents: the row is
+// written only after the stored object's real size and magic-byte type have been inspected, so a
+// row here always describes bytes that exist and are of an accepted type.
+export const competitionDocumentRequestFiles = pgTable(
+  "competition_document_request_files",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    requestId: text("request_id").notNull(),
+    r2Key: text("r2_key").notNull(),
+    originalFileName: text("original_file_name").notNull(),
+    fileSizeBytes: bigint("file_size_bytes", { mode: "number" }).notNull(),
+    contentType: text("content_type").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.requestId],
+      foreignColumns: [competitionDocumentRequests.id],
+      name: "competition_document_request_files_request_id_fk",
+    }).onDelete("cascade"),
+    index("competition_document_request_files_request_id_idx").on(table.requestId),
+  ],
+);
+
+export type CompetitionDocumentRequestRecord = typeof competitionDocumentRequests.$inferSelect;
+export type CompetitionDocumentRequestFileRecord =
+  typeof competitionDocumentRequestFiles.$inferSelect;
 
 // Candidate onboarding profile.
 // Captured when an account first declares the candidate role, in the same transaction that grants

@@ -11,6 +11,17 @@ import {
   listCompetitionParticipants,
   type ParticipantRecord,
 } from "@/server/participants/participant-service";
+import {
+  listDocumentRequestsForCompetition,
+  listRegistrationIdsEligibleForDocumentRequest,
+} from "@/server/registration-documents/registration-document-service";
+import { MAX_BATCH_REGISTRATIONS } from "@/server/registration-documents/registration-document-core";
+import {
+  DOCUMENT_REQUEST_STATUS_LABELS,
+  DOCUMENT_REQUEST_STATUS_TONES,
+  isOpenRequestStatus,
+} from "@/lib/registration-documents/request-status";
+import { BatchDocumentRequestForm, type BatchTarget } from "./batch-document-request-form";
 import { REVIEW_STATUS_LABELS } from "./review-status-labels";
 import { ButtonLink, EmptyState, Icon, PageHeader, Pagination } from "@/components/ui";
 import { formatDisplayToken } from "@/lib/text/capitalize";
@@ -83,6 +94,40 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
     },
     db,
   );
+
+  // One query for the whole competition, indexed by registration, so the table can show each
+  // participant's document state without a per-row lookup. Only the newest request per participant
+  // is displayed — the list is already ordered newest-first.
+  const [documentRequests, eligibleRegistrationIds] = await Promise.all([
+    listDocumentRequestsForCompetition(institutionId, competitionId, {}, db),
+    listRegistrationIdsEligibleForDocumentRequest(institutionId, competitionId, db),
+  ]);
+  const latestRequestByRegistration = new Map<string, (typeof documentRequests)[number]>();
+  for (const request of documentRequests) {
+    if (!latestRequestByRegistration.has(request.registrationId)) {
+      latestRequestByRegistration.set(request.registrationId, request);
+    }
+  }
+
+  const participantLabel = (participant: ParticipantRecord): string => {
+    if (participant.registrationType === "team" && participant.team) {
+      return participant.team.teamName;
+    }
+    return participant.candidate?.displayName ?? participant.candidate?.username ?? "Peserta";
+  };
+
+  const hasOpenRequest = (registrationId: string): boolean => {
+    const latest = latestRequestByRegistration.get(registrationId);
+    return latest ? isOpenRequestStatus(latest.status) : false;
+  };
+
+  const batchTargets: BatchTarget[] = result.participants
+    .filter((participant) => participant.status !== "cancelled")
+    .map((participant) => ({
+      registrationId: participant.registrationId,
+      label: participantLabel(participant),
+      hasOpenRequest: hasOpenRequest(participant.registrationId),
+    }));
 
   const buildSearchParams = (overrides: Record<string, string>): string => {
     const p = new URLSearchParams();
@@ -167,6 +212,14 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
 
       <ParticipantsFilterForm path={path} status={status} type={type} />
 
+      <BatchDocumentRequestForm
+        institutionSlug={institutionSlug}
+        competitionId={competitionId}
+        targets={batchTargets}
+        allEligibleIds={eligibleRegistrationIds}
+        maxBatchSize={MAX_BATCH_REGISTRATIONS}
+      />
+
       {result.participants.length === 0 ? (
         <EmptyState
           icon="users"
@@ -184,6 +237,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
                 <th>Anggota</th>
                 <th>Submission</th>
                 <th>Tinjauan</th>
+                <th>Dokumen</th>
                 <th>Terdaftar</th>
                 <th>Aksi</th>
               </tr>
@@ -241,6 +295,20 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
                     <span className="status-badge">
                       {REVIEW_STATUS_LABELS[p.internalReviewStatus]}
                     </span>
+                  </td>
+                  <td>
+                    {(() => {
+                      const latest = latestRequestByRegistration.get(p.registrationId);
+                      if (!latest) return <span className="muted-copy">—</span>;
+                      return (
+                        <span
+                          className="status-badge"
+                          data-status={DOCUMENT_REQUEST_STATUS_TONES[latest.display.status]}
+                        >
+                          {DOCUMENT_REQUEST_STATUS_LABELS[latest.display.status]}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="data-text">
                     {new Date(p.registeredAt).toLocaleDateString("id-ID")}

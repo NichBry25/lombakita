@@ -23,6 +23,8 @@ export const ASYNC_JOB_NAMES = {
   institutionInvitationDispatch: "institution.invitation.dispatch",
   teamInvitationDispatch: "team.invitation.dispatch",
   recruiterVerificationRejected: "recruiter.verification.rejected",
+  registrationDocumentRequested: "registration.document.requested",
+  registrationDocumentReviewed: "registration.document.reviewed",
 } as const;
 
 export type AsyncJobName = (typeof ASYNC_JOB_NAMES)[keyof typeof ASYNC_JOB_NAMES];
@@ -114,6 +116,34 @@ export type RecruiterVerificationRejectedPayload = {
   epoch: number;
 };
 
+// Participant document verification. Both payloads carry their content rather than a pointer, for
+// the same reason the recruiter rejection does: by the time the worker runs the request may have
+// been answered, extended, or reopened, and re-reading the row would announce the wrong thing.
+// `epoch` folds the event timestamp into the idempotency key so a re-request or a second verdict on
+// the same request each notify (DEC-0081).
+export type RegistrationDocumentRequestedPayload = {
+  requestId: string;
+  userId: string;
+  competitionTitle: string;
+  institutionName: string;
+  title: string;
+  instructions: string | null;
+  dueAtIso: string;
+  epoch: number;
+};
+
+export type RegistrationDocumentReviewedPayload = {
+  requestId: string;
+  userId: string;
+  competitionTitle: string;
+  title: string;
+  outcome: "accepted" | "rejected" | "revision_requested";
+  reviewNote: string | null;
+  // Present only when the rejection reopened the request for another attempt.
+  dueAtIso: string | null;
+  epoch: number;
+};
+
 export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.probePing]: AsyncProbeJobPayload;
   [ASYNC_JOB_NAMES.competitionSearchSync]: CompetitionSearchSyncPayload;
@@ -126,6 +156,8 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.institutionInvitationDispatch]: InstitutionInvitationDispatchPayload;
   [ASYNC_JOB_NAMES.teamInvitationDispatch]: TeamInvitationDispatchPayload;
   [ASYNC_JOB_NAMES.recruiterVerificationRejected]: RecruiterVerificationRejectedPayload;
+  [ASYNC_JOB_NAMES.registrationDocumentRequested]: RegistrationDocumentRequestedPayload;
+  [ASYNC_JOB_NAMES.registrationDocumentReviewed]: RegistrationDocumentReviewedPayload;
 };
 
 export const ASYNC_JOB_QUEUE_BY_NAME = {
@@ -140,4 +172,6 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   [ASYNC_JOB_NAMES.institutionInvitationDispatch]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.teamInvitationDispatch]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.recruiterVerificationRejected]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.registrationDocumentRequested]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.registrationDocumentReviewed]: ASYNC_QUEUE_NAMES.notifications,
 } as const satisfies Record<AsyncJobName, AsyncQueueName>;

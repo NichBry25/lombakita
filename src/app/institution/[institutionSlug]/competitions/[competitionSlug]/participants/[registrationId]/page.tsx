@@ -8,6 +8,8 @@ import { getCompetitionIdByInstitutionAndSlug } from "@/server/competitions/comp
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { getRegistrationReview } from "@/server/participants/review-service";
 import { getResultForInstitution } from "@/server/participants/result-service";
+import { listDocumentRequestsForCompetition } from "@/server/registration-documents/registration-document-service";
+import { OrganiserDocumentRequestPanel } from "@/components/registration-documents/organiser-document-request-panel";
 import { ReviewForm } from "./review-form";
 import { ResultForm } from "./result-form";
 import { PageHeader } from "@/components/ui";
@@ -51,9 +53,10 @@ export default async function RegistrationReviewPage({ params }: Props) {
   }
 
   // Cross-institution competition/registration collapses to null → 404 (no info leak).
-  const [review, resultCtx] = await Promise.all([
+  const [review, resultCtx, documentRequests] = await Promise.all([
     getRegistrationReview(institutionId, competitionId, registrationId, db),
     getResultForInstitution(institutionId, competitionId, registrationId, db),
+    listDocumentRequestsForCompetition(institutionId, competitionId, { registrationId }, db),
   ]);
   if (!review) {
     notFound();
@@ -77,6 +80,29 @@ export default async function RegistrationReviewPage({ params }: Props) {
         registrationType={review.registrationType}
         teamName={review.teamName}
         activeMemberCount={review.activeMemberCount}
+      />
+      <OrganiserDocumentRequestPanel
+        institutionSlug={institutionSlug}
+        competitionId={competitionId}
+        registrationId={registrationId}
+        requests={documentRequests.map((request) => ({
+          id: request.id,
+          title: request.title,
+          instructions: request.instructions,
+          dueAt: request.dueAt.toISOString(),
+          status: request.status,
+          displayStatus: request.display.status,
+          isOverdue: request.display.isOverdue,
+          isLate: request.display.isLate,
+          reviewNote: request.reviewNote,
+          revisionCount: request.revisionCount,
+          files: request.files.map((file) => ({
+            id: file.id,
+            originalFileName: file.originalFileName,
+            fileSizeBytes: file.fileSizeBytes,
+            createdAt: file.createdAt.toISOString(),
+          })),
+        }))}
       />
       <ResultForm
         apiBasePath={resultApiBase}
