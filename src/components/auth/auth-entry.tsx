@@ -321,7 +321,7 @@ export const AuthEntry = ({
       addToast({
         type: "success",
         message:
-          "Pendaftaran berhasil. Kami telah mengirim email verifikasi — buka inbox Anda untuk aktivasi, lalu masuk.",
+          "Pendaftaran berhasil. Kami sudah mengirim email verifikasi. Buka inbox Anda untuk mengaktifkan akun, lalu masuk.",
       });
     } catch {
       addToast({

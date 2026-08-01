@@ -154,7 +154,7 @@ export const InstitutionUpgradeShell = ({
             <strong>{trimmedName}</strong>.
           </p>
           <p>
-            Peningkatan bersifat permanen — institusi tidak dapat dikembalikan menjadi personal, dan
+            Peningkatan bersifat permanen. Institusi tidak dapat dikembalikan menjadi personal, dan
             tipenya tidak dapat diubah lagi setelah ini.
           </p>
           <p>

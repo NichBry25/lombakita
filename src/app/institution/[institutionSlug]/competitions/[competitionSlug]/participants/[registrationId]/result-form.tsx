@@ -93,7 +93,7 @@ export function ResultForm({
         return;
       }
       setStatus("draft");
-      addToast({ type: "success", message: "Publikasi dibatalkan — kembali ke draf." });
+      addToast({ type: "success", message: "Publikasi dibatalkan. Hasil kembali ke draf." });
       router.refresh();
     } catch {
       addToast({ type: "error", message: "Gagal membatalkan publikasi: kesalahan jaringan" });
@@ -121,7 +121,7 @@ export function ResultForm({
             <span className="record-meta">({activeMemberCount} anggota)</span>
           )}
           {registrationType === "team" && (
-            <span className="record-meta">— menerbitkan akan memperbarui semua anggota tim</span>
+            <span className="record-meta">Menerbitkan akan memperbarui semua anggota tim.</span>
           )}
         </p>
       )}

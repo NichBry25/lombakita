@@ -4,9 +4,17 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetDb, mockIsR2Available, enqueueSubmissionFinalized } = vi.hoisted(() => ({
+const {
+  mockGetDb,
+  mockIsR2Available,
+  mockHeadObject,
+  mockReadObjectHead,
+  enqueueSubmissionFinalized,
+} = vi.hoisted(() => ({
   mockGetDb: vi.fn(),
   mockIsR2Available: vi.fn(),
+  mockHeadObject: vi.fn(),
+  mockReadObjectHead: vi.fn(),
   enqueueSubmissionFinalized: vi.fn(),
 }));
 
@@ -15,6 +23,9 @@ vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn(
 vi.mock("@/server/storage/r2.client", () => ({
   isR2Available: mockIsR2Available,
   generatePresignedPutUrl: vi.fn(),
+  headObject: mockHeadObject,
+  readObjectHead: mockReadObjectHead,
+  deleteObject: vi.fn(),
 }));
 vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 vi.mock("@/server/async/enqueue", () => ({ enqueueSubmissionFinalized }));
@@ -81,7 +92,7 @@ const submissionRow = {
   id: "sub_1",
   registrationId: "reg_1",
   submittedById: "stud_1",
-  fileKey: "submissions/reg_1/file.pdf",
+  fileKey: "submissions/comp_1/reg_1/file.pdf",
   fileName: "file.pdf",
   fileSizeBytes: 1000,
   fileMimeType: "application/pdf",
@@ -155,6 +166,9 @@ describe("createOrReplaceSubmission — no notification enqueue", () => {
 
   it("does NOT call enqueueSubmissionFinalized on file upload/replace", async () => {
     mockIsR2Available.mockReturnValue(true);
+    // The record path confirms the stored object before writing: a valid 1 KB PDF here.
+    mockHeadObject.mockResolvedValue({ sizeBytes: 1024, contentType: "application/pdf" });
+    mockReadObjectHead.mockResolvedValue(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]));
     const db = makeDb([[confirmedRegistrationRow]], {
       insertReturn: [{ ...submissionRow, finalizedAt: null }],
     });
@@ -165,10 +179,9 @@ describe("createOrReplaceSubmission — no notification enqueue", () => {
       "reg_1",
       "stud_1",
       {
-        fileKey: "submissions/reg_1/file.pdf",
+        fileKey: "submissions/comp_1/reg_1/file.pdf",
         fileName: "file.pdf",
         fileSizeBytes: null,
-        fileMimeType: null,
       },
       db as never,
       NOW,

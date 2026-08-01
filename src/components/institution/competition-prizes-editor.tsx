@@ -133,7 +133,7 @@ export const CompetitionPrizesEditor = ({
       <div className="stack-xs">
         <h2 className="section-title">Hadiah</h2>
         <p className="form-help">
-          Tambahkan hadiah kompetisi. Nominal tunai hanya ditampilkan — pembayaran belum aktif.
+          Tambahkan hadiah kompetisi. Nominal tunai hanya ditampilkan, karena pembayaran belum aktif.
         </p>
       </div>
 

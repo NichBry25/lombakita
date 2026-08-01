@@ -2,6 +2,13 @@ import Link from "next/link";
 import { Icon } from "@/components/ui";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
+import {
+  deriveCompetitionPhase,
+  getCompetitionPhaseBadgeStatus,
+  getCompetitionPhaseLabel,
+  resolveResultAnnouncement,
+  type CompetitionPhase,
+} from "@/lib/competitions/competition-phase";
 
 // One competition in a grid. Presentational and dependency-free beyond routing, so the public
 // listing (a client component) and the institution page (a server component) render the same card
@@ -17,13 +24,18 @@ export type CompetitionCardItem = {
   category: string | null;
   mode: string | null;
   isFeatured: boolean;
+  registrationStartAt: string | Date | null;
   registrationEndAt: string | Date | null;
+  eventStartAt: string | Date | null;
+  eventEndAt: string | Date | null;
+  resultAnnouncementAt: string | Date | null;
+  cancelledAt: string | Date | null;
+  hasPublishedResult: boolean;
   institutionSlug: string;
   institutionName: string;
 };
 
 const DESCRIPTION_MAX_LENGTH = 160;
-const CLOSING_SOON_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function formatDeadline(value: string | Date | null): string {
   if (!value) return "Tanpa batas waktu";
@@ -34,16 +46,19 @@ export function formatDeadline(value: string | Date | null): string {
   });
 }
 
-// "Closing soon" is under seven days, per the brand book's status-badge rule.
-export function resolveRegistrationStatus(value: string | Date | null) {
-  if (!value) return { value: "open", label: "Dibuka" } as const;
-
-  const millisecondsRemaining = new Date(value).getTime() - Date.now();
-  if (millisecondsRemaining <= 0) return { value: "closed", label: "Ditutup" } as const;
-  if (millisecondsRemaining < CLOSING_SOON_MS) {
-    return { value: "closing", label: "Segera ditutup" } as const;
+// The date worth showing next to the phase. Before the event that is the registration deadline;
+// once the event is over it is the promised announcement date, which is the only date a waiting
+// participant still cares about. Null when the phase has no date to offer.
+function resolvePhaseDate(
+  phase: CompetitionPhase,
+  competition: CompetitionCardItem,
+): string | Date | null {
+  if (phase === "cancelled") return competition.cancelledAt;
+  if (phase === "awaiting_results" || phase === "results_overdue") {
+    return resolveResultAnnouncement(competition).at;
   }
-  return { value: "open", label: "Dibuka" } as const;
+  if (phase === "results_announced" || phase === "in_progress") return null;
+  return competition.registrationEndAt;
 }
 
 function truncateDescription(description: string): string {
@@ -62,7 +77,8 @@ export function CompetitionCard({
   showOrganizer?: boolean;
 }) {
   const detailPath = `/competitions/${competition.institutionSlug}/${competition.slug}`;
-  const registrationStatus = resolveRegistrationStatus(competition.registrationEndAt);
+  const phase = deriveCompetitionPhase(competition);
+  const phaseDate = resolvePhaseDate(phase, competition);
 
   return (
     <article className="competition-card">
@@ -84,7 +100,7 @@ export function CompetitionCard({
         <div className="competition-card-badges">
           {competition.isFeatured ? (
             <span className="status-badge" data-status="featured">
-              Pilihan editor
+              Pilihan Editor
             </span>
           ) : null}
           {competition.mode ? (
@@ -106,8 +122,9 @@ export function CompetitionCard({
         ) : null}
 
         <div className="competition-card-footer">
-          <span className="status-badge" data-status={registrationStatus.value}>
-            {registrationStatus.label} · {formatDeadline(competition.registrationEndAt)}
+          <span className="status-badge" data-status={getCompetitionPhaseBadgeStatus(phase)}>
+            {getCompetitionPhaseLabel(phase)}
+            {phaseDate ? ` · ${formatDeadline(phaseDate)}` : ""}
           </span>
           <span className="competition-card-arrow" aria-hidden="true">
             <Icon name="arrow-right" size="md" />

@@ -17,12 +17,18 @@ import { useModal, useToast } from "@/components/ui/primitives";
 import { COMPETITION_CATEGORY_OPTIONS } from "@/lib/competitions/categories";
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { COMPETITION_MODE_OPTIONS } from "@/lib/competitions/modes";
+import { getMissingCompetitionPublishFields } from "@/lib/competitions/competition-publish-readiness";
+import {
+  validateCompetitionTimeline,
+  type CompetitionTimelineError,
+  type CompetitionTimelineField,
+} from "@/lib/competitions/competition-timeline";
 import { capitalizeFirst, capitalizeWord } from "@/lib/text/capitalize";
 import type { CompetitionCategory } from "@/server/db/schema";
 
 type Category = CompetitionCategory;
 
-type CompetitionStatus = "draft" | "published" | "archived";
+type CompetitionStatus = "draft" | "published";
 type CompetitionMode = "individual" | "team" | "both";
 
 type Competition = {
@@ -40,6 +46,9 @@ type Competition = {
   registrationEndAt: string | null;
   eventStartAt: string | null;
   eventEndAt: string | null;
+  resultAnnouncementAt: string | null;
+  minimumParticipantEntries: number | null;
+  participantConfirmationAt: string | null;
   allowCancellation: boolean;
   cancellationCutoffDays: number | null;
 };
@@ -62,6 +71,9 @@ type FormSnapshot = {
   regEnd: string;
   evtStart: string;
   evtEnd: string;
+  resultAnnounce: string;
+  minimumEntries: string;
+  participantConfirmation: string;
   allowCancellation: boolean;
   cutoffDays: string;
 };
@@ -96,7 +108,7 @@ const extractError = async (
 const formatFailures = (failures: PublishValidationFailure[] | undefined): string => {
   if (!failures || failures.length === 0) return "";
   return failures
-    .map((f) => `${getCompetitionFieldLabel(f.field)} — ${capitalizeFirst(f.message)}`)
+    .map((f) => `${getCompetitionFieldLabel(f.field)}: ${capitalizeFirst(f.message)}`)
     .join("; ");
 };
 
@@ -127,6 +139,16 @@ const intOrNull = (value: string): number | null => {
   return Number.isInteger(n) && n >= 1 ? n : null;
 };
 
+const minimumEntriesOrDefault = (value: string): number => {
+  if (value.trim() === "") return 0;
+  return Number.parseInt(value, 10);
+};
+
+const getTimelineFieldError = (
+  errors: CompetitionTimelineError[],
+  field: CompetitionTimelineField,
+): string | null => errors.find((error) => error.field === field)?.message ?? null;
+
 const snapshotEquals = (a: FormSnapshot, b: FormSnapshot): boolean =>
   a.title === b.title &&
   a.slug === b.slug &&
@@ -139,6 +161,9 @@ const snapshotEquals = (a: FormSnapshot, b: FormSnapshot): boolean =>
   a.regEnd === b.regEnd &&
   a.evtStart === b.evtStart &&
   a.evtEnd === b.evtEnd &&
+  a.resultAnnounce === b.resultAnnounce &&
+  a.minimumEntries === b.minimumEntries &&
+  a.participantConfirmation === b.participantConfirmation &&
   a.allowCancellation === b.allowCancellation &&
   a.cutoffDays === b.cutoffDays;
 
@@ -180,6 +205,9 @@ export const InstitutionCompetitionEditShell = ({
   const [regEnd, setRegEnd] = useState("");
   const [evtStart, setEvtStart] = useState("");
   const [evtEnd, setEvtEnd] = useState("");
+  const [resultAnnounce, setResultAnnounce] = useState("");
+  const [minimumEntries, setMinimumEntries] = useState("0");
+  const [participantConfirmation, setParticipantConfirmation] = useState("");
   const [allowCancellation, setAllowCancellation] = useState(false);
   const [cutoffDays, setCutoffDays] = useState("");
 
@@ -198,11 +226,52 @@ export const InstitutionCompetitionEditShell = ({
     regEnd,
     evtStart,
     evtEnd,
+    resultAnnounce,
+    minimumEntries,
+    participantConfirmation,
     allowCancellation,
     cutoffDays,
   });
 
   const isDirty = savedSnapshot !== null && !snapshotEquals(currentSnapshot(), savedSnapshot);
+  const missingPublishFields = getMissingCompetitionPublishFields({
+    title,
+    description,
+    category,
+    mode,
+    registrationStartAt: regStart,
+    registrationEndAt: regEnd,
+    eventStartAt: evtStart,
+    eventEndAt: evtEnd,
+    resultAnnouncementAt: resultAnnounce,
+    participantConfirmationAt: participantConfirmation,
+  });
+  const timelineErrors = validateCompetitionTimeline({
+    registrationStartAt: regStart,
+    registrationEndAt: regEnd,
+    participantConfirmationAt: participantConfirmation,
+    eventStartAt: evtStart,
+    eventEndAt: evtEnd,
+    resultAnnouncementAt: resultAnnounce,
+  });
+  const registrationEndError = getTimelineFieldError(timelineErrors, "registrationEndAt");
+  const participantConfirmationError = getTimelineFieldError(
+    timelineErrors,
+    "participantConfirmationAt",
+  );
+  const eventStartError = getTimelineFieldError(timelineErrors, "eventStartAt");
+  const eventEndError = getTimelineFieldError(timelineErrors, "eventEndAt");
+  const resultAnnouncementError = getTimelineFieldError(timelineErrors, "resultAnnouncementAt");
+  const timelineIsInvalid = timelineErrors.length > 0;
+  const publishIsBlocked = isDirty || missingPublishFields.length > 0 || timelineIsInvalid;
+  let editorStatusMessage = "Semua perubahan tersimpan dan siap diterbitkan";
+  if (timelineIsInvalid) {
+    editorStatusMessage = `Perbaiki urutan jadwal: ${timelineErrors[0]?.message}`;
+  } else if (isDirty) {
+    editorStatusMessage = "Simpan perubahan sebelum menerbitkan";
+  } else if (missingPublishFields.length > 0) {
+    editorStatusMessage = `Lengkapi untuk menerbitkan: ${missingPublishFields.join(", ")}`;
+  }
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -229,6 +298,11 @@ export const InstitutionCompetitionEditShell = ({
     const loadedRegEnd = toDateTimeInput(data.competition.registrationEndAt);
     const loadedEvtStart = toDateTimeInput(data.competition.eventStartAt);
     const loadedEvtEnd = toDateTimeInput(data.competition.eventEndAt);
+    const loadedResultAnnounce = toDateTimeInput(data.competition.resultAnnouncementAt);
+    const loadedMinimumEntries = data.competition.minimumParticipantEntries?.toString() ?? "0";
+    const loadedParticipantConfirmation = toDateTimeInput(
+      data.competition.participantConfirmationAt,
+    );
     const loadedAllowCancellation = data.competition.allowCancellation ?? false;
     const loadedCutoffDays = data.competition.cancellationCutoffDays?.toString() ?? "";
 
@@ -243,6 +317,9 @@ export const InstitutionCompetitionEditShell = ({
     setRegEnd(loadedRegEnd);
     setEvtStart(loadedEvtStart);
     setEvtEnd(loadedEvtEnd);
+    setResultAnnounce(loadedResultAnnounce);
+    setMinimumEntries(loadedMinimumEntries);
+    setParticipantConfirmation(loadedParticipantConfirmation);
     setAllowCancellation(loadedAllowCancellation);
     setCutoffDays(loadedCutoffDays);
 
@@ -258,6 +335,9 @@ export const InstitutionCompetitionEditShell = ({
       regEnd: loadedRegEnd,
       evtStart: loadedEvtStart,
       evtEnd: loadedEvtEnd,
+      resultAnnounce: loadedResultAnnounce,
+      minimumEntries: loadedMinimumEntries,
+      participantConfirmation: loadedParticipantConfirmation,
       allowCancellation: loadedAllowCancellation,
       cutoffDays: loadedCutoffDays,
     });
@@ -314,6 +394,13 @@ export const InstitutionCompetitionEditShell = ({
 
   const onSave = async (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
+    if (timelineIsInvalid) {
+      addToast({
+        type: "error",
+        message: `Perbaiki urutan jadwal: ${timelineErrors.map(({ message }) => message).join(" ")}`,
+      });
+      return;
+    }
     setIsSubmitting(true);
 
     const patch: Record<string, unknown> = {
@@ -328,6 +415,9 @@ export const InstitutionCompetitionEditShell = ({
       registrationEndAt: fromDateTimeInput(regEnd),
       eventStartAt: fromDateTimeInput(evtStart),
       eventEndAt: fromDateTimeInput(evtEnd),
+      resultAnnouncementAt: fromDateTimeInput(resultAnnounce),
+      minimumParticipantEntries: minimumEntriesOrDefault(minimumEntries),
+      participantConfirmationAt: fromDateTimeInput(participantConfirmation),
       allowCancellation,
       cancellationCutoffDays: allowCancellation ? cutoffOrNull(cutoffDays) : null,
     };
@@ -386,6 +476,18 @@ export const InstitutionCompetitionEditShell = ({
   };
 
   const onPublish = async () => {
+    if (publishIsBlocked) {
+      addToast({
+        type: "error",
+        message: timelineIsInvalid
+          ? `Perbaiki urutan jadwal: ${timelineErrors.map(({ message }) => message).join(" ")}`
+          : isDirty
+            ? "Simpan perubahan sebelum menerbitkan kompetisi."
+            : `Lengkapi bidang wajib sebelum menerbitkan: ${missingPublishFields.join(", ")}.`,
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     setIsPublishing(true);
     const url = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}/publish`;
@@ -481,12 +583,7 @@ export const InstitutionCompetitionEditShell = ({
         eyebrow="Editor kompetisi"
         title={competition.title}
         actions={
-          <span
-            className="status-badge"
-            data-status={
-              isPublished ? "open" : competition.status === "archived" ? "closed" : "closing"
-            }
-          >
+          <span className="status-badge" data-status={isPublished ? "open" : "closing"}>
             {capitalizeWord(competition.status)}
           </span>
         }
@@ -524,17 +621,18 @@ export const InstitutionCompetitionEditShell = ({
               <span className="form-help">Gunakan huruf kecil, angka, dan tanda hubung.</span>
             </label>
             <label className="form-field">
-              <span className="form-label">Deskripsi</span>
+              <span className="form-label form-label-required">Deskripsi</span>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
+                required
                 rows={4}
                 maxLength={10000}
                 className="form-textarea"
               />
             </label>
             <div className="form-field">
-              <span className="form-label" id="competition-category-label">
+              <span className="form-label form-label-required" id="competition-category-label">
                 Kategori
               </span>
               <SelectField
@@ -542,6 +640,7 @@ export const InstitutionCompetitionEditShell = ({
                 id="competition-category-label"
                 value={category}
                 placeholder="Pilih"
+                required
                 options={[...COMPETITION_CATEGORY_OPTIONS]}
                 onChange={setCategory}
               />
@@ -560,7 +659,7 @@ export const InstitutionCompetitionEditShell = ({
               </p>
             ) : null}
             <div className="form-field">
-              <span className="form-label" id="competition-mode-label">
+              <span className="form-label form-label-required" id="competition-mode-label">
                 Mode
               </span>
               {/* Personal institutions are individual-only (Step 6.5f.1). */}
@@ -569,6 +668,7 @@ export const InstitutionCompetitionEditShell = ({
                 id="competition-mode-label"
                 value={mode}
                 disabled={isPublished}
+                required
                 placeholder="Pilih"
                 options={
                   isPersonal
@@ -635,43 +735,179 @@ export const InstitutionCompetitionEditShell = ({
             </div>
             <div className="form-grid">
               <label className="form-field">
-                <span className="form-label">Pendaftaran mulai</span>
+                <span className="form-label form-label-required">Pendaftaran mulai</span>
                 <input
                   type="datetime-local"
                   value={regStart}
                   onChange={(e) => setRegStart(e.target.value)}
+                  max={regEnd || undefined}
+                  required
                   className="form-input"
                 />
               </label>
               <label className="form-field">
-                <span className="form-label">Pendaftaran berakhir</span>
+                <span className="form-label form-label-required">Pendaftaran berakhir</span>
                 <input
                   type="datetime-local"
                   value={regEnd}
                   onChange={(e) => setRegEnd(e.target.value)}
+                  min={regStart || undefined}
+                  max={participantConfirmation || evtStart || undefined}
+                  required
                   className="form-input"
+                  aria-invalid={registrationEndError ? true : undefined}
+                  aria-describedby={
+                    registrationEndError ? "registration-end-timeline-error" : undefined
+                  }
                 />
+                {registrationEndError ? (
+                  <span className="form-error" id="registration-end-timeline-error" role="alert">
+                    {registrationEndError}
+                  </span>
+                ) : null}
               </label>
               <label className="form-field">
-                <span className="form-label">Acara mulai</span>
+                <span className="form-label form-label-required">Acara mulai</span>
                 <input
                   type="datetime-local"
                   value={evtStart}
                   onChange={(e) => setEvtStart(e.target.value)}
+                  min={participantConfirmation || regEnd || undefined}
+                  max={evtEnd || undefined}
+                  required
                   className="form-input"
+                  aria-invalid={eventStartError ? true : undefined}
+                  aria-describedby={eventStartError ? "event-start-timeline-error" : undefined}
                 />
+                {eventStartError ? (
+                  <span className="form-error" id="event-start-timeline-error" role="alert">
+                    {eventStartError}
+                  </span>
+                ) : null}
               </label>
               <label className="form-field">
-                <span className="form-label">Acara berakhir</span>
+                <span className="form-label form-label-required">Acara berakhir</span>
                 <input
                   type="datetime-local"
                   value={evtEnd}
                   onChange={(e) => setEvtEnd(e.target.value)}
+                  min={evtStart || undefined}
+                  max={resultAnnounce || undefined}
+                  required
                   className="form-input"
+                  aria-invalid={eventEndError ? true : undefined}
+                  aria-describedby={eventEndError ? "event-end-timeline-error" : undefined}
                 />
+                {eventEndError ? (
+                  <span className="form-error" id="event-end-timeline-error" role="alert">
+                    {eventEndError}
+                  </span>
+                ) : null}
               </label>
+              {/* The hint sits in the grid's second column rather than under the input, so the
+                  field keeps the same height as the four date fields above it. */}
+              <div className="form-field-with-aside">
+                <label className="form-field">
+                  <span className="form-label form-label-required">Pengumuman hasil</span>
+                  <input
+                    type="datetime-local"
+                    value={resultAnnounce}
+                    onChange={(e) => setResultAnnounce(e.target.value)}
+                    min={evtEnd || undefined}
+                    required
+                    className="form-input"
+                    aria-invalid={resultAnnouncementError ? true : undefined}
+                    aria-describedby={
+                      resultAnnouncementError
+                        ? "result-announcement-hint result-announcement-timeline-error"
+                        : "result-announcement-hint"
+                    }
+                  />
+                  {resultAnnouncementError ? (
+                    <span
+                      className="form-error"
+                      id="result-announcement-timeline-error"
+                      role="alert"
+                    >
+                      {resultAnnouncementError}
+                    </span>
+                  ) : null}
+                </label>
+                <p className="form-field-aside" id="result-announcement-hint">
+                  Wajib diisi sebelum kompetisi diterbitkan agar peserta tahu kapan hasil keluar.
+                </p>
+              </div>
             </div>
           </section>
+
+          <fieldset className="content-section competition-policy-fieldset">
+            <legend className="sr-only">Minimum peserta</legend>
+            <div className="section-heading">
+              <div>
+                <h2>Minimum peserta</h2>
+              </div>
+            </div>
+            {isPublished ? (
+              <p className="form-help" id="minimum-participation-help">
+                Minimum peserta dan waktu konfirmasi tidak dapat diubah setelah kompetisi terbit.
+              </p>
+            ) : (
+              <p className="form-help" id="minimum-participation-help">
+                Nilai 0 berarti tidak ada minimum. Satu peserta individu atau satu tim dihitung
+                sebagai satu pendaftaran.
+              </p>
+            )}
+            <div className="form-grid">
+              <label className="form-field">
+                <span className="form-label">Minimum pendaftaran</span>
+                <input
+                  type="number"
+                  value={minimumEntries}
+                  onChange={(event) => setMinimumEntries(event.target.value)}
+                  onBlur={() => {
+                    if (minimumEntries.trim() === "") setMinimumEntries("0");
+                  }}
+                  min={0}
+                  disabled={isPublished}
+                  className="form-input"
+                  aria-describedby="minimum-participation-help"
+                />
+              </label>
+              <label className="form-field">
+                <span className="form-label form-label-required">Konfirmasi peserta</span>
+                <input
+                  type="datetime-local"
+                  value={participantConfirmation}
+                  onChange={(event) => setParticipantConfirmation(event.target.value)}
+                  min={regEnd || undefined}
+                  max={evtStart || undefined}
+                  required
+                  disabled={isPublished}
+                  className="form-input"
+                  aria-invalid={participantConfirmationError ? true : undefined}
+                  aria-describedby={
+                    participantConfirmationError
+                      ? "minimum-participation-help participant-confirmation-timeline-error"
+                      : "minimum-participation-help"
+                  }
+                />
+                {participantConfirmationError ? (
+                  <span
+                    className="form-error"
+                    id="participant-confirmation-timeline-error"
+                    role="alert"
+                  >
+                    {participantConfirmationError}
+                  </span>
+                ) : null}
+              </label>
+            </div>
+            <p className="form-help">
+              Waktu konfirmasi harus berada pada atau setelah pendaftaran berakhir dan sebelum acara
+              mulai. Jika minimum di atas 0 dan belum tercapai saat itu, penyelenggara dapat
+              membatalkan atau tetap menjalankan kompetisi.
+            </p>
+          </fieldset>
 
           <fieldset className="content-section competition-policy-fieldset">
             <legend className="sr-only">Kebijakan pembatalan peserta</legend>
@@ -709,13 +945,18 @@ export const InstitutionCompetitionEditShell = ({
         <IconButton icon="arrow-left" label="Kembali ke aksi status" onClick={handleBack} />
         {isEditable ? (
           <div className="form-action-bar-end">
-            <span className="record-meta" data-dirty={isDirty ? "true" : undefined}>
-              {isDirty ? "Perubahan belum disimpan" : "Semua perubahan tersimpan"}
+            <span
+              className="record-meta"
+              id="publish-readiness-message"
+              data-dirty={publishIsBlocked ? "true" : undefined}
+            >
+              {editorStatusMessage}
             </span>
             <Button
               type="button"
               onClick={() => onSave()}
               loading={isSubmitting}
+              disabled={isSubmitting || timelineIsInvalid}
               leadingIcon={<Icon name="save" />}
             >
               Simpan
@@ -726,7 +967,8 @@ export const InstitutionCompetitionEditShell = ({
                 type="button"
                 onClick={onPublish}
                 loading={isPublishing}
-                disabled={isSubmitting}
+                disabled={isSubmitting || publishIsBlocked}
+                aria-describedby="publish-readiness-message"
               >
                 Terbitkan
               </Button>

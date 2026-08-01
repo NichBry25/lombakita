@@ -16,11 +16,17 @@ import {
   institutionOwnerUsernameSql,
 } from "@/server/institution-workspace/institution-display-name";
 
-// Visibility decision for saved competitions list (Step 3.6):
-// - `archived` competitions are silently excluded — they are terminal and the student cannot
-//   act on them. Removing them keeps the list clean.
+// Visibility decision for the saved competitions list:
 // - `draft` (unpublished) competitions are included but flagged as "unavailable" so the
 //   student sees their bookmark is stale and can remove it.
+// - A finished competition stays saved and available: its page remains public after the event,
+//   which is the whole point of keeping it published.
+// - A competition whose organizer is suspended is kept in the list but flagged "unavailable":
+//   its public page is withheld, so marking it here is what stops the bookmark from becoming a
+//   link to a 404. The row is flagged rather than dropped — silently removing saved items is the
+//   stranding failure the archive retirement exists to avoid.
+// - `archived` is retained here only as tolerance for a value the database enum still carries.
+//   No application path can produce it, so these guards are unreachable in practice.
 
 export type SavedCompetitionStatus = "available" | "unavailable";
 
@@ -73,6 +79,7 @@ const SAVED_COLUMNS = {
   institutionDisplayName: institutions.displayName,
   institutionType: institutions.institutionType,
   institutionOwnerUsername: institutionOwnerUsernameSql,
+  institutionSuspendedAt: institutions.suspendedAt,
   savedAt: competitionSaves.savedAt,
 } as const;
 
@@ -140,7 +147,8 @@ export const listSavedCompetitions = async (
   const limit = resolveLimit(opts.limit);
   const offset = (page - 1) * limit;
 
-  // Exclude archived competitions silently; include draft (unpublished) with flag.
+  // Include draft (unpublished) with a flag. The archived exclusion guards a value no live row
+  // can hold; see the visibility note at the top of this file.
   const where = and(
     eq(competitionSaves.userId, userId),
     isNull(competitions.deletedAt),
@@ -178,7 +186,10 @@ export const listSavedCompetitions = async (
     mode: row.mode,
     registrationEndAt: row.registrationEndAt,
     savedAt: row.savedAt,
-    savedStatus: row.status === "published" ? "available" : "unavailable",
+    savedStatus:
+      row.status === "published" && row.institutionSuspendedAt === null
+        ? "available"
+        : "unavailable",
   }));
 
   return {

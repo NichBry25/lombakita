@@ -5,8 +5,12 @@ assertServerOnly("server/async/jobs/competition-cancelled");
 import { and, eq } from "drizzle-orm";
 import type { Job } from "bullmq";
 import { getDb } from "@/server/db/client";
-import { competitions, competitionRegistrations, users } from "@/server/db/schema";
+import { competitions, competitionRegistrations, institutions, users } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
+import {
+  getCompetitionCancellationReasonLabel,
+  INSUFFICIENT_PARTICIPANTS_REASON,
+} from "@/lib/competitions/competition-participation";
 import { ASYNC_JOB_NAMES, type CompetitionCancelledPayload } from "@/server/async/contracts";
 import { INSTITUTION_CANCELLATION_REASON } from "@/server/competitions/competition-lifecycle";
 import { sendCompetitionCancelledEmail } from "@/server/notifications/notification-email";
@@ -19,23 +23,40 @@ export type CompetitionCancelledJob = Job<
   typeof ASYNC_JOB_NAMES.competitionCancelled
 >;
 
+export const buildCompetitionCancellationRecipientsCondition = (
+  competitionId: string,
+  cancelledAt: Date,
+) =>
+  and(
+    eq(competitionRegistrations.competitionId, competitionId),
+    eq(competitionRegistrations.status, "cancelled"),
+    eq(competitionRegistrations.cancellationReason, INSTITUTION_CANCELLATION_REASON),
+    eq(competitionRegistrations.cancelledAt, cancelledAt),
+  )!;
+
 // Step 6.5f — fan-out worker for "competition cancelled" (institution unpublish-as-cancellation).
-// Recipients are re-derived AT JOB-RUN TIME from the rows the cascade cancelled, identified by
-// cancellation_reason = INSTITUTION_CANCELLATION_REASON. This is deliberately NOT "status !=
-// cancelled": by the time this worker runs the cascade has already cancelled every participant, so
-// the just-cancelled rows ARE the recipient set. Filtering by the institution reason also
-// correctly excludes candidates who self-cancelled earlier (they carry a different reason).
+// Recipients are re-derived AT JOB-RUN TIME from the exact cancellation batch: institution reason
+// plus cancelled_at equal to the persisted timestamp carried as `epoch`. The timestamp predicate is
+// essential after unpublish → republish: old cancelled registrations must not receive the later
+// cycle's cancellation notice again.
 // Dual-channel (DEC-0076): in-app row first (isolated/swallowed), then email; never rethrows.
 export const processCompetitionCancelledJob = async (
   job: CompetitionCancelledJob,
 ): Promise<void> => {
-  const { competitionId } = job.data;
+  const { competitionId, epoch } = job.data;
 
   const db = getDb();
 
   const [competition] = await db
-    .select({ title: competitions.title })
+    .select({
+      title: competitions.title,
+      slug: competitions.slug,
+      institutionSlug: institutions.slug,
+      cancelledAt: competitions.cancelledAt,
+      cancellationReason: competitions.cancellationReason,
+    })
     .from(competitions)
+    .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
     .where(eq(competitions.id, competitionId))
     .limit(1);
 
@@ -49,17 +70,23 @@ export const processCompetitionCancelledJob = async (
     return;
   }
 
+  const cancellationReason =
+    competition.cancellationReason === INSUFFICIENT_PARTICIPANTS_REASON
+      ? getCompetitionCancellationReasonLabel(competition.cancellationReason)
+      : null;
+  const publicCompetition =
+    competition.cancelledAt && cancellationReason
+      ? {
+          institutionSlug: competition.institutionSlug,
+          competitionSlug: competition.slug,
+        }
+      : undefined;
+
   const recipients = await db
     .select({ userId: competitionRegistrations.studentId, email: users.email })
     .from(competitionRegistrations)
     .innerJoin(users, eq(users.id, competitionRegistrations.studentId))
-    .where(
-      and(
-        eq(competitionRegistrations.competitionId, competitionId),
-        eq(competitionRegistrations.status, "cancelled"),
-        eq(competitionRegistrations.cancellationReason, INSTITUTION_CANCELLATION_REASON),
-      ),
-    );
+    .where(buildCompetitionCancellationRecipientsCondition(competitionId, new Date(epoch)));
 
   if (recipients.length === 0) {
     logger.warn("notification.skipped", {
@@ -80,7 +107,9 @@ export const processCompetitionCancelledJob = async (
         userId: recipient.userId,
         type: NOTIFICATION_TYPES.competitionCancelled,
         title: "Kompetisi dibatalkan",
-        body: `"${competition.title}" yang kamu daftarkan telah dibatalkan oleh penyelenggara.`,
+        body: cancellationReason
+          ? `"${competition.title}" dibatalkan oleh penyelenggara. Alasan: ${cancellationReason}`
+          : `"${competition.title}" yang kamu daftarkan telah dibatalkan oleh penyelenggara.`,
       },
       { event: "competition.cancelled", jobId: job.id ?? undefined },
     );
@@ -91,6 +120,8 @@ export const processCompetitionCancelledJob = async (
         toEmail: recipient.email,
         recipientId: recipient.userId,
         competitionTitle: competition.title,
+        cancellationReason: cancellationReason ?? undefined,
+        publicCompetition,
       });
     } catch (error) {
       logger.warn("notification.failed", {

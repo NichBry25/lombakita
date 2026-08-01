@@ -14,6 +14,7 @@ type SelectFieldProps = {
   onChange: (value: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  required?: boolean;
   id?: string;
   className?: string;
 };
@@ -26,8 +27,9 @@ export function SelectField({
   options,
   value,
   onChange,
-  placeholder = "— Pilih —",
+  placeholder = "Pilih...",
   disabled = false,
+  required = false,
   id,
   className,
 }: SelectFieldProps) {
@@ -39,6 +41,8 @@ export function SelectField({
 
   const selectedIndex = options.findIndex((option) => option.value === value);
   const selected = selectedIndex >= 0 ? options[selectedIndex] : undefined;
+  const accessibleLabel = selected ? `${label}: ${selected.label}` : label;
+  const requiredAccessibleLabel = required ? `${accessibleLabel} (wajib)` : accessibleLabel;
 
   useEffect(() => {
     if (!open) return;
@@ -126,7 +130,7 @@ export function SelectField({
         data-placeholder={selected ? undefined : "true"}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={selected ? `${label}: ${selected.label}` : label}
+        aria-label={requiredAccessibleLabel}
         disabled={disabled}
         onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={onTriggerKeyDown}

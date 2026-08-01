@@ -29,11 +29,6 @@ export default async function SavedCompetitionsPage({
       <PageHeader
         title="Kompetisi tersimpan"
         description="Peluang yang kamu simpan untuk dibaca lagi."
-        actions={
-          <ButtonLink href="/competitions" variant="primary" size="sm">
-            Jelajahi kompetisi
-          </ButtonLink>
-        }
       />
 
       {result.data.length === 0 ? (

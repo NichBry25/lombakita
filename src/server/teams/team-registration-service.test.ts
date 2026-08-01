@@ -8,6 +8,9 @@ const { mockGetDb } = vi.hoisted(() => ({
 
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
+vi.mock("@/server/competitions/competition-participation-lock", () => ({
+  acquireCompetitionParticipationLock: vi.fn(),
+}));
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -41,12 +44,14 @@ type DbOptions = {
   txTeamUpdateReturning?: unknown[];
   txInsertError?: unknown;
   txUpdateReturning?: unknown[];
+  txCompetitionReturning?: unknown[];
 };
 
 const makeDb = (selectQueue: SelectResult[], options: DbOptions = {}) => {
   const select = buildSelect(selectQueue);
 
   const tx = {
+    select: buildSelect([options.txCompetitionReturning ?? [competition()]]),
     insert: vi.fn(() => {
       if (options.txInsertError) {
         return {
@@ -98,6 +103,8 @@ const competition = (over: Record<string, unknown> = {}) => ({
   registrationStartAt: PAST,
   registrationEndAt: FUTURE,
   eventStartAt: FUTURE,
+  participantConfirmationAt: null,
+  cancelledAt: null,
   allowCancellation: true,
   cancellationCutoffDays: 7,
   feeAmount: null,
@@ -291,6 +298,25 @@ describe("submitTeamRegistration — pre-transaction gates", () => {
 });
 
 describe("submitTeamRegistration — transactional behaviour", () => {
+  it("re-checks the registration deadline after acquiring the participation lock", async () => {
+    const { db } = makeDb(
+      [
+        [team()],
+        [competition()],
+        [
+          { membershipId: "m1", userId: "cap_1" },
+          { membershipId: "m2", userId: "u_2" },
+        ],
+        [],
+      ],
+      { txCompetitionReturning: [competition({ registrationEndAt: NOW })] },
+    );
+
+    await expect(
+      submitTeamRegistration("cap_1", "comp_1", "team_1", db as never, NOW),
+    ).rejects.toMatchObject({ code: "registration_window_closed" });
+  });
+
   it("returns submitted result on the happy path", async () => {
     const { db, tx } = makeDb(
       [
@@ -448,12 +474,50 @@ describe("cancelTeamRegistration", () => {
     ).rejects.toMatchObject({ code: "cancellation_window_closed" });
   });
 
+  it("rejects cancellation at participantConfirmationAt even when the older cutoff remains open", async () => {
+    const { db } = makeDb([
+      [team({ status: "submitted" })],
+      [
+        competition({
+          cancellationCutoffDays: 0,
+          participantConfirmationAt: NOW,
+        }),
+      ],
+    ]);
+
+    await expect(
+      cancelTeamRegistration("cap_1", "comp_1", "team_1", "alasan", db as never, NOW),
+    ).rejects.toMatchObject({ code: "cancellation_window_closed" });
+  });
+
+  it("re-checks participantConfirmationAt after acquiring the participation lock", async () => {
+    const beforeConfirmation = competition({
+      participantConfirmationAt: FUTURE,
+      allowCancellation: true,
+      cancellationCutoffDays: 7,
+    });
+    const { db } = makeDb([[team({ status: "submitted" })], [beforeConfirmation]], {
+      txCompetitionReturning: [
+        competition({
+          participantConfirmationAt: NOW,
+          allowCancellation: true,
+          cancellationCutoffDays: 7,
+        }),
+      ],
+    });
+
+    await expect(
+      cancelTeamRegistration("cap_1", "comp_1", "team_1", "alasan", db as never, NOW),
+    ).rejects.toMatchObject({ code: "cancellation_window_closed" });
+  });
+
   it("cancels registrations and reverts team to forming on happy path", async () => {
     // tx.update is called twice (registrations cancel, then team revert). Both need returning().
     const { db } = makeDb([[team({ status: "submitted" })], [competition()]]);
     db.transaction = vi.fn().mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
       const updateCalls: number[] = [];
       const tx = {
+        select: buildSelect([[competition()]]),
         update: vi.fn(() => {
           updateCalls.push(1);
           if (updateCalls.length === 1) {
@@ -500,6 +564,7 @@ describe("cancelTeamRegistration", () => {
     db.transaction = vi.fn().mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => {
       const updateCalls: number[] = [];
       const tx = {
+        select: buildSelect([[competition()]]),
         update: vi.fn(() => {
           updateCalls.push(1);
           if (updateCalls.length === 1) {

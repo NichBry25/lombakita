@@ -4,7 +4,14 @@ import { Button, ButtonLink, Icon } from "@/components/ui";
 import { sessionHasRole } from "@/lib/access/roles";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
-import { formatDisplayToken } from "@/lib/text/capitalize";
+import { getCompetitionCancellationReasonLabel } from "@/lib/competitions/competition-participation";
+import {
+  getCompetitionPhaseBadgeStatus,
+  getCompetitionPhaseLabel,
+  isAwaitingResultsPhase,
+  resolveResultAnnouncement,
+  type CompetitionPhase,
+} from "@/lib/competitions/competition-phase";
 import { getCurrentSession } from "@/server/auth/session";
 import {
   getPublicCompetitionDetail,
@@ -19,18 +26,11 @@ import {
   hasConfirmedRegistration,
   listPublicReviews,
 } from "@/server/competitions/competition-reviews-service";
+import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
 import { SaveButton } from "./save-button";
 import { DetailActions } from "./detail-actions";
 import { CompetitionReviewForm } from "./competition-review-form";
 import { formatTeamSizeText } from "./team-size-utils";
-
-const SOCIAL_LABELS: Record<string, string> = {
-  website: "Website",
-  linkedin: "LinkedIn",
-  instagram: "Instagram",
-  x: "X",
-  github: "GitHub",
-};
 
 const formatDate = (date: Date | string | null) =>
   date
@@ -70,11 +70,20 @@ function CTANavLink({
   ctaState,
   registrationPath,
   isCandidate,
+  isCancelled,
 }: {
   ctaState: PublicCompetitionDetail["ctaState"];
   registrationPath: string;
   isCandidate: boolean;
+  isCancelled: boolean;
 }) {
+  if (isCancelled) {
+    return (
+      <Button disabled size="lg" fullWidth>
+        Kompetisi dibatalkan
+      </Button>
+    );
+  }
   if (ctaState === "open" && isCandidate) {
     return (
       <ButtonLink href={registrationPath} variant="primary" size="lg" fullWidth>
@@ -99,25 +108,93 @@ function CTANavLink({
   );
 }
 
-function RegistrationStatus({
-  ctaState,
-  registrationEndAt,
+function getCompetitionPhaseDate(
+  phase: CompetitionPhase,
+  competition: Pick<
+    PublicCompetitionDetail,
+    | "registrationStartAt"
+    | "registrationEndAt"
+    | "eventStartAt"
+    | "eventEndAt"
+    | "resultAnnouncementAt"
+    | "cancelledAt"
+  >,
+) {
+  if (phase === "cancelled") return competition.cancelledAt;
+  if (phase === "upcoming") return competition.registrationStartAt;
+  if (
+    phase === "registration_open" ||
+    phase === "registration_closing" ||
+    phase === "registration_closed"
+  ) {
+    return competition.registrationEndAt;
+  }
+  if (phase === "in_progress") return competition.eventStartAt;
+  if (phase === "awaiting_results" || phase === "results_overdue") {
+    return resolveResultAnnouncement(competition).at;
+  }
+  return competition.resultAnnouncementAt ?? competition.eventEndAt;
+}
+
+function CompetitionPhaseSummary({
+  phase,
+  phaseDate,
 }: {
-  ctaState: PublicCompetitionDetail["ctaState"];
-  registrationEndAt: Date | string | null;
+  phase: CompetitionPhase;
+  phaseDate: Date | string | null;
 }) {
-  const label =
-    ctaState === "open"
-      ? "Pendaftaran dibuka"
-      : ctaState === "not_yet_open"
-        ? "Belum dibuka"
-        : "Pendaftaran ditutup";
-  const status = ctaState === "open" ? "open" : "closed";
+  return (
+    <div className="detail-phase-summary" data-status={getCompetitionPhaseBadgeStatus(phase)}>
+      <p className="detail-phase-title">
+        {getCompetitionPhaseLabel(phase)}
+        {phaseDate ? `: ${formatDate(phaseDate)}` : ""}
+      </p>
+    </div>
+  );
+}
+
+// The results block on the CTA rail. It exists so a participant whose competition has finished can
+// see whether an outcome is still owed and when it was promised, rather than being left with a
+// page that simply stops. Deliberately neutral: it reports that results have not been announced,
+// never how late they are.
+function ResultAnnouncementSummary({
+  phase,
+  resultAnnouncementAt,
+  eventEndAt,
+}: {
+  phase: CompetitionPhase;
+  resultAnnouncementAt: Date | string | null;
+  eventEndAt: Date | string | null;
+}) {
+  if (phase === "results_announced") {
+    return (
+      <div className="stack-xs">
+        <p className="eyebrow">Hasil</p>
+        <p className="detail-deadline data-text">Sudah diumumkan</p>
+      </div>
+    );
+  }
+
+  if (!isAwaitingResultsPhase(phase)) return null;
+
+  const announcement = resolveResultAnnouncement({ resultAnnouncementAt, eventEndAt });
+
+  // A date the organizer typed is a commitment; one inferred from the event end is only an
+  // estimate, and must not be presented as something they promised.
+  const heading = announcement.source === "declared" ? "Pengumuman hasil" : "Perkiraan hasil";
 
   return (
-    <span className="status-badge" data-status={status}>
-      {label} · {formatDate(registrationEndAt)}
-    </span>
+    <div className="stack-xs">
+      <p className="eyebrow">{heading}</p>
+      <p className="detail-deadline data-text">
+        {announcement.at ? formatDateTime(announcement.at) : "Belum dijadwalkan"}
+      </p>
+      {phase === "results_overdue" ? (
+        <p className="form-hint">
+          Hasil belum diumumkan. Kunjungi profil penyelenggara bila Anda membutuhkan kepastian.
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -177,9 +254,10 @@ export default async function CompetitionDetailPage({
   params: Promise<{ institutionSlug: string; slug: string }>;
 }) {
   const { institutionSlug, slug } = await params;
-  const [competition, session] = await Promise.all([
+  const [competition, session, institutionVerification] = await Promise.all([
     getPublicCompetitionDetail(institutionSlug, slug),
     getCurrentSession(),
+    loadInstitutionVerificationSummaryBySlug(institutionSlug),
   ]);
 
   if (!competition) notFound();
@@ -210,12 +288,8 @@ export default async function CompetitionDetailPage({
   const canReview =
     isCandidate && (await hasConfirmedRegistration(session!.user.id, competition.id));
   const myReview = canReview ? await getMyReview(session!.user.id, competition.id) : null;
-  const hasOrganizerContact =
-    Boolean(competition.organizer.contactName) ||
-    Boolean(competition.organizer.contactEmail) ||
-    Boolean(competition.organizer.contactPhone) ||
-    Boolean(competition.organizer.websiteUrl) ||
-    competition.organizer.socialLinks.length > 0;
+  const organizerIsVerified = institutionVerification?.verificationStatus === "verified";
+  const competitionPhaseDate = getCompetitionPhaseDate(competition.phase, competition);
 
   const organizerRail = organizerRailResult.data.filter((c) => c.slug !== slug).slice(0, 3);
   const organizerRailIds = new Set(organizerRail.map((c) => c.id));
@@ -233,15 +307,13 @@ export default async function CompetitionDetailPage({
         <div className="content-shell competition-detail-hero-inner">
           <Link href="/competitions" className="detail-back-link">
             <span aria-hidden="true">←</span>
-            Semua kompetisi
+            Kompetisi
           </Link>
 
           <div className="detail-hero-content stack-md">
+            <h1>{competition.title}</h1>
+
             <div className="cluster">
-              <RegistrationStatus
-                ctaState={competition.ctaState}
-                registrationEndAt={competition.registrationEndAt}
-              />
               {competition.category ? (
                 <span className="status-badge">
                   {getCompetitionCategoryLabel(competition.category)}
@@ -257,8 +329,6 @@ export default async function CompetitionDetailPage({
               ))}
             </div>
 
-            <h1>{competition.title}</h1>
-
             <div className="detail-organizer-line">
               {competition.organizer.logoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -268,7 +338,15 @@ export default async function CompetitionDetailPage({
                   <Icon name="trophy" size="sm" />
                 </span>
               )}
-              <span>Diselenggarakan oleh {competition.organizer.name}</span>
+              <span>
+                Diselenggarakan oleh{" "}
+                <Link
+                  href={`/institution/${competition.organizer.slug}`}
+                  className="detail-organizer-link"
+                >
+                  {competition.organizer.name}
+                </Link>
+              </span>
             </div>
           </div>
         </div>
@@ -276,6 +354,21 @@ export default async function CompetitionDetailPage({
 
       <div className="page-shell detail-layout">
         <article className="detail-main stack-lg">
+          {competition.cancelledAt ? (
+            <section
+              className="feedback stack-xs"
+              data-tone="error"
+              aria-labelledby="cancelled-title"
+            >
+              <h2 id="cancelled-title">Kompetisi dibatalkan</h2>
+              <p>
+                {getCompetitionCancellationReasonLabel(competition.cancellationReason) ??
+                  "Kompetisi ini tidak akan dilaksanakan."}
+              </p>
+              <p className="data-text">Dibatalkan pada {formatDateTime(competition.cancelledAt)}</p>
+            </section>
+          ) : null}
+
           {competition.description ? (
             <section className="surface-card card-padding-lg stack-md">
               <div className="stack-xs">
@@ -414,75 +507,6 @@ export default async function CompetitionDetailPage({
             </section>
           ) : null}
 
-          <section className="inset-panel card-padding-lg detail-organizer-card">
-            {competition.organizer.logoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={competition.organizer.logoUrl}
-                alt=""
-                className="detail-organizer-logo"
-                width={64}
-                height={64}
-              />
-            ) : (
-              <span
-                className="detail-organizer-mark detail-organizer-mark-large"
-                aria-hidden="true"
-              >
-                <Icon name="trophy" size="lg" />
-              </span>
-            )}
-            <div className="stack-xs">
-              <p className="eyebrow">Penyelenggara</p>
-              <h2>{competition.organizer.name}</h2>
-              <p className="muted-copy">
-                {competition.organizer.about ??
-                  "Informasi kompetisi dan tahapan partisipasi dikelola oleh penyelenggara ini."}
-              </p>
-
-              {hasOrganizerContact ? (
-                <div className="detail-organizer-contact stack-xs">
-                  <p className="eyebrow">Hubungi penyelenggara</p>
-                  {competition.organizer.contactName ? (
-                    <p>{competition.organizer.contactName}</p>
-                  ) : null}
-                  {competition.organizer.contactEmail ? (
-                    <p>
-                      <a href={`mailto:${competition.organizer.contactEmail}`}>
-                        {competition.organizer.contactEmail}
-                      </a>
-                    </p>
-                  ) : null}
-                  {competition.organizer.contactPhone ? (
-                    <p>{competition.organizer.contactPhone}</p>
-                  ) : null}
-                  {competition.organizer.websiteUrl ? (
-                    <p>
-                      <a
-                        href={competition.organizer.websiteUrl}
-                        target="_blank"
-                        rel="noreferrer nofollow"
-                      >
-                        {competition.organizer.websiteUrl}
-                      </a>
-                    </p>
-                  ) : null}
-                  {competition.organizer.socialLinks.length > 0 ? (
-                    <ul className="detail-organizer-socials cluster">
-                      {competition.organizer.socialLinks.map((link) => (
-                        <li key={link.platform}>
-                          <a href={link.url} target="_blank" rel="noreferrer nofollow">
-                            {SOCIAL_LABELS[link.platform] ?? formatDisplayToken(link.platform)}
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          </section>
-
           <section className="surface-card card-padding-lg stack-md">
             <div className="stack-xs">
               <p className="eyebrow">Ulasan peserta</p>
@@ -527,20 +551,43 @@ export default async function CompetitionDetailPage({
               </ul>
             ) : null}
           </section>
+
+          <section
+            className="inset-panel card-padding detail-verification-panel"
+            data-verified={organizerIsVerified ? "true" : "false"}
+            aria-labelledby="organizer-verification-title"
+          >
+            <span className="detail-verification-icon" aria-hidden="true">
+              <Icon name={organizerIsVerified ? "check" : "info"} size="md" />
+            </span>
+            <div className="stack-xs">
+              <p className="eyebrow">Status penyelenggara</p>
+              <h2 id="organizer-verification-title">
+                {organizerIsVerified ? "Institusi terverifikasi" : "Belum terverifikasi"}
+              </h2>
+              <p>
+                {organizerIsVerified
+                  ? "Identitas institusi ini telah ditinjau oleh tim Lombakita."
+                  : "Institusi ini belum memperoleh verifikasi dari tim Lombakita."}
+              </p>
+            </div>
+          </section>
         </article>
 
         <aside className="glass-focus detail-cta-rail" aria-label="Ringkasan pendaftaran">
-          <div className="stack-sm">
-            <RegistrationStatus
-              ctaState={competition.ctaState}
-              registrationEndAt={competition.registrationEndAt}
-            />
+          <div className="detail-rail-summary">
+            <CompetitionPhaseSummary phase={competition.phase} phaseDate={competitionPhaseDate} />
             <div className="stack-xs">
               <p className="eyebrow">Batas pendaftaran</p>
               <p className="detail-deadline data-text">
                 {formatDateTime(competition.registrationEndAt)}
               </p>
             </div>
+            <ResultAnnouncementSummary
+              phase={competition.phase}
+              resultAnnouncementAt={competition.resultAnnouncementAt}
+              eventEndAt={competition.eventEndAt}
+            />
             <div className="stack-xs">
               <p className="eyebrow">Terdaftar</p>
               <p className="detail-deadline data-text">
@@ -563,13 +610,22 @@ export default async function CompetitionDetailPage({
             <p className="eyebrow">Biaya pendaftaran</p>
             <FeeDisplay feeAmount={competition.feeAmount} />
           </div>
-
           <div className="detail-rail-actions">
-            <CTANavLink
-              ctaState={competition.ctaState}
-              registrationPath={registrationPath}
-              isCandidate={isCandidate}
-            />
+            <div className="detail-primary-actions">
+              <CTANavLink
+                ctaState={competition.ctaState}
+                registrationPath={registrationPath}
+                isCandidate={isCandidate}
+                isCancelled={competition.cancelledAt !== null}
+              />
+              {isCandidate ? (
+                <SaveButton
+                  competitionId={competition.id}
+                  initialSaved={initialSaved}
+                  expectedUserId={session!.user.id}
+                />
+              ) : null}
+            </div>
             {!session?.user ? (
               <p className="detail-rail-note">
                 <Link href="/auth/login">Masuk</Link> sebagai mahasiswa untuk mendaftar.
@@ -579,17 +635,11 @@ export default async function CompetitionDetailPage({
               <p className="detail-rail-note">Hanya akun kandidat yang dapat mendaftar.</p>
             ) : null}
 
-            {isCandidate ? (
-              <SaveButton
-                competitionId={competition.id}
-                initialSaved={initialSaved}
-                expectedUserId={session!.user.id}
-              />
-            ) : (
+            {!isCandidate ? (
               <p className="detail-rail-note">
                 <Link href="/auth/login">Masuk</Link> untuk menyimpan kompetisi ini.
               </p>
-            )}
+            ) : null}
 
             <DetailActions
               competitionId={competition.id}

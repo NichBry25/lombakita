@@ -11,6 +11,9 @@ const COMPETITION_FIELD_LABELS: Record<string, string> = {
   registrationEndAt: "Pendaftaran berakhir",
   eventStartAt: "Acara mulai",
   eventEndAt: "Acara berakhir",
+  resultAnnouncementAt: "Pengumuman hasil",
+  minimumParticipantEntries: "Minimum peserta",
+  participantConfirmationAt: "Konfirmasi peserta",
   feeAmount: "Biaya",
 };
 

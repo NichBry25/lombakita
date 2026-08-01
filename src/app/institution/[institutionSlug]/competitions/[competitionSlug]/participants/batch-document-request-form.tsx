@@ -227,7 +227,7 @@ export function BatchDocumentRequestForm({
                     />{" "}
                     {target.label}
                     {target.hasOpenRequest ? (
-                      <span className="record-meta"> — sudah ada permintaan berjalan</span>
+                      <span className="record-meta"> (sudah ada permintaan berjalan)</span>
                     ) : null}
                   </label>
                 </li>

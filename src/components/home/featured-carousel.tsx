@@ -81,7 +81,7 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
   return (
     <>
       <header className="stack-xs">
-        <p className="eyebrow">Pilihan editor</p>
+        <p className="eyebrow">Pilihan Editor</p>
         <div className="home-section-header">
           <h2 className="section-title">Kompetisi ternama</h2>
           <ButtonLink
@@ -132,7 +132,7 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
                 <div className="competition-card-body">
                   <div className="competition-card-badges">
                     <span className="status-badge" data-status="featured">
-                      Pilihan editor
+                      Pilihan Editor
                     </span>
                     {competition.mode ? (
                       <span className="status-badge">

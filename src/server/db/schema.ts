@@ -116,6 +116,9 @@ export const recruiterVerificationTierEnum = pgEnum("recruiter_verification_tier
 
 export type RecruiterVerificationTier = (typeof recruiterVerificationTierEnum.enumValues)[number];
 
+// "archived" is retained because Postgres cannot drop an enum value. No application path can
+// produce it: a competition is either a draft or published, and how far along it is reads from
+// its dates and its results rather than from a status flip. Read paths still tolerate the value.
 export const competitionStatusEnum = pgEnum("competition_status", [
   "draft",
   "published",
@@ -773,8 +776,9 @@ export const platformOpsAuditLogs = pgTable(
 // Step 3.1: Competition domain model.
 // Slug uniqueness is institution-scoped — UNIQUE (institution_id, slug). Two institutions may
 // reuse the same human-readable slug (e.g. "hackathon-2026") without collision.
-// Deletion model: drafts soft-delete via deleted_at. Published and archived records are not
-// deletable through DELETE — published must transition to archived first; archived is terminal.
+// Deletion model: drafts soft-delete via deleted_at. Published records are not deletable through
+// DELETE — a published competition must be unpublished back to draft first. A finished competition
+// stays published so its public record, organizer contact details, and results remain reachable.
 // Payment fields (fee_amount, fee_currency) are deferred to Phase 7 — schema-present but must
 // be null/0 in MVP flows. CHECK (fee_amount >= 0) is added in the migration.
 export const competitions = pgTable(
@@ -801,6 +805,33 @@ export const competitions = pgTable(
     registrationEndAt: timestamp("registration_end_at", { mode: "date", withTimezone: true }),
     eventStartAt: timestamp("event_start_at", { mode: "date", withTimezone: true }),
     eventEndAt: timestamp("event_end_at", { mode: "date", withTimezone: true }),
+    // The date the organizer commits to announcing results. Nullable while drafting and on legacy
+    // rows, but required by publish validation so participants know when to expect an outcome.
+    resultAnnouncementAt: timestamp("result_announcement_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    // Optional minimum-entry commitment. Zero means no minimum; a positive value enables the
+    // insufficient-participation decision. One individual registration counts as one entry and one
+    // submitted team counts as one entry, regardless of team size. The confirmation timestamp is
+    // independently required at publish time because it also closes participant withdrawals.
+    minimumParticipantEntries: integer("minimum_participant_entries"),
+    participantConfirmationAt: timestamp("participant_confirmation_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    // Set only when an organizer explicitly commits to proceed despite an unmet minimum. When the
+    // count meets the minimum at participant_confirmation_at, confirmation is derived from the
+    // stable count instead and this column remains null.
+    participationConfirmedAt: timestamp("participation_confirmed_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    // Competition cancellation is a terminal display axis, separate from publication status:
+    // cancelled competitions deliberately remain status='published' so their public record stays
+    // reachable. cancellation_reason stores the machine-readable reason token.
+    cancelledAt: timestamp("cancelled_at", { mode: "date", withTimezone: true }),
+    cancellationReason: text("cancellation_reason"),
     // Candidate-cancellation policy (Step 6.5f / F12). allow_cancellation is the institution
     // opt-in toggle; cancellation_cutoff_days is the number of days before event_start_at after
     // which self-cancellation is closed. cutoff is only meaningful when allow_cancellation is true
@@ -815,7 +846,6 @@ export const competitions = pgTable(
     isFeatured: boolean("is_featured").notNull().default(false),
     featuredOrder: integer("featured_order"),
     publishedAt: timestamp("published_at", { mode: "date", withTimezone: true }),
-    archivedAt: timestamp("archived_at", { mode: "date", withTimezone: true }),
     deletedAt: timestamp("deleted_at", { mode: "date", withTimezone: true }),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
@@ -835,6 +865,26 @@ export const competitions = pgTable(
     check(
       "competitions_cancellation_policy_chk",
       sql`${table.allowCancellation} = false OR (${table.cancellationCutoffDays} IS NOT NULL AND ${table.cancellationCutoffDays} >= 0)`,
+    ),
+    check(
+      "competitions_minimum_participation_non_negative_chk",
+      sql`${table.minimumParticipantEntries} IS NULL OR ${table.minimumParticipantEntries} >= 0`,
+    ),
+    check(
+      "competitions_participant_confirmation_order_chk",
+      sql`${table.participantConfirmationAt} IS NULL OR ((${table.registrationEndAt} IS NULL OR ${table.registrationEndAt} <= ${table.participantConfirmationAt}) AND (${table.eventStartAt} IS NULL OR ${table.participantConfirmationAt} < ${table.eventStartAt}))`,
+    ),
+    check(
+      "competitions_cancellation_state_chk",
+      sql`(${table.cancelledAt} IS NULL AND ${table.cancellationReason} IS NULL) OR (${table.cancelledAt} IS NOT NULL AND ${table.cancellationReason} = 'insufficient_participants' AND ${table.status} = 'published' AND ${table.minimumParticipantEntries} >= 1 AND ${table.participantConfirmationAt} IS NOT NULL AND ${table.eventStartAt} IS NOT NULL AND ${table.cancelledAt} >= ${table.participantConfirmationAt} AND ${table.cancelledAt} < ${table.eventStartAt})`,
+    ),
+    check(
+      "competitions_participation_confirmation_state_chk",
+      sql`${table.participationConfirmedAt} IS NULL OR (${table.status} = 'published' AND ${table.minimumParticipantEntries} >= 1 AND ${table.participantConfirmationAt} IS NOT NULL AND ${table.eventStartAt} IS NOT NULL AND ${table.participationConfirmedAt} >= ${table.participantConfirmationAt} AND ${table.participationConfirmedAt} < ${table.eventStartAt} AND ${table.cancelledAt} IS NULL)`,
+    ),
+    check(
+      "competitions_participation_terminal_state_chk",
+      sql`${table.cancelledAt} IS NULL OR ${table.participationConfirmedAt} IS NULL`,
     ),
   ],
 );

@@ -16,17 +16,20 @@ import {
 describe("isAllowedStatusTransition", () => {
   const valid: [CompetitionStatus, CompetitionStatus][] = [
     ["draft", "published"],
-    ["draft", "archived"],
     ["published", "draft"],
-    ["published", "archived"],
   ];
   it.each(valid)("allows %s → %s", (from, to) => {
     expect(isAllowedStatusTransition(from, to)).toBe(true);
   });
 
+  // draft → archived and published → archived were valid until archiving was retired. They moved
+  // here deliberately: a finished competition stays published so its public record survives, and
+  // no path may put a competition into a state that hides it.
   const invalid: [CompetitionStatus, CompetitionStatus][] = [
     ["draft", "draft"],
     ["published", "published"],
+    ["draft", "archived"],
+    ["published", "archived"],
     ["archived", "draft"],
     ["archived", "published"],
     ["archived", "archived"],
@@ -35,6 +38,8 @@ describe("isAllowedStatusTransition", () => {
     expect(isAllowedStatusTransition(from, to)).toBe(false);
   });
 
+  // The enum keeps "archived" because Postgres cannot drop an enum value. This asserts the value
+  // still exists, not that anything can reach it — the invalid set above pins that.
   it("covers every enum value", () => {
     expect(COMPETITION_STATUS_VALUES).toEqual(["draft", "published", "archived"]);
   });
@@ -63,6 +68,43 @@ describe("parseCompetitionCreateInput", () => {
     expect(() => parseCompetitionCreateInput({ institutionSlug: "lk", title: "Hi" })).toThrow(
       CompetitionError,
     );
+  });
+
+  it("accepts zero as the default for no minimum participation", () => {
+    const parsed = parseCompetitionCreateInput({
+      institutionSlug: "lk",
+      title: "Lomba Coding 2026",
+      minimumParticipantEntries: 0,
+    });
+
+    expect(parsed.minimumParticipantEntries).toBe(0);
+  });
+
+  it("rejects a negative minimum participation value", () => {
+    expect(() =>
+      parseCompetitionCreateInput({
+        institutionSlug: "lk",
+        title: "Lomba Coding 2026",
+        minimumParticipantEntries: -1,
+      }),
+    ).toThrow(/non-negative integer/);
+  });
+
+  it("accepts a confirmation timestamp between registration close and event start", () => {
+    const registrationEndAt = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
+    const participantConfirmationAt = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000);
+    const eventStartAt = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000);
+    const parsed = parseCompetitionCreateInput({
+      institutionSlug: "lk",
+      title: "Lomba Coding 2026",
+      registrationEndAt: registrationEndAt.toISOString(),
+      participantConfirmationAt: participantConfirmationAt.toISOString(),
+      eventStartAt: eventStartAt.toISOString(),
+      minimumParticipantEntries: 10,
+    });
+
+    expect(parsed.minimumParticipantEntries).toBe(10);
+    expect(parsed.participantConfirmationAt).toEqual(participantConfirmationAt);
   });
   it("silently strips status, institutionId, and feeAmount", () => {
     const result = parseCompetitionCreateInput({
@@ -137,6 +179,25 @@ describe("parseCompetitionPatchInput", () => {
     const patch = parseCompetitionPatchInput({ title: "Lomba Coding 2026", banana: 1 });
     expect(patch.title).toBe("Lomba Coding 2026");
   });
+  it("accepts a result announcement date on or after the event end", () => {
+    const patch = parseCompetitionPatchInput({
+      eventEndAt: "2026-08-02T00:00:00Z",
+      resultAnnouncementAt: "2026-08-09T00:00:00Z",
+    });
+    expect(patch.resultAnnouncementAt).toEqual(new Date("2026-08-09T00:00:00Z"));
+  });
+  it("rejects a result announcement date before the event ends", () => {
+    expect(() =>
+      parseCompetitionPatchInput({
+        eventEndAt: "2026-08-02T00:00:00Z",
+        resultAnnouncementAt: "2026-08-01T00:00:00Z",
+      }),
+    ).toThrow(CompetitionError);
+  });
+  it("allows clearing the result announcement date", () => {
+    const patch = parseCompetitionPatchInput({ resultAnnouncementAt: null });
+    expect(patch.resultAnnouncementAt).toBeNull();
+  });
   it("accepts valid date strings and null clears", () => {
     const patch = parseCompetitionPatchInput({
       eventStartAt: "2026-06-01T00:00:00Z",
@@ -186,7 +247,7 @@ describe("parseCompetitionPatchInput", () => {
         eventStartAt: "2027-06-01T00:00:00Z",
         eventEndAt: "2027-05-01T00:00:00Z",
       }),
-    ).toThrow(/eventEndAt must be after eventStartAt/);
+    ).toThrow(/Acara berakhir harus setelah acara mulai/);
   });
   it("rejects registrationEndAt before registrationStartAt", () => {
     expect(() =>
@@ -194,7 +255,7 @@ describe("parseCompetitionPatchInput", () => {
         registrationStartAt: "2027-06-01T00:00:00Z",
         registrationEndAt: "2027-05-01T00:00:00Z",
       }),
-    ).toThrow(/registrationEndAt must be after registrationStartAt/);
+    ).toThrow(/Pendaftaran berakhir harus setelah pendaftaran mulai/);
   });
   it("rejects registrationEndAt in the past", () => {
     expect(() =>
@@ -236,6 +297,9 @@ describe("validatePublishChecklist", () => {
     registrationEndAt: inFuture(30),
     eventStartAt: inFuture(40),
     eventEndAt: inFuture(45),
+    resultAnnouncementAt: inFuture(50),
+    minimumParticipantEntries: 0,
+    participantConfirmationAt: inFuture(35),
   });
 
   const fields = (failures: { field: string }[]) => failures.map((f) => f.field);
@@ -244,6 +308,26 @@ describe("validatePublishChecklist", () => {
     const result = validatePublishChecklist(passing());
     expect(result.passed).toBe(true);
     expect(result.failures).toEqual([]);
+  });
+
+  it("accepts a positive minimum-participation commitment in the publish ordering", () => {
+    const result = validatePublishChecklist({
+      ...passing(),
+      minimumParticipantEntries: 10,
+      participantConfirmationAt: inFuture(35),
+    });
+    expect(result.passed).toBe(true);
+  });
+
+  it("rejects a confirmation timestamp before registration closes", () => {
+    const result = validatePublishChecklist({
+      ...passing(),
+      minimumParticipantEntries: 10,
+      participantConfirmationAt: inFuture(20),
+    });
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({ field: "participantConfirmationAt", code: "out_of_order" }),
+    );
   });
 
   it("flags missing title with code 'missing'", () => {
@@ -273,6 +357,8 @@ describe("validatePublishChecklist", () => {
       registrationEndAt: null,
       eventStartAt: null,
       eventEndAt: null,
+      resultAnnouncementAt: null,
+      participantConfirmationAt: null,
     });
     expect(fields(result.failures)).toEqual(
       expect.arrayContaining([
@@ -280,7 +366,22 @@ describe("validatePublishChecklist", () => {
         "registrationEndAt",
         "eventStartAt",
         "eventEndAt",
+        "resultAnnouncementAt",
+        "participantConfirmationAt",
       ]),
+    );
+  });
+
+  it("requires result announcement and participant confirmation even when minimum is zero", () => {
+    const result = validatePublishChecklist({
+      ...passing(),
+      resultAnnouncementAt: null,
+      participantConfirmationAt: null,
+      minimumParticipantEntries: 0,
+    });
+
+    expect(fields(result.failures)).toEqual(
+      expect.arrayContaining(["resultAnnouncementAt", "participantConfirmationAt"]),
     );
   });
 
@@ -302,7 +403,7 @@ describe("validatePublishChecklist", () => {
       eventStartAt: inFuture(40),
     });
     expect(result.failures).toContainEqual(
-      expect.objectContaining({ field: "registrationEndAt", code: "out_of_order" }),
+      expect.objectContaining({ field: "eventStartAt", code: "out_of_order" }),
     );
   });
 
@@ -314,6 +415,17 @@ describe("validatePublishChecklist", () => {
     });
     expect(result.failures).toContainEqual(
       expect.objectContaining({ field: "eventEndAt", code: "out_of_order" }),
+    );
+  });
+
+  it("flags out_of_order when results are announced before the event ends", () => {
+    const result = validatePublishChecklist({
+      ...passing(),
+      eventEndAt: inFuture(45),
+      resultAnnouncementAt: inFuture(44),
+    });
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({ field: "resultAnnouncementAt", code: "out_of_order" }),
     );
   });
 
@@ -407,6 +519,9 @@ describe("F5 — mode floor at publish time (validatePublishChecklist)", () => {
     registrationEndAt: inFuture(30),
     eventStartAt: inFuture(40),
     eventEndAt: inFuture(45),
+    resultAnnouncementAt: inFuture(50),
+    minimumParticipantEntries: 0,
+    participantConfirmationAt: inFuture(35),
   });
 
   it("passes team mode with minTeamSize=2", () => {

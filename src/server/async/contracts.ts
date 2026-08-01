@@ -25,6 +25,7 @@ export const ASYNC_JOB_NAMES = {
   recruiterVerificationRejected: "recruiter.verification.rejected",
   registrationDocumentRequested: "registration.document.requested",
   registrationDocumentReviewed: "registration.document.reviewed",
+  retentionPurge: "retention.purge",
 } as const;
 
 export type AsyncJobName = (typeof ASYNC_JOB_NAMES)[keyof typeof ASYNC_JOB_NAMES];
@@ -144,6 +145,14 @@ export type RegistrationDocumentReviewedPayload = {
   epoch: number;
 };
 
+// The only job in the system that is not triggered by a request — it fires on a timer (see
+// `retention-scheduler.ts`). Retention is time-based by nature: nothing a user does marks a
+// competition's files as due, only the calendar passing its event date does. The payload carries
+// the fire time purely so a run can be correlated in logs; the job reads the due list itself.
+export type RetentionPurgePayload = {
+  scheduledFor: string;
+};
+
 export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.probePing]: AsyncProbeJobPayload;
   [ASYNC_JOB_NAMES.competitionSearchSync]: CompetitionSearchSyncPayload;
@@ -158,6 +167,7 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.recruiterVerificationRejected]: RecruiterVerificationRejectedPayload;
   [ASYNC_JOB_NAMES.registrationDocumentRequested]: RegistrationDocumentRequestedPayload;
   [ASYNC_JOB_NAMES.registrationDocumentReviewed]: RegistrationDocumentReviewedPayload;
+  [ASYNC_JOB_NAMES.retentionPurge]: RetentionPurgePayload;
 };
 
 export const ASYNC_JOB_QUEUE_BY_NAME = {
@@ -174,4 +184,7 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   [ASYNC_JOB_NAMES.recruiterVerificationRejected]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.registrationDocumentRequested]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.registrationDocumentReviewed]: ASYNC_QUEUE_NAMES.notifications,
+  // Platform maintenance, not a participant-facing event — so it sits on `infrastructure`, away
+  // from the notification queue whose backlog matters to users.
+  [ASYNC_JOB_NAMES.retentionPurge]: ASYNC_QUEUE_NAMES.infrastructure,
 } as const satisfies Record<AsyncJobName, AsyncQueueName>;

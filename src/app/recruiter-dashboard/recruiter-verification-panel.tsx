@@ -498,7 +498,7 @@ export function RecruiterVerificationPanel({
         </p>
         {submission.vouchedAt ? (
           <p className="muted-copy">
-            Anda terhubung dengan institusi terpercaya — permohonan Anda diprioritaskan.
+            Anda terhubung dengan institusi terpercaya, jadi permohonan Anda diprioritaskan.
           </p>
         ) : null}
         {renderDocumentList(false)}
@@ -585,7 +585,7 @@ export function RecruiterVerificationPanel({
         </Feedback>
         <p className="muted-copy">
           Perbarui data dan dokumen Anda, lalu ajukan ulang. Dokumen yang sudah terlampir tetap
-          tersimpan — hapus yang tidak lagi relevan dan unggah penggantinya.
+          tersimpan. Hapus yang tidak lagi relevan, lalu unggah penggantinya.
         </p>
         {renderDocumentSection()}
         {renderAffiliationForm("Ajukan ulang untuk ditinjau")}

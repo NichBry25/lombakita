@@ -6,6 +6,8 @@
 // new competition.edited fan-out writes one notification per confirmed recipient.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { INSTITUTION_CANCELLATION_REASON } from "@/server/competitions/competition-lifecycle";
 
 const {
   mockGetDb,
@@ -43,6 +45,7 @@ import {
 } from "./registration-confirmed";
 import { processCompetitionEditedJob, type CompetitionEditedJob } from "./competition-edited";
 import {
+  buildCompetitionCancellationRecipientsCondition,
   processCompetitionCancelledJob,
   type CompetitionCancelledJob,
 } from "./competition-cancelled";
@@ -71,6 +74,13 @@ function makeDb(queue: unknown[][]) {
 
 const USER_ROW = { email: "user@test.com", displayName: "Andi" };
 const COMP_ROW = { title: "Hackathon 2026" };
+const CANCELLED_COMP_ROW = {
+  ...COMP_ROW,
+  slug: "hackathon-2026",
+  institutionSlug: "kampus",
+  cancelledAt: new Date("2026-08-10T00:00:00.000Z"),
+  cancellationReason: "insufficient_participants",
+};
 const REG_ROW = { registeredAt: new Date("2026-01-01T00:00:00.000Z") };
 
 const confirmedJob = (): RegistrationConfirmedJob =>
@@ -199,6 +209,21 @@ describe("competition-edited fan-out", () => {
 describe("competition-cancelled fan-out", () => {
   afterEach(() => vi.clearAllMocks());
 
+  it("scopes recipients to the exact cancellation timestamp carried by the job", () => {
+    const cancelledAt = new Date(1_700_000_000_000);
+    const query = new PgDialect().sqlToQuery(
+      buildCompetitionCancellationRecipientsCondition("comp_1", cancelledAt),
+    );
+
+    expect(query.sql).toContain('"competition_registrations"."cancelled_at" = $4');
+    expect(query.params).toEqual([
+      "comp_1",
+      "cancelled",
+      INSTITUTION_CANCELLATION_REASON,
+      cancelledAt.toISOString(),
+    ]);
+  });
+
   it("writes one notification per institution-cancelled recipient", async () => {
     const recipients = [
       { userId: "u_1", email: "a@test.com" },
@@ -227,6 +252,33 @@ describe("competition-cancelled fan-out", () => {
 
     await expect(processCompetitionCancelledJob(cancelledJob())).resolves.toBeUndefined();
     expect(mockSendCompetitionCancelledEmail).toHaveBeenCalledOnce();
+  });
+
+  it("explains an insufficient-participation cancellation and links its public record", async () => {
+    mockGetDb.mockReturnValue(
+      makeDb([[CANCELLED_COMP_ROW], [{ userId: "u_1", email: "a@test.com" }]]),
+    );
+    mockSendCompetitionCancelledEmail.mockResolvedValue(undefined);
+    mockWriteNotification.mockResolvedValue(undefined);
+
+    await processCompetitionCancelledJob(cancelledJob());
+
+    expect(mockWriteNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      "u_1",
+      "competition_cancelled",
+      "Kompetisi dibatalkan",
+      expect.stringContaining("Minimum peserta tidak tercapai"),
+    );
+    expect(mockSendCompetitionCancelledEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cancellationReason: "Minimum peserta tidak tercapai.",
+        publicCompetition: {
+          institutionSlug: "kampus",
+          competitionSlug: "hackathon-2026",
+        },
+      }),
+    );
   });
 });
 

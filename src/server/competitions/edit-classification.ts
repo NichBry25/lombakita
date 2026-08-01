@@ -39,6 +39,7 @@ export type ClassifiableCompetition = {
   registrationEndAt: Date | null;
   eventStartAt: Date | null;
   eventEndAt: Date | null;
+  resultAnnouncementAt: Date | null;
   allowCancellation: boolean;
   cancellationCutoffDays: number | null;
   feeAmount?: string | number | null;
@@ -136,22 +137,30 @@ export const classifyCompetitionEdit = (
     }
   }
 
-  // eventStartAt — moving the event earlier so the cancellation cutoff lands in the past would
-  // retroactively strip the right-to-cancel window from existing registrations; block it rather
-  // than silently shrinking the window.
+  // eventStartAt — once the event has begun, when it began is a fact rather than a field. Two
+  // things measure from it: the participant-facing lifecycle phase, and the rule that a started
+  // competition with registrants can no longer be withdrawn. Leaving the date editable would let
+  // an organizer push the start into the future purely to reopen withdrawal and cancel everyone.
+  // The same reasoning already protects eventEndAt's presence, which the results window and the
+  // document-retention purge are measured from.
   if (timeOf(oldRow.eventStartAt) !== timeOf(newRow.eventStartAt)) {
+    const startHasPassed =
+      oldRow.eventStartAt != null && oldRow.eventStartAt.getTime() <= now.getTime();
     const movedEarlier =
       oldRow.eventStartAt != null &&
       newRow.eventStartAt != null &&
       newRow.eventStartAt.getTime() < oldRow.eventStartAt.getTime();
     const cutoff = newRow.cancellationCutoffDays;
+    // Moving the event earlier so the cancellation cutoff lands in the past would retroactively
+    // strip the right-to-cancel window from existing registrations.
     const retroactivelyClosesWindow =
       movedEarlier &&
       newRow.allowCancellation === true &&
       cutoff != null &&
       snapshot.nonCancelledCount > 0 &&
       newRow.eventStartAt!.getTime() - cutoff * DAY_MS <= now.getTime();
-    if (retroactivelyClosesWindow) {
+
+    if (startHasPassed || retroactivelyClosesWindow) {
       blocked.push("eventStartAt");
     } else {
       notify.push("eventStartAt");
@@ -164,6 +173,9 @@ export const classifyCompetitionEdit = (
     notify.push("registrationStartAt");
   if (timeOf(oldRow.registrationEndAt) !== timeOf(newRow.registrationEndAt))
     notify.push("registrationEndAt");
+  // Moving the promised results date is exactly what a waiting participant needs to hear about.
+  if (timeOf(oldRow.resultAnnouncementAt) !== timeOf(newRow.resultAnnouncementAt))
+    notify.push("resultAnnouncementAt");
 
   // Participant-relevant scalar fields.
   if (oldRow.title !== newRow.title) notify.push("title");

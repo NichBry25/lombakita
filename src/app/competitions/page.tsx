@@ -13,8 +13,13 @@ type Competition = {
   description: string;
   category: string | null;
   mode: string | null;
+  registrationStartAt: string | null;
   registrationEndAt: string | null;
   eventStartAt: string | null;
+  eventEndAt: string | null;
+  resultAnnouncementAt: string | null;
+  cancelledAt: string | null;
+  hasPublishedResult: boolean;
   publishedAt: string | null;
   isFeatured: boolean;
   institutionSlug: string;

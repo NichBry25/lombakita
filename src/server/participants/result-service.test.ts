@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/db/client", () => ({ getDb: vi.fn(() => ({})) }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
+vi.mock("@/server/competitions/competition-participation-lock", () => ({
+  acquireCompetitionParticipationLock: vi.fn(),
+}));
 
 import {
   ResultError,
@@ -158,6 +161,19 @@ describe("publishResult", () => {
     const { result } = await publishResult("inst_1", "comp_1", "reg_1", "user_1", db);
     expect(result.resultStatus).toBe("published");
     expect(result.resultLabel).toBe("Juara 1");
+  });
+
+  it("refuses to publish a result for a cancelled competition", async () => {
+    const db = createDbMock({
+      selects: [[{ cancelledAt: new Date("2026-08-10T00:00:00.000Z") }]],
+    });
+
+    const error = await catchResultAsync(() =>
+      publishResult("inst_1", "comp_1", "reg_1", "user_1", db),
+    );
+
+    expect(error.code).toBe("result_competition_cancelled");
+    expect(error.httpStatus).toBe(409);
   });
 
   it("(b) rejects blank result_label with 422 before any DB write", async () => {
@@ -435,6 +451,19 @@ describe("unpublishResult", () => {
 
 describe("upsertResultDraft", () => {
   afterEach(() => vi.clearAllMocks());
+
+  it("refuses to create or edit a result draft for a cancelled competition", async () => {
+    const db = createDbMock({
+      selects: [[{ cancelledAt: new Date("2026-08-10T00:00:00.000Z") }]],
+    });
+
+    const error = await catchResultAsync(() =>
+      upsertResultDraft("inst_1", "comp_1", "reg_1", { resultLabel: "Juara 1" }, db),
+    );
+
+    expect(error.code).toBe("result_competition_cancelled");
+    expect(error.httpStatus).toBe(409);
+  });
 
   it("creates or updates a draft result", async () => {
     const draftRow = {

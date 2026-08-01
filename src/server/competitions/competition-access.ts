@@ -53,10 +53,15 @@ export const PUBLIC_COMPETITION_COLUMNS = {
   registrationEndAt: competitions.registrationEndAt,
   eventStartAt: competitions.eventStartAt,
   eventEndAt: competitions.eventEndAt,
+  resultAnnouncementAt: competitions.resultAnnouncementAt,
+  minimumParticipantEntries: competitions.minimumParticipantEntries,
+  participantConfirmationAt: competitions.participantConfirmationAt,
+  participationConfirmedAt: competitions.participationConfirmedAt,
+  cancelledAt: competitions.cancelledAt,
+  cancellationReason: competitions.cancellationReason,
   allowCancellation: competitions.allowCancellation,
   cancellationCutoffDays: competitions.cancellationCutoffDays,
   publishedAt: competitions.publishedAt,
-  archivedAt: competitions.archivedAt,
   deletedAt: competitions.deletedAt,
   createdAt: competitions.createdAt,
   updatedAt: competitions.updatedAt,
@@ -80,10 +85,15 @@ export type CompetitionRow = {
   registrationEndAt: Date | null;
   eventStartAt: Date | null;
   eventEndAt: Date | null;
+  resultAnnouncementAt: Date | null;
+  minimumParticipantEntries: number | null;
+  participantConfirmationAt: Date | null;
+  participationConfirmedAt: Date | null;
+  cancelledAt: Date | null;
+  cancellationReason: string | null;
   allowCancellation: boolean;
   cancellationCutoffDays: number | null;
   publishedAt: Date | null;
-  archivedAt: Date | null;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -301,7 +311,7 @@ export const assertPersonalInstitutionIndividualMode = async (
 };
 
 // Step 6.5f.1 — publish-time reach cap for a personal institution: at most
-// MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL competitions in `published` status (drafts and archived
+// MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL competitions in `published` status (drafts
 // do not count). No-op for full or legacy institutions. The current competition is excluded from
 // the count (it is still draft at this point). Also re-asserts individual-only as defense in depth.
 // Paid competitions for personal institutions are a Phase 7 concern — fee fields are deferred
@@ -355,7 +365,7 @@ export const assertPersonalCompetitionPublishable = async (
 // discrimination is needed here.
 export const hasActiveRegistrationsForCompetition = async (
   competitionId: string,
-  db: Database = getDb(),
+  db: Database | Parameters<Parameters<Database["transaction"]>[0]>[0] = getDb(),
 ): Promise<boolean> => {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })

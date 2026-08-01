@@ -8,8 +8,10 @@ import { getCompetitionIdByInstitutionAndSlug } from "@/server/competitions/comp
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { getRegistrationReview } from "@/server/participants/review-service";
 import { getResultForInstitution } from "@/server/participants/result-service";
+import { getSubmissionForInstitution } from "@/server/participants/submission-file-service";
 import { listDocumentRequestsForCompetition } from "@/server/registration-documents/registration-document-service";
 import { OrganiserDocumentRequestPanel } from "@/components/registration-documents/organiser-document-request-panel";
+import { OrganiserSubmissionPanel } from "@/components/submissions/organiser-submission-panel";
 import { ReviewForm } from "./review-form";
 import { ResultForm } from "./result-form";
 import { PageHeader } from "@/components/ui";
@@ -53,10 +55,11 @@ export default async function RegistrationReviewPage({ params }: Props) {
   }
 
   // Cross-institution competition/registration collapses to null → 404 (no info leak).
-  const [review, resultCtx, documentRequests] = await Promise.all([
+  const [review, resultCtx, documentRequests, submission] = await Promise.all([
     getRegistrationReview(institutionId, competitionId, registrationId, db),
     getResultForInstitution(institutionId, competitionId, registrationId, db),
     listDocumentRequestsForCompetition(institutionId, competitionId, { registrationId }, db),
+    getSubmissionForInstitution(institutionId, competitionId, registrationId, db),
   ]);
   if (!review) {
     notFound();
@@ -72,6 +75,24 @@ export default async function RegistrationReviewPage({ params }: Props) {
         description="Catatan internal tidak terlihat oleh peserta."
         backHref={listPath}
         backLabel="Peserta"
+      />
+      {/* The work comes before the verdict: a reviewer should read the submission, then judge it. */}
+      <OrganiserSubmissionPanel
+        institutionSlug={institutionSlug}
+        competitionId={competitionId}
+        registrationId={registrationId}
+        submission={
+          submission === null
+            ? null
+            : {
+                fileName: submission.fileName,
+                fileSizeBytes: submission.fileSizeBytes,
+                version: submission.version,
+                finalized: submission.finalized,
+                submittedAt: submission.submittedAt,
+                canRenderInline: submission.canRenderInline,
+              }
+        }
       />
       <ReviewForm
         apiPath={reviewApiPath}

@@ -8,7 +8,7 @@ import {
 } from "@/server/competitions/competition-core";
 import { listCompetitionsForMember } from "@/server/competitions/competition-service";
 
-// GET — institution-member listing (all statuses: draft, published, archived).
+// GET — institution-member listing (all statuses: draft, published).
 // Auth required. Actor must be an active member of the institution.
 // Used by the institution competition management UI.
 export async function GET(

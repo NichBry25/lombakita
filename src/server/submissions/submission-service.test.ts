@@ -2,27 +2,52 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockGetDb, mockIsR2Available, mockGeneratePresignedPutUrl } = vi.hoisted(() => ({
+const {
+  mockGetDb,
+  mockIsR2Available,
+  mockGeneratePresignedPutUrl,
+  mockHeadObject,
+  mockReadObjectHead,
+  mockDeleteObject,
+  mockListObjects,
+} = vi.hoisted(() => ({
   mockGetDb: vi.fn(),
   mockIsR2Available: vi.fn(),
   mockGeneratePresignedPutUrl: vi.fn(),
+  mockHeadObject: vi.fn(),
+  mockReadObjectHead: vi.fn(),
+  mockDeleteObject: vi.fn(),
+  mockListObjects: vi.fn(),
 }));
 
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
+vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 vi.mock("@/server/storage/r2.client", () => ({
   isR2Available: mockIsR2Available,
   generatePresignedPutUrl: mockGeneratePresignedPutUrl,
+  headObject: mockHeadObject,
+  readObjectHead: mockReadObjectHead,
+  deleteObject: mockDeleteObject,
+  listObjects: mockListObjects,
 }));
 
+// "%PDF-" — the leading bytes of a valid PDF, so the record path's signature check passes for the
+// fixtures below, which all use a .pdf filename.
+const PDF_BYTES = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]);
+
 import { SubmissionError } from "./submission-core";
+import { SUBMISSIONS_MAX_FILE_SIZE_BYTES } from "./submission-constants";
 import {
   createOrReplaceSubmission,
   finalizeSubmission,
   generateSubmissionUploadUrl,
   getSubmission,
   getSubmissionViewForRegistration,
+  listCompetitionsDueForSubmissionPurge,
+  purgeUnfinalizedSubmissionsForCompetition,
   resolveSubmissionAccess,
+  sweepOrphanedObjectsForRegistration,
 } from "./submission-service";
 
 // FIFO queue of result-arrays. Each awaited SELECT chain and each `.returning()` shifts one entry.
@@ -54,8 +79,10 @@ function createDbMock(results: unknown[][]) {
 
   const db = {
     select: vi.fn(() => makeChain()),
+    selectDistinct: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
     update: vi.fn(() => makeChain()),
+    delete: vi.fn(() => makeChain()),
   };
 
   return { db: db as never, calls };
@@ -92,7 +119,7 @@ const submissionRecord = {
   id: "sub_1",
   registrationId: "reg_1",
   submittedById: "stud_1",
-  fileKey: "submissions/reg_1/abc",
+  fileKey: "submissions/comp_1/reg_1/abc",
   fileName: "report.pdf",
   fileSizeBytes: 1024,
   fileMimeType: "application/pdf",
@@ -103,10 +130,9 @@ const submissionRecord = {
 };
 
 const validMetadata = {
-  fileKey: "submissions/reg_1/abc",
+  fileKey: "submissions/comp_1/reg_1/abc",
   fileName: "report.pdf",
   fileSizeBytes: 1024,
-  fileMimeType: "application/pdf",
 };
 
 const expectCode = async (promise: Promise<unknown>, code: string, status?: number) => {
@@ -195,6 +221,15 @@ describe("getSubmission", () => {
 });
 
 describe("createOrReplaceSubmission", () => {
+  // The record path now confirms the stored object before writing: a HEAD for the real size and a
+  // ranged read for the magic bytes. Defaults here describe a valid 1 KB PDF, matching the
+  // `report.pdf` fixtures; individual tests override them to exercise rejection.
+  beforeEach(() => {
+    mockIsR2Available.mockReturnValue(true);
+    mockHeadObject.mockResolvedValue({ sizeBytes: 1024, contentType: "application/pdf" });
+    mockReadObjectHead.mockResolvedValue(PDF_BYTES);
+    mockDeleteObject.mockResolvedValue(undefined);
+  });
   afterEach(() => vi.clearAllMocks());
 
   it("rejects when the submission window is closed", async () => {
@@ -213,7 +248,7 @@ describe("createOrReplaceSubmission", () => {
         "comp_1",
         "reg_1",
         "stud_1",
-        { ...validMetadata, fileKey: "submissions/reg_OTHER/abc" },
+        { ...validMetadata, fileKey: "submissions/comp_1/reg_OTHER/abc" },
         db,
         NOW_IN_WINDOW,
       ),
@@ -232,7 +267,7 @@ describe("createOrReplaceSubmission", () => {
   });
 
   it("rejects when the upsert matches a finalized row (0 rows → 422 submission_finalized)", async () => {
-    const { db } = createDbMock([[individualRegRow], []]);
+    const { db } = createDbMock([[individualRegRow], [], []]);
     await expectCode(
       createOrReplaceSubmission("comp_1", "reg_1", "stud_1", validMetadata, db, NOW_IN_WINDOW),
       "submission_finalized",
@@ -241,7 +276,7 @@ describe("createOrReplaceSubmission", () => {
   });
 
   it("creates a submission at version 1 on the happy path", async () => {
-    const { db } = createDbMock([[individualRegRow], [{ ...submissionRecord, version: 1 }]]);
+    const { db } = createDbMock([[individualRegRow], [], [{ ...submissionRecord, version: 1 }]]);
     const result = await createOrReplaceSubmission(
       "comp_1",
       "reg_1",
@@ -254,7 +289,11 @@ describe("createOrReplaceSubmission", () => {
   });
 
   it("replaces with the finalized-guard upsert (setWhere) and increments version via SQL", async () => {
-    const { db, calls } = createDbMock([[individualRegRow], [{ ...submissionRecord, version: 2 }]]);
+    const { db, calls } = createDbMock([
+      [individualRegRow],
+      [],
+      [{ ...submissionRecord, version: 2 }],
+    ]);
     const result = await createOrReplaceSubmission(
       "comp_1",
       "reg_1",
@@ -268,6 +307,138 @@ describe("createOrReplaceSubmission", () => {
     expect(calls.upsert?.setWhere).toBeDefined();
     // version increment is expressed as SQL in the conflict-update set clause.
     expect((calls.upsert?.set as Record<string, unknown>)?.version).toBeDefined();
+  });
+
+  // ── Content validation ────────────────────────────────────────────────────
+
+  it("persists the size read back from R2, not the size the client claimed", async () => {
+    mockHeadObject.mockResolvedValue({ sizeBytes: 4096, contentType: "application/pdf" });
+    const { db, calls } = createDbMock([
+      [individualRegRow],
+      [],
+      [{ ...submissionRecord, version: 1 }],
+    ]);
+
+    await createOrReplaceSubmission(
+      "comp_1",
+      "reg_1",
+      "stud_1",
+      // The client claims 1 KB; the object is really 4 KB.
+      { ...validMetadata, fileSizeBytes: 1024 },
+      db,
+      NOW_IN_WINDOW,
+    );
+
+    expect((calls.upsert?.set as Record<string, unknown>)?.fileSizeBytes).toBe(4096);
+  });
+
+  // The record payload carries no MIME field at all (see ValidatedFileMetadata), so the stored
+  // type can only come from the filename once the bytes beneath it are confirmed.
+  it("persists the type derived from the confirmed file, for a name whose family is byte-checked", async () => {
+    mockReadObjectHead.mockResolvedValue(new Uint8Array([0x50, 0x4b, 0x03, 0x04]));
+    const { db, calls } = createDbMock([
+      [individualRegRow],
+      [],
+      [{ ...submissionRecord, version: 1 }],
+    ]);
+
+    await createOrReplaceSubmission(
+      "comp_1",
+      "reg_1",
+      "stud_1",
+      { ...validMetadata, fileName: "deck.pptx" },
+      db,
+      NOW_IN_WINDOW,
+    );
+
+    // Zip bytes confirm the family; the .pptx extension selects the specific type within it.
+    expect((calls.upsert?.set as Record<string, unknown>)?.fileMimeType).toBe(
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    );
+  });
+
+  it("rejects a file whose bytes disagree with its extension, and deletes it", async () => {
+    // "PK\x03\x04" — zip bytes behind a .pdf name.
+    mockReadObjectHead.mockResolvedValue(new Uint8Array([0x50, 0x4b, 0x03, 0x04]));
+    const { db } = createDbMock([[individualRegRow]]);
+
+    await expectCode(
+      createOrReplaceSubmission("comp_1", "reg_1", "stud_1", validMetadata, db, NOW_IN_WINDOW),
+      "submission_invalid_file_type",
+      422,
+    );
+    expect(mockDeleteObject).toHaveBeenCalledWith(validMetadata.fileKey);
+  });
+
+  it("rejects a file with no recognised signature, and deletes it", async () => {
+    mockReadObjectHead.mockResolvedValue(new Uint8Array([0x3c, 0x21, 0x64, 0x6f, 0x63]));
+    const { db } = createDbMock([[individualRegRow]]);
+
+    await expectCode(
+      createOrReplaceSubmission("comp_1", "reg_1", "stud_1", validMetadata, db, NOW_IN_WINDOW),
+      "submission_invalid_file_type",
+      422,
+    );
+    expect(mockDeleteObject).toHaveBeenCalledWith(validMetadata.fileKey);
+  });
+
+  it("rejects an object over the size ceiling even when the client under-reported it", async () => {
+    mockHeadObject.mockResolvedValue({
+      sizeBytes: SUBMISSIONS_MAX_FILE_SIZE_BYTES + 1,
+      contentType: "application/pdf",
+    });
+    const { db } = createDbMock([[individualRegRow]]);
+
+    await expectCode(
+      createOrReplaceSubmission(
+        "comp_1",
+        "reg_1",
+        "stud_1",
+        { ...validMetadata, fileSizeBytes: 10 },
+        db,
+        NOW_IN_WINDOW,
+      ),
+      "submission_invalid_file_type",
+      422,
+    );
+    expect(mockDeleteObject).toHaveBeenCalledWith(validMetadata.fileKey);
+  });
+
+  it("reports a key with no object behind it rather than writing a row", async () => {
+    mockHeadObject.mockResolvedValue(null);
+    const { db } = createDbMock([[individualRegRow]]);
+
+    await expectCode(
+      createOrReplaceSubmission("comp_1", "reg_1", "stud_1", validMetadata, db, NOW_IN_WINDOW),
+      "submission_file_missing",
+      422,
+    );
+    // Nothing was stored, so nothing is deleted.
+    expect(mockDeleteObject).not.toHaveBeenCalled();
+  });
+
+  it("reclaims the object a replacement supersedes", async () => {
+    const { db } = createDbMock([
+      [individualRegRow],
+      [{ ...submissionRecord, fileKey: "submissions/comp_1/reg_1/OLD" }],
+      [{ ...submissionRecord, version: 2 }],
+    ]);
+
+    await createOrReplaceSubmission("comp_1", "reg_1", "stud_1", validMetadata, db, NOW_IN_WINDOW);
+
+    expect(mockDeleteObject).toHaveBeenCalledWith("submissions/comp_1/reg_1/OLD");
+  });
+
+  it("does not delete anything when a replacement reuses the same key", async () => {
+    const { db } = createDbMock([
+      [individualRegRow],
+      [{ ...submissionRecord, fileKey: validMetadata.fileKey }],
+      [{ ...submissionRecord, version: 2 }],
+    ]);
+
+    await createOrReplaceSubmission("comp_1", "reg_1", "stud_1", validMetadata, db, NOW_IN_WINDOW);
+
+    expect(mockDeleteObject).not.toHaveBeenCalled();
   });
 });
 
@@ -304,6 +475,7 @@ describe("generateSubmissionUploadUrl", () => {
   beforeEach(() => {
     mockIsR2Available.mockReturnValue(true);
     mockGeneratePresignedPutUrl.mockResolvedValue("https://signed.example/put");
+    mockListObjects.mockResolvedValue([]);
   });
   afterEach(() => vi.clearAllMocks());
 
@@ -315,7 +487,7 @@ describe("generateSubmissionUploadUrl", () => {
         "comp_1",
         "reg_1",
         "stud_1",
-        { fileName: "report.pdf", fileMimeType: null },
+        { fileName: "report.pdf" },
         db,
         NOW_IN_WINDOW,
       ),
@@ -325,18 +497,56 @@ describe("generateSubmissionUploadUrl", () => {
     expect(mockGeneratePresignedPutUrl).not.toHaveBeenCalled();
   });
 
+  it("refuses to sign an upload for an extension outside the allowlist", async () => {
+    const { db } = createDbMock([[individualRegRow]]);
+    await expectCode(
+      generateSubmissionUploadUrl(
+        "comp_1",
+        "reg_1",
+        "stud_1",
+        { fileName: "payload.html" },
+        db,
+        NOW_IN_WINDOW,
+      ),
+      "submission_invalid_file_type",
+      422,
+    );
+    expect(mockGeneratePresignedPutUrl).not.toHaveBeenCalled();
+  });
+
+  it("binds the type implied by the filename, ignoring the client-declared MIME", async () => {
+    const { db } = createDbMock([[individualRegRow]]);
+    const grant = await generateSubmissionUploadUrl(
+      "comp_1",
+      "reg_1",
+      "stud_1",
+      // The client claims HTML for a file named .pdf; the signed URL must bind the PDF type.
+      { fileName: "report.pdf" },
+      db,
+      NOW_IN_WINDOW,
+    );
+
+    expect(grant.contentType).toBe("application/pdf");
+    expect(mockGeneratePresignedPutUrl).toHaveBeenCalledWith(
+      expect.stringContaining("submissions/comp_1/reg_1/"),
+      "application/pdf",
+      expect.any(Number),
+    );
+  });
+
   it("returns a presigned grant with a correctly scoped key on the happy path", async () => {
     const { db } = createDbMock([[individualRegRow]]);
     const grant = await generateSubmissionUploadUrl(
       "comp_1",
       "reg_1",
       "stud_1",
-      { fileName: "report.pdf", fileMimeType: "application/pdf" },
+      { fileName: "report.pdf" },
       db,
       NOW_IN_WINDOW,
     );
     expect(grant.uploadUrl).toBe("https://signed.example/put");
-    expect(grant.fileKey).toMatch(/^submissions\/reg_1\//);
+    // Competition first, then registration — the layout a per-competition sweep depends on.
+    expect(grant.fileKey).toMatch(/^submissions\/comp_1\/reg_1\//);
     expect(grant.expiresAt).toBeInstanceOf(Date);
     expect(mockGeneratePresignedPutUrl).toHaveBeenCalledWith(grant.fileKey, "application/pdf", 900);
   });
@@ -348,13 +558,182 @@ describe("generateSubmissionUploadUrl", () => {
         "comp_1",
         "reg_1",
         "stud_1",
-        { fileName: "report.pdf", fileMimeType: null },
+        { fileName: "report.pdf" },
         db,
         NOW_AFTER_WINDOW,
       ),
       "submission_window_closed",
       422,
     );
+  });
+});
+
+describe("sweepOrphanedObjectsForRegistration", () => {
+  const OLD = new Date(NOW_IN_WINDOW.getTime() - 60 * 60 * 1000);
+  const RECENT = new Date(NOW_IN_WINDOW.getTime() - 5 * 1000);
+
+  beforeEach(() => {
+    mockIsR2Available.mockReturnValue(true);
+    mockDeleteObject.mockResolvedValue(undefined);
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it("deletes an aged object the current submission does not reference", async () => {
+    mockListObjects.mockResolvedValue([
+      { key: "submissions/comp_1/reg_1/ORPHAN", lastModified: OLD },
+    ]);
+    const { db } = createDbMock([[submissionRecord]]);
+
+    await sweepOrphanedObjectsForRegistration("comp_1", "reg_1", db, NOW_IN_WINDOW);
+
+    expect(mockDeleteObject).toHaveBeenCalledWith("submissions/comp_1/reg_1/ORPHAN");
+  });
+
+  it("keeps the object the current submission references", async () => {
+    mockListObjects.mockResolvedValue([{ key: submissionRecord.fileKey, lastModified: OLD }]);
+    const { db } = createDbMock([[submissionRecord]]);
+
+    await sweepOrphanedObjectsForRegistration("comp_1", "reg_1", db, NOW_IN_WINDOW);
+
+    expect(mockDeleteObject).not.toHaveBeenCalled();
+  });
+
+  // An upload may be in flight against a key that has no row yet — deleting it mid-PUT would
+  // destroy a submission the candidate is in the middle of making.
+  it("leaves an object younger than the presign window alone", async () => {
+    mockListObjects.mockResolvedValue([
+      { key: "submissions/comp_1/reg_1/IN_FLIGHT", lastModified: RECENT },
+    ]);
+    const { db } = createDbMock([[]]);
+
+    await sweepOrphanedObjectsForRegistration("comp_1", "reg_1", db, NOW_IN_WINDOW);
+
+    expect(mockDeleteObject).not.toHaveBeenCalled();
+  });
+
+  it("sweeps the registration's own prefix, not the whole competition", async () => {
+    mockListObjects.mockResolvedValue([]);
+    const { db } = createDbMock([[]]);
+
+    await sweepOrphanedObjectsForRegistration("comp_1", "reg_1", db, NOW_IN_WINDOW);
+
+    expect(mockListObjects).toHaveBeenCalledWith("submissions/comp_1/reg_1/");
+  });
+
+  it("never throws when storage errors — it runs beside an upload", async () => {
+    mockListObjects.mockRejectedValue(new Error("r2_down"));
+    const { db } = createDbMock([[]]);
+
+    await expect(
+      sweepOrphanedObjectsForRegistration("comp_1", "reg_1", db, NOW_IN_WINDOW),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does nothing when R2 is unconfigured", async () => {
+    mockIsR2Available.mockReturnValue(false);
+    const { db } = createDbMock([[]]);
+
+    await sweepOrphanedObjectsForRegistration("comp_1", "reg_1", db, NOW_IN_WINDOW);
+
+    expect(mockListObjects).not.toHaveBeenCalled();
+  });
+});
+
+describe("purgeUnfinalizedSubmissionsForCompetition", () => {
+  const FINALIZED = {
+    registrationId: "reg_final",
+    fileKey: "submissions/comp_1/reg_final/KEEP",
+    finalizedAt: NOW_IN_WINDOW,
+  };
+  const DRAFT = {
+    registrationId: "reg_draft",
+    fileKey: "submissions/comp_1/reg_draft/DROP",
+    finalizedAt: null,
+  };
+
+  beforeEach(() => {
+    mockIsR2Available.mockReturnValue(true);
+    mockDeleteObject.mockResolvedValue(undefined);
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  // The load-bearing guarantee: a finalized entry is the participant's work and the basis of any
+  // published result. It must survive the purge untouched, bytes and row alike.
+  it("keeps a finalized submission's object and row, and drops an unfinalized one", async () => {
+    mockListObjects.mockResolvedValue([
+      { key: FINALIZED.fileKey, lastModified: NOW_IN_WINDOW },
+      { key: DRAFT.fileKey, lastModified: NOW_IN_WINDOW },
+    ]);
+    const { db } = createDbMock([[FINALIZED, DRAFT], [{ registrationId: "reg_draft" }]]);
+
+    const outcome = await purgeUnfinalizedSubmissionsForCompetition("comp_1", db);
+
+    expect(mockDeleteObject).toHaveBeenCalledExactlyOnceWith(DRAFT.fileKey);
+    expect(outcome).toEqual({ objectsDeleted: 1, rowsDeleted: 1, finalizedKept: 1 });
+  });
+
+  // Deleting from the prefix rather than from the rows is what reaches an upload the database
+  // never recorded — the case a row-driven purge can never find.
+  it("deletes an object no surviving row references", async () => {
+    mockListObjects.mockResolvedValue([
+      { key: FINALIZED.fileKey, lastModified: NOW_IN_WINDOW },
+      { key: "submissions/comp_1/reg_x/FORGOTTEN", lastModified: NOW_IN_WINDOW },
+    ]);
+    const { db } = createDbMock([[FINALIZED]]);
+
+    const outcome = await purgeUnfinalizedSubmissionsForCompetition("comp_1", db);
+
+    expect(mockDeleteObject).toHaveBeenCalledExactlyOnceWith("submissions/comp_1/reg_x/FORGOTTEN");
+    expect(outcome.rowsDeleted).toBe(0);
+  });
+
+  it("lists exactly one prefix — the competition's", async () => {
+    mockListObjects.mockResolvedValue([]);
+    const { db } = createDbMock([[]]);
+
+    await purgeUnfinalizedSubmissionsForCompetition("comp_1", db);
+
+    expect(mockListObjects).toHaveBeenCalledExactlyOnceWith("submissions/comp_1/");
+  });
+
+  it("touches nothing when every submission is finalized", async () => {
+    mockListObjects.mockResolvedValue([{ key: FINALIZED.fileKey, lastModified: NOW_IN_WINDOW }]);
+    const { db } = createDbMock([[FINALIZED]]);
+
+    const outcome = await purgeUnfinalizedSubmissionsForCompetition("comp_1", db);
+
+    expect(mockDeleteObject).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ objectsDeleted: 0, rowsDeleted: 0, finalizedKept: 1 });
+  });
+
+  it("refuses rather than half-purging when storage is unavailable", async () => {
+    mockIsR2Available.mockReturnValue(false);
+    const { db } = createDbMock([[DRAFT]]);
+
+    await expectCode(
+      purgeUnfinalizedSubmissionsForCompetition("comp_1", db),
+      "submission_upload_unavailable",
+      503,
+    );
+    expect(mockListObjects).not.toHaveBeenCalled();
+  });
+});
+
+describe("listCompetitionsDueForSubmissionPurge", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("returns the distinct competition ids the query matched", async () => {
+    const { db } = createDbMock([[{ competitionId: "comp_1" }, { competitionId: "comp_2" }]]);
+    const due = await listCompetitionsDueForSubmissionPurge(90, db, NOW_IN_WINDOW);
+    expect(due).toEqual(["comp_1", "comp_2"]);
+  });
+
+  // The three conditions that bound what gets deleted live in the WHERE clause, which this mock
+  // ignores. They are asserted against the compiled SQL in submission-purge-predicate.test.ts;
+  // driving them against real rows is still owed at 6.4-UAT.
+  it("returns empty when nothing matched", async () => {
+    const { db } = createDbMock([[]]);
+    expect(await listCompetitionsDueForSubmissionPurge(90, db, NOW_IN_WINDOW)).toEqual([]);
   });
 });
 

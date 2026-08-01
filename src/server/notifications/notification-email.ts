@@ -220,8 +220,18 @@ export const sendCompetitionCancelledEmail = async (options: {
   toEmail: string;
   recipientId: string;
   competitionTitle: string;
+  cancellationReason?: string;
+  publicCompetition?: {
+    institutionSlug: string;
+    competitionSlug: string;
+  };
 }): Promise<void> => {
   const { apiKey, from } = assertResendConfigured();
+  const publicCompetitionUrl = options.publicCompetition
+    ? `${resolveBaseUrl()}/competitions/${encodeURIComponent(
+        options.publicCompetition.institutionSlug,
+      )}/${encodeURIComponent(options.publicCompetition.competitionSlug)}`
+    : null;
 
   const resend = new Resend(apiKey);
   const { error } = await resend.emails.send({
@@ -230,8 +240,11 @@ export const sendCompetitionCancelledEmail = async (options: {
     subject: `Kompetisi dibatalkan — ${options.competitionTitle}`,
     text: [
       `Kompetisi "${options.competitionTitle}" yang kamu daftarkan telah dibatalkan oleh penyelenggara.`,
+      ...(options.cancellationReason ? ["", `Alasan: ${options.cancellationReason}`] : []),
       "",
-      `Lihat kompetisi lainnya di ${resolveBaseUrl()}.`,
+      publicCompetitionUrl
+        ? `Lihat status kompetisi di ${publicCompetitionUrl}.`
+        : `Lihat kompetisi lainnya di ${resolveBaseUrl()}.`,
     ].join("\n"),
   });
 

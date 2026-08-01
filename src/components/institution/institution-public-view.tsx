@@ -128,7 +128,7 @@ export function InstitutionPublicView({
             <p>Kompetisi dari penyelenggara ini akan tampil di sini setelah dipublikasikan.</p>
           </div>
         ) : (
-          <div className="competition-grid">
+          <div className="competition-grid competition-grid--roomy">
             {competitions.map((competition) => (
               <CompetitionCard
                 key={competition.id}

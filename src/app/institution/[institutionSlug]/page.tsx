@@ -76,12 +76,18 @@ export default async function InstitutionHubPage({
       description: "Buat, terbitkan, dan tinjau partisipasi kompetisi.",
       icon: "trophy" as const,
     },
-    {
-      href: `${base}/team`,
-      label: "Tim",
-      description: "Kelola anggota, peran, dan undangan pengelola.",
-      icon: "users" as const,
-    },
+    // A personal institution is single-member by definition and cannot invite staff, so the team
+    // card would lead to a page with nothing to manage.
+    ...(isPersonal
+      ? []
+      : [
+          {
+            href: `${base}/team`,
+            label: "Tim",
+            description: "Kelola anggota, peran, dan undangan pengelola.",
+            icon: "users" as const,
+          },
+        ]),
     {
       href: `${base}/settings`,
       label: "Pengaturan",
@@ -162,8 +168,11 @@ async function renderPublicView(institutionSlug: string) {
     redirect(`/${institution.personalOwnerUsername}`);
   }
 
+  // "all" rather than the default: an organizer's page is their public record, so finished
+  // competitions belong on it — that record is what a participant returns to after the event.
   const { data: competitions } = await listPublicCompetitions({
     institutionSlug: institution.slug,
+    status: "all",
     limit: PUBLIC_COMPETITION_LIMIT,
   });
 

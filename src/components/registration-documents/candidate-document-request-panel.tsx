@@ -15,6 +15,7 @@ import {
   DOCUMENT_REQUEST_STATUS_TONES,
   type RegistrationDocumentDisplayStatus,
 } from "@/lib/registration-documents/request-status";
+import { formatFileSize } from "@/lib/text/format-file-size";
 
 export type CandidateDocumentRequest = {
   id: string;
@@ -32,11 +33,6 @@ export type CandidateDocumentRequest = {
     fileSizeBytes: number;
     createdAt: string;
   }>;
-};
-
-const formatFileSize = (bytes: number): string => {
-  const mb = bytes / (1024 * 1024);
-  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 };
 
 const formatDeadline = (isoDate: string): string =>

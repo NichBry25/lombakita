@@ -84,7 +84,7 @@ export const CompetitionEligibilityEditor = ({
       <div className="stack-xs">
         <h2 className="section-title">Kelayakan</h2>
         <p className="form-help">
-          Informasi kelayakan bersifat deskriptif — tidak membatasi siapa pun untuk mendaftar.
+          Informasi kelayakan bersifat deskriptif dan tidak membatasi siapa pun untuk mendaftar.
         </p>
       </div>
 

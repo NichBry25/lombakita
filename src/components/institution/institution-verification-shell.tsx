@@ -332,7 +332,7 @@ export const InstitutionVerificationShell = ({
             ditinjau tim kami. Kami mengabari begitu ada keputusan.
           </p>
           <p className="muted-copy">
-            Selama peninjauan berlangsung, Anda belum dapat mengirim pengajuan baru — peninjau
+            Selama peninjauan berlangsung, Anda belum dapat mengirim pengajuan baru, karena peninjau
             menilai berkas yang sama dengan yang Anda kirim.
           </p>
         </section>

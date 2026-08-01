@@ -13,7 +13,6 @@ const HEADER_SCROLL_THRESHOLD_PX = 8;
 
 const PRIMARY_NAVIGATION = [
   { href: "/competitions", label: "Jelajahi" },
-  { href: "/#tentang", label: "Tentang" },
 ] as const;
 
 type ThemeName = "light" | "dark";

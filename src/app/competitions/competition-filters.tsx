@@ -14,12 +14,16 @@ const MODE_OPTIONS: FilterOption[] = [
   ...COMPETITION_MODE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
 ];
 
+// The default ("") hides competitions whose registration deadline has passed, so it is labelled
+// for what it actually shows. "all" is the explicit opt-in that also surfaces finished
+// competitions — their pages stay published, so they remain findable rather than disappearing.
 const STATUS_OPTIONS: FilterOption[] = [
-  { value: "", label: "Semua status" },
+  { value: "", label: "Masih berjalan" },
   { value: "upcoming", label: "Akan datang" },
   { value: "open", label: "Dibuka" },
   { value: "closing", label: "Segera ditutup" },
   { value: "closed", label: "Ditutup" },
+  { value: "all", label: "Semua termasuk selesai" },
 ];
 
 const TEAM_SIZE_OPTIONS: FilterOption[] = [

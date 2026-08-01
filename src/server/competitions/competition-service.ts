@@ -17,6 +17,7 @@ import {
 } from "@/server/async/enqueue";
 import {
   CompetitionError,
+  findMissingPublishFields,
   IMMUTABLE_AFTER_PUBLISH,
   isAllowedStatusTransition,
   MAX_SLUG_LENGTH,
@@ -24,7 +25,9 @@ import {
   PATCH_FIELDS,
   resolveTeamSizesForMode,
   TEAM_MODE_MIN_SIZE,
+  assertCompetitionTimelineChronological,
   validateCancellationPolicy,
+  validateMinimumParticipation,
   validatePublishChecklist,
   type CompetitionCreateInput,
   type CompetitionPatchInput,
@@ -35,6 +38,9 @@ import {
   type EditClassificationSnapshot,
 } from "@/server/competitions/edit-classification";
 import { INSTITUTION_CANCELLATION_REASON } from "@/server/competitions/competition-lifecycle";
+import { hasCompetitionStarted } from "@/lib/competitions/competition-withdrawal";
+import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
+import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 import {
   assertActorIsTrustedRecruiter,
   assertCompetitionAccess,
@@ -42,6 +48,7 @@ import {
   assertInstitutionNotSuspended,
   assertPersonalCompetitionPublishable,
   assertPersonalInstitutionIndividualMode,
+  hasActiveRegistrationsForCompetition,
   MEMBER_ROLES,
   PUBLIC_COMPETITION_COLUMNS,
   type CompetitionRow,
@@ -125,13 +132,16 @@ export const assertCompetitionInInstitution = async (
 // This is the page-level slug lookup for G6 institution-side routes. Institution-scoped:
 // the same competition slug under two different institutions resolves independently with no
 // cross-tenant leak. Returns the competitionId for downstream service calls, or throws 404.
-export const getCompetitionIdByInstitutionAndSlug = async (
+// Resolves the competition's id and title from the institution-scoped slug pair. Pages that put
+// the competition's name in their heading need both, and getting them together avoids a second
+// round trip for one column.
+export const getCompetitionIdentityByInstitutionAndSlug = async (
   institutionSlug: string,
   competitionSlug: string,
   db: Database = getDb(),
-): Promise<string> => {
+): Promise<{ id: string; title: string }> => {
   const [row] = await db
-    .select({ id: competitions.id })
+    .select({ id: competitions.id, title: competitions.title })
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
     .where(
@@ -147,8 +157,15 @@ export const getCompetitionIdByInstitutionAndSlug = async (
     throw new CompetitionError("competition_not_found", 404, "Competition not found");
   }
 
-  return row.id;
+  return row;
 };
+
+export const getCompetitionIdByInstitutionAndSlug = async (
+  institutionSlug: string,
+  competitionSlug: string,
+  db: Database = getDb(),
+): Promise<string> =>
+  (await getCompetitionIdentityByInstitutionAndSlug(institutionSlug, competitionSlug, db)).id;
 
 // Verifies the actor has an active membership (admin or staff) in the institution
 // and resolves the institution row. Used by the create path which receives institutionSlug
@@ -216,6 +233,20 @@ export const createCompetitionDraft = async (
   const allowCancellation = input.allowCancellation ?? false;
   const cancellationCutoffDays = input.cancellationCutoffDays ?? null;
   validateCancellationPolicy(allowCancellation, cancellationCutoffDays);
+  validateMinimumParticipation({
+    minimumParticipantEntries: input.minimumParticipantEntries ?? null,
+    participantConfirmationAt: input.participantConfirmationAt ?? null,
+    registrationEndAt: input.registrationEndAt ?? null,
+    eventStartAt: input.eventStartAt ?? null,
+  });
+  assertCompetitionTimelineChronological({
+    registrationStartAt: input.registrationStartAt,
+    registrationEndAt: input.registrationEndAt,
+    participantConfirmationAt: input.participantConfirmationAt,
+    eventStartAt: input.eventStartAt,
+    eventEndAt: input.eventEndAt,
+    resultAnnouncementAt: input.resultAnnouncementAt,
+  });
 
   for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
     const candidate = buildSlugCandidate(baseSlug, attempt);
@@ -237,6 +268,9 @@ export const createCompetitionDraft = async (
           registrationEndAt: input.registrationEndAt ?? null,
           eventStartAt: input.eventStartAt ?? null,
           eventEndAt: input.eventEndAt ?? null,
+          resultAnnouncementAt: input.resultAnnouncementAt ?? null,
+          minimumParticipantEntries: input.minimumParticipantEntries ?? null,
+          participantConfirmationAt: input.participantConfirmationAt ?? null,
           allowCancellation,
           cancellationCutoffDays,
         })
@@ -342,6 +376,12 @@ const applySimplePatchColumns = (
   if (patch.registrationEndAt !== undefined) updates.registrationEndAt = patch.registrationEndAt;
   if (patch.eventStartAt !== undefined) updates.eventStartAt = patch.eventStartAt;
   if (patch.eventEndAt !== undefined) updates.eventEndAt = patch.eventEndAt;
+  if (patch.resultAnnouncementAt !== undefined)
+    updates.resultAnnouncementAt = patch.resultAnnouncementAt;
+  if (patch.minimumParticipantEntries !== undefined)
+    updates.minimumParticipantEntries = patch.minimumParticipantEntries;
+  if (patch.participantConfirmationAt !== undefined)
+    updates.participantConfirmationAt = patch.participantConfirmationAt;
   if (patch.allowCancellation !== undefined) updates.allowCancellation = patch.allowCancellation;
   if (patch.cancellationCutoffDays !== undefined)
     updates.cancellationCutoffDays = patch.cancellationCutoffDays;
@@ -359,6 +399,7 @@ const toClassifiable = (row: CompetitionRow): ClassifiableCompetition => ({
   registrationEndAt: row.registrationEndAt,
   eventStartAt: row.eventStartAt,
   eventEndAt: row.eventEndAt,
+  resultAnnouncementAt: row.resultAnnouncementAt,
   allowCancellation: row.allowCancellation,
   cancellationCutoffDays: row.cancellationCutoffDays,
   // feeAmount intentionally omitted — API-blocked on edit (DEC-0022); the classifier skips it.
@@ -381,6 +422,8 @@ const mergeForClassification = (
   if (patch.registrationEndAt !== undefined) merged.registrationEndAt = patch.registrationEndAt;
   if (patch.eventStartAt !== undefined) merged.eventStartAt = patch.eventStartAt;
   if (patch.eventEndAt !== undefined) merged.eventEndAt = patch.eventEndAt;
+  if (patch.resultAnnouncementAt !== undefined)
+    merged.resultAnnouncementAt = patch.resultAnnouncementAt;
   if (patch.allowCancellation !== undefined) merged.allowCancellation = patch.allowCancellation;
   if (patch.cancellationCutoffDays !== undefined)
     merged.cancellationCutoffDays = patch.cancellationCutoffDays;
@@ -453,6 +496,63 @@ const updatePublishedCompetition = async (
 
   const merged = mergeForClassification(competition, patch);
   validateCancellationPolicy(merged.allowCancellation, merged.cancellationCutoffDays);
+  validateMinimumParticipation({
+    minimumParticipantEntries: competition.minimumParticipantEntries,
+    participantConfirmationAt: competition.participantConfirmationAt,
+    registrationEndAt:
+      patch.registrationEndAt !== undefined
+        ? patch.registrationEndAt
+        : competition.registrationEndAt,
+    eventStartAt: patch.eventStartAt !== undefined ? patch.eventStartAt : competition.eventStartAt,
+  });
+  assertCompetitionTimelineChronological({
+    registrationStartAt:
+      patch.registrationStartAt !== undefined
+        ? patch.registrationStartAt
+        : competition.registrationStartAt,
+    registrationEndAt:
+      patch.registrationEndAt !== undefined
+        ? patch.registrationEndAt
+        : competition.registrationEndAt,
+    participantConfirmationAt: competition.participantConfirmationAt,
+    eventStartAt: patch.eventStartAt !== undefined ? patch.eventStartAt : competition.eventStartAt,
+    eventEndAt: patch.eventEndAt !== undefined ? patch.eventEndAt : competition.eventEndAt,
+    resultAnnouncementAt:
+      patch.resultAnnouncementAt !== undefined
+        ? patch.resultAnnouncementAt
+        : competition.resultAnnouncementAt,
+  });
+
+  // A published competition may not be edited into a state it could not have been published in.
+  // Clearing eventEndAt is the case that matters most: the competition's whole post-event
+  // lifecycle — when results become due, and when its documents are purged — is measured from
+  // that date, so losing it would take the competition outside both windows entirely.
+  const missingRequired = findMissingPublishFields({
+    ...merged,
+    minimumParticipantEntries: competition.minimumParticipantEntries,
+    participantConfirmationAt: competition.participantConfirmationAt,
+  }).filter((failure) => {
+    // Competitions published before these two fields became mandatory are grandfathered for
+    // unrelated edits. New publishes cannot omit them, and an existing value still cannot be
+    // cleared after publication.
+    if (failure.field === "resultAnnouncementAt") {
+      return competition.resultAnnouncementAt !== null;
+    }
+    if (failure.field === "participantConfirmationAt") {
+      return competition.participantConfirmationAt !== null;
+    }
+    return true;
+  });
+  if (missingRequired.length > 0) {
+    throw new CompetitionError(
+      "competition_publish_validation_failed",
+      422,
+      `Cannot clear required field(s) on a published competition: ${missingRequired
+        .map((failure) => failure.field)
+        .join(", ")}`,
+      { fields: missingRequired.map((failure) => failure.field), failures: missingRequired },
+    );
+  }
 
   const snapshot = await loadEditClassificationSnapshot(competition.id, db);
   const classification = classifyCompetitionEdit(toClassifiable(competition), merged, snapshot);
@@ -570,6 +670,41 @@ export const updateCompetitionDraft = async (
       ? patch.cancellationCutoffDays
       : competition.cancellationCutoffDays;
   validateCancellationPolicy(effectiveAllowCancellation, effectiveCutoffDays);
+  validateMinimumParticipation({
+    minimumParticipantEntries:
+      patch.minimumParticipantEntries !== undefined
+        ? patch.minimumParticipantEntries
+        : competition.minimumParticipantEntries,
+    participantConfirmationAt:
+      patch.participantConfirmationAt !== undefined
+        ? patch.participantConfirmationAt
+        : competition.participantConfirmationAt,
+    registrationEndAt:
+      patch.registrationEndAt !== undefined
+        ? patch.registrationEndAt
+        : competition.registrationEndAt,
+    eventStartAt: patch.eventStartAt !== undefined ? patch.eventStartAt : competition.eventStartAt,
+  });
+  assertCompetitionTimelineChronological({
+    registrationStartAt:
+      patch.registrationStartAt !== undefined
+        ? patch.registrationStartAt
+        : competition.registrationStartAt,
+    registrationEndAt:
+      patch.registrationEndAt !== undefined
+        ? patch.registrationEndAt
+        : competition.registrationEndAt,
+    participantConfirmationAt:
+      patch.participantConfirmationAt !== undefined
+        ? patch.participantConfirmationAt
+        : competition.participantConfirmationAt,
+    eventStartAt: patch.eventStartAt !== undefined ? patch.eventStartAt : competition.eventStartAt,
+    eventEndAt: patch.eventEndAt !== undefined ? patch.eventEndAt : competition.eventEndAt,
+    resultAnnouncementAt:
+      patch.resultAnnouncementAt !== undefined
+        ? patch.resultAnnouncementAt
+        : competition.resultAnnouncementAt,
+  });
 
   // F5 — normalize team sizes to the effective mode whenever the patch touches mode or a size
   // field. Resolve effective mode/sizes from the patch where present, falling back to the
@@ -625,8 +760,9 @@ export const updateCompetitionDraft = async (
   }
 };
 
-// Soft-delete a draft. Published and archived records are not deletable via DELETE —
-// published must transition to archived via POST /archive; archived records are terminal.
+// Soft-delete a draft. A published competition is not deletable via DELETE — it must be
+// unpublished back to draft first, which cancels its registrations explicitly rather than
+// stranding them.
 export const softDeleteCompetitionDraft = async (
   actorUserId: string,
   competitionId: string,
@@ -660,7 +796,7 @@ export const transitionCompetitionStatus = async (
   const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "admin", db);
 
   // Same-status transitions are rejected as invalid: ALLOWED_TRANSITIONS does not contain any
-  // from===to edge. State-machines.md §8.1 requires 422 for this case (e.g. archived → archived).
+  // from===to edge (e.g. published → published).
   if (!isAllowedStatusTransition(competition.status, targetStatus)) {
     throw new CompetitionError(
       "competition_invalid_transition",
@@ -688,6 +824,9 @@ export const transitionCompetitionStatus = async (
       registrationEndAt: competition.registrationEndAt,
       eventStartAt: competition.eventStartAt,
       eventEndAt: competition.eventEndAt,
+      resultAnnouncementAt: competition.resultAnnouncementAt,
+      minimumParticipantEntries: competition.minimumParticipantEntries,
+      participantConfirmationAt: competition.participantConfirmationAt,
     });
     if (!result.passed) {
       throw new CompetitionError(
@@ -710,10 +849,9 @@ export const transitionCompetitionStatus = async (
     );
   }
 
-  // Unpublish (published → draft) is no longer reached through this generic primitive — it is
-  // owned by unpublishCompetition (Step 6.5f), which cancels every active registration inside one
-  // transaction. The route layer calls that function directly; this path remains valid for the
-  // publish and archive transitions only.
+  // Unpublish (published → draft) is not reached through this generic primitive — it is owned by
+  // unpublishCompetition, which cancels every active registration inside one transaction. The
+  // route layer calls that function directly, so this path serves the publish transition only.
 
   const updates: Record<string, unknown> = {
     status: targetStatus,
@@ -723,7 +861,6 @@ export const transitionCompetitionStatus = async (
   // publishedAt is intentionally NOT cleared on unpublish (published → draft). It records the
   // first-publication timestamp as historical metadata — useful for audit and discovery signals.
   // DEC-0030: accepted design decision.
-  if (targetStatus === "archived") updates.archivedAt = new Date();
 
   // CAS guard: WHERE also checks current status equals the snapshot status to prevent
   // concurrent transitions from landing on top of each other (3.3-D12 resolution).
@@ -748,7 +885,7 @@ export const transitionCompetitionStatus = async (
     to: targetStatus,
   });
 
-  // Enqueue search index sync. publish → upsert; unpublish/archive → remove.
+  // Enqueue search index sync. publish → upsert; anything else → remove.
   // The enqueue is fire-and-forget: a failure to enqueue (e.g. Redis unavailable) must not
   // fail the transition itself. The sync job handles its own retry via BullMQ backoff.
   const syncAction = targetStatus === "published" ? "upsert" : "remove";
@@ -778,23 +915,69 @@ export const unpublishCompetition = async (
   actorUserId: string,
   competitionId: string,
   db: Database = getDb(),
+  now?: Date,
 ): Promise<UnpublishCompetitionResult> => {
-  const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "admin", db);
+  await assertCompetitionAccess(actorUserId, competitionId, "admin", db);
 
-  if (competition.status !== "published") {
-    throw new CompetitionError(
-      "competition_invalid_transition",
-      422,
-      `Cannot unpublish a competition in '${competition.status}' status`,
-    );
-  }
-
-  const now = new Date();
   const result = await db.transaction(async (tx) => {
+    await acquireCompetitionParticipationLock(tx, competitionId);
+    const mutationAt = now ?? new Date();
+    const [competition] = await tx
+      .select(PUBLIC_COMPETITION_COLUMNS)
+      .from(competitions)
+      .where(eq(competitions.id, competitionId))
+      .limit(1);
+
+    if (!competition) {
+      throw new CompetitionError("competition_not_found", 404, "Competition not found");
+    }
+    if (competition.status !== "published") {
+      throw new CompetitionError(
+        "competition_invalid_transition",
+        422,
+        `Cannot unpublish a competition in '${competition.status}' status`,
+      );
+    }
+    if (competition.cancelledAt) {
+      throw new CompetitionError(
+        "competition_already_cancelled",
+        409,
+        "A cancelled competition must remain published as a public record",
+      );
+    }
+    if (
+      isParticipantCancellationClosedByConfirmation(
+        competition.participantConfirmationAt,
+        mutationAt,
+      )
+    ) {
+      throw new CompetitionError(
+        "competition_unpublish_blocked_after_participation_confirmation",
+        422,
+        "Cannot withdraw a competition after participantConfirmationAt",
+        { fields: ["participantConfirmationAt"] },
+      );
+    }
+
+    // Once the event has started, withdrawal is refused for as long as anyone is registered: this
+    // call cancels every registration and takes the public page down with it, which abandons
+    // participants mid-competition. With nobody registered there is nobody to strand.
+    if (hasCompetitionStarted(competition.eventStartAt, mutationAt)) {
+      const hasRegistrations = await hasActiveRegistrationsForCompetition(competitionId, tx);
+      if (hasRegistrations) {
+        throw new CompetitionError(
+          "competition_unpublish_blocked_after_start",
+          422,
+          "Cannot unpublish a competition that has started and has active registrations — edit it instead",
+          { fields: ["eventStartAt"] },
+        );
+      }
+    }
+
     // CAS: re-check status='published' in the WHERE so a concurrent transition rolls this back.
     const [statusRow] = await tx
       .update(competitions)
-      .set({ status: "draft", updatedAt: now })
+      .set({ status: "draft", updatedAt: mutationAt })
       .where(and(eq(competitions.id, competitionId), eq(competitions.status, "published")))
       .returning(PUBLIC_COMPETITION_COLUMNS);
 
@@ -813,7 +996,7 @@ export const unpublishCompetition = async (
       .set({
         status: "cancelled",
         cancellationReason: INSTITUTION_CANCELLATION_REASON,
-        cancelledAt: now,
+        cancelledAt: mutationAt,
         updatedAt: sql`now()`,
       })
       .where(
@@ -824,7 +1007,11 @@ export const unpublishCompetition = async (
       )
       .returning({ id: competitionRegistrations.id });
 
-    return { competition: statusRow, cancelledCount: cancelledRows.length };
+    return {
+      competition: statusRow,
+      cancelledCount: cancelledRows.length,
+      cancellationAt: mutationAt,
+    };
   });
 
   logger.info("competition.unpublished", {
@@ -841,12 +1028,14 @@ export const unpublishCompetition = async (
       error: err instanceof Error ? err.message : String(err),
     });
   });
-  enqueueCompetitionCancelled({ competitionId, epoch: Date.now() }).catch((err) => {
-    logger.warn("competition.cancelled.enqueue-failed", {
-      competitionId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  });
+  enqueueCompetitionCancelled({ competitionId, epoch: result.cancellationAt.getTime() }).catch(
+    (err) => {
+      logger.warn("competition.cancelled.enqueue-failed", {
+        competitionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    },
+  );
 
-  return result;
+  return { competition: result.competition, cancelledCount: result.cancelledCount };
 };

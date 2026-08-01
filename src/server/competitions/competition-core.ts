@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import type { CompetitionCategory, CompetitionMode, CompetitionStatus } from "@/server/db/schema";
 import { COMPETITION_CATEGORY_VALUES } from "@/lib/competitions/categories";
+import {
+  validateCompetitionTimeline,
+  type CompetitionTimelineInput,
+} from "@/lib/competitions/competition-timeline";
 
 const MIN_SLUG_LENGTH = 3;
 export const MAX_SLUG_LENGTH = 120;
@@ -30,16 +34,14 @@ export const isCompetitionCategory = (value: string): value is CompetitionCatego
 
 // Status state machine for competitions.
 // draft → published   (admin only, institution must be verified, publish-validation must pass)
-// draft → archived    (admin only)
-// published → draft   (admin-only "unpublish"; gated by hasActiveRegistrations stub)
-// published → archived (admin only)
-// archived is terminal — no transitions out.
-const ALLOWED_TRANSITIONS: ReadonlySet<string> = new Set([
-  "draft->published",
-  "draft->archived",
-  "published->draft",
-  "published->archived",
-]);
+// published → draft   (admin-only "unpublish"; cancels every active registration)
+//
+// There is no archive transition. A competition that has finished stays published so its rules,
+// prize terms, organizer contact details, and results remain publicly reachable after the event —
+// which is what lets a participant chase an organizer who has gone quiet. How far along a
+// competition is derives from its dates and its results (see deriveCompetitionPhase), never from
+// a stored status.
+const ALLOWED_TRANSITIONS: ReadonlySet<string> = new Set(["draft->published", "published->draft"]);
 
 const transitionKey = (from: CompetitionStatus, to: CompetitionStatus): string => `${from}->${to}`;
 
@@ -63,6 +65,11 @@ type CompetitionErrorCode =
   | "competition_active_registrations"
   | "competition_field_immutable"
   | "competition_post_publish_blocked"
+  | "competition_unpublish_blocked_after_start"
+  | "competition_unpublish_blocked_after_participation_confirmation"
+  | "competition_already_cancelled"
+  | "competition_participation_not_configured"
+  | "competition_participation_decision_unavailable"
   // Step 6.5f.1 — personal-institution reach caps.
   | "competition_personal_individual_only"
   | "competition_personal_publish_limit";
@@ -143,6 +150,9 @@ export type CompetitionDraftFields = {
   registrationEndAt?: Date | null;
   eventStartAt?: Date | null;
   eventEndAt?: Date | null;
+  resultAnnouncementAt?: Date | null;
+  minimumParticipantEntries?: number | null;
+  participantConfirmationAt?: Date | null;
   allowCancellation?: boolean;
   cancellationCutoffDays?: number | null;
 };
@@ -160,11 +170,23 @@ export type CompetitionCreateInput = {
   registrationEndAt?: Date | null;
   eventStartAt?: Date | null;
   eventEndAt?: Date | null;
+  resultAnnouncementAt?: Date | null;
+  minimumParticipantEntries?: number | null;
+  participantConfirmationAt?: Date | null;
   allowCancellation?: boolean;
   cancellationCutoffDays?: number | null;
 };
 
 export type CompetitionPatchInput = CompetitionDraftFields;
+
+export const assertCompetitionTimelineChronological = (fields: CompetitionTimelineInput): void => {
+  const [error] = validateCompetitionTimeline(fields);
+  if (!error) return;
+
+  throw new CompetitionError("competition_invalid_value", 400, error.message, {
+    fields: [error.relatedField, error.field],
+  });
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -273,6 +295,19 @@ const parseOptionalInt = (value: unknown, field: string): number | null => {
   return value;
 };
 
+const parseOptionalNonNegativeInt = (value: unknown, field: string): number | null => {
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      `${field} must be a non-negative integer or null`,
+      { fields: [field] },
+    );
+  }
+  return value;
+};
+
 // Cancellation cutoff: nullable integer >= 0 (0 means "until the event starts"). Distinct from
 // parseOptionalInt, which floors at 1.
 const parseOptionalCutoffDays = (value: unknown): number | null => {
@@ -367,10 +402,38 @@ export const validateCancellationPolicy = (
   }
 };
 
-// Cross-field validation. Run on every parsed payload (create + patch). For PATCH this only
-// catches inconsistencies present together in the same request; cross-field rules that span
-// existing-row + payload (e.g. patching only one side of a date pair) are not enforced here —
-// they belong to the publish-validation checklist for now.
+export type MinimumParticipationFields = {
+  minimumParticipantEntries: number | null;
+  participantConfirmationAt: Date | null;
+  registrationEndAt: Date | null;
+  eventStartAt: Date | null;
+};
+
+// Validates minimum-participation configuration while a draft is being edited. Zero means no
+// minimum. The confirmation timestamp is independent because it also closes participant
+// withdrawals; when present, it sits after registration closes but strictly before the event.
+export const validateMinimumParticipation = (fields: MinimumParticipationFields): void => {
+  if (fields.minimumParticipantEntries !== null && fields.minimumParticipantEntries < 0) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      "minimumParticipantEntries must be a non-negative integer",
+      { fields: ["minimumParticipantEntries"] },
+    );
+  }
+  assertCompetitionTimelineChronological({
+    registrationStartAt: null,
+    registrationEndAt: fields.registrationEndAt,
+    participantConfirmationAt: fields.participantConfirmationAt,
+    eventStartAt: fields.eventStartAt,
+    eventEndAt: null,
+    resultAnnouncementAt: null,
+  });
+};
+
+// Cross-field validation for values present together in a parsed create or patch payload.
+// The service separately validates the effective stored row after applying a patch so that
+// changing only one date cannot bypass these relations.
 const validateFieldRelations = (fields: CompetitionDraftFields): void => {
   if (
     fields.minTeamSize != null &&
@@ -398,30 +461,14 @@ const validateFieldRelations = (fields: CompetitionDraftFields): void => {
       { fields: ["minTeamSize"] },
     );
   }
-  if (
-    fields.eventStartAt != null &&
-    fields.eventEndAt != null &&
-    fields.eventEndAt.getTime() <= fields.eventStartAt.getTime()
-  ) {
-    throw new CompetitionError(
-      "competition_invalid_value",
-      400,
-      "eventEndAt must be after eventStartAt",
-      { fields: ["eventStartAt", "eventEndAt"] },
-    );
-  }
-  if (
-    fields.registrationStartAt != null &&
-    fields.registrationEndAt != null &&
-    fields.registrationEndAt.getTime() <= fields.registrationStartAt.getTime()
-  ) {
-    throw new CompetitionError(
-      "competition_invalid_value",
-      400,
-      "registrationEndAt must be after registrationStartAt",
-      { fields: ["registrationStartAt", "registrationEndAt"] },
-    );
-  }
+  assertCompetitionTimelineChronological({
+    registrationStartAt: fields.registrationStartAt,
+    registrationEndAt: fields.registrationEndAt,
+    participantConfirmationAt: fields.participantConfirmationAt,
+    eventStartAt: fields.eventStartAt,
+    eventEndAt: fields.eventEndAt,
+    resultAnnouncementAt: fields.resultAnnouncementAt,
+  });
   // Registration deadline must be in the future when explicitly set. Skipped when clearing
   // (null) or when not present in the payload.
   if (fields.registrationEndAt != null && fields.registrationEndAt.getTime() <= Date.now()) {
@@ -447,6 +494,9 @@ const CREATE_FIELDS: readonly string[] = [
   "registrationEndAt",
   "eventStartAt",
   "eventEndAt",
+  "resultAnnouncementAt",
+  "minimumParticipantEntries",
+  "participantConfirmationAt",
   "allowCancellation",
   "cancellationCutoffDays",
 ];
@@ -462,6 +512,9 @@ export const PATCH_FIELDS: readonly string[] = [
   "registrationEndAt",
   "eventStartAt",
   "eventEndAt",
+  "resultAnnouncementAt",
+  "minimumParticipantEntries",
+  "participantConfirmationAt",
   "allowCancellation",
   "cancellationCutoffDays",
 ];
@@ -477,7 +530,9 @@ const SILENT_STRIP_FIELDS: readonly string[] = [
   "status",
   "isFeatured",
   "publishedAt",
-  "archivedAt",
+  "participationConfirmedAt",
+  "cancelledAt",
+  "cancellationReason",
   "deletedAt",
   "createdAt",
   "updatedAt",
@@ -550,6 +605,24 @@ const parseDraftFields = (
   if ("eventEndAt" in filtered) {
     fields.eventEndAt = parseOptionalDate(filtered.eventEndAt, "eventEndAt");
   }
+  if ("resultAnnouncementAt" in filtered) {
+    fields.resultAnnouncementAt = parseOptionalDate(
+      filtered.resultAnnouncementAt,
+      "resultAnnouncementAt",
+    );
+  }
+  if ("minimumParticipantEntries" in filtered) {
+    fields.minimumParticipantEntries = parseOptionalNonNegativeInt(
+      filtered.minimumParticipantEntries,
+      "minimumParticipantEntries",
+    );
+  }
+  if ("participantConfirmationAt" in filtered) {
+    fields.participantConfirmationAt = parseOptionalDate(
+      filtered.participantConfirmationAt,
+      "participantConfirmationAt",
+    );
+  }
   if ("allowCancellation" in filtered) {
     fields.allowCancellation = parseBoolean(filtered.allowCancellation, "allowCancellation");
   }
@@ -601,6 +674,12 @@ export const parseCompetitionCreateInput = (payload: unknown): CompetitionCreate
   }
 
   const fields = parseDraftFields(sanitized, CREATE_FIELDS);
+  validateMinimumParticipation({
+    minimumParticipantEntries: fields.minimumParticipantEntries ?? null,
+    participantConfirmationAt: fields.participantConfirmationAt ?? null,
+    registrationEndAt: fields.registrationEndAt ?? null,
+    eventStartAt: fields.eventStartAt ?? null,
+  });
   const { title, description, slug, ...rest } = fields;
 
   return {
@@ -642,17 +721,23 @@ export const parseCompetitionPatchInput = (payload: unknown): CompetitionPatchIn
 // participants, or is silent). These three fields sit OUTSIDE that classifier: they are the
 // participant contract participants registered under and can never change while published.
 // The update service enforces this as the outer layer (422 competition_field_immutable) before
-// the classifier runs. Draft competitions edit all fields freely; archived competitions are
-// terminal and reject edits with competition_not_draft.
+// the classifier runs. Draft competitions edit all fields freely.
 //
 //   mode             (registrations are anchored to the mode contract)
 //   minTeamSize      (team registration sizing locked in at publish)
 //   maxTeamSize      (team registration sizing locked in at publish)
-export const IMMUTABLE_AFTER_PUBLISH: readonly string[] = ["mode", "minTeamSize", "maxTeamSize"];
+export const IMMUTABLE_AFTER_PUBLISH: readonly string[] = [
+  "mode",
+  "minTeamSize",
+  "maxTeamSize",
+  "minimumParticipantEntries",
+  "participantConfirmationAt",
+];
 
 // Publish-validation checklist. A competition can only transition draft → published if every
-// required field is set, the registration deadline is in the future, and the date pairs are
-// strictly ordered: registrationStart < registrationEnd <= eventStart <= eventEnd.
+// required field is set, the registration deadline is in the future, and the full timeline is
+// ordered: registrationStart < registrationEnd <= participantConfirmation < eventStart
+// < eventEnd <= resultAnnouncement.
 //
 // Eligibility note: the Step 3.3 prompt lists "at least one eligibility criterion" as a
 // required publish input. The competition schema (Step 3.1/3.2) does not yet model eligibility
@@ -674,6 +759,9 @@ export type PublishValidationCandidate = {
   registrationEndAt: Date | null;
   eventStartAt: Date | null;
   eventEndAt: Date | null;
+  resultAnnouncementAt?: Date | null;
+  minimumParticipantEntries?: number | null;
+  participantConfirmationAt?: Date | null;
 };
 
 export type PublishValidationResult = {
@@ -686,14 +774,20 @@ const PUBLISH_REQUIRED_DATE_FIELDS = [
   "registrationEndAt",
   "eventStartAt",
   "eventEndAt",
+  "resultAnnouncementAt",
 ] as const;
 
 const isNonEmpty = (value: string | null | undefined): boolean =>
   typeof value === "string" && value.trim().length > 0;
 
-export const validatePublishChecklist = (
+// The fields a competition cannot be published without. Split out from the full checklist so the
+// published-edit path can reuse it: an edit must not strip a field publishing required, but the
+// ordering and future-dated rules below are publish-time judgements and must NOT be re-applied on
+// edit — a finished competition's registration deadline is necessarily in the past, and
+// re-checking it would make every finished competition uneditable.
+export const findMissingPublishFields = (
   candidate: PublishValidationCandidate,
-): PublishValidationResult => {
+): PublishValidationFailure[] => {
   const failures: PublishValidationFailure[] = [];
 
   if (!isNonEmpty(candidate.title)) {
@@ -709,6 +803,34 @@ export const validatePublishChecklist = (
   if (!candidate.mode) {
     failures.push({ field: "mode", code: "missing", message: "mode is required to publish" });
   }
+  if (!candidate.category) {
+    failures.push({
+      field: "category",
+      code: "missing",
+      message: "category is required to publish",
+    });
+  }
+  for (const field of PUBLISH_REQUIRED_DATE_FIELDS) {
+    if (!candidate[field]) {
+      failures.push({ field, code: "missing", message: `${field} is required to publish` });
+    }
+  }
+  if (!candidate.participantConfirmationAt) {
+    failures.push({
+      field: "participantConfirmationAt",
+      code: "missing",
+      message: "participantConfirmationAt is required to publish",
+    });
+  }
+
+  return failures;
+};
+
+export const validatePublishChecklist = (
+  candidate: PublishValidationCandidate,
+): PublishValidationResult => {
+  const failures: PublishValidationFailure[] = findMissingPublishFields(candidate);
+
   // Mode-aware size floor validation at publish time.
   if (candidate.mode === "team" && (candidate.minTeamSize ?? 0) < TEAM_MODE_MIN_SIZE) {
     failures.push({
@@ -728,54 +850,20 @@ export const validatePublishChecklist = (
       message: "minTeamSize must be less than or equal to maxTeamSize",
     });
   }
-  if (!candidate.category) {
-    failures.push({
-      field: "category",
-      code: "missing",
-      message: "category is required to publish",
-    });
-  }
-  for (const field of PUBLISH_REQUIRED_DATE_FIELDS) {
-    if (!candidate[field]) {
-      failures.push({ field, code: "missing", message: `${field} is required to publish` });
-    }
-  }
-
-  // Date coherence — only compared when both endpoints of a pair are present so a missing
-  // field is not double-reported as out_of_order.
-  if (
-    candidate.registrationStartAt &&
-    candidate.registrationEndAt &&
-    candidate.registrationStartAt.getTime() >= candidate.registrationEndAt.getTime()
-  ) {
-    failures.push({
-      field: "registrationEndAt",
-      code: "out_of_order",
-      message: "registrationEndAt must be after registrationStartAt",
-    });
-  }
-  if (
-    candidate.registrationEndAt &&
-    candidate.eventStartAt &&
-    candidate.registrationEndAt.getTime() > candidate.eventStartAt.getTime()
-  ) {
-    failures.push({
-      field: "registrationEndAt",
-      code: "out_of_order",
-      message: "registrationEndAt must be on or before eventStartAt",
-    });
-  }
-  if (
-    candidate.eventStartAt &&
-    candidate.eventEndAt &&
-    candidate.eventStartAt.getTime() > candidate.eventEndAt.getTime()
-  ) {
-    failures.push({
-      field: "eventEndAt",
-      code: "out_of_order",
-      message: "eventEndAt must be on or after eventStartAt",
-    });
-  }
+  failures.push(
+    ...validateCompetitionTimeline({
+      registrationStartAt: candidate.registrationStartAt,
+      registrationEndAt: candidate.registrationEndAt,
+      participantConfirmationAt: candidate.participantConfirmationAt,
+      eventStartAt: candidate.eventStartAt,
+      eventEndAt: candidate.eventEndAt,
+      resultAnnouncementAt: candidate.resultAnnouncementAt,
+    }).map((error) => ({
+      field: error.field,
+      code: "out_of_order" as const,
+      message: error.message,
+    })),
+  );
   if (candidate.registrationEndAt && candidate.registrationEndAt.getTime() <= Date.now()) {
     failures.push({
       field: "registrationEndAt",

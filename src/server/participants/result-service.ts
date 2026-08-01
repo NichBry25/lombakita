@@ -25,6 +25,7 @@ import {
 } from "@/server/db/schema";
 import { isNotNull } from "drizzle-orm";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
+import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 
 assertServerOnly("server/participants/result-service");
 
@@ -35,7 +36,8 @@ export type ResultErrorCode =
   | "result_invalid_status"
   | "result_label_required"
   | "result_registration_not_found"
-  | "result_already_published";
+  | "result_already_published"
+  | "result_competition_cancelled";
 
 export class ResultError extends Error {
   constructor(
@@ -84,6 +86,8 @@ export type ResultDraftInput = {
   resultLabel?: string | null;
   resultNotes?: string | null;
 };
+
+type DbOrTx = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 // ─── Validation ─────────────────────────────────────────────────────────────
 
@@ -147,6 +151,29 @@ const ownsCompetition = async (
   return Boolean(comp);
 };
 
+const assertOwnedCompetitionAcceptsResultMutations = async (
+  institutionId: string,
+  competitionId: string,
+  db: DbOrTx,
+): Promise<void> => {
+  const [competition] = await db
+    .select({ cancelledAt: competitions.cancelledAt })
+    .from(competitions)
+    .where(and(eq(competitions.id, competitionId), eq(competitions.institutionId, institutionId)))
+    .limit(1);
+
+  if (!competition) {
+    throw new ResultError("result_registration_not_found", 404, "Registration not found");
+  }
+  if (competition.cancelledAt) {
+    throw new ResultError(
+      "result_competition_cancelled",
+      409,
+      "Results cannot be created or published for a cancelled competition",
+    );
+  }
+};
+
 // ─── Registration context loader ─────────────────────────────────────────────
 
 type RegistrationMeta = {
@@ -158,7 +185,7 @@ type RegistrationMeta = {
 const loadRegistrationMeta = async (
   competitionId: string,
   registrationId: string,
-  db: Database,
+  db: DbOrTx,
 ): Promise<RegistrationMeta | null> => {
   const [row] = await db
     .select({
@@ -266,53 +293,54 @@ export const upsertResultDraft = async (
   input: ResultDraftInput,
   db: Database = getDb(),
 ): Promise<ResultInstitutionView> => {
-  if (!(await ownsCompetition(institutionId, competitionId, db))) {
-    throw new ResultError("result_registration_not_found", 404, "Registration not found");
-  }
+  return db.transaction(async (tx) => {
+    await acquireCompetitionParticipationLock(tx, competitionId);
+    await assertOwnedCompetitionAcceptsResultMutations(institutionId, competitionId, tx);
 
-  const meta = await loadRegistrationMeta(competitionId, registrationId, db);
-  if (!meta) {
-    throw new ResultError("result_registration_not_found", 404, "Registration not found");
-  }
+    const meta = await loadRegistrationMeta(competitionId, registrationId, tx);
+    if (!meta) {
+      throw new ResultError("result_registration_not_found", 404, "Registration not found");
+    }
 
-  // Reject upsert if the result is already published — callers must unpublish first.
-  const [existing] = await db
-    .select({ resultStatus: competitionResults.resultStatus })
-    .from(competitionResults)
-    .where(eq(competitionResults.registrationId, registrationId))
-    .limit(1);
+    // Reject upsert if the result is already published — callers must unpublish first.
+    const [existing] = await tx
+      .select({ resultStatus: competitionResults.resultStatus })
+      .from(competitionResults)
+      .where(eq(competitionResults.registrationId, registrationId))
+      .limit(1);
 
-  if (existing?.resultStatus === "published") {
-    throw new ResultError(
-      "result_already_published",
-      409,
-      "Result is already published — unpublish before editing",
-    );
-  }
+    if (existing?.resultStatus === "published") {
+      throw new ResultError(
+        "result_already_published",
+        409,
+        "Result is already published — unpublish before editing",
+      );
+    }
 
-  const now = new Date();
-  const [row] = await db
-    .insert(competitionResults)
-    .values({
-      registrationId,
-      competitionId,
-      resultStatus: "draft",
-      resultLabel: input.resultLabel ?? null,
-      resultNotes: input.resultNotes ?? null,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: competitionResults.registrationId,
-      set: {
+    const now = new Date();
+    const [row] = await tx
+      .insert(competitionResults)
+      .values({
+        registrationId,
+        competitionId,
+        resultStatus: "draft",
         resultLabel: input.resultLabel ?? null,
         resultNotes: input.resultNotes ?? null,
+        createdAt: now,
         updatedAt: now,
-      },
-    })
-    .returning();
+      })
+      .onConflictDoUpdate({
+        target: competitionResults.registrationId,
+        set: {
+          resultLabel: input.resultLabel ?? null,
+          resultNotes: input.resultNotes ?? null,
+          updatedAt: now,
+        },
+      })
+      .returning();
 
-  return row!;
+    return row!;
+  });
 };
 
 /**
@@ -330,22 +358,21 @@ export const publishResult = async (
   actorMembershipId: string,
   db: Database = getDb(),
 ): Promise<{ result: ResultInstitutionView; teamId: string | null; publishedAt: Date }> => {
-  if (!(await ownsCompetition(institutionId, competitionId, db))) {
-    throw new ResultError("result_registration_not_found", 404, "Registration not found");
-  }
-
-  const meta = await loadRegistrationMeta(competitionId, registrationId, db);
-  if (!meta) {
-    throw new ResultError("result_registration_not_found", 404, "Registration not found");
-  }
-
   // `now` is the publish-event timestamp written to every member row's published_at. It is also
   // returned so the caller can fold it into the result.published idempotency key — each genuine
   // publish (including an unpublish→republish) is then a distinct BullMQ job that fires, while a
   // true double-enqueue of the SAME publish event still dedups on the identical timestamp.
   const now = new Date();
 
-  const updatedRows = await db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx) => {
+    await acquireCompetitionParticipationLock(tx, competitionId);
+    await assertOwnedCompetitionAcceptsResultMutations(institutionId, competitionId, tx);
+
+    const meta = await loadRegistrationMeta(competitionId, registrationId, tx);
+    if (!meta) {
+      throw new ResultError("result_registration_not_found", 404, "Registration not found");
+    }
+
     // Label check inside the transaction: prevents a concurrent null-label upsert
     // from producing a published row between the check and the UPDATE commit.
     const [existing] = await tx
@@ -431,15 +458,16 @@ export const publishResult = async (
       },
     });
 
-    return rows;
+    return { rows, meta };
   });
 
-  const row = updatedRows.find((r) => r.registrationId === registrationId) ?? updatedRows[0];
+  const row =
+    outcome.rows.find((result) => result.registrationId === registrationId) ?? outcome.rows[0];
   if (!row) {
     throw new ResultError("result_registration_not_found", 404, "Registration not found");
   }
 
-  return { result: row, teamId: meta.teamId, publishedAt: now };
+  return { result: row, teamId: outcome.meta.teamId, publishedAt: now };
 };
 
 /**

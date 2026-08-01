@@ -76,6 +76,27 @@ export const POST = withApiRole(VERIFIABLE_ROLES, async (request, session) => {
     );
   }
 
+  // Refuse a role the account already holds before parsing that role's onboarding payload, so the
+  // caller is told the real reason (409 role_already_verified) rather than that its now-pointless
+  // payload was malformed.
+  //
+  // Reading the session is sound here even though it is JWT-cached: verification timestamps are
+  // only ever set, never cleared, so a cached list is stale-SMALLER. It can therefore miss a
+  // just-granted role but can never claim one the account lacks. `markRoleAsVerified` still runs
+  // the authoritative DB check and raises the same 409 on that path — this only moves the answer
+  // earlier in the common case.
+  if (Array.isArray(session.user.verifiedRoles) && session.user.verifiedRoles.includes(role)) {
+    return NextResponse.json(
+      {
+        error: {
+          code: "role_already_verified",
+          message: `${role === "candidate" ? "Candidate" : "Recruiter"} role is already verified for this account`,
+        },
+      },
+      { status: 409 },
+    );
+  }
+
   // Verifying the candidate role requires the onboarding profile in the same request, so the
   // profile and the candidate verification grant land in one transaction (parity with the
   // credentials- and OAuth-signup candidacy paths).

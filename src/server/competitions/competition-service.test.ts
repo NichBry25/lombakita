@@ -53,6 +53,7 @@ import {
 // All tests in this file mock assertCompetitionAccess, so the underlying db is never read.
 // We pass an empty stub that satisfies the type signature without triggering getDb().
 const stubDb = {} as unknown as Database;
+const futureDate = (days: number): Date => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
 const baseCompetition = (overrides: Partial<CompetitionRow> = {}): CompetitionRow => ({
   id: "comp_1",
@@ -70,10 +71,15 @@ const baseCompetition = (overrides: Partial<CompetitionRow> = {}): CompetitionRo
   registrationEndAt: null,
   eventStartAt: null,
   eventEndAt: null,
+  resultAnnouncementAt: null,
+  minimumParticipantEntries: null,
+  participantConfirmationAt: null,
+  participationConfirmedAt: null,
+  cancelledAt: null,
+  cancellationReason: null,
   allowCancellation: false,
   cancellationCutoffDays: null,
   publishedAt: null,
-  archivedAt: null,
   deletedAt: null,
   createdAt: new Date(),
   updatedAt: new Date(),
@@ -120,6 +126,26 @@ describe("F2 — same-status transitions return 422", () => {
     );
   });
 
+  // Archiving is retired: a finished competition stays published so its public record, organizer
+  // contact details, and results survive the event. No caller may reintroduce a path into the
+  // state, from either side.
+  it.each([
+    ["draft", "archived"],
+    ["published", "archived"],
+  ] as const)("refuses %s → %s with 422", async (from, to) => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({ status: from }),
+      membershipRole: "institution_owner",
+    });
+
+    await expect(transitionCompetitionStatus("user_1", "comp_1", to, stubDb)).rejects.toMatchObject(
+      {
+        code: "competition_invalid_transition",
+        httpStatus: 422,
+      },
+    );
+  });
+
   it("does not call assertActorIsTrustedRecruiter on same-status draft → draft", async () => {
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({ status: "draft" }),
@@ -136,8 +162,10 @@ describe("F2 — same-status transitions return 422", () => {
 describe("updateCompetitionDraft — non-editable status guard", () => {
   afterEach(() => vi.clearAllMocks());
 
-  // Archived (terminal) competitions remain non-editable. Published is editable in place via the
-  // Step 6.5f post-publish path — covered in competition-service.published-edit.test.ts.
+  // No live row can hold the archived status any more, but the guard still refuses one — this
+  // pins that a stray row from before the state was retired stays non-editable rather than
+  // falling through into the draft path. Published is editable in place via the post-publish
+  // path, covered in competition-service.published-edit.test.ts.
   it("rejects PATCH on an archived competition with 409 competition_not_draft", async () => {
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({ status: "archived" }),
@@ -147,6 +175,47 @@ describe("updateCompetitionDraft — non-editable status guard", () => {
     await expect(updateCompetitionDraft("user_1", "comp_1", patch, stubDb)).rejects.toMatchObject({
       code: "competition_not_draft",
       httpStatus: 409,
+    });
+  });
+});
+
+describe("updateCompetitionDraft — effective timeline validation", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("rejects a partial patch that moves registration end before the stored start", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({
+        status: "draft",
+        registrationStartAt: futureDate(10),
+        registrationEndAt: futureDate(20),
+      }),
+      membershipRole: "institution_owner",
+    });
+
+    await expect(
+      updateCompetitionDraft("user_1", "comp_1", { registrationEndAt: futureDate(5) }, stubDb),
+    ).rejects.toMatchObject({
+      code: "competition_invalid_value",
+      details: { fields: ["registrationStartAt", "registrationEndAt"] },
+    });
+  });
+
+  it("rejects a partial patch that announces results before the stored event end", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({
+        status: "draft",
+        eventStartAt: futureDate(20),
+        eventEndAt: futureDate(25),
+        resultAnnouncementAt: futureDate(30),
+      }),
+      membershipRole: "institution_owner",
+    });
+
+    await expect(
+      updateCompetitionDraft("user_1", "comp_1", { resultAnnouncementAt: futureDate(24) }, stubDb),
+    ).rejects.toMatchObject({
+      code: "competition_invalid_value",
+      details: { fields: ["eventEndAt", "resultAnnouncementAt"] },
     });
   });
 });
@@ -192,6 +261,9 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
         registrationEndAt: future(10),
         eventStartAt: future(20),
         eventEndAt: future(25),
+        resultAnnouncementAt: future(30),
+        minimumParticipantEntries: 0,
+        participantConfirmationAt: future(15),
       }),
       membershipRole: "institution_owner",
     });
@@ -256,6 +328,9 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
       registrationEndAt: future(10),
       eventStartAt: future(20),
       eventEndAt: future(25),
+      resultAnnouncementAt: future(30),
+      minimumParticipantEntries: 0,
+      participantConfirmationAt: future(15),
     });
     expect(result.passed).toBe(true);
   });
@@ -440,6 +515,9 @@ describe("personal institution publish — capability is independent of institut
       registrationEndAt: future(10),
       eventStartAt: future(20),
       eventEndAt: future(25),
+      resultAnnouncementAt: future(30),
+      minimumParticipantEntries: 0,
+      participantConfirmationAt: future(15),
     });
 
   // Serves exactly the reads the publish path is expected to make, in order:

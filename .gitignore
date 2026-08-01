@@ -16,6 +16,9 @@
 # browser-automation scratch (Playwright MCP snapshots, console logs, screenshots)
 /.playwright-mcp/
 
+# full-stack testing pipeline artifacts (screenshots, reports) — local-only
+/test-artifacts/
+
 # next.js
 /.next/
 /out/

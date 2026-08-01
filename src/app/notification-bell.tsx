@@ -72,13 +72,22 @@ export function NotificationBell() {
 
   useEffect(() => {
     let active = true;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+
+    const stopPolling = () => {
+      if (intervalId !== undefined) clearInterval(intervalId);
+      intervalId = undefined;
+    };
 
     const poll = async () => {
       try {
         const res = await fetch("/api/v1/me/inbox/unread-count", { credentials: "include" });
         if (!active) return;
         if (res.status === 401) {
+          // Signed out: stop polling entirely rather than 401ing every 25 s for the life of the
+          // tab. Signing in remounts this component, which starts a fresh interval.
           setAuthed(false);
+          stopPolling();
           return;
         }
         if (!res.ok) return;
@@ -96,10 +105,10 @@ export function NotificationBell() {
     };
 
     void poll();
-    const id = setInterval(poll, POLL_INTERVAL_MS);
+    intervalId = setInterval(poll, POLL_INTERVAL_MS);
     return () => {
       active = false;
-      clearInterval(id);
+      stopPolling();
     };
   }, []);
 

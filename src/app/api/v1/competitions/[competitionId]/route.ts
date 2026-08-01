@@ -11,6 +11,8 @@ import {
   softDeleteCompetitionDraft,
   updateCompetitionDraft,
 } from "@/server/competitions/competition-service";
+import { hasActiveRegistrationsForCompetition } from "@/server/competitions/competition-access";
+import { getCompetitionParticipationSummary } from "@/server/competitions/competition-participation-service";
 
 export async function GET(
   _request: Request,
@@ -24,7 +26,15 @@ export async function GET(
       session.user.role,
       competitionId,
     );
-    return NextResponse.json({ competition });
+    // Reported alongside the competition so the console can show the withdrawal control's real
+    // availability rather than offering an action the service will refuse. Access is already
+    // narrowed to platform_ops and institution owner/staff, who can list the participants
+    // themselves, so this exposes nothing new.
+    const [hasActiveRegistrations, participation] = await Promise.all([
+      hasActiveRegistrationsForCompetition(competitionId),
+      getCompetitionParticipationSummary(competition),
+    ]);
+    return NextResponse.json({ competition, hasActiveRegistrations, participation });
   } catch (error) {
     if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     return toAccessDeniedResponse(error);

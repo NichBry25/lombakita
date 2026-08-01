@@ -43,7 +43,7 @@ async function readError(res: Response): Promise<string> {
   try {
     const data = await res.json();
     return data?.error?.code
-      ? `${data.error.code} — ${data.error.message ?? ""}`
+      ? `${data.error.code}: ${data.error.message ?? ""}`
       : `Error ${res.status}`;
   } catch {
     return `Error ${res.status}`;
@@ -214,7 +214,7 @@ function ActionForm({
       <input
         className="form-input"
         placeholder="Alasan…"
-        aria-label={`Alasan — ${buttonLabel}`}
+        aria-label={`Alasan ${buttonLabel}`}
         value={reason}
         onChange={(e) => setReason(e.target.value)}
       />

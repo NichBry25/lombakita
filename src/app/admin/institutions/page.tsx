@@ -125,7 +125,7 @@ function RejectInstitutionForm({
         <Feedback tone="warning">
           <p>
             Institusi ini akan kehilangan status terverifikasi, dan pemiliknya dapat mengajukan
-            dokumen baru. Kompetisi yang sudah terbit tidak ikut dicabut — gunakan penangguhan jika
+            dokumen baru. Kompetisi yang sudah terbit tidak ikut dicabut. Gunakan penangguhan jika
             institusi ini harus dihentikan operasinya.
           </p>
         </Feedback>

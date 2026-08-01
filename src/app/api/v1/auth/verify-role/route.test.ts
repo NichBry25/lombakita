@@ -127,11 +127,28 @@ describe("POST /api/v1/auth/verify-role", () => {
   });
 
   it("returns 400 and does not call the service when a candidate omits its onboarding profile", async () => {
-    getServerSessionMock.mockResolvedValue(buildSession());
+    // A recruiter-only account, so the request reaches profile parsing. The default session
+    // already holds `candidate`, which is now refused earlier with 409 (see the test below).
+    getServerSessionMock.mockResolvedValue(
+      buildSession({ role: "recruiter", verifiedRoles: ["recruiter"] }),
+    );
 
     const response = await POST(buildRequest({ role: "candidate" }));
 
     expect(response.status).toBe(400);
+    expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses an already-verified role with 409 before validating that role's payload", async () => {
+    getServerSessionMock.mockResolvedValue(buildSession({ verifiedRoles: ["candidate"] }));
+
+    // No onboarding profile: the payload is invalid, and would 400 if parsing ran first. The
+    // caller's real problem is that the role is already held, so that is what it must be told.
+    const response = await POST(buildRequest({ role: "candidate" }));
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("role_already_verified");
     expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
   });
 

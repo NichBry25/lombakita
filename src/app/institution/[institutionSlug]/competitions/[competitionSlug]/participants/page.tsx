@@ -5,7 +5,8 @@ import { AccessError } from "@/server/auth/access-core";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { getDb } from "@/server/db/client";
 import { CompetitionError } from "@/server/competitions/competition-core";
-import { getCompetitionIdByInstitutionAndSlug } from "@/server/competitions/competition-service";
+import { getCompetitionIdentityByInstitutionAndSlug } from "@/server/competitions/competition-service";
+import { truncateText } from "@/lib/text/truncate";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import {
   listCompetitionParticipants,
@@ -61,12 +62,10 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
   }
 
   let competitionId: string;
+  let competitionTitle: string;
   try {
-    competitionId = await getCompetitionIdByInstitutionAndSlug(
-      institutionSlug,
-      competitionSlug,
-      db,
-    );
+    ({ id: competitionId, title: competitionTitle } =
+      await getCompetitionIdentityByInstitutionAndSlug(institutionSlug, competitionSlug, db));
   } catch (error) {
     if (isRedirectError(error)) throw error;
     if (error instanceof CompetitionError) notFound();
@@ -144,8 +143,10 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
   return (
     <main className="page-shell app-page participants-page">
       <PageHeader
-        title="Peserta"
-        description={`Tinjau pendaftaran, submission, dan hasil untuk ${competitionSlug}.`}
+        // The name is capped so a long title cannot push the heading across the whole page; the
+        // full title stays available in the description below it.
+        title={`Peserta ${truncateText(competitionTitle, 38)}`}
+        description={`Tinjau pendaftaran, submission, dan hasil untuk ${competitionTitle}.`}
         backHref={`/institution/${institutionSlug}/competitions/${competitionSlug}`}
         backLabel="Kembali"
       />

@@ -9,11 +9,15 @@ const {
   getCompetitionForReader,
   updateCompetitionDraft,
   softDeleteCompetitionDraft,
+  hasActiveRegistrationsForCompetition,
+  getCompetitionParticipationSummary,
 } = vi.hoisted(() => ({
   requireAuthenticatedSession: vi.fn(),
   getCompetitionForReader: vi.fn(),
   updateCompetitionDraft: vi.fn(),
   softDeleteCompetitionDraft: vi.fn(),
+  hasActiveRegistrationsForCompetition: vi.fn(),
+  getCompetitionParticipationSummary: vi.fn(),
 }));
 
 vi.mock("@/server/auth/session", () => ({ requireAuthenticatedSession }));
@@ -21,6 +25,12 @@ vi.mock("@/server/competitions/competition-service", () => ({
   getCompetitionForReader,
   updateCompetitionDraft,
   softDeleteCompetitionDraft,
+}));
+vi.mock("@/server/competitions/competition-access", () => ({
+  hasActiveRegistrationsForCompetition,
+}));
+vi.mock("@/server/competitions/competition-participation-service", () => ({
+  getCompetitionParticipationSummary,
 }));
 
 import { DELETE, GET, PATCH } from "@/app/api/v1/competitions/[competitionId]/route";
@@ -53,9 +63,24 @@ describe("GET /api/v1/competitions/[competitionId]", () => {
   it("returns 200 with competition for member", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     getCompetitionForReader.mockResolvedValue({ id: "comp_1", status: "draft" });
+    hasActiveRegistrationsForCompetition.mockResolvedValue(false);
+    getCompetitionParticipationSummary.mockResolvedValue({ state: "not_configured" });
     const response = await GET(makeRequest("GET"), makeParams("comp_1"));
     expect(response.status).toBe(200);
     expect(getCompetitionForReader).toHaveBeenCalledWith("admin_1", "recruiter", "comp_1");
+  });
+
+  it("reports whether registrations exist so the console can gate withdrawal", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    getCompetitionForReader.mockResolvedValue({ id: "comp_1", status: "published" });
+    hasActiveRegistrationsForCompetition.mockResolvedValue(true);
+    getCompetitionParticipationSummary.mockResolvedValue({ state: "collecting_entries" });
+    const response = await GET(makeRequest("GET"), makeParams("comp_1"));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ hasActiveRegistrations: true });
+    expect(getCompetitionParticipationSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "comp_1" }),
+    );
   });
 
   it("returns 404 when competition is missing or soft-deleted", async () => {

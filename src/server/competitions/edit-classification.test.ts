@@ -22,6 +22,7 @@ const base = (overrides: Partial<ClassifiableCompetition> = {}): ClassifiableCom
   registrationEndAt: new Date("2026-07-01T00:00:00.000Z"),
   eventStartAt: new Date("2026-08-01T00:00:00.000Z"),
   eventEndAt: new Date("2026-08-02T00:00:00.000Z"),
+  resultAnnouncementAt: null,
   allowCancellation: false,
   cancellationCutoffDays: null,
   ...overrides,
@@ -198,7 +199,7 @@ describe("classifyCompetitionEdit — eventStartAt cancel window", () => {
     expect(result.blocked).not.toContain("eventStartAt");
   });
 
-  it("notifies moving eventStartAt later (never blocks a later event)", () => {
+  it("notifies pushing a not-yet-started eventStartAt later", () => {
     const oldRow = base({
       eventStartAt: new Date(NOW.getTime() + 10 * DAY),
       allowCancellation: true,
@@ -212,6 +213,51 @@ describe("classifyCompetitionEdit — eventStartAt cancel window", () => {
     const result = classifyCompetitionEdit(oldRow, newRow, snapshot({ nonCancelledCount: 1 }), NOW);
     expect(result.notify).toContain("eventStartAt");
     expect(result.blocked).not.toContain("eventStartAt");
+  });
+});
+
+describe("classifyCompetitionEdit — eventStartAt frozen once passed", () => {
+  it("blocks pushing a started event's start date into the future", () => {
+    // The bypass this closes: moving the start forward would make the competition read as
+    // not-yet-started and reopen withdrawal, letting an organizer cancel every registration.
+    const oldRow = base({ eventStartAt: new Date(NOW.getTime() - 1 * DAY) });
+    const newRow = base({ eventStartAt: new Date(NOW.getTime() + 30 * DAY) });
+    const result = classifyCompetitionEdit(oldRow, newRow, snapshot({ nonCancelledCount: 1 }), NOW);
+    expect(result.blocked).toContain("eventStartAt");
+    expect(result.notify).not.toContain("eventStartAt");
+  });
+
+  it("blocks moving a started event's start date earlier as well", () => {
+    const oldRow = base({ eventStartAt: new Date(NOW.getTime() - 1 * DAY) });
+    const newRow = base({ eventStartAt: new Date(NOW.getTime() - 10 * DAY) });
+    const result = classifyCompetitionEdit(oldRow, newRow, snapshot(), NOW);
+    expect(result.blocked).toContain("eventStartAt");
+  });
+
+  it("blocks regardless of whether anyone is registered", () => {
+    const oldRow = base({ eventStartAt: new Date(NOW.getTime() - 1 * DAY) });
+    const newRow = base({ eventStartAt: new Date(NOW.getTime() + 1 * DAY) });
+    const result = classifyCompetitionEdit(oldRow, newRow, snapshot({ nonCancelledCount: 0 }), NOW);
+    expect(result.blocked).toContain("eventStartAt");
+  });
+
+  it("leaves an unchanged started date out of every bucket", () => {
+    const started = new Date(NOW.getTime() - 1 * DAY);
+    const result = classifyCompetitionEdit(
+      base({ eventStartAt: started }),
+      base({ eventStartAt: new Date(started.getTime()) }),
+      snapshot(),
+      NOW,
+    );
+    expect(result.blocked).not.toContain("eventStartAt");
+    expect(result.notify).not.toContain("eventStartAt");
+  });
+
+  it("blocks at the exact start instant", () => {
+    const oldRow = base({ eventStartAt: new Date(NOW.getTime()) });
+    const newRow = base({ eventStartAt: new Date(NOW.getTime() + 5 * DAY) });
+    const result = classifyCompetitionEdit(oldRow, newRow, snapshot(), NOW);
+    expect(result.blocked).toContain("eventStartAt");
   });
 });
 
@@ -244,6 +290,30 @@ describe("classifyCompetitionEdit — buckets in isolation", () => {
     expect(result.notify).toEqual(
       expect.arrayContaining(["title", "category", "allowCancellation", "cancellationCutoffDays"]),
     );
+  });
+
+  // Pushing back the date results were promised for is exactly what a waiting participant is
+  // owed a message about, so it must never be classified as trivial.
+  it("notifies when the result announcement date moves", () => {
+    const result = classifyCompetitionEdit(
+      base({ resultAnnouncementAt: new Date("2026-08-09T00:00:00.000Z") }),
+      base({ resultAnnouncementAt: new Date("2026-09-09T00:00:00.000Z") }),
+      snapshot({ nonCancelledCount: 2 }),
+      NOW,
+    );
+    expect(result.notify).toContain("resultAnnouncementAt");
+    expect(result.blocked).toEqual([]);
+    expect(result.trivial).toEqual([]);
+  });
+
+  it("notifies when a result announcement date is first set", () => {
+    const result = classifyCompetitionEdit(
+      base({ resultAnnouncementAt: null }),
+      base({ resultAnnouncementAt: new Date("2026-08-09T00:00:00.000Z") }),
+      snapshot({ nonCancelledCount: 1 }),
+      NOW,
+    );
+    expect(result.notify).toContain("resultAnnouncementAt");
   });
 
   it("no changes returns three empty lists", () => {

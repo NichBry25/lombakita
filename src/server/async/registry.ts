@@ -23,6 +23,7 @@ import { processTeamInvitationDispatchJob } from "@/server/async/jobs/team-invit
 import { processRecruiterVerificationRejectedJob } from "@/server/async/jobs/recruiter-verification-rejected";
 import { processRegistrationDocumentRequestedJob } from "@/server/async/jobs/registration-document-requested";
 import { processRegistrationDocumentReviewedJob } from "@/server/async/jobs/registration-document-reviewed";
+import { processRetentionPurgeJob } from "@/server/async/jobs/retention-purge";
 
 export type AsyncJobProcessor<Name extends AsyncJobName = AsyncJobName> = (
   job: Job<AsyncJobPayloadByName[Name], void, Name>,
@@ -71,6 +72,7 @@ export const ASYNC_JOB_REGISTRATIONS = [
     ASYNC_JOB_NAMES.registrationDocumentReviewed,
     processRegistrationDocumentReviewedJob,
   ),
+  defineAsyncJob(ASYNC_JOB_NAMES.retentionPurge, processRetentionPurgeJob),
 ] as const;
 
 const getUniqueQueueNames = (): AsyncQueueName[] => {

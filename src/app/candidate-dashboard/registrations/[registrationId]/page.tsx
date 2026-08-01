@@ -32,7 +32,7 @@ export default async function SubmissionPage({
   return (
     <main className="page-shell app-page submission-page">
       <PageHeader
-        title={`Submission — ${view.competitionTitle}`}
+        title={`Submission ${view.competitionTitle}`}
         description="Siapkan metadata berkas, simpan versi kerja, lalu finalisasi ketika seluruh detail sudah benar."
         backHref="/candidate-dashboard"
         backLabel="Dasbor"
