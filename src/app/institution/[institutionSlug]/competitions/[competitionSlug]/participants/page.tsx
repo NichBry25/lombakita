@@ -2,17 +2,29 @@ import { notFound, redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { ParticipantsFilterForm } from "./filter-form";
 import { AccessError } from "@/server/auth/access-core";
-import { getCurrentSession } from "@/server/auth/session";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { getDb } from "@/server/db/client";
 import { CompetitionError } from "@/server/competitions/competition-core";
-import { getCompetitionIdByInstitutionAndSlug } from "@/server/competitions/competition-service";
+import { getCompetitionIdentityByInstitutionAndSlug } from "@/server/competitions/competition-service";
+import { truncateText } from "@/lib/text/truncate";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import {
   listCompetitionParticipants,
   type ParticipantRecord,
 } from "@/server/participants/participant-service";
+import {
+  listDocumentRequestsForCompetition,
+  listRegistrationIdsEligibleForDocumentRequest,
+} from "@/server/registration-documents/registration-document-service";
+import { MAX_BATCH_REGISTRATIONS } from "@/server/registration-documents/registration-document-core";
+import {
+  DOCUMENT_REQUEST_STATUS_LABELS,
+  DOCUMENT_REQUEST_STATUS_TONES,
+  isOpenRequestStatus,
+} from "@/lib/registration-documents/request-status";
+import { BatchDocumentRequestForm, type BatchTarget } from "./batch-document-request-form";
 import { REVIEW_STATUS_LABELS } from "./review-status-labels";
-import { ButtonLink, EmptyState, PageHeader } from "@/components/ui";
+import { ButtonLink, EmptyState, Icon, PageHeader, Pagination } from "@/components/ui";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 
 type Props = {
@@ -30,18 +42,11 @@ const getRegistrationStatusLabel = (status: string): string =>
   REGISTRATION_STATUS_LABELS[status] ?? formatDisplayToken(status);
 
 export default async function ParticipantsPage({ params, searchParams }: Props) {
-  const session = await getCurrentSession();
   const { institutionSlug, competitionSlug } = await params;
   const sp = await searchParams;
 
   const path = `/institution/${institutionSlug}/competitions/${competitionSlug}/participants`;
-
-  if (!session?.user?.id) {
-    redirect(`/auth/login?callbackUrl=${encodeURIComponent(path)}`);
-  }
-  if (!session.user.verifiedRoles.includes("recruiter")) {
-    redirect("/");
-  }
+  const session = await requireRolePage("recruiter", { callbackPath: path });
 
   const db = getDb();
   let institutionId: string;
@@ -57,12 +62,10 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
   }
 
   let competitionId: string;
+  let competitionTitle: string;
   try {
-    competitionId = await getCompetitionIdByInstitutionAndSlug(
-      institutionSlug,
-      competitionSlug,
-      db,
-    );
+    ({ id: competitionId, title: competitionTitle } =
+      await getCompetitionIdentityByInstitutionAndSlug(institutionSlug, competitionSlug, db));
   } catch (error) {
     if (isRedirectError(error)) throw error;
     if (error instanceof CompetitionError) notFound();
@@ -91,6 +94,40 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
     db,
   );
 
+  // One query for the whole competition, indexed by registration, so the table can show each
+  // participant's document state without a per-row lookup. Only the newest request per participant
+  // is displayed — the list is already ordered newest-first.
+  const [documentRequests, eligibleRegistrationIds] = await Promise.all([
+    listDocumentRequestsForCompetition(institutionId, competitionId, {}, db),
+    listRegistrationIdsEligibleForDocumentRequest(institutionId, competitionId, db),
+  ]);
+  const latestRequestByRegistration = new Map<string, (typeof documentRequests)[number]>();
+  for (const request of documentRequests) {
+    if (!latestRequestByRegistration.has(request.registrationId)) {
+      latestRequestByRegistration.set(request.registrationId, request);
+    }
+  }
+
+  const participantLabel = (participant: ParticipantRecord): string => {
+    if (participant.registrationType === "team" && participant.team) {
+      return participant.team.teamName;
+    }
+    return participant.candidate?.displayName ?? participant.candidate?.username ?? "Peserta";
+  };
+
+  const hasOpenRequest = (registrationId: string): boolean => {
+    const latest = latestRequestByRegistration.get(registrationId);
+    return latest ? isOpenRequestStatus(latest.status) : false;
+  };
+
+  const batchTargets: BatchTarget[] = result.participants
+    .filter((participant) => participant.status !== "cancelled")
+    .map((participant) => ({
+      registrationId: participant.registrationId,
+      label: participantLabel(participant),
+      hasOpenRequest: hasOpenRequest(participant.registrationId),
+    }));
+
   const buildSearchParams = (overrides: Record<string, string>): string => {
     const p = new URLSearchParams();
     if (status !== "all") p.set("status", status);
@@ -100,18 +137,16 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
     return qs ? `?${qs}` : "";
   };
 
-  const prevHref = page > 1 ? `${path}${buildSearchParams({ page: String(page - 1) })}` : null;
-  const nextHref =
-    page < result.pagination.totalPages
-      ? `${path}${buildSearchParams({ page: String(page + 1) })}`
-      : null;
+  const buildPageHref = (target: number): string =>
+    `${path}${buildSearchParams({ page: String(target) })}`;
 
   return (
     <main className="page-shell app-page participants-page">
       <PageHeader
-        eyebrow="Konsol partisipasi"
-        title="Peserta"
-        description={`Tinjau pendaftaran, submission, dan hasil untuk ${competitionSlug}.`}
+        // The name is capped so a long title cannot push the heading across the whole page; the
+        // full title stays available in the description below it.
+        title={`Peserta ${truncateText(competitionTitle, 38)}`}
+        description={`Tinjau pendaftaran, submission, dan hasil untuk ${competitionTitle}.`}
         backHref={`/institution/${institutionSlug}/competitions/${competitionSlug}`}
         backLabel="Kembali"
       />
@@ -124,7 +159,8 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
           data-variant="outline"
           data-size="sm"
         >
-          Export registrants
+          <Icon name="download" size="sm" />
+          <span>Pendaftar</span>
         </a>
         <a
           href={`/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/export/submissions`}
@@ -133,7 +169,8 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
           data-variant="outline"
           data-size="sm"
         >
-          Export submissions
+          <Icon name="download" size="sm" />
+          <span>Submission</span>
         </a>
         <a
           href={`/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/export/results`}
@@ -142,7 +179,8 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
           data-variant="outline"
           data-size="sm"
         >
-          Export results
+          <Icon name="download" size="sm" />
+          <span>Hasil</span>
         </a>
       </section>
 
@@ -175,6 +213,14 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
 
       <ParticipantsFilterForm path={path} status={status} type={type} />
 
+      <BatchDocumentRequestForm
+        institutionSlug={institutionSlug}
+        competitionId={competitionId}
+        targets={batchTargets}
+        allEligibleIds={eligibleRegistrationIds}
+        maxBatchSize={MAX_BATCH_REGISTRATIONS}
+      />
+
       {result.participants.length === 0 ? (
         <EmptyState
           icon="users"
@@ -192,6 +238,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
                 <th>Anggota</th>
                 <th>Submission</th>
                 <th>Tinjauan</th>
+                <th>Dokumen</th>
                 <th>Terdaftar</th>
                 <th>Aksi</th>
               </tr>
@@ -250,6 +297,20 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
                       {REVIEW_STATUS_LABELS[p.internalReviewStatus]}
                     </span>
                   </td>
+                  <td>
+                    {(() => {
+                      const latest = latestRequestByRegistration.get(p.registrationId);
+                      if (!latest) return <span className="muted-copy">—</span>;
+                      return (
+                        <span
+                          className="status-badge"
+                          data-status={DOCUMENT_REQUEST_STATUS_TONES[latest.display.status]}
+                        >
+                          {DOCUMENT_REQUEST_STATUS_LABELS[latest.display.status]}
+                        </span>
+                      );
+                    })()}
+                  </td>
                   <td className="data-text">
                     {new Date(p.registeredAt).toLocaleDateString("id-ID")}
                   </td>
@@ -265,31 +326,12 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
         </div>
       )}
 
-      {result.pagination.totalPages > 1 && (
-        <nav className="pagination" aria-label="Halaman peserta">
-          {prevHref ? (
-            <ButtonLink href={prevHref} variant="outline" size="sm">
-              ← Sebelumnya
-            </ButtonLink>
-          ) : (
-            <span className="ui-button" data-variant="outline" data-size="sm" aria-disabled="true">
-              ← Sebelumnya
-            </span>
-          )}
-          <span className="pagination-status data-text">
-            Halaman {result.pagination.page} dari {result.pagination.totalPages}
-          </span>
-          {nextHref ? (
-            <ButtonLink href={nextHref} variant="outline" size="sm">
-              Selanjutnya →
-            </ButtonLink>
-          ) : (
-            <span className="ui-button" data-variant="outline" data-size="sm" aria-disabled="true">
-              Selanjutnya →
-            </span>
-          )}
-        </nav>
-      )}
+      <Pagination
+        page={result.pagination.page}
+        totalPages={result.pagination.totalPages}
+        label="Halaman peserta"
+        hrefFor={buildPageHref}
+      />
     </main>
   );
 }

@@ -30,7 +30,12 @@ describe("InstitutionCreatePage — session guard redirects", () => {
 
   it("redirects a non-recruiter session to the recruiter role sign-up form, not the homepage", async () => {
     mockGetCurrentSession.mockResolvedValue({
-      user: { id: "u_candidate", email: "c@example.com", verifiedRoles: ["candidate"] },
+      user: {
+        id: "u_candidate",
+        email: "c@example.com",
+        role: "candidate",
+        verifiedRoles: ["candidate"],
+      },
       expires: new Date(Date.now() + 60_000).toISOString(),
     });
     mockRedirect.mockImplementation(() => {
@@ -43,7 +48,12 @@ describe("InstitutionCreatePage — session guard redirects", () => {
 
   it("renders the workspace shell for a verified recruiter session (no redirect)", async () => {
     mockGetCurrentSession.mockResolvedValue({
-      user: { id: "u_recruiter", email: "r@example.com", verifiedRoles: ["recruiter"] },
+      user: {
+        id: "u_recruiter",
+        email: "r@example.com",
+        role: "recruiter",
+        verifiedRoles: ["recruiter"],
+      },
       expires: new Date(Date.now() + 60_000).toISOString(),
     });
 

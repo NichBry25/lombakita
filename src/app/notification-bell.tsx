@@ -72,13 +72,22 @@ export function NotificationBell() {
 
   useEffect(() => {
     let active = true;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+
+    const stopPolling = () => {
+      if (intervalId !== undefined) clearInterval(intervalId);
+      intervalId = undefined;
+    };
 
     const poll = async () => {
       try {
         const res = await fetch("/api/v1/me/inbox/unread-count", { credentials: "include" });
         if (!active) return;
         if (res.status === 401) {
+          // Signed out: stop polling entirely rather than 401ing every 25 s for the life of the
+          // tab. Signing in remounts this component, which starts a fresh interval.
           setAuthed(false);
+          stopPolling();
           return;
         }
         if (!res.ok) return;
@@ -96,10 +105,10 @@ export function NotificationBell() {
     };
 
     void poll();
-    const id = setInterval(poll, POLL_INTERVAL_MS);
+    intervalId = setInterval(poll, POLL_INTERVAL_MS);
     return () => {
       active = false;
-      clearInterval(id);
+      stopPolling();
     };
   }, []);
 
@@ -108,14 +117,16 @@ export function NotificationBell() {
   const hasUnread = typeof unreadCount === "number" && unreadCount > 0;
 
   return (
+    // Not an IconButtonLink: the unread badge is an extra child that the primitive has no slot
+    // for. It mirrors the primitive's class and icon size so it matches its header siblings.
     <Link
       href="/inbox"
-      className="ui-button icon-button notification-link"
+      className="ui-icon-button notification-link"
       data-variant="ghost"
       data-size="md"
       aria-label={hasUnread ? `Kotak masuk, ${unreadCount} belum dibaca` : "Kotak masuk"}
     >
-      <Icon name="inbox" size="lg" />
+      <Icon name="inbox" />
       {hasUnread ? <span className="notification-badge">{unreadCount}</span> : null}
     </Link>
   );

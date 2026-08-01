@@ -85,6 +85,39 @@ export function ButtonLink({
   );
 }
 
+type IconButtonLinkProps = ComponentProps<typeof Link> & {
+  // A localized accessible name is mandatory — an icon-only control is unnamed without it.
+  label: string;
+  icon: IconName;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+};
+
+// The navigating counterpart of IconButton. Like ButtonLink it owns no action, so its pending
+// state is the navigation itself and it takes no `loading` prop; LinkPendingSlot swaps the glyph
+// for a spinner while the route loads. The accessible name stays put throughout.
+export function IconButtonLink({
+  label,
+  icon,
+  variant = "ghost",
+  size = "md",
+  className,
+  ...linkProps
+}: IconButtonLinkProps) {
+  return (
+    <Link
+      {...linkProps}
+      className={joinClassNames("ui-icon-button", className)}
+      data-variant={variant}
+      data-size={size}
+      aria-label={label}
+      title={label}
+    >
+      <LinkPendingSlot leadingIcon={<Icon name={icon} />} />
+    </Link>
+  );
+}
+
 type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   // A localized accessible name is mandatory — an icon-only control is unnamed without it.
   label: string;

@@ -20,7 +20,7 @@ const youngSerif = Young_Serif({
 
 export const metadata: Metadata = {
   title: publicEnv.appName,
-  description: "Platform peluang mahasiswa Indonesia — kompetisi, beasiswa, dan magang.",
+  description: "Platform peluang mahasiswa Indonesia: kompetisi, beasiswa, dan magang.",
 };
 
 export default function RootLayout({

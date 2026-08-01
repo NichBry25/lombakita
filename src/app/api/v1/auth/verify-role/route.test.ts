@@ -127,11 +127,28 @@ describe("POST /api/v1/auth/verify-role", () => {
   });
 
   it("returns 400 and does not call the service when a candidate omits its onboarding profile", async () => {
-    getServerSessionMock.mockResolvedValue(buildSession());
+    // A recruiter-only account, so the request reaches profile parsing. The default session
+    // already holds `candidate`, which is now refused earlier with 409 (see the test below).
+    getServerSessionMock.mockResolvedValue(
+      buildSession({ role: "recruiter", verifiedRoles: ["recruiter"] }),
+    );
 
     const response = await POST(buildRequest({ role: "candidate" }));
 
     expect(response.status).toBe(400);
+    expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses an already-verified role with 409 before validating that role's payload", async () => {
+    getServerSessionMock.mockResolvedValue(buildSession({ verifiedRoles: ["candidate"] }));
+
+    // No onboarding profile: the payload is invalid, and would 400 if parsing ran first. The
+    // caller's real problem is that the role is already held, so that is what it must be told.
+    const response = await POST(buildRequest({ role: "candidate" }));
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("role_already_verified");
     expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
   });
 
@@ -189,4 +206,26 @@ describe("POST /api/v1/auth/verify-role", () => {
       null,
     );
   });
+
+  // An operational account is created as a candidate or recruiter before being promoted, so it
+  // carries a participant verification timestamp it must never be able to build on. Granting
+  // itself the other participant role here would file its own trust submission, which the same
+  // account can then approve from the platform-ops queue.
+  it.each(["platform_ops", "finance_ops"] as const)(
+    "refuses a %s session and writes nothing",
+    async (role) => {
+      getServerSessionMock.mockResolvedValue(buildSession({ role, verifiedRoles: ["candidate"] }));
+
+      const response = await POST(
+        buildRequest({
+          role: "recruiter",
+          fullName: "Rendra Wijaya",
+          mobileNumber: "0812345678",
+        }),
+      );
+
+      expect(response.status).toBe(403);
+      expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
+    },
+  );
 });

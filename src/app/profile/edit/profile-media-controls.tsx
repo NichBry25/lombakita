@@ -2,13 +2,15 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Icon } from "@/components/ui";
-import { useModal, useToast } from "@/components/ui/primitives";
+import { Button, Icon, IconButton } from "@/components/ui";
+import { useToast } from "@/components/ui/primitives";
+import { CroppedImageUpload } from "@/components/media/cropped-image-upload";
+import { AVATAR_FRAME, BANNER_FRAME } from "@/lib/media/image-frames";
+import { PROFILE_FILE_RULES } from "@/server/user-profile/profile-files-core";
 import type { OwnerResume } from "@/server/user-profile/profile-collections-core";
-import { AvatarCropEditor, type AvatarCropApi } from "./avatar-crop-editor";
 import { ownerFetch, uploadProfileFile } from "./profile-file-upload";
 
-const AVATAR_ACCEPT = "image/jpeg,image/png,image/webp";
+const PROFILE_UPLOAD_BASE = "/api/v1/users/me/profile";
 const RESUME_ACCEPT = "application/pdf";
 
 function formatBytes(bytes: number | null): string {
@@ -26,106 +28,75 @@ export function AvatarUpload({
   expectedUserId: string;
   currentUrl: string | null;
 }) {
-  const router = useRouter();
-  const { addToast } = useToast();
-  const { openModal, closeModal } = useModal();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const cropApiRef = useRef<AvatarCropApi | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const runUpload = async (file: File) => {
-    setBusy(true);
-    const result = await uploadProfileFile(
-      expectedUserId,
-      "avatar",
-      { uploadUrlPath: "/uploads/avatar/upload-url", recordPath: "/uploads/avatar" },
-      file,
-    );
-    setBusy(false);
-    if (!result.ok) {
-      addToast({ type: "error", message: result.message });
-      return;
-    }
-    addToast({ type: "success", message: "Foto profil diperbarui." });
-    router.refresh();
-  };
-
-  // Picking a file opens the crop modal; the cropped square is what actually uploads.
-  const onFile = (file: File | undefined) => {
-    if (inputRef.current) inputRef.current.value = "";
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      addToast({ type: "error", message: "Tipe berkas tidak didukung." });
-      return;
-    }
-    const objectUrl = URL.createObjectURL(file);
-    openModal({
-      title: "Sesuaikan foto profil",
-      body: <AvatarCropEditor src={objectUrl} fileName={file.name} apiRef={cropApiRef} />,
-      onClose: () => URL.revokeObjectURL(objectUrl),
-      actions: [
-        { label: "Batal", variant: "secondary", onClick: () => {} },
-        {
-          label: "Simpan foto",
-          variant: "primary",
-          autoClose: false,
-          onClick: async () => {
-            const cropped = await cropApiRef.current?.getCropped();
-            closeModal();
-            if (cropped) await runUpload(cropped);
-          },
-        },
-      ],
-    });
-  };
-
-  const onRemove = async () => {
-    setBusy(true);
-    const result = await ownerFetch(expectedUserId, "/uploads/avatar", { method: "DELETE" });
-    setBusy(false);
-    if (!result.ok) {
-      addToast({ type: "error", message: result.message });
-      return;
-    }
-    addToast({ type: "success", message: "Foto profil dihapus." });
-    router.refresh();
-  };
-
   return (
     <div className="pf-media">
-      <span className="pf-media-avatar">
-        {currentUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={currentUrl} alt="" />
-        ) : (
-          <Icon name="user" size="lg" aria-hidden="true" />
-        )}
-      </span>
-      <div className="pf-media-actions">
-        <input
-          ref={inputRef}
-          type="file"
-          accept={AVATAR_ACCEPT}
-          className="pf-visually-hidden"
-          onChange={(e) => onFile(e.target.files?.[0])}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={busy}
-          onClick={() => inputRef.current?.click()}
-          leadingIcon={<Icon name="upload" size="sm" aria-hidden="true" />}
-        >
-          Foto
-        </Button>
-        {currentUrl && (
-          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onRemove}>
-            Hapus
-          </Button>
-        )}
-        <p className="pf-media-hint">JPG, PNG, atau WebP · maks 5 MB</p>
-      </div>
+      <CroppedImageUpload
+        expectedUserId={expectedUserId}
+        currentUrl={currentUrl}
+        copy={{
+          frame: AVATAR_FRAME,
+          shape: "blob",
+          rules: PROFILE_FILE_RULES.avatar,
+          basePath: `${PROFILE_UPLOAD_BASE}/uploads/avatar`,
+          modalTitle: "Sesuaikan foto profil",
+          saveLabel: "Simpan foto",
+          uploadLabel: "Foto",
+          removeLabel: "Hapus foto profil",
+          uploadedMessage: "Foto profil diperbarui.",
+          removedMessage: "Foto profil dihapus.",
+          hint: "JPG, PNG, atau WebP · maks 5 MB",
+        }}
+        preview={
+          <span className="pf-media-avatar">
+            {currentUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={currentUrl} alt="" />
+            ) : (
+              <Icon name="user" size="lg" aria-hidden="true" />
+            )}
+          </span>
+        }
+      />
+    </div>
+  );
+}
+
+// ── Banner ──────────────────────────────────────────────────────────────────
+
+export function BannerUpload({
+  expectedUserId,
+  currentUrl,
+}: {
+  expectedUserId: string;
+  currentUrl: string | null;
+}) {
+  return (
+    <div className="pf-media pf-media-stacked">
+      <CroppedImageUpload
+        expectedUserId={expectedUserId}
+        currentUrl={currentUrl}
+        copy={{
+          frame: BANNER_FRAME,
+          shape: "rect",
+          rules: PROFILE_FILE_RULES.banner,
+          basePath: `${PROFILE_UPLOAD_BASE}/uploads/banner`,
+          modalTitle: "Sesuaikan sampul profil",
+          saveLabel: "Simpan sampul",
+          uploadLabel: "Sampul",
+          removeLabel: "Hapus sampul profil",
+          uploadedMessage: "Sampul profil diperbarui.",
+          removedMessage: "Sampul profil dihapus.",
+          hint: `JPG, PNG, atau WebP · maks 8 MB · dipotong ke ${BANNER_FRAME.outputWidth}×${BANNER_FRAME.outputHeight}`,
+        }}
+        preview={
+          <span className="pf-media-banner">
+            {currentUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={currentUrl} alt="" />
+            ) : null}
+          </span>
+        }
+      />
     </div>
   );
 }
@@ -240,9 +211,14 @@ export function ResumeSection({
             >
               Resume
             </Button>
-            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onRemove}>
-              Hapus
-            </Button>
+            <IconButton
+              icon="trash"
+              label="Hapus resume"
+              variant="danger"
+              size="sm"
+              disabled={busy}
+              onClick={onRemove}
+            />
           </div>
         </div>
       ) : (

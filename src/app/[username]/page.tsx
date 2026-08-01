@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { Icon } from "@/components/ui";
+import { IdentityBanner } from "@/components/media/identity-banner";
 import { ProfileDetailSections } from "@/components/profile/profile-detail-sections";
 import { getCurrentSession } from "@/server/auth/session";
 import { deriveProfileHeader } from "@/server/user-profile/profile-collections-core";
@@ -58,7 +59,7 @@ export default async function PublicProfilePage({
   return (
     <main className="page-shell app-page pf-page">
       <article className="pf-card">
-        <div className="pf-banner" aria-hidden="true" />
+        <IdentityBanner bannerUrl={profile.bannerUrl} />
         <div className="pf-identity">
           <div className="pf-identity-head">
             <span className="pf-avatar">
@@ -106,7 +107,7 @@ export default async function PublicProfilePage({
                 {profile.candidateVerified && (
                   <span className="status-badge" data-status="open">
                     <Icon name="check" size="sm" aria-hidden="true" />
-                    Kandidat terverifikasi
+                    Kandidat Terverifikasi
                   </span>
                 )}
                 {profile.recruiterVerified && !profile.trustedRecruiter && (

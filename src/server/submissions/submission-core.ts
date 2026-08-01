@@ -17,6 +17,12 @@ import { SUBMISSIONS_MAX_FILE_SIZE_BYTES } from "@/server/submissions/submission
 // `submission_access_denied` — reserved. Kept in the union for contract completeness; the
 //   no-info-leak access resolver collapses every access failure to
 //   `submission_registration_not_found` (404) instead, so this code is not thrown at this step.
+// `submission_invalid_file_type` — the file is not an accepted format. Raised advisorily at
+//   presign (from the declared filename) and authoritatively at record time, where the stored
+//   object's magic-byte family must match the extension and the real size must be within the
+//   ceiling. A file rejected here is deleted from R2 and no row is written.
+// `submission_file_missing` — the record step ran against a key with no object behind it: the
+//   browser's PUT never completed, or the presigned URL expired before it did.
 export type SubmissionErrorCode =
   | "submission_not_found"
   | "submission_window_closed"
@@ -26,6 +32,8 @@ export type SubmissionErrorCode =
   | "submission_upload_unavailable"
   | "submission_invalid_file_key"
   | "submission_invalid_payload"
+  | "submission_invalid_file_type"
+  | "submission_file_missing"
   | "submission_access_denied";
 
 // Default HTTP status per code. The `submission_finalized` default is 409 (conflict — the row is
@@ -41,6 +49,8 @@ const STATUS_BY_CODE: Record<SubmissionErrorCode, number> = {
   submission_upload_unavailable: 503,
   submission_invalid_file_key: 422,
   submission_invalid_payload: 400,
+  submission_invalid_file_type: 422,
+  submission_file_missing: 422,
   submission_access_denied: 403,
 };
 
@@ -73,11 +83,15 @@ export const toSubmissionErrorResponse = (error: SubmissionError): NextResponse 
 };
 
 // Validated, normalized file metadata accepted by the record/replace path.
+//
+// There is no declared content type here on purpose: the type that gets stored is derived from
+// the filename and confirmed against the object's magic bytes, so a client-supplied MIME has
+// nothing to contribute. `fileSizeBytes` survives only as a cheap early rejection — the size that
+// is persisted is the one read back from R2.
 export type ValidatedFileMetadata = {
   fileKey: string;
   fileName: string;
   fileSizeBytes: number | null;
-  fileMimeType: string | null;
 };
 
 // Submission window is derived from the competition's event dates: eventStartAt <= now <=
@@ -102,8 +116,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 
 // Parse and normalize the client-supplied file metadata. Returns a SubmissionError (not throws)
 // so callers can decide how to surface it. fileKey and fileName are trimmed and must be
-// non-blank; fileSizeBytes, when present, must be a non-negative integer within the size ceiling;
-// fileMimeType is optional and normalized to null when blank.
+// non-blank; fileSizeBytes, when present, must be a non-negative integer within the size ceiling.
+// A `fileMimeType` key is accepted and ignored rather than rejected, so an older client sending
+// one is not broken by its removal.
 export const parseSubmissionFileMetadata = (
   input: unknown,
 ): ValidatedFileMetadata | SubmissionError => {
@@ -114,7 +129,7 @@ export const parseSubmissionFileMetadata = (
     );
   }
 
-  const { fileKey, fileName, fileSizeBytes, fileMimeType } = input;
+  const { fileKey, fileName, fileSizeBytes } = input;
 
   if (typeof fileKey !== "string" || fileKey.trim().length === 0) {
     return new SubmissionError("submission_invalid_file_key", "fileKey is required");
@@ -148,19 +163,9 @@ export const parseSubmissionFileMetadata = (
     normalizedSize = fileSizeBytes;
   }
 
-  let normalizedMime: string | null = null;
-  if (fileMimeType !== undefined && fileMimeType !== null) {
-    if (typeof fileMimeType !== "string") {
-      return new SubmissionError("submission_invalid_payload", "fileMimeType must be a string");
-    }
-    const trimmed = fileMimeType.trim();
-    normalizedMime = trimmed.length > 0 ? trimmed : null;
-  }
-
   return {
     fileKey: fileKey.trim(),
     fileName: fileName.trim(),
     fileSizeBytes: normalizedSize,
-    fileMimeType: normalizedMime,
   };
 };

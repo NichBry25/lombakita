@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button } from "@/components/ui";
+import { Button, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { getAppRoleLabel } from "@/lib/access/role-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
@@ -43,7 +43,7 @@ async function readError(res: Response): Promise<string> {
   try {
     const data = await res.json();
     return data?.error?.code
-      ? `${data.error.code} — ${data.error.message ?? ""}`
+      ? `${data.error.code}: ${data.error.message ?? ""}`
       : `Error ${res.status}`;
   } catch {
     return `Error ${res.status}`;
@@ -87,7 +87,7 @@ function NoteRow({ note, onSaved }: { note: NoteItem; onSaved: () => void }) {
             value={editText}
             onChange={(e) => setEditText(e.target.value)}
           />
-          <Button size="sm" disabled={busy} loading={busy} onClick={() => void save()}>
+          <Button size="sm" loading={busy} onClick={() => void save()}>
             Simpan
           </Button>
           <Button
@@ -107,14 +107,12 @@ function NoteRow({ note, onSaved }: { note: NoteItem; onSaved: () => void }) {
           <span className="record-meta data-text">
             — {note.createdByName ?? note.createdById} · {new Date(note.createdAt).toLocaleString()}
           </span>
-          <Button
-            variant="ghost"
+          <IconButton
+            icon="edit"
+            label="Edit catatan ini"
             size="sm"
             onClick={() => setEditing(true)}
-            aria-label="Edit catatan ini"
-          >
-            Edit
-          </Button>
+          />
         </div>
       )}
     </li>
@@ -185,7 +183,7 @@ function NotesPanel({
           value={noteInput}
           onChange={(e) => setNoteInput(e.target.value)}
         />
-        <Button size="sm" disabled={busy} loading={busy} onClick={() => void addNote()}>
+        <Button size="sm" loading={busy} onClick={() => void addNote()}>
           Simpan catatan
         </Button>
       </div>
@@ -216,14 +214,13 @@ function ActionForm({
       <input
         className="form-input"
         placeholder="Alasan…"
-        aria-label={`Alasan — ${buttonLabel}`}
+        aria-label={`Alasan ${buttonLabel}`}
         value={reason}
         onChange={(e) => setReason(e.target.value)}
       />
       <Button
         variant={buttonLabel === "Tangguhkan" ? "danger" : "primary"}
         size="sm"
-        disabled={busy}
         loading={busy}
         onClick={async () => {
           setBusy(true);
@@ -245,6 +242,16 @@ function UserPanel() {
   const [email, setEmail] = useState("");
   const [result, setResult] = useState<UserResult | null>(null);
   const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (result && (result.appRole === "platform_ops" || result.appRole === "finance_ops")) {
+      addToast({
+        type: "error",
+        message: `Akun ops internal (${getAppRoleLabel(result.appRole)}) tidak dapat ditangguhkan.`,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result]);
 
   const lookup = async () => {
     setResult(null);
@@ -313,7 +320,7 @@ function UserPanel() {
       {result && (
         <div className="moderation-result">
           <div>
-            <strong>{result.name ?? "(tanpa nama)"}</strong> · {result.email} · peran:{" "}
+            <strong>{result.name ?? "(tanpa nama)"}</strong> · {result.email} · Peran:{" "}
             {getAppRoleLabel(result.appRole)}
           </div>
           <div className="moderation-status-row">
@@ -329,11 +336,8 @@ function UserPanel() {
             )}
           </div>
           <div>
-            {result.appRole === "platform_ops" || result.appRole === "finance_ops" ? (
-              <p className="feedback" data-tone="error">
-                Akun ops internal ({getAppRoleLabel(result.appRole)}) tidak dapat ditangguhkan.
-              </p>
-            ) : result.suspendedAt ? (
+            {result.appRole === "platform_ops" ||
+            result.appRole === "finance_ops" ? null : result.suspendedAt ? (
               <ActionForm
                 buttonLabel="Cabut penangguhan"
                 onSubmit={(reason) => runAction("unsuspend", reason)}
@@ -410,7 +414,7 @@ function InstitutionPanel() {
       </div>
       <div className="moderation-lookup-form">
         <label htmlFor="institution-lookup-slug" className="form-label">
-          Slug / nama
+          Slug / Nama
         </label>
         <input
           id="institution-lookup-slug"

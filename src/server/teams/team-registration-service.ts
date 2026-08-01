@@ -15,6 +15,8 @@ import {
 } from "@/server/db/schema";
 import { TeamError } from "@/server/teams/team-core";
 import { MAX_CANCELLATION_REASON_LENGTH } from "@/server/registrations/registration-core";
+import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
+import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -44,6 +46,8 @@ type CompetitionSnapshot = {
   registrationStartAt: Date | null;
   registrationEndAt: Date | null;
   eventStartAt: Date | null;
+  participantConfirmationAt: Date | null;
+  cancelledAt: Date | null;
   allowCancellation: boolean;
   cancellationCutoffDays: number | null;
   feeAmount: string | null;
@@ -62,6 +66,8 @@ type TeamRegistrationResult = {
   registrations: { id: string; studentId: string; status: CompetitionRegistrationStatus }[];
 };
 
+type DbOrTx = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 const loadTeam = async (teamId: string, db: Database): Promise<TeamSnapshot | null> => {
   const [row] = await db
     .select({
@@ -78,7 +84,7 @@ const loadTeam = async (teamId: string, db: Database): Promise<TeamSnapshot | nu
 
 const loadCompetition = async (
   competitionId: string,
-  db: Database,
+  db: DbOrTx,
 ): Promise<CompetitionSnapshot | null> => {
   const [row] = await db
     .select({
@@ -90,6 +96,8 @@ const loadCompetition = async (
       registrationStartAt: competitions.registrationStartAt,
       registrationEndAt: competitions.registrationEndAt,
       eventStartAt: competitions.eventStartAt,
+      participantConfirmationAt: competitions.participantConfirmationAt,
+      cancelledAt: competitions.cancelledAt,
       allowCancellation: competitions.allowCancellation,
       cancellationCutoffDays: competitions.cancellationCutoffDays,
       feeAmount: competitions.feeAmount,
@@ -98,6 +106,50 @@ const loadCompetition = async (
     .where(and(eq(competitions.id, competitionId), isNull(competitions.deletedAt)))
     .limit(1);
   return row ?? null;
+};
+
+const assertCompetitionAcceptsTeamRegistration = (
+  competition: CompetitionSnapshot,
+  now: Date,
+): void => {
+  if (competition.status !== "published" || competition.cancelledAt) {
+    throw new TeamError(
+      "team_competition_not_published",
+      "Competition is not open for registration",
+    );
+  }
+  if (competition.mode === "individual") {
+    throw new TeamError(
+      "team_registration_not_allowed",
+      "This competition does not accept team registration",
+    );
+  }
+  if (
+    competition.registrationStartAt &&
+    competition.registrationStartAt.getTime() > now.getTime()
+  ) {
+    throw new TeamError("registration_not_yet_open", "Registration window has not yet opened");
+  }
+  if (!competition.registrationEndAt || competition.registrationEndAt.getTime() <= now.getTime()) {
+    throw new TeamError("registration_window_closed", "Registration window has closed");
+  }
+};
+
+const assertTeamCancellationWindowOpen = (competition: CompetitionSnapshot, now: Date): void => {
+  if (isParticipantCancellationClosedByConfirmation(competition.participantConfirmationAt, now)) {
+    throw new TeamError(
+      "cancellation_window_closed",
+      "The cancellation window closed when participation was confirmed",
+    );
+  }
+
+  const cutoffDays = competition.cancellationCutoffDays;
+  if (!competition.eventStartAt || cutoffDays === null) {
+    throw new TeamError("cancellation_window_closed", "The cancellation window is closed");
+  }
+  if (now.getTime() > competition.eventStartAt.getTime() - cutoffDays * DAY_MS) {
+    throw new TeamError("cancellation_window_closed", "The cancellation window has closed");
+  }
 };
 
 const loadActiveMemberUserIds = async (
@@ -134,8 +186,9 @@ export const submitTeamRegistration = async (
   competitionId: string,
   teamId: string,
   db: Database = getDb(),
-  now: Date = new Date(),
+  now?: Date,
 ): Promise<TeamRegistrationResult> => {
+  const requestAt = now ?? new Date();
   // (a) team exists and belongs to the URL competition; caller is the captain.
   const team = await loadTeam(teamId, db);
   if (!team) {
@@ -155,32 +208,9 @@ export const submitTeamRegistration = async (
   if (!competition) {
     throw new TeamError("team_competition_not_found", "Competition not found");
   }
-  if (competition.status !== "published") {
-    throw new TeamError(
-      "team_competition_not_published",
-      "Competition is not open for registration",
-    );
-  }
-
-  // (d) competition accepts team registration.
-  if (competition.mode === "individual") {
-    throw new TeamError(
-      "team_registration_not_allowed",
-      "This competition does not accept team registration",
-    );
-  }
-
-  // (e) registration window open. Both bounds enforced; if start is null the window is treated
+  // (c-e) publication, mode, and registration window. If start is null the window is treated
   // as immediately open (matches the individual-registration helper which only enforces end).
-  if (
-    competition.registrationStartAt &&
-    competition.registrationStartAt.getTime() > now.getTime()
-  ) {
-    throw new TeamError("registration_not_yet_open", "Registration window has not yet opened");
-  }
-  if (!competition.registrationEndAt || competition.registrationEndAt.getTime() <= now.getTime()) {
-    throw new TeamError("registration_window_closed", "Registration window has closed");
-  }
+  assertCompetitionAcceptsTeamRegistration(competition, requestAt);
 
   // (f) load active members. Must include the captain — captain has an active membership row
   // by construction of createTeam.
@@ -239,6 +269,14 @@ export const submitTeamRegistration = async (
   let submitResult: TeamRegistrationResult;
   try {
     submitResult = await db.transaction(async (tx) => {
+      await acquireCompetitionParticipationLock(tx, competitionId);
+      const mutationAt = now ?? new Date();
+      const lockedCompetition = await loadCompetition(competitionId, tx);
+      if (!lockedCompetition) {
+        throw new TeamError("team_competition_not_found", "Competition not found");
+      }
+      assertCompetitionAcceptsTeamRegistration(lockedCompetition, mutationAt);
+
       const insertedRows = await tx
         .insert(competitionRegistrations)
         .values(
@@ -248,7 +286,7 @@ export const submitTeamRegistration = async (
             teamId,
             registrationType: "team" as const,
             status: "confirmed" as const,
-            registeredAt: now,
+            registeredAt: mutationAt,
           })),
         )
         .returning({
@@ -259,7 +297,7 @@ export const submitTeamRegistration = async (
 
       const teamUpdate = await tx
         .update(teams)
-        .set({ status: "submitted", updatedAt: now })
+        .set({ status: "submitted", updatedAt: mutationAt })
         .where(and(eq(teams.id, teamId), eq(teams.status, "forming")))
         .returning({ id: teams.id });
 
@@ -337,8 +375,9 @@ export const cancelTeamRegistration = async (
   teamId: string,
   cancellationReason: string | null,
   db: Database = getDb(),
-  now: Date = new Date(),
+  now?: Date,
 ): Promise<TeamRegistrationResult> => {
+  const requestAt = now ?? new Date();
   const team = await loadTeam(teamId, db);
   if (!team) {
     throw new TeamError("team_not_found", "Team not found");
@@ -385,22 +424,24 @@ export const cancelTeamRegistration = async (
     );
   }
 
-  // Cutoff window: allowed only up to (event_start_at - cutoff days). Missing event start / cutoff
-  // fails closed (the DB CHECK guarantees a cutoff when allow=true).
-  const cutoffDays = competition.cancellationCutoffDays;
-  if (!competition.eventStartAt || cutoffDays === null) {
-    throw new TeamError("cancellation_window_closed", "The cancellation window is closed");
-  }
-  if (now.getTime() > competition.eventStartAt.getTime() - cutoffDays * DAY_MS) {
-    throw new TeamError("cancellation_window_closed", "The cancellation window has closed");
-  }
+  // Freeze the entry count at the participation-confirmation moment. A team is one threshold
+  // entry, so reverting a submitted team after this boundary would reopen a terminal decision.
+  assertTeamCancellationWindowOpen(competition, requestAt);
 
   const cancelResult = await db.transaction(async (tx) => {
+    await acquireCompetitionParticipationLock(tx, competitionId);
+    const mutationAt = now ?? new Date();
+    const lockedCompetition = await loadCompetition(competitionId, tx);
+    if (!lockedCompetition) {
+      throw new TeamError("team_competition_not_found", "Competition not found");
+    }
+    assertTeamCancellationWindowOpen(lockedCompetition, mutationAt);
+
     const cancelled = await tx
       .update(competitionRegistrations)
       .set({
         status: "cancelled",
-        cancelledAt: now,
+        cancelledAt: mutationAt,
         cancellationReason,
         updatedAt: sql`now()`,
       })
@@ -418,7 +459,7 @@ export const cancelTeamRegistration = async (
 
     const teamUpdate = await tx
       .update(teams)
-      .set({ status: "forming", updatedAt: now })
+      .set({ status: "forming", updatedAt: mutationAt })
       .where(and(eq(teams.id, teamId), eq(teams.status, "submitted")))
       .returning({ id: teams.id });
 

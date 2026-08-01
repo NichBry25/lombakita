@@ -7,7 +7,6 @@ export default function NotFoundPage() {
         <span className="system-state-icon" aria-hidden="true">
           <Icon name="search" size="xl" />
         </span>
-        <p className="eyebrow">404</p>
         <h1>Halaman tidak ditemukan.</h1>
         <p>Alamat yang Anda buka tidak tersedia atau sudah dipindahkan.</p>
         <ButtonLink href="/competitions" variant="secondary">

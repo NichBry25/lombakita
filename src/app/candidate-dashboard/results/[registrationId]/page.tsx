@@ -1,8 +1,7 @@
 import { and, eq } from "drizzle-orm";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { ButtonLink, Icon, PageHeader } from "@/components/ui";
-import { getCurrentSession } from "@/server/auth/session";
-import { getUnverifiedRoles } from "@/server/auth/role-verification";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { getDb } from "@/server/db/client";
 import { competitionRegistrations, competitions, institutions } from "@/server/db/schema";
 import { getPublishedResultForCandidate } from "@/server/participants/result-service";
@@ -12,15 +11,10 @@ type Props = {
 };
 
 export default async function CandidateResultDetailPage({ params }: Props) {
-  const session = await getCurrentSession();
-  if (!session?.user?.id) {
-    redirect("/auth/login?callbackUrl=/candidate-dashboard/results");
-  }
-
-  const unverified = await getUnverifiedRoles(session.user.id);
-  if (unverified.includes("candidate")) {
-    redirect("/auth/verify-role?as=candidate");
-  }
+  const session = await requireRolePage("candidate", {
+    callbackPath: "/candidate-dashboard/results",
+    missingRoleRedirect: "/auth/verify-role?as=candidate",
+  });
 
   const { registrationId } = await params;
   const db = getDb();
@@ -63,7 +57,6 @@ export default async function CandidateResultDetailPage({ params }: Props) {
       <PageHeader
         eyebrow="Hasil kompetisi"
         title={registration.competitionTitle}
-        description="Keputusan resmi yang telah dipublikasikan oleh penyelenggara."
         backHref="/candidate-dashboard/results"
         backLabel="Semua"
         actions={

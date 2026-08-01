@@ -171,7 +171,6 @@ export function IndividualRegistrationSection({
     <section className="content-section registration-path-card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Jalur 01</p>
           <h2>Individu</h2>
         </div>
       </div>
@@ -193,7 +192,7 @@ export function IndividualRegistrationSection({
           <span className="status-badge" data-status="closed">
             Pendaftaran dibatalkan
           </span>
-          <p className="form-help">Pendaftaran ulang tidak tersedia untuk MVP.</p>
+          <p className="form-help">Pendaftaran ulang belum tersedia.</p>
         </div>
       ) : (
         <Button

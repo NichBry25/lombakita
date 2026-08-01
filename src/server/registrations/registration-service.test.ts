@@ -8,6 +8,9 @@ const { mockGetDb } = vi.hoisted(() => ({
 
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
+vi.mock("@/server/competitions/competition-participation-lock", () => ({
+  acquireCompetitionParticipationLock: vi.fn(),
+}));
 
 import {
   cancelRegistration,
@@ -22,6 +25,8 @@ type CompetitionRow = {
   mode: "individual" | "team" | "both" | null;
   registrationEndAt: Date | null;
   eventStartAt: Date | null;
+  participantConfirmationAt: Date | null;
+  cancelledAt: Date | null;
   allowCancellation: boolean;
   cancellationCutoffDays: number | null;
   feeAmount: string | null;
@@ -50,6 +55,8 @@ const baseCompetition = (overrides: Partial<CompetitionRow> = {}): CompetitionRo
   mode: "individual",
   registrationEndAt: FUTURE,
   eventStartAt: FUTURE,
+  participantConfirmationAt: null,
+  cancelledAt: null,
   allowCancellation: false,
   cancellationCutoffDays: null,
   feeAmount: null,
@@ -113,8 +120,17 @@ const makeQueuedDb = (
   const updateSet = vi.fn().mockReturnValue({ where: updateWhere });
   const update = vi.fn().mockReturnValue({ set: updateSet });
 
+  const db = {
+    select,
+    insert,
+    update,
+    transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
+      callback({ select, insert, update }),
+    ),
+  };
+
   return {
-    db: { select, insert, update },
+    db,
     spies: {
       select,
       insertValues,
@@ -154,6 +170,7 @@ describe("createIndividualRegistration enforcement chain", () => {
       [
         [baseCompetition()], // load competition
         [], // existing-registration check → none
+        [baseCompetition()], // locked deadline re-check
       ],
       { insertReturning: [inserted] },
     );
@@ -174,15 +191,16 @@ describe("createIndividualRegistration enforcement chain", () => {
   // Open-candidacy negative contract (DEC-0106): there is no age band and no eligibility
   // gate. A candidate who would have been blocked under the retired 18–32 rule must be able
   // to register. The service never receives a date of birth and must never look one up: the
-  // only SELECTs on the happy path are the competition load and the duplicate-registration
-  // check. If a future change reintroduces an age/eligibility lookup, either the registration
-  // stops succeeding or a third SELECT appears here — both fail this test.
+  // only SELECTs on the happy path are the competition load, duplicate-registration check, and
+  // locked deadline re-check. If a future change reintroduces an age/eligibility lookup, either
+  // registration stops succeeding or another SELECT appears here — both fail this test.
   it("allows a candidate over 32 to register (no age/eligibility gate — DEC-0106)", async () => {
     const inserted = baseRegistration({ studentId: "candidate_over_32" });
     const { db, spies } = makeQueuedDb(
       [
         [baseCompetition()], // load competition
         [], // existing-registration check → none
+        [baseCompetition()], // locked deadline re-check
       ],
       { insertReturning: [inserted] },
     );
@@ -195,8 +213,8 @@ describe("createIndividualRegistration enforcement chain", () => {
     );
 
     expect(result).toEqual(inserted);
-    // No profile/age/eligibility SELECT was issued — exactly the two enforcement-chain reads.
-    expect(spies.selectCallTraces).toHaveLength(2);
+    // No profile/age/eligibility SELECT was issued — exactly the three enforcement-chain reads.
+    expect(spies.selectCallTraces).toHaveLength(3);
   });
 
   it("rejects with competition_not_found when competition does not exist", async () => {
@@ -233,12 +251,26 @@ describe("createIndividualRegistration enforcement chain", () => {
 
   it("accepts mode 'both' (individual entry permitted)", async () => {
     const inserted = baseRegistration();
-    const { db } = makeQueuedDb([[baseCompetition({ mode: "both" })], []], {
+    const bothCompetition = baseCompetition({ mode: "both" });
+    const { db } = makeQueuedDb([[bothCompetition], [], [bothCompetition]], {
       insertReturning: [inserted],
     });
 
     const result = await createIndividualRegistration("stud_1", "comp_1", db as never, NOW);
     expect(result).toEqual(inserted);
+  });
+
+  it("re-checks the deadline after acquiring the participation lock", async () => {
+    const { db, spies } = makeQueuedDb([
+      [baseCompetition()],
+      [],
+      [baseCompetition({ registrationEndAt: NOW })],
+    ]);
+
+    await expect(
+      createIndividualRegistration("stud_1", "comp_1", db as never, NOW),
+    ).rejects.toMatchObject({ code: "registration_deadline_passed" });
+    expect(spies.insertValues).not.toHaveBeenCalled();
   });
 
   it("rejects with registration_deadline_passed when deadline is in the past", async () => {
@@ -283,7 +315,7 @@ describe("createIndividualRegistration enforcement chain", () => {
   });
 
   it("translates Postgres unique-violation 23505 to registration_already_exists", async () => {
-    const { db } = makeQueuedDb([[baseCompetition()], []], {
+    const { db } = makeQueuedDb([[baseCompetition()], [], [baseCompetition()]], {
       insertError: Object.assign(new Error("dup"), { code: "23505" }),
     });
 
@@ -313,6 +345,13 @@ describe("cancelRegistration enforcement chain", () => {
             eventStartAt: FUTURE,
           }),
         ],
+        [
+          baseCompetition({
+            allowCancellation: true,
+            cancellationCutoffDays: 7,
+            eventStartAt: FUTURE,
+          }),
+        ],
       ],
       { updateReturning: [updated] },
     );
@@ -327,6 +366,33 @@ describe("cancelRegistration enforcement chain", () => {
         cancellationReason: "test",
       }),
     );
+  });
+
+  it("re-checks participantConfirmationAt after acquiring the participation lock", async () => {
+    const reg = baseRegistration();
+    const beforeConfirmation = baseCompetition({
+      allowCancellation: true,
+      cancellationCutoffDays: 7,
+      eventStartAt: FUTURE,
+      participantConfirmationAt: FUTURE,
+    });
+    const { db, spies } = makeQueuedDb([
+      [reg],
+      [beforeConfirmation],
+      [
+        baseCompetition({
+          allowCancellation: true,
+          cancellationCutoffDays: 7,
+          eventStartAt: FUTURE,
+          participantConfirmationAt: NOW,
+        }),
+      ],
+    ]);
+
+    await expect(
+      cancelRegistration("stud_1", "comp_1", "reg_1", "test", db as never, NOW),
+    ).rejects.toMatchObject({ code: "cancellation_window_closed" });
+    expect(spies.updateSet).not.toHaveBeenCalled();
   });
 
   it("rejects with registration_not_found when registration is missing", async () => {
@@ -422,6 +488,24 @@ describe("cancelRegistration enforcement chain", () => {
           allowCancellation: true,
           cancellationCutoffDays: 7,
           eventStartAt: eventSoon,
+        }),
+      ],
+    ]);
+
+    await expect(
+      cancelRegistration("stud_1", "comp_1", "reg_1", "ganti rencana", db as never, NOW),
+    ).rejects.toMatchObject({ code: "cancellation_window_closed" });
+  });
+
+  it("rejects at participantConfirmationAt even when the older cutoff remains open", async () => {
+    const reg = baseRegistration();
+    const { db } = makeQueuedDb([
+      [reg],
+      [
+        baseCompetition({
+          allowCancellation: true,
+          cancellationCutoffDays: 0,
+          participantConfirmationAt: NOW,
         }),
       ],
     ]);

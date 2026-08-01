@@ -15,6 +15,10 @@ assertServerOnly("server/auth/role-verification");
 // The set of roles a user-level account may verify. Note this is intentionally narrower than
 // AppRole — `reviewer_or_judge`, `platform_ops`, and `finance_ops` are not user-self-verifiable
 // role-modes; they are operational roles outside the candidate/recruiter dual-mode model.
+//
+// Must stay identical to SELF_SERVICE_ROLES in @/lib/access/roles: this list decides which roles
+// can be ACQUIRED, that one decides which roles may acquire them. The two are asserted equal in
+// page-guard.test.ts so they cannot drift apart silently.
 export const VERIFIABLE_ROLES = ["candidate", "recruiter"] as const;
 export type VerifiableRole = (typeof VERIFIABLE_ROLES)[number];
 

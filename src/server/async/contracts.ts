@@ -22,6 +22,10 @@ export const ASYNC_JOB_NAMES = {
   competitionCancelled: "competition.cancelled",
   institutionInvitationDispatch: "institution.invitation.dispatch",
   teamInvitationDispatch: "team.invitation.dispatch",
+  recruiterVerificationRejected: "recruiter.verification.rejected",
+  registrationDocumentRequested: "registration.document.requested",
+  registrationDocumentReviewed: "registration.document.reviewed",
+  retentionPurge: "retention.purge",
 } as const;
 
 export type AsyncJobName = (typeof ASYNC_JOB_NAMES)[keyof typeof ASYNC_JOB_NAMES];
@@ -100,6 +104,55 @@ export type TeamInvitationDispatchPayload = {
   rawToken: string;
 };
 
+// Recruiter trust verification rejected. The reason and the reopen decision are carried on the
+// payload rather than re-read at job-run time: the recruiter may reopen the submission before the
+// job runs, at which point the row no longer reflects the verdict this notification is about.
+// `epoch` is the rejection timestamp folded into the idempotency key (DEC-0081) so each distinct
+// rejection of the same submission produces its own notification.
+export type RecruiterVerificationRejectedPayload = {
+  submissionId: string;
+  userId: string;
+  rejectionReason: string;
+  resubmissionAllowed: boolean;
+  epoch: number;
+};
+
+// Participant document verification. Both payloads carry their content rather than a pointer, for
+// the same reason the recruiter rejection does: by the time the worker runs the request may have
+// been answered, extended, or reopened, and re-reading the row would announce the wrong thing.
+// `epoch` folds the event timestamp into the idempotency key so a re-request or a second verdict on
+// the same request each notify (DEC-0081).
+export type RegistrationDocumentRequestedPayload = {
+  requestId: string;
+  userId: string;
+  competitionTitle: string;
+  institutionName: string;
+  title: string;
+  instructions: string | null;
+  dueAtIso: string;
+  epoch: number;
+};
+
+export type RegistrationDocumentReviewedPayload = {
+  requestId: string;
+  userId: string;
+  competitionTitle: string;
+  title: string;
+  outcome: "accepted" | "rejected" | "revision_requested";
+  reviewNote: string | null;
+  // Present only when the rejection reopened the request for another attempt.
+  dueAtIso: string | null;
+  epoch: number;
+};
+
+// The only job in the system that is not triggered by a request — it fires on a timer (see
+// `retention-scheduler.ts`). Retention is time-based by nature: nothing a user does marks a
+// competition's files as due, only the calendar passing its event date does. The payload carries
+// the fire time purely so a run can be correlated in logs; the job reads the due list itself.
+export type RetentionPurgePayload = {
+  scheduledFor: string;
+};
+
 export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.probePing]: AsyncProbeJobPayload;
   [ASYNC_JOB_NAMES.competitionSearchSync]: CompetitionSearchSyncPayload;
@@ -111,6 +164,10 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.competitionCancelled]: CompetitionCancelledPayload;
   [ASYNC_JOB_NAMES.institutionInvitationDispatch]: InstitutionInvitationDispatchPayload;
   [ASYNC_JOB_NAMES.teamInvitationDispatch]: TeamInvitationDispatchPayload;
+  [ASYNC_JOB_NAMES.recruiterVerificationRejected]: RecruiterVerificationRejectedPayload;
+  [ASYNC_JOB_NAMES.registrationDocumentRequested]: RegistrationDocumentRequestedPayload;
+  [ASYNC_JOB_NAMES.registrationDocumentReviewed]: RegistrationDocumentReviewedPayload;
+  [ASYNC_JOB_NAMES.retentionPurge]: RetentionPurgePayload;
 };
 
 export const ASYNC_JOB_QUEUE_BY_NAME = {
@@ -124,4 +181,10 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   [ASYNC_JOB_NAMES.competitionCancelled]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.institutionInvitationDispatch]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.teamInvitationDispatch]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.recruiterVerificationRejected]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.registrationDocumentRequested]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.registrationDocumentReviewed]: ASYNC_QUEUE_NAMES.notifications,
+  // Platform maintenance, not a participant-facing event — so it sits on `infrastructure`, away
+  // from the notification queue whose backlog matters to users.
+  [ASYNC_JOB_NAMES.retentionPurge]: ASYNC_QUEUE_NAMES.infrastructure,
 } as const satisfies Record<AsyncJobName, AsyncQueueName>;

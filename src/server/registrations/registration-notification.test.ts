@@ -20,6 +20,9 @@ vi.mock("@/server/async/enqueue", () => ({
   enqueueRegistrationConfirmed,
   enqueueRegistrationCancelled,
 }));
+vi.mock("@/server/competitions/competition-participation-lock", () => ({
+  acquireCompetitionParticipationLock: vi.fn(),
+}));
 
 import { createIndividualRegistration, cancelRegistration } from "./registration-service";
 import { RegistrationError } from "./registration-core";
@@ -65,7 +68,14 @@ const makeDb = (
       }),
     }),
   });
-  return { select, insert, update };
+  const db = { select, insert, update } as {
+    select: typeof select;
+    insert: typeof insert;
+    update: typeof update;
+    transaction: ReturnType<typeof vi.fn>;
+  };
+  db.transaction = vi.fn(async (callback: (tx: typeof db) => unknown) => callback(db));
+  return db;
 };
 
 describe("createIndividualRegistration — notification enqueue", () => {
@@ -78,6 +88,7 @@ describe("createIndividualRegistration — notification enqueue", () => {
       [
         [{ id: "comp_1", status: "published", mode: "individual", registrationEndAt: FUTURE }],
         [], // no existing registration
+        [{ id: "comp_1", status: "published", mode: "individual", registrationEndAt: FUTURE }],
       ],
       { insertReturn: [confirmedReg] },
     );
@@ -108,7 +119,11 @@ describe("createIndividualRegistration — notification enqueue", () => {
   it("returns the registration even when enqueue throws (fire-and-forget)", async () => {
     enqueueRegistrationConfirmed.mockRejectedValue(new Error("redis_down"));
     const db = makeDb(
-      [[{ id: "comp_1", status: "published", mode: "individual", registrationEndAt: FUTURE }], []],
+      [
+        [{ id: "comp_1", status: "published", mode: "individual", registrationEndAt: FUTURE }],
+        [],
+        [{ id: "comp_1", status: "published", mode: "individual", registrationEndAt: FUTURE }],
+      ],
       { insertReturn: [confirmedReg] },
     );
     mockGetDb.mockReturnValue(db);
@@ -139,6 +154,20 @@ describe("cancelRegistration — notification enqueue", () => {
             mode: "individual",
             registrationEndAt: FUTURE,
             eventStartAt: FUTURE,
+            allowCancellation: true,
+            cancellationCutoffDays: 0,
+            feeAmount: null,
+          },
+        ],
+        [
+          {
+            id: "comp_1",
+            status: "published",
+            mode: "individual",
+            registrationEndAt: FUTURE,
+            eventStartAt: FUTURE,
+            participantConfirmationAt: null,
+            cancelledAt: null,
             allowCancellation: true,
             cancellationCutoffDays: 0,
             feeAmount: null,
@@ -181,6 +210,20 @@ describe("cancelRegistration — notification enqueue", () => {
             mode: "individual",
             registrationEndAt: FUTURE,
             eventStartAt: FUTURE,
+            allowCancellation: true,
+            cancellationCutoffDays: 0,
+            feeAmount: null,
+          },
+        ],
+        [
+          {
+            id: "comp_1",
+            status: "published",
+            mode: "individual",
+            registrationEndAt: FUTURE,
+            eventStartAt: FUTURE,
+            participantConfirmationAt: null,
+            cancelledAt: null,
             allowCancellation: true,
             cancellationCutoffDays: 0,
             feeAmount: null,

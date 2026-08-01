@@ -1,4 +1,4 @@
-export { Button, ButtonLink, IconButton } from "./button";
+export { Button, ButtonLink, IconButton, IconButtonLink } from "./button";
 export type { ButtonSize, ButtonVariant } from "./button";
 export { FormActionBar } from "./form-action-bar";
 export { SelectField } from "./select-field";
@@ -7,7 +7,6 @@ export { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./car
 export { Feedback } from "./feedback";
 export type { FeedbackTone } from "./feedback";
 export {
-  FormError,
   FormField,
   FormHelp,
   FormInput,
@@ -33,4 +32,5 @@ export { PageTransitionProvider, usePageTransition } from "./page-transition";
 export { FilterDropdown } from "./filter-dropdown";
 export type { FilterOption } from "./filter-dropdown";
 export { EmptyState } from "./empty-state";
+export { Pagination } from "./pagination";
 export { PageHeader } from "./page-header";

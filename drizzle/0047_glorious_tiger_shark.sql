@@ -1,0 +1,1 @@
+ALTER TYPE "public"."verification_submission_status" ADD VALUE 'draft' BEFORE 'pending_review';

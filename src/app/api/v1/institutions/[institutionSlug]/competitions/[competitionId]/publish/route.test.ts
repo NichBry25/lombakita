@@ -25,7 +25,6 @@ vi.mock("@/server/competitions/competition-service", () => ({
 
 import { POST as PUBLISH } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route";
 import { POST as UNPUBLISH } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/unpublish/route";
-import { POST as ARCHIVE } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/archive/route";
 
 const adminSession = {
   user: { id: "admin_1", role: "recruiter", email: "admin@example.com" },
@@ -57,7 +56,6 @@ const baseCompetition = {
   institutionId: "inst_1",
   status: "published",
   publishedAt: new Date().toISOString(),
-  archivedAt: null,
 };
 
 describe("POST /api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish", () => {
@@ -176,14 +174,14 @@ describe("POST .../unpublish", () => {
     expect(unpublishCompetition).toHaveBeenCalledWith("admin_1", "comp_1");
   });
 
-  it("returns 422 on illegal archived → draft transition", async () => {
+  it("returns 422 when the competition is not published", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     assertCompetitionInInstitution.mockResolvedValue(undefined);
     unpublishCompetition.mockRejectedValue(
       new CompetitionError(
         "competition_invalid_transition",
         422,
-        "Cannot unpublish a competition in 'archived' status",
+        "Cannot unpublish a competition in 'draft' status",
       ),
     );
     const response = await UNPUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
@@ -197,64 +195,6 @@ describe("POST .../unpublish", () => {
       new AccessError("forbidden", 403, "institution_owner access required"),
     );
     const response = await UNPUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
-    expect(response.status).toBe(403);
-  });
-});
-
-describe("POST .../archive", () => {
-  afterEach(() => vi.clearAllMocks());
-
-  it("returns 200 on draft → archived", async () => {
-    requireAuthenticatedSession.mockResolvedValue(adminSession);
-    assertCompetitionInInstitution.mockResolvedValue(undefined);
-    transitionCompetitionStatus.mockResolvedValue({
-      competition: {
-        ...baseCompetition,
-        status: "archived",
-        publishedAt: null,
-        archivedAt: new Date().toISOString(),
-      },
-    });
-    const response = await ARCHIVE(makeRequest(), makeParams("lk-univ", "comp_1"));
-    expect(response.status).toBe(200);
-    expect(transitionCompetitionStatus).toHaveBeenCalledWith("admin_1", "comp_1", "archived");
-  });
-
-  it("returns 200 on published → archived", async () => {
-    requireAuthenticatedSession.mockResolvedValue(adminSession);
-    assertCompetitionInInstitution.mockResolvedValue(undefined);
-    transitionCompetitionStatus.mockResolvedValue({
-      competition: {
-        ...baseCompetition,
-        status: "archived",
-        archivedAt: new Date().toISOString(),
-      },
-    });
-    const response = await ARCHIVE(makeRequest(), makeParams("lk-univ", "comp_1"));
-    expect(response.status).toBe(200);
-  });
-
-  it("returns 422 on illegal archived → archived transition", async () => {
-    requireAuthenticatedSession.mockResolvedValue(adminSession);
-    assertCompetitionInInstitution.mockResolvedValue(undefined);
-    transitionCompetitionStatus.mockRejectedValue(
-      new CompetitionError(
-        "competition_invalid_transition",
-        422,
-        "Cannot transition competition from 'archived' to 'archived'",
-      ),
-    );
-    const response = await ARCHIVE(makeRequest(), makeParams("lk-univ", "comp_1"));
-    expect(response.status).toBe(422);
-  });
-
-  it("returns 403 when institution_staff attempts to archive", async () => {
-    requireAuthenticatedSession.mockResolvedValue(staffSession);
-    assertCompetitionInInstitution.mockResolvedValue(undefined);
-    transitionCompetitionStatus.mockRejectedValue(
-      new AccessError("forbidden", 403, "institution_owner access required"),
-    );
-    const response = await ARCHIVE(makeRequest(), makeParams("lk-univ", "comp_1"));
     expect(response.status).toBe(403);
   });
 });

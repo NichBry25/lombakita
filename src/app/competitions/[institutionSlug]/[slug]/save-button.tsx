@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Icon } from "@/components/ui";
+import { IconButton } from "@/components/ui";
 import {
   SESSION_MISMATCH_CODE,
   SESSION_MISMATCH_MESSAGE,
@@ -47,18 +47,16 @@ export function SaveButton({ competitionId, initialSaved, expectedUserId }: Prop
   };
 
   return (
-    <Button
+    <IconButton
       type="button"
       variant={saved ? "secondary" : "outline"}
       size="lg"
-      fullWidth
-      leadingIcon={
-        <Icon name="bookmark" size="md" className={saved ? "icon-bookmark-selected" : undefined} />
-      }
+      className="detail-save-action"
+      icon="bookmark"
+      label={saved ? "Hapus dari tersimpan" : "Simpan kompetisi"}
+      data-saved={saved ? "true" : "false"}
       onClick={handleToggle}
       loading={loading}
-    >
-      {saved ? "Disimpan" : "Simpan kompetisi"}
-    </Button>
+    />
   );
 }

@@ -1,10 +1,9 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
-  Feedback,
   FormActionBar,
   FormHelp,
   Icon,
@@ -75,15 +74,23 @@ export const InstitutionUpgradeShell = ({
 
   const nameFieldId = useId();
   const nameHintId = `${nameFieldId}-hint`;
-  const descriptionFieldId = useId();
-  const descriptionHintId = `${descriptionFieldId}-hint`;
   const blockedNoticeId = useId();
 
   const [targetType, setTargetType] = useState<FullInstitutionType>("company");
   const [displayName, setDisplayName] = useState("");
-  const [description, setDescription] = useState("");
   const [nameInvalid, setNameInvalid] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!canUpgrade) {
+      addToast({
+        type: "warning",
+        message:
+          "Peningkatan institusi hanya tersedia untuk Rekruter Terpercaya. Selesaikan verifikasi akun Anda terlebih dahulu.",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canUpgrade]);
 
   // Returns whether the upgrade actually navigated, so the blocking screen is dismissed on a
   // rejected upgrade and held through the redirect on a successful one.
@@ -99,7 +106,6 @@ export const InstitutionUpgradeShell = ({
           body: JSON.stringify({
             targetType,
             displayName: displayName.trim(),
-            description: description.trim().length > 0 ? description.trim() : null,
           }),
         },
       );
@@ -148,7 +154,7 @@ export const InstitutionUpgradeShell = ({
             <strong>{trimmedName}</strong>.
           </p>
           <p>
-            Peningkatan bersifat permanen — institusi tidak dapat dikembalikan menjadi personal, dan
+            Peningkatan bersifat permanen. Institusi tidak dapat dikembalikan menjadi personal, dan
             tipenya tidak dapat diubah lagi setelah ini.
           </p>
           <p>
@@ -167,7 +173,6 @@ export const InstitutionUpgradeShell = ({
   return (
     <main className="page-shell app-page institution-upgrade-page">
       <PageHeader
-        eyebrow="Tingkat institusi"
         title="Tingkatkan level institusi"
         description="Ubah institusi personal Anda menjadi institusi resmi agar dapat menyelenggarakan lebih banyak kompetisi, membuka mode tim, dan mengundang staf."
       />
@@ -227,32 +232,11 @@ export const InstitutionUpgradeShell = ({
           </span>
         </div>
 
-        <div className="form-field">
-          <label htmlFor={descriptionFieldId} className="form-label">
-            Deskripsi institusi (opsional)
-          </label>
-          <textarea
-            id={descriptionFieldId}
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Deskripsi singkat institusi baru Anda."
-            className="form-input"
-            rows={4}
-            maxLength={500}
-            aria-describedby={descriptionHintId}
-          />
-          <span id={descriptionHintId}>
-            <FormHelp>
-              Tampil pada daftar institusi Anda. Dapat diubah kapan saja di pengaturan institusi.
-            </FormHelp>
-          </span>
-        </div>
-
         {!canUpgrade && (
-          <Feedback id={blockedNoticeId} tone="warning">
+          <span id={blockedNoticeId} className="sr-only">
             Peningkatan institusi hanya tersedia untuk Rekruter Terpercaya. Selesaikan verifikasi
             akun Anda terlebih dahulu.
-          </Feedback>
+          </span>
         )}
       </section>
 

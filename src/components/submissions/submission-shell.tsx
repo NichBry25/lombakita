@@ -1,13 +1,19 @@
 "use client";
 
-import { useState } from "react";
-import { Button } from "@/components/ui";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { Button, Icon } from "@/components/ui";
+import { useToast } from "@/components/ui/primitives";
 import {
   readErrorCode,
   SESSION_MISMATCH_CODE,
   SESSION_MISMATCH_MESSAGE,
   sessionFetch,
 } from "@/lib/session/session-fetch";
+import {
+  preValidateSubmissionFile,
+  SUBMISSION_ACCEPT_ATTRIBUTE,
+  SUBMISSION_FORMAT_HINT,
+} from "@/lib/submissions/submission-file";
 
 type ClientSubmission = {
   fileName: string;
@@ -16,9 +22,7 @@ type ClientSubmission = {
   finalizedAt: string | null;
 } | null;
 
-type Feedback = { type: "error" | "success"; message: string } | null;
-
-type SubmissionStep = "upload-url" | "save" | "finalize";
+type SubmissionStep = "upload" | "finalize";
 
 type SubmissionShellProps = {
   expectedUserId: string;
@@ -52,94 +56,117 @@ export const SubmissionShell = ({
   initialSubmission,
 }: SubmissionShellProps) => {
   const [submission, setSubmission] = useState<ClientSubmission>(initialSubmission);
-  const [feedback, setFeedback] = useState<Feedback>(null);
+  const { addToast } = useToast();
   // Three independent steps share this component; tracking which one is running keeps the
   // spinner on the pressed step while the other steps stay locked.
   const [pendingStep, setPendingStep] = useState<SubmissionStep | null>(null);
   const loading = pendingStep !== null;
-  const [uploadUrl, setUploadUrl] = useState<string | null>(null);
 
-  const [fileKey, setFileKey] = useState("");
-  const [fileName, setFileName] = useState("");
-  const [fileSizeBytes, setFileSizeBytes] = useState("");
-  const [fileMimeType, setFileMimeType] = useState("");
+  useEffect(() => {
+    if (registrationCancelled) {
+      addToast({ type: "error", message: "Pendaftaran dibatalkan, jadi submission ditutup." });
+    } else if (!windowOpen) {
+      addToast({
+        type: "warning",
+        message: "Jendela submission belum dibuka atau sudah ditutup.",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registrationCancelled, windowOpen]);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const finalized = Boolean(submission?.finalizedAt);
   const url = baseUrl(competitionId, registrationId);
-  const requiredPrefix = `submissions/${registrationId}/`;
+  const fileInputId = `submission-file-${registrationId}`;
 
   const surfaceError = async (res: Response) => {
     const code = await readErrorCode(res);
     if (code === SESSION_MISMATCH_CODE) {
-      setFeedback({ type: "error", message: SESSION_MISMATCH_MESSAGE });
+      addToast({ type: "error", message: SESSION_MISMATCH_MESSAGE });
     } else {
-      setFeedback({
+      addToast({
         type: "error",
         message: code ? `Error: ${code}` : `Error (HTTP ${res.status})`,
       });
     }
   };
 
-  const requestUploadUrl = async () => {
-    setFeedback(null);
-    setUploadUrl(null);
-    setPendingStep("upload-url");
-    try {
-      const res = await sessionFetch(expectedUserId, `${url}/upload-url`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          fileName: fileName || "submission",
-          fileMimeType: fileMimeType || null,
-        }),
-      });
-      if (!res.ok) {
-        await surfaceError(res);
+  const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    if (file) {
+      const problem = preValidateSubmissionFile({ name: file.name, size: file.size });
+      if (problem) {
+        addToast({ type: "error", message: problem });
+        event.target.value = "";
+        setSelectedFile(null);
         return;
       }
-      const body = (await res.json()) as { uploadUrl: string; fileKey: string };
-      setUploadUrl(body.uploadUrl);
-      setFileKey(body.fileKey);
-      setFeedback({
-        type: "success",
-        message: "Upload URL berhasil dibuat. Salin fileKey di bawah.",
-      });
-    } catch {
-      setFeedback({ type: "error", message: "Network error" });
-    } finally {
-      setPendingStep(null);
     }
+    setSelectedFile(file);
   };
 
-  const saveSubmission = async () => {
-    setFeedback(null);
-    setPendingStep("save");
-    try {
-      const payload: Record<string, unknown> = { fileKey, fileName };
-      if (fileSizeBytes.trim().length > 0) payload.fileSizeBytes = Number(fileSizeBytes);
-      if (fileMimeType.trim().length > 0) payload.fileMimeType = fileMimeType.trim();
+  // Presign, PUT the bytes to R2, then record the metadata. The server confirms the stored file
+  // against its own bytes in that last step, so a file the browser accepted can still be refused.
+  const uploadFile = async () => {
+    if (!selectedFile || loading) return;
 
-      const res = await sessionFetch(expectedUserId, url, {
-        method: "PUT",
+    setPendingStep("upload");
+    try {
+      const presign = await sessionFetch(expectedUserId, `${url}/upload-url`, {
+        method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ fileName: selectedFile.name }),
       });
-      if (!res.ok) {
-        await surfaceError(res);
+      if (!presign.ok) {
+        await surfaceError(presign);
         return;
       }
-      const body = (await res.json()) as { submission: unknown };
+      const { uploadUrl, fileKey, contentType } = (await presign.json()) as {
+        uploadUrl: string;
+        fileKey: string;
+        contentType: string;
+      };
+
+      // The content type must match the one bound into the signed URL or R2 rejects the signature.
+      const put = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "content-type": contentType },
+        body: selectedFile,
+      });
+      if (!put.ok) {
+        addToast({ type: "error", message: "Unggahan ke penyimpanan gagal. Coba lagi." });
+        return;
+      }
+
+      const record = await sessionFetch(expectedUserId, url, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          fileKey,
+          fileName: selectedFile.name,
+          fileSizeBytes: selectedFile.size,
+        }),
+      });
+      if (!record.ok) {
+        await surfaceError(record);
+        return;
+      }
+
+      const body = (await record.json()) as { submission: unknown };
       setSubmission(toClientSubmission(body.submission));
-      setFeedback({ type: "success", message: "Submission tersimpan." });
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      addToast({ type: "success", message: "Berkas terunggah." });
     } catch {
-      setFeedback({ type: "error", message: "Network error" });
+      addToast({ type: "error", message: "Gangguan koneksi. Coba lagi." });
     } finally {
       setPendingStep(null);
     }
   };
 
   const finalizeSubmission = async () => {
-    setFeedback(null);
     setPendingStep("finalize");
     try {
       const res = await sessionFetch(expectedUserId, `${url}/finalize`, { method: "POST" });
@@ -149,9 +176,9 @@ export const SubmissionShell = ({
       }
       const body = (await res.json()) as { submission: unknown };
       setSubmission(toClientSubmission(body.submission));
-      setFeedback({ type: "success", message: "Submission difinalisasi." });
+      addToast({ type: "success", message: "Submission difinalisasi." });
     } catch {
-      setFeedback({ type: "error", message: "Network error" });
+      addToast({ type: "error", message: "Gangguan koneksi. Coba lagi." });
     } finally {
       setPendingStep(null);
     }
@@ -192,99 +219,63 @@ export const SubmissionShell = ({
         )}
       </section>
 
-      {registrationCancelled ? (
-        <p className="feedback" data-tone="error">
-          Pendaftaran dibatalkan — submission ditutup.
-        </p>
-      ) : !windowOpen ? (
-        <p className="feedback" data-tone="warning">
-          Jendela submission belum dibuka atau sudah ditutup.
-        </p>
-      ) : null}
-
-      {feedback ? (
-        <p className="feedback" data-tone={feedback.type === "error" ? "error" : "success"}>
-          {feedback.message}
-        </p>
-      ) : null}
-
       {!finalized && !registrationCancelled && windowOpen ? (
         <section className="content-section submission-step">
           <div className="submission-step-heading">
             <span className="submission-step-number data-text">01</span>
             <div>
               <p className="eyebrow">Unggah berkas</p>
-              <h2>Minta upload URL (R2)</h2>
+              <h2>{submission ? "Ganti berkas" : "Unggah karya Anda"}</h2>
             </div>
           </div>
-          <Button
-            type="button"
-            onClick={requestUploadUrl}
-            loading={pendingStep === "upload-url"}
-            disabled={loading}
-            variant="outline"
-            size="md"
-          >
-            Minta upload URL
-          </Button>
-          {uploadUrl ? <p className="submission-url data-text">Upload URL: {uploadUrl}</p> : null}
-        </section>
-      ) : null}
 
-      {!finalized && !registrationCancelled && windowOpen ? (
-        <section className="content-section submission-step">
-          <div className="submission-step-heading">
-            <span className="submission-step-number data-text">02</span>
-            <div>
-              <p className="eyebrow">Metadata</p>
-              <h2>Simpan metadata submission</h2>
+          <div className="form-field">
+            <label className="form-label" htmlFor={fileInputId}>
+              Berkas karya
+            </label>
+            <div className="pf-media-actions">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                leadingIcon={<Icon name="upload" size="sm" aria-hidden="true" />}
+              >
+                Pilih berkas
+              </Button>
+              <span className="form-help">
+                {selectedFile ? selectedFile.name : "Belum ada berkas yang dipilih"}
+              </span>
             </div>
+            <input
+              id={fileInputId}
+              ref={fileInputRef}
+              type="file"
+              accept={SUBMISSION_ACCEPT_ATTRIBUTE}
+              onChange={handleFileSelect}
+              className="sr-only"
+              aria-describedby={`${fileInputId}-hint`}
+            />
+            <p className="form-help" id={`${fileInputId}-hint`}>
+              {SUBMISSION_FORMAT_HINT} (maks. 50 MB). Kemas beberapa berkas sebagai ZIP.
+            </p>
           </div>
-          <p className="form-help">
-            fileKey harus diawali dengan <code>{requiredPrefix}</code>
-          </p>
-          <label className="form-field">
-            <span className="form-label">fileKey</span>
-            <input
-              className="form-input"
-              value={fileKey}
-              onChange={(e) => setFileKey(e.target.value)}
-            />
-          </label>
-          <label className="form-field">
-            <span className="form-label">fileName</span>
-            <input
-              className="form-input"
-              value={fileName}
-              onChange={(e) => setFileName(e.target.value)}
-            />
-          </label>
-          <label className="form-field">
-            <span className="form-label">fileSizeBytes (opsional)</span>
-            <input
-              className="form-input"
-              value={fileSizeBytes}
-              onChange={(e) => setFileSizeBytes(e.target.value)}
-              inputMode="numeric"
-            />
-          </label>
-          <label className="form-field">
-            <span className="form-label">fileMimeType (opsional)</span>
-            <input
-              className="form-input"
-              value={fileMimeType}
-              onChange={(e) => setFileMimeType(e.target.value)}
-            />
-          </label>
+
+          {submission ? (
+            <p className="muted-copy">
+              Mengunggah berkas baru akan menggantikan berkas sebelumnya sampai Anda memfinalisasi.
+            </p>
+          ) : null}
+
           <Button
             type="button"
-            onClick={saveSubmission}
-            loading={pendingStep === "save"}
-            disabled={loading}
+            onClick={() => void uploadFile()}
+            loading={pendingStep === "upload"}
+            disabled={!selectedFile}
             variant="primary"
             size="md"
           >
-            Simpan submission
+            Unggah berkas
           </Button>
         </section>
       ) : null}
@@ -292,9 +283,8 @@ export const SubmissionShell = ({
       {submission && !finalized && !registrationCancelled ? (
         <section className="content-section submission-step submission-finalize">
           <div className="submission-step-heading">
-            <span className="submission-step-number data-text">03</span>
+            <span className="submission-step-number data-text">02</span>
             <div>
-              <p className="eyebrow">Kunci submission</p>
               <h2>Finalisasi</h2>
             </div>
           </div>

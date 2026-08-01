@@ -11,7 +11,7 @@ import {
 import { Button, FormActionBar, Icon, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { ProfileCollectionsEditor } from "./profile-collections-editor";
-import { AvatarUpload, ResumeSection } from "./profile-media-controls";
+import { AvatarUpload, BannerUpload, ResumeSection } from "./profile-media-controls";
 
 type Props = {
   profile: OwnerProfileResponse;
@@ -29,14 +29,12 @@ function FieldInput({
   value,
   onChange,
   multiline,
-  error,
 }: {
   label: string;
   name: string;
   value: string;
   onChange: (v: string) => void;
   multiline?: boolean;
-  error?: string;
 }) {
   return (
     <div className="form-field profile-edit-field">
@@ -50,7 +48,6 @@ function FieldInput({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="form-textarea"
-          aria-invalid={Boolean(error)}
         />
       ) : (
         <input
@@ -60,10 +57,8 @@ function FieldInput({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="form-input"
-          aria-invalid={Boolean(error)}
         />
       )}
-      {error && <p className="form-error">{error}</p>}
     </div>
   );
 }
@@ -78,14 +73,14 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
   const [location, setLocation] = useState(fieldValue(profile.location));
   const currentAvatarUrl =
     profile.avatarUrl.status === "populated" ? profile.avatarUrl.value : null;
+  const currentBannerUrl =
+    profile.bannerUrl.status === "populated" ? profile.bannerUrl.value : null;
 
   const [saving, setSaving] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     setSaving(true);
-    setFieldErrors({});
 
     const payload = {
       username: username.trim(),
@@ -106,20 +101,13 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
       if (!res.ok) {
         const errCode: string = data?.error?.code ?? "unknown";
         const errMsg: string = data?.error?.message ?? "Terjadi kesalahan saat menyimpan profil.";
-        const details: { fields?: string[] } = data?.error?.details ?? {};
 
         if (errCode === SESSION_MISMATCH_CODE) {
           addToast({ type: "error", message: SESSION_MISMATCH_MESSAGE });
         } else if (errCode === "profile_username_taken") {
-          setFieldErrors({ username: "Username sudah dipakai akun lain." });
+          addToast({ type: "error", message: "Username sudah dipakai akun lain." });
         } else if (errCode === "profile_username_reserved") {
-          setFieldErrors({ username: "Username ini tidak tersedia." });
-        } else if (details.fields && details.fields.length > 0) {
-          const fe: Record<string, string> = {};
-          for (const f of details.fields) {
-            fe[f] = errMsg;
-          }
-          setFieldErrors(fe);
+          addToast({ type: "error", message: "Username ini tidak tersedia." });
         } else {
           addToast({ type: "error", message: errMsg });
         }
@@ -155,9 +143,7 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="form-input"
-              aria-invalid={Boolean(fieldErrors.username)}
             />
-            {fieldErrors.username && <p className="form-error">{fieldErrors.username}</p>}
           </div>
         </section>
 
@@ -173,26 +159,16 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
             name="displayName"
             value={displayName}
             onChange={setDisplayName}
-            error={fieldErrors.displayName}
           />
-          <FieldInput
-            label="Bio"
-            name="bio"
-            value={bio}
-            onChange={setBio}
-            multiline
-            error={fieldErrors.bio}
-          />
-          <FieldInput
-            label="Lokasi"
-            name="location"
-            value={location}
-            onChange={setLocation}
-            error={fieldErrors.location}
-          />
+          <FieldInput label="Bio" name="bio" value={bio} onChange={setBio} multiline />
+          <FieldInput label="Lokasi" name="location" value={location} onChange={setLocation} />
           <div className="form-field profile-edit-field">
             <span className="form-label">Foto profil</span>
             <AvatarUpload expectedUserId={expectedUserId} currentUrl={currentAvatarUrl} />
+          </div>
+          <div className="form-field profile-edit-field">
+            <span className="form-label">Sampul profil</span>
+            <BannerUpload expectedUserId={expectedUserId} currentUrl={currentBannerUrl} />
           </div>
         </section>
       </form>

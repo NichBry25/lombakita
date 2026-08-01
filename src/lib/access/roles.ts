@@ -19,6 +19,12 @@ export const isAppRole = (value: string): value is AppRole => {
 // signed in as. Operational roles are never self-service and never appear in verifiedRoles.
 export const SELF_SERVICE_ROLES = ["candidate", "recruiter"] as const;
 
+export type SelfServiceRole = (typeof SELF_SERVICE_ROLES)[number];
+
+export const isSelfServiceRole = (value: unknown): value is SelfServiceRole => {
+  return typeof value === "string" && (SELF_SERVICE_ROLES as readonly string[]).includes(value);
+};
+
 // Capability check for the DEC-0060 capability-based access model. The session JWT carries one
 // active `role`, but a dual-verified self-service account (candidate AND recruiter) signed in
 // under one role must still reach surfaces belonging to its other verified role. Authorization
@@ -35,7 +41,7 @@ export const sessionHasRole = (
 ): boolean => {
   const active = typeof activeRole === "string" && isAppRole(activeRole) ? activeRole : null;
   if (active === required) return true;
-  if (active && (SELF_SERVICE_ROLES as readonly string[]).includes(active)) {
+  if (isSelfServiceRole(active)) {
     const verified = Array.isArray(verifiedRoles)
       ? verifiedRoles.filter((r): r is AppRole => typeof r === "string" && isAppRole(r))
       : [];

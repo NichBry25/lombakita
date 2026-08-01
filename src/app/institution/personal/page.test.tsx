@@ -27,6 +27,7 @@ import PersonalInstitutionPage from "@/app/institution/personal/page";
 const recruiterSession = {
   user: {
     id: "user_recruiter",
+    role: "recruiter",
     verifiedRoles: ["recruiter"],
   },
 };
@@ -52,6 +53,7 @@ describe("PersonalInstitutionPage", () => {
     mockGetCurrentSession.mockResolvedValue({
       user: {
         id: "user_candidate",
+        role: "candidate",
         verifiedRoles: ["candidate"],
       },
     });

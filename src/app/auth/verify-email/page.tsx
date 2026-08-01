@@ -74,9 +74,8 @@ export default async function VerifyEmailPage(props: {
 
   return (
     <AuthPageFrame
-      eyebrow="Verifikasi email"
-      title="Tautan verifikasi melindungi kepemilikan akun."
-      description="Jika tautan tidak lagi berlaku, mulai kembali dari halaman masuk untuk meminta verifikasi baru."
+      title="Tautan verifikasi hanya berlaku sekali."
+      description="Jika tautan sudah tidak berlaku, minta tautan baru dari halaman masuk."
     >
       <div className="auth-state stack-md">
         <span className="auth-state-icon" data-tone="error" aria-hidden="true">
@@ -87,7 +86,7 @@ export default async function VerifyEmailPage(props: {
           <p>{state.description}</p>
         </div>
         <ButtonLink variant="primary" size="md" href={signInHref}>
-          Kembali ke login
+          Kembali ke halaman masuk
         </ButtonLink>
       </div>
     </AuthPageFrame>

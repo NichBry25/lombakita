@@ -20,6 +20,7 @@ export const FIELD_SCOPES = {
   bio: "shared",
   location: "shared",
   avatarUrl: "shared",
+  bannerUrl: "shared",
 } as const;
 
 export type ProfileFieldName = keyof typeof FIELD_SCOPES;
@@ -51,6 +52,7 @@ export type OwnerProfileResponse = {
   bio: ProfileFieldValue<string>;
   location: ProfileFieldValue<string>;
   avatarUrl: ProfileFieldValue<string>;
+  bannerUrl: ProfileFieldValue<string>;
   resume: OwnerResume | null;
   collections: ProfileCollections;
 };
@@ -64,6 +66,7 @@ export type PublicProfileResponse = {
   bio: string | null;
   location: string | null;
   avatarUrl: string | null;
+  bannerUrl: string | null;
   candidateVerified: boolean;
   recruiterVerified: boolean;
   trustedRecruiter: boolean;
@@ -127,7 +130,9 @@ export const buildOwnerProfileResponse = (
     bio: toFieldValue(row.summary, "shared", cv, rv),
     location: toFieldValue(row.location, "shared", cv, rv),
     avatarUrl: toFieldValue(row.avatarUrl, "shared", cv, rv),
-    // Resume is enriched by the service layer (needs an async presigned URL); null by default.
+    // Banner and resume are enriched by the service layer (both need an async presigned URL, and
+    // the banner has no legacy plain-URL column to fall back on); empty by default.
+    bannerUrl: { status: "empty", value: null },
     resume: null,
     collections,
   };
@@ -153,6 +158,8 @@ export const buildPublicProfileResponse = (
     bio: row.summary,
     location: row.location,
     avatarUrl: row.avatarUrl,
+    // Banner is enriched by the service layer (needs an async presigned URL); null by default.
+    bannerUrl: null,
     candidateVerified: row.candidateVerifiedAt !== null,
     recruiterVerified: row.recruiterVerifiedAt !== null,
     trustedRecruiter: row.recruiterVerificationTier === "elevated",
@@ -235,8 +242,8 @@ export const parseUsername = (value: unknown): string => {
 // PATCH input validation
 // ---------------------------------------------------------------------------
 
-// avatarUrl is intentionally NOT writable here — the avatar is managed by the file-upload
-// endpoints (upload → record key), not by this scalar PATCH.
+// avatarUrl and bannerUrl are intentionally NOT writable here — both images are managed by the
+// file-upload endpoints (upload → record key), not by this scalar PATCH.
 const SHARED_WRITABLE_FIELDS = new Set(["displayName", "bio", "location"]);
 const ALL_WRITABLE_FIELDS = new Set(["username", ...SHARED_WRITABLE_FIELDS]);
 

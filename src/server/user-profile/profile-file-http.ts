@@ -12,12 +12,15 @@ import {
 } from "@/server/user-profile/profile-files-core";
 import {
   deleteAvatar,
+  deleteBanner,
   deleteCertificationFile,
   deleteResume,
   generateAvatarUploadUrl,
+  generateBannerUploadUrl,
   generateCertificationFileUploadUrl,
   generateResumeUploadUrl,
   recordAvatar,
+  recordBanner,
   recordCertificationFile,
   recordResume,
   setResumeVisibility,
@@ -77,6 +80,27 @@ export const avatarRecord = (request: Request): Promise<Response> =>
 export const avatarDelete = (request: Request): Promise<Response> =>
   runOwned(request, async (userId) => {
     await deleteAvatar(userId);
+    return ok();
+  });
+
+// ── Banner ────────────────────────────────────────────────────────────────
+
+export const bannerUploadUrl = (request: Request): Promise<Response> =>
+  runOwned(request, async (userId) => {
+    const req = parseUploadRequest("banner", await readJson(request));
+    return grantResponse(await generateBannerUploadUrl(userId, req));
+  });
+
+export const bannerRecord = (request: Request): Promise<Response> =>
+  runOwned(request, async (userId) => {
+    const metadata = parseFileMetadata("banner", await readJson(request));
+    await recordBanner(userId, metadata);
+    return ok();
+  });
+
+export const bannerDelete = (request: Request): Promise<Response> =>
+  runOwned(request, async (userId) => {
+    await deleteBanner(userId);
     return ok();
   });
 

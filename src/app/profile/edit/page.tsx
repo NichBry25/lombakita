@@ -16,7 +16,6 @@ export default async function ProfileEditPage() {
   return (
     <main className="page-shell app-page profile-edit-page">
       <PageHeader
-        eyebrow="Pengaturan profil"
         title="Edit profil"
         description="Perbarui identitas publik dan detail peran Anda. Bidang yang terkunci membutuhkan verifikasi peran terkait."
       />

@@ -33,6 +33,7 @@ type UserProfileRow = {
   location: string | null;
   avatarUrl: string | null;
   avatarR2Key: string | null;
+  bannerR2Key: string | null;
   resumeR2Key: string | null;
   resumeFileName: string | null;
   resumeSizeBytes: number | null;
@@ -53,6 +54,7 @@ const PROFILE_COLUMNS = {
   location: userProfiles.location,
   avatarUrl: userProfiles.avatarUrl,
   avatarR2Key: userProfiles.avatarR2Key,
+  bannerR2Key: userProfiles.bannerR2Key,
   resumeR2Key: userProfiles.resumeR2Key,
   resumeFileName: userProfiles.resumeFileName,
   resumeSizeBytes: userProfiles.resumeSizeBytes,
@@ -130,6 +132,10 @@ export const getOwnerProfile = async (
   response.avatarUrl = avatarUrl
     ? { status: "populated", value: avatarUrl }
     : { status: "empty", value: null };
+  const bannerUrl = await resolveProfileFileUrl(row.bannerR2Key);
+  response.bannerUrl = bannerUrl
+    ? { status: "populated", value: bannerUrl }
+    : { status: "empty", value: null };
   response.resume = await buildOwnerResume(row);
   return response;
 };
@@ -145,6 +151,7 @@ export const getPublicProfile = async (
   const collections = await getProfileCollections(row.id, db);
   const response = buildPublicProfileResponse(row, collections);
   response.avatarUrl = await resolveAvatarUrl(row);
+  response.bannerUrl = await resolveProfileFileUrl(row.bannerR2Key);
   response.resume = await buildPublicResume(row);
   return response;
 };

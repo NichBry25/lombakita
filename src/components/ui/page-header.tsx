@@ -3,15 +3,20 @@ import { joinClassNames } from "./class-names";
 import { ButtonLink } from "./button";
 import { Icon } from "./icon";
 
-type PageHeaderProps = {
+type PageHeaderBaseProps = {
   title: string;
-  description?: string;
-  eyebrow?: string;
   backHref?: string;
   backLabel?: string;
   actions?: ReactNode;
   className?: string;
 };
+
+/**
+ * A page heading carries at most two lines of text: the title, plus EITHER a preceding
+ * eyebrow OR a following description — never both. Passing both is a type error.
+ */
+type PageHeaderProps = PageHeaderBaseProps &
+  ({ eyebrow?: string; description?: never } | { description?: string; eyebrow?: never });
 
 export function PageHeader({
   title,

@@ -5,7 +5,13 @@
 // signatures for the formats the platform accepts are implemented — an unrecognised file returns
 // null and is rejected by the caller.
 
+// The formats identity documents may be. Deliberately narrow — every one of these is safe to
+// render inline in a browser tab.
 export type DetectedFileType = "application/pdf" | "image/jpeg" | "image/png" | "image/webp";
+
+// Every signature family this module can confirm. Competition submissions accept the wider set
+// (archives, Office documents, video); identity documents do not — see `detectFileType`.
+export type DetectedFileFamily = DetectedFileType | "application/zip" | "image/gif" | "video/mp4";
 
 const startsWith = (bytes: Uint8Array, signature: readonly number[]): boolean => {
   if (bytes.length < signature.length) return false;
@@ -28,12 +34,61 @@ const isWebp = (bytes: Uint8Array): boolean => {
   return WEBP_TAG.every((byte, index) => bytes[index + 8] === byte);
 };
 
-// Returns the MIME type the leading bytes actually are, independent of any declared value. Callers
-// pass the first few KB of the object (the header region is enough for every supported signature).
-export const detectFileType = (bytes: Uint8Array): DetectedFileType | null => {
+// GIF header: "GIF87a" or "GIF89a"
+const GIF_SIGNATURE = [0x47, 0x49, 0x46, 0x38] as const;
+const GIF_VERSION_BYTES = [0x37, 0x39] as const;
+// ZIP local file header ("PK\x03\x04") and the empty-archive end-of-central-directory record
+// ("PK\x05\x06"). Every OOXML Office file is a zip, so all of them land here.
+const ZIP_SIGNATURE = [0x50, 0x4b, 0x03, 0x04] as const;
+const EMPTY_ZIP_SIGNATURE = [0x50, 0x4b, 0x05, 0x06] as const;
+// ISO base media (MP4): bytes 4-7 are "ftyp"; bytes 0-3 are the box size, which varies.
+const FTYP_TAG = [0x66, 0x74, 0x79, 0x70] as const;
+
+const isGif = (bytes: Uint8Array): boolean => {
+  if (!startsWith(bytes, GIF_SIGNATURE)) return false;
+  if (bytes.length < 6) return false;
+  const version = bytes[4];
+  return (
+    version !== undefined &&
+    (GIF_VERSION_BYTES as readonly number[]).includes(version) &&
+    bytes[5] === 0x61
+  );
+};
+
+const isMp4 = (bytes: Uint8Array): boolean => {
+  if (bytes.length < 8) return false;
+  return FTYP_TAG.every((byte, index) => bytes[index + 4] === byte);
+};
+
+// Returns the signature family the leading bytes actually are, independent of any declared value.
+// Callers pass the first few KB of the object (the header region is enough for every supported
+// signature). A family is coarser than a format: an OOXML .docx and a plain .zip are both
+// "application/zip", because that is genuinely all the bytes prove.
+export const detectFileFamily = (bytes: Uint8Array): DetectedFileFamily | null => {
   if (startsWith(bytes, PDF_SIGNATURE)) return "application/pdf";
   if (startsWith(bytes, JPEG_SIGNATURE)) return "image/jpeg";
   if (startsWith(bytes, PNG_SIGNATURE)) return "image/png";
   if (isWebp(bytes)) return "image/webp";
+  if (isGif(bytes)) return "image/gif";
+  if (startsWith(bytes, ZIP_SIGNATURE) || startsWith(bytes, EMPTY_ZIP_SIGNATURE)) {
+    return "application/zip";
+  }
+  if (isMp4(bytes)) return "video/mp4";
   return null;
+};
+
+const DOCUMENT_FILE_TYPES = new Set<string>([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+// The identity-document detector: `detectFileFamily` narrowed to the four formats that flow
+// accepts. Anything outside them — including a family this module can now recognise — returns
+// null, exactly as it did before the wider families existed.
+export const detectFileType = (bytes: Uint8Array): DetectedFileType | null => {
+  const family = detectFileFamily(bytes);
+  if (family === null || !DOCUMENT_FILE_TYPES.has(family)) return null;
+  return family as DetectedFileType;
 };

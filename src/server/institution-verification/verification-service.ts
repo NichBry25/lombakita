@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { AccessError } from "@/server/auth/access-core";
 import { getDb, type Database } from "@/server/db/client";
 import {
@@ -6,6 +6,7 @@ import {
   institutionVerificationAudit,
   institutions,
   users,
+  type InstitutionType,
   type InstitutionVerificationStatus,
 } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
@@ -15,12 +16,17 @@ import {
   institutionOwnerUsernameSql,
 } from "@/server/institution-workspace/institution-display-name";
 import {
+  isPersonalInstitutionType,
+  PERSONAL_INSTITUTION_TYPE,
+} from "@/server/institution-workspace/institution-type";
+import {
   assertValidTransition,
   isVerificationStatus,
   VerificationError,
 } from "@/server/institution-verification/verification-core";
 import {
   sendInstitutionRejectedEmail,
+  sendInstitutionVerificationRevokedEmail,
   sendInstitutionVerifiedEmail,
 } from "@/server/institution-verification/verification-email";
 
@@ -60,6 +66,14 @@ export type VerifyResult = {
 
 const PAGE_SIZE = 20;
 
+// A personal institution has no document verification: it IS its owner, and that owner is vetted
+// by the account-level Trusted Recruiter review. `createVerificationSubmission` refuses one
+// outright, so a personal row could only ever sit in this queue as a permanently inert entry an
+// operator has no evidence to act on. Excluded from both the page query and the count so
+// pagination and the total agree. A personal→full upgrade resets verification_status, so an
+// upgraded institution enters this queue on its own merits.
+const NON_PERSONAL_INSTITUTION = ne(institutions.institutionType, PERSONAL_INSTITUTION_TYPE);
+
 const requirePlatformOps = (actorRole: string): void => {
   if (actorRole !== "platform_ops") {
     throw new AccessError("forbidden", 403, "platform_ops access required");
@@ -82,6 +96,10 @@ export const listInstitutionsForPlatformOps = async (options: {
     typeof options.statusFilter === "string" && isVerificationStatus(options.statusFilter)
       ? eq(institutions.verificationStatus, options.statusFilter)
       : undefined;
+
+  const listWhere = statusWhere
+    ? and(NON_PERSONAL_INSTITUTION, statusWhere)
+    : NON_PERSONAL_INSTITUTION;
 
   const rows = await db
     .select({
@@ -109,7 +127,7 @@ export const listInstitutionsForPlatformOps = async (options: {
       )`,
     })
     .from(institutions)
-    .where(statusWhere)
+    .where(listWhere)
     .orderBy(desc(institutions.createdAt))
     .limit(PAGE_SIZE)
     .offset(offset);
@@ -118,7 +136,7 @@ export const listInstitutionsForPlatformOps = async (options: {
   const [countRow] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(institutions)
-    .where(statusWhere);
+    .where(listWhere);
 
   // Resolve the display name through the helper: a personal institution stores NULL and derives its
   // name from the owner username; full/legacy institutions use the stored value.
@@ -172,28 +190,6 @@ export const verifyInstitution = async (options: {
 
   const db = options.db ?? getDb();
 
-  // TODO(step-2.5): race condition — this SELECT is outside the transaction. Two concurrent
-  // PATCH requests can both read the same verificationStatus, pass assertValidTransition,
-  // and both commit, producing duplicate audit entries. Fix: add
-  // AND verification_status = <expected_from> to the UPDATE WHERE clause and treat
-  // zero rows updated as 409. Required before Phase 6 when multiple ops staff use this tool.
-  const [current] = await db
-    .select({
-      id: institutions.id,
-      displayName: institutions.displayName,
-      institutionType: institutions.institutionType,
-      verificationStatus: institutions.verificationStatus,
-    })
-    .from(institutions)
-    .where(eq(institutions.id, options.institutionId))
-    .limit(1);
-
-  if (!current) {
-    throw new VerificationError("verification_not_found", 404, "Institution not found");
-  }
-
-  assertValidTransition(current.verificationStatus, options.targetStatus);
-
   const now = new Date();
   const statusUpdates: {
     verificationStatus: InstitutionVerificationStatus;
@@ -221,12 +217,55 @@ export const verifyInstitution = async (options: {
     rejectedAt: Date | null;
     rejectionReason: string | null;
   };
+  let current: {
+    displayName: string | null;
+    institutionType: InstitutionType;
+    verificationStatus: InstitutionVerificationStatus;
+  };
 
   await db.transaction(async (tx) => {
+    // Read and write in one transaction, and pin the UPDATE to the status this decision was made
+    // against. Two concurrent PATCHes previously both passed assertValidTransition and both
+    // committed, leaving the loser's audit row describing a transition that never happened — which
+    // matters now that a revocation can race an approval in either direction.
+    const [row] = await tx
+      .select({
+        displayName: institutions.displayName,
+        institutionType: institutions.institutionType,
+        verificationStatus: institutions.verificationStatus,
+      })
+      .from(institutions)
+      .where(eq(institutions.id, options.institutionId))
+      .limit(1);
+
+    if (!row) {
+      throw new VerificationError("verification_not_found", 404, "Institution not found");
+    }
+
+    current = row;
+
+    // Personal institutions are filtered out of the platform-ops queue, so this only fires for a
+    // request made directly against the endpoint by id. It is the actual guard, not a courtesy:
+    // without it the hidden row would still accept a transition and write a meaningless audit entry.
+    if (isPersonalInstitutionType(row.institutionType)) {
+      throw new VerificationError(
+        "institution_verification_not_applicable",
+        409,
+        "A personal institution has no document verification to review",
+      );
+    }
+
+    assertValidTransition(row.verificationStatus, options.targetStatus);
+
     const [updated] = await tx
       .update(institutions)
       .set(statusUpdates)
-      .where(eq(institutions.id, options.institutionId))
+      .where(
+        and(
+          eq(institutions.id, options.institutionId),
+          eq(institutions.verificationStatus, row.verificationStatus),
+        ),
+      )
       .returning({
         id: institutions.id,
         verificationStatus: institutions.verificationStatus,
@@ -236,7 +275,11 @@ export const verifyInstitution = async (options: {
       });
 
     if (!updated) {
-      throw new VerificationError("verification_not_found", 404, "Institution not found");
+      throw new VerificationError(
+        "verification_transition_conflict",
+        409,
+        "This institution's verification status changed while you were deciding. Reload and try again",
+      );
     }
 
     institutionSnapshot = updated;
@@ -246,7 +289,7 @@ export const verifyInstitution = async (options: {
       .values({
         institutionId: options.institutionId,
         actorUserId: options.actorUserId,
-        fromStatus: current.verificationStatus,
+        fromStatus: row.verificationStatus,
         toStatus: options.targetStatus,
         reason: options.reason ?? null,
       })
@@ -269,7 +312,7 @@ export const verifyInstitution = async (options: {
   logger.info("institution.verification.transitioned", {
     institutionId: options.institutionId,
     actorUserId: options.actorUserId,
-    from: current.verificationStatus,
+    from: current!.verificationStatus,
     to: options.targetStatus,
     reason: options.reason,
   });
@@ -297,20 +340,34 @@ export const verifyInstitution = async (options: {
         // Resolve the name through the helper: a personal institution derives it from the owner
         // username (the same owner whose email we just loaded).
         const resolvedDisplayName = getInstitutionDisplayName(
-          { displayName: current.displayName, institutionType: current.institutionType },
+          { displayName: current!.displayName, institutionType: current!.institutionType },
           { username: adminRow.username },
         );
-        const emailTask =
-          options.targetStatus === "verified"
-            ? sendInstitutionVerifiedEmail({
-                toEmail: adminRow.email,
-                institutionDisplayName: resolvedDisplayName,
-              })
-            : sendInstitutionRejectedEmail({
-                toEmail: adminRow.email,
-                institutionDisplayName: resolvedDisplayName,
-                rejectionReason: options.reason!,
-              });
+        // A 'rejected' target means two different things to the owner depending on where the
+        // institution came from: a denied application (from pending/under review) or a verification
+        // withdrawn after it had been granted. They get different notices.
+        const isRevocation =
+          options.targetStatus === "rejected" && current!.verificationStatus === "verified";
+
+        let emailTask: Promise<void>;
+        if (options.targetStatus === "verified") {
+          emailTask = sendInstitutionVerifiedEmail({
+            toEmail: adminRow.email,
+            institutionDisplayName: resolvedDisplayName,
+          });
+        } else if (isRevocation) {
+          emailTask = sendInstitutionVerificationRevokedEmail({
+            toEmail: adminRow.email,
+            institutionDisplayName: resolvedDisplayName,
+            revocationReason: options.reason!,
+          });
+        } else {
+          emailTask = sendInstitutionRejectedEmail({
+            toEmail: adminRow.email,
+            institutionDisplayName: resolvedDisplayName,
+            rejectionReason: options.reason!,
+          });
+        }
 
         emailTask.catch((err: unknown) => {
           logger.error("institution.verification.email_failed", {

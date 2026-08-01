@@ -11,7 +11,6 @@ export default function SuspendedPage() {
             !
           </span>
           <div className="stack-sm">
-            <p className="eyebrow">Status akun</p>
             <h1>Akun Anda ditangguhkan</h1>
             <p>
               Akun ini sedang ditangguhkan oleh tim Lombakita, sehingga Anda tidak dapat masuk untuk
@@ -44,14 +43,16 @@ export default function SuspendedPage() {
             <h2 className="section-title">Cara mengajukan banding</h2>
           </div>
           <ol className="appeal-steps">
-            <li>Kirim email ke alamat dukungan di atas dari alamat email akun Anda.</li>
-            <li>Tuliskan nama akun dan jelaskan secara singkat keberatan Anda.</li>
-            <li>Tim Lombakita akan meninjau permintaan banding Anda dan membalas melalui email.</li>
+            <li>1. Kirim email ke alamat dukungan di atas dari alamat email akun Anda.</li>
+            <li>2. Tuliskan nama akun dan jelaskan secara singkat keberatan Anda.</li>
+            <li>
+              3. Tim Lombakita akan meninjau permintaan banding Anda dan membalas melalui email.
+            </li>
           </ol>
         </section>
 
         <ButtonLink href="/" variant="outline">
-          Kembali ke beranda
+          Kembali
         </ButtonLink>
       </div>
     </main>

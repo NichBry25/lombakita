@@ -1,0 +1,2 @@
+ALTER TABLE "recruiter_verification_submissions" ADD COLUMN "resubmission_allowed" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "recruiter_verification_submissions" ADD COLUMN "resubmission_count" integer DEFAULT 0 NOT NULL;

@@ -8,12 +8,27 @@ import {
 import { PUBLIC_COMPETITION_COLUMNS } from "@/server/competitions/competition-access";
 import type { CompetitionRow } from "@/server/competitions/competition-access";
 
-const { assertCompetitionAccess, assertActorIsTrustedRecruiter, assertInstitutionNotSuspended } =
-  vi.hoisted(() => ({
-    assertCompetitionAccess: vi.fn(),
-    assertActorIsTrustedRecruiter: vi.fn(),
-    assertInstitutionNotSuspended: vi.fn(),
-  }));
+const {
+  assertCompetitionAccess,
+  assertActorIsTrustedRecruiter,
+  assertInstitutionNotSuspended,
+  enqueueCompetitionSearchSync,
+  enqueueCompetitionEdited,
+  enqueueCompetitionCancelled,
+} = vi.hoisted(() => ({
+  assertCompetitionAccess: vi.fn(),
+  assertActorIsTrustedRecruiter: vi.fn(),
+  assertInstitutionNotSuspended: vi.fn(),
+  enqueueCompetitionSearchSync: vi.fn(async () => ({})),
+  enqueueCompetitionEdited: vi.fn(async () => ({})),
+  enqueueCompetitionCancelled: vi.fn(async () => ({})),
+}));
+
+vi.mock("@/server/async/enqueue", () => ({
+  enqueueCompetitionSearchSync,
+  enqueueCompetitionEdited,
+  enqueueCompetitionCancelled,
+}));
 
 vi.mock("@/server/competitions/competition-access", async () => {
   const actual = await vi.importActual<typeof import("@/server/competitions/competition-access")>(
@@ -38,6 +53,7 @@ import {
 // All tests in this file mock assertCompetitionAccess, so the underlying db is never read.
 // We pass an empty stub that satisfies the type signature without triggering getDb().
 const stubDb = {} as unknown as Database;
+const futureDate = (days: number): Date => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
 const baseCompetition = (overrides: Partial<CompetitionRow> = {}): CompetitionRow => ({
   id: "comp_1",
@@ -55,10 +71,15 @@ const baseCompetition = (overrides: Partial<CompetitionRow> = {}): CompetitionRo
   registrationEndAt: null,
   eventStartAt: null,
   eventEndAt: null,
+  resultAnnouncementAt: null,
+  minimumParticipantEntries: null,
+  participantConfirmationAt: null,
+  participationConfirmedAt: null,
+  cancelledAt: null,
+  cancellationReason: null,
   allowCancellation: false,
   cancellationCutoffDays: null,
   publishedAt: null,
-  archivedAt: null,
   deletedAt: null,
   createdAt: new Date(),
   updatedAt: new Date(),
@@ -105,6 +126,26 @@ describe("F2 — same-status transitions return 422", () => {
     );
   });
 
+  // Archiving is retired: a finished competition stays published so its public record, organizer
+  // contact details, and results survive the event. No caller may reintroduce a path into the
+  // state, from either side.
+  it.each([
+    ["draft", "archived"],
+    ["published", "archived"],
+  ] as const)("refuses %s → %s with 422", async (from, to) => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({ status: from }),
+      membershipRole: "institution_owner",
+    });
+
+    await expect(transitionCompetitionStatus("user_1", "comp_1", to, stubDb)).rejects.toMatchObject(
+      {
+        code: "competition_invalid_transition",
+        httpStatus: 422,
+      },
+    );
+  });
+
   it("does not call assertActorIsTrustedRecruiter on same-status draft → draft", async () => {
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({ status: "draft" }),
@@ -121,8 +162,10 @@ describe("F2 — same-status transitions return 422", () => {
 describe("updateCompetitionDraft — non-editable status guard", () => {
   afterEach(() => vi.clearAllMocks());
 
-  // Archived (terminal) competitions remain non-editable. Published is editable in place via the
-  // Step 6.5f post-publish path — covered in competition-service.published-edit.test.ts.
+  // No live row can hold the archived status any more, but the guard still refuses one — this
+  // pins that a stray row from before the state was retired stays non-editable rather than
+  // falling through into the draft path. Published is editable in place via the post-publish
+  // path, covered in competition-service.published-edit.test.ts.
   it("rejects PATCH on an archived competition with 409 competition_not_draft", async () => {
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({ status: "archived" }),
@@ -132,6 +175,47 @@ describe("updateCompetitionDraft — non-editable status guard", () => {
     await expect(updateCompetitionDraft("user_1", "comp_1", patch, stubDb)).rejects.toMatchObject({
       code: "competition_not_draft",
       httpStatus: 409,
+    });
+  });
+});
+
+describe("updateCompetitionDraft — effective timeline validation", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("rejects a partial patch that moves registration end before the stored start", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({
+        status: "draft",
+        registrationStartAt: futureDate(10),
+        registrationEndAt: futureDate(20),
+      }),
+      membershipRole: "institution_owner",
+    });
+
+    await expect(
+      updateCompetitionDraft("user_1", "comp_1", { registrationEndAt: futureDate(5) }, stubDb),
+    ).rejects.toMatchObject({
+      code: "competition_invalid_value",
+      details: { fields: ["registrationStartAt", "registrationEndAt"] },
+    });
+  });
+
+  it("rejects a partial patch that announces results before the stored event end", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: baseCompetition({
+        status: "draft",
+        eventStartAt: futureDate(20),
+        eventEndAt: futureDate(25),
+        resultAnnouncementAt: futureDate(30),
+      }),
+      membershipRole: "institution_owner",
+    });
+
+    await expect(
+      updateCompetitionDraft("user_1", "comp_1", { resultAnnouncementAt: futureDate(24) }, stubDb),
+    ).rejects.toMatchObject({
+      code: "competition_invalid_value",
+      details: { fields: ["eventEndAt", "resultAnnouncementAt"] },
     });
   });
 });
@@ -177,6 +261,9 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
         registrationEndAt: future(10),
         eventStartAt: future(20),
         eventEndAt: future(25),
+        resultAnnouncementAt: future(30),
+        minimumParticipantEntries: 0,
+        participantConfirmationAt: future(15),
       }),
       membershipRole: "institution_owner",
     });
@@ -241,6 +328,9 @@ describe("F5-5 — publish rejects team competition with minTeamSize < 2 (Step 6
       registrationEndAt: future(10),
       eventStartAt: future(20),
       eventEndAt: future(25),
+      resultAnnouncementAt: future(30),
+      minimumParticipantEntries: 0,
+      participantConfirmationAt: future(15),
     });
     expect(result.passed).toBe(true);
   });
@@ -397,5 +487,112 @@ describe("getCompetitionIdByInstitutionAndSlug", () => {
     expect(idA).toBe("comp_1");
     expect(idB).toBe("comp_2");
     expect(idA).not.toBe(idB);
+  });
+});
+
+// A personal institution is never document-verified — it has no documents, and it is excluded
+// from the platform-ops verification queue for exactly that reason. These tests pin the
+// consequence that matters: excluding it costs it no capability. Publishing is gated on the
+// ACCOUNT-level Trusted Recruiter check plus the personal reach cap, and reads nothing about the
+// institution's verification_status (assertInstitutionVerified has no caller on this path).
+describe("personal institution publish — capability is independent of institution verification", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  const future = (days: number): Date => {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d;
+  };
+
+  const publishableDraft = () =>
+    baseCompetition({
+      status: "draft",
+      mode: "individual",
+      title: "Lomba Individu",
+      description: "Deskripsi lengkap",
+      category: "hackathon",
+      registrationStartAt: future(2),
+      registrationEndAt: future(10),
+      eventStartAt: future(20),
+      eventEndAt: future(25),
+      resultAnnouncementAt: future(30),
+      minimumParticipantEntries: 0,
+      participantConfirmationAt: future(15),
+    });
+
+  // Serves exactly the reads the publish path is expected to make, in order:
+  //   1. loadInstitutionTypeById  → 'personal'
+  //   2. published-competition count for the reach cap
+  // Anything beyond that — a re-wired institution-verification lookup, for instance — draws an
+  // empty result and fails the transition, so this mock is the tripwire, not just a stub.
+  const makePersonalPublishDb = (publishedCount: number) => {
+    const selectResults: unknown[][] = [
+      [{ institutionType: "personal" }],
+      [{ count: publishedCount }],
+    ];
+    let selectCall = 0;
+    const capturedUpdates: Record<string, unknown>[] = [];
+
+    const selectNode = (result: unknown[]): Record<string, unknown> => {
+      const n: Record<string, unknown> = {};
+      for (const method of ["from", "innerJoin", "orderBy"]) n[method] = () => n;
+      n.where = () => {
+        const terminal = { ...n } as Record<string, unknown>;
+        terminal.then = (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve);
+        return terminal;
+      };
+      n.limit = () => Promise.resolve(result);
+      return n;
+    };
+
+    const db = {
+      select: () => selectNode(selectResults[selectCall++] ?? []),
+      update: () => ({
+        set: (values: Record<string, unknown>) => {
+          capturedUpdates.push(values);
+          return {
+            where: () => ({
+              returning: () =>
+                Promise.resolve([
+                  { ...publishableDraft(), status: "published", publishedAt: new Date() },
+                ]),
+            }),
+          };
+        },
+      }),
+    } as unknown as Database;
+
+    return { db, capturedUpdates };
+  };
+
+  it("publishes an individual-mode competition for a personal institution under the cap", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: publishableDraft(),
+      membershipRole: "institution_owner",
+    });
+    assertActorIsTrustedRecruiter.mockResolvedValue(undefined);
+    assertInstitutionNotSuspended.mockResolvedValue(undefined);
+    const { db, capturedUpdates } = makePersonalPublishDb(1);
+
+    const result = await transitionCompetitionStatus("user_1", "comp_1", "published", db);
+
+    expect(result.competition.status).toBe("published");
+    expect(capturedUpdates[0]).toMatchObject({ status: "published" });
+    // The account-level trust gate is what authorizes this publish.
+    expect(assertActorIsTrustedRecruiter).toHaveBeenCalledTimes(1);
+  });
+
+  it("still enforces the personal reach cap — the capability is bounded, not unconditional", async () => {
+    assertCompetitionAccess.mockResolvedValue({
+      competition: publishableDraft(),
+      membershipRole: "institution_owner",
+    });
+    assertActorIsTrustedRecruiter.mockResolvedValue(undefined);
+    assertInstitutionNotSuspended.mockResolvedValue(undefined);
+    const { db } = makePersonalPublishDb(2);
+
+    await expect(
+      transitionCompetitionStatus("user_1", "comp_1", "published", db),
+    ).rejects.toMatchObject({ code: "competition_personal_publish_limit", httpStatus: 422 });
   });
 });

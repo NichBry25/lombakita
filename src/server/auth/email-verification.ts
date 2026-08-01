@@ -59,14 +59,14 @@ export const sendRegistrationVerificationEmail = async (options: {
       "Tautan ini berlaku selama 24 jam.",
     ].join("\n"),
     html: `
-      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #0f1012;">
+      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #14453d;">
         <h2 style="margin-bottom: 12px;">Verifikasi akun Lombakita</h2>
         <p style="margin: 0 0 12px;">Halo ${options.name},</p>
         <p style="margin: 0 0 16px;">
           Terima kasih sudah mendaftar di Lombakita. Klik tombol di bawah untuk memverifikasi email Anda.
         </p>
         <p style="margin: 0 0 16px;">
-          <a href="${verificationUrl}" style="background: #355795; color: #f4f8ff; text-decoration: none; padding: 10px 16px; border-radius: 8px; display: inline-block;">
+          <a href="${verificationUrl}" style="background: #c6491b; color: #ffffff; text-decoration: none; padding: 10px 16px; border-radius: 8px; display: inline-block;">
             Verifikasi Email
           </a>
         </p>
@@ -74,7 +74,7 @@ export const sendRegistrationVerificationEmail = async (options: {
         <p style="word-break: break-all; margin: 0 0 12px;">
           <a href="${verificationUrl}">${verificationUrl}</a>
         </p>
-        <p style="margin: 0; color: #4a5565;">Tautan ini berlaku selama 24 jam.</p>
+        <p style="margin: 0; color: #3d5c56;">Tautan ini berlaku selama 24 jam.</p>
       </div>
     `,
   });

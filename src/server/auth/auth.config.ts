@@ -1,11 +1,12 @@
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
+import * as Sentry from "@sentry/nextjs";
 import { eq } from "drizzle-orm";
 import type { NextAuthOptions } from "next-auth";
 import type { Adapter } from "next-auth/adapters";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import { assertRuntimeEnv, serverEnv } from "@/config/env.server";
-import { type AppRole, isAppRole } from "@/lib/access/roles";
+import { type AppRole, isAppRole, isSelfServiceRole } from "@/lib/access/roles";
 import { logger } from "@/lib/logger";
 import { authenticateWithEmailPassword, normalizeEmail } from "@/server/auth/credentials-auth";
 import { extractClientIp, UNKNOWN_CLIENT_IP } from "@/server/auth/client-ip";
@@ -93,27 +94,73 @@ const sanitizeVerifiedRoles = (value: unknown): AppRole[] => {
   return value.filter((entry): entry is AppRole => typeof entry === "string" && isAppRole(entry));
 };
 
-// Step 6.2 — platform ops moderation. Immediate suspension effect requires reading the live
-// `suspended_at` value on every session resolution rather than waiting for JWT rotation (cookie
-// maxAge is one year; updateAge 24h). This adds ONE indexed-PK SELECT per session read — the
-// accepted MVP trade-off for blocking a suspended account on its very next request. Degrades to
-// "not suspended" on DB error (mirrors loadVerifiedRoles) so a transient DB hiccup never locks
-// every user out of session resolution; the access-layer gate re-checks on the next request.
-const loadSuspendedAt = async (userId: string): Promise<Date | null> => {
+// The account's suspension state and its current user-level role are both read from the database
+// on every session resolution rather than trusted from the JWT. Under the jwt strategy a token is
+// minted at sign-in and never refreshed, so anything cached inside it stays authoritative for the
+// cookie's full lifetime (one year); reading these columns live is what makes a suspension or a
+// role change take effect on the account's very next request. This adds ONE indexed-PK SELECT per
+// session read — the accepted trade-off for immediate effect.
+//
+// The three outcomes are kept distinct because they require opposite failure behaviour:
+//   found       — use the database values.
+//   unavailable — the query threw. Callers FAIL OPEN for self-service roles and fall back to the
+//                 token's cached role: a transient DB fault must never sign every user out of the
+//                 platform, and self-service accounts are the overwhelming majority of sessions.
+//   missing     — no users row. Callers FAIL CLOSED and surface no role, so a deleted account's
+//                 existing cookie stops authenticating. Deletion is the only cause; a session
+//                 never legitimately resolves for an absent user row.
+//
+// `role` is typed nullable even though users.role is NOT NULL, so an out-of-band write or a future
+// schema change that admits a null can only ever produce a roleless session, never a coerced one.
+type LiveAccountState =
+  | { status: "found"; role: string | null; suspendedAt: Date | null }
+  | { status: "missing" }
+  | { status: "unavailable" };
+
+const loadLiveAccountState = async (userId: string): Promise<LiveAccountState> => {
   try {
     const [row] = await getDb()
-      .select({ suspendedAt: users.suspendedAt })
+      .select({ role: users.role, suspendedAt: users.suspendedAt })
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
-    return row?.suspendedAt ?? null;
+
+    if (!row) {
+      return { status: "missing" };
+    }
+
+    return { status: "found", role: row.role, suspendedAt: row.suspendedAt };
   } catch (error) {
-    logger.error("auth.suspendedAt.load_failed", {
+    logger.error("auth.liveAccountState.load_failed", {
       userId,
       error: error instanceof Error ? error.message : String(error),
     });
-    return null;
+    Sentry.captureException(error, {
+      level: "warning",
+      tags: { subsystem: "auth-session", operation: "load_live_account_state" },
+    });
+    return { status: "unavailable" };
   }
+};
+
+// Which role the session should present: the live database value when it is readable, the token's
+// cached value when the database is unreachable, and none at all when the account no longer exists.
+//
+// The unreachable-database fallback is restricted to self-service roles. Operational roles
+// (platform_ops, finance_ops) are the ones whose revocation this live read exists to deliver, so
+// honouring a cached operational role while the database is down would reopen exactly the window
+// being closed. Those sessions fail closed instead and recover on the next successful read.
+const resolveEffectiveRole = (
+  account: LiveAccountState,
+  tokenRole: string | undefined,
+): string | undefined => {
+  if (account.status === "found") {
+    return account.role ?? undefined;
+  }
+  if (account.status === "unavailable") {
+    return isSelfServiceRole(tokenRole) ? tokenRole : undefined;
+  }
+  return undefined;
 };
 
 export const authOptions: NextAuthOptions = {
@@ -397,20 +444,26 @@ export const authOptions: NextAuthOptions = {
 
       session.user.id = userId;
 
-      // Step 6.2 — per-request suspension check. A non-null suspended_at is surfaced as an ISO
-      // string; the access layer (assertAuthenticatedSession) turns this into a 403
-      // account_suspended on the next guarded request. See loadSuspendedAt for the trade-off note.
-      const suspendedAt = await loadSuspendedAt(userId);
-      if (suspendedAt) {
-        session.user.suspendedAt = suspendedAt.toISOString();
+      // One live read backs both the suspension gate and the role. A non-null suspended_at is
+      // surfaced as an ISO string; the access layer (assertAuthenticatedSession) turns it into a
+      // 403 account_suspended on the next guarded request. See loadLiveAccountState for the
+      // fail-open/fail-closed split.
+      const account = await loadLiveAccountState(userId);
+
+      if (account.status === "found" && account.suspendedAt) {
+        session.user.suspendedAt = account.suspendedAt.toISOString();
       }
-      // Surface the token's role only if it still matches the current AppRole set.
-      // access-core.normalizeSessionRole is the second-line gate on every guarded request and
-      // rejects invalid/stale role tokens with AccessError 401. Together this means: a stale
-      // JWT carrying role="student" produces session.user.role = undefined here, then
-      // normalizeSessionRole throws 401 on the next access-control check. No silent coercion.
-      if (tokenRole && isAppRole(tokenRole)) {
-        session.user.role = tokenRole;
+
+      // Surface the role only if it matches the current AppRole set. access-core
+      // .normalizeSessionRole is the second-line gate on every guarded request and rejects
+      // invalid/stale/absent roles with AccessError 401. So an account whose row no longer exists,
+      // or one whose stored role is not a recognised AppRole, leaves session.user.role undefined
+      // here and normalizeSessionRole throws 401 on the next access-control check. A JWT carrying
+      // an unrecognised role (e.g. a pre-rollback role="student") no longer decides anything while
+      // the database is reachable — the stored role replaces it outright. No silent coercion.
+      const effectiveRole = resolveEffectiveRole(account, tokenRole);
+      if (effectiveRole && isAppRole(effectiveRole)) {
+        session.user.role = effectiveRole;
       }
 
       session.user.verifiedRoles = sanitizeVerifiedRoles(token?.verifiedRoles);

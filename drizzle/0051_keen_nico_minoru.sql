@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "institution_verification_submissions_institution_pending_unique_idx" ON "institution_verification_submissions" USING btree ("institution_id") WHERE "institution_verification_submissions"."status" = 'pending_review';

@@ -3,10 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, FormActionBar, IconButton, PageHeader, SelectField } from "@/components/ui";
+import { useToast } from "@/components/ui/primitives";
 
 import { COMPETITION_CATEGORY_OPTIONS } from "@/lib/competitions/categories";
-
-type Feedback = { type: "success" | "error"; message: string } | null;
 
 const extractErrorMessage = async (response: Response): Promise<string> => {
   try {
@@ -26,14 +25,13 @@ export const InstitutionCompetitionCreateShell = ({
   const [slug, setSlug] = useState("");
   const [category, setCategory] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<Feedback>(null);
+  const { addToast } = useToast();
   const router = useRouter();
   const backHref = `/institution/${institutionSlug}/competitions`;
 
   const onSubmit = async (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     setIsSubmitting(true);
-    setFeedback(null);
 
     const body: Record<string, unknown> = {
       institutionSlug,
@@ -51,7 +49,7 @@ export const InstitutionCompetitionCreateShell = ({
 
     if (!response.ok) {
       const message = await extractErrorMessage(response);
-      setFeedback({ type: "error", message });
+      addToast({ type: "error", message });
       setIsSubmitting(false);
       return;
     }
@@ -65,7 +63,6 @@ export const InstitutionCompetitionCreateShell = ({
   return (
     <main className="page-shell app-page competition-form-page">
       <PageHeader
-        eyebrow="Kompetisi baru"
         title="Buat draf kompetisi"
         description="Mulai dengan identitas inti. Detail jadwal, format, dan publikasi diatur setelah draf dibuat."
       />
@@ -86,7 +83,7 @@ export const InstitutionCompetitionCreateShell = ({
         </label>
 
         <label className="form-field">
-          <span className="form-label">Slug (opsional)</span>
+          <span className="form-label">Slug (Opsional)</span>
           <input
             type="text"
             value={slug}
@@ -100,23 +97,17 @@ export const InstitutionCompetitionCreateShell = ({
 
         <div className="form-field">
           <span className="form-label" id="create-category-label">
-            Kategori (opsional)
+            Kategori (Opsional)
           </span>
           <SelectField
             label="Kategori"
             id="create-category-label"
             value={category}
-            placeholder="— Pilih —"
+            placeholder="Pilih"
             options={[...COMPETITION_CATEGORY_OPTIONS]}
             onChange={setCategory}
           />
         </div>
-
-        {feedback ? (
-          <p role="status" className="feedback" data-tone={feedback.type}>
-            {feedback.message}
-          </p>
-        ) : null}
       </form>
 
       <FormActionBar>

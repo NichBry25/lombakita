@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -115,6 +116,9 @@ export const recruiterVerificationTierEnum = pgEnum("recruiter_verification_tier
 
 export type RecruiterVerificationTier = (typeof recruiterVerificationTierEnum.enumValues)[number];
 
+// "archived" is retained because Postgres cannot drop an enum value. No application path can
+// produce it: a competition is either a draft or published, and how far along it is reads from
+// its dates and its results rather than from a status flip. Read paths still tolerate the value.
 export const competitionStatusEnum = pgEnum("competition_status", [
   "draft",
   "published",
@@ -264,6 +268,9 @@ export const userProfiles = pgTable("user_profiles", {
   // stored as an R2 object key in `avatar_r2_key`; the read path presigns a short-lived GET URL.
   avatarUrl: text("avatar_url"),
   avatarR2Key: text("avatar_r2_key"),
+  // Wide header image behind the profile identity block, stored as an R2 object key and presigned
+  // on read like the avatar. Cropped client-side to a fixed 4:1 frame before upload.
+  bannerR2Key: text("banner_r2_key"),
   summary: text("summary"),
   location: text("location"),
   // Single resume per user (uploaded to R2). `resume_public` gates whether it appears on the
@@ -498,6 +505,10 @@ export const institutions = pgTable(
     // a placeholder mark. `logoR2Key` is a private R2 object key; the read path signs a fresh GET
     // URL at render time (never a stored public URL). These fields are descriptive only.
     logoR2Key: text("logo_r2_key"),
+    // Wide header image on the public institution page, same 4:1 frame as the profile banner.
+    // Personal institutions never write either key — their logo and banner are derived from the
+    // owner's own profile at read time (see resolveInstitutionMedia).
+    bannerR2Key: text("banner_r2_key"),
     about: text("about"),
     contactName: text("contact_name"),
     contactEmail: text("contact_email"),
@@ -765,8 +776,9 @@ export const platformOpsAuditLogs = pgTable(
 // Step 3.1: Competition domain model.
 // Slug uniqueness is institution-scoped — UNIQUE (institution_id, slug). Two institutions may
 // reuse the same human-readable slug (e.g. "hackathon-2026") without collision.
-// Deletion model: drafts soft-delete via deleted_at. Published and archived records are not
-// deletable through DELETE — published must transition to archived first; archived is terminal.
+// Deletion model: drafts soft-delete via deleted_at. Published records are not deletable through
+// DELETE — a published competition must be unpublished back to draft first. A finished competition
+// stays published so its public record, organizer contact details, and results remain reachable.
 // Payment fields (fee_amount, fee_currency) are deferred to Phase 7 — schema-present but must
 // be null/0 in MVP flows. CHECK (fee_amount >= 0) is added in the migration.
 export const competitions = pgTable(
@@ -793,6 +805,33 @@ export const competitions = pgTable(
     registrationEndAt: timestamp("registration_end_at", { mode: "date", withTimezone: true }),
     eventStartAt: timestamp("event_start_at", { mode: "date", withTimezone: true }),
     eventEndAt: timestamp("event_end_at", { mode: "date", withTimezone: true }),
+    // The date the organizer commits to announcing results. Nullable while drafting and on legacy
+    // rows, but required by publish validation so participants know when to expect an outcome.
+    resultAnnouncementAt: timestamp("result_announcement_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    // Optional minimum-entry commitment. Zero means no minimum; a positive value enables the
+    // insufficient-participation decision. One individual registration counts as one entry and one
+    // submitted team counts as one entry, regardless of team size. The confirmation timestamp is
+    // independently required at publish time because it also closes participant withdrawals.
+    minimumParticipantEntries: integer("minimum_participant_entries"),
+    participantConfirmationAt: timestamp("participant_confirmation_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    // Set only when an organizer explicitly commits to proceed despite an unmet minimum. When the
+    // count meets the minimum at participant_confirmation_at, confirmation is derived from the
+    // stable count instead and this column remains null.
+    participationConfirmedAt: timestamp("participation_confirmed_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    // Competition cancellation is a terminal display axis, separate from publication status:
+    // cancelled competitions deliberately remain status='published' so their public record stays
+    // reachable. cancellation_reason stores the machine-readable reason token.
+    cancelledAt: timestamp("cancelled_at", { mode: "date", withTimezone: true }),
+    cancellationReason: text("cancellation_reason"),
     // Candidate-cancellation policy (Step 6.5f / F12). allow_cancellation is the institution
     // opt-in toggle; cancellation_cutoff_days is the number of days before event_start_at after
     // which self-cancellation is closed. cutoff is only meaningful when allow_cancellation is true
@@ -807,7 +846,6 @@ export const competitions = pgTable(
     isFeatured: boolean("is_featured").notNull().default(false),
     featuredOrder: integer("featured_order"),
     publishedAt: timestamp("published_at", { mode: "date", withTimezone: true }),
-    archivedAt: timestamp("archived_at", { mode: "date", withTimezone: true }),
     deletedAt: timestamp("deleted_at", { mode: "date", withTimezone: true }),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
@@ -827,6 +865,26 @@ export const competitions = pgTable(
     check(
       "competitions_cancellation_policy_chk",
       sql`${table.allowCancellation} = false OR (${table.cancellationCutoffDays} IS NOT NULL AND ${table.cancellationCutoffDays} >= 0)`,
+    ),
+    check(
+      "competitions_minimum_participation_non_negative_chk",
+      sql`${table.minimumParticipantEntries} IS NULL OR ${table.minimumParticipantEntries} >= 0`,
+    ),
+    check(
+      "competitions_participant_confirmation_order_chk",
+      sql`${table.participantConfirmationAt} IS NULL OR ((${table.registrationEndAt} IS NULL OR ${table.registrationEndAt} <= ${table.participantConfirmationAt}) AND (${table.eventStartAt} IS NULL OR ${table.participantConfirmationAt} < ${table.eventStartAt}))`,
+    ),
+    check(
+      "competitions_cancellation_state_chk",
+      sql`(${table.cancelledAt} IS NULL AND ${table.cancellationReason} IS NULL) OR (${table.cancelledAt} IS NOT NULL AND ${table.cancellationReason} = 'insufficient_participants' AND ${table.status} = 'published' AND ${table.minimumParticipantEntries} >= 1 AND ${table.participantConfirmationAt} IS NOT NULL AND ${table.eventStartAt} IS NOT NULL AND ${table.cancelledAt} >= ${table.participantConfirmationAt} AND ${table.cancelledAt} < ${table.eventStartAt})`,
+    ),
+    check(
+      "competitions_participation_confirmation_state_chk",
+      sql`${table.participationConfirmedAt} IS NULL OR (${table.status} = 'published' AND ${table.minimumParticipantEntries} >= 1 AND ${table.participantConfirmationAt} IS NOT NULL AND ${table.eventStartAt} IS NOT NULL AND ${table.participationConfirmedAt} >= ${table.participantConfirmationAt} AND ${table.participationConfirmedAt} < ${table.eventStartAt} AND ${table.cancelledAt} IS NULL)`,
+    ),
+    check(
+      "competitions_participation_terminal_state_chk",
+      sql`${table.cancelledAt} IS NULL OR ${table.participationConfirmedAt} IS NULL`,
     ),
   ],
 );
@@ -1058,6 +1116,113 @@ export const competitionRegistrations = pgTable(
     ),
   ],
 );
+
+// Participant document verification.
+//
+// An organizer asks ONE named participant for ONE named document by a named date. The request
+// hangs off a single competition_registrations row, so a team of four is four independent
+// requests — proof of personal status is personal, and nobody hands their ID card to their
+// captain. This is the deliberate opposite of updateRegistrationReview, which fans a review
+// verdict out across every row sharing a team_id.
+//
+// A request is orthogonal to participation: it never gates registration, submission, results, or
+// the participant count. It is also independent of competition phase — an organizer may ask
+// during registration, mid-competition, or after results are published.
+//
+// `unfulfilled` is deliberately NOT a value here. A lapsed request is derived
+// (status = 'requested' AND due_at < now()), so no scheduled job is needed to keep the column
+// honest and the state can never drift from the clock.
+export const registrationDocumentRequestStatusEnum = pgEnum(
+  "registration_document_request_status",
+  ["requested", "submitted", "accepted", "rejected", "cancelled"],
+);
+
+export type RegistrationDocumentRequestStatus =
+  (typeof registrationDocumentRequestStatusEnum.enumValues)[number];
+
+export const competitionDocumentRequests = pgTable(
+  "competition_document_requests",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    registrationId: text("registration_id").notNull(),
+    title: text("title").notNull(),
+    instructions: text("instructions"),
+    dueAt: timestamp("due_at", { mode: "date", withTimezone: true }).notNull(),
+    status: registrationDocumentRequestStatusEnum("status").notNull().default("requested"),
+    requestedByUserId: text("requested_by_user_id"),
+    // Stamped when the first file finalizes. Compared against due_at to mark a late response;
+    // a late upload is still accepted, because nothing about a request blocks the candidate.
+    submittedAt: timestamp("submitted_at", { mode: "date", withTimezone: true }),
+    reviewedByUserId: text("reviewed_by_user_id"),
+    reviewedAt: timestamp("reviewed_at", { mode: "date", withTimezone: true }),
+    // Reason for the most recent rejection. Retained when a rejection reopens the request for a
+    // re-upload, so the candidate keeps seeing what was wrong with the previous attempt.
+    reviewNote: text("review_note"),
+    // Counts rejections, not uploads, so a later reviewer can tell a first attempt from a third.
+    revisionCount: integer("revision_count").notNull().default(0),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    // Foreign keys are named explicitly. Drizzle's auto-generated names concatenate both table
+    // names and would run to 77-81 characters here, past Postgres's 63-character identifier
+    // limit, where they are silently truncated on creation and then diverge from this file.
+    foreignKey({
+      columns: [table.registrationId],
+      foreignColumns: [competitionRegistrations.id],
+      name: "competition_document_requests_registration_id_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.requestedByUserId],
+      foreignColumns: [users.id],
+      name: "competition_document_requests_requested_by_fk",
+    }).onDelete("set null"),
+    foreignKey({
+      columns: [table.reviewedByUserId],
+      foreignColumns: [users.id],
+      name: "competition_document_requests_reviewed_by_fk",
+    }).onDelete("set null"),
+    index("competition_document_requests_registration_id_idx").on(table.registrationId),
+    // At most one OPEN request per participant, where open means awaiting an upload or awaiting a
+    // verdict. Closed rows are unaffected, which is what lets an organizer raise a fresh request
+    // months later — after results, for instance.
+    uniqueIndex("competition_document_requests_open_unique_idx")
+      .on(table.registrationId)
+      .where(sql`${table.status} in ('requested', 'submitted')`),
+  ],
+);
+
+// Files attached to a document request. Mirrors recruiter_verification_documents: the row is
+// written only after the stored object's real size and magic-byte type have been inspected, so a
+// row here always describes bytes that exist and are of an accepted type.
+export const competitionDocumentRequestFiles = pgTable(
+  "competition_document_request_files",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    requestId: text("request_id").notNull(),
+    r2Key: text("r2_key").notNull(),
+    originalFileName: text("original_file_name").notNull(),
+    fileSizeBytes: bigint("file_size_bytes", { mode: "number" }).notNull(),
+    contentType: text("content_type").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.requestId],
+      foreignColumns: [competitionDocumentRequests.id],
+      name: "competition_document_request_files_request_id_fk",
+    }).onDelete("cascade"),
+    index("competition_document_request_files_request_id_idx").on(table.requestId),
+  ],
+);
+
+export type CompetitionDocumentRequestRecord = typeof competitionDocumentRequests.$inferSelect;
+export type CompetitionDocumentRequestFileRecord =
+  typeof competitionDocumentRequestFiles.$inferSelect;
 
 // Candidate onboarding profile.
 // Captured when an account first declares the candidate role, in the same transaction that grants
@@ -1332,7 +1497,10 @@ export type NotificationRecord = typeof notifications.$inferSelect;
 // An institution owner submits identity documents to platform ops for review. On approval,
 // verification_status transitions to verified; on upgrade (personal → full), the type flip and
 // display_name persistence happen in the same transaction.
+// `draft` is used by recruiter verification only: a submission the applicant has withdrawn from
+// the review queue in order to revise it. Institution verification never writes it.
 export const verificationSubmissionStatusEnum = pgEnum("verification_submission_status", [
+  "draft",
   "pending_review",
   "approved",
   "rejected",
@@ -1372,6 +1540,14 @@ export const institutionVerificationSubmissions = pgTable(
       table.institutionId,
       table.status,
     ),
+    // At most one queued submission per institution. Institution verification never writes
+    // `draft` (recruiter-only), so unlike the recruiter-side equivalent this only needs to cover
+    // `pending_review`. Belt-and-braces alongside the pg_advisory_xact_lock in
+    // acquireInstitutionSubmissionLock — confirmed zero pre-existing duplicates against the live
+    // DB before adding this (INST-VERIF-D1).
+    uniqueIndex("institution_verification_submissions_pending_unique_idx")
+      .on(table.institutionId)
+      .where(sql`${table.status} = 'pending_review'`),
   ],
 );
 
@@ -1422,7 +1598,25 @@ export const recruiterVerificationSubmissions = pgTable(
     vouchedAt: timestamp("vouched_at", { mode: "date", withTimezone: true }),
     status: verificationSubmissionStatusEnum("status").notNull().default("pending_review"),
     reviewerUserId: text("reviewer_user_id").references(() => users.id, { onDelete: "set null" }),
+    // Reason for the most recent rejection. Retained across a reopen so the reviewer of a
+    // resubmission can see what the previous verdict objected to.
     rejectionReason: text("rejection_reason"),
+    // Whether the recruiter may reopen this submission after a rejection. Set by the reviewer at
+    // rejection time and reversible from the platform-ops queue.
+    resubmissionAllowed: boolean("resubmission_allowed").notNull().default(true),
+    // How many times the recruiter has reopened this submission after a rejection. 0 = the account
+    // has never been rejected; the review queue reads it to distinguish a first application from a
+    // resubmission.
+    resubmissionCount: integer("resubmission_count").notNull().default(0),
+    // When this account FIRST entered the review queue. Written once at creation and never
+    // touched again — this is what the queue orders by, so revising and resending does not cost
+    // the applicant their place in line.
+    firstSubmittedAt: timestamp("first_submitted_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    // When the submission was most recently sent for review. Bumped on every withdraw-resubmit and
+    // every reopen-after-rejection, so a reviewer can see how fresh the current attempt is. It does
+    // NOT affect queue order.
     submittedAt: timestamp("submitted_at", { mode: "date", withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -1430,10 +1624,12 @@ export const recruiterVerificationSubmissions = pgTable(
   },
   (table) => [
     index("recruiter_verification_submissions_user_id_idx").on(table.userId),
-    // At most one open submission per account; rejected/approved history rows are unaffected.
+    // At most one OPEN submission per account, where open means awaiting review or withdrawn for
+    // revision. Covering both prevents an account holding a draft and a queued submission at once.
+    // rejected/approved history rows are unaffected.
     uniqueIndex("recruiter_verification_submissions_user_pending_unique_idx")
       .on(table.userId)
-      .where(sql`${table.status} = 'pending_review'`),
+      .where(sql`${table.status} in ('draft', 'pending_review')`),
     // Review-queue scan: only pending rows, ordered by submission time.
     index("recruiter_verification_submissions_pending_submitted_idx")
       .on(table.submittedAt)

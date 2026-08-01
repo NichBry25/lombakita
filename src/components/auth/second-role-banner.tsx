@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, ButtonLink, Icon } from "@/components/ui";
+import { ButtonLink, Icon, IconButton } from "@/components/ui";
 import type { VerifiableRole } from "@/server/auth/role-verification";
 
 type SecondRoleBannerProps = {
@@ -63,9 +63,7 @@ export function SecondRoleBanner({ unverifiedRole, userId }: SecondRoleBannerPro
         <ButtonLink href={`/auth/verify-role?as=${unverifiedRole}`} variant="primary" size="sm">
           {copy.cta}
         </ButtonLink>
-        <Button type="button" onClick={onDismiss} variant="ghost" size="sm">
-          Tutup
-        </Button>
+        <IconButton icon="close" label="Tutup pemberitahuan" size="sm" onClick={onDismiss} />
       </span>
     </div>
   );

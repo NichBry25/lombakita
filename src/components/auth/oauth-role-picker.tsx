@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { signIn } from "next-auth/react";
 import { Button, SelectField, usePageTransition } from "@/components/ui";
+import { useToast } from "@/components/ui/primitives";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 
 // Step 6.5d — minimal-proof OAuth role picker. Reached after a brand-new Google user is routed to
@@ -59,8 +60,8 @@ const mapFinalizeError = (error: string | null | undefined): string => {
 export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
   const [stage, setStage] = useState<Stage>("choose");
   const [isSubmitting, setIsSubmitting] = useState<"candidate" | "recruiter" | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { begin: beginPageTransition } = usePageTransition();
+  const { addToast } = useToast();
 
   // Candidate onboarding fields — collected on the candidateOnboarding stage and forwarded with the
   // finalize request.
@@ -81,7 +82,6 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
     extraFields: Record<string, string> | null,
   ) => {
     setIsSubmitting(role);
-    setErrorMessage(null);
 
     try {
       const result = await signIn(OAUTH_FINALIZE_PROVIDER, {
@@ -100,11 +100,12 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
         return;
       }
 
-      setErrorMessage(mapFinalizeError(result?.error));
+      addToast({ type: "error", message: mapFinalizeError(result?.error) });
     } catch {
-      setErrorMessage(
-        "Pendaftaran dengan Google gagal karena gangguan koneksi atau server. Coba lagi.",
-      );
+      addToast({
+        type: "error",
+        message: "Pendaftaran dengan Google gagal karena gangguan koneksi atau server. Coba lagi.",
+      });
     } finally {
       setIsSubmitting(null);
     }
@@ -114,19 +115,19 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
     event.preventDefault();
 
     if (fullName.trim().length < 2) {
-      setErrorMessage("Isi nama lengkap (minimal 2 karakter).");
+      addToast({ type: "error", message: "Isi nama lengkap (minimal 2 karakter)." });
       return;
     }
     if (phoneNumber.replace(/\D/g, "").length < 8) {
-      setErrorMessage("Isi nomor telepon yang valid (minimal 8 digit).");
+      addToast({ type: "error", message: "Isi nomor telepon yang valid (minimal 8 digit)." });
       return;
     }
     if (!occupation) {
-      setErrorMessage("Pilih status Anda saat ini.");
+      addToast({ type: "error", message: "Pilih status Anda saat ini." });
       return;
     }
     if (!dateOfBirth) {
-      setErrorMessage("Isi tanggal lahir Anda.");
+      addToast({ type: "error", message: "Isi tanggal lahir Anda." });
       return;
     }
 
@@ -142,11 +143,11 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
     event.preventDefault();
 
     if (recruiterFullName.trim().length < 2) {
-      setErrorMessage("Isi nama lengkap (minimal 2 karakter).");
+      addToast({ type: "error", message: "Isi nama lengkap (minimal 2 karakter)." });
       return;
     }
     if (mobileNumber.replace(/\D/g, "").length < 8) {
-      setErrorMessage("Isi nomor ponsel yang valid (minimal 8 digit).");
+      addToast({ type: "error", message: "Isi nomor ponsel yang valid (minimal 8 digit)." });
       return;
     }
 
@@ -159,13 +160,11 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
 
   return (
     <AuthPageFrame
-      eyebrow="Pendaftaran Google"
       title="Tetapkan peran utama untuk memulai."
-      description="Peran menjaga pengalaman kandidat dan penyelenggara tetap jelas sejak akses pertama."
+      description="Kandidat mencari kompetisi, rekruter menerbitkannya. Anda bisa menambah peran lain nanti."
     >
       <div className="auth-entry">
         <header className="auth-entry-header">
-          <p className="eyebrow">Langkah terakhir</p>
           <h1>Selesaikan pendaftaran dengan Google</h1>
         </header>
         <p className="auth-intro-copy">
@@ -179,7 +178,6 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
               type="button"
               disabled={isSubmitting !== null}
               onClick={() => {
-                setErrorMessage(null);
                 // Prefill the candidate's declared full name from the Google display name where
                 // available; it stays editable.
                 setFullName((current) => current || email);
@@ -194,7 +192,6 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
               type="button"
               disabled={isSubmitting !== null}
               onClick={() => {
-                setErrorMessage(null);
                 // Prefill the recruiter's declared full name from the Google display name where
                 // available; it stays editable.
                 setRecruiterFullName((current) => current || email);
@@ -271,7 +268,6 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
               <Button
                 type="button"
                 onClick={() => {
-                  setErrorMessage(null);
                   setStage("choose");
                 }}
                 variant="ghost"
@@ -329,7 +325,7 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
 
             <div className="form-field">
               <label className="form-label" htmlFor="recruiter-corporate-email">
-                Email korporat / institusi (opsional)
+                Email korporat / institusi (Opsional)
               </label>
               <input
                 id="recruiter-corporate-email"
@@ -348,7 +344,6 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
               <Button
                 type="button"
                 onClick={() => {
-                  setErrorMessage(null);
                   setStage("choose");
                 }}
                 variant="ghost"
@@ -367,12 +362,6 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
               </Button>
             </div>
           </form>
-        ) : null}
-
-        {errorMessage ? (
-          <p className="feedback" data-tone="error">
-            {errorMessage}
-          </p>
         ) : null}
       </div>
     </AuthPageFrame>

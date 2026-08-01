@@ -20,6 +20,10 @@ import { processCompetitionEditedJob } from "@/server/async/jobs/competition-edi
 import { processCompetitionCancelledJob } from "@/server/async/jobs/competition-cancelled";
 import { processInstitutionInvitationDispatchJob } from "@/server/async/jobs/institution-invitation-dispatch";
 import { processTeamInvitationDispatchJob } from "@/server/async/jobs/team-invitation-dispatch";
+import { processRecruiterVerificationRejectedJob } from "@/server/async/jobs/recruiter-verification-rejected";
+import { processRegistrationDocumentRequestedJob } from "@/server/async/jobs/registration-document-requested";
+import { processRegistrationDocumentReviewedJob } from "@/server/async/jobs/registration-document-reviewed";
+import { processRetentionPurgeJob } from "@/server/async/jobs/retention-purge";
 
 export type AsyncJobProcessor<Name extends AsyncJobName = AsyncJobName> = (
   job: Job<AsyncJobPayloadByName[Name], void, Name>,
@@ -56,6 +60,19 @@ export const ASYNC_JOB_REGISTRATIONS = [
     processInstitutionInvitationDispatchJob,
   ),
   defineAsyncJob(ASYNC_JOB_NAMES.teamInvitationDispatch, processTeamInvitationDispatchJob),
+  defineAsyncJob(
+    ASYNC_JOB_NAMES.recruiterVerificationRejected,
+    processRecruiterVerificationRejectedJob,
+  ),
+  defineAsyncJob(
+    ASYNC_JOB_NAMES.registrationDocumentRequested,
+    processRegistrationDocumentRequestedJob,
+  ),
+  defineAsyncJob(
+    ASYNC_JOB_NAMES.registrationDocumentReviewed,
+    processRegistrationDocumentReviewedJob,
+  ),
+  defineAsyncJob(ASYNC_JOB_NAMES.retentionPurge, processRetentionPurgeJob),
 ] as const;
 
 const getUniqueQueueNames = (): AsyncQueueName[] => {

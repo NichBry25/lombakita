@@ -1,12 +1,12 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentSession } from "@/server/auth/session";
 import { getOwnerProfile } from "@/server/user-profile/profile-service";
 import type { ProfileFieldValue } from "@/server/user-profile/profile-core";
 import { deriveProfileHeader } from "@/server/user-profile/profile-collections-core";
+import { IdentityBanner } from "@/components/media/identity-banner";
 import { ProfileDetailSections } from "@/components/profile/profile-detail-sections";
 import { VerifyOtherRoleButton } from "./verify-other-role-button";
-import { Icon } from "@/components/ui";
+import { Icon, IconButtonLink } from "@/components/ui";
 
 // Extracts a set value, or null when the field is empty.
 function populatedValue<T>(field: ProfileFieldValue<T>): T | null {
@@ -40,7 +40,7 @@ export default async function OwnerProfilePage() {
   return (
     <main className="page-shell app-page pf-page">
       <article className="pf-card">
-        <div className="pf-banner" aria-hidden="true" />
+        <IdentityBanner bannerUrl={populatedValue(profile.bannerUrl)} />
         <div className="pf-identity">
           <div className="pf-identity-head">
             <span className="pf-avatar">
@@ -57,15 +57,13 @@ export default async function OwnerProfilePage() {
                   unverifiedRoleLabel={profile.candidateVerified ? "Rekruter" : "Kandidat"}
                 />
               )}
-              <Link
+              <IconButtonLink
                 href="/profile/edit"
-                className="ui-button icon-button"
-                data-variant="primary"
-                data-size="sm"
-                aria-label="Edit profil"
-              >
-                <Icon name="edit" size="sm" />
-              </Link>
+                icon="edit"
+                label="Edit profil"
+                variant="primary"
+                size="sm"
+              />
             </div>
           </div>
 
@@ -103,7 +101,7 @@ export default async function OwnerProfilePage() {
               {profile.candidateVerified && (
                 <span className="status-badge" data-status="open">
                   <Icon name="check" size="sm" aria-hidden="true" />
-                  Kandidat terverifikasi
+                  Kandidat Terverifikasi
                 </span>
               )}
               {profile.recruiterVerified && !profile.trustedRecruiter && (

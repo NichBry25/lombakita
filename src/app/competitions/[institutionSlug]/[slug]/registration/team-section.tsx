@@ -11,7 +11,7 @@ import {
 import { getTeamRoleLabel } from "@/lib/access/role-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import { useModal, useToast } from "@/components/ui/primitives";
-import { Button, Icon } from "@/components/ui";
+import { Button, Icon, IconButton } from "@/components/ui";
 
 type Member = {
   membershipId: string;
@@ -84,7 +84,6 @@ export function CompetitionTeamSection(props: Props) {
     <section className="content-section registration-path-card team-registration-card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Jalur 02</p>
           <h2>Tim</h2>
           <p>
             {props.competitionMode === "both"
@@ -225,6 +224,8 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
   // a username OR an email; resolved server-side.
   const [inviteIdentifier, setInviteIdentifier] = useState("");
 
+  const ownMembership = props.initialMembers.find((m) => m.userId === props.expectedUserId);
+
   const seatsUsed = props.initialMembers.length + props.initialPendingInvitations.length;
   const atCapacity = props.maxTeamSize !== null && seatsUsed >= props.maxTeamSize;
 
@@ -239,6 +240,30 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     if (sizeAboveMax) return `Tim melebihi maksimum ${props.maxTeamSize} anggota aktif`;
     return null;
   })();
+
+  useEffect(() => {
+    if (atCapacity) {
+      addToast({ type: "warning", message: "Tim telah mencapai kapasitas maksimum." });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [atCapacity]);
+
+  useEffect(() => {
+    if (isCaptain && submitDisabledReason && status === "forming") {
+      addToast({ type: "warning", message: submitDisabledReason });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCaptain, submitDisabledReason, status]);
+
+  useEffect(() => {
+    if (!isCaptain && ownMembership) {
+      addToast({
+        type: "info",
+        message: `Hanya kapten (${team.captainId.slice(0, 8)}…) yang dapat mendaftarkan atau membubarkan tim.`,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCaptain, ownMembership]);
 
   const executeAction = async (
     actionKey: string,
@@ -424,8 +449,6 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     });
   };
 
-  const ownMembership = props.initialMembers.find((m) => m.userId === props.expectedUserId);
-
   return (
     <div className="team-roster">
       <div className="team-roster-header">
@@ -457,15 +480,15 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               </span>
             </span>
             {isCaptain && m.role !== "captain" && status === "forming" && (
-              <Button
+              <IconButton
+                icon="trash"
+                label={`Keluarkan ${m.displayName ?? m.email} dari tim`}
                 onClick={() => onRemoveMember(m.membershipId)}
                 loading={pendingAction === `remove-member:${m.membershipId}`}
                 disabled={busy}
                 variant="danger"
                 size="sm"
-              >
-                Hapus
-              </Button>
+              />
             )}
             {!isCaptain && m.userId === props.expectedUserId && status === "forming" && (
               <Button
@@ -514,7 +537,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               type="text"
               value={inviteIdentifier}
               onChange={(e) => setInviteIdentifier(e.target.value)}
-              placeholder="Username atau email"
+              placeholder="Username atau Email"
               required
               disabled={busy || atCapacity}
               className="form-input"
@@ -529,7 +552,6 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               Undang
             </Button>
           </form>
-          {atCapacity && <p className="form-error">Tim telah mencapai kapasitas maksimum.</p>}
         </>
       )}
 
@@ -572,10 +594,6 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
         </div>
       )}
 
-      {isCaptain && submitDisabledReason && status === "forming" && (
-        <p className="form-error">{submitDisabledReason}</p>
-      )}
-
       {sizeBelowMin && status === "forming" && (
         <div>
           <Button
@@ -588,12 +606,6 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
             Detail kompetisi
           </Button>
         </div>
-      )}
-
-      {!isCaptain && ownMembership && (
-        <p className="feedback" data-tone="info">
-          Hanya kapten ({team.captainId.slice(0, 8)}…) yang dapat mendaftarkan atau membubarkan tim.
-        </p>
       )}
     </div>
   );

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { withApiAuth } from "@/server/auth/api-guard";
+import { withApiRole } from "@/server/auth/api-guard";
 import {
   dashboardPathForRole,
   isVerifiableRole,
   markRoleAsVerified,
   RoleVerificationError,
+  VERIFIABLE_ROLES,
 } from "@/server/auth/role-verification";
 import {
   CandidateProfileError,
@@ -29,7 +30,12 @@ import {
 // /api/v1/auth/session) and the bare `/api/auth/...` namespace is owned by next-auth's
 // `[...nextauth]` catch-all. Mounting here keeps namespace ownership clean and matches the
 // existing convention.
-export const POST = withApiAuth(async (request, session) => {
+//
+// Gated to the self-service roles: this endpoint grants a participant role, and only an account
+// already acting as a candidate or recruiter may acquire the other one. An operational account
+// carries participant verification timestamps from before it was promoted, but must not collect
+// new ones — `sessionHasRole` suppresses the fold for operational roles, so it is refused here.
+export const POST = withApiRole(VERIFIABLE_ROLES, async (request, session) => {
   let body: unknown;
   try {
     body = await request.json();
@@ -67,6 +73,27 @@ export const POST = withApiAuth(async (request, session) => {
         },
       },
       { status: 400 },
+    );
+  }
+
+  // Refuse a role the account already holds before parsing that role's onboarding payload, so the
+  // caller is told the real reason (409 role_already_verified) rather than that its now-pointless
+  // payload was malformed.
+  //
+  // Reading the session is sound here even though it is JWT-cached: verification timestamps are
+  // only ever set, never cleared, so a cached list is stale-SMALLER. It can therefore miss a
+  // just-granted role but can never claim one the account lacks. `markRoleAsVerified` still runs
+  // the authoritative DB check and raises the same 409 on that path — this only moves the answer
+  // earlier in the common case.
+  if (Array.isArray(session.user.verifiedRoles) && session.user.verifiedRoles.includes(role)) {
+    return NextResponse.json(
+      {
+        error: {
+          code: "role_already_verified",
+          message: `${role === "candidate" ? "Candidate" : "Recruiter"} role is already verified for this account`,
+        },
+      },
+      { status: 409 },
     );
   }
 

@@ -67,27 +67,27 @@ describe("isSubmissionWindowOpen", () => {
 describe("parseSubmissionFileMetadata", () => {
   it("accepts valid input and normalizes fields", () => {
     const result = parseSubmissionFileMetadata({
-      fileKey: " submissions/reg_1/abc ",
+      fileKey: " submissions/comp_1/reg_1/abc ",
       fileName: " report.pdf ",
       fileSizeBytes: 1024,
       fileMimeType: " application/pdf ",
     });
     expect(result).not.toBeInstanceOf(SubmissionError);
     const meta = result as ValidatedFileMetadata;
-    expect(meta.fileKey).toBe("submissions/reg_1/abc");
+    expect(meta.fileKey).toBe("submissions/comp_1/reg_1/abc");
     expect(meta.fileName).toBe("report.pdf");
     expect(meta.fileSizeBytes).toBe(1024);
-    expect(meta.fileMimeType).toBe("application/pdf");
+    // A declared MIME is accepted and dropped: the stored type comes from the confirmed bytes.
+    expect(meta).not.toHaveProperty("fileMimeType");
   });
 
   it("defaults optional fields to null when omitted", () => {
     const result = parseSubmissionFileMetadata({
-      fileKey: "submissions/reg_1/abc",
+      fileKey: "submissions/comp_1/reg_1/abc",
       fileName: "report.pdf",
     });
     const meta = result as ValidatedFileMetadata;
     expect(meta.fileSizeBytes).toBeNull();
-    expect(meta.fileMimeType).toBeNull();
   });
 
   it("rejects a blank fileKey with submission_invalid_file_key", () => {
@@ -97,14 +97,14 @@ describe("parseSubmissionFileMetadata", () => {
   });
 
   it("rejects a missing fileName with submission_invalid_payload", () => {
-    const result = parseSubmissionFileMetadata({ fileKey: "submissions/reg_1/abc" });
+    const result = parseSubmissionFileMetadata({ fileKey: "submissions/comp_1/reg_1/abc" });
     expect(result).toBeInstanceOf(SubmissionError);
     expect((result as SubmissionError).code).toBe("submission_invalid_payload");
   });
 
   it("rejects a file size over the ceiling", () => {
     const result = parseSubmissionFileMetadata({
-      fileKey: "submissions/reg_1/abc",
+      fileKey: "submissions/comp_1/reg_1/abc",
       fileName: "big.zip",
       fileSizeBytes: SUBMISSIONS_MAX_FILE_SIZE_BYTES + 1,
     });

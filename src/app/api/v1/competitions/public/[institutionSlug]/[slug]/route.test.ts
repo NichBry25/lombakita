@@ -21,6 +21,14 @@ const makeDetail = (overrides = {}) => ({
   registrationEndAt: null,
   eventStartAt: null,
   eventEndAt: null,
+  resultAnnouncementAt: null,
+  minimumParticipantEntries: null,
+  participantConfirmationAt: null,
+  participationConfirmedAt: null,
+  cancelledAt: null,
+  cancellationReason: null,
+  participantEntryCount: 0,
+  participationState: "not_configured" as const,
   feeAmount: null,
   eligibilityNote: null,
   tags: [],
@@ -41,6 +49,7 @@ const makeDetail = (overrides = {}) => ({
     socialLinks: [],
   },
   ctaState: "closed" as const,
+  phase: "registration_closed" as const,
   ...overrides,
 });
 

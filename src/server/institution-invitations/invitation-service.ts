@@ -288,8 +288,14 @@ export const acceptInstitutionInvitationForUser = async (
       }
     }
 
+    // Removal is soft: removeMember sets status='revoked' and keeps the row so the audit trail
+    // still resolves. A unique index on (institution_id, user_id) means a rejoin cannot insert a
+    // second row, so this branches on the CURRENT status rather than on the row's existence —
+    // reading existence alone refused every rejoin with "You are already a member", which was both
+    // a refusal and a false statement, while the invite-creation guard (which does filter on
+    // 'active') happily issued the invitation that could never be accepted.
     const [existingMembership] = await tx
-      .select({ id: institutionMemberships.id })
+      .select({ id: institutionMemberships.id, status: institutionMemberships.status })
       .from(institutionMemberships)
       .where(
         and(
@@ -299,7 +305,7 @@ export const acceptInstitutionInvitationForUser = async (
       )
       .limit(1);
 
-    if (existingMembership) {
+    if (existingMembership?.status === "active") {
       throw new InstitutionInvitationError(
         "invitation_already_member",
         409,
@@ -307,13 +313,29 @@ export const acceptInstitutionInvitationForUser = async (
       );
     }
 
-    await tx.insert(institutionMemberships).values({
-      institutionId: invitation.institutionId,
-      userId,
-      membershipRole: invitation.invitedRole,
-      status: "active",
-      invitedByUserId: invitation.invitedByUserId,
-    });
+    if (existingMembership) {
+      // The role comes from the NEW invitation, not the retained row: someone removed as staff and
+      // re-invited as a member must come back as a member. joinedAt restarts because this is a new
+      // period of membership; the original dates survive in the institution audit log.
+      await tx
+        .update(institutionMemberships)
+        .set({
+          membershipRole: invitation.invitedRole,
+          status: "active",
+          invitedByUserId: invitation.invitedByUserId,
+          joinedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(institutionMemberships.id, existingMembership.id));
+    } else {
+      await tx.insert(institutionMemberships).values({
+        institutionId: invitation.institutionId,
+        userId,
+        membershipRole: invitation.invitedRole,
+        status: "active",
+        invitedByUserId: invitation.invitedByUserId,
+      });
+    }
 
     await tx
       .update(institutionInvitations)

@@ -37,9 +37,8 @@ export default async function ProtectedPage() {
   return (
     <main className="page-shell app-page protected-page">
       <PageHeader
-        eyebrow="Diagnostik akses"
         title="Sesi aktif"
-        description="Permukaan internal untuk memeriksa konteks sesi dan verifikasi per peran."
+        description="Halaman internal untuk memeriksa sesi dan verifikasi per peran."
       />
 
       <section className="content-section">

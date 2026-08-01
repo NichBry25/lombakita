@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import { Button, Icon } from "@/components/ui";
+import { Button, IconButton } from "@/components/ui";
 import { FormField, FormInput, FormLabel, FormTextarea, SelectField } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { ownerFetch, uploadProfileFile } from "./profile-file-upload";
@@ -151,17 +151,20 @@ function EntryRow({
           {subtitle ? <p className="pf-entry-sub">{subtitle}</p> : null}
         </div>
         <div className="pf-editor-actions">
-          <button type="button" className="pf-editor-edit" onClick={onEdit}>
-            Ubah
-          </button>
-          <button
-            type="button"
-            className="pf-editor-remove"
+          <IconButton
+            icon="edit"
+            label={`Ubah ${entityLabel}`}
+            variant="ghost"
+            size="sm"
+            onClick={onEdit}
+          />
+          <IconButton
+            icon="trash"
+            label={`Hapus ${entityLabel}`}
+            variant="danger"
+            size="sm"
             onClick={onDelete}
-            aria-label={`Hapus ${entityLabel}`}
-          >
-            Hapus
-          </button>
+          />
         </div>
       </div>
       {footer}
@@ -187,17 +190,14 @@ function FormActions({
   if (!onCancel) {
     return (
       <div className="pf-editor-form-actions">
-        <button
-          type="button"
-          className="ui-button icon-button"
-          data-variant="outline"
-          data-size="sm"
+        <IconButton
+          icon="plus"
+          label={submitLabel}
+          variant="outline"
+          size="sm"
           disabled={busy}
           onClick={onSubmit}
-          aria-label={submitLabel}
-        >
-          <Icon name="plus" size="sm" />
-        </button>
+        />
       </div>
     );
   }
@@ -597,17 +597,14 @@ function SkillEditor({
           placeholder="Tambah keahlian"
           aria-label="Nama keahlian"
         />
-        <button
-          type="button"
-          className="ui-button icon-button"
-          data-variant="outline"
-          data-size="sm"
+        <IconButton
+          icon="plus"
+          label="Tambah keahlian"
+          variant="outline"
+          size="sm"
           disabled={c.busy}
           onClick={add}
-          aria-label="Tambah keahlian"
-        >
-          <Icon name="plus" size="sm" />
-        </button>
+        />
       </div>
     </SectionShell>
   );

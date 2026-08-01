@@ -123,10 +123,6 @@ svg {
   height: var(--icon-xl);
 }
 
-.icon-bookmark-selected {
-  fill: currentColor;
-}
-
 .skip-link {
   position: fixed;
   inset-block-start: var(--space-2);
@@ -272,8 +268,14 @@ svg {
   background: var(--color-inset);
 }
 
+/*
+ * Takes the free space in its row. Rows that also hold trailing actions look unchanged, since
+ * `space-between` already pushed those to the right; rows whose only child is this one now span
+ * the full width instead of hugging the left edge with dead space beside them.
+ */
 .record-row-main {
   display: grid;
+  flex: 1 1 auto;
   min-width: 0;
   gap: var(--space-1);
 }
@@ -294,6 +296,105 @@ svg {
   font-size: var(--text-meta);
 }
 
+/* The organizer's own imagery as a card: banner band across the top, logo overlapping its lower
+   edge, then the name and membership meta. Same banner-plus-avatar geometry as the public
+   institution page, so an owner recognises their own card from what visitors see. Both images are
+   decorative — the card names the institution in text — so markup hides them from assistive
+   technology. */
+.institution-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--grid-gap);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.institution-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: var(--border-thin) solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color var(--duration-card) var(--ease-primary),
+    box-shadow var(--duration-card) var(--ease-primary),
+    transform var(--duration-card) var(--ease-primary);
+}
+
+.institution-card:hover {
+  border-color: var(--color-ink-faint);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(var(--motion-lift-card));
+}
+
+/* The 4:1 frame uploaded banners are cropped to. Without an upload it falls back to the palm
+   band, peach glow and wave crest of .pf-banner, scaled to this height. */
+.institution-card-banner {
+  position: relative;
+  aspect-ratio: 4 / 1;
+  overflow: hidden;
+  background:
+    radial-gradient(125% 150% at 82% -20%, var(--brand-peach) 0%, transparent 52%),
+    var(--color-brand-surface);
+}
+
+.institution-card-banner::after {
+  position: absolute;
+  inset: auto -8% -0.5rem;
+  height: 1.75rem;
+  border-radius: var(--wave-radius-peach);
+  background: var(--wave-crest);
+  opacity: 0.92;
+  content: "";
+  pointer-events: none;
+}
+
+.institution-card-banner-uploaded::after {
+  content: none;
+}
+
+.institution-card-banner-image {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+.institution-card-body {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  padding: var(--space-0) var(--space-5) var(--space-5);
+}
+
+.institution-card-logo {
+  --institution-card-logo-size: 3.25rem;
+  position: relative;
+  z-index: var(--z-content);
+  display: inline-grid;
+  inline-size: var(--institution-card-logo-size);
+  block-size: var(--institution-card-logo-size);
+  margin-block: calc(var(--institution-card-logo-size) / -2) var(--space-2);
+  place-items: center;
+  overflow: hidden;
+  border: var(--space-1) solid var(--color-surface);
+  border-radius: var(--blob-radius-a);
+  background: var(--color-inset);
+  color: var(--color-ink-faint);
+  box-shadow: var(--shadow-sm);
+}
+
+.institution-card-logo img {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
 .record-actions {
   display: flex;
   flex: none;
@@ -312,7 +413,7 @@ svg {
 .hub-card {
   display: grid;
   min-height: calc(var(--control-height-lg) * 2.75);
-  align-content: space-between;
+  align-content: start;
   gap: var(--space-5);
   padding: var(--space-5);
   border: var(--border-thin) solid var(--color-line);
@@ -356,7 +457,7 @@ svg {
   border-color: var(--brand-tangerine);
   background: var(--color-action);
   color: var(--color-action-ink);
-  box-shadow: var(--space-2) var(--space-2) 0 var(--brand-peach);
+  box-shadow: var(--space-2) var(--space-2) 0 var(--surface-offset-block);
 }
 
 .hub-card--action:hover {
@@ -505,8 +606,27 @@ svg {
   background: var(--glass-focus-fallback);
 }
 
+/*
+ * Unlike the other two tiers, overlay glass is a DARK fill in both themes (palm at 64% in light,
+ * near-black at 70% in dark) — it floats over imagery, not over paper. So it has to carry its own
+ * ink rather than inherit the page's, which in light mode is palm and lands at 2.63:1 on itself.
+ */
 .glass-overlay {
   background: var(--glass-overlay-fallback);
+  color: var(--color-brand-ink);
+}
+
+/*
+ * Headings and body copy need naming explicitly, not just inheritance from the tier: a directly
+ * matching `h3 { color }` rule beats an inherited value no matter how specific the inheriting
+ * selector is.
+ */
+.glass-overlay :where(h1, h2, h3, h4, h5, h6) {
+  color: var(--color-brand-ink);
+}
+
+.glass-overlay :where(p, span, small, dd, dt, li) {
+  color: var(--brand-mist);
 }
 
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -621,11 +741,17 @@ svg {
   color: var(--brand-paper);
 }
 
+/*
+ * Outline is the one variant with no fill of its own, so its label sits on whatever the page is
+ * painting. --brand-palm is a raw constant that deliberately never re-themes, which made this
+ * palm-on-near-black in dark mode; --color-ink is the same palm in light mode and follows the
+ * page in dark.
+ */
 .ui-button[data-variant="outline"],
 .action-chip {
-  border-color: var(--brand-palm);
+  border-color: var(--color-ink);
   background: transparent;
-  color: var(--brand-palm);
+  color: var(--color-ink);
 }
 
 .ui-button[data-variant="ghost"] {
@@ -641,6 +767,15 @@ svg {
 .ui-button[data-variant="ghost"]:hover:not(:disabled),
 .action-chip:hover:not(:disabled) {
   background: var(--color-inset);
+}
+
+/*
+ * --color-accent is tuned for the page, not for a palm band: in light mode the olive drops to
+ * 2.22:1 on palm. Lime is the brand's own accent-on-palm pairing (8.37:1) and reads the same in
+ * both themes, since the band is dark in both.
+ */
+.brand-band .eyebrow {
+  color: var(--brand-lime);
 }
 
 /*
@@ -837,6 +972,24 @@ svg {
   gap: var(--space-5);
 }
 
+/* A field whose explanation reads beside it rather than beneath it. Spans the full form-grid
+   row and re-splits it, so the field keeps the width of a normal grid cell and the text takes
+   the cell next to it. */
+.form-field-with-aside {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-5);
+}
+
+.form-field-aside {
+  margin: var(--space-0);
+  color: var(--color-ink-soft);
+  font-size: var(--text-meta);
+  line-height: var(--leading-body);
+}
+
 /* Feedback, badges, tables, and empty states */
 .feedback {
   display: flex;
@@ -903,7 +1056,49 @@ svg {
   color: var(--color-status-closed-text);
 }
 
-.status-badge:is([data-status="open"], [data-status="closing"], [data-status="closed"])::before {
+/* Lifecycle-phase badges. Built on the existing semantic families so no new colour is minted;
+   each carries its own dot below, so adjacent phases never read as the same state. */
+.status-badge[data-status="upcoming"] {
+  background: var(--color-info-surface);
+  color: var(--color-info-text);
+}
+
+.status-badge[data-status="ongoing"] {
+  background: var(--color-success-surface);
+  color: var(--color-success-text);
+}
+
+.status-badge[data-status="awaiting"] {
+  background: var(--color-inset);
+  color: var(--color-ink-soft);
+}
+
+.status-badge[data-status="overdue"] {
+  background: var(--color-warning-surface);
+  color: var(--color-warning-text);
+}
+
+.status-badge[data-status="announced"] {
+  background: var(--color-success-surface);
+  color: var(--color-success-text);
+}
+
+.status-badge[data-status="cancelled"] {
+  background: var(--color-error-surface);
+  color: var(--color-error-text);
+}
+
+.status-badge:is(
+    [data-status="open"],
+    [data-status="closing"],
+    [data-status="closed"],
+    [data-status="upcoming"],
+    [data-status="ongoing"],
+    [data-status="awaiting"],
+    [data-status="overdue"],
+    [data-status="announced"],
+    [data-status="cancelled"]
+  )::before {
   width: var(--space-1-5);
   height: var(--space-1-5);
   flex: none;
@@ -922,6 +1117,30 @@ svg {
 
 .status-badge[data-status="closed"]::before {
   background: var(--color-status-closed-dot);
+}
+
+.status-badge[data-status="upcoming"]::before {
+  background: var(--color-info-border);
+}
+
+.status-badge[data-status="ongoing"]::before {
+  background: var(--color-success-text);
+}
+
+.status-badge[data-status="awaiting"]::before {
+  background: var(--color-status-closed-dot);
+}
+
+.status-badge[data-status="overdue"]::before {
+  background: var(--color-warning-border);
+}
+
+.status-badge[data-status="announced"]::before {
+  background: var(--color-success-border);
+}
+
+.status-badge[data-status="cancelled"]::before {
+  background: var(--color-error-border);
 }
 
 .table-scroll {
@@ -1409,8 +1628,13 @@ button.header-nav-link {
   letter-spacing: var(--tracking-label);
 }
 
-.mobile-nav-toggle,
 .mobile-nav {
+  display: none;
+}
+
+/* The toggle is a .ui-icon-button, whose own `display` is declared later in this file at equal
+   specificity. Qualifying the selector keeps the desktop hide winning regardless of source order. */
+.ui-icon-button.mobile-nav-toggle {
   display: none;
 }
 
@@ -1475,7 +1699,7 @@ button.header-nav-link {
 
 .header-dashboard-menuitem:hover,
 .header-dashboard-menuitem:focus-visible {
-  background: var(--brand-mist);
+  background: var(--color-hover-surface);
   outline: none;
 }
 
@@ -1506,8 +1730,13 @@ button.header-nav-link {
   padding-inline: var(--space-1);
   border: var(--border-strong) solid var(--glass-chrome-fallback);
   border-radius: var(--radius-pill);
-  background: var(--brand-tangerine);
-  color: var(--brand-paper);
+  /*
+   * The unread count is a number the user has to read, so it is a filled control carrying a
+   * label, not ornament — brand book §11's rule applies: paper on tangerine is 2.92:1, terracotta
+   * with a white label is 4.81:1. Pure tangerine stays on the dot-only indicators.
+   */
+  background: var(--color-action);
+  color: var(--color-action-ink);
   font-family: var(--font-data);
   font-size: var(--text-micro);
   font-weight: 500;
@@ -1594,7 +1823,7 @@ button.header-nav-link {
   inset: auto -8% -3.5rem;
   height: calc(var(--wave-height) + var(--space-1));
   border-radius: var(--wave-radius-peach);
-  background: var(--brand-peach);
+  background: var(--wave-crest);
   content: "";
   pointer-events: none;
 }
@@ -1837,14 +2066,19 @@ button.header-nav-link {
   height: var(--marquee-height);
   align-items: center;
   overflow: hidden;
-  background: var(--brand-tangerine);
+  /*
+   * The palm strip with lime text of brand book §5. It was previously palm on tangerine, which is
+   * 3.42:1 at this size — no ink in the palette clears 4.5:1 on tangerine, so the ground is what
+   * had to move. Palm is dark in both themes, so one pairing serves both.
+   */
+  background: var(--brand-palm);
 }
 
 .home-marquee-track {
   display: flex;
   width: max-content;
   align-items: center;
-  color: var(--brand-palm);
+  color: var(--brand-lime);
   font-size: var(--text-micro);
   font-weight: 700;
   letter-spacing: var(--tracking-label);
@@ -1965,7 +2199,7 @@ button.header-nav-link {
   padding: var(--space-1) var(--space-2-5);
   border-radius: var(--radius-pill);
   background: var(--on-cover-chip);
-  color: var(--on-cover-ink);
+  color: var(--on-cover-chip-ink);
   font-size: var(--text-micro);
   font-weight: 700;
   letter-spacing: var(--tracking-label);
@@ -2213,12 +2447,12 @@ button.header-nav-link {
 
 .filter-dropdown-option:hover,
 .filter-dropdown-option:focus-visible {
-  background: var(--brand-mist);
+  background: var(--color-hover-surface);
   outline: none;
 }
 
 .filter-dropdown-option[data-selected="true"] {
-  background: var(--brand-mist);
+  background: var(--color-hover-surface);
   font-weight: 600;
 }
 
@@ -2299,11 +2533,18 @@ button.header-nav-link {
   transform: rotate(180deg);
 }
 
+/* Never narrower than its trigger, but free to grow past it: a trigger sized by an `auto`
+   grid column is often narrower than the longest option label, and pinning both edges to the
+   trigger clipped that label. Clamped so a long label wraps instead of running off-screen. */
 .select-field-menu {
   position: absolute;
   top: calc(100% + var(--space-2));
-  inset-inline: 0;
+  inset-inline-start: 0;
+  inset-inline-end: auto;
   z-index: var(--z-dropdown);
+  width: max-content;
+  min-width: 100%;
+  max-width: min(24rem, calc(100vw - var(--space-6) * 2));
   max-height: 18rem;
   overflow-y: auto;
   margin: 0;
@@ -2328,12 +2569,12 @@ button.header-nav-link {
 
 .select-field-option:hover,
 .select-field-option:focus-visible {
-  background: var(--brand-mist);
+  background: var(--color-hover-surface);
   outline: none;
 }
 
 .select-field-option[data-selected="true"] {
-  background: var(--brand-mist);
+  background: var(--color-hover-surface);
   font-weight: 600;
 }
 
@@ -2371,6 +2612,42 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   filter: invert(1);
 }
 
+/* ---- Native file inputs ----
+   `display: flex` + `gap` on a file input only reaches its internal button and
+   filename text in Chromium; Safari and Firefox don't propagate flex layout into
+   the control's shadow content the same way. `line-height` and `vertical-align`
+   are standard inline-layout properties every engine honors consistently, so
+   they center the control without depending on that quirk. */
+input.form-input[type="file"] {
+  height: var(--control-height-md);
+  min-height: var(--control-height-md);
+  padding-block: 0;
+  line-height: var(--control-height-md);
+  cursor: pointer;
+  color: var(--color-ink-soft);
+}
+
+input.form-input[type="file"]::file-selector-button {
+  vertical-align: middle;
+  margin: 0;
+  margin-inline-end: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-inset);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--text-meta);
+  font-weight: 600;
+  line-height: normal;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-primary);
+}
+
+input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
+  background: var(--color-disabled-surface);
+}
+
 /* ---- Icon-only button ---- */
 .ui-icon-button {
   display: inline-grid;
@@ -2390,7 +2667,7 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .ui-icon-button:hover:not(:disabled) {
-  background: var(--brand-mist);
+  background: var(--color-hover-surface);
 }
 
 .ui-icon-button:focus-visible {
@@ -2403,12 +2680,46 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   cursor: not-allowed;
 }
 
+/* An icon-only control still has to carry the weight of the action it replaced, so the
+   variants mirror .ui-button rather than collapsing every converted action into a ghost. */
+.ui-icon-button[data-variant="primary"] {
+  background: var(--color-action);
+  color: var(--color-action-ink);
+  box-shadow: var(--shadow-action);
+}
+
+.ui-icon-button[data-variant="primary"]:hover:not(:disabled) {
+  background: var(--color-action-strong, var(--color-action));
+}
+
+.ui-icon-button[data-variant="secondary"] {
+  background: var(--brand-palm);
+  color: var(--brand-paper);
+}
+
+.ui-icon-button[data-variant="secondary"]:hover:not(:disabled) {
+  background: var(--brand-palm-ink, var(--brand-palm));
+}
+
+/* Same reasoning as the outline button label above. */
+.ui-icon-button[data-variant="outline"] {
+  border-color: var(--color-ink);
+  color: var(--color-ink);
+}
+
 .ui-icon-button[data-variant="danger"] {
   color: var(--color-error-text);
 }
 
 .ui-icon-button[data-variant="danger"]:hover:not(:disabled) {
   background: var(--color-error-surface);
+}
+
+/* Anchors have no :disabled, and IconButtonLink is the only icon control that can be
+   inert while still focusable, so the disabled look keys off aria-disabled too. */
+.ui-icon-button[aria-disabled="true"] {
+  color: var(--color-disabled-text);
+  cursor: not-allowed;
 }
 
 /* ---- Page-level sticky form action bar (global Save + Back) ---- */
@@ -2441,6 +2752,15 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--grid-gap);
+}
+
+/*
+ * Two-up variant for grids that sit in a narrower column than the discovery listing. Three cards
+ * across the organizer's public page squeezes the title, organizer line and countdown into a
+ * column too narrow to read comfortably; two gives each card room to breathe.
+ */
+.competition-grid--roomy {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .competition-card {
@@ -2594,7 +2914,7 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   padding: var(--space-1-5) var(--space-3);
   border-radius: var(--radius-pill);
   background: var(--on-cover-chip);
-  color: var(--on-cover-ink);
+  color: var(--on-cover-chip-ink);
   font-family: var(--font-data);
   font-size: var(--text-micro);
   font-weight: 500;
@@ -2624,7 +2944,7 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
 
 .competition-card:has(.status-badge[data-status="featured"]) {
   border: var(--border-strong) solid var(--brand-tangerine);
-  box-shadow: var(--space-3) var(--space-3) 0 var(--brand-peach);
+  box-shadow: var(--space-3) var(--space-3) 0 var(--surface-offset-block);
 }
 
 .competition-title-link {
@@ -2684,6 +3004,13 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
  */
 .featured-carousel-wrap {
   position: relative;
+  /*
+   * As a grid item this defaults to min-width:auto, so it refuses to shrink below the width of the
+   * card row inside it — which makes the scroller's overflow-x:auto unreachable and stretches the
+   * whole page instead. The page then scrolls sideways on a phone. min-width:0 lets the wrap
+   * narrow to its column so the carousel does the scrolling, as intended.
+   */
+  min-width: 0;
   padding-inline: var(--space-16);
 }
 
@@ -2731,6 +3058,7 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
 
 .featured-carousel {
   display: flex;
+  min-width: 0;
   gap: var(--grid-gap);
   overflow-x: auto;
   scroll-snap-type: x mandatory;
@@ -2832,6 +3160,7 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   color: var(--color-brand-ink);
   font-size: var(--text-detail-hero);
   line-height: var(--leading-tight);
+  text-wrap: balance;
 }
 
 .detail-hero-content .status-badge {
@@ -2855,6 +3184,19 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   object-fit: contain;
 }
 
+.detail-organizer-link {
+  color: inherit;
+  font-weight: 600;
+  text-decoration-color: currentcolor;
+  text-decoration-thickness: var(--border-thin);
+  text-underline-offset: var(--space-1);
+}
+
+.detail-organizer-link:hover {
+  color: var(--color-brand-ink);
+  text-decoration-thickness: var(--border-strong);
+}
+
 .detail-organizer-mark {
   display: grid;
   width: var(--control-height-sm);
@@ -2870,6 +3212,19 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   grid-template-columns: minmax(0, 1fr) var(--content-detail-rail);
   align-items: start;
   gap: var(--detail-gap);
+}
+
+/*
+ * Rails stack directly on one another at the foot of the detail page, so each one needs to open
+ * its own space — without this the second rail's heading sits against the first rail's cards and
+ * reads as a caption belonging to them.
+ */
+.detail-rail-section {
+  padding-block-start: var(--space-12);
+}
+
+.detail-rail-section:last-child {
+  padding-block-end: var(--space-16);
 }
 
 .detail-main {
@@ -2919,9 +3274,17 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   box-shadow: 0 0 0 var(--border-thin) var(--color-accent);
 }
 
+/*
+ * A key date is the one timeline signal that was carried by hue alone: same dot, same ring, only
+ * a different colour. Size and ring weight now carry it too, so it survives a muted palette,
+ * greyscale, and colour-blind vision.
+ */
 .detail-timeline-item[data-key-date="true"] .detail-timeline-node {
+  width: var(--space-4);
+  height: var(--space-4);
+  margin-block-start: 0;
   background: var(--brand-tangerine);
-  box-shadow: 0 0 0 var(--border-thin) var(--brand-tangerine);
+  box-shadow: 0 0 0 var(--border-strong) var(--brand-tangerine);
 }
 
 .detail-timeline-item > div {
@@ -2953,13 +3316,11 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   align-items: start;
 }
 
-.detail-information-grid h2,
-.detail-organizer-card h2 {
+.detail-information-grid h2 {
   font-size: var(--text-card-title);
 }
 
-.detail-information-grid p,
-.detail-organizer-card p {
+.detail-information-grid p {
   margin: var(--space-0);
   color: var(--color-ink-soft);
 }
@@ -2974,25 +3335,45 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   color: var(--color-accent);
 }
 
-.detail-organizer-card {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: var(--space-4);
-}
-
-.detail-organizer-mark-large {
-  width: calc(var(--touch-target) + var(--space-3));
-  height: calc(var(--touch-target) + var(--space-3));
-}
-
 .detail-cta-rail {
   position: sticky;
   inset-block-start: calc(var(--header-height) + var(--space-5));
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-2);
   padding: var(--space-6);
   border-radius: var(--radius-feature);
+}
+
+.detail-phase-summary {
+  margin-block-start: calc(var(--space-6) * -1);
+  margin-inline: calc(var(--space-6) * -1);
+  padding: var(--space-5) var(--space-6);
+  border-radius: var(--radius-feature) var(--radius-feature) var(--space-0) var(--space-0);
+  background: var(--color-brand-surface);
+  color: var(--color-brand-ink);
+}
+
+.detail-phase-title {
+  margin: var(--space-0);
+  color: inherit;
+  font-family: var(--font-display);
+  font-size: var(--text-card-title);
+  line-height: var(--leading-tight);
+  text-wrap: balance;
+}
+
+.detail-phase-summary:is(
+  [data-status="upcoming"],
+  [data-status="closing"],
+  [data-status="overdue"]
+) {
+  background: var(--color-action);
+  color: var(--color-action-ink);
+}
+
+.detail-rail-summary {
+  display: grid;
+  gap: var(--space-3);
 }
 
 .detail-deadline {
@@ -3022,7 +3403,24 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
 
 .detail-rail-actions {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
+}
+
+.detail-primary-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.detail-save-action {
+  width: var(--control-height-lg);
+  min-width: var(--control-height-lg);
+  min-height: var(--control-height-lg);
+}
+
+.detail-save-action[data-saved="true"] .ui-icon {
+  fill: currentColor;
 }
 
 .detail-rail-note {
@@ -3030,6 +3428,53 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   color: var(--color-ink-soft);
   font-size: var(--text-meta);
   text-align: center;
+}
+
+.detail-verification-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  border: var(--border-thin) solid var(--color-info-border);
+  background: var(--color-info-surface);
+}
+
+.detail-verification-panel[data-verified="true"] {
+  border-color: var(--color-success-border);
+  background: var(--color-success-surface);
+}
+
+.detail-verification-icon {
+  display: grid;
+  width: var(--touch-target);
+  height: var(--touch-target);
+  place-items: center;
+  border-radius: var(--radius-circle);
+  background: var(--color-info-border);
+  color: var(--color-info-text);
+}
+
+.detail-verification-panel[data-verified="true"] .detail-verification-icon {
+  background: var(--color-success-border);
+  color: var(--color-success-text);
+}
+
+.detail-verification-panel h2,
+.detail-verification-panel p {
+  margin: var(--space-0);
+}
+
+.detail-verification-panel h2 {
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  font-weight: 700;
+}
+
+.detail-verification-panel p:not(.eyebrow) {
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+  text-wrap: pretty;
 }
 
 /* Auth and onboarding */
@@ -3665,7 +4110,7 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
 .inbox-card {
   position: relative;
   display: grid;
-  grid-template-columns: var(--control-select-min) minmax(0, 1fr);
+  grid-template-columns: max-content minmax(0, 1fr);
   overflow: hidden;
   border: var(--border-thin) solid var(--color-line);
   border-radius: var(--radius-card);
@@ -3690,24 +4135,24 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
 .inbox-kind-label {
   display: flex;
   align-items: center;
-  padding: var(--space-5);
+  padding: var(--space-4);
   background: var(--color-inset);
   color: var(--color-ink-soft);
   font-family: var(--font-data);
-  font-size: var(--text-micro);
+  font-size: var(--text-meta);
   font-weight: 700;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
 
 .inbox-card[data-kind="institution_invite"] .inbox-kind-label {
-  background: var(--color-accent-bg);
-  color: var(--color-accent);
+  background: var(--color-info-surface);
+  color: var(--color-ink);
 }
 
 .inbox-card[data-kind="team_invite"] .inbox-kind-label {
-  background: var(--color-info-surface);
-  color: var(--color-info-text);
+  background: var(--color-warning-surface);
+  color: var(--color-warning-text);
 }
 
 .inbox-card-content {
@@ -3912,8 +4357,11 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   max-width: var(--content-form);
 }
 
+/* Children are all capped at form measure by the rule below, so centring the grid
+   items keeps their left edges aligned with each other while the column as a whole
+   sits in the middle of the wider page shell. */
 .registration-page {
-  justify-items: start;
+  justify-items: center;
 }
 
 .registration-page > * {
@@ -4080,10 +4528,24 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   inset: auto -8% -3rem;
   height: calc(var(--wave-height) + var(--space-1));
   border-radius: var(--wave-radius-peach);
-  background: var(--brand-peach);
+  background: var(--wave-crest);
   opacity: 0.92;
   content: "";
   pointer-events: none;
+}
+
+/* An uploaded banner replaces the decorative treatment entirely — the wave crest would cut across
+   the user's own image. The gradient stays underneath as the loading/absent state. */
+.pf-banner-uploaded::after {
+  content: none;
+}
+
+.pf-banner-image {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
 }
 
 .pf-identity {
@@ -4406,6 +4868,31 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   object-fit: cover;
 }
 
+/* The banner preview is too wide to sit beside its controls the way the avatar does. */
+.pf-media-stacked {
+  display: grid;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+.pf-media-banner {
+  position: relative;
+  display: block;
+  inline-size: 100%;
+  aspect-ratio: 4;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background:
+    radial-gradient(125% 150% at 82% -20%, var(--brand-peach) 0%, transparent 52%),
+    var(--color-brand-surface);
+}
+
+.pf-media-banner img {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
 .pf-media-actions {
   display: flex;
   flex-wrap: wrap;
@@ -4420,53 +4907,66 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   font-size: var(--text-meta);
 }
 
-/* Avatar crop modal */
-.avatar-crop {
+/* Image crop modal — shared by the avatar (1:1) and banner (4:1) croppers. The viewport takes the
+   width it is given and derives its height from the frame ratio, which the editor sets inline. */
+.image-crop {
   display: grid;
   justify-items: center;
   gap: var(--space-4);
   color: var(--color-ink);
 }
 
-.avatar-crop-viewport {
+.image-crop-viewport {
   position: relative;
-  inline-size: 264px;
-  block-size: 264px;
-  max-inline-size: 100%;
+  inline-size: 100%;
+  max-inline-size: 400px;
   overflow: hidden;
-  border-radius: var(--blob-radius-a);
   background: var(--color-inset);
   cursor: grab;
   touch-action: none;
 }
 
-.avatar-crop-viewport:active {
+.image-crop-viewport-blob {
+  border-radius: var(--blob-radius-a);
+}
+
+.image-crop-viewport-rect {
+  border-radius: var(--radius-card);
+}
+
+.image-crop-viewport:active {
   cursor: grabbing;
 }
 
-.avatar-crop-viewport img {
+/* The crop window is focusable so it can be panned with the arrow keys. */
+.image-crop-viewport:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+
+.image-crop-viewport img {
   position: absolute;
   max-width: none;
   user-select: none;
   -webkit-user-drag: none;
 }
 
-.avatar-crop-zoom {
+.image-crop-zoom {
   display: flex;
-  inline-size: 264px;
-  max-inline-size: 100%;
+  inline-size: 100%;
+  max-inline-size: 400px;
   align-items: center;
   gap: var(--space-3);
   font-size: var(--text-body-sm);
   color: var(--color-ink-soft);
 }
 
-.avatar-crop-zoom input[type="range"] {
+.image-crop-zoom input[type="range"] {
   flex: 1;
   accent-color: var(--color-action);
 }
 
-.avatar-crop-hint {
+.image-crop-hint {
   margin: var(--space-0);
   color: var(--color-ink-faint);
   font-size: var(--text-meta);
@@ -4517,12 +5017,19 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   gap: var(--space-3);
 }
 
+/*
+ * The compact sibling of .checkbox-field: smaller, muted type for secondary toggles inside the
+ * profile editor. It carries the same 44px minimum target — the label is what gets tapped, and a
+ * checkbox is a 16px box whichever pattern draws it.
+ */
 .pf-editor-check {
   display: inline-flex;
+  min-height: var(--touch-target);
   align-items: center;
   gap: var(--space-2);
   font-size: var(--text-body-sm);
   color: var(--color-ink-soft);
+  cursor: pointer;
 }
 
 .pf-editor-actions {
@@ -4551,8 +5058,7 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .personal-institution-card,
-.personal-institution-created,
-.personal-institution-form {
+.personal-institution-created {
   display: grid;
   gap: var(--space-5);
 }
@@ -4581,7 +5087,6 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .institution-form-page,
-.institution-team-page,
 .institution-verification-page {
   max-width: var(--content-prose);
 }
@@ -4617,6 +5122,11 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: end;
   gap: var(--space-3);
+}
+
+/* The role column is `auto`, so without a floor the trigger shrinks to its shortest label. */
+.institution-invite-form .select-field {
+  min-width: var(--control-select-min);
 }
 
 .table-actions {
@@ -4692,6 +5202,19 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   max-width: var(--content-prose);
 }
 
+.competition-list-controls {
+  display: inline-grid;
+  width: fit-content;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.competition-list-controls .select-field {
+  width: auto;
+  min-width: var(--control-select-min);
+}
+
 .management-competition-list {
   display: grid;
   gap: var(--space-3);
@@ -4753,6 +5276,39 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   overflow-wrap: anywhere;
 }
 
+.detail-grid {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-0);
+}
+
+.detail-grid > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.detail-grid dt {
+  flex-shrink: 0;
+  color: var(--color-ink-faint);
+  font-size: var(--text-micro);
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.detail-grid dt::after {
+  content: ":";
+}
+
+.detail-grid dd {
+  margin: var(--space-0);
+  color: var(--color-ink);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
 .lifecycle-card {
   border-color: var(--color-accent);
 }
@@ -4771,7 +5327,9 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
 }
 
-.checkbox-field input {
+/* Both checkbox patterns draw the same box; .pf-editor-check differs only in typography. */
+.checkbox-field input,
+.pf-editor-check input {
   width: var(--space-4);
   height: var(--space-4);
   accent-color: var(--brand-palm);
@@ -4934,7 +5492,7 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   border-radius: var(--radius-card);
 }
 
-.admin-filter-toolbar .form-select {
+.admin-filter-toolbar .select-field {
   min-width: var(--control-select-min);
 }
 
@@ -5139,7 +5697,8 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
     grid-row: 1;
   }
 
-  .competition-grid {
+  .competition-grid,
+  .institution-card-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -5159,8 +5718,8 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
     display: none;
   }
 
-  .mobile-nav-toggle {
-    display: inline-flex;
+  .ui-icon-button.mobile-nav-toggle {
+    display: inline-grid;
   }
 
   .header-inner {
@@ -5168,11 +5727,13 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
   }
 
   .form-grid,
+  .form-field-with-aside,
   .footer-inner,
   .primitive-columns,
   .primitive-surface-grid,
   .detail-information-grid,
   .competition-grid,
+  .institution-card-grid,
   .summary-grid,
   .saved-grid,
   .submission-summary,
@@ -5213,15 +5774,67 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
     flex-wrap: nowrap;
   }
 
-  .inbox-kind-label {
-    padding: var(--space-3) var(--space-5);
-  }
-
   .home-section-header,
   .home-organizer-cta,
   .filter-toolbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  /*
+   * The featured card's offset peach block needs room to its right that a phone does not have —
+   * it ends up touching or crossing the viewport edge and reads as a rendering fault. The
+   * tangerine frame alone marks the card as featured at this width, and the "Unggulan" badge
+   * still names it, so dropping the offset costs no signal. Same treatment for the hub action
+   * card, which uses the identical offset-block pattern.
+   */
+  .competition-card:has(.status-badge[data-status="featured"]),
+  .hub-card--action {
+    box-shadow: none;
+  }
+
+  /*
+   * The hero art is decorative and square, so on a phone it costs a screen of height before the
+   * search field, the one thing the hero exists to deliver. Hidden here; the component watches
+   * the same breakpoint and stops its tick so nothing animates off-screen.
+   */
+  .home-memphis {
+    display: none;
+  }
+
+  /*
+   * Profile header. Side by side, the action group is wide enough on a phone to wrap into a
+   * stack floating beside the avatar. Instead the compact edit control shares the avatar's row
+   * at the far right, and the wide "Verifikasi sebagai …" button takes a full row beneath.
+   *
+   * `display: contents` promotes the two buttons to grid items of the header without changing
+   * the markup, so they can be placed independently; the wrapper carries no styling of its own
+   * at this width.
+   */
+  .pf-identity-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-3);
+  }
+
+  .pf-actions {
+    display: contents;
+  }
+
+  /*
+   * Selectors stay on .pf-actions: `display: contents` removes the wrapper's box but not the DOM
+   * node, so the buttons are grid ITEMS of the header while remaining CHILDREN of the wrapper.
+   */
+  .pf-actions > .ui-icon-button {
+    grid-row: 1;
+    grid-column: 2;
+    justify-self: end;
+  }
+
+  .pf-actions > .ui-button {
+    grid-row: 2;
+    grid-column: 1 / -1;
   }
 
   /* Featured carousel drops to one-up with a peek of the next card; swipe replaces the arrows. */
@@ -5387,8 +6000,7 @@ input.form-input[type="time"]::-webkit-calendar-picker-indicator {
     text-align: center;
   }
 
-  .detail-information-grid section,
-  .detail-organizer-card {
+  .detail-information-grid section {
     grid-template-columns: minmax(0, 1fr);
   }
 

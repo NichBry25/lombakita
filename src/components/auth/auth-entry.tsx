@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { Button, SelectField, usePageTransition } from "@/components/ui";
+import { useToast } from "@/components/ui/primitives";
 import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
 
 // Step 6.5d.1 — method-first single-page auth entry. Replaces the 6.5b two-page login/register
@@ -28,6 +29,9 @@ type AuthEntryProps = {
   // True when arriving from the email-verification success redirect (?verified=1). Opens the
   // credentials method directly with a confirmation message.
   verifiedNotice?: boolean;
+  // Server-resolved message for a `?error=` query param (e.g. a failed sign-in redirect, or the
+  // safe-link deny notice). Fired as a toast once on mount.
+  initialErrorMessage?: string;
 };
 
 type Method = "choose" | "credentials";
@@ -66,6 +70,7 @@ export const AuthEntry = ({
   callbackUrl,
   initialEmail,
   verifiedNotice,
+  initialErrorMessage,
 }: AuthEntryProps) => {
   const [method, setMethod] = useState<Method>(verifiedNotice ? "credentials" : "choose");
   const [stage, setStage] = useState<CredentialStage>("entry");
@@ -90,16 +95,31 @@ export const AuthEntry = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
-  const [statusMessage, setStatusMessage] = useState<string | null>(
-    verifiedNotice ? "Email berhasil diverifikasi. Silakan masuk dengan password Anda." : null,
-  );
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { begin: beginPageTransition } = usePageTransition();
+  const { addToast } = useToast();
 
-  const resetMessages = () => {
-    setStatusMessage(null);
-    setErrorMessage(null);
-  };
+  useEffect(() => {
+    if (verifiedNotice) {
+      addToast({
+        type: "success",
+        message: "Email berhasil diverifikasi. Silakan masuk dengan password Anda.",
+      });
+    }
+    if (initialErrorMessage) {
+      addToast({ type: "error", message: initialErrorMessage });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (stage === "signup" && !verificationEnabled) {
+      addToast({
+        type: "warning",
+        message: "Pendaftaran email sedang tidak tersedia. Coba lagi nanti.",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
 
   const startGoogle = () => {
     // Hands off to Google's consent screen. That is a full document navigation, so the blocking
@@ -139,9 +159,11 @@ export const AuthEntry = ({
     // 6.5-HARDENING.1 — failed-attempt lockout. `authorize` throws RATE_LIMITED once too many failed
     // logins for this IP+email accumulate; surface a distinct, non-enumerating message.
     if (result?.error?.toUpperCase().includes("RATE_LIMITED")) {
-      setErrorMessage(
-        "Terlalu banyak percobaan login gagal. Tunggu beberapa menit sebelum mencoba lagi.",
-      );
+      addToast({
+        type: "error",
+        message:
+          "Terlalu banyak percobaan login gagal. Tunggu beberapa menit sebelum mencoba lagi.",
+      });
       return;
     }
 
@@ -159,11 +181,12 @@ export const AuthEntry = ({
 
     // Show a "did you use Google?" hint only when Google is available — this is the verified path,
     // so an account exists; a Google-only account has no password and always reaches this branch.
-    setErrorMessage(
-      googleEnabled
+    addToast({
+      type: "error",
+      message: googleEnabled
         ? "Login gagal karena email atau password salah. Apakah Anda pernah masuk dengan Google? Jika ya, klik 'Ganti metode' lalu pilih 'Lanjut dengan Google'."
         : "Login gagal karena email atau password salah. Periksa kembali data Anda.",
-    );
+    });
   };
 
   const onSubmitEntry = async (event: FormEvent<HTMLFormElement>) => {
@@ -173,7 +196,6 @@ export const AuthEntry = ({
     }
 
     setIsSubmitting(true);
-    resetMessages();
 
     try {
       const response = await fetch("/api/v1/auth/identify", {
@@ -185,12 +207,18 @@ export const AuthEntry = ({
       // 6.5-HARDENING.1 — the identify endpoint is per-IP rate-limited; a 429 is distinct from a
       // validation failure and must not be reported as a bad email format.
       if (response.status === 429) {
-        setErrorMessage("Terlalu banyak percobaan. Tunggu beberapa saat lalu coba lagi.");
+        addToast({
+          type: "error",
+          message: "Terlalu banyak percobaan. Tunggu beberapa saat lalu coba lagi.",
+        });
         return;
       }
 
       if (!response.ok) {
-        setErrorMessage("Format email tidak valid. Gunakan format seperti nama@kampus.ac.id.");
+        addToast({
+          type: "error",
+          message: "Format email tidak valid. Gunakan format seperti nama@kampus.ac.id.",
+        });
         return;
       }
 
@@ -209,7 +237,7 @@ export const AuthEntry = ({
       // state === "none" — no account for this email; offer the role picker.
       setStage("signup");
     } catch {
-      setErrorMessage("Terjadi gangguan koneksi. Coba lagi beberapa saat.");
+      addToast({ type: "error", message: "Terjadi gangguan koneksi. Coba lagi beberapa saat." });
     } finally {
       setIsSubmitting(false);
     }
@@ -220,7 +248,6 @@ export const AuthEntry = ({
       return;
     }
     setIsResending(true);
-    resetMessages();
 
     try {
       const response = await fetch("/api/v1/auth/register/resend", {
@@ -230,13 +257,22 @@ export const AuthEntry = ({
       });
 
       if (!response.ok) {
-        setErrorMessage("Gagal mengirim ulang verifikasi. Coba lagi beberapa saat.");
+        addToast({
+          type: "error",
+          message: "Gagal mengirim ulang verifikasi. Coba lagi beberapa saat.",
+        });
         return;
       }
 
-      setStatusMessage("Email verifikasi baru telah dikirim. Buka inbox/spam Anda.");
+      addToast({
+        type: "success",
+        message: "Email verifikasi baru telah dikirim. Buka inbox/spam Anda.",
+      });
     } catch {
-      setErrorMessage("Gagal mengirim ulang verifikasi karena gangguan koneksi.");
+      addToast({
+        type: "error",
+        message: "Gagal mengirim ulang verifikasi karena gangguan koneksi.",
+      });
     } finally {
       setIsResending(false);
     }
@@ -249,7 +285,6 @@ export const AuthEntry = ({
     candidateBody: Record<string, unknown> | null,
   ) => {
     setIsSubmitting(true);
-    resetMessages();
 
     try {
       const response = await fetch(`/api/v1/auth/register?as=${encodeURIComponent(role)}`, {
@@ -268,21 +303,31 @@ export const AuthEntry = ({
           error?: { code?: string; message?: string };
         } | null;
         if (payload?.error?.code === "email_exists") {
-          setErrorMessage("Akun untuk email ini sudah ada. Silakan masuk, bukan mendaftar.");
+          addToast({
+            type: "error",
+            message: "Akun untuk email ini sudah ada. Silakan masuk, bukan mendaftar.",
+          });
         } else {
-          setErrorMessage(
-            payload?.error?.message ?? "Pendaftaran gagal. Periksa data Anda lalu coba lagi.",
-          );
+          addToast({
+            type: "error",
+            message:
+              payload?.error?.message ?? "Pendaftaran gagal. Periksa data Anda lalu coba lagi.",
+          });
         }
         return;
       }
 
       setStage("entry");
-      setStatusMessage(
-        "Pendaftaran berhasil. Kami telah mengirim email verifikasi — buka inbox Anda untuk aktivasi, lalu masuk.",
-      );
+      addToast({
+        type: "success",
+        message:
+          "Pendaftaran berhasil. Kami sudah mengirim email verifikasi. Buka inbox Anda untuk mengaktifkan akun, lalu masuk.",
+      });
     } catch {
-      setErrorMessage("Pendaftaran gagal karena gangguan koneksi. Coba lagi beberapa saat.");
+      addToast({
+        type: "error",
+        message: "Pendaftaran gagal karena gangguan koneksi. Coba lagi beberapa saat.",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -292,21 +337,27 @@ export const AuthEntry = ({
   // or (for recruiters) creates the account immediately.
   const onPickSignupRole = (role: "candidate" | "recruiter") => {
     if (!verificationEnabled) {
-      setErrorMessage(
-        "Pendaftaran tidak tersedia karena konfigurasi email verifikasi (Resend) belum lengkap.",
-      );
+      addToast({
+        type: "error",
+        message:
+          "Pendaftaran tidak tersedia karena konfigurasi email verifikasi (Resend) belum lengkap.",
+      });
       return;
     }
     if (name.trim().length < 2) {
-      setErrorMessage("Isi nama lengkap (minimal 2 karakter) untuk mendaftar.");
+      addToast({
+        type: "error",
+        message: "Isi nama lengkap (minimal 2 karakter) untuk mendaftar.",
+      });
       return;
     }
     if (password !== confirmPassword) {
-      setErrorMessage("Password dan konfirmasi password tidak cocok. Coba lagi.");
+      addToast({
+        type: "error",
+        message: "Password dan konfirmasi password tidak cocok. Coba lagi.",
+      });
       return;
     }
-
-    resetMessages();
 
     if (role === "candidate") {
       // Prefill the candidate's declared full name from the name already entered; it stays editable.
@@ -325,11 +376,11 @@ export const AuthEntry = ({
     event.preventDefault();
 
     if (fullName.trim().length < 2) {
-      setErrorMessage("Isi nama lengkap (minimal 2 karakter).");
+      addToast({ type: "error", message: "Isi nama lengkap (minimal 2 karakter)." });
       return;
     }
     if (recruiterMobile.replace(/\D/g, "").length < 8) {
-      setErrorMessage("Isi nomor ponsel yang valid (minimal 8 digit).");
+      addToast({ type: "error", message: "Isi nomor ponsel yang valid (minimal 8 digit)." });
       return;
     }
 
@@ -344,19 +395,19 @@ export const AuthEntry = ({
     event.preventDefault();
 
     if (fullName.trim().length < 2) {
-      setErrorMessage("Isi nama lengkap (minimal 2 karakter).");
+      addToast({ type: "error", message: "Isi nama lengkap (minimal 2 karakter)." });
       return;
     }
     if (phoneNumber.replace(/\D/g, "").length < 8) {
-      setErrorMessage("Isi nomor telepon yang valid (minimal 8 digit).");
+      addToast({ type: "error", message: "Isi nomor telepon yang valid (minimal 8 digit)." });
       return;
     }
     if (!occupation) {
-      setErrorMessage("Pilih status Anda saat ini.");
+      addToast({ type: "error", message: "Pilih status Anda saat ini." });
       return;
     }
     if (!dateOfBirth) {
-      setErrorMessage("Isi tanggal lahir Anda.");
+      addToast({ type: "error", message: "Isi tanggal lahir Anda." });
       return;
     }
 
@@ -371,24 +422,20 @@ export const AuthEntry = ({
   const backToChoose = () => {
     setMethod("choose");
     setStage("entry");
-    resetMessages();
   };
 
   const backToEntry = () => {
     setStage("entry");
     setConfirmPassword("");
-    resetMessages();
   };
 
   const backToSignup = () => {
     setStage("signup");
-    resetMessages();
   };
 
   return (
     <div className="auth-entry">
       <header className="auth-entry-header">
-        <p className="eyebrow">Akses akun</p>
         <h1>Masuk atau daftar</h1>
         <p>Pilih cara Anda ingin melanjutkan.</p>
       </header>
@@ -409,7 +456,6 @@ export const AuthEntry = ({
           <button
             type="button"
             onClick={() => {
-              resetMessages();
               setMethod("credentials");
             }}
             className="auth-method-button"
@@ -558,12 +604,6 @@ export const AuthEntry = ({
           <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
             Kembali
           </Button>
-
-          {!verificationEnabled ? (
-            <p className="feedback" data-tone="warning">
-              Pendaftaran email belum tersedia (`RESEND_API_KEY`, `AUTH_EMAIL_FROM` belum lengkap).
-            </p>
-          ) : null}
         </div>
       ) : null}
 
@@ -675,7 +715,7 @@ export const AuthEntry = ({
 
           <div className="form-field">
             <label className="form-label" htmlFor="recruiter-corporate-email">
-              Email korporat / institusi (opsional)
+              Email korporat / institusi (Opsional)
             </label>
             <input
               id="recruiter-corporate-email"
@@ -699,17 +739,6 @@ export const AuthEntry = ({
             </Button>
           </div>
         </form>
-      ) : null}
-
-      {statusMessage ? (
-        <p className="feedback" data-tone="success">
-          {statusMessage}
-        </p>
-      ) : null}
-      {errorMessage ? (
-        <p className="feedback" data-tone="error">
-          {errorMessage}
-        </p>
       ) : null}
     </div>
   );

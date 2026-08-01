@@ -14,9 +14,6 @@ vi.mock("next/navigation", () => ({
     replace: mockReplace,
   }),
 }));
-vi.mock("@/components/auth/sign-out-button", () => ({
-  SignOutButton: () => null,
-}));
 vi.mock("@/components/ui", () => ({
   Button: ({
     children,

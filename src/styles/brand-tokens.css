@@ -30,7 +30,13 @@
   --color-inset: #f4eee0;
   --color-ink: #14453d;
   --color-ink-soft: #3d5c56;
-  --color-ink-faint: #5c7571;
+  /*
+   * The third ink tier still has to be readable — it carries CTA state labels and @handles, not
+   * just ornament. The previous #5c7571 was 4.47:1 on paper and 4.16:1 on the inset surface, so it
+   * failed AA on the two backgrounds it most often lands on. This clears 4.5:1 on all of them
+   * (4.8:1 inset, 5.2:1 paper, 5.7:1 white).
+   */
+  --color-ink-faint: #536b66;
   --color-line: #e3dccb;
   --color-line-soft: #efe9da;
   --color-brand-surface: #14453d;
@@ -50,23 +56,48 @@
   --color-action-bright: #f4632a;
   --color-action-soft: #ffe9da;
 
-  /* Accent. Lime is a highlighter (background); olive carries accent text. */
-  --color-accent: #667923;
+  /*
+   * Accent. Lime is a highlighter (background); olive carries accent text. Verified against the
+   * TINTED surfaces too, not just paper: eyebrows land on Palm Mist and on the accent tint, where
+   * the previous #667923 was 4.05:1 and 4.35:1. This clears 4.5:1 on every one of them.
+   */
+  --color-accent: #5a6a1f;
   --color-accent-bg: #edf7d0;
   --color-highlight: #d0f05e;
   --color-highlight-ink: #14453d;
+
+  /*
+   * Hover / selected tint for options, menu items and icon buttons. Light mode is Palm Mist, the
+   * value these call sites used directly before; dark mode needs a tint LIGHTER than the surface
+   * it sits on, which is why it cannot reuse --color-inset (darker) or the raw mist (near-white).
+   */
+  --color-hover-surface: #e4ede4;
+
+  /*
+   * The offset block behind the featured competition card and the hub action card. It is a large
+   * filled area sitting on the page, so unlike the tangerine frame beside it, it has to follow the
+   * theme or it burns a peach slab onto a near-black page.
+   */
+  --surface-offset-block: #ffd3b0;
+
+  /*
+   * The wave crest that cuts every palm band. In light mode it bridges palm to warm paper, so it
+   * is Peach Glow; against the near-black dark page the same peach becomes a hard bright stripe
+   * instead of a transition, so it deepens to sit between the two surfaces it joins.
+   */
+  --wave-crest: #ffd3b0;
 
   /* State surfaces */
   --color-disabled-surface: #f0ebdd;
   --color-disabled-text: #5c7571;
   --color-disabled-border: #d8d1bf;
-  --color-success-surface: #e7f2e3;
-  --color-success-text: #2a5b33;
-  --color-success-border: #a9cda6;
-  --color-warning-surface: #fdf0d2;
-  --color-warning-text: #7a5410;
-  --color-warning-border: #e0c377;
-  --color-error-surface: #fbe7df;
+  --color-success-surface: #d9ead9;
+  --color-success-text: #1c5f52;
+  --color-success-border: #9dc2ab;
+  --color-warning-surface: #ffd3b0;
+  --color-warning-text: #8f3512;
+  --color-warning-border: #c6491b;
+  --color-error-surface: #ffe9da;
   --color-error-text: #9b3617;
   --color-error-border: #e8ae94;
   --color-info-surface: #e4ede4;
@@ -93,7 +124,13 @@
   --glass-overlay-fallback: #1d4b43;
   --glass-chrome-fill: rgba(255, 255, 255, 0.72);
   --glass-focus-fill: rgba(255, 255, 255, 0.88);
-  --glass-overlay-fill: rgba(20, 69, 61, 0.64);
+  /*
+   * Brand book §6 draws this tier at 64%, but 64% palm over a light glow composites to a mid
+   * green where neither light nor dark ink clears 4.5:1 — and it disagreed with this tier's own
+   * opaque fallback (#1d4b43), which is properly dark. Raised until the blurred and unblurred
+   * paths read the same. A §11-class accessibility correction to the brand values.
+   */
+  --glass-overlay-fill: rgba(20, 69, 61, 0.82);
   --glass-edge: rgba(255, 255, 255, 0.82);
   --glass-structure-line: rgba(20, 69, 61, 0.12);
   --glass-shadow-color: rgba(20, 69, 61, 0.16);
@@ -133,30 +170,58 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
+  /*
+   * The --brand-* constants above are deliberately NOT re-themed here. They are used in two
+   * opposite contexts: as ink ON a deep-palm band, and as fills against the page. A palm band is
+   * dark in BOTH themes, so its ink must stay light — darkening `--brand-mist` globally drops the
+   * hero's lead paragraph to 1.12:1 on palm, and darkening `--brand-lime` takes the footer link
+   * hover from 8.37:1 to 4.03:1. The dev swatch page also renders these constants directly, so a
+   * theme override would make it display the wrong palette.
+   *
+   * Dark adaptation therefore lives in the semantic tokens below and in the two page-background
+   * fills that had no semantic token of their own (see --surface-offset-block).
+   */
+
   --color-bg: #071b17;
   --color-surface: #0e332d;
   --color-raised: #14453d;
   --color-inset: #0a2621;
   --color-ink: #f1ede2;
   --color-ink-soft: #a8c0b8;
-  --color-ink-faint: #7e958e;
+  /*
+   * Measured against --color-raised (#14453d), the LIGHTEST surface it can land on, not against
+   * the page: the old #7e958e cleared the page comfortably and still failed at 4.3:1 on a card.
+   * 4.75:1 there, 6.0:1 on --color-surface. It sits closer to --color-ink-soft than the light
+   * theme's three tiers do; dark mode has less luminance headroom, and a legible third tier is
+   * worth more than a wider spread. --color-disabled-text keeps the old value — inactive
+   * controls are exempt.
+   */
+  --color-ink-faint: #9ab1aa;
   --color-line: #1e4a42;
   --color-line-soft: #163b34;
   --color-brand-surface: #0e332d;
   --color-brand-ink: #fbf6eb;
   --color-link: #b9dfa4;
-  --color-link-hover: #d0f05e;
+  --color-link-hover: #c3e27a;
 
   --color-action: #c6491b;
   --color-action-hover: #d9541f;
   --color-action-ink: #ffffff;
-  --color-action-bright: #f4632a;
+  /* Matches the muted --brand-tangerine so the two tangerines never sit side by side at
+     different brightnesses. Icons and dots only, so the 3:1 non-text bar applies (4.29:1). */
+  --color-action-bright: #d2551f;
   --color-action-soft: #3a2419;
 
-  --color-accent: #d0f05e;
+  /* Accent text at 10.23:1 on the page, 7.88:1 on a surface — legible without the neon edge. */
+  --color-accent: #b3cf6a;
   --color-accent-bg: #22402c;
-  --color-highlight: #d0f05e;
-  --color-highlight-ink: #14453d;
+  /* The one-word headline marker. Deep Palm still sits on it (5.13:1), per the brand pairing. */
+  --color-highlight: #8fa843;
+  --color-highlight-ink: #0e332d;
+
+  --color-hover-surface: #1c4a42;
+  --surface-offset-block: #6b4128;
+  --wave-crest: #563322;
 
   --color-disabled-surface: #12302a;
   --color-disabled-text: #7e958e;
@@ -164,9 +229,9 @@
   --color-success-surface: #12301f;
   --color-success-text: #9bd7ae;
   --color-success-border: #2f5f42;
-  --color-warning-surface: #302916;
-  --color-warning-text: #f0d07c;
-  --color-warning-border: #655427;
+  --color-warning-surface: #3a2419;
+  --color-warning-text: #ffb088;
+  --color-warning-border: #8a4a24;
   --color-error-surface: #33201a;
   --color-error-text: #f5ad8e;
   --color-error-border: #70433b;
@@ -178,7 +243,7 @@
   --color-status-open-dot: #9db53c;
   --color-status-open-text: #c3e27a;
   --color-status-closing-bg: #3a2419;
-  --color-status-closing-dot: #f4632a;
+  --color-status-closing-dot: #d2551f;
   --color-status-closing-text: #ffb088;
   --color-status-closed-bg: #17302b;
   --color-status-closed-dot: #6d847e;
@@ -381,14 +446,18 @@
   --marker-radius: 3px;
 
   /*
-   * Text and chips that sit on category/cover artwork. The pastel washes are
-   * procedural artwork with no dark variant, so their overlaid ink and chips
-   * stay light-theme regardless of the active theme — theme-reactive ink over
-   * a permanently-light wash would fail contrast in dark mode.
+   * Text and chips that sit on category/cover artwork. Two different backgrounds live here and
+   * they move in opposite directions, so they need separate ink tokens:
+   *
+   *   --on-cover-ink / -soft  sit directly on the WASH, which darkens in dark mode, so they
+   *                           must follow the theme.
+   *   --on-cover-chip-ink     sits on the CHIP, a near-white pill in BOTH themes, so it stays
+   *                           dark always — theming it would put light ink on white.
    */
   --on-cover-ink: #14453d;
   --on-cover-ink-soft: #3d5c56;
   --on-cover-chip: rgba(255, 255, 255, 0.88);
+  --on-cover-chip-ink: #14453d;
 
   /* Category cover art hues (deterministic per category). */
   --category-hue-kti: 208;
@@ -413,4 +482,31 @@
   --category-wash-lightness: 90%;
   --category-blob-saturation: 62%;
   --category-blob-lightness: 52%;
+}
+
+/*
+ * Dark overrides for tokens declared in the :root block above. They live here rather than in the
+ * earlier [data-theme="dark"] block because :root and an attribute selector carry the same
+ * specificity, so whichever comes last in the file wins — declaring these earlier would silently
+ * lose to the light values.
+ */
+[data-theme="dark"] {
+  /*
+   * Category cover art. The light-mode wash is a 90%-lightness pastel; on a near-black page that
+   * is a full-bleed panel brighter than anything around it. Hue and the hue-per-category mapping
+   * are untouched, so a category stays recognisable by colour — only luminance drops. The blob
+   * keeps more saturation so it still separates from its own wash.
+   */
+  --category-wash-saturation: 34%;
+  --category-wash-lightness: 24%;
+  --category-blob-saturation: 46%;
+  --category-blob-lightness: 42%;
+
+  /*
+   * The ink on that wash has to invert with it. These must stay in this block, next to the wash
+   * they are measured against: worst case is the amber wash (hue 42), where paper reads 7.78:1
+   * and the soft ink 5.18:1. --on-cover-chip-ink is deliberately absent — the chip is still white.
+   */
+  --on-cover-ink: #f1ede2;
+  --on-cover-ink-soft: #a8c0b8;
 }

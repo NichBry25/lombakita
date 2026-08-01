@@ -10,7 +10,8 @@ import { reviewRecruiterVerification } from "@/server/recruiter-verification/rec
 type RouteContext = { params: Promise<{ submissionId: string }> };
 
 // PATCH — platform-ops review decision. Approving elevates the recruiter account to Trusted
-// (tier `elevated`); rejecting requires a reason surfaced to the recruiter for re-submission.
+// (tier `elevated`); rejecting requires a reason surfaced to the recruiter, and carries
+// `allowResubmission` (default true) deciding whether the recruiter may reopen and try again.
 // The status flip, tier elevation, and audit row all land in one transaction.
 export async function PATCH(request: Request, context: RouteContext): Promise<Response> {
   try {
@@ -38,11 +39,16 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
 
     const rejectionReason = typeof raw.rejectionReason === "string" ? raw.rejectionReason : null;
 
+    // Omitted or non-boolean means "allowed" — the permissive default. Only an explicit `false`
+    // bars the recruiter from reapplying.
+    const allowResubmission = raw.allowResubmission !== false;
+
     const result = await reviewRecruiterVerification(
       session.user.id,
       submissionId,
       decision,
       rejectionReason,
+      { allowResubmission },
     );
 
     return NextResponse.json(result);

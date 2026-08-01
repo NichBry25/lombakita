@@ -24,6 +24,7 @@ import {
   competitions,
   competitionPrizes,
   competitionRegistrations,
+  competitionResults,
   competitionRounds,
   competitionTags,
   institutionSocialLinks,
@@ -41,10 +42,33 @@ import {
 } from "@/server/search/competition-index";
 import { isCompetitionCategory, isCompetitionMode } from "@/server/competitions/competition-core";
 import {
+  deriveCompetitionPhase,
+  type CompetitionPhase,
+} from "@/lib/competitions/competition-phase";
+import {
   getInstitutionDisplayName,
   institutionOwnerUsernameSql,
 } from "@/server/institution-workspace/institution-display-name";
+import {
+  institutionOwnerAvatarKeySql,
+  institutionOwnerBannerKeySql,
+  resolveInstitutionMediaKeys,
+} from "@/server/institution-workspace/institution-media";
 import type { InstitutionType } from "@/server/db/schema";
+import {
+  deriveCompetitionParticipationState,
+  type CompetitionParticipationState,
+} from "@/lib/competitions/competition-participation";
+import { countCompetitionParticipantEntries } from "@/server/competitions/competition-participation-service";
+
+// Whether the competition has any published result. A correlated EXISTS rather than a join, so a
+// listing page costs one extra scalar per row instead of a second query per competition. Follows
+// the institutionOwnerUsernameSql form: the outer reference must be the literal `competitions.id`.
+const competitionHasPublishedResultSql = sql<boolean>`exists (
+  select 1 from ${competitionResults}
+  where ${competitionResults.competitionId} = competitions.id
+    and ${competitionResults.resultStatus} = 'published'
+)`;
 
 // Public listing columns — includes institution display name joined from the institutions table.
 // Does not expose fee_amount or fee_currency (DEC-0022). isFeatured is exposed for placement UI.
@@ -63,6 +87,9 @@ const PUBLIC_LISTING_COLUMNS = {
   registrationEndAt: competitions.registrationEndAt,
   eventStartAt: competitions.eventStartAt,
   eventEndAt: competitions.eventEndAt,
+  resultAnnouncementAt: competitions.resultAnnouncementAt,
+  cancelledAt: competitions.cancelledAt,
+  hasPublishedResult: competitionHasPublishedResultSql,
   publishedAt: competitions.publishedAt,
   createdAt: competitions.createdAt,
   updatedAt: competitions.updatedAt,
@@ -86,6 +113,9 @@ type PublicListingRow = {
   registrationEndAt: Date | null;
   eventStartAt: Date | null;
   eventEndAt: Date | null;
+  resultAnnouncementAt: Date | null;
+  cancelledAt: Date | null;
+  hasPublishedResult: boolean;
   publishedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -122,6 +152,9 @@ export type PublicCompetitionItem = {
   registrationEndAt: Date | null;
   eventStartAt: Date | null;
   eventEndAt: Date | null;
+  resultAnnouncementAt: Date | null;
+  cancelledAt: Date | null;
+  hasPublishedResult: boolean;
   publishedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -173,6 +206,27 @@ const resolvePage = (raw: number | undefined): number => {
   return Math.floor(raw);
 };
 
+// What it means for a competition to be publicly visible, stated once. Every public read — the
+// listing, its count, Meilisearch hydration, the featured rail, and the detail page — applies
+// exactly these conditions, so they are defined here rather than repeated five times where one
+// copy could silently drift from the others.
+//
+// The institution clause is the reason this exists: a suspended institution has no public
+// footprint. Its own page is already withheld, and its competitions are withheld with it.
+// Suspension is the operational takedown axis, distinct from unpublishing (which the organizer
+// controls and which cancels every registration) — withholding here changes public visibility
+// only and leaves competition status, registrations, and results untouched.
+//
+// Callers must join `institutions`; all five already do. Meilisearch carries no suspension field,
+// so the search path enforces this at DB hydration, the same way it re-checks published status
+// rather than trusting the index.
+export const buildPublicVisibilityCondition = (): SQL =>
+  and(
+    eq(competitions.status, "published"),
+    isNull(competitions.deletedAt),
+    isNull(institutions.suspendedAt),
+  )!;
+
 // Featured-first sort: applies to all sort modes so featured competitions are always
 // visually prominent regardless of the secondary sort criterion chosen by the caller.
 const FEATURED_SORT_EXPRS = [
@@ -214,6 +268,11 @@ const buildStatusCondition = (status: string | undefined): SQL => {
   if (status === "closed") {
     return and(isNotNull(end), lt(end, sql`now()`))!;
   }
+  // "all" spans every registration phase, including finished competitions. The organizer's own
+  // public page uses it: a finished competition is the record participants come back to.
+  if (status === "all") {
+    return sql`true`;
+  }
   return or(isNull(end), gte(end, sql`now()`))!;
 };
 
@@ -254,11 +313,7 @@ export const resolveUseSearch = (filters: PublicListingFilters, meiliAvailable: 
   hasSearchableQuery(filters.q) && meiliAvailable && !filters.status && !filters.teamSize;
 
 const buildDbWhere = (filters: PublicListingFilters) => {
-  const conditions = [
-    eq(competitions.status, "published"),
-    isNull(competitions.deletedAt),
-    buildStatusCondition(filters.status),
-  ];
+  const conditions = [buildPublicVisibilityCondition(), buildStatusCondition(filters.status)];
 
   if (filters.q?.trim()) {
     if (hasSearchableQuery(filters.q)) {
@@ -389,17 +444,17 @@ const listFromMeilisearch = async (
     };
   }
 
-  // Hydrate from DB — re-apply status = published + deadline guards so Meilisearch results
-  // are not trusted as the source of truth. Competitions unpublished or whose deadline
-  // passed between indexing and query execution are filtered out here.
+  // Hydrate from DB — re-apply status = published + deadline + institution-suspension guards so
+  // Meilisearch results are not trusted as the source of truth. Competitions unpublished, whose
+  // deadline passed, or whose organizer was suspended between indexing and query execution are
+  // filtered out here.
   const rows = await db
     .select(PUBLIC_LISTING_COLUMNS)
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
     .where(
       and(
-        eq(competitions.status, "published"),
-        isNull(competitions.deletedAt),
+        buildPublicVisibilityCondition(),
         inArray(competitions.id, ids),
         or(
           isNull(competitions.registrationEndAt),
@@ -466,8 +521,7 @@ export const listFeaturedCompetitions = async (
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
     .where(
       and(
-        eq(competitions.status, "published"),
-        isNull(competitions.deletedAt),
+        buildPublicVisibilityCondition(),
         eq(competitions.isFeatured, true),
         or(
           isNull(competitions.registrationEndAt),
@@ -489,7 +543,9 @@ export const deriveCTAState = (
   startAt: Date | null,
   endAt: Date | null,
   now: Date = new Date(),
+  cancelledAt: Date | null = null,
 ): RegistrationCTAState => {
+  if (cancelledAt) return "closed";
   if (!startAt || !endAt) return "closed";
   if (now < startAt) return "not_yet_open";
   if (now <= endAt) return "open";
@@ -509,6 +565,12 @@ const PUBLIC_DETAIL_COLUMNS = {
   registrationEndAt: competitions.registrationEndAt,
   eventStartAt: competitions.eventStartAt,
   eventEndAt: competitions.eventEndAt,
+  resultAnnouncementAt: competitions.resultAnnouncementAt,
+  minimumParticipantEntries: competitions.minimumParticipantEntries,
+  participantConfirmationAt: competitions.participantConfirmationAt,
+  participationConfirmedAt: competitions.participationConfirmedAt,
+  cancelledAt: competitions.cancelledAt,
+  cancellationReason: competitions.cancellationReason,
   feeAmount: competitions.feeAmount,
   eligibilityNote: competitions.eligibilityNote,
   publishedAt: competitions.publishedAt,
@@ -518,6 +580,11 @@ const PUBLIC_DETAIL_COLUMNS = {
   institutionType: institutions.institutionType,
   institutionOwnerUsername: institutionOwnerUsernameSql,
   institutionLogoR2Key: institutions.logoR2Key,
+  institutionBannerR2Key: institutions.bannerR2Key,
+  // A personal institution shows its owner's profile imagery in place of the logo and banner it
+  // cannot upload.
+  institutionOwnerAvatarKey: institutionOwnerAvatarKeySql,
+  institutionOwnerBannerKey: institutionOwnerBannerKeySql,
   institutionAbout: institutions.about,
   institutionContactName: institutions.contactName,
   institutionContactEmail: institutions.contactEmail,
@@ -551,6 +618,15 @@ export type PublicCompetitionDetail = {
   registrationEndAt: Date | null;
   eventStartAt: Date | null;
   eventEndAt: Date | null;
+  // The date the organizer committed to announcing results, if they set one.
+  resultAnnouncementAt: Date | null;
+  minimumParticipantEntries: number | null;
+  participantConfirmationAt: Date | null;
+  participationConfirmedAt: Date | null;
+  cancelledAt: Date | null;
+  cancellationReason: string | null;
+  participantEntryCount: number;
+  participationState: CompetitionParticipationState;
   feeAmount: string | null;
   eligibilityNote: string | null;
   tags: string[];
@@ -584,11 +660,14 @@ export type PublicCompetitionDetail = {
     socialLinks: Array<{ platform: string; url: string }>;
   };
   ctaState: RegistrationCTAState;
+  // Where the competition is in its lifecycle, derived at read time from the dates above and
+  // whether results have been published. Display only — it authorizes nothing.
+  phase: CompetitionPhase;
 };
 
-// Count of non-cancelled registrations for a competition — the public "terdaftar" figure.
-// Confirmed rows only (pending_payment is not reachable in MVP; cancelled rows are excluded).
-// A team registration is a single row, so this counts entries (individual participants + teams).
+// Count of confirmed registration rows for the public "terdaftar" figure. Team submission writes
+// one row per member, so this remains the physical-person count shown by the existing UI. Minimum
+// participation uses countCompetitionParticipantEntries instead, where one team is one entry.
 export const countPublicRegistrants = async (
   competitionId: string,
   db: Database = getDb(),
@@ -605,6 +684,26 @@ export const countPublicRegistrants = async (
   return row?.count ?? 0;
 };
 
+// Whether any result for this competition has been published. Only the existence of a published
+// result is read — never its contents, which stay candidate-scoped — because all the public phase
+// needs to know is whether the organizer has announced anything yet.
+export const hasPublishedCompetitionResult = async (
+  competitionId: string,
+  db: Database = getDb(),
+): Promise<boolean> => {
+  const [row] = await db
+    .select({ id: competitionResults.id })
+    .from(competitionResults)
+    .where(
+      and(
+        eq(competitionResults.competitionId, competitionId),
+        eq(competitionResults.resultStatus, "published"),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+};
+
 export const getPublicCompetitionDetail = async (
   institutionSlug: string,
   competitionSlug: string,
@@ -616,8 +715,7 @@ export const getPublicCompetitionDetail = async (
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
     .where(
       and(
-        eq(competitions.status, "published"),
-        isNull(competitions.deletedAt),
+        buildPublicVisibilityCondition(),
         eq(competitions.slug, competitionSlug),
         eq(institutions.slug, institutionSlug),
       ),
@@ -625,9 +723,32 @@ export const getPublicCompetitionDetail = async (
 
   if (!row) return null;
 
-  const [registrantCount, logoUrl, socialLinks, prizes, rounds, tagRows] = await Promise.all([
+  const { logoKey } = resolveInstitutionMediaKeys(
+    {
+      institutionType: row.institutionType,
+      logoR2Key: row.institutionLogoR2Key,
+      bannerR2Key: row.institutionBannerR2Key,
+    },
+    {
+      avatarR2Key: row.institutionOwnerAvatarKey,
+      bannerR2Key: row.institutionOwnerBannerKey,
+    },
+  );
+
+  const [
+    registrantCount,
+    participantEntryCount,
+    hasPublishedResult,
+    logoUrl,
+    socialLinks,
+    prizes,
+    rounds,
+    tagRows,
+  ] = await Promise.all([
     countPublicRegistrants(row.id, db),
-    resolveOrganizerLogoUrl(row.institutionLogoR2Key),
+    countCompetitionParticipantEntries(row.id, db),
+    hasPublishedCompetitionResult(row.id, db),
+    resolveOrganizerLogoUrl(logoKey),
     db
       .select({ platform: institutionSocialLinks.platform, url: institutionSocialLinks.url })
       .from(institutionSocialLinks)
@@ -681,11 +802,26 @@ export const getPublicCompetitionDetail = async (
     registrationEndAt: row.registrationEndAt,
     eventStartAt: row.eventStartAt,
     eventEndAt: row.eventEndAt,
+    resultAnnouncementAt: row.resultAnnouncementAt,
+    minimumParticipantEntries: row.minimumParticipantEntries,
+    participantConfirmationAt: row.participantConfirmationAt,
+    participationConfirmedAt: row.participationConfirmedAt,
+    cancelledAt: row.cancelledAt,
+    cancellationReason: row.cancellationReason,
     feeAmount: row.feeAmount,
     eligibilityNote: row.eligibilityNote,
     tags,
     publishedAt: row.publishedAt,
     registrantCount,
+    participantEntryCount,
+    participationState: deriveCompetitionParticipationState({
+      minimumParticipantEntries: row.minimumParticipantEntries,
+      participantConfirmationAt: row.participantConfirmationAt,
+      participationConfirmedAt: row.participationConfirmedAt,
+      eventStartAt: row.eventStartAt,
+      cancelledAt: row.cancelledAt,
+      participantEntryCount,
+    }),
     prizes,
     prizePoolTotal,
     rounds,
@@ -703,6 +839,20 @@ export const getPublicCompetitionDetail = async (
       websiteUrl: row.institutionWebsiteUrl,
       socialLinks,
     },
-    ctaState: deriveCTAState(row.registrationStartAt, row.registrationEndAt),
+    ctaState: deriveCTAState(
+      row.registrationStartAt,
+      row.registrationEndAt,
+      new Date(),
+      row.cancelledAt,
+    ),
+    phase: deriveCompetitionPhase({
+      cancelledAt: row.cancelledAt,
+      registrationStartAt: row.registrationStartAt,
+      registrationEndAt: row.registrationEndAt,
+      eventStartAt: row.eventStartAt,
+      eventEndAt: row.eventEndAt,
+      resultAnnouncementAt: row.resultAnnouncementAt,
+      hasPublishedResult,
+    }),
   };
 };

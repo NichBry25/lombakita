@@ -133,7 +133,7 @@ export const CompetitionPrizesEditor = ({
       <div className="stack-xs">
         <h2 className="section-title">Hadiah</h2>
         <p className="form-help">
-          Tambahkan hadiah kompetisi. Nominal tunai hanya ditampilkan — pembayaran belum aktif.
+          Tambahkan hadiah kompetisi. Nominal tunai hanya ditampilkan, karena pembayaran belum aktif.
         </p>
       </div>
 
@@ -204,15 +204,14 @@ export const CompetitionPrizesEditor = ({
                   onChange={(event) => updateRow(index, { description: event.target.value })}
                 />
               </div>
-              <Button
-                type="button"
+              <IconButton
+                icon="trash"
+                label={`Hapus hadiah ${index + 1}`}
                 variant="danger"
                 size="sm"
                 className="remove-row-button"
                 onClick={() => setRows((prev) => prev.filter((_, i) => i !== index))}
-              >
-                Hapus
-              </Button>
+              />
             </div>
           ))}
 

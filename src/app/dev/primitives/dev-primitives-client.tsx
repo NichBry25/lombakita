@@ -102,7 +102,6 @@ export function DevPrimitivesClient() {
 
       <section className="stack-md">
         <div className="stack-xs">
-          <p className="eyebrow">Status menunggu</p>
           <h2 className="section-title">Tiga sinyal pemuatan</h2>
           <p className="muted-copy">
             Aksi tanpa pindah halaman memakai spinner di dalam tombol; aksi yang berpindah halaman

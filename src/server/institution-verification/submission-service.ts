@@ -10,9 +10,11 @@ import {
   institutions,
   users,
   type InstitutionType,
+  type InstitutionVerificationStatus,
   type VerificationSubmissionStatus,
 } from "@/server/db/schema";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
+import { assertValidTransition } from "@/server/institution-verification/verification-core";
 import { getInstitutionDisplayName } from "@/server/institution-workspace/institution-display-name";
 import { isR2Available, generatePresignedPutUrl } from "@/server/storage/r2.client";
 import { logger } from "@/lib/logger";
@@ -103,16 +105,43 @@ export type PendingSubmissionListItem = {
   documentCount: number;
 };
 
+// Serializes the open-submission guard of a single institution for the life of `tx`.
+//
+// Why this exists: "at most one submission awaiting review" is a cross-row predicate, not a state
+// transition on an existing row — the contended row does not exist yet, so there is nothing to
+// compare-and-set against. Under READ COMMITTED two concurrent submissions (a double-clicked submit
+// button is the realistic case) each take a snapshot that cannot see the other's uncommitted insert,
+// both pass the guard, and the ops queue gains a duplicate. A transaction-scoped advisory lock keyed
+// on the institution is the serialization point, matching the per-owner cap lock convention in
+// `institution-workspace/owner-cap-lock.ts` (DEC-0099).
+//
+// Keyed per institution, so one institution's submission never blocks another's. Transaction-scoped
+// and therefore safe under Neon's PgBouncer transaction-mode pooling; do not switch to the
+// session-scoped variant.
+const acquireInstitutionSubmissionLock = async (
+  tx: Parameters<Parameters<Database["transaction"]>[0]>[0],
+  institutionId: string,
+): Promise<void> => {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${`inst_verif_submit:${institutionId}`}))`,
+  );
+};
+
 // Resolves the institution_id and verifies the actor holds an active institution_owner membership.
 const resolveOwnerInstitution = async (
   institutionSlug: string,
   actorUserId: string,
   db: Database,
-): Promise<{ institutionId: string; institutionType: InstitutionType }> => {
+): Promise<{
+  institutionId: string;
+  institutionType: InstitutionType;
+  verificationStatus: InstitutionVerificationStatus;
+}> => {
   const [row] = await db
     .select({
       institutionId: institutions.id,
       institutionType: institutions.institutionType,
+      verificationStatus: institutions.verificationStatus,
       membershipId: institutionMemberships.id,
     })
     .from(institutions)
@@ -136,7 +165,11 @@ const resolveOwnerInstitution = async (
     );
   }
 
-  return { institutionId: row.institutionId, institutionType: row.institutionType };
+  return {
+    institutionId: row.institutionId,
+    institutionType: row.institutionType,
+    verificationStatus: row.verificationStatus,
+  };
 };
 
 // Submits a document verification request for a full institution. Verification is credibility-only:
@@ -144,6 +177,12 @@ const resolveOwnerInstitution = async (
 // not change an institution's reach, and it never changes an institution's type — the type is fixed
 // at creation. The required documents are those of the institution's own type. Returns presigned PUT
 // URLs so the client can upload directly to R2.
+//
+// A submission is accepted only while there is something left to decide. An institution already
+// carrying verification_status = 'verified' has its answer, and one with a submission still awaiting
+// review has a reviewer holding its evidence — in both cases another request adds a queue row nobody
+// can act on. Both refusals are server-side because the page hiding the form is a courtesy, not a
+// guard.
 export const createVerificationSubmission = async (
   institutionSlug: string,
   documents: DocumentInput[],
@@ -158,7 +197,7 @@ export const createVerificationSubmission = async (
     );
   }
 
-  const { institutionId, institutionType } = await resolveOwnerInstitution(
+  const { institutionId, institutionType, verificationStatus } = await resolveOwnerInstitution(
     institutionSlug,
     actorUserId,
     db,
@@ -172,6 +211,17 @@ export const createVerificationSubmission = async (
       "institution_verification_not_applicable",
       409,
       "A personal institution has no document verification. Upgrade it to a full institution type first",
+    );
+  }
+
+  // Checked against the institution's own column rather than against an approved submission row,
+  // because platform_ops can also verify an institution directly from the admin table
+  // (`verifyInstitution`), which writes this column and creates no submission at all.
+  if (verificationStatus === "verified") {
+    throw new SubmissionError(
+      "institution_already_verified",
+      409,
+      "This institution is already verified and cannot submit further documents",
     );
   }
 
@@ -200,45 +250,74 @@ export const createVerificationSubmission = async (
     }
   }
 
-  // Insert submission row first so we have the submissionId for R2 keys.
-  const [submissionRow] = await db
-    .insert(institutionVerificationSubmissions)
-    .values({
-      institutionId,
-      submittedByUserId: actorUserId,
-      targetInstitutionType: institutionType,
-      emailDomainFlag,
-    })
-    .returning({ id: institutionVerificationSubmissions.id });
+  // The open-submission guard and the insert it protects share one transaction under the
+  // per-institution lock, so two simultaneous submissions cannot both find the queue empty. The
+  // document rows join them: a failure part-way through now rolls the submission back rather than
+  // leaving a queue row whose evidence is incomplete.
+  const { submissionId, documentResults } = await db.transaction(async (tx) => {
+    await acquireInstitutionSubmissionLock(tx, institutionId);
 
-  if (!submissionRow) {
-    throw new Error("Failed to create verification submission");
-  }
+    const [openSubmission] = await tx
+      .select({ id: institutionVerificationSubmissions.id })
+      .from(institutionVerificationSubmissions)
+      .where(
+        and(
+          eq(institutionVerificationSubmissions.institutionId, institutionId),
+          eq(institutionVerificationSubmissions.status, "pending_review"),
+        ),
+      )
+      .limit(1);
 
-  const submissionId = submissionRow.id;
+    if (openSubmission) {
+      throw new SubmissionError(
+        "verification_submission_already_pending",
+        409,
+        "A verification submission for this institution is already awaiting review",
+      );
+    }
 
-  // Generate R2 keys and presigned PUT URLs for each document, then insert document rows.
-  const documentResults: SubmissionWithUploadUrls["documents"] = [];
+    // Insert submission row first so we have the submissionId for R2 keys.
+    const [submissionRow] = await tx
+      .insert(institutionVerificationSubmissions)
+      .values({
+        institutionId,
+        submittedByUserId: actorUserId,
+        targetInstitutionType: institutionType,
+        emailDomainFlag,
+      })
+      .returning({ id: institutionVerificationSubmissions.id });
 
-  for (const doc of documents) {
-    const r2Key = `verification/${institutionId}/${submissionId}/${doc.documentType}`;
-    const uploadUrl = await generatePresignedPutUrl(
-      r2Key,
-      doc.contentType,
-      PRESIGNED_URL_EXPIRY_SECONDS,
-    );
+    if (!submissionRow) {
+      throw new Error("Failed to create verification submission");
+    }
 
-    await db.insert(institutionVerificationDocuments).values({
-      submissionId,
-      documentType: doc.documentType,
-      r2Key,
-      originalFileName: doc.originalFileName,
-      fileSizeBytes: doc.fileSizeBytes,
-      contentType: doc.contentType,
-    });
+    const createdSubmissionId = submissionRow.id;
 
-    documentResults.push({ documentType: doc.documentType, r2Key, uploadUrl });
-  }
+    // Generate R2 keys and presigned PUT URLs for each document, then insert document rows.
+    const createdDocuments: SubmissionWithUploadUrls["documents"] = [];
+
+    for (const doc of documents) {
+      const r2Key = `verification/${institutionId}/${createdSubmissionId}/${doc.documentType}`;
+      const uploadUrl = await generatePresignedPutUrl(
+        r2Key,
+        doc.contentType,
+        PRESIGNED_URL_EXPIRY_SECONDS,
+      );
+
+      await tx.insert(institutionVerificationDocuments).values({
+        submissionId: createdSubmissionId,
+        documentType: doc.documentType,
+        r2Key,
+        originalFileName: doc.originalFileName,
+        fileSizeBytes: doc.fileSizeBytes,
+        contentType: doc.contentType,
+      });
+
+      createdDocuments.push({ documentType: doc.documentType, r2Key, uploadUrl });
+    }
+
+    return { submissionId: createdSubmissionId, documentResults: createdDocuments };
+  });
 
   logger.info("institution.verification.submission.created", {
     submissionId,
@@ -513,14 +592,34 @@ export const reviewVerificationSubmission = async (
 
     // Approval path. Verification confirms an institution's documents; it never changes the
     // institution's type (fixed at creation) or its reach. It only transitions verification_status.
-    await tx
+    //
+    // Held to the same rulebook as the admin table's own transitions, so the two paths cannot
+    // disagree about what is legal. This matters now that no status is terminal: an approval racing
+    // a revocation must be refused by whichever loses, not silently applied on top.
+    assertValidTransition(inst.verificationStatus, "verified");
+
+    const [verified] = await tx
       .update(institutions)
       .set({
         verificationStatus: "verified",
         verifiedAt: now,
         updatedAt: sql`now()`,
       })
-      .where(eq(institutions.id, sub.institutionId));
+      .where(
+        and(
+          eq(institutions.id, sub.institutionId),
+          eq(institutions.verificationStatus, inst.verificationStatus),
+        ),
+      )
+      .returning({ id: institutions.id });
+
+    if (!verified) {
+      throw new SubmissionError(
+        "verification_transition_conflict",
+        409,
+        "This institution's verification status changed while you were reviewing. Reload and try again",
+      );
+    }
 
     // Write audit entry (mirrors verifyInstitution from verification-service.ts).
     await tx.insert(institutionVerificationAudit).values({

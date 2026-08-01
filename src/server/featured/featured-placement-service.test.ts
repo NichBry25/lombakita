@@ -10,8 +10,15 @@ const { enqueueCompetitionSearchSync } = vi.hoisted(() => ({
 }));
 vi.mock("@/server/async/enqueue", () => ({ enqueueCompetitionSearchSync }));
 
-import { setFeaturedPlacement, FeaturedPlacementError } from "./featured-placement-service";
+import {
+  FEATURED_CLEARED_EVENT,
+  FEATURED_SET_EVENT,
+  FeaturedPlacementError,
+  setFeaturedPlacement,
+} from "./featured-placement-service";
 import type { Database } from "@/server/db/client";
+
+const OPS_ACTOR_ID = "ops_1";
 
 const makeSelectDb = (
   row: { id: string; status: string; institutionType?: string | null } | null,
@@ -20,18 +27,28 @@ const makeSelectDb = (
     from: vi.fn().mockReturnThis(),
     innerJoin: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
-    limit: vi.fn().mockResolvedValue(row ? [{ institutionType: null, ...row }] : []),
+    limit: vi
+      .fn()
+      .mockResolvedValue(row ? [{ institutionType: null, institutionId: "inst_1", ...row }] : []),
   };
   const updateChain = {
     set: vi.fn().mockReturnThis(),
     where: vi.fn().mockResolvedValue(undefined),
   };
+  const insertChain = { values: vi.fn().mockResolvedValue(undefined) };
+  const tx = {
+    update: vi.fn().mockReturnValue(updateChain),
+    insert: vi.fn().mockReturnValue(insertChain),
+  };
   return {
     db: {
       select: vi.fn().mockReturnValue(chain),
-      update: vi.fn().mockReturnValue(updateChain),
+      update: tx.update,
+      insert: tx.insert,
+      transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) => run(tx)),
     } as unknown as Database,
     updateChain,
+    insertChain,
   };
 };
 
@@ -43,11 +60,21 @@ describe("setFeaturedPlacement", () => {
   it("throws competition_not_found (404) when competition does not exist", async () => {
     const { db } = makeSelectDb(null);
     await expect(
-      setFeaturedPlacement("comp_missing", { isFeatured: true, featuredOrder: 1 }, db),
+      setFeaturedPlacement(
+        OPS_ACTOR_ID,
+        "comp_missing",
+        { isFeatured: true, featuredOrder: 1 },
+        db,
+      ),
     ).rejects.toThrow(FeaturedPlacementError);
 
     try {
-      await setFeaturedPlacement("comp_missing", { isFeatured: true, featuredOrder: 1 }, db);
+      await setFeaturedPlacement(
+        OPS_ACTOR_ID,
+        "comp_missing",
+        { isFeatured: true, featuredOrder: 1 },
+        db,
+      );
     } catch (e) {
       expect((e as FeaturedPlacementError).code).toBe("competition_not_found");
       expect((e as FeaturedPlacementError).status).toBe(404);
@@ -57,11 +84,16 @@ describe("setFeaturedPlacement", () => {
   it("throws competition_not_published (409) for draft competition", async () => {
     const { db } = makeSelectDb({ id: "comp_1", status: "draft" });
     await expect(
-      setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 1 }, db),
+      setFeaturedPlacement(OPS_ACTOR_ID, "comp_1", { isFeatured: true, featuredOrder: 1 }, db),
     ).rejects.toThrow(FeaturedPlacementError);
 
     try {
-      await setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 1 }, db);
+      await setFeaturedPlacement(
+        OPS_ACTOR_ID,
+        "comp_1",
+        { isFeatured: true, featuredOrder: 1 },
+        db,
+      );
     } catch (e) {
       expect((e as FeaturedPlacementError).code).toBe("competition_not_published");
       expect((e as FeaturedPlacementError).status).toBe(409);
@@ -71,11 +103,16 @@ describe("setFeaturedPlacement", () => {
   it("throws competition_not_published (409) for archived competition", async () => {
     const { db } = makeSelectDb({ id: "comp_1", status: "archived" });
     await expect(
-      setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 1 }, db),
+      setFeaturedPlacement(OPS_ACTOR_ID, "comp_1", { isFeatured: true, featuredOrder: 1 }, db),
     ).rejects.toThrow(FeaturedPlacementError);
 
     try {
-      await setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 1 }, db);
+      await setFeaturedPlacement(
+        OPS_ACTOR_ID,
+        "comp_1",
+        { isFeatured: true, featuredOrder: 1 },
+        db,
+      );
     } catch (e) {
       expect((e as FeaturedPlacementError).code).toBe("competition_not_published");
     }
@@ -88,32 +125,87 @@ describe("setFeaturedPlacement", () => {
       institutionType: "personal",
     });
     await expect(
-      setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 1 }, db),
+      setFeaturedPlacement(OPS_ACTOR_ID, "comp_1", { isFeatured: true, featuredOrder: 1 }, db),
     ).rejects.toThrow(FeaturedPlacementError);
 
     try {
-      await setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 1 }, db);
+      await setFeaturedPlacement(
+        OPS_ACTOR_ID,
+        "comp_1",
+        { isFeatured: true, featuredOrder: 1 },
+        db,
+      );
     } catch (e) {
       expect((e as FeaturedPlacementError).code).toBe("competition_personal_not_featurable");
       expect((e as FeaturedPlacementError).status).toBe(409);
     }
   });
 
+  // Featured placement is the front-page slot and a monetized surface, so the audit trail — not a
+  // server log line — has to answer who put a competition there and who took it off.
+  it("audits a set against the owning institution, carrying the competition in metadata", async () => {
+    const { db, insertChain } = makeSelectDb({ id: "comp_1", status: "published" });
+
+    await setFeaturedPlacement(OPS_ACTOR_ID, "comp_1", { isFeatured: true, featuredOrder: 2 }, db);
+
+    expect(insertChain.values).toHaveBeenCalledWith({
+      actorUserId: OPS_ACTOR_ID,
+      targetInstitutionId: "inst_1",
+      eventType: FEATURED_SET_EVENT,
+      metadata: { competitionId: "comp_1", featuredOrder: 2 },
+    });
+    // Placement change and audit row land together or not at all.
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("audits an unset under a distinct event type with the order cleared", async () => {
+    const { db, insertChain } = makeSelectDb({ id: "comp_1", status: "published" });
+
+    await setFeaturedPlacement(OPS_ACTOR_ID, "comp_1", { isFeatured: false, featuredOrder: 5 }, db);
+
+    expect(insertChain.values).toHaveBeenCalledWith({
+      actorUserId: OPS_ACTOR_ID,
+      targetInstitutionId: "inst_1",
+      eventType: FEATURED_CLEARED_EVENT,
+      metadata: { competitionId: "comp_1", featuredOrder: null },
+    });
+  });
+
+  it("writes no audit row when the competition is rejected before the write", async () => {
+    const { db, insertChain } = makeSelectDb({ id: "comp_1", status: "draft" });
+
+    await expect(
+      setFeaturedPlacement(OPS_ACTOR_ID, "comp_1", { isFeatured: true, featuredOrder: 1 }, db),
+    ).rejects.toMatchObject({ code: "competition_not_published" });
+    expect(insertChain.values).not.toHaveBeenCalled();
+  });
+
   it("allows featuring a competition owned by a legacy (NULL-type) institution", async () => {
     const { db } = makeSelectDb({ id: "comp_1", status: "published", institutionType: null });
-    const result = await setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 1 }, db);
+    const result = await setFeaturedPlacement(
+      OPS_ACTOR_ID,
+      "comp_1",
+      { isFeatured: true, featuredOrder: 1 },
+      db,
+    );
     expect(result).toEqual({ isFeatured: true, featuredOrder: 1 });
   });
 
   it("succeeds for published competition and returns isFeatured + featuredOrder", async () => {
     const { db } = makeSelectDb({ id: "comp_1", status: "published" });
-    const result = await setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 3 }, db);
+    const result = await setFeaturedPlacement(
+      OPS_ACTOR_ID,
+      "comp_1",
+      { isFeatured: true, featuredOrder: 3 },
+      db,
+    );
     expect(result).toEqual({ isFeatured: true, featuredOrder: 3 });
   });
 
   it("clears featuredOrder when isFeatured=false regardless of passed value", async () => {
     const { db } = makeSelectDb({ id: "comp_1", status: "published" });
     const result = await setFeaturedPlacement(
+      OPS_ACTOR_ID,
       "comp_1",
       { isFeatured: false, featuredOrder: 5 },
       db,
@@ -124,6 +216,7 @@ describe("setFeaturedPlacement", () => {
   it("accepts null featuredOrder when isFeatured=true", async () => {
     const { db } = makeSelectDb({ id: "comp_1", status: "published" });
     const result = await setFeaturedPlacement(
+      OPS_ACTOR_ID,
       "comp_1",
       { isFeatured: true, featuredOrder: null },
       db,
@@ -133,7 +226,7 @@ describe("setFeaturedPlacement", () => {
 
   it("enqueues competition.search.sync after successful DB write", async () => {
     const { db } = makeSelectDb({ id: "comp_1", status: "published" });
-    await setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 1 }, db);
+    await setFeaturedPlacement(OPS_ACTOR_ID, "comp_1", { isFeatured: true, featuredOrder: 1 }, db);
     expect(enqueueCompetitionSearchSync).toHaveBeenCalledWith({
       competitionId: "comp_1",
       action: "upsert",
@@ -143,7 +236,12 @@ describe("setFeaturedPlacement", () => {
   it("does not throw when enqueue fails — DB write still succeeds", async () => {
     enqueueCompetitionSearchSync.mockRejectedValueOnce(new Error("redis down"));
     const { db } = makeSelectDb({ id: "comp_1", status: "published" });
-    const result = await setFeaturedPlacement("comp_1", { isFeatured: true, featuredOrder: 2 }, db);
+    const result = await setFeaturedPlacement(
+      OPS_ACTOR_ID,
+      "comp_1",
+      { isFeatured: true, featuredOrder: 2 },
+      db,
+    );
     expect(result).toEqual({ isFeatured: true, featuredOrder: 2 });
   });
 });

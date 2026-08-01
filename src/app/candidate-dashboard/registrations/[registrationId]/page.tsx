@@ -1,25 +1,20 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { SubmissionShell } from "@/components/submissions/submission-shell";
+import { CandidateDocumentRequestPanel } from "@/components/registration-documents/candidate-document-request-panel";
 import { PageHeader } from "@/components/ui";
-import { getCurrentSession } from "@/server/auth/session";
-import { getUnverifiedRoles } from "@/server/auth/role-verification";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { getSubmissionViewForRegistration } from "@/server/submissions/submission-service";
+import { listDocumentRequestsForRegistration } from "@/server/registration-documents/registration-document-service";
 
 export default async function SubmissionPage({
   params,
 }: {
   params: Promise<{ registrationId: string }>;
 }) {
-  const session = await getCurrentSession();
-  if (!session?.user?.id) {
-    redirect("/auth/login?callbackUrl=/candidate-dashboard");
-  }
-
-  // DEC-0060 — candidate capability is derived per-request from verification state.
-  const unverified = await getUnverifiedRoles(session.user.id);
-  if (unverified.includes("candidate")) {
-    redirect("/auth/verify-role?as=candidate");
-  }
+  const session = await requireRolePage("candidate", {
+    callbackPath: "/candidate-dashboard",
+    missingRoleRedirect: "/auth/verify-role?as=candidate",
+  });
 
   const { registrationId } = await params;
   const view = await getSubmissionViewForRegistration(registrationId, session.user.id);
@@ -29,14 +24,41 @@ export default async function SubmissionPage({
     notFound();
   }
 
+  const documentRequests = await listDocumentRequestsForRegistration(
+    session.user.id,
+    registrationId,
+  );
+
   return (
     <main className="page-shell app-page submission-page">
       <PageHeader
-        eyebrow="Intake karya"
-        title={`Submission — ${view.competitionTitle}`}
+        title={`Submission ${view.competitionTitle}`}
         description="Siapkan metadata berkas, simpan versi kerja, lalu finalisasi ketika seluruh detail sudah benar."
         backHref="/candidate-dashboard"
         backLabel="Dasbor"
+      />
+
+      {/* Rendered above the submission form: a document request is time-bound and the submission
+          window usually is not, so the thing with a deadline goes first. It gates nothing. */}
+      <CandidateDocumentRequestPanel
+        expectedUserId={session.user.id}
+        requests={documentRequests.map((request) => ({
+          id: request.id,
+          title: request.title,
+          instructions: request.instructions,
+          dueAt: request.dueAt.toISOString(),
+          status: request.status,
+          displayStatus: request.display.status,
+          isOverdue: request.display.isOverdue,
+          isLate: request.display.isLate,
+          reviewNote: request.reviewNote,
+          files: request.files.map((file) => ({
+            id: file.id,
+            originalFileName: file.originalFileName,
+            fileSizeBytes: file.fileSizeBytes,
+            createdAt: file.createdAt.toISOString(),
+          })),
+        }))}
       />
 
       <SubmissionShell

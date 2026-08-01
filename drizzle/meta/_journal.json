@@ -323,6 +323,76 @@
       "when": 1784908509885,
       "tag": "0045_furry_harpoon",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1785120839034,
+      "tag": "0046_soft_exiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1785122789049,
+      "tag": "0047_glorious_tiger_shark",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1785122789050,
+      "tag": "0048_open_submission_unique_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1785125292114,
+      "tag": "0049_hesitant_zodiak",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1785209627848,
+      "tag": "0050_tiny_scarlet_spider",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1785251300009,
+      "tag": "0051_keen_nico_minoru",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1785251431059,
+      "tag": "0052_complex_prowler",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1785256510851,
+      "tag": "0053_dapper_titania",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1785256510852,
+      "tag": "0054_retire_competition_archive",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1785402442570,
+      "tag": "0055_add_competition_participation_decisions",
+      "breakpoints": true
     }
   ]
 }

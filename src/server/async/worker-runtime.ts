@@ -20,6 +20,7 @@ import {
   toSafeErrorMessage,
 } from "@/server/async/observability";
 import { getQueueRegistrations, getRegisteredQueueNames } from "@/server/async/registry";
+import { registerRetentionPurgeSchedule } from "@/server/async/retention-scheduler";
 import { createBullmqRedisClient } from "@/server/redis/client";
 
 type QueueWorkerBundle = {
@@ -187,6 +188,18 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
         bundle.queueEvents.waitUntilReady(),
       ]),
     );
+
+    // Registered after the workers are ready so a scheduled job never fires at a queue with
+    // nothing listening. Upserting by a fixed id makes this idempotent across redeploys.
+    // A failure here must not take the worker down: every other job is request-triggered and
+    // still works, and the schedule re-registers on the next boot.
+    try {
+      await registerRetentionPurgeSchedule();
+    } catch (error) {
+      logger.error("Retention purge schedule registration failed", {
+        detail: toSafeErrorMessage(error),
+      });
+    }
 
     logger.info("Async worker runtime started", {
       runtimeName: serverEnv.runtimeName,

@@ -1,7 +1,15 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Button, EmptyState, PageHeader, SelectField, Skeleton } from "@/components/ui";
+import {
+  Button,
+  EmptyState,
+  Feedback,
+  PageHeader,
+  Pagination,
+  SelectField,
+  Skeleton,
+} from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 
 type VerificationStatus = "pending_verification" | "under_review" | "verified" | "rejected";
@@ -36,10 +44,10 @@ type ListResponse = {
 };
 
 const STATUS_LABELS: Record<VerificationStatus, string> = {
-  pending_verification: "Menunggu verifikasi",
-  under_review: "Sedang ditinjau",
-  verified: "Terverifikasi",
-  rejected: "Ditolak",
+  pending_verification: "Menunggu Verifikasi",
+  under_review: "Sedang Ditinjau",
+  verified: "Terverifikasi Admin",
+  rejected: "Ditolak Admin",
 };
 
 type ValidTransition = { label: string; targetStatus: VerificationStatus; needsReason?: boolean };
@@ -53,18 +61,25 @@ const AVAILABLE_TRANSITIONS: Record<VerificationStatus, ValidTransition[]> = {
     { label: "Verifikasi", targetStatus: "verified" },
     { label: "Tolak", targetStatus: "rejected", needsReason: true },
   ],
-  verified: [],
-  rejected: [],
+  // Revoking returns the institution to 'rejected' rather than to a status of its own: the audit
+  // trail already tells a revocation (verified→rejected) apart from a denial (under_review→rejected),
+  // and landing on 'rejected' is what re-opens the owner's ability to submit fresh documents.
+  verified: [{ label: "Cabut verifikasi", targetStatus: "rejected", needsReason: true }],
+  rejected: [{ label: "Tinjau ulang", targetStatus: "under_review" }],
 };
 
 function RejectInstitutionForm({
   institutionId,
   displayName,
+  isRevocation,
   onClose,
   onSuccess,
 }: {
   institutionId: string;
   displayName: string;
+  // A revocation takes a badge away that was already granted, so it says so plainly and names what
+  // it does not do — ops should not reach for it expecting a takedown.
+  isRevocation: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -74,7 +89,10 @@ function RejectInstitutionForm({
 
   const submit = async () => {
     if (!reason.trim()) {
-      addToast({ type: "error", message: "Alasan penolakan wajib diisi." });
+      addToast({
+        type: "error",
+        message: isRevocation ? "Alasan pencabutan wajib diisi." : "Alasan penolakan wajib diisi.",
+      });
       return;
     }
     setBusy(true);
@@ -103,9 +121,18 @@ function RejectInstitutionForm({
       <p className="muted-copy">
         <strong>{displayName}</strong>
       </p>
+      {isRevocation && (
+        <Feedback tone="warning">
+          <p>
+            Institusi ini akan kehilangan status terverifikasi, dan pemiliknya dapat mengajukan
+            dokumen baru. Kompetisi yang sudah terbit tidak ikut dicabut. Gunakan penangguhan jika
+            institusi ini harus dihentikan operasinya.
+          </p>
+        </Feedback>
+      )}
       <div className="form-field">
         <label htmlFor="reject-reason-textarea" className="form-label form-label-required">
-          Alasan penolakan
+          {isRevocation ? "Alasan pencabutan" : "Alasan penolakan"}
         </label>
         <textarea
           id="reject-reason-textarea"
@@ -113,7 +140,9 @@ function RejectInstitutionForm({
           onChange={(e) => setReason(e.target.value)}
           rows={3}
           className="form-textarea"
-          placeholder="Masukkan alasan penolakan..."
+          placeholder={
+            isRevocation ? "Masukkan alasan pencabutan..." : "Masukkan alasan penolakan..."
+          }
         />
       </div>
       <div className="modal-actions">
@@ -121,7 +150,7 @@ function RejectInstitutionForm({
           Batal
         </Button>
         <Button variant="danger" loading={busy} onClick={() => void submit()}>
-          Tolak institusi
+          {isRevocation ? "Cabut verifikasi" : "Tolak institusi"}
         </Button>
       </div>
     </div>
@@ -149,7 +178,7 @@ export default function AdminInstitutionsPage() {
       if (res.status === 403) {
         addToast({
           type: "error",
-          message: "Akses ditolak. Halaman ini hanya untuk platform_ops.",
+          message: "Akses ditolak. Halaman ini hanya untuk tim Platform Operations.",
         });
         return;
       }
@@ -204,13 +233,17 @@ export default function AdminInstitutionsPage() {
     await fetchInstitutions();
   };
 
-  const openRejectModal = (id: string, displayName: string) => {
+  const openRejectModal = (id: string, displayName: string, currentStatus: VerificationStatus) => {
+    // Both actions PATCH to 'rejected' with a reason; only the institution's current status says
+    // whether this is a first denial or the withdrawal of a badge already granted.
+    const isRevocation = currentStatus === "verified";
     openModal({
-      title: "Tolak institusi",
+      title: isRevocation ? "Cabut verifikasi" : "Tolak institusi",
       body: (
         <RejectInstitutionForm
           institutionId={id}
           displayName={displayName}
+          isRevocation={isRevocation}
           onClose={closeModal}
           onSuccess={() => void fetchInstitutions()}
         />
@@ -256,33 +289,30 @@ export default function AdminInstitutionsPage() {
   return (
     <main className="page-shell app-page admin-page">
       <PageHeader
-        eyebrow="Status kelembagaan"
         title="Verifikasi institusi"
         description="Kelola transisi status dan jejak audit institusi terdaftar."
-        backHref="/admin"
-        backLabel="Panel Platform Ops"
         actions={<span className="status-badge data-text">{total} institusi</span>}
       />
 
       {/* Filter */}
       <div className="admin-filter-toolbar glass-chrome">
         <label htmlFor="institution-status-filter" className="form-label">
-          Filter status
+          Filter
         </label>
         <SelectField
           id="institution-status-filter"
-          label="Filter status"
+          label="Filter"
           value={statusFilter}
           onChange={(value) => {
             setStatusFilter(value);
             setPage(1);
           }}
           options={[
-            { value: "", label: "Semua" },
-            { value: "pending_verification", label: "Menunggu verifikasi" },
-            { value: "under_review", label: "Sedang ditinjau" },
-            { value: "verified", label: "Terverifikasi" },
-            { value: "rejected", label: "Ditolak" },
+            { value: "", label: "Semua Institusi" },
+            { value: "pending_verification", label: "Menunggu Verifikasi" },
+            { value: "under_review", label: "Sedang Ditinjau" },
+            { value: "verified", label: "Terverifikasi Admin" },
+            { value: "rejected", label: "Ditolak Admin" },
           ]}
         />
       </div>
@@ -366,7 +396,11 @@ export default function AdminInstitutionsPage() {
                                 disabled={actionLoading}
                                 onClick={() => {
                                   if (t.needsReason) {
-                                    openRejectModal(row.id, row.displayName);
+                                    openRejectModal(
+                                      row.id,
+                                      row.displayName,
+                                      row.verificationStatus,
+                                    );
                                   } else {
                                     void handleTransition(row.id, t.targetStatus);
                                   }
@@ -432,29 +466,12 @@ export default function AdminInstitutionsPage() {
       )}
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <nav className="pagination" aria-label="Halaman institusi">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
-          >
-            &larr; Sebelumnya
-          </Button>
-          <span className="pagination-status data-text">
-            Halaman {page} / {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Berikutnya &rarr;
-          </Button>
-        </nav>
-      )}
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        label="Halaman institusi"
+        onPageChange={setPage}
+      />
     </main>
   );
 }

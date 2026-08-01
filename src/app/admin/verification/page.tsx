@@ -128,7 +128,7 @@ function ReviewPanelBody({
 
       <div className="form-field">
         <label htmlFor="reviewer-notes-textarea" className="form-label">
-          Catatan reviewer (opsional)
+          Catatan reviewer (Opsional)
         </label>
         <textarea
           id="reviewer-notes-textarea"
@@ -223,11 +223,8 @@ export default function AdminVerificationPage() {
   return (
     <main className="page-shell app-page admin-page">
       <PageHeader
-        eyebrow="Keputusan terkontrol"
         title="Antrean verifikasi dokumen"
-        description="Tinjau bukti institusi yang masih menunggu keputusan Platform Ops."
-        backHref="/admin"
-        backLabel="Panel Platform Ops"
+        description="Tinjau bukti institusi yang masih menunggu keputusan Platform Operations."
         actions={<span className="status-badge data-text">{items.length} menunggu</span>}
       />
 

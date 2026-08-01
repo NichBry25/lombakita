@@ -1,13 +1,17 @@
 import { notFound, redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { AccessError } from "@/server/auth/access-core";
-import { getCurrentSession } from "@/server/auth/session";
+import { requireRolePage } from "@/server/auth/page-guard";
 import { getDb } from "@/server/db/client";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import { getCompetitionIdByInstitutionAndSlug } from "@/server/competitions/competition-service";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import { getRegistrationReview } from "@/server/participants/review-service";
 import { getResultForInstitution } from "@/server/participants/result-service";
+import { getSubmissionForInstitution } from "@/server/participants/submission-file-service";
+import { listDocumentRequestsForCompetition } from "@/server/registration-documents/registration-document-service";
+import { OrganiserDocumentRequestPanel } from "@/components/registration-documents/organiser-document-request-panel";
+import { OrganiserSubmissionPanel } from "@/components/submissions/organiser-submission-panel";
 import { ReviewForm } from "./review-form";
 import { ResultForm } from "./result-form";
 import { PageHeader } from "@/components/ui";
@@ -18,17 +22,11 @@ type Props = {
 
 export default async function RegistrationReviewPage({ params }: Props) {
   const { institutionSlug, competitionSlug, registrationId } = await params;
-  const session = await getCurrentSession();
 
   const listPath = `/institution/${institutionSlug}/competitions/${competitionSlug}/participants`;
   const selfPath = `${listPath}/${registrationId}`;
 
-  if (!session?.user?.id) {
-    redirect(`/auth/login?callbackUrl=${encodeURIComponent(selfPath)}`);
-  }
-  if (!session.user.verifiedRoles.includes("recruiter")) {
-    redirect("/");
-  }
+  const session = await requireRolePage("recruiter", { callbackPath: selfPath });
 
   const db = getDb();
   let institutionId: string;
@@ -57,9 +55,11 @@ export default async function RegistrationReviewPage({ params }: Props) {
   }
 
   // Cross-institution competition/registration collapses to null → 404 (no info leak).
-  const [review, resultCtx] = await Promise.all([
+  const [review, resultCtx, documentRequests, submission] = await Promise.all([
     getRegistrationReview(institutionId, competitionId, registrationId, db),
     getResultForInstitution(institutionId, competitionId, registrationId, db),
+    listDocumentRequestsForCompetition(institutionId, competitionId, { registrationId }, db),
+    getSubmissionForInstitution(institutionId, competitionId, registrationId, db),
   ]);
   if (!review) {
     notFound();
@@ -71,11 +71,28 @@ export default async function RegistrationReviewPage({ params }: Props) {
   return (
     <main className="page-shell app-page participant-review-page">
       <PageHeader
-        eyebrow="Tinjauan peserta"
         title="Detail peserta"
-        description="Catatan internal dan hasil publik dikelola secara terpisah."
+        description="Catatan internal tidak terlihat oleh peserta."
         backHref={listPath}
         backLabel="Peserta"
+      />
+      {/* The work comes before the verdict: a reviewer should read the submission, then judge it. */}
+      <OrganiserSubmissionPanel
+        institutionSlug={institutionSlug}
+        competitionId={competitionId}
+        registrationId={registrationId}
+        submission={
+          submission === null
+            ? null
+            : {
+                fileName: submission.fileName,
+                fileSizeBytes: submission.fileSizeBytes,
+                version: submission.version,
+                finalized: submission.finalized,
+                submittedAt: submission.submittedAt,
+                canRenderInline: submission.canRenderInline,
+              }
+        }
       />
       <ReviewForm
         apiPath={reviewApiPath}
@@ -84,6 +101,29 @@ export default async function RegistrationReviewPage({ params }: Props) {
         registrationType={review.registrationType}
         teamName={review.teamName}
         activeMemberCount={review.activeMemberCount}
+      />
+      <OrganiserDocumentRequestPanel
+        institutionSlug={institutionSlug}
+        competitionId={competitionId}
+        registrationId={registrationId}
+        requests={documentRequests.map((request) => ({
+          id: request.id,
+          title: request.title,
+          instructions: request.instructions,
+          dueAt: request.dueAt.toISOString(),
+          status: request.status,
+          displayStatus: request.display.status,
+          isOverdue: request.display.isOverdue,
+          isLate: request.display.isLate,
+          reviewNote: request.reviewNote,
+          revisionCount: request.revisionCount,
+          files: request.files.map((file) => ({
+            id: file.id,
+            originalFileName: file.originalFileName,
+            fileSizeBytes: file.fileSizeBytes,
+            createdAt: file.createdAt.toISOString(),
+          })),
+        }))}
       />
       <ResultForm
         apiBasePath={resultApiBase}

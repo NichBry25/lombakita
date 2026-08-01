@@ -4,15 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { signOut, useSession } from "next-auth/react";
+import { isSelfServiceRole } from "@/lib/access/roles";
 import { NotificationBell } from "@/app/notification-bell";
-import { ButtonLink, Icon } from "@/components/ui";
+import { ButtonLink, IconButton, IconButtonLink } from "@/components/ui";
 import { HeaderDashboardMenu } from "@/components/navigation/header-dashboard-menu";
 
 const HEADER_SCROLL_THRESHOLD_PX = 8;
 
 const PRIMARY_NAVIGATION = [
   { href: "/competitions", label: "Jelajahi" },
-  { href: "/#tentang", label: "Tentang" },
 ] as const;
 
 type ThemeName = "light" | "dark";
@@ -30,7 +30,7 @@ function resolveInitialTheme(): ThemeName {
 
 export function ApplicationHeader() {
   const pathname = usePathname();
-  const { status } = useSession();
+  const { data: session, status } = useSession();
   const [theme, setTheme] = useState<ThemeName>("light");
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -53,6 +53,14 @@ export function ApplicationHeader() {
     window.addEventListener("scroll", updateScrolledState, { passive: true });
     return () => window.removeEventListener("scroll", updateScrolledState);
   }, []);
+
+  // An operational account cannot act on any participant surface, so the participant entry points
+  // are withheld rather than shown and then refused. Its own workspace is offered instead. Signed-
+  // out visitors keep every participant entry point — those lead to sign-in, which is the point.
+  const isAuthenticated = status === "authenticated";
+  const isOperationalAccount = isAuthenticated && !isSelfServiceRole(session?.user?.role);
+  const showsParticipantNavigation = isAuthenticated && !isOperationalAccount;
+  const showsPlatformOpsNavigation = session?.user?.role === "platform_ops";
 
   function toggleTheme() {
     const nextTheme = theme === "light" ? "dark" : "light";
@@ -80,53 +88,53 @@ export function ApplicationHeader() {
               {item.label}
             </Link>
           ))}
-          {status === "authenticated" ? <HeaderDashboardMenu pathname={pathname} /> : null}
+          {showsParticipantNavigation ? <HeaderDashboardMenu pathname={pathname} /> : null}
+          {showsPlatformOpsNavigation ? (
+            <Link
+              href="/admin"
+              className="header-nav-link"
+              aria-current={pathname.startsWith("/admin") ? "page" : undefined}
+            >
+              Platform Operations
+            </Link>
+          ) : null}
         </nav>
 
         <div className="header-actions">
           <span className="locale-label" aria-label="Bahasa antarmuka Indonesia">
             ID
           </span>
-          <Link
-            href="/saved"
-            className="ui-button icon-button"
-            data-variant="ghost"
-            data-size="md"
-            aria-label="Kompetisi tersimpan"
-          >
-            <Icon name="bookmark" size="lg" />
-          </Link>
+          {isOperationalAccount ? null : (
+            <IconButtonLink
+              href="/saved"
+              icon="bookmark"
+              label="Kompetisi tersimpan"
+              variant="ghost"
+            />
+          )}
           <NotificationBell />
-          <button
-            type="button"
-            className="ui-button icon-button"
-            data-variant="ghost"
-            data-size="md"
+          <IconButton
+            icon={theme === "light" ? "moon" : "sun"}
+            label={theme === "light" ? "Gunakan tema gelap" : "Gunakan tema terang"}
+            variant="ghost"
             onClick={toggleTheme}
-            aria-label={theme === "light" ? "Gunakan tema gelap" : "Gunakan tema terang"}
-          >
-            <Icon name={theme === "light" ? "moon" : "sun"} size="lg" />
-          </button>
+          />
           {status === "loading" ? null : status === "authenticated" ? (
             <>
-              <Link
+              <IconButtonLink
                 href="/profile"
-                className="ui-button icon-button header-auth-action"
-                data-variant="ghost"
-                data-size="md"
-                aria-label="Profil dan akun saya"
-              >
-                <Icon name="user" size="lg" />
-              </Link>
-              <button
-                type="button"
-                className="ui-button header-auth-action"
-                data-variant="outline"
-                data-size="sm"
+                icon="user"
+                label="Profil dan akun saya"
+                variant="ghost"
+                className="header-auth-action"
+              />
+              <IconButton
+                icon="logout"
+                label="Keluar"
+                variant="outline"
+                className="header-auth-action"
                 onClick={() => void signOut({ callbackUrl: "/" })}
-              >
-                Keluar
-              </button>
+              />
             </>
           ) : (
             <>
@@ -148,18 +156,15 @@ export function ApplicationHeader() {
               </ButtonLink>
             </>
           )}
-          <button
-            type="button"
-            className="ui-button icon-button mobile-nav-toggle"
-            data-variant="ghost"
-            data-size="md"
-            aria-label={menuOpen ? "Tutup menu" : "Buka menu"}
+          <IconButton
+            icon={menuOpen ? "close" : "menu"}
+            label={menuOpen ? "Tutup menu" : "Buka menu"}
+            variant="ghost"
+            className="mobile-nav-toggle"
             aria-expanded={menuOpen}
             aria-controls="mobile-navigation"
             onClick={() => setMenuOpen((currentValue) => !currentValue)}
-          >
-            <Icon name={menuOpen ? "close" : "menu"} size="lg" />
-          </button>
+          />
         </div>
       </div>
 
@@ -180,27 +185,43 @@ export function ApplicationHeader() {
             {item.label}
           </Link>
         ))}
-        <Link href="/saved" className="header-nav-link" onClick={() => setMenuOpen(false)}>
-          Tersimpan
-        </Link>
+        {isOperationalAccount ? null : (
+          <Link href="/saved" className="header-nav-link" onClick={() => setMenuOpen(false)}>
+            Tersimpan
+          </Link>
+        )}
         {status === "loading" ? null : status === "authenticated" ? (
           <>
-            <Link
-              href="/candidate-dashboard"
-              className="header-nav-link"
-              aria-current={pathname.startsWith("/candidate-dashboard") ? "page" : undefined}
-              onClick={() => setMenuOpen(false)}
-            >
-              Dasbor kandidat
-            </Link>
-            <Link
-              href="/recruiter-dashboard"
-              className="header-nav-link"
-              aria-current={pathname.startsWith("/recruiter-dashboard") ? "page" : undefined}
-              onClick={() => setMenuOpen(false)}
-            >
-              Dasbor rekruter
-            </Link>
+            {showsParticipantNavigation ? (
+              <>
+                <Link
+                  href="/candidate-dashboard"
+                  className="header-nav-link"
+                  aria-current={pathname.startsWith("/candidate-dashboard") ? "page" : undefined}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Dasbor kandidat
+                </Link>
+                <Link
+                  href="/recruiter-dashboard"
+                  className="header-nav-link"
+                  aria-current={pathname.startsWith("/recruiter-dashboard") ? "page" : undefined}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Dasbor rekruter
+                </Link>
+              </>
+            ) : null}
+            {showsPlatformOpsNavigation ? (
+              <Link
+                href="/admin"
+                className="header-nav-link"
+                aria-current={pathname.startsWith("/admin") ? "page" : undefined}
+                onClick={() => setMenuOpen(false)}
+              >
+                Platform Operations
+              </Link>
+            ) : null}
             <Link href="/profile" className="header-nav-link" onClick={() => setMenuOpen(false)}>
               Profil saya
             </Link>

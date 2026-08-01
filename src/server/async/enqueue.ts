@@ -250,3 +250,84 @@ export const enqueueResultPublished = async (input: {
     },
   });
 };
+
+// Idempotency key includes the rejection timestamp (DEC-0081) so a recruiter rejected, reopened,
+// and rejected again is notified each time, while a true double-enqueue of the same verdict
+// dedups. Fire-and-forget from the review path — callers must catch errors.
+export const enqueueRecruiterVerificationRejected = async (input: {
+  submissionId: string;
+  userId: string;
+  rejectionReason: string;
+  resubmissionAllowed: boolean;
+  epoch: number;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.recruiterVerificationRejected>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.recruiterVerificationRejected,
+    idempotencyKey: `${input.submissionId}__${input.epoch}`,
+    payload: {
+      submissionId: input.submissionId,
+      userId: input.userId,
+      rejectionReason: input.rejectionReason,
+      resubmissionAllowed: input.resubmissionAllowed,
+      epoch: input.epoch,
+    },
+  });
+};
+
+// Participant document verification — a named participant is asked for a named document. Keyed by
+// request id plus the request timestamp, so raising a fresh request against the same participant
+// months later notifies again while a true double-enqueue of one request dedups. Fire-and-forget
+// from the create path: an enqueue failure must never fail the organizer's HTTP call.
+export const enqueueRegistrationDocumentRequested = async (input: {
+  requestId: string;
+  userId: string;
+  competitionTitle: string;
+  institutionName: string;
+  title: string;
+  instructions: string | null;
+  dueAtIso: string;
+  epoch: number;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.registrationDocumentRequested>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.registrationDocumentRequested,
+    idempotencyKey: `${input.requestId}__${input.epoch}`,
+    payload: {
+      requestId: input.requestId,
+      userId: input.userId,
+      competitionTitle: input.competitionTitle,
+      institutionName: input.institutionName,
+      title: input.title,
+      instructions: input.instructions,
+      dueAtIso: input.dueAtIso,
+      epoch: input.epoch,
+    },
+  });
+};
+
+// The verdict on a document request. `epoch` is the review timestamp, so a rejection that reopens
+// the request and the later verdict on the replacement each notify.
+export const enqueueRegistrationDocumentReviewed = async (input: {
+  requestId: string;
+  userId: string;
+  competitionTitle: string;
+  title: string;
+  outcome: "accepted" | "rejected" | "revision_requested";
+  reviewNote: string | null;
+  dueAtIso: string | null;
+  epoch: number;
+}): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.registrationDocumentReviewed>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.registrationDocumentReviewed,
+    idempotencyKey: `${input.requestId}__${input.epoch}`,
+    payload: {
+      requestId: input.requestId,
+      userId: input.userId,
+      competitionTitle: input.competitionTitle,
+      title: input.title,
+      outcome: input.outcome,
+      reviewNote: input.reviewNote,
+      dueAtIso: input.dueAtIso,
+      epoch: input.epoch,
+    },
+  });
+};

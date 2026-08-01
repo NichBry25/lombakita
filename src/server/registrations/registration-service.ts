@@ -12,6 +12,8 @@ import {
 } from "@/server/registrations/registration-core";
 import { logger } from "@/lib/logger";
 import { enqueueRegistrationConfirmed, enqueueRegistrationCancelled } from "@/server/async/enqueue";
+import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
+import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 
 const REGISTRATION_COLUMNS = {
   id: competitionRegistrations.id,
@@ -56,14 +58,18 @@ type CompetitionGuardSnapshot = {
   mode: "individual" | "team" | "both" | null;
   registrationEndAt: Date | null;
   eventStartAt: Date | null;
+  participantConfirmationAt: Date | null;
+  cancelledAt: Date | null;
   allowCancellation: boolean;
   cancellationCutoffDays: number | null;
   feeAmount: string | null;
 };
 
+type DbOrTx = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 const loadCompetitionForRegistration = async (
   competitionId: string,
-  db: Database,
+  db: DbOrTx,
 ): Promise<CompetitionGuardSnapshot | null> => {
   const [row] = await db
     .select({
@@ -72,6 +78,8 @@ const loadCompetitionForRegistration = async (
       mode: competitions.mode,
       registrationEndAt: competitions.registrationEndAt,
       eventStartAt: competitions.eventStartAt,
+      participantConfirmationAt: competitions.participantConfirmationAt,
+      cancelledAt: competitions.cancelledAt,
       allowCancellation: competitions.allowCancellation,
       cancellationCutoffDays: competitions.cancellationCutoffDays,
       feeAmount: competitions.feeAmount,
@@ -86,7 +94,7 @@ const loadCompetitionForRegistration = async (
 const findAnyExistingRegistration = async (
   studentId: string,
   competitionId: string,
-  db: Database,
+  db: DbOrTx,
 ): Promise<{ id: string; status: string } | null> => {
   const [row] = await db
     .select({ id: competitionRegistrations.id, status: competitionRegistrations.status })
@@ -100,6 +108,48 @@ const findAnyExistingRegistration = async (
     .limit(1);
 
   return row ?? null;
+};
+
+const assertCompetitionAcceptsIndividualRegistration = (
+  competition: CompetitionGuardSnapshot,
+  now: Date,
+): void => {
+  if (competition.status !== "published" || competition.cancelledAt) {
+    throw new RegistrationError(
+      "competition_not_published",
+      "Competition is not open for registration",
+    );
+  }
+  if (competition.mode !== "individual" && competition.mode !== "both") {
+    throw new RegistrationError(
+      "competition_wrong_mode",
+      "This competition does not accept individual registrations",
+    );
+  }
+  if (!competition.registrationEndAt || competition.registrationEndAt.getTime() <= now.getTime()) {
+    throw new RegistrationError("registration_deadline_passed", "Registration deadline has passed");
+  }
+};
+
+const assertParticipantCancellationWindowOpen = (
+  competition: CompetitionGuardSnapshot,
+  now: Date,
+): void => {
+  if (isParticipantCancellationClosedByConfirmation(competition.participantConfirmationAt, now)) {
+    throw new RegistrationError(
+      "cancellation_window_closed",
+      "The cancellation window closed when participation was confirmed",
+    );
+  }
+
+  const cutoffDays = competition.cancellationCutoffDays;
+  if (!competition.eventStartAt || cutoffDays === null) {
+    throw new RegistrationError("cancellation_window_closed", "The cancellation window is closed");
+  }
+  const windowEnd = competition.eventStartAt.getTime() - cutoffDays * DAY_MS;
+  if (now.getTime() > windowEnd) {
+    throw new RegistrationError("cancellation_window_closed", "The cancellation window has closed");
+  }
 };
 
 // Create an individual registration for the calling candidate.
@@ -116,8 +166,10 @@ export const createIndividualRegistration = async (
   studentId: string,
   competitionId: string,
   db: Database = getDb(),
-  now: Date = new Date(),
+  now?: Date,
 ): Promise<RegistrationRecord> => {
+  const requestAt = now ?? new Date();
+
   // (a) competition exists
   const competition = await loadCompetitionForRegistration(competitionId, db);
 
@@ -125,23 +177,7 @@ export const createIndividualRegistration = async (
     throw new RegistrationError("competition_not_found", "Competition not found");
   }
 
-  // (b) competition is published
-  if (competition.status !== "published") {
-    throw new RegistrationError(
-      "competition_not_published",
-      "Competition is not open for registration",
-    );
-  }
-
-  // (c) registration mode supports individual entry
-  if (competition.mode !== "individual" && competition.mode !== "both") {
-    throw new RegistrationError(
-      "competition_wrong_mode",
-      "This competition does not accept individual registrations",
-    );
-  }
-
-  // (d) registration deadline not passed (server time only — never trust client).
+  // (b-d) publication, mode, and deadline.
   // DEBT (4.4-D2 carry-forward): this individual-registration path enforces only the END
   // bound of the registration window. The Step 4.4 team-submission path enforces BOTH start
   // and end (registration_not_yet_open vs registration_window_closed as distinct codes). A
@@ -149,9 +185,7 @@ export const createIndividualRegistration = async (
   // is documented as a Phase 4 cleanup target — either add `registration_not_yet_open` here
   // for parity, or downgrade the team-side enforcement. Decision deferred until the contract
   // pass.
-  if (!competition.registrationEndAt || competition.registrationEndAt.getTime() <= now.getTime()) {
-    throw new RegistrationError("registration_deadline_passed", "Registration deadline has passed");
-  }
+  assertCompetitionAcceptsIndividualRegistration(competition, requestAt);
 
   // (e) duplicate guard — block if any prior registration row exists. Re-registration after
   // cancellation is intentionally deferred (Step 4.2 product simplification). The DB-level
@@ -172,16 +206,29 @@ export const createIndividualRegistration = async (
   // Phase 7: pending_payment state — not reachable in MVP. All competitions are free; insert
   // directly to confirmed.
   try {
-    const [inserted] = await db
-      .insert(competitionRegistrations)
-      .values({
-        competitionId,
-        studentId,
-        registrationType: "individual",
-        status: "confirmed",
-        registeredAt: now,
-      })
-      .returning(REGISTRATION_COLUMNS);
+    const inserted = await db.transaction(async (tx) => {
+      await acquireCompetitionParticipationLock(tx, competitionId);
+      const mutationAt = now ?? new Date();
+      const lockedCompetition = await loadCompetitionForRegistration(competitionId, tx);
+
+      if (!lockedCompetition) {
+        throw new RegistrationError("competition_not_found", "Competition not found");
+      }
+      assertCompetitionAcceptsIndividualRegistration(lockedCompetition, mutationAt);
+
+      const [row] = await tx
+        .insert(competitionRegistrations)
+        .values({
+          competitionId,
+          studentId,
+          registrationType: "individual",
+          status: "confirmed",
+          registeredAt: mutationAt,
+        })
+        .returning(REGISTRATION_COLUMNS);
+
+      return row;
+    });
 
     if (!inserted) {
       throw new RegistrationError(
@@ -261,8 +308,9 @@ export const cancelRegistration = async (
   registrationId: string,
   cancellationReason: string | null,
   db: Database = getDb(),
-  now: Date = new Date(),
+  now?: Date,
 ): Promise<RegistrationRecord> => {
+  const requestAt = now ?? new Date();
   const registration = await loadRegistrationById(registrationId, db);
 
   if (!registration || registration.competitionId !== competitionId) {
@@ -324,27 +372,39 @@ export const cancelRegistration = async (
     );
   }
 
-  // (g) cutoff window: cancellation allowed only up to (event_start_at - cutoff days). A missing
-  // event_start_at or cutoff fails closed. (The DB CHECK guarantees a cutoff when allow=true.)
-  const cutoffDays = competition.cancellationCutoffDays;
-  if (!competition.eventStartAt || cutoffDays === null) {
-    throw new RegistrationError("cancellation_window_closed", "The cancellation window is closed");
-  }
-  const windowEnd = competition.eventStartAt.getTime() - cutoffDays * DAY_MS;
-  if (now.getTime() > windowEnd) {
-    throw new RegistrationError("cancellation_window_closed", "The cancellation window has closed");
-  }
+  // A minimum-participation commitment needs a stable count at its confirmation moment. Once that
+  // moment arrives, participant withdrawals close even when the older policy cutoff would allow
+  // them; otherwise a confirmed competition could fall below its minimum and reopen cancellation.
+  // (g) confirmation and event cutoffs.
+  assertParticipantCancellationWindowOpen(competition, requestAt);
 
-  const [updated] = await db
-    .update(competitionRegistrations)
-    .set({
-      status: "cancelled",
-      cancelledAt: now,
-      cancellationReason,
-      updatedAt: sql`now()`,
-    })
-    .where(eq(competitionRegistrations.id, registrationId))
-    .returning(REGISTRATION_COLUMNS);
+  const updated = await db.transaction(async (tx) => {
+    await acquireCompetitionParticipationLock(tx, competitionId);
+    const mutationAt = now ?? new Date();
+    const lockedCompetition = await loadCompetitionForRegistration(competitionId, tx);
+    if (!lockedCompetition) {
+      throw new RegistrationError("competition_not_found", "Competition not found");
+    }
+    assertParticipantCancellationWindowOpen(lockedCompetition, mutationAt);
+
+    const [row] = await tx
+      .update(competitionRegistrations)
+      .set({
+        status: "cancelled",
+        cancelledAt: mutationAt,
+        cancellationReason,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(competitionRegistrations.id, registrationId),
+          eq(competitionRegistrations.status, "confirmed"),
+        ),
+      )
+      .returning(REGISTRATION_COLUMNS);
+
+    return row;
+  });
 
   if (!updated) {
     throw new RegistrationError("registration_not_found", "Registration not found");

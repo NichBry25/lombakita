@@ -1,60 +1,26 @@
-import { NextResponse } from "next/server";
 import {
-  assertSessionMatchesExpectedUser,
-  toAccessDeniedResponse,
-} from "@/server/auth/access-core";
-import { requireAuthenticatedSession } from "@/server/auth/session";
-import {
-  InstitutionProfileInputError,
-  toInstitutionProfileInputErrorResponse,
-} from "@/server/institution-workspace/institution-profile-core";
-import { generateInstitutionLogoUploadUrl } from "@/server/institution-workspace/institution-service";
+  institutionMediaDelete,
+  institutionMediaRecord,
+  institutionMediaUploadUrl,
+} from "@/server/institution-workspace/institution-media-http";
 
-// POST — presign a direct-to-R2 PUT for the organizer logo and store the key. Owner-only; personal
-// institutions and unconfigured storage are refused by the service. Body: { contentType }.
-export async function POST(
-  request: Request,
-  context: { params: Promise<{ institutionSlug: string }> },
-): Promise<Response> {
-  try {
-    const session = await requireAuthenticatedSession();
-    assertSessionMatchesExpectedUser(request, session);
-    const { institutionSlug } = await context.params;
+type Context = { params: Promise<{ institutionSlug: string }> };
 
-    let body: unknown;
-    try {
-      body = await request.json();
-    } catch {
-      return toInstitutionProfileInputErrorResponse(
-        new InstitutionProfileInputError(
-          "institution_profile_invalid_payload",
-          "Request body must be valid JSON",
-        ),
-      );
-    }
+// POST   — presign a direct-to-R2 PUT for the organizer logo. Body: { contentType }.
+// PUT    — record the uploaded key. Body: { fileKey }.
+// DELETE — remove the logo.
+// Owner-only; personal institutions and unconfigured storage are refused by the service.
+export async function POST(request: Request, context: Context): Promise<Response> {
+  const { institutionSlug } = await context.params;
+  return institutionMediaUploadUrl(request, institutionSlug, "logo");
+}
 
-    const contentType =
-      typeof (body as Record<string, unknown>)?.contentType === "string"
-        ? ((body as Record<string, unknown>).contentType as string)
-        : "";
-    if (!contentType.startsWith("image/")) {
-      return toInstitutionProfileInputErrorResponse(
-        new InstitutionProfileInputError(
-          "institution_profile_invalid_value",
-          "contentType must be an image mime type",
-          { fields: ["contentType"] },
-        ),
-      );
-    }
+export async function PUT(request: Request, context: Context): Promise<Response> {
+  const { institutionSlug } = await context.params;
+  return institutionMediaRecord(request, institutionSlug, "logo");
+}
 
-    const result = await generateInstitutionLogoUploadUrl(session.user.id, institutionSlug, {
-      contentType,
-    });
-    return NextResponse.json(result, { status: 201 });
-  } catch (error) {
-    if (error instanceof InstitutionProfileInputError) {
-      return toInstitutionProfileInputErrorResponse(error);
-    }
-    return toAccessDeniedResponse(error);
-  }
+export async function DELETE(request: Request, context: Context): Promise<Response> {
+  const { institutionSlug } = await context.params;
+  return institutionMediaDelete(request, institutionSlug, "logo");
 }

@@ -148,6 +148,7 @@ describe("listSavedCompetitions", () => {
         status: "published",
         institutionSlug: "uni-a",
         institutionName: "Universitas A",
+        institutionSuspendedAt: null,
         savedAt: now,
       },
       {
@@ -160,6 +161,7 @@ describe("listSavedCompetitions", () => {
         status: "draft",
         institutionSlug: "uni-b",
         institutionName: "Universitas B",
+        institutionSuspendedAt: null,
         savedAt: now,
       },
     ];
@@ -216,6 +218,7 @@ describe("listSavedCompetitions", () => {
         status: "published",
         institutionSlug: "uni-a",
         institutionName: "Universitas A",
+        institutionSuspendedAt: null,
         savedAt: now,
       },
     ];

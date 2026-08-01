@@ -31,7 +31,8 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
 }
 
 // PUT — record (create) or replace submission metadata after the file is uploaded to R2.
-// Body: { fileKey, fileName, fileSizeBytes?, fileMimeType? }.
+// Body: { fileKey, fileName, fileSizeBytes? }. The stored content type is derived from the
+// filename and confirmed against the object's magic bytes — a declared MIME is not accepted.
 export async function PUT(request: Request, context: RouteContext): Promise<Response> {
   try {
     const session = await requireSessionRole(["candidate"]);
