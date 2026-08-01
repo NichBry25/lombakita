@@ -33,6 +33,10 @@ export const COMP = {
   awaiting: { id: "seed-comp-awaiting", slug: "seed-awaiting" },
   overdue: { id: "seed-comp-overdue", slug: "seed-overdue" },
   done: { id: "seed-comp-done", slug: "seed-done" },
+  // Deliberately kept free of registrations: it is the stage the team lifecycle assertions build
+  // on (create → invite → accept → register → cancel → delete). Every other team-capable
+  // competition already has both free candidates registered, so the happy path has nowhere to run.
+  teamOpen: { id: "seed-comp-teamopen", slug: "seed-team-open" },
   personalOpen: { id: "seed-comp-personal-open", slug: "seed-personal-open" },
   personalDraft: { id: "seed-comp-personal-draft", slug: "seed-personal-draft" },
   susp: { id: "seed-comp-susp", slug: "seed-susp-open" },

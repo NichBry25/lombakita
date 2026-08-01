@@ -18,15 +18,20 @@ const record = (id, name, expected, actual, pass, note = "") => {
 const bodySnippet = (body) =>
   (typeof body === "string" ? body : JSON.stringify(body)).slice(0, 200);
 
+// A step that could not run returns the sentinel `status: 0`, and `status < 300` would report
+// that as a PASS — a skipped assertion is not a satisfied one.
+const is2xx = (r) => r.status >= 200 && r.status < 300;
+
 const main = async () => {
   // ---- sessions -----------------------------------------------------------
   const sessions = {};
-  for (const key of ["candA", "candB", "candC", "recMin", "recElev", "dual", "ops"]) {
+  const sessionKeys = ["candA", "candB", "candC", "recMin", "recElev", "recRej", "recDraft", "dual", "ops"];
+  for (const key of sessionKeys) {
     const s = await mintSession(USERS[key].email);
     if (!s.ok) throw new Error(`Could not mint session for ${key}: ${s.error}`);
     sessions[key] = s.cookie;
   }
-  record("AUTH-01", "Login succeeds for all seeded active accounts", "7 sessions", "7 sessions", true);
+  record("AUTH-01", "Login succeeds for all seeded active accounts", `${sessionKeys.length} sessions`, `${Object.keys(sessions).length} sessions`, Object.keys(sessions).length === sessionKeys.length);
 
   // ---- auth negative branches --------------------------------------------
   const wrongPw = await mintSession(USERS.candA.email, "SalahTotal999!");
@@ -141,7 +146,7 @@ const main = async () => {
   const unsaveRes = await apiFetch(`/api/v1/competitions/${COMP.closing.id}/save`, {
     method: "DELETE", cookie: sessions.candA, headers: { "X-Expected-User-Id": USERS.candA.id },
   });
-  record("CAND-12", "Save then unsave round-trip", "2xx,2xx", `${saveRes.status},${unsaveRes.status}`, saveRes.status < 300 && unsaveRes.status < 300);
+  record("CAND-12", "Save then unsave round-trip", "2xx,2xx", `${saveRes.status},${unsaveRes.status}`, is2xx(saveRes) && is2xx(unsaveRes));
 
   // registration refusals
   const regClosed = await apiFetch(`/api/v1/competitions/${COMP.closed.id}/registrations`, {
@@ -266,11 +271,249 @@ const main = async () => {
   const verifyRoleDupNoProfile = await apiFetch("/api/v1/auth/verify-role", { method: "POST", cookie: sessions.candA, json: { role: "candidate" } });
   record("OPS-10", "Already-verified role answered before payload validation", "409 role_already_verified", `${verifyRoleDupNoProfile.status} ${verifyRoleDupNoProfile.body?.error?.code ?? ""}`.trim(), verifyRoleDupNoProfile.status === 409 && verifyRoleDupNoProfile.body?.error?.code === "role_already_verified");
 
+  // ---- publish checklist (distinct from the tier gate above) ----------------
+  // GATE-01 proves an under-tier recruiter is refused before the checklist runs. This is the other
+  // half: a Trusted recruiter, an incomplete draft, and a refusal that names what is missing.
+  const publishIncomplete = await apiFetch(`/api/v1/institutions/${INST.a.slug}/competitions/${COMP.draft.id}/publish`, {
+    method: "POST", cookie: sessions.recElev, json: {},
+  });
+  record("GATE-05", "Publish refused for incomplete draft, missing fields named", "422 + field list", `${publishIncomplete.status}`, publishIncomplete.status === 422 && JSON.stringify(publishIncomplete.body).length > 40, bodySnippet(publishIncomplete.body).slice(0, 110));
+
+  // ---- result lifecycle: upsert -> publish -> unpublish -> restore ----------
+  // Every assertion above reads results the seed wrote. This drives the organizer's write path and
+  // puts the row back exactly as seeded, so the suite stays re-runnable.
+  const resultPath = `/api/v1/institutions/${INST.a.slug}/competitions/${COMP.done.id}/registrations/${REG.bDone}/result`;
+  const candBResultPath = `/api/v1/me/competitions/${COMP.done.id}/registrations/${REG.bDone}/result`;
+
+  const resultUpsert = await apiFetch(resultPath, {
+    method: "PUT", cookie: sessions.recElev,
+    json: { resultLabel: "Juara 2", resultNotes: "Draf internal — disunting oleh uji otomatis." },
+  });
+  record("RES-01", "Organizer upserts a result draft", "200", `${resultUpsert.status}`, resultUpsert.status === 200, bodySnippet(resultUpsert.body).slice(0, 80));
+
+  const resultPublish = await apiFetch(`${resultPath}/publish`, { method: "POST", cookie: sessions.recElev, json: {} });
+  record("RES-02", "Organizer publishes the result", "200", `${resultPublish.status}`, resultPublish.status === 200, bodySnippet(resultPublish.body).slice(0, 80));
+
+  const resultNowVisible = await apiFetch(candBResultPath, { cookie: sessions.candB });
+  record("RES-03", "Published result becomes visible to its own candidate", "200 + Juara 2", `${resultNowVisible.status}`, resultNowVisible.status === 200 && JSON.stringify(resultNowVisible.body).includes("Juara 2"));
+
+  const resultUnpublish = await apiFetch(`${resultPath}/unpublish`, { method: "POST", cookie: sessions.recElev, json: {} });
+  record("RES-04", "Organizer unpublishes the result", "200", `${resultUnpublish.status}`, resultUnpublish.status === 200);
+
+  const resultHiddenAgain = await apiFetch(candBResultPath, { cookie: sessions.candB });
+  record("RES-05", "Unpublished result collapses for the candidate again", "404/absent", `${resultHiddenAgain.status}`, resultHiddenAgain.status === 404 || !JSON.stringify(resultHiddenAgain.body).includes("Juara 2"));
+
+  const resultRestore = await apiFetch(resultPath, {
+    method: "PUT", cookie: sessions.recElev,
+    json: { resultLabel: "Juara 2", resultNotes: "Draf internal — belum dipublikasikan." },
+  });
+  record("RES-06", "Seeded draft result restored verbatim", "200", `${resultRestore.status}`, resultRestore.status === 200);
+
+  // ---- team lifecycle: create -> invite by username -> accept -> register ----
+  // Runs on seed-comp-teamopen, the one team-capable competition kept free of registrations.
+  // The name is unique per run because disbanding is SOFT: the row and its name survive, so a
+  // fixed name collides with the previous run's team on the second pass.
+  const teamName = `Tim Uji Otomatis ${Date.now()}`;
+  const teamCreate = await apiFetch(`/api/v1/competitions/${COMP.teamOpen.id}/teams`, {
+    method: "POST", cookie: sessions.candB, headers: { "X-Expected-User-Id": USERS.candB.id },
+    json: { name: teamName },
+  });
+  const teamId = teamCreate.body?.team?.id ?? teamCreate.body?.id ?? null;
+  record("TEAM-01", "Candidate creates a team on an open team competition", "2xx + team id", `${teamCreate.status} id=${teamId ?? "none"}`, is2xx(teamCreate) && Boolean(teamId), bodySnippet(teamCreate.body).slice(0, 90));
+
+  // A username invite must resolve to a real target rather than falling through to the
+  // pending_claim (unknown-email) branch — that distinction is the whole point of DEC-6.5e.
+  const teamInvite = teamId
+    ? await apiFetch(`/api/v1/teams/${teamId}/invitations`, {
+        method: "POST", cookie: sessions.candB, headers: { "X-Expected-User-Id": USERS.candB.id },
+        json: { invitedIdentifier: USERS.candC.username },
+      })
+    : { status: 0, body: "skipped: no team id" };
+  const teamInviteId = teamInvite.body?.invitation?.id ?? teamInvite.body?.id ?? null;
+  const teamInviteEmail = teamInvite.body?.invitation?.invitedEmail ?? "(absent)";
+  record("TEAM-02", "Team invite by USERNAME resolves to the right account's email", `${USERS.candC.email}`, `${teamInvite.status} ${teamInviteEmail}`, is2xx(teamInvite) && teamInviteEmail === USERS.candC.email);
+
+  // The response carries no status field, so the targeted-vs-pending_claim branch is asserted where
+  // it is actually observable: the inbox queries solely by target_user_id, so a pending_claim
+  // invitation (null target) is invisible there by construction.
+  const inviteeInbox = await apiFetch("/api/v1/me/inbox", { cookie: sessions.candC });
+  record("TEAM-02b", "Targeted invite reaches the invitee's inbox (target_user_id was set)", "team invite present", `${inviteeInbox.status}`, inviteeInbox.status === 200 && JSON.stringify(inviteeInbox.body).includes(teamName), bodySnippet(inviteeInbox.body).slice(0, 90));
+
+  const teamAccept = teamInviteId
+    ? await apiFetch(`/api/v1/me/invitations/team/${teamInviteId}/accept`, {
+        method: "POST", cookie: sessions.candC, headers: { "X-Expected-User-Id": USERS.candC.id }, json: {},
+      })
+    : { status: 0, body: "skipped: no invitation id" };
+  record("TEAM-03", "Invited candidate accepts and joins the roster", "2xx", `${teamAccept.status}`, is2xx(teamAccept), bodySnippet(teamAccept.body).slice(0, 90));
+
+  const teamRegister = teamId
+    ? await apiFetch(`/api/v1/competitions/${COMP.teamOpen.id}/teams/${teamId}/registrations`, {
+        method: "POST", cookie: sessions.candB, headers: { "X-Expected-User-Id": USERS.candB.id }, json: {},
+      })
+    : { status: 0, body: "skipped: no team id" };
+  record("TEAM-04", "Captain submits the team registration", "2xx", `${teamRegister.status}`, is2xx(teamRegister), bodySnippet(teamRegister.body).slice(0, 90));
+
+  const teamParticipants = await apiFetch(`/api/v1/institutions/${INST.a.slug}/competitions/${COMP.teamOpen.id}/participants`, { cookie: sessions.recElev });
+  const teamParticipantsStr = JSON.stringify(teamParticipants.body);
+  record("TEAM-05", "Both team members appear to the organizer as registrants", "candB ∧ candC", `${teamParticipants.status}`, teamParticipants.status === 200 && teamParticipantsStr.includes(USERS.candB.username) && teamParticipantsStr.includes(USERS.candC.username));
+
+  const teamCancel = teamId
+    ? await apiFetch(`/api/v1/competitions/${COMP.teamOpen.id}/teams/${teamId}/registrations`, {
+        method: "DELETE", cookie: sessions.candB, headers: { "X-Expected-User-Id": USERS.candB.id },
+        json: { cancellationReason: "Pembatalan oleh uji otomatis." },
+      })
+    : { status: 0, body: "skipped: no team id" };
+  record("TEAM-06", "Team registration cancelled (team reverts to forming)", "2xx", `${teamCancel.status}`, is2xx(teamCancel), bodySnippet(teamCancel.body).slice(0, 90));
+
+  const teamDelete = teamId
+    ? await apiFetch(`/api/v1/teams/${teamId}`, {
+        method: "DELETE", cookie: sessions.candB, headers: { "X-Expected-User-Id": USERS.candB.id },
+      })
+    : { status: 0, body: "skipped: no team id" };
+  // Disbanding is soft: invitations are cancelled and memberships deactivated, but the row and
+  // its name persist. The seed reset is what actually clears the stage.
+  record("TEAM-07", "Team disbanded (soft — memberships deactivated, row retained)", "2xx", `${teamDelete.status}`, is2xx(teamDelete), bodySnippet(teamDelete.body).slice(0, 90));
+
+  // ---- institution invitations: username invite, accept, membership, restore -
+  const instInvite = await apiFetch(`/api/v1/institutions/${INST.a.slug}/invitations`, {
+    method: "POST", cookie: sessions.recElev,
+    json: { invitedIdentifier: USERS.candC.username, invitedRole: "institution_member" },
+  });
+  const instInviteId = instInvite.body?.invitation?.id ?? instInvite.body?.id ?? null;
+  record("INV-01", "Institution invite by USERNAME resolves to a target user", "2xx + pending", `${instInvite.status}`, is2xx(instInvite) && !JSON.stringify(instInvite.body).includes("pending_claim"), bodySnippet(instInvite.body).slice(0, 90));
+
+  // Acceptance by an EXISTING recruiter-verified account — the branch the pending_claim manual
+  // check does not reach. It raises its OWN invitation rather than consuming seed-instinv-1:
+  // acceptance is terminal, so spending the seeded one would make every rerun without a reseed
+  // fail on an already-accepted invitation. The target is recDraft, not recRej, because recRej
+  // already holds that seeded pending staff invite and a second one is refused as a duplicate.
+  const staffInvite = await apiFetch(`/api/v1/institutions/${INST.a.slug}/invitations`, {
+    method: "POST", cookie: sessions.recElev,
+    json: { invitedIdentifier: USERS.recDraft.username, invitedRole: "institution_staff" },
+  });
+  const staffInviteId = staffInvite.body?.invitation?.id ?? staffInvite.body?.id ?? null;
+  const staffAccept = staffInviteId
+    ? await apiFetch(`/api/v1/me/invitations/institution/${staffInviteId}/accept`, {
+        method: "POST", cookie: sessions.recDraft, headers: { "X-Expected-User-Id": USERS.recDraft.id }, json: {},
+      })
+    : { status: 0, body: "skipped: no invitation id" };
+  // This pairing with INV-04 is also the regression guard for the rejoin defect it exposed:
+  // removeMember soft-sets status='revoked' to keep the audit trail, and acceptance used to match
+  // membership rows without filtering on status, so a removed member could be re-invited (the
+  // creation guard does filter on 'active') and could then never accept. Running INV-02 → INV-04 →
+  // INV-02 again is precisely what catches it, which is why this block must stay re-runnable
+  // without a reseed.
+  record("INV-02", "Existing verified recruiter accepts a staff invitation", "2xx", `${staffInvite.status} → ${staffAccept.status}`, is2xx(staffInvite) && is2xx(staffAccept), staffInvite.status >= 300 ? `invite refused: ${bodySnippet(staffInvite.body).slice(0, 90)}` : bodySnippet(staffAccept.body).slice(0, 90));
+
+  const members = await apiFetch(`/api/v1/institutions/${INST.a.slug}/members`, { cookie: sessions.recElev });
+  const memberRows = members.body?.members ?? members.body?.data ?? [];
+  const newMember = Array.isArray(memberRows)
+    ? memberRows.find((m) => (m.userId ?? m.user?.id) === USERS.recDraft.id)
+    : null;
+  record("INV-03", "Accepted invitee appears in the institution member list", "recDraft present", `${members.status} ${newMember ? "present" : "absent"}`, members.status === 200 && Boolean(newMember));
+
+  const memberRemove = newMember?.membershipId
+    ? await apiFetch(`/api/v1/institutions/${INST.a.slug}/members/${newMember.membershipId}`, { method: "DELETE", cookie: sessions.recElev })
+    : { status: 0, body: "skipped: no membership id" };
+  record("INV-04", "Membership removed — roster restored", "2xx", `${memberRemove.status}`, is2xx(memberRemove), bodySnippet(memberRemove.body).slice(0, 90));
+
+  const inviteCancel = instInviteId
+    ? await apiFetch(`/api/v1/institutions/${INST.a.slug}/invitations/${instInviteId}/cancel`, { method: "PATCH", cookie: sessions.recElev, json: {} })
+    : { status: 0, body: "skipped: no invitation id" };
+  record("INV-05", "Automation-created invitation cancelled — queue restored", "2xx", `${inviteCancel.status}`, is2xx(inviteCancel), bodySnippet(inviteCancel.body).slice(0, 90));
+
+  // ---- moderation: reinstatement, and institution suspension as a publish gate
+  const unsuspend = await apiFetch(`/api/platform-ops/users/${USERS.susp.id}/unsuspend`, {
+    method: "POST", cookie: sessions.ops, json: { reason: "Reinstatement oleh uji otomatis." },
+  });
+  const reinstatedLogin = await mintSession(USERS.susp.email);
+  record("MOD-01", "Reinstated account can log in again", "session issued", `${unsuspend.status} / ${reinstatedLogin.ok ? "session" : String(reinstatedLogin.error)}`, is2xx(unsuspend) && reinstatedLogin.ok);
+
+  const resuspend = await apiFetch(`/api/platform-ops/users/${USERS.susp.id}/suspend`, {
+    method: "POST", cookie: sessions.ops, json: { reason: "Penangguhan data uji" },
+  });
+  const blockedAgain = await mintSession(USERS.susp.email);
+  record("MOD-02", "Re-suspended account is blocked again (seed state restored)", "ACCOUNT_SUSPENDED", `${resuspend.status} / ${String(blockedAgain.error)}`, is2xx(resuspend) && !blockedAgain.ok && blockedAgain.error === "ACCOUNT_SUSPENDED");
+
+  const suspendInst = await apiFetch(`/api/platform-ops/institutions/${INST.b.id}/suspend`, {
+    method: "POST", cookie: sessions.ops, json: { reason: "Penangguhan sementara oleh uji otomatis." },
+  });
+  record("MOD-03", "Institution suspended by ops", "2xx", `${suspendInst.status}`, is2xx(suspendInst), bodySnippet(suspendInst.body).slice(0, 80));
+
+  const publishWhileSuspended = await apiFetch(`/api/v1/institutions/${INST.b.slug}/competitions/${COMP.bDraft.id}/publish`, {
+    method: "POST", cookie: sessions.recElev, json: {},
+  });
+  record("MOD-04", "Publish refused while the institution is suspended", "4xx", `${publishWhileSuspended.status}`, publishWhileSuspended.status >= 400 && publishWhileSuspended.status < 500, bodySnippet(publishWhileSuspended.body).slice(0, 100));
+
+  const reinstateInst = await apiFetch(`/api/platform-ops/institutions/${INST.b.id}/reinstate`, {
+    method: "POST", cookie: sessions.ops, json: { reason: "Pemulihan oleh uji otomatis." },
+  });
+  const publishAfterReinstate = await apiFetch(`/api/v1/institutions/${INST.b.slug}/competitions/${COMP.bDraft.id}/publish`, {
+    method: "POST", cookie: sessions.recElev, json: {},
+  });
+  await apiFetch(`/api/v1/institutions/${INST.b.slug}/competitions/${COMP.bDraft.id}/unpublish`, {
+    method: "POST", cookie: sessions.recElev, json: {},
+  });
+  record("MOD-05", "Reinstated institution can publish again (state restored)", "2xx then 200", `${reinstateInst.status} / ${publishAfterReinstate.status}`, is2xx(reinstateInst) && publishAfterReinstate.status === 200);
+
+  // ---- featured placement, asserted where it actually matters: the listing ---
+  // Ordering is asserted RELATIVE to a known unfeatured seed competition, never by absolute index:
+  // the same database also holds whatever the owner created during the manual pass, so index 0 is
+  // not a stable fact about this app.
+  const listingSlugs = async () => {
+    const r = await apiFetch("/api/v1/competitions?limit=100");
+    return (r.body?.data ?? []).map((c) => c.slug);
+  };
+  const rankOf = (slugs, slug) => slugs.indexOf(slug);
+
+  const baseSlugs = await listingSlugs();
+  record("FEAT-01", "Featured competition outranks an unfeatured one in the listing", `${COMP.featured.slug} before ${COMP.open.slug}`, `${rankOf(baseSlugs, COMP.featured.slug)} vs ${rankOf(baseSlugs, COMP.open.slug)}`, rankOf(baseSlugs, COMP.featured.slug) >= 0 && rankOf(baseSlugs, COMP.featured.slug) < rankOf(baseSlugs, COMP.open.slug));
+
+  const setFeatured = await apiFetch(`/api/platform-ops/competitions/${COMP.closing.id}/featured`, {
+    method: "PATCH", cookie: sessions.ops, json: { isFeatured: true, featuredOrder: 2 },
+  });
+  const promotedSlugs = await listingSlugs();
+  record("FEAT-02", "Newly featured competition rises above the unfeatured block", `${COMP.closing.slug} before ${COMP.open.slug}`, `${setFeatured.status}: ${rankOf(promotedSlugs, COMP.closing.slug)} vs ${rankOf(promotedSlugs, COMP.open.slug)}`, is2xx(setFeatured) && rankOf(promotedSlugs, COMP.closing.slug) >= 0 && rankOf(promotedSlugs, COMP.closing.slug) < rankOf(promotedSlugs, COMP.open.slug));
+
+  const clearFeatured = await apiFetch(`/api/platform-ops/competitions/${COMP.closing.id}/featured`, {
+    method: "PATCH", cookie: sessions.ops, json: { isFeatured: false, featuredOrder: null },
+  });
+  const clearedSlugs = await listingSlugs();
+  record("FEAT-03", "Cleared placement drops back below the featured block (seed restored)", `${COMP.featured.slug} before ${COMP.closing.slug}`, `${clearFeatured.status}: ${rankOf(clearedSlugs, COMP.featured.slug)} vs ${rankOf(clearedSlugs, COMP.closing.slug)}`, is2xx(clearFeatured) && rankOf(clearedSlugs, COMP.featured.slug) < rankOf(clearedSlugs, COMP.closing.slug));
+
+  // ---- institution verification: revocation is possible, no status terminal --
+  const verifyPath = `/api/admin/institutions/${INST.a.id}/verify`;
+  const revokeNoReason = await apiFetch(verifyPath, { method: "PATCH", cookie: sessions.ops, json: { targetStatus: "rejected" } });
+  record("VERIF-01", "Revocation without a reason refused", "422 verification_reason_required", `${revokeNoReason.status}`, revokeNoReason.status === 422, bodySnippet(revokeNoReason.body).slice(0, 90));
+
+  const revoke = await apiFetch(verifyPath, { method: "PATCH", cookie: sessions.ops, json: { targetStatus: "rejected", reason: "Pencabutan oleh uji otomatis." } });
+  record("VERIF-02", "Verified institution can have verification revoked (verified->rejected)", "200", `${revoke.status}`, revoke.status === 200, bodySnippet(revoke.body).slice(0, 80));
+
+  const reVerify = await apiFetch(verifyPath, { method: "PATCH", cookie: sessions.ops, json: { targetStatus: "verified" } });
+  record("VERIF-03", "Revoked institution can be re-verified (rejected->verified, seed restored)", "200", `${reVerify.status}`, reVerify.status === 200, bodySnippet(reVerify.body).slice(0, 80));
+
   // ---- participation decision (minimum-entry commitment lapsed on seed-closed) ----
   const partDecisionAsOutsider = await apiFetch(`/api/v1/institutions/${INST.a.slug}/competitions/${COMP.closed.id}/participation-decision`, {
     method: "POST", cookie: sessions.candA, json: { decision: "proceed" },
   });
   record("PART-01", "Participation decision refused for candidate", "403/404", `${partDecisionAsOutsider.status}`, partDecisionAsOutsider.status === 403 || partDecisionAsOutsider.status === 404);
+
+  const partDecisionOutsiderRec = await apiFetch(`/api/v1/institutions/${INST.a.slug}/competitions/${COMP.closed.id}/participation-decision`, {
+    method: "POST", cookie: sessions.recMin, json: { decision: "proceed" },
+  });
+  record("PART-02", "Participation decision refused for a non-member recruiter", "403/404", `${partDecisionOutsiderRec.status}`, partDecisionOutsiderRec.status === 403 || partDecisionOutsiderRec.status === 404);
+
+  const partDecisionBadValue = await apiFetch(`/api/v1/institutions/${INST.a.slug}/competitions/${COMP.closed.id}/participation-decision`, {
+    method: "POST", cookie: sessions.recElev, json: { decision: "mungkin" },
+  });
+  record("PART-03", "Participation decision rejects an unknown decision value", "400", `${partDecisionBadValue.status}`, partDecisionBadValue.status === 400, bodySnippet(partDecisionBadValue.body).slice(0, 90));
+
+  // One-way by design (CAS on participation_confirmed_at IS NULL). The seed clears it on reset;
+  // there is no API path back, which is why this is the last mutation in the block.
+  const partDecisionProceed = await apiFetch(`/api/v1/institutions/${INST.a.slug}/competitions/${COMP.closed.id}/participation-decision`, {
+    method: "POST", cookie: sessions.recElev, json: { decision: "proceed" },
+  });
+  record("PART-04", "Owner confirms the competition will proceed despite low entries", "200", `${partDecisionProceed.status}`, partDecisionProceed.status === 200, partDecisionProceed.status === 409 ? "409 here means the decision was already taken — reseed before rerunning (one-way by design)" : bodySnippet(partDecisionProceed.body).slice(0, 90));
 
   // ---- rate limit (LAST — pollutes the per-IP identify bucket for 60s) -----
   let got429 = false;

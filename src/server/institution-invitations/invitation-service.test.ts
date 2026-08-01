@@ -179,8 +179,10 @@ describe("acceptInstitutionInvitationForUser — CCR-08 verification gate at acc
     ).resolves.toBeUndefined();
   });
 
-  it("blocks acceptance when already a member (409)", async () => {
-    const tx = makeTx([[baseInvitation()], [{ id: "mem_1" }]]);
+  // The status was previously omitted from this fixture, which made the assertion pass for the
+  // wrong reason: acceptance refused on the row EXISTING rather than on it being active.
+  it("blocks acceptance when already an ACTIVE member (409)", async () => {
+    const tx = makeTx([[baseInvitation()], [{ id: "mem_1", status: "active" }]]);
     await expect(
       acceptInstitutionInvitationForUser(
         INVITATION_ID,
@@ -189,6 +191,51 @@ describe("acceptInstitutionInvitationForUser — CCR-08 verification gate at acc
         makeDb(tx) as never,
       ),
     ).rejects.toMatchObject({ code: "invitation_already_member", httpStatus: 409 });
+  });
+});
+
+// Removal is soft (status='revoked', row retained for the audit trail) and (institution_id,
+// user_id) is unique, so a rejoin has to reuse the row. Refusing on existence alone meant a
+// removed member could be re-invited — the creation guard filters on 'active' — and could then
+// never accept, being told they were already a member when they were not.
+describe("acceptInstitutionInvitationForUser — rejoining after removal", () => {
+  const membershipWriteFrom = (tx: ReturnType<typeof makeTx>) =>
+    tx.set.mock.calls
+      .map((call) => call[0] as Record<string, unknown> | undefined)
+      .find((payload) => Boolean(payload) && "membershipRole" in (payload as object));
+
+  it("reactivates a revoked membership rather than refusing the rejoin", async () => {
+    const tx = makeTx([[baseInvitation()], [{ id: "mem_1", status: "revoked" }]]);
+    await expect(
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["recruiter"],
+        makeDb(tx) as never,
+      ),
+    ).resolves.toBeUndefined();
+    // The unique index makes a second row impossible, so the rejoin must be an update.
+    expect(tx.insert).not.toHaveBeenCalled();
+    expect(membershipWriteFrom(tx)).toMatchObject({
+      status: "active",
+      membershipRole: "institution_staff",
+    });
+  });
+
+  it("takes the role from the new invitation, not from the retained row", async () => {
+    const tx = makeTx([
+      [baseInvitation({ invitedRole: "institution_member" })],
+      [{ id: "mem_1", status: "revoked" }],
+    ]);
+    await expect(
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["candidate"],
+        makeDb(tx) as never,
+      ),
+    ).resolves.toBeUndefined();
+    expect(membershipWriteFrom(tx)).toMatchObject({ membershipRole: "institution_member" });
   });
 });
 

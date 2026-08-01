@@ -61,6 +61,21 @@ node scripts/testing/gallery.mjs   # final pass — picks up anything still miss
 gap** — start a second run immediately and the three `/identify` classification assertions fail
 with `rate_limited`, which looks like a regression and is not one.
 
+**Reseed before every api-matrix run.** Its mutating checks restore what they touch
+(publish→unpublish, feature→clear, suspend→reinstate, revoke→re-verify, invite→accept→remove,
+result publish→unpublish→relabel), so the suite re-runs cleanly. Exactly one check is one-way and
+depends on the seed reset to undo it:
+
+- `PART-04` — the participation decision CASes on `participation_confirmed_at IS NULL`; there is no
+  API path back, by design. Without a reseed it fails with an explanatory note, not a silent pass.
+
+Nothing else should fail on a second run. `INV-02/03/04` used to, and that was a real defect rather
+than a harness limitation: `removeMember` soft-sets `status='revoked'`, and the acceptance guard
+matched membership rows without filtering on status, so a removed member could be re-invited (the
+creation guard *does* filter on `active`) and could then never accept. Fixed 2026-08-01 — acceptance
+now reactivates the retained row. If that block starts failing on a rerun again, suspect a
+regression there before suspecting the harness.
+
 The seed clears what the automation writes — the finalized submission, non-seed document requests,
 and the notifications those actions emit. Without that last one the unread-count assertion drifts
 upward by one per run.

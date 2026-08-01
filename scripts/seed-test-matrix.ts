@@ -289,6 +289,20 @@ const main = async (): Promise<void> => {
         featured: false, featuredOrder: null, publishedAt: d(-10),
       },
       {
+        // Team-capable, registration open, and deliberately EMPTY of registrations. Every other
+        // team-mode competition already has both free candidates registered, so the team lifecycle
+        // (create → invite → accept → register → cancel → delete) has nowhere else to run. Keep it
+        // unregistered: the assertions restore what they create, and a seeded registrant here
+        // would put the captain slot permanently out of reach.
+        id: "seed-comp-teamopen", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
+        slug: "seed-team-open", title: "Seed Team Relay",
+        description: "Kompetisi mode tim dengan pendaftaran terbuka — panggung uji siklus tim.",
+        status: "published", category: "programming", mode: "team", minTeam: 2, maxTeam: 4,
+        rs: d(-4), re: d(25), es: d(35), ee: d(36), ra: d(43),
+        allowCancel: true, cutoffDays: 3, eligibilityNote: null,
+        featured: false, featuredOrder: null, publishedAt: d(-4),
+      },
+      {
         id: "seed-comp-closed", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
         slug: "seed-closed", title: "Seed Essay Marathon",
         description: "Pendaftaran sudah ditutup, acara belum mulai. Uji CTA 'ditutup' dan penolakan daftar.",
@@ -748,6 +762,28 @@ const main = async (): Promise<void> => {
     await sql`
       DELETE FROM notifications
       WHERE user_id LIKE 'seed-user-%' AND id::text NOT LIKE 'seed-notif-%'
+    `;
+    // The participation decision is one-way by design: confirmCompetitionWillProceed CASes on
+    // participation_confirmed_at IS NULL, so there is no API path back. Clearing it here is what
+    // lets the owner-side assertion run more than once.
+    await sql`
+      UPDATE competitions SET participation_confirmed_at = NULL, updated_at = now()
+      WHERE id = 'seed-comp-closed' AND participation_confirmed_at IS NOT NULL
+    `;
+    // Teams the team-lifecycle assertions build. They delete what they create, but a run that dies
+    // mid-flow would otherwise leave a captain occupying the only free slot on seed-comp-teamopen
+    // and every later run would fail at team creation.
+    await sql`
+      DELETE FROM teams WHERE competition_id = 'seed-comp-teamopen' AND id NOT LIKE 'seed-team-%'
+    `;
+    // Institution invitations and memberships from the invite assertions, on the same principle.
+    await sql`
+      DELETE FROM institution_invitations
+      WHERE institution_id LIKE 'seed-inst-%' AND id NOT LIKE 'seed-instinv-%'
+    `;
+    await sql`
+      DELETE FROM institution_memberships
+      WHERE institution_id LIKE 'seed-inst-%' AND id NOT LIKE 'seed-mem-%'
     `;
 
     // -------------------------------------------------------------- summary
