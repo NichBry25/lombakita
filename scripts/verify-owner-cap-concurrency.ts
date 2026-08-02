@@ -1,6 +1,6 @@
 /**
- * Real two-connection concurrency proof for the per-recruiter institution-count cap
- * (Step 6.5-HARDENING.2). The unit suite no-ops `tx.execute`, so it can only assert lock-key
+ * Real two-connection concurrency proof for the per-recruiter institution-count cap.
+ * The unit suite no-ops `tx.execute`, so it can only assert lock-key
  * derivation and acquire-before-count ordering — it CANNOT prove that two genuinely concurrent
  * Postgres transactions serialize on the advisory lock. This script does: it drives the real
  * service functions (real `db.transaction()`, real `pg_advisory_xact_lock`) on a connection pool
@@ -144,13 +144,19 @@ const runFullSite = async () => {
   console.log(`\n[full create] cap=3, ${ITERATIONS} iterations, seed 2 then two concurrent creates`);
   for (let i = 0; i < ITERATIONS; i += 1) {
     const userId = await seedRecruiter();
-    await createInstitutionWorkspaceForUser(userId, { displayName: `Cap Conc Full A ${i} ${userId.slice(0, 6)}` }, db);
-    await createInstitutionWorkspaceForUser(userId, { displayName: `Cap Conc Full B ${i} ${userId.slice(0, 6)}` }, db);
+    const createFull = (label: string) =>
+      createInstitutionWorkspaceForUser(
+        userId,
+        { displayName: `Cap Conc Full ${label} ${i} ${userId.slice(0, 6)}`, institutionType: "company" },
+        db,
+      );
+    await createFull("A");
+    await createFull("B");
     // Distinct display names → distinct slugs, so the only thing that can stop a racer is the cap,
     // never a slug-uniqueness 23505.
     const outcome = await race(
-      () => createInstitutionWorkspaceForUser(userId, { displayName: `Cap Conc Full C ${i} ${userId.slice(0, 6)}` }, db),
-      () => createInstitutionWorkspaceForUser(userId, { displayName: `Cap Conc Full D ${i} ${userId.slice(0, 6)}` }, db),
+      () => createFull("C"),
+      () => createFull("D"),
     );
     const finalCount = await countOwned(userId, "full");
     check(
