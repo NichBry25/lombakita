@@ -92,6 +92,10 @@ jobs:
     environment: production
     permissions:
       contents: read
+    env:
+      # Job-level so the worker step's `if:` can read it. Only the boolean is
+      # job-wide; the token itself stays scoped to the step that uses it.
+      HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -126,16 +130,19 @@ jobs:
       # ── WORKER: RAILWAY (guarded) ──
       # Promotes the Railway worker in lockstep with the web deploy, behind the
       # same production approval gate. GUARDED: runs only when RAILWAY_TOKEN is
-      # set. Railway is currently offline (subscription lapsed), so until the
-      # token is added as a production-environment secret this step skips cleanly
-      # and never fails the promotion. Adding the token activates it with no
-      # workflow change.
+      # set, so an environment without the secret skips cleanly rather than
+      # failing the promotion.
       #
-      # NOTE: verify the exact `railway` invocation against your project when the
-      # subscription is restored — RAILWAY_TOKEN must be a project-scoped token
-      # for the worker's Railway project, and the service name must match.
+      # The guard reads the job-level HAS_RAILWAY_TOKEN boolean, not the secret:
+      # `secrets` is not an available context in a step-level `if:`, and a step's
+      # own `env:` is applied only after its `if:` has been evaluated. Testing
+      # either one from here resolves to empty, which skips the step while the
+      # job still reports success — a silent no-op that looks like a deploy.
+      #
+      # RAILWAY_TOKEN must be a project-scoped token carrying the worker's
+      # Railway project and environment; --service must match the service name.
       - name: Deploy worker (Railway)
-        if: ${{ env.RAILWAY_TOKEN != '' }}
+        if: env.HAS_RAILWAY_TOKEN == 'true'
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
