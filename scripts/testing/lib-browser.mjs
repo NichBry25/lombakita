@@ -1,3 +1,4 @@
+import { existsSync } from "fs";
 import { chromium } from "playwright";
 import { mintSession } from "./lib-auth.mjs";
 import { BASE } from "./seeds.mjs";
@@ -7,9 +8,12 @@ export const MOBILE = { width: 390, height: 844 };
 
 // Playwright 1.62 refuses to install Chromium on mac13-arm64, but a compatible build is already
 // in the shared ms-playwright cache; point at it directly rather than downgrading the library.
+// Anywhere that path does not exist — CI on Linux, a different machine — leave executablePath
+// undefined so Playwright resolves the browser it installed itself. Pinning the mac path
+// unconditionally is what would make these scripts unrunnable off this laptop.
+const MAC_CACHED_CHROME = `${process.env.HOME}/Library/Caches/ms-playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
 const CHROME =
-  process.env.CHROME_PATH ??
-  `${process.env.HOME}/Library/Caches/ms-playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
+  process.env.CHROME_PATH ?? (existsSync(MAC_CACHED_CHROME) ? MAC_CACHED_CHROME : undefined);
 
 export async function launch() {
   return chromium.launch({ executablePath: CHROME, args: ["--disable-dev-shm-usage"] });

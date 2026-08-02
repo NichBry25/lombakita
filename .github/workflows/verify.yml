@@ -1,0 +1,104 @@
+name: Nightly verification
+
+# The scripts under scripts/concurrency/ and the contrast self-test prove things the unit suite
+# structurally cannot: the unit suite mocks the database, so `tx.execute` is a no-op and deleting an
+# advisory lock leaves every test green. They are run on demand, which is how the project's only
+# concurrency proof sat broken for over a week without anyone noticing (CONCURRENCY-D3).
+#
+# Deliberately NOT here: scripts/retention/ needs real R2 credentials, and scripts/session/ needs a
+# running app. Both stay on-demand until 6.5.INFRA provisions those in a managed environment.
+
+on:
+  schedule:
+    # 19:00 UTC = 02:00 Asia/Jakarta, matching the retention job's off-peak slot.
+    - cron: "0 19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  concurrency-races:
+    name: concurrency races
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lombakita_verify
+        ports:
+          - 5432:5432
+        # Without a healthcheck the first migration races the server's startup.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lombakita_verify
+      APP_ENV: test
+      AUTH_SECRET: verification-only-secret-not-used-for-signing-anything-real
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations
+        run: npm run db:migrate:guarded
+
+      - name: Confirm READ COMMITTED
+        # Every post-lock count and CAS in the codebase is reasoned about under READ COMMITTED. The
+        # scripts assert this themselves and refuse to run otherwise; failing here just makes the
+        # cause obvious in the log rather than buried in the first script's output.
+        run: |
+          psql "$DATABASE_URL" -tAc "SELECT current_setting('default_transaction_isolation')" \
+            | grep -qx 'read committed'
+
+      - name: Run concurrency race scripts
+        run: npm run verify:concurrency
+
+  contrast-selftest:
+    name: contrast auditor self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The self-test needs no server and no database — the fixture is set with page.setContent() —
+      # but it does need a real browser engine to compute styles.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run contrast auditor self-test
+        run: npm run verify:contrast-selftest
