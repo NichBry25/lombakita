@@ -4,7 +4,7 @@ import type {
   CompetitionRegistrationType,
 } from "@/server/db/schema";
 
-// Step 4.2 — Individual competition registration error codes.
+// Individual competition registration error codes.
 // Each code maps to a specific failure case in the create/cancel/read enforcement chain.
 // Phase 7: pending_payment state — not reachable in MVP. The state machine and enum carry the
 // value but no error code references it; create() short-circuits to confirmed.
@@ -18,7 +18,7 @@ export type RegistrationErrorCode =
   | "registration_not_found"
   | "registration_not_owner"
   | "registration_wrong_status"
-  // Step 6.5f / F12 — candidate cancellation policy gates.
+  // Candidate cancellation policy gates.
   | "cancellation_reason_required"
   | "cancellation_reason_too_long"
   | "cancellation_not_supported_for_paid"
@@ -91,7 +91,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 
 // Cancel-payload parser. Performs STRUCTURAL validation only (object shape, string type, no
 // unknown keys) and returns the trimmed reason or null. The required-and-length business rules
-// (F12) are enforced in the cancelRegistration service AFTER the ownership and status gates so the
+// are enforced in the cancelRegistration service AFTER the ownership and status gates so the
 // documented check order holds (a non-owner never sees a reason-validation error).
 export const parseCancelPayload = (payload: unknown): { cancellationReason: string | null } => {
   if (payload === undefined || payload === null) {

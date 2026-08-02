@@ -12,7 +12,7 @@ import {
 } from "@/server/institution-workspace/institution-core";
 import { createPersonalInstitutionForUser } from "@/server/institution-workspace/institution-service";
 
-// Step 6.5f.1 — lightweight personal-institution creation. Gated to recruiter-verified accounts
+// Lightweight personal-institution creation. Gated to recruiter-verified accounts
 // (withApiRole) that hold at least the minimal recruiter tier (PERSONAL_INSTITUTION_CREATION_MIN_TIER).
 // The one-personal-per-recruiter invariant is enforced in createPersonalInstitutionForUser. Distinct
 // from POST /api/v1/institutions, which creates a full institution and now requires `elevated`.

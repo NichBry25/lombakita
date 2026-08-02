@@ -45,7 +45,7 @@ export type PublicInstitution = {
 };
 
 // A suspended institution is withheld from the public entirely: suspension is the operational
-// takedown axis (Step 6.2), so its public face should not keep serving while it is switched off.
+// takedown axis, so its public face should not keep serving while it is switched off.
 export const getPublicInstitution = async (
   institutionSlug: string,
   db: Database = getDb(),

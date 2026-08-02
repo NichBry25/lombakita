@@ -38,7 +38,7 @@ export const toMemberErrorResponse = (error: MemberError): NextResponse => {
 
 // All three membership roles are valid assignment targets.
 // Promotion to institution_owner or institution_staff requires recruiter verification
-// on the target account (CCR-08) — enforced in the service layer, not here.
+// on the target account — enforced in the service layer, not here.
 // institution_member is a valid demotion target for any account type.
 const ALLOWED_ROLES: readonly InstitutionMembershipRole[] = [
   "institution_owner",

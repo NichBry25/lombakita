@@ -10,7 +10,7 @@ import type { AuthenticatedSession } from "@/server/auth/access-core";
 
 assertServerOnly("server/auth/recruiter-tier");
 
-// Step 4.0c (CCR-19 / DEC-0053) — Recruiter Tier State.
+// Recruiter tier state.
 //
 // Tier order at launch: unverified < minimal < elevated. Tier is monotonically increasing — no
 // downgrade or revocation path exists. The recruiter mode must already be verified
@@ -29,7 +29,7 @@ export const isRecruiterTier = (value: unknown): value is RecruiterVerificationT
   return typeof value === "string" && (RECRUITER_TIERS as readonly string[]).includes(value);
 };
 
-// Named threshold for the institution opportunity creation gate. Step 4.0c locks this at
+// Named threshold for the institution opportunity creation gate. Locked at
 // `minimal` so existing signup flows are unblocked the moment they complete `?as=recruiter`
 // registration. Any future surface that requires `elevated` must declare its own constant in
 // this file rather than inline-passing a string literal.
@@ -41,11 +41,11 @@ export const OPPORTUNITY_CREATION_MIN_TIER: RecruiterVerificationTier = "minimal
 // review). This is an account-level gate: trust follows the person, not the institution.
 export const OPPORTUNITY_PUBLISH_MIN_TIER: RecruiterVerificationTier = "elevated";
 
-// Step 6.5f.1 — institution-creation tier gates. These are distinct from
+// Institution-creation tier gates. These are distinct from
 // OPPORTUNITY_CREATION_MIN_TIER (which gates competition creation and is unchanged here).
 //   personal institution — a minimal-tier recruiter may self-create one capped personal institution.
 //   full institution     — creating a full/standard institution now requires `elevated` (tightened
-//                          from the prior Step 2.2 "any recruiter-verified" gate).
+//                          from the prior "any recruiter-verified" gate).
 export const PERSONAL_INSTITUTION_CREATION_MIN_TIER: RecruiterVerificationTier = "minimal";
 export const FULL_INSTITUTION_CREATION_MIN_TIER: RecruiterVerificationTier = "elevated";
 

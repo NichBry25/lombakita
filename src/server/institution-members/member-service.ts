@@ -14,10 +14,10 @@ import { MemberError, type MemberRecord } from "@/server/institution-members/mem
 assertServerOnly("server/institution-members/member-service");
 
 // Roles that can administer membership (list, change role, remove).
-// institution_member excluded per CCR-09.
+// institution_member is excluded — no operational surface.
 const ADMIN_ROLES = ["institution_owner", "institution_staff"] as const;
 
-// Roles that require recruiter verification on the target account (CCR-08 / DEC-0042).
+// Roles that require recruiter verification on the target account (DEC-0042).
 const RECRUITER_REQUIRED_ROLES: readonly InstitutionMembershipRole[] = [
   "institution_owner",
   "institution_staff",
@@ -64,8 +64,8 @@ export const requireAdminInstitutionBySlug = async (
 //
 // Two thin wrappers cover the common cases:
 //   - isInstitutionAdminBySlug:  institution_owner OR institution_staff (member admin,
-//                                competition admin, invitation issuance — anywhere CCR-09
-//                                excludes institution_member from an operational surface)
+//                                competition admin, invitation issuance — anywhere
+//                                institution_member is excluded from an operational surface)
 //   - isInstitutionOwnerBySlug:  institution_owner only (settings — per
 //                                institution_workspace_shell_step_2_2.settings_authorization_rule)
 const hasActiveMembershipBySlug = async (
@@ -173,7 +173,7 @@ export const changeMemberRole = async (
       return;
     }
 
-    // CCR-08: promoting to institution_owner or institution_staff requires the target
+    // Promoting to institution_owner or institution_staff requires the target
     // account to have recruiter_verified_at non-null (DEC-0042).
     if (RECRUITER_REQUIRED_ROLES.includes(newRole) && !target.recruiterVerifiedAt) {
       throw new MemberError(

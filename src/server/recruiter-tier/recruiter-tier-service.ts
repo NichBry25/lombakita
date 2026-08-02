@@ -12,11 +12,11 @@ import { sweepOrphanedObjectsForAccount } from "@/server/recruiter-verification/
 
 assertServerOnly("server/recruiter-tier/recruiter-tier-service");
 
-// Step 4.0c (CCR-19 / DEC-0053) — platform-ops manual tier elevation.
+// Platform-ops manual tier elevation.
 //
 // The endpoint is intentionally minimal: only `elevated` is accepted as a target. Other
 // tier transitions are not allowed at launch (no demotion, no setting back to `minimal`).
-// Mechanical/automated tier elevation is deferred per CCR-19; this endpoint is the only
+// There is no mechanical/automated elevation path; this endpoint is the only
 // path to `elevated` at launch.
 
 export type TierElevationErrorCode =

@@ -40,7 +40,7 @@ assertServerOnly("server/auth/oauth-account");
 export const GOOGLE_PROVIDER_ID = "google";
 export const OAUTH_FINALIZE_PROVIDER_ID = "oauth-finalize";
 
-// Step 6.5d — the deny destination for the safe-link fail-closed case. The login page renders a
+// The deny destination for the safe-link fail-closed case. The login page renders a
 // non-leaking notice for this `?error` value (it does not reveal whether an account exists or why
 // linking was refused).
 export const OAUTH_LINK_DENIED_ERROR = "oauth_link_denied";
@@ -58,7 +58,7 @@ export const OAUTH_LINK_DENIED_ERROR = "oauth_link_denied";
 // non-leaking notice for this `?error` value.
 export const OAUTH_SESSION_MISMATCH_ERROR = "oauth_session_mismatch";
 
-// Step 6.5d — controlled Google sign-in decision.
+// Controlled Google sign-in decision.
 //
 // next-auth v4's signIn callback fires BEFORE the adapter's createUser/linkAccount
 // (core/routes/callback.js, verified against next-auth@4.24.13). Returning a string from signIn
@@ -82,7 +82,7 @@ export type GoogleSignInInput = {
 
 // Resolves which of the three OAuth cases applies, fail-closed on the safe-link invariant.
 //
-// Suspension failure mode (consistent with the credentials login path, Step 6.5c): the suspension
+// Suspension failure mode (consistent with the credentials login path): the suspension
 // flag is read as part of the SAME user lookup this resolver already needs. A DB error therefore
 // propagates out of signIn → next-auth redirects to /error → no session is issued (login denied).
 // This matches "DB error at login time → login denied"; it does NOT change the per-request
@@ -173,7 +173,7 @@ export class OAuthFinalizeError extends Error {
 
 type FinalizeResult = { id: string; email: string; role: SignupRole };
 
-// Step 6.5d — transactional creation for a brand-new Google user after the role is declared.
+// Transactional creation for a brand-new Google user after the role is declared.
 //
 // Creates users + accounts(google) + username + profile shell + role verification + recruiter tier
 // in ONE transaction, reusing the shared credentials-signup primitives (deriveSignupRoleColumns,
@@ -314,7 +314,7 @@ export const finalizeOAuthSignup = async (
         })
         .onConflictDoNothing();
 
-      // Step 6.5e — claim-at-signup for a brand-new Google user, gated on POSITIVE email
+      // Claim-at-signup for a brand-new Google user, gated on POSITIVE email
       // verification (6.5e-D1). Claim fires ONLY when Google asserts `email_verified` — the same
       // verified-email-ownership boundary the credentials path enforces (an unverified email never
       // claims). When Google returns email_verified=false the account is created with
@@ -351,7 +351,7 @@ export const finalizeOAuthSignup = async (
   }
 };
 
-// Step 6.5d — authorize() body for the `oauth-finalize` credentials provider. Verifies the
+// The authorize() body for the `oauth-finalize` credentials provider. Verifies the
 // integrity-protected carrier (tampered/expired → reject), validates the declared role, finalizes
 // account creation, and returns the user object so next-auth mints a JWT session indistinguishable
 // from a credentials session. The carrier is the trust anchor: it is the server's own
@@ -400,7 +400,7 @@ export const authorizeOAuthFinalize = async (
     }
   }
 
-  // Step 6.5-HARDENING.1 (auth-D2 / 6.5d-D2) — single-use carrier. The carrier travels in the
+  // Single-use carrier. The carrier travels in the
   // /auth/login?oauth=<carrier> URL, so a second party who captures that URL within the 15-min TTL
   // could otherwise redeem it first. Consume the per-carrier nonce (jti) via an atomic SET NX with a
   // TTL matching the carrier's own expiry: the first finalize wins, every later attempt is a replay.
@@ -440,7 +440,7 @@ const toRedirect = (path: string): string => {
 const SUSPENDED_REDIRECT = "/suspended";
 const LINK_DENIED_REDIRECT = `/auth/login?error=${OAUTH_LINK_DENIED_ERROR}`;
 const SESSION_MISMATCH_REDIRECT = `/auth/login?error=${OAUTH_SESSION_MISMATCH_ERROR}`;
-// Step 6.5d.1 — the brand-new-Google-user role picker now lives on the single method-first
+// The brand-new-Google-user role picker now lives on the single method-first
 // `/auth/login` page (the `/auth/register` route was merged into it). `/auth/login?oauth=<carrier>`
 // renders the OAuth role picker server-side after verifying the carrier.
 const rolePickerRedirect = (carrier: string): string =>
@@ -501,7 +501,7 @@ export type GoogleOAuthSignInParams = {
   image: string | null;
 };
 
-// Step 6.5d — full signIn-callback outcome for a Google sign-in: `true` to let next-auth proceed
+// Full signIn-callback outcome for a Google sign-in: `true` to let next-auth proceed
 // (establish the session for an existing linked account or safe-link an existing same-email
 // account), or a redirect string that ABORTS the flow before any DB write (suspended → /suspended,
 // fail-closed deny → login notice, brand-new user → role picker carrying the signed identity).

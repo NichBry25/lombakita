@@ -13,7 +13,7 @@ export default async function InstitutionSettingsPage({ params }: InstitutionSet
   const { institutionSlug } = await params;
   const settingsPath = `/institution/${institutionSlug}/settings`;
 
-  // CCR-05 / CCR-09: only recruiter-verified accounts can ever own or staff an institution.
+  // Only recruiter-verified accounts can ever own or staff an institution.
   const session = await requireRolePage("recruiter", { callbackPath: settingsPath });
 
   // Settings is owner-only per institution_workspace_shell_step_2_2.settings_authorization_rule.

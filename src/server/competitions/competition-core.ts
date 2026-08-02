@@ -70,7 +70,7 @@ type CompetitionErrorCode =
   | "competition_already_cancelled"
   | "competition_participation_not_configured"
   | "competition_participation_decision_unavailable"
-  // Step 6.5f.1 — personal-institution reach caps.
+  // Personal-institution reach caps.
   | "competition_personal_individual_only"
   | "competition_personal_publish_limit";
 
@@ -86,7 +86,7 @@ export type PublishValidationFailure = {
 export type CompetitionErrorDetails = {
   fields?: string[];
   failures?: PublishValidationFailure[];
-  // Step 6.5f — the post-publish edit fields whose change would invalidate existing
+  // The post-publish edit fields whose change would invalidate existing
   // registrations. Surfaced so the editor can name the offending field(s) in a modal.
   blockedFields?: string[];
 };
@@ -353,7 +353,7 @@ export const BOTH_MODE_MIN_SIZE = 1;
 export const TEAM_MODE_DEFAULT_MAX_SIZE = 2;
 export const BOTH_MODE_DEFAULT_MAX_SIZE = 2;
 
-// F5 (Step 6.5b) — canonical team-size resolution for a given mode. This is the single source
+// Canonical team-size resolution for a given mode. This is the single source
 // of truth for mode→size normalization, applied on every write path (create + patch) so a
 // competition can never persist a mode that is inconsistent with its team-size columns.
 //
@@ -520,9 +520,9 @@ export const PATCH_FIELDS: readonly string[] = [
 ];
 
 // Fields silently stripped on input. status, institutionId, etc. cannot be set by the caller;
-// they are enforced server-side. fee/featured fields are deferred (DEC-0022). Per the Step 3.2
-// contract these are stripped silently rather than rejected — preserving forward compatibility
-// for clients that read+resubmit a record.
+// they are enforced server-side. Fee fields are deferred (DEC-0022); isFeatured is ops-managed
+// and settable only through the platform-ops placement endpoint. These are stripped silently
+// rather than rejected — preserving forward compatibility for clients that read+resubmit a record.
 const SILENT_STRIP_FIELDS: readonly string[] = [
   "id",
   "institutionId",
@@ -548,7 +548,7 @@ const stripBlockedFields = (record: Record<string, unknown>): Record<string, unk
   }
   return out;
 };
-// Drop unrecognized keys silently (per Step 3.2 contract: "Unknown fields: strip silently").
+// Drop unrecognized keys silently (per contract: "Unknown fields: strip silently").
 const filterToAllowed = (
   record: Record<string, unknown>,
   allowed: readonly string[],
@@ -630,7 +630,7 @@ const parseDraftFields = (
     fields.cancellationCutoffDays = parseOptionalCutoffDays(filtered.cancellationCutoffDays);
   }
 
-  // F5 — when the payload sets mode, normalize team sizes to that mode. Fills null/absent sizes
+  // When the payload sets mode, normalize team sizes to that mode. Fills null/absent sizes
   // with mode defaults and forces fixed values (individual 1/1, both min=1) so the stored row is
   // always internally consistent. Explicit values are preserved; an explicit sub-floor team min
   // survives here and is rejected below by validateFieldRelations.
@@ -739,10 +739,9 @@ export const IMMUTABLE_AFTER_PUBLISH: readonly string[] = [
 // ordered: registrationStart < registrationEnd <= participantConfirmation < eventStart
 // < eventEnd <= resultAnnouncement.
 //
-// Eligibility note: the Step 3.3 prompt lists "at least one eligibility criterion" as a
-// required publish input. The competition schema (Step 3.1/3.2) does not yet model eligibility
-// — that schema lands at Step 4.1. Skipping this check is intentional and tracked as known
-// debt; do not invent a placeholder field.
+// Eligibility note: the publish contract lists "at least one eligibility criterion" as a
+// required publish input, but the competition schema does not model eligibility. Skipping
+// this check is intentional and tracked as known debt; do not invent a placeholder field.
 //
 // Returns a structured `PublishValidationResult`. `passed` reflects whether the candidate
 // could publish; `failures` lists every issue (missing fields and date-coherence breaks)

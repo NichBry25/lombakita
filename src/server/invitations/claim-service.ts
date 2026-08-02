@@ -17,7 +17,7 @@ export type ClaimResult = {
   teamInvitationsClaimed: number;
 };
 
-// Step 6.5e — claim-at-signup. After a brand-new account's email is verified (credentials
+// Claim-at-signup. After a brand-new account's email is verified (credentials
 // verification completion OR Google finalize), attach every `pending_claim` invitation addressed to
 // that email to the new user: set `target_user_id` and flip the status to `pending` so it surfaces
 // in the inbox as an actionable invite.

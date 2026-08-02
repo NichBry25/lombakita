@@ -34,7 +34,7 @@ export const buildCompetitionCancellationRecipientsCondition = (
     eq(competitionRegistrations.cancelledAt, cancelledAt),
   )!;
 
-// Step 6.5f — fan-out worker for "competition cancelled" (institution unpublish-as-cancellation).
+// Fan-out worker for "competition cancelled" (institution unpublish-as-cancellation).
 // Recipients are re-derived AT JOB-RUN TIME from the exact cancellation batch: institution reason
 // plus cancelled_at equal to the persisted timestamp carried as `epoch`. The timestamp predicate is
 // essential after unpublish → republish: old cancelled registrations must not receive the later
@@ -114,7 +114,7 @@ export const processCompetitionCancelledJob = async (
       { event: "competition.cancelled", jobId: job.id ?? undefined },
     );
 
-    // Stub email dispatch — fire-and-forget, warn on failure (no rethrow). Step 6.5f refines copy.
+    // Email dispatch — fire-and-forget, warn on failure (no rethrow).
     try {
       await sendCompetitionCancelledEmail({
         toEmail: recipient.email,

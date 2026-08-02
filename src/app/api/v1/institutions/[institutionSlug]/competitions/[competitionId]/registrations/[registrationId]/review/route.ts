@@ -11,7 +11,7 @@ import {
 } from "@/server/participants/review-service";
 
 // Institution-internal review update. Admin tooling acting on another user's
-// registration — CCR-09 (institution_member excluded) is enforced by
+// registration — the institution_member exclusion is enforced by
 // requireAdminInstitutionBySlug. Per CLAUDE.md Rule #16 the cross-session
 // session-match guard is intentionally NOT applied (this does not act on the
 // caller's own data).

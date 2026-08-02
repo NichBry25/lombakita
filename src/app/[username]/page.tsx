@@ -40,7 +40,7 @@ export default async function PublicProfilePage({
 }) {
   const { username } = await params;
 
-  // CCR-14 / DEC-0048: If the current user is the owner of this username, redirect server-side
+  // If the current user is the owner of this username, redirect server-side
   // to /profile. This must be a server-side redirect — no client-side flash of public view.
   const session = await getCurrentSession();
   if (session?.user?.id) {

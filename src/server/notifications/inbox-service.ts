@@ -18,12 +18,12 @@ import {
   institutionOwnerUsernameSql,
 } from "@/server/institution-workspace/institution-display-name";
 
-// Step 6.5.1 — unified inbox read model.
+// Unified inbox read model.
 //
 // The inbox combines three sources for one authenticated user: their in-app notification rows, and
 // the pending non-expired invitations addressed to them. Invitations are resolved STRICTLY by
 // `target_user_id` (never by `invited_email`): a row with a null target is invisible to every inbox
-// query until Step 6.5e's claim-at-signup populates it. The `kind` discriminant lets the render
+// query until claim-at-signup populates it. The `kind` discriminant lets the render
 // layer differentiate notifications from the two invitation types. Items are merged and sorted
 // newest-first by `createdAt`.
 

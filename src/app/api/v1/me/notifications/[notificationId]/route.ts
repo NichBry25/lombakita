@@ -7,7 +7,7 @@ import {
 import { getDb } from "@/server/db/client";
 import { deleteNotification } from "@/server/notifications/notification-service";
 
-// Step 6.5.1 — delete one of the caller's own notifications.
+// Delete one of the caller's own notifications.
 //
 // Acts on the caller's OWN data (userId derived from the session), so CLAUDE.md Rule #16 applies:
 // the cross-session guard runs immediately after the auth gate. Ownership + existence collapse in

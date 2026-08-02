@@ -189,7 +189,7 @@ const requireAccess = async (
 };
 
 // A cancelled registration blocks every submission operation (read, upload-url, record,
-// finalize) — see the Step 4.6 manual test seeds.
+// finalize).
 const assertNotCancelled = (registration: AccessRegistration): void => {
   if (registration.status === "cancelled") {
     throw new SubmissionError(

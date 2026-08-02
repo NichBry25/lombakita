@@ -1,4 +1,4 @@
-// Institution-internal review state on competition registrations (Step 5.2).
+// Institution-internal review state on competition registrations.
 //
 // This surface is entirely institution-internal: it reads and writes
 // `internal_review_status` / `internal_notes` on competition_registrations and

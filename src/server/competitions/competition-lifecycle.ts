@@ -1,4 +1,4 @@
-// Shared constants for the competition lifecycle (Step 6.5f). Kept in a tiny pure module so both
+// Shared constants for the competition lifecycle. Kept in a tiny pure module so both
 // the unpublish cascade (competition-service) and the competition.cancelled worker reference the
 // SAME marker value without a circular import.
 

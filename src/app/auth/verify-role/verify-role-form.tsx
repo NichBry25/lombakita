@@ -19,7 +19,7 @@ const OCCUPATION_OPTIONS = [
   { value: "other", label: "Lainnya" },
 ] as const;
 
-// CCR-19 — verification mechanics deferred. This component calls the completion API and refreshes
+// Verification mechanics are deferred. This component calls the completion API and refreshes
 // the session JWT so the new verifiedRoles entry is reflected without a manual re-login.
 //
 // Verifying the candidate role also collects the four onboarding fields — mirroring the

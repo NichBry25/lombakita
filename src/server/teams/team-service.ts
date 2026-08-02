@@ -424,7 +424,7 @@ export const inviteTeamMember = async (
     now,
   );
 
-  // Step 6.5e — classify (username/email) and resolve via the shared resolver (extends DEC-0082).
+  // Classify (username/email) and resolve via the shared resolver.
   const classified = classifyInviteIdentifier(invitedIdentifier);
   if (!classified) {
     throw new TeamError(
@@ -584,7 +584,7 @@ export const cancelTeamInvitation = async (
 };
 
 // Captain cancels a pending invitation by tokenHash (the value stored in the DB). This is the
-// token-keyed variant (G6). Step 6.5e moved recipient accept/decline in-app (session-id matched);
+// token-keyed variant. Recipient accept/decline moved in-app (session-id matched);
 // this captain-side cancel is unchanged.
 export const cancelTeamInvitationByToken = async (
   userId: string,
@@ -621,7 +621,7 @@ export const cancelTeamInvitationByToken = async (
     .where(eq(teamInvitations.id, invitation.id));
 };
 
-// Step 6.5e — in-app, session-id-matched acceptance. The invitation is addressed by id (from the
+// In-app, session-id-matched acceptance. The invitation is addressed by id (from the
 // recipient's inbox) and accepted ONLY when session.user.id === target_user_id. A `pending_claim`
 // invite has a null target and is therefore unacceptable until claim-at-signup attaches it. A
 // non-leaking 404 collapses "does not exist" and "addressed to a different user". Team membership is
@@ -737,7 +737,7 @@ export const acceptTeamInvitationForUser = async (
   });
 };
 
-// Step 6.5e — in-app decline, session-id matched. Same ownership/non-leak model as accept. Only a
+// In-app decline, session-id matched. Same ownership/non-leak model as accept. Only a
 // live `pending` invite addressed to the caller can be declined.
 export const declineTeamInvitationForUser = async (
   invitationId: string,

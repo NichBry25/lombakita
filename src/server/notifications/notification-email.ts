@@ -174,7 +174,7 @@ export const sendResultPublishedEmail = async (options: {
   });
 };
 
-// Step 6.5f — competition lifecycle emails. The copy lists broad change categories (schedule /
+// Competition lifecycle emails. The copy lists broad change categories (schedule /
 // fees / rules) and never the old/new field values; the listing page is the source of truth.
 // Callers (the competition-edited/cancelled workers) invoke these fire-and-forget and warn-log on
 // failure rather than rethrowing.

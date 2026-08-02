@@ -7,16 +7,16 @@ import { verifyGoogleIdentityCarrier } from "@/server/auth/oauth-identity-carrie
 import { resolveClaimInviteEmailByToken } from "@/server/invitations/invite-resolution";
 import { getDb } from "@/server/db/client";
 
-// Step 6.5d.1 — single method-first auth entry. `/auth/login` is the one canonical entry point;
+// Single method-first auth entry. `/auth/login` is the one canonical entry point;
 // `/auth/register`, `/auth/signup`, and `/auth/sign-in` all redirect here. Auth.js `pages.signIn`
 // points here. Three render modes:
-//   - ?oauth=<carrier>  → brand-new-Google-user role picker (6.5d), after server-side carrier
+//   - ?oauth=<carrier>  → brand-new-Google-user role picker, after server-side carrier
 //                          verification; invalid/expired carrier → restart notice.
 //   - default            → method-first entry (Google + email/password), all paths handled by
 //                          <AuthEntry/>.
 //   - ?error / ?verified → notices (e.g. oauth_link_denied deny notice; email-verified success).
 const mapSignInPageError = (error: string): string => {
-  // Step 6.5d — safe-link fail-closed deny notice. Deliberately non-leaking: it does NOT reveal
+  // Safe-link fail-closed deny notice. Deliberately non-leaking: it does NOT reveal
   // whether an account exists for the Google email or why linking was refused.
   if (error === "oauth_link_denied") {
     return "Masuk dengan Google tidak dapat diselesaikan untuk email ini. Jika Anda sudah punya akun, masuk dengan metode yang terdaftar (mis. email & password).";
@@ -24,12 +24,12 @@ const mapSignInPageError = (error: string): string => {
   if (error === "oauth_session_mismatch") {
     return "Anda sudah masuk dengan akun lain. Keluar dulu lalu coba lagi masuk dengan Google.";
   }
-  // 6.5-HARDENING.1 — single-use OAuth carrier (surfaced here only if a finalize error arrives via a
+  // Single-use OAuth carrier (surfaced here only if a finalize error arrives via a
   // full redirect; the in-page role picker maps it directly).
   if (error === "oauth_carrier_replayed" || error === "oauth_carrier_unavailable") {
     return "Sesi pendaftaran Google ini tidak dapat digunakan lagi. Silakan mulai lagi masuk dengan Google.";
   }
-  // 6.5-HARDENING.1 — failed-login lockout.
+  // Failed-login lockout.
   if (error.includes("RATE_LIMITED")) {
     return "Terlalu banyak percobaan login gagal. Tunggu beberapa menit sebelum mencoba lagi.";
   }
@@ -61,7 +61,7 @@ export default async function LoginPage(props: {
   const searchParams = await props.searchParams;
   const oauthCarrier = searchParams?.oauth;
 
-  // Brand-new-Google-user landing (6.5d, relocated here at 6.5d.1). Verify the HMAC carrier
+  // Brand-new-Google-user landing. Verify the HMAC carrier
   // server-side; valid → role picker (account created only on role selection); invalid/expired →
   // restart notice.
   if (oauthCarrier) {
@@ -99,7 +99,7 @@ export default async function LoginPage(props: {
   const verified = searchParams?.verified === "1";
   const callbackUrl = searchParams?.callbackUrl;
 
-  // Step 6.5e — claim-signup link (?invite=<rawToken> from a pending_claim invite email). Resolve
+  // Claim-signup link (?invite=<rawToken> from a pending_claim invite email). Resolve
   // the token to the invited email server-side and prefill it, so the new account is created with
   // the exact address claim-at-signup matches. Falls back to ?email= when no invite token is given.
   // Only `pending_claim` invites resolve here — a token never reveals an existing user's email.

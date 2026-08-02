@@ -13,7 +13,7 @@ export default async function InstitutionTeamPage({ params }: InstitutionTeamPag
   const { institutionSlug } = await params;
   const teamPath = `/institution/${institutionSlug}/team`;
 
-  // CCR-05 / CCR-09: only recruiter-verified accounts can ever own or staff an institution.
+  // Only recruiter-verified accounts can ever own or staff an institution.
   const session = await requireRolePage("recruiter", { callbackPath: teamPath });
 
   // Member administration and invitation issuance are both owner-or-staff per

@@ -1,4 +1,4 @@
-// CSV export service for institution competition data (Step 5.4).
+// CSV export service for institution competition data.
 //
 // Three export functions: registrants, submissions, results. Each validates institution
 // ownership of the competition at the service layer before querying — ownership failure

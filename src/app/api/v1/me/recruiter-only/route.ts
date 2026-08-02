@@ -1,6 +1,6 @@
 import { withApiRole } from "@/server/auth/api-guard";
 
-// Rollback Step 1.3 minimal-proof surface — recruiter-only gating proof.
+// Minimal-proof surface — recruiter-only gating proof.
 // A recruiter-only session receives 200; a candidate-only session receives 403.
 export const GET = withApiRole(["recruiter"], async (_request, session) => {
   return Response.json({

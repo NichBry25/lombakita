@@ -4,14 +4,14 @@ import type { InstitutionInvitationStatus, InstitutionMembershipRole } from "@/s
 
 export const INVITATION_EXPIRY_DAYS = 7;
 
-// Roles that can be targeted by the institution invitation flow (Step 1.4 / DEC-0043).
+// Roles that can be targeted by the institution invitation flow.
 const INVITATION_TARGET_ROLES: readonly InstitutionMembershipRole[] = [
   "institution_owner",
   "institution_staff",
   "institution_member",
 ];
 
-// Roles whose invites require recruiter verification on the accepting account (CCR-08 / DEC-0042).
+// Roles whose invites require recruiter verification on the accepting account (DEC-0042).
 // institution_member invites accept any verified account (candidate_verified OR recruiter_verified).
 export const RECRUITER_VERIFIED_ROLES: readonly InstitutionMembershipRole[] = [
   "institution_owner",
@@ -30,7 +30,7 @@ export type InstitutionInvitationMeta = {
 };
 
 export type InvitationCreateInput = {
-  // Step 6.5e — a username OR an email. Classified + resolved in the service via
+  // A username OR an email. Classified + resolved in the service via
   // `resolveInviteRecipient`. Kept as a raw (trimmed) string here so the core stays db-free.
   invitedIdentifier: string;
   invitedRole: InstitutionMembershipRole;
@@ -47,7 +47,7 @@ type InstitutionInvitationErrorCode =
   | "invitation_already_member"
   | "invitation_forbidden"
   | "invitation_role_verification_required"
-  // Step 6.5f.1 — a personal institution is single-member and cannot invite staff or members.
+  // A personal institution is single-member and cannot invite staff or members.
   | "invitation_personal_institution";
 
 export class InstitutionInvitationError extends Error {
@@ -76,7 +76,7 @@ export const parseInvitationCreateInput = (payload: unknown): InvitationCreateIn
 
   const { invitedIdentifier, invitedRole } = payload;
 
-  // Step 6.5e — accept a username OR an email. Format-classification (and the email/username split)
+  // Accept a username OR an email. Format-classification (and the email/username split)
   // happens in the service via `classifyInviteIdentifier`; here we only require a non-empty string.
   if (typeof invitedIdentifier !== "string" || invitedIdentifier.trim().length === 0) {
     throw new InstitutionInvitationError(

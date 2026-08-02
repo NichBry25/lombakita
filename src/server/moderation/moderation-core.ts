@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-// Step 6.2 — shared error primitive for the platform ops moderation module (moderation, notes,
+// Shared error primitive for the platform ops moderation module (moderation, notes,
 // lookup services). Mirrors the CompetitionError / FeaturedPlacementError pattern: a typed code +
 // HTTP status that route handlers translate directly into a JSON error envelope.
 export type ModerationErrorCode =

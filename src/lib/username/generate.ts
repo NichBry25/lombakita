@@ -1,7 +1,7 @@
 import { RESERVED_WORDS } from "@/lib/username/reserved-words";
 
 /**
- * Username auto-generation (Step 2.1a / DEC-0054).
+ * Username auto-generation.
  *
  * Produces `firstname_lastname_NNNN` style handles at account creation. The
  * token separator is an underscore — NOT a hyphen — because the locked username

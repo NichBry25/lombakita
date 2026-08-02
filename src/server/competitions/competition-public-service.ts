@@ -242,8 +242,8 @@ const buildDbOrderBy = (sort: PublicListingSort) => {
   return [...FEATURED_SORT_EXPRS, desc(competitions.createdAt)]; // created_desc default
 };
 
-// Registration-phase filter. Absent/unknown status returns the default "hide expired" clause
-// (F15), so the un-filtered listing is unchanged. Only status="closed" surfaces past-deadline
+// Registration-phase filter. Absent/unknown status returns the default "hide expired" clause,
+// so the un-filtered listing is unchanged. Only status="closed" surfaces past-deadline
 // competitions. "closing" = under 7 days left, matching the competition card badge window.
 const buildStatusCondition = (status: string | undefined): SQL => {
   const start = competitions.registrationStartAt;
@@ -399,7 +399,7 @@ const listFromMeilisearch = async (
   const epochNow = Math.floor(Date.now() / 1000);
   const filterParts: string[] = [
     'status = "published"',
-    // F15: hide competitions whose registration deadline has passed. Null deadline = no deadline.
+    // Hide competitions whose registration deadline has passed. Null deadline = no deadline.
     `(deadline >= ${epochNow} OR deadline IS NULL)`,
   ];
   if (filters.category && isCompetitionCategory(filters.category)) {

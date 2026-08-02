@@ -19,7 +19,7 @@ export type CompetitionEditedJob = Job<
   typeof ASYNC_JOB_NAMES.competitionEdited
 >;
 
-// Step 6.5f — fan-out worker for "competition edited". Re-derives every non-cancelled registration
+// Fan-out worker for "competition edited". Re-derives every non-cancelled registration
 // on the competition AT JOB-RUN TIME (never a stale enqueue-site list) and notifies each
 // participant. Dual-channel (DEC-0076): in-app notification row written first (isolated/swallowed),
 // then Resend email. Both delivery paths are isolated: a failure in either never blocks the other

@@ -9,7 +9,7 @@ import {
 } from "@/server/notifications/notification-service";
 import type { NotificationType } from "@/server/notifications/notification-types";
 
-// Step 6.5.1 — the isolated in-app-notification write block shared by every dual-write worker.
+// The isolated in-app-notification write block shared by every dual-write worker.
 //
 // This is the "separate try/catch" the dual-channel retrofit requires: it wraps the throwing
 // `writeNotification` primitive so an inbox-write failure is caught, logged at warn level

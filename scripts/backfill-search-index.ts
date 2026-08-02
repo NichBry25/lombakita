@@ -1,6 +1,6 @@
 /**
  * One-time backfill: upsert all published competitions into the Meilisearch
- * competitions index using the same document shape as the Step 3.4 index contract.
+ * competitions index using the same document shape as the index contract.
  *
  * Usage: npx tsx scripts/backfill-search-index.ts
  */

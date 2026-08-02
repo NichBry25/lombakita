@@ -27,15 +27,16 @@ assertServerOnly("server/competitions/competition-access");
 // Required-role contract for assertCompetitionAccess.
 //   "member" — any active institution_owner or institution_staff in the owning institution
 //   "admin"  — only active institution_owner in the owning institution
-// institution_member excluded per CCR-09: no operational access to competition surfaces.
+// institution_member is excluded: no operational access to competition surfaces.
 // Mutating routes (PATCH fields, DELETE) require "member".
 // Status transitions and publish/unpublish/archive require "admin".
 export type CompetitionAccessLevel = "member" | "admin";
 
 // Output projection for every public competition response. fee_amount, fee_currency, and
-// is_featured are intentionally excluded — they are schema-present but API-blocked until
-// Phase 5.5 (featured) and Phase 7 (payments). All select() / .returning() calls that flow
-// into a route response must use this projection so deferred fields cannot leak.
+// is_featured are intentionally excluded — the fee fields are schema-present but API-blocked
+// until payments activate in Phase 7, and is_featured is ops-managed rather than public. All
+// select() / .returning() calls that flow into a route response must use this projection so
+// deferred fields cannot leak.
 // CompetitionRow is the inferred shape of this projection and is the public service-layer type.
 export const PUBLIC_COMPETITION_COLUMNS = {
   id: competitions.id,
@@ -104,7 +105,7 @@ export type CompetitionAccessResult = {
   membershipRole: InstitutionMembershipRole | null; // null when actor is platform_ops read
 };
 
-// institution_member excluded per CCR-09: member role has no operational competition access.
+// institution_member is excluded: the member role has no operational competition access.
 export const MEMBER_ROLES: readonly InstitutionMembershipRole[] = [
   "institution_owner",
   "institution_staff",
@@ -243,7 +244,7 @@ export const assertInstitutionVerified = async (
   return row;
 };
 
-// Step 6.2 — operational suspension gate, parallel to assertInstitutionVerified. Throws
+// Operational suspension gate, parallel to assertInstitutionVerified. Throws
 // CompetitionError 403 institution_suspended when the institution's suspended_at is non-null.
 // Loads the row itself (mirrors assertInstitutionVerified) so it wires cleanly into both the
 // create path (which has no verification call) and the publish path. Suspension is independent of
@@ -270,7 +271,7 @@ export const assertInstitutionNotSuspended = async (
   }
 };
 
-// Step 6.5f.1 — reads the owning institution's type. Returns null for a legacy/undeclared full
+// Reads the owning institution's type. Returns null for a legacy/undeclared full
 // institution. Throws 404 if the institution does not exist. Shared by the personal reach-cap
 // guards on the competition-create, draft-edit, and publish paths.
 export const loadInstitutionTypeById = async (
@@ -289,7 +290,7 @@ export const loadInstitutionTypeById = async (
   return row.institutionType;
 };
 
-// Step 6.5f.1 — a personal institution may only run individual-mode competitions. No-op for full
+// A personal institution may only run individual-mode competitions. No-op for full
 // or legacy (NULL-type) institutions. Wired into the competition-create and draft-edit paths so a
 // team/both mode can never be persisted on a personal-owned competition.
 export const assertPersonalInstitutionIndividualMode = async (
@@ -310,7 +311,7 @@ export const assertPersonalInstitutionIndividualMode = async (
   }
 };
 
-// Step 6.5f.1 — publish-time reach cap for a personal institution: at most
+// Publish-time reach cap for a personal institution: at most
 // MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL competitions in `published` status (drafts
 // do not count). No-op for full or legacy institutions. The current competition is excluded from
 // the count (it is still draft at this point). Also re-asserts individual-only as defense in depth.
@@ -318,9 +319,9 @@ export const assertPersonalInstitutionIndividualMode = async (
 // (DEC-0022) so no paid-path guard is wired here yet.
 //
 // This cap is only reachable once a personal institution can publish at all, which requires its
-// KTP verification to pass (verification_status → verified). KTP capture and the async review flow
-// land in Step 6.5g (F10); until then a personal institution sits at pending_verification and the
-// publish path is already blocked upstream by assertInstitutionVerified.
+// KTP verification to pass (verification_status → verified). Until then a personal institution
+// sits at pending_verification and the publish path is already blocked upstream by
+// assertInstitutionVerified.
 export const assertPersonalCompetitionPublishable = async (
   competition: { id: string; institutionId: string; mode: CompetitionMode | null },
   db: Database = getDb(),
@@ -359,10 +360,9 @@ export const assertPersonalCompetitionPublishable = async (
   }
 };
 
-// Step 4.4 (DEC-0023 closed) — Activated guard for the published → draft unpublish transition.
-// Counts any non-cancelled competition_registrations row for the given competition; since both
-// individual (Step 4.2) and team (Step 4.4) registrations write to this table, no type
-// discrimination is needed here.
+// Guard for the published → draft unpublish transition.
+// Counts any non-cancelled competition_registrations row for the given competition; individual
+// and team registrations both write to this table, so no type discrimination is needed here.
 export const hasActiveRegistrationsForCompetition = async (
   competitionId: string,
   db: Database | Parameters<Parameters<Database["transaction"]>[0]>[0] = getDb(),

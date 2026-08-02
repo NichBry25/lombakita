@@ -10,7 +10,7 @@ const resolveBaseUrl = (): string => {
   return serverEnv.authUrl ?? serverEnv.appBaseUrl ?? publicEnv.appUrl ?? "http://localhost:3000";
 };
 
-// Step 6.5e — mirrors institution-invitations/invitation-email.ts. Acceptance is in-app
+// Mirrors institution-invitations/invitation-email.ts. Acceptance is in-app
 // (session-id matched), so the email links to the inbox (targeted) or to the method-first signup
 // carrying ?invite=<rawToken> (claim). Direct /auth/login link avoids the DEC-0084 param-drop.
 const buildInboxUrl = (): string => new URL("/inbox", resolveBaseUrl()).toString();

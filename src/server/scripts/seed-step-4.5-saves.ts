@@ -1,5 +1,5 @@
 /**
- * Step 4.5 manual test seed — saved competitions preview cap.
+ * Manual test seed — saved competitions preview cap.
  * Creates 6 published competitions under Universitas Indonesia and saves all 6
  * for nicholasbryan250@gmail.com so the dashboard preview shows exactly 5.
  *
@@ -86,7 +86,7 @@ async function seed() {
         institutionId: institution.id,
         slug: seed.slug,
         title: seed.title,
-        description: `Seed competition for Step 4.5 manual test — ${seed.title}`,
+        description: `Seed competition for the saved-preview manual test — ${seed.title}`,
         status: "published",
         mode: "individual",
         category: "hackathon",

@@ -27,7 +27,7 @@ export type ProfileFieldName = keyof typeof FIELD_SCOPES;
 export type ProfileFieldScope = "shared" | "candidate" | "recruiter";
 
 // ---------------------------------------------------------------------------
-// Per-field scope-indicator response shape (CCR-13 / DEC-0047)
+// Per-field scope-indicator response shape (DEC-0047)
 // ---------------------------------------------------------------------------
 
 // Owner API response — every field carries a status indicator.
@@ -177,7 +177,7 @@ const USERNAME_PATTERN = /^[a-z0-9][a-z0-9_]*[a-z0-9]$|^[a-z0-9]{1,2}$/;
 const USERNAME_MIN = 3;
 const USERNAME_MAX = 30;
 
-// Step 2.1a / DEC-0054 — the reserved-word namespace now has a single source of
+// The reserved-word namespace has a single source of
 // truth in src/lib/username/reserved-words.ts. Built into a Set here for O(1)
 // membership checks; matching is case-insensitive (input is lowercased first).
 export const RESERVED_USERNAMES = new Set(RESERVED_WORDS.map((word) => word.toLowerCase()));
@@ -192,7 +192,7 @@ export const parseUsername = (value: unknown): string => {
 
   const normalized = value.trim().toLowerCase();
 
-  // Step 2.1a / DEC-0054 — reserved-word check runs before the length/charset
+  // The reserved-word check runs before the length/charset
   // checks (and, at the route layer, before the DB uniqueness check): it is the
   // cheapest gate, so fail fast. Rejected with 422 profile_username_reserved.
   if (RESERVED_USERNAMES.has(normalized)) {
@@ -374,8 +374,7 @@ export const parseProfilePatch = (payload: unknown): ProfilePatch => {
 };
 
 export const toProfileInputErrorResponse = (error: ProfileInputError): NextResponse => {
-  // 422 — scope violation and reserved-word rejection (semantic input rejections,
-  //       Step 2.1a / DEC-0054).
+  // 422 — scope violation and reserved-word rejection (semantic input rejections).
   // 409 — username uniqueness conflict (against another account or an institution slug).
   // 400 — all other malformed-payload errors.
   const status =

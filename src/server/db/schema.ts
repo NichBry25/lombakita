@@ -23,10 +23,10 @@ export const appRoleEnum = pgEnum("app_role", APP_ROLES);
 
 export const appUserStatusEnum = pgEnum("app_user_status", ["active", "suspended", "deactivated"]);
 
-// Rollback Step 1.3 — platform_user_role is the auxiliary user-platform-roles table enum.
-// The `student` token is renamed to `candidate` in lockstep with appRoleEnum (CCR-01).
+// `platform_user_role` is the auxiliary user-platform-roles table enum.
+// The `student` token is renamed to `candidate` in lockstep with appRoleEnum.
 // `recruiter` is intentionally NOT added here yet — recruiter-side platform-role wiring is
-// Step 1.4 / Step 4.0c territory; the current consumers only need parity with the primary role
+// out of scope here; the current consumers only need parity with the primary role
 // values that can also appear as elevated platform roles (platform_ops, finance_ops).
 export const platformUserRoleEnum = pgEnum("platform_user_role", [
   "candidate",
@@ -62,7 +62,7 @@ export const institutionMembershipRoleEnum = pgEnum("institution_membership_role
   "institution_member",
 ]);
 
-// Step 6.5f.1 — institution type taxonomy. The column is nullable: a NULL value is a legacy
+// Institution type taxonomy. The column is nullable: a NULL value is a legacy
 // full/standard institution whose concrete subtype was never declared (all rows created before
 // `personal` is the lightweight, single-member, capped institution a minimal-tier recruiter can
 // self-create. The four full subtypes (company|foundation|university|campus_organization) are
@@ -92,17 +92,17 @@ export const institutionInvitationStatusEnum = pgEnum("institution_invitation_st
   "declined",
   "expired",
   "cancelled",
-  // Step 6.5e — invited address has no account yet (target_user_id IS NULL). The invite is
+  // Invited address has no account yet (target_user_id IS NULL). The invite is
   // inbox-invisible until the invited email registers and verifies, at which point claim-at-signup
   // attaches it to the new user and flips it to `pending`. `pending` always means
   // invited-with-account, awaiting accept.
   "pending_claim",
 ]);
 
-// Step 4.0c (CCR-19 / DEC-0053) — Recruiter verification tier.
+// Recruiter verification tier.
 // Per-account tier dimension that refines the recruiter role's capability surface. Auto-granted
 // to `minimal` at recruiter signup; only `platform_ops` can lift an account to `elevated` (manual
-// review at launch — mechanical verification flow deferred per CCR-19). Tier is monotonically
+// review at launch — there is no mechanical verification flow). Tier is monotonically
 // increasing at launch — no downgrade path.
 //   unverified — schema default for backfilled rows + non-recruiter accounts. Not reachable
 //                naturally for recruiter signups (signup auto-grants `minimal` atomically).
@@ -181,15 +181,15 @@ export type InstitutionVerificationStatus =
   (typeof institutionVerificationStatusEnum.enumValues)[number];
 export type PlatformUserRole = (typeof platformUserRoleEnum.enumValues)[number];
 
-// Rollback Step 1.3 — per-role verification persistence (CCR-02 / DEC-0036).
+// Per-role verification persistence.
 // `candidateVerifiedAt` and `recruiterVerifiedAt` independently record whether each user-level
 // role mode has been verified for this account. Every account must hold at least one non-null
 // timestamp — enforced by a DB-level CHECK constraint (`users_one_verified_role_chk`) so the
 // invariant survives any code path that creates or modifies user rows. Tier refinement for the
-// recruiter mode (CCR-19) ships at Step 4.0c; the schema only carries the per-mode timestamp
-// today.
+// recruiter mode lives in `recruiterVerificationTier` below; these two columns carry only the
+// per-mode verification timestamp.
 //
-// Step 2.1 (re-execution) — `username` added as the canonical public URL handle for the user
+// `username` added as the canonical public URL handle for the user
 // profile shell. Auto-generated at account creation; editable at /profile/edit subject to
 // uniqueness + reserved-word validation. Unique index enforced at DB level.
 export const users = pgTable(
@@ -213,14 +213,14 @@ export const users = pgTable(
       mode: "date",
       withTimezone: true,
     }),
-    // Step 4.0c (CCR-19 / DEC-0053) — recruiter tier dimension. Placed on `users` (not a
+    // Recruiter tier dimension. Placed on `users` (not a
     // parallel table) so it sits adjacent to the per-role verification timestamps and shares
     // their lifecycle. Non-null with default `unverified`; recruiter signup writes `minimal`
     // atomically alongside `recruiterVerifiedAt`. See `assertRecruiterTier` for the read path.
     recruiterVerificationTier: recruiterVerificationTierEnum("recruiter_verification_tier")
       .notNull()
       .default("unverified"),
-    // Step 6.2 — platform ops moderation. Suspension is an operational gate distinct from the
+    // Platform ops moderation. Suspension is an operational gate distinct from the
     // user-level `status` enum and from per-role verification. A non-null `suspendedAt` blocks the
     // account on its next authenticated request via the session-callback DB check (immediate
     // effect, not deferred to JWT rotation). `suspensionReason` records the ops actor's reason.
@@ -235,7 +235,7 @@ export const users = pgTable(
       "users_one_verified_role_chk",
       sql`${table.candidateVerifiedAt} IS NOT NULL OR ${table.recruiterVerifiedAt} IS NOT NULL`,
     ),
-    // Step 4.0c (Sch4.0c-M2) — recruiter tier consistency invariant. Any row holding a non-null
+    // Recruiter tier consistency invariant. Any row holding a non-null
     // recruiterVerifiedAt must also hold a tier above 'unverified'. Enforced at the DB so any
     // write path that forgets to set the tier (e.g. a future verification flow) is rejected at
     // INSERT/UPDATE time rather than silently producing an inconsistent row. The application
@@ -248,7 +248,7 @@ export const users = pgTable(
   ],
 );
 
-// Step 2.1 (re-execution) — Profile shell rebuild.
+// Profile shell rebuild.
 // `summary` column is kept as-is (closing the rename debt is deferred: see CURRENT_STATE.md
 // known debt). The new user-profile API exposes it as `bio`. Old student-profile code continues
 // to reference it as `summary` → `headline` without disruption.
@@ -494,7 +494,7 @@ export const institutions = pgTable(
     verifiedAt: timestamp("verified_at", { mode: "date", withTimezone: true }),
     rejectedAt: timestamp("rejected_at", { mode: "date", withTimezone: true }),
     rejectionReason: text("rejection_reason"),
-    // Step 6.2 — platform ops moderation. Suspension is a separate operational axis from
+    // Platform ops moderation. Suspension is a separate operational axis from
     // `verificationStatus`: a verified institution can be suspended, and reinstatement restores
     // operations without touching verification_status. `assertInstitutionNotSuspended` reads this
     // alongside `assertInstitutionVerified` on the competition create/publish paths.
@@ -519,7 +519,7 @@ export const institutions = pgTable(
   },
   (table) => [
     uniqueIndex("institutions_slug_unique_idx").on(table.slug),
-    // Step 6.5g — backstop for the 6.5f.1-S1 debt: full/legacy institutions must store a non-null
+    // Backstop for the 6.5f.1-S1 debt: full/legacy institutions must store a non-null
     // display_name. Personal institutions are exempt (type = 'personal' short-circuits the OR).
     check(
       "institutions_display_name_type_chk",
@@ -630,7 +630,7 @@ export const verificationTokens = pgTable(
 );
 
 // institution_memberships already has institution_membership_institution_user_unique_idx
-// on (institution_id, user_id) from step 2.2 — no additional constraint needed here.
+// on (institution_id, user_id) — no additional constraint needed here.
 export const institutionInvitations = pgTable(
   "institution_invitations",
   {
@@ -647,11 +647,11 @@ export const institutionInvitations = pgTable(
     invitedByUserId: text("invited_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
-    // Step 6.5.1 — recipient resolution for the in-app inbox. Backfilled (migration 0027) by
-    // matching invited_email to an existing user; populated at invite time / claim-at-signup in
-    // Step 6.5e. ON DELETE SET NULL: the invitation row outlives a deleted target user.
+    // Recipient resolution for the in-app inbox. Backfilled (migration 0027) by
+    // matching invited_email to an existing user; populated at invite time or claim-at-signup.
+    // ON DELETE SET NULL: the invitation row outlives a deleted target user.
     // The inbox queries ONLY by target_user_id — invitations with a null value are invisible
-    // until 6.5e's claim flow lands. invited_email remains the token-based acceptance anchor.
+    // until the claim flow attaches them. invited_email remains the token-based acceptance anchor.
     targetUserId: text("target_user_id").references(() => users.id, { onDelete: "set null" }),
     expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
     acceptedAt: timestamp("accepted_at", { mode: "date", withTimezone: true }),
@@ -709,7 +709,7 @@ export const institutionVerificationAudit = pgTable(
   ],
 );
 
-// Step 6.2 — platform ops internal notes. A note targets exactly one of a user OR an institution
+// Platform ops internal notes. A note targets exactly one of a user OR an institution
 // (the DB CHECK enforces the XOR). Notes are support context only — never surfaced to the target.
 // FKs to the target are ON DELETE CASCADE so notes do not outlive a hard-deleted target;
 // `createdById` (the ops actor) has no cascade so the authoring identity is preserved.
@@ -740,7 +740,7 @@ export const platformOpsNotes = pgTable(
   ],
 );
 
-// Step 6.2 — append-only platform ops moderation audit trail. Distinct from
+// Append-only platform ops moderation audit trail. Distinct from
 // `institution_audit_logs` (institution-scoped, member-level events): this table records
 // platform-level actor events (user/institution suspension, reinstatement) keyed on the acting
 // platform_ops user. At least one of the two target columns is non-null (DB CHECK).
@@ -773,7 +773,7 @@ export const platformOpsAuditLogs = pgTable(
   ],
 );
 
-// Step 3.1: Competition domain model.
+// Competition domain model.
 // Slug uniqueness is institution-scoped — UNIQUE (institution_id, slug). Two institutions may
 // reuse the same human-readable slug (e.g. "hackathon-2026") without collision.
 // Deletion model: drafts soft-delete via deleted_at. Published records are not deletable through
@@ -832,7 +832,7 @@ export const competitions = pgTable(
     // reachable. cancellation_reason stores the machine-readable reason token.
     cancelledAt: timestamp("cancelled_at", { mode: "date", withTimezone: true }),
     cancellationReason: text("cancellation_reason"),
-    // Candidate-cancellation policy (Step 6.5f / F12). allow_cancellation is the institution
+    // Candidate-cancellation policy. allow_cancellation is the institution
     // opt-in toggle; cancellation_cutoff_days is the number of days before event_start_at after
     // which self-cancellation is closed. cutoff is only meaningful when allow_cancellation is true
     // (enforced by competitions_cancellation_policy_chk below).
@@ -861,7 +861,7 @@ export const competitions = pgTable(
       "competitions_fee_amount_non_negative_chk",
       sql`${table.feeAmount} IS NULL OR ${table.feeAmount} >= 0`,
     ),
-    // F12 — cutoff is required (and non-negative) when cancellation is allowed; ignored otherwise.
+    // Cutoff is required (and non-negative) when cancellation is allowed; ignored otherwise.
     check(
       "competitions_cancellation_policy_chk",
       sql`${table.allowCancellation} = false OR (${table.cancellationCutoffDays} IS NOT NULL AND ${table.cancellationCutoffDays} >= 0)`,
@@ -1000,7 +1000,7 @@ export const competitionReviews = pgTable(
   ],
 );
 
-// Step 3.6: Student-scoped competition saves.
+// Student-scoped competition saves.
 // Composite PK on (user_id, competition_id) enforces the one-save-per-user-per-competition
 // invariant at the DB layer. ON DELETE CASCADE on both FKs — if a user or competition is
 // destroyed, saves are cleaned up automatically.
@@ -1021,9 +1021,8 @@ export const competitionSaves = pgTable(
   ],
 );
 
-// Step 4.2: Competition registration enums.
-// `competition_registration_type` distinguishes individual from team registrations. Step 4.2
-// only writes `individual`; `team` is reserved for Steps 4.3/4.4.
+// Competition registration enums.
+// `competition_registration_type` distinguishes individual from team registrations.
 export const competitionRegistrationTypeEnum = pgEnum("competition_registration_type", [
   "individual",
   "team",
@@ -1032,7 +1031,7 @@ export const competitionRegistrationTypeEnum = pgEnum("competition_registration_
 // `competition_registration_status` is the state machine for a registration row.
 // `confirmed` is the only initial state in MVP — competitions are free, so registrations skip
 // payment. `cancelled` is terminal: cancelled rows cannot transition back to confirmed and
-// cannot be re-registered (Step 4.2 product simplification).
+// cannot be re-registered (product simplification).
 // Phase 7: pending_payment state — not reachable in MVP. Schema-present so the state machine
 // can grow into paid registration without a destructive enum migration.
 export const competitionRegistrationStatusEnum = pgEnum("competition_registration_status", [
@@ -1041,7 +1040,7 @@ export const competitionRegistrationStatusEnum = pgEnum("competition_registratio
   "pending_payment",
 ]);
 
-// Step 5.2: institution-internal review state on a registration. Distinct from the
+// Institution-internal review state on a registration. Distinct from the
 // candidate-visible `status` lifecycle above — this value is never exposed through any
 // candidate-facing response and never alters `status`. Free transitions between all values
 // at MVP (no state-machine guard).
@@ -1057,14 +1056,14 @@ export type CompetitionRegistrationStatus =
 export type CompetitionRegistrationReviewStatus =
   (typeof competitionRegistrationReviewStatusEnum.enumValues)[number];
 
-// Step 4.2: Individual competition registration.
+// Individual competition registration.
 // One non-cancelled row per (student_id, competition_id) — enforced by a partial unique index
 // in the migration: UNIQUE (student_id, competition_id) WHERE status != 'cancelled'. Cancelled
 // rows are retained as historical artefacts and do not block the partial unique; re-registration
 // is blocked at the application layer (a confirmed-or-cancelled row makes the student
 // "already known" to this competition for the lifetime of MVP).
 //
-// Step 4.4: `team_id` joins a registration row to a `teams` row when registration_type='team'.
+// `team_id` joins a registration row to a `teams` row when registration_type='team'.
 // The DB CHECK `competition_registrations_type_team_id_chk` enforces co-presence: a 'team' row
 // must carry team_id non-null; an 'individual' row must carry team_id null. The partial unique
 // on (student_id, competition_id) WHERE status<>'cancelled' covers both individual and team
@@ -1092,7 +1091,7 @@ export const competitionRegistrations = pgTable(
       .notNull(),
     cancelledAt: timestamp("cancelled_at", { mode: "date", withTimezone: true }),
     cancellationReason: text("cancellation_reason"),
-    // Institution-internal review (Step 5.2) — not candidate-visible.
+    // Institution-internal review — not candidate-visible.
     internalReviewStatus: competitionRegistrationReviewStatusEnum("internal_review_status")
       .notNull()
       .default("pending_review"),
@@ -1109,7 +1108,7 @@ export const competitionRegistrations = pgTable(
     uniqueIndex("competition_registrations_student_competition_active_unique_idx")
       .on(table.studentId, table.competitionId)
       .where(sql`${table.status} <> 'cancelled'`),
-    // Step 4.4 — co-presence invariant: registration_type and team_id must agree.
+    // Co-presence invariant: registration_type and team_id must agree.
     check(
       "competition_registrations_type_team_id_chk",
       sql`(${table.registrationType} = 'team' AND ${table.teamId} IS NOT NULL) OR (${table.registrationType} = 'individual' AND ${table.teamId} IS NULL)`,
@@ -1244,10 +1243,9 @@ export const candidateProfiles = pgTable("candidate_profiles", {
   updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
 });
 
-// Step 4.3: Team lifecycle enums + tables.
-// `team_status` is the team-level lifecycle. Step 4.3 writes only `forming` and `cancelled`.
-// `submitted` is reserved for Step 4.4 (team registration submission) — schema-present so the
-// state machine can grow without a destructive enum migration.
+// Team lifecycle enums + tables.
+// `team_status` is the team-level lifecycle: `forming`, `submitted` (the team has registered
+// for a competition), and `cancelled`.
 export const teamStatusEnum = pgEnum("team_status", ["forming", "submitted", "cancelled"]);
 
 // `team_membership_role` distinguishes the captain seat from regular member seats. Captain
@@ -1268,7 +1266,7 @@ export const teamInvitationStatusEnum = pgEnum("team_invitation_status", [
   "accepted",
   "declined",
   "cancelled",
-  // Step 6.5e — parallels institution_invitation_status.pending_claim: invited email has no
+  // Parallels institution_invitation_status.pending_claim: invited email has no
   // account yet (target_user_id IS NULL), inbox-invisible, claimed at verified signup → `pending`.
   "pending_claim",
 ]);
@@ -1278,7 +1276,7 @@ export type TeamMembershipRole = (typeof teamMembershipRoleEnum.enumValues)[numb
 export type TeamMembershipStatus = (typeof teamMembershipStatusEnum.enumValues)[number];
 export type TeamInvitationStatus = (typeof teamInvitationStatusEnum.enumValues)[number];
 
-// Step 4.3 — Team entity. Captain is tracked via a FK to users on the team row (for fast lookup
+// Team entity. Captain is tracked via a FK to users on the team row (for fast lookup
 // and disambiguation), and also via a team_memberships row with role=captain inserted in the
 // same transaction as team creation. The two views must stay consistent — the team_memberships
 // row is the source of truth for the roster.
@@ -1306,7 +1304,7 @@ export const teams = pgTable(
   ],
 );
 
-// Step 4.3 — Team membership roster row. Captain holds a row with role=captain inserted in the
+// Team membership roster row. Captain holds a row with role=captain inserted in the
 // same transaction as the team. Members accept invitations to land here.
 // One active row per (team_id, user_id) — enforced by a partial unique index in the migration.
 // Removed rows are retained but excluded from the unique scope.
@@ -1338,7 +1336,7 @@ export const teamMemberships = pgTable(
   ],
 );
 
-// Step 4.3 — Team invitation. SHA-256 token hash pattern mirrors institution_invitations.
+// Team invitation. SHA-256 token hash pattern mirrors institution_invitations.
 // Raw token is generated in memory, emailed via Resend, and discarded — only the hash is
 // persisted. invited_email is normalized to lowercase on insert.
 export const teamInvitations = pgTable(
@@ -1356,7 +1354,7 @@ export const teamInvitations = pgTable(
     }),
     tokenHash: text("token_hash").notNull(),
     status: teamInvitationStatusEnum("status").notNull().default("pending"),
-    // Step 6.5.1 — recipient resolution for the in-app inbox. Mirrors institution_invitations:
+    // Recipient resolution for the in-app inbox. Mirrors institution_invitations:
     // backfilled (migration 0027) from invited_email, ON DELETE SET NULL, inbox queries by
     // target_user_id only. See the institution_invitations.target_user_id note above.
     targetUserId: text("target_user_id").references(() => users.id, { onDelete: "set null" }),
@@ -1372,7 +1370,7 @@ export const teamInvitations = pgTable(
   ],
 );
 
-// Step 4.6 — Competition submission intake.
+// Competition submission intake.
 // One submission row per registration — enforced by a UNIQUE constraint on registration_id at
 // the DB layer (not just application-layer). Replace semantics: a candidate may overwrite their
 // submission (incrementing `version`) until they finalize it; `finalized_at` non-null locks the
@@ -1413,7 +1411,7 @@ export const competitionSubmissions = pgTable(
 
 export type SubmissionRecord = typeof competitionSubmissions.$inferSelect;
 
-// Step 5.3 — Competition result publication.
+// Competition result publication.
 // One result row per registration — UNIQUE on registration_id. Result state is either draft
 // (institution-internal, not visible to candidate) or published (visible to candidate as
 // result_label + result_notes only). published_at must be null when draft — enforced by a
@@ -1460,7 +1458,7 @@ export const competitionResults = pgTable(
 
 export type CompetitionResultRecord = typeof competitionResults.$inferSelect;
 
-// Step 6.5.1 — In-app notification storage (the dual-channel half of DEC-0076: every
+// In-app notification storage (the dual-channel half of DEC-0076: every
 // participant-facing event fires a Resend email AND writes a row here). This PostgreSQL table
 // shares the name `notifications` with the BullMQ queue of the same name — they are different
 // systems in different runtimes; the collision is intentional and must not be renamed.
@@ -1493,7 +1491,7 @@ export const notifications = pgTable(
 
 export type NotificationRecord = typeof notifications.$inferSelect;
 
-// Step 6.5g — institution document verification submission system (F10).
+// Institution document verification submission system.
 // An institution owner submits identity documents to platform ops for review. On approval,
 // verification_status transitions to verified; on upgrade (personal → full), the type flip and
 // display_name persistence happen in the same transaction.

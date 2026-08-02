@@ -65,7 +65,7 @@ const invitationsUrl = (institutionSlug: string) =>
 type Props = {
   institutionSlug: string;
   actorUserId: string;
-  // Step 6.5f.1 — a personal institution is single-member: the invite affordance is hidden.
+  // A personal institution is single-member: the invite affordance is hidden.
   // The server guard (createInstitutionInvitation → invitation_personal_institution 403) remains the
   // authoritative enforcement.
   isPersonal?: boolean;
@@ -82,7 +82,7 @@ export const InstitutionTeamShell = ({
   const [isLoadingInvitations, setIsLoadingInvitations] = useState(true);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [isInviting, setIsInviting] = useState(false);
-  // Step 6.5e — a username OR an email; resolved server-side.
+  // A username OR an email; resolved server-side.
   const [identifier, setIdentifier] = useState("");
   const [inviteRole, setInviteRole] = useState<MemberRole>("institution_staff");
   const { addToast } = useToast();

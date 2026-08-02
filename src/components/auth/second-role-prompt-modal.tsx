@@ -13,8 +13,7 @@ export const SHOW_SECOND_ROLE_PROMPT_EVENT = "lombakita:show-second-role-prompt"
 // sessionStorage key written by the sign-in form when a credentials sign-in succeeds. The modal
 // only auto-shows when this flag is present, then clears it. This makes the modal appear once
 // after a fresh sign-in and never again on subsequent navigations within the same tab. Set by
-// `src/components/auth/auth-entry.tsx` right before the post-login redirect (Step 6.5d.1; this was
-// `sign-in-form.tsx` before the method-first auth merge).
+// `src/components/auth/auth-entry.tsx` right before the post-login redirect.
 export const PENDING_PROMPT_KEY = "lombakita:second-role-prompt:pending";
 
 const ROLE_COPY: Record<

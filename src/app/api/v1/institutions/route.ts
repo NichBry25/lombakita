@@ -11,9 +11,9 @@ import {
 } from "@/server/institution-workspace/institution-core";
 import { createInstitutionWorkspaceForUser } from "@/server/institution-workspace/institution-service";
 
-// CCR-05 / DEC-0039: institution creation is gated to recruiter-verified accounts only.
+// Institution creation is gated to recruiter-verified accounts only.
 // A candidate-only session receives 403 at this layer before any payload processing.
-// Step 6.5f.1: full-institution creation now additionally requires the `elevated` recruiter tier
+// Full-institution creation additionally requires the `elevated` recruiter tier
 // (FULL_INSTITUTION_CREATION_MIN_TIER). A minimal-tier recruiter who wants a lightweight workspace
 // uses the personal-institution path (POST /api/v1/institutions/personal) instead.
 export const POST = withApiRole(["recruiter"], async (request, session) => {

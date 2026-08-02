@@ -46,7 +46,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 // POST — create a draft competition. Auth required.
-// Step 4.0c (CCR-19 / DEC-0053) — recruiter tier gate: the caller must hold the
+// Recruiter tier gate: the caller must hold the
 // OPPORTUNITY_CREATION_MIN_TIER threshold (currently `minimal`). The tier check runs after
 // session resolution and before any DB write. Institution membership is validated downstream
 // inside createCompetitionDraft.

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-// Step 6.5d.1 — legacy signup entry. Redirects to the single method-first `/auth/login`
+// Legacy signup entry. Redirects to the single method-first `/auth/login`
 // (previously redirected to /auth/register, which itself now redirects here). Preserves any
 // query params for continuity.
 export default async function SignupRedirectPage(props: {

@@ -7,7 +7,7 @@ import {
   RecruiterTierElevationError,
 } from "@/server/recruiter-tier/recruiter-tier-service";
 
-// Step 4.0c (CCR-19 / DEC-0053) — Platform-ops manual recruiter tier elevation.
+// Platform-ops manual recruiter tier elevation.
 // Only `platform_ops` may call this endpoint. Only `tier: 'elevated'` is accepted as a target.
 // The endpoint is idempotent — repeated calls on an account already at `elevated` return 200
 // with `changed: false` rather than an error.

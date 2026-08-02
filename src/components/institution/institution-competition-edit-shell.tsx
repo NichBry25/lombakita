@@ -175,7 +175,7 @@ export const InstitutionCompetitionEditShell = ({
 }: {
   institutionSlug: string;
   competitionId: string;
-  // Step 6.5f.1 — a personal institution may only run individual-mode competitions. When true the
+  // A personal institution may only run individual-mode competitions. When true the
   // mode selector offers individual only (no team/both); the server guard
   // (assertPersonalInstitutionIndividualMode, 422) remains the authoritative enforcement.
   isPersonal?: boolean;
@@ -211,7 +211,7 @@ export const InstitutionCompetitionEditShell = ({
   const [allowCancellation, setAllowCancellation] = useState(false);
   const [cutoffDays, setCutoffDays] = useState("");
 
-  // F13: track the last-saved snapshot as state (not a ref) so comparisons are safe during render.
+  // Track the last-saved snapshot as state (not a ref) so comparisons are safe during render.
   const [savedSnapshot, setSavedSnapshot] = useState<FormSnapshot | null>(null);
 
   const currentSnapshot = (): FormSnapshot => ({
@@ -351,7 +351,7 @@ export const InstitutionCompetitionEditShell = ({
     return () => window.clearTimeout(id);
   }, [load]);
 
-  // F13: warn browser on page unload/refresh when form is dirty.
+  // Warn browser on page unload/refresh when form is dirty.
   useEffect(() => {
     if (!isDirty) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -431,7 +431,7 @@ export const InstitutionCompetitionEditShell = ({
 
     if (!response.ok) {
       const { message, code, blockedFields } = await extractError(response);
-      // F17 — a post-publish blocked or immutable-field edit is surfaced in a modal naming the
+      // A post-publish blocked or immutable-field edit is surfaced in a modal naming the
       // offending field(s) and why, per the shared-primitive rule.
       if (code === "competition_post_publish_blocked" || code === "competition_field_immutable") {
         const fields = blockedFields ?? [];
@@ -510,8 +510,8 @@ export const InstitutionCompetitionEditShell = ({
     }
   };
 
-  // F13: intercept in-app back navigation when form is dirty. Use competition slug for the
-  // back URL (G6 page routes are slug-keyed); fall back to competitionId while data loads.
+  // Intercept in-app back navigation when form is dirty. Use competition slug for the
+  // back URL (page routes are slug-keyed); fall back to competitionId while data loads.
   const backUrl = `/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competition?.slug ?? competitionId)}`;
 
   const handleBack = () => {
@@ -573,7 +573,7 @@ export const InstitutionCompetitionEditShell = ({
 
   const isDraft = competition.status === "draft";
   const isEditable = competition.status === "draft" || competition.status === "published";
-  // F17 — mode and team sizes are immutable once published; enforce at the field (disabled), with
+  // Mode and team sizes are immutable once published; enforce at the field (disabled), with
   // the server 422 as a backstop.
   const isPublished = competition.status === "published";
 
@@ -662,7 +662,7 @@ export const InstitutionCompetitionEditShell = ({
               <span className="form-label form-label-required" id="competition-mode-label">
                 Mode
               </span>
-              {/* Personal institutions are individual-only (Step 6.5f.1). */}
+              {/* Personal institutions are individual-only. */}
               <SelectField
                 label="Mode"
                 id="competition-mode-label"

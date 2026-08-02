@@ -61,7 +61,7 @@ export const getR2Client = (): S3Client => {
   return globalThis.__lombakitaR2;
 };
 
-// Step 4.6 — runtime availability gate for the submission upload flow.
+// Runtime availability gate for the submission upload flow.
 // Mirrors the Meilisearch degradation model (`isMeilisearchAvailable`): callers check this
 // before attempting any R2 operation and degrade gracefully (HTTP 503, not 500) when storage
 // is not configured. Returns true only when every credential needed to mint a presigned URL is
@@ -77,7 +77,7 @@ export const isR2Available = (): boolean => {
   );
 };
 
-// Step 4.6 — mint a short-lived presigned PUT URL the browser uses to upload a submission file
+// Mint a short-lived presigned PUT URL the browser uses to upload a submission file
 // directly to R2. Caller is responsible for checking `isR2Available()` first; this throws if the
 // bucket is unconfigured. `ContentType` is bound into the signature only when a mime type is
 // provided, so the client must send a matching Content-Type header on the PUT.

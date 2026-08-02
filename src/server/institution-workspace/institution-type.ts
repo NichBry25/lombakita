@@ -1,13 +1,13 @@
 import { institutionTypeEnum, type InstitutionType } from "@/server/db/schema";
 
-// Step 6.5f.1 — institution type taxonomy + the one-directional type-transition state machine.
+// Institution type taxonomy + the one-directional type-transition state machine.
 //
 // The taxonomy:
 //   personal             — lightweight, single-member, capped institution a minimal-tier
 //                          recruiter self-creates.
 //   company | foundation | university | campus_organization
-//                        — the four "full" subtypes, declared through the F10 verification flow
-//                          (Step 6.5g). `community` is deferred post-Beta and is intentionally
+//                        — the four "full" subtypes, declared through the verification flow.
+//                          `community` is deferred post-Beta and is intentionally
 //                          absent from the enum.
 //   NULL (no value)      — a legacy full institution whose subtype was never declared. Every row
 //                          created before this step backfills to NULL. NULL is treated as full.
@@ -70,7 +70,7 @@ export class InstitutionTypeTransitionError extends Error {
 // One-directional type-transition state machine. Exhaustive and fail-closed: any pair not
 // explicitly permitted below throws.
 //
-//   NULL  → full subtype   : allowed   (legacy first-declaration; the F10 caller uses this in 6.5g)
+//   NULL  → full subtype   : allowed   (legacy first-declaration)
 //   personal → full subtype: allowed   (upgrade)
 //   X → X (same → same)    : allowed   (no-op)
 //   full subtype → other full subtype: forbidden

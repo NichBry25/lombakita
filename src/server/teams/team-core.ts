@@ -7,7 +7,7 @@ import type {
   TeamStatus,
 } from "@/server/db/schema";
 
-// Step 4.3 — Team invitation expiry. Matches institution_invitations cadence (7 days from
+// Team invitation expiry. Matches institution_invitations cadence (7 days from
 // creation). Acceptable at MVP; revisit if business requires shorter-lived team invites.
 export const TEAM_INVITATION_EXPIRY_DAYS = 7;
 
@@ -20,7 +20,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 };
 
 // Error codes are namespaced under `team_*` so callers can route on prefix.
-// Step 4.4 adds the submission/cancellation error family. Codes are returned with the same
+// The submission/cancellation codes are returned with the same
 // `details` envelope as the rest of the team error surface.
 export type TeamErrorCode =
   | "team_invalid_payload"
@@ -41,7 +41,7 @@ export type TeamErrorCode =
   | "team_invite_not_actionable"
   | "team_invite_account_not_found"
   | "team_invite_email_mismatch"
-  // Step 6.5e — the accepting (target) account must be candidate-verified; team membership is
+  // The accepting (target) account must be candidate-verified; team membership is
   // candidate-scoped. Non-leaking 403 enforced at the accept mutation.
   | "team_invite_candidate_required"
   | "team_membership_not_found"
@@ -49,7 +49,7 @@ export type TeamErrorCode =
   | "team_not_captain"
   | "team_member_not_in_team"
   | "team_forbidden"
-  // Step 4.4 — team registration submission and cancellation.
+  // Team registration submission and cancellation.
   | "team_registration_not_allowed"
   | "registration_window_closed"
   | "registration_not_yet_open"
@@ -58,7 +58,7 @@ export type TeamErrorCode =
   | "team_member_already_registered"
   | "team_not_submitted"
   | "team_state_conflict"
-  // Step 6.5f — F12 candidate-cancellation policy applied to the captain's team cancellation.
+  // Candidate-cancellation policy applied to the captain's team cancellation.
   // Same code strings as the individual cancel path (registration-core) for client parity.
   | "cancellation_reason_required"
   | "cancellation_reason_too_long"
@@ -96,7 +96,7 @@ const STATUS_BY_CODE: Record<TeamErrorCode, number> = {
   team_not_captain: 403,
   team_member_not_in_team: 404,
   team_forbidden: 403,
-  // Step 4.4 — submission/cancellation gates.
+  // Submission/cancellation gates.
   team_registration_not_allowed: 422,
   registration_window_closed: 422,
   registration_not_yet_open: 422,
@@ -142,7 +142,7 @@ export const toTeamErrorResponse = (error: TeamError): NextResponse => {
 
 export type TeamCreateInput = { name: string };
 export type TeamUpdateInput = { name: string };
-// Step 6.5e — a username OR an email; classified + resolved in the service.
+// A username OR an email; classified + resolved in the service.
 export type TeamInviteCreateInput = { invitedIdentifier: string };
 
 export const parseTeamCreateInput = (payload: unknown): TeamCreateInput => {

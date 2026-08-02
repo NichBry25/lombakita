@@ -85,7 +85,7 @@ type InstitutionWorkspaceInputErrorCode =
   | "institution_slug_reserved"
   | "institution_display_name_reserved"
   | "recruiter_institution_limit_reached"
-  // Step 6.5f.1 — a recruiter may hold at most one personal institution.
+  // A recruiter may hold at most one personal institution.
   | "personal_institution_already_exists"
   // A full institution's slug shares one flat namespace with usernames; it may not take a slug an
   // existing user's username already occupies.
@@ -129,7 +129,7 @@ const parseDisplayName = (value: unknown): string => {
     );
   }
 
-  // Step 2.2 / CCR-20: reject a display name whose slug-normalized form is a reserved
+  // Reject a display name whose slug-normalized form is a reserved
   // word (e.g. "Admin", "Settings", "API"). Without this, the auto-derivation path
   // would either produce a reserved slug or silently substitute the fallback base —
   // both lossy. Multi-word names like "Admin University" normalize to "admin-university"
@@ -199,7 +199,7 @@ const parseSlug = (value: unknown): string => {
     );
   }
 
-  // Step 2.2 / CCR-20: institution slugs share the reserved-word namespace with
+  // Institution slugs share the reserved-word namespace with
   // usernames. A user-provided slug that matches a reserved word is rejected here.
   // Auto-generated slugs (derived from display name when the caller omits slug) bypass
   // this check — consistent with the username auto-generation behaviour.
@@ -235,7 +235,7 @@ export const normalizeInstitutionSlug = (value: string): string => {
 export const deriveInstitutionSlugBase = (displayName: string): string => {
   const derived = normalizeInstitutionSlug(displayName);
 
-  // Step 2.2 / CCR-20: the reserved-word namespace binds the slug itself, not just
+  // The reserved-word namespace binds the slug itself, not just
   // the input vector. When auto-derivation lands on a reserved word, silently
   // substitute the fallback base; the numeric suffix loop in
   // buildInstitutionSlugCandidate then yields e.g. `institusi-2`.

@@ -10,10 +10,10 @@ import {
 } from "@/server/institution-invitations/invitation-core";
 import { acceptInstitutionInvitationForUser } from "@/server/institution-invitations/invitation-service";
 
-// Step 6.5e — in-app institution invitation acceptance. The invitation is addressed by id (from the
+// In-app institution invitation acceptance. The invitation is addressed by id (from the
 // caller's inbox) and accepted ONLY when session.user.id === target_user_id (enforced in the
 // service). Acts on the caller's OWN data, so CLAUDE.md Rule #16 applies: the cross-session guard
-// runs immediately after the auth gate. The CCR-08 recruiter-verification gate fires server-side in
+// runs immediately after the auth gate. The recruiter-verification gate fires server-side in
 // the service at the accept mutation.
 export async function POST(
   request: Request,

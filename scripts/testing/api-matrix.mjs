@@ -188,7 +188,7 @@ const main = async () => {
   record("INST-05", "Participants console lists registrants", "200 + names", `${participants.status}`, participants.status === 200 && JSON.stringify(participants.body).includes("seed_cand_a"), bodySnippet(participants.body).slice(0, 80));
 
   // Institution-scoped participants: a foreign competition id yields an EMPTY result set rather
-  // than 404 (Step 5.1 isolation shape). The assertion is that no foreign data crosses.
+  // than 404. The assertion is that no foreign data crosses.
   const crossTenant = await apiFetch(`/api/v1/institutions/${INST.b.slug}/competitions/${COMP.open.id}/participants`, { cookie: sessions.recElev });
   const crossStr = JSON.stringify(crossTenant.body);
   record("INST-06", "Cross-institution participants leak nothing (empty set)", "0 participants", `${crossTenant.status} count=${crossTenant.body?.counts?.total}`, crossTenant.status === 404 || (crossTenant.body?.counts?.total === 0 && !crossStr.includes("seed_cand_a")));

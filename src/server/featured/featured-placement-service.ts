@@ -12,7 +12,7 @@ import { isPersonalInstitutionType } from "@/server/institution-workspace/instit
 export type FeaturedPlacementErrorCode =
   | "competition_not_found"
   | "competition_not_published"
-  // Step 6.5f.1 — personal institutions cannot receive featured placement.
+  // Personal institutions cannot receive featured placement.
   | "competition_personal_not_featurable";
 
 export class FeaturedPlacementError extends Error {
@@ -67,7 +67,7 @@ export const setFeaturedPlacement = async (
     throw new FeaturedPlacementError("competition_not_found", 404, "Competition not found");
   }
 
-  // Step 6.5f.1 — personal institutions are excluded from featured placement. No-op for full or
+  // Personal institutions are excluded from featured placement. No-op for full or
   // legacy institutions (NULL type).
   if (isPersonalInstitutionType(row.institutionType)) {
     throw new FeaturedPlacementError(

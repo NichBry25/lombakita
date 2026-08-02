@@ -12,7 +12,7 @@ import type { NotificationType } from "@/server/notifications/notification-types
 // same transaction as a state mutation can pass the `tx` from `db.transaction(...)`.
 export type NotificationWriter = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
 
-// Step 6.5.1 — plain insert of one in-app notification row. This is the storage half of the
+// Plain insert of one in-app notification row. This is the storage half of the
 // dual-channel model (DEC-0076). It THROWS on DB failure; it does not swallow. Callers (the BullMQ
 // workers) are responsible for wrapping it in an isolated try/catch so an inbox-write failure never
 // blocks or rethrows past the email-delivery path.
@@ -33,7 +33,7 @@ export const writeNotification = async (
 
 export type MarkNotificationReadResult = { found: boolean };
 
-// Step 6.5.1 — mark one notification as read, scoped to its owner.
+// Mark one notification as read, scoped to its owner.
 //
 // Ownership and existence collapse into a single guard: the lookup filters on BOTH id AND userId,
 // so a notification that does not exist and one owned by another user are indistinguishable —
@@ -73,7 +73,7 @@ export const markNotificationAsRead = async (
   return { found: true };
 };
 
-// Step 6.5.1 — delete one of the caller's own notifications. Same ownership+existence collapse as
+// Delete one of the caller's own notifications. Same ownership+existence collapse as
 // markNotificationAsRead: the DELETE filters on `id AND user_id`, so a foreign-owned or absent id
 // removes nothing and returns `{ found: false }` (route → 404, no information leak). Invitations are
 // not deletable here — only notification rows.
