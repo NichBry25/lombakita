@@ -57,8 +57,30 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
+      # `vercel build` runs here, not on Vercel, so Vercel's system variables
+      # are absent — including VERCEL_URL, which is what resolves the base URL
+      # on a preview deployment. Preview has no stable URL to hardcode (deriving
+      # it per-deployment from VERCEL_URL is the point), so the build gets a
+      # non-resolvable placeholder and Vercel injects the real URL at runtime.
+      #
+      # Both names are required, for different reasons:
+      #   APP_BASE_URL  — assertRuntimeEnv("web") runs at module load in
+      #                   auth.config.ts and db/client.ts, and fails page-data
+      #                   collection when no base URL resolves.
+      #   NEXTAUTH_URL  — next-auth calls parseUrl(process.env.NEXTAUTH_URL) at
+      #                   module scope, and Turbopack substitutes an absent var
+      #                   as "" rather than undefined. parseUrl's `??` does not
+      #                   catch "", so it reaches new URL("") and throws while
+      #                   prerendering the static pages.
+      #
+      # NEXT_PUBLIC_APP_URL is deliberately NOT set: nothing client-side reads
+      # it, so leaving it out keeps a fake origin out of the public bundle.
       - name: Build (prebuilt output)
         run: vercel build
+        env:
+          APP_BASE_URL: https://vercel-build.invalid
+          AUTH_URL: https://vercel-build.invalid
+          NEXTAUTH_URL: https://vercel-build.invalid
 
       - name: Deploy prebuilt output
         id: deploy
@@ -92,6 +114,10 @@ jobs:
     environment: production
     permissions:
       contents: read
+    env:
+      # Job-level so the worker step's `if:` can read it. Only the boolean is
+      # job-wide; the token itself stays scoped to the step that uses it.
+      HAS_RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -126,16 +152,19 @@ jobs:
       # ── WORKER: RAILWAY (guarded) ──
       # Promotes the Railway worker in lockstep with the web deploy, behind the
       # same production approval gate. GUARDED: runs only when RAILWAY_TOKEN is
-      # set. Railway is currently offline (subscription lapsed), so until the
-      # token is added as a production-environment secret this step skips cleanly
-      # and never fails the promotion. Adding the token activates it with no
-      # workflow change.
+      # set, so an environment without the secret skips cleanly rather than
+      # failing the promotion.
       #
-      # NOTE: verify the exact `railway` invocation against your project when the
-      # subscription is restored — RAILWAY_TOKEN must be a project-scoped token
-      # for the worker's Railway project, and the service name must match.
+      # The guard reads the job-level HAS_RAILWAY_TOKEN boolean, not the secret:
+      # `secrets` is not an available context in a step-level `if:`, and a step's
+      # own `env:` is applied only after its `if:` has been evaluated. Testing
+      # either one from here resolves to empty, which skips the step while the
+      # job still reports success — a silent no-op that looks like a deploy.
+      #
+      # RAILWAY_TOKEN must be a project-scoped token carrying the worker's
+      # Railway project and environment; --service must match the service name.
       - name: Deploy worker (Railway)
-        if: ${{ env.RAILWAY_TOKEN != '' }}
+        if: env.HAS_RAILWAY_TOKEN == 'true'
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
