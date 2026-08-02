@@ -1,4 +1,10 @@
-CREATE TYPE "public"."verification_submission_status" AS ENUM('pending_review', 'approved', 'rejected');--> statement-breakpoint
+-- 'draft' belongs to this type from the moment it is created, even though nothing writes it until
+-- the recruiter revision loop exists. Introducing it later and USING it later in the same migration
+-- run is what Postgres refuses ("unsafe use of new value"), and a database built from zero applies
+-- every pending migration in ONE transaction — so a value added downstream cannot be referenced by
+-- any index predicate downstream of it. Declaring it up front is what keeps a from-scratch build
+-- possible. See 0047, which is now a no-op on a fresh database and the real grant on an existing one.
+CREATE TYPE "public"."verification_submission_status" AS ENUM('draft', 'pending_review', 'approved', 'rejected');--> statement-breakpoint
 CREATE TABLE "institution_verification_documents" (
 	"id" text PRIMARY KEY DEFAULT gen_random_uuid()::text NOT NULL,
 	"submission_id" text NOT NULL,
