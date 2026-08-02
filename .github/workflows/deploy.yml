@@ -58,18 +58,29 @@ jobs:
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       # `vercel build` runs here, not on Vercel, so Vercel's system variables
-      # are absent — including VERCEL_URL, which is what resolves the web
-      # runtime's base URL on a preview deployment. Without it the base-URL
-      # assertion in auth.config.ts / db/client.ts throws while Next collects
-      # page data. Preview has no stable URL to hardcode (that is the point of
-      # deriving it from VERCEL_URL), so the build gets a non-resolvable
-      # placeholder instead. It is read only at module load; every consumer is a
-      # server-side email-link builder that runs per request, by which time
-      # Vercel has injected the real per-deployment URL.
+      # are absent — including VERCEL_URL, which is what resolves the base URL
+      # on a preview deployment. Preview has no stable URL to hardcode (deriving
+      # it per-deployment from VERCEL_URL is the point), so the build gets a
+      # non-resolvable placeholder and Vercel injects the real URL at runtime.
+      #
+      # Both names are required, for different reasons:
+      #   APP_BASE_URL  — assertRuntimeEnv("web") runs at module load in
+      #                   auth.config.ts and db/client.ts, and fails page-data
+      #                   collection when no base URL resolves.
+      #   NEXTAUTH_URL  — next-auth calls parseUrl(process.env.NEXTAUTH_URL) at
+      #                   module scope, and Turbopack substitutes an absent var
+      #                   as "" rather than undefined. parseUrl's `??` does not
+      #                   catch "", so it reaches new URL("") and throws while
+      #                   prerendering the static pages.
+      #
+      # NEXT_PUBLIC_APP_URL is deliberately NOT set: nothing client-side reads
+      # it, so leaving it out keeps a fake origin out of the public bundle.
       - name: Build (prebuilt output)
         run: vercel build
         env:
           APP_BASE_URL: https://vercel-build.invalid
+          AUTH_URL: https://vercel-build.invalid
+          NEXTAUTH_URL: https://vercel-build.invalid
 
       - name: Deploy prebuilt output
         id: deploy
