@@ -6,6 +6,7 @@ import { Resend } from "resend";
 import { publicEnv } from "@/config/env";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
+import { resolveEmailDelivery, type EmailDelivery } from "@/server/email/delivery";
 
 // A deadline carried on a job payload travels as an ISO string. Rendered in Indonesian long form
 // to match the registration-confirmation email, and with the time included because a document
@@ -23,11 +24,8 @@ const resolveBaseUrl = (): string => {
   return serverEnv.authUrl ?? serverEnv.appBaseUrl ?? publicEnv.appUrl ?? "http://localhost:3000";
 };
 
-const assertResendConfigured = (): { apiKey: string; from: string } => {
-  if (!serverEnv.resendApiKey || !serverEnv.authEmailFrom) {
-    throw new Error("Resend notification email provider is not fully configured");
-  }
-  return { apiKey: serverEnv.resendApiKey, from: serverEnv.authEmailFrom };
+const resolveNotificationDelivery = (kind: string, toEmail: string): EmailDelivery | null => {
+  return resolveEmailDelivery({ kind, to: toEmail });
 };
 
 export const sendRegistrationConfirmedEmail = async (options: {
@@ -37,7 +35,13 @@ export const sendRegistrationConfirmedEmail = async (options: {
   registrationType: "individual" | "team";
   registeredAt: Date;
 }): Promise<void> => {
-  const { apiKey, from } = assertResendConfigured();
+  const delivery = resolveNotificationDelivery("registration_confirmed", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
   const typeLabel = options.registrationType === "team" ? "Tim" : "Individu";
   const dateFormatted = options.registeredAt.toLocaleDateString("id-ID", {
     day: "numeric",
@@ -76,7 +80,13 @@ export const sendRegistrationCancelledEmail = async (options: {
   competitionTitle: string;
   registrationType: "individual" | "team";
 }): Promise<void> => {
-  const { apiKey, from } = assertResendConfigured();
+  const delivery = resolveNotificationDelivery("registration_cancelled", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
   const typeLabel = options.registrationType === "team" ? "tim" : "individu";
 
   const resend = new Resend(apiKey);
@@ -107,7 +117,13 @@ export const sendSubmissionFinalizedEmail = async (options: {
   competitionTitle: string;
   finalizedAt: Date;
 }): Promise<void> => {
-  const { apiKey, from } = assertResendConfigured();
+  const delivery = resolveNotificationDelivery("submission_finalized", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
   const dateFormatted = options.finalizedAt.toLocaleString("id-ID", {
     day: "numeric",
     month: "long",
@@ -147,7 +163,13 @@ export const sendResultPublishedEmail = async (options: {
   displayName: string | null;
   competitionTitle: string;
 }): Promise<void> => {
-  const { apiKey, from } = assertResendConfigured();
+  const delivery = resolveNotificationDelivery("result_published", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
   const greeting = options.displayName ? `Hai ${options.displayName},` : "Hai,";
 
   const resend = new Resend(apiKey);
@@ -184,7 +206,13 @@ export const sendCompetitionEditedEmail = async (options: {
   competitionTitle: string;
   changeCategories?: string[];
 }): Promise<void> => {
-  const { apiKey, from } = assertResendConfigured();
+  const delivery = resolveNotificationDelivery("competition_edited", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
 
   const categories = options.changeCategories ?? [];
   const changeLine =
@@ -226,7 +254,13 @@ export const sendCompetitionCancelledEmail = async (options: {
     competitionSlug: string;
   };
 }): Promise<void> => {
-  const { apiKey, from } = assertResendConfigured();
+  const delivery = resolveNotificationDelivery("competition_cancelled", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
   const publicCompetitionUrl = options.publicCompetition
     ? `${resolveBaseUrl()}/competitions/${encodeURIComponent(
         options.publicCompetition.institutionSlug,
@@ -264,7 +298,13 @@ export const sendRecruiterVerificationRejectedEmail = async (options: {
   rejectionReason: string;
   resubmissionAllowed: boolean;
 }): Promise<void> => {
-  const { apiKey, from } = assertResendConfigured();
+  const delivery = resolveNotificationDelivery("recruiter_verification_rejected", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
 
   const nextStep = options.resubmissionAllowed
     ? "Perbarui data dan dokumen Anda di dasbor rekruter, lalu ajukan ulang."
@@ -309,7 +349,13 @@ export const sendRegistrationDocumentRequestedEmail = async (options: {
   instructions: string | null;
   dueAtIso: string;
 }): Promise<void> => {
-  const { apiKey, from } = assertResendConfigured();
+  const delivery = resolveNotificationDelivery("registration_document_requested", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
 
   const resend = new Resend(apiKey);
   const { error } = await resend.emails.send({
@@ -346,7 +392,13 @@ export const sendRegistrationDocumentReviewedEmail = async (options: {
   reviewNote: string | null;
   dueAtIso: string | null;
 }): Promise<void> => {
-  const { apiKey, from } = assertResendConfigured();
+  const delivery = resolveNotificationDelivery("registration_document_reviewed", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
 
   const subject =
     options.outcome === "accepted"

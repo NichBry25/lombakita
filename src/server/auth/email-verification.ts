@@ -2,11 +2,10 @@ import nodemailer from "nodemailer";
 import { publicEnv } from "@/config/env";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
+import { resolveEmailDelivery } from "@/server/email/delivery";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/auth/email-verification");
-
-const fallbackEmailFrom = "auth@localhost.invalid";
 
 const resolveBaseUrl = (): string => {
   return serverEnv.authUrl ?? serverEnv.appBaseUrl ?? publicEnv.appUrl ?? "http://localhost:3000";
@@ -20,13 +19,13 @@ const buildVerificationUrl = (rawToken: string): string => {
   return url.toString();
 };
 
-const buildTransport = () => {
+const buildTransport = (apiKey: string) => {
   return nodemailer.createTransport({
     host: "smtp.resend.com",
     port: 587,
     auth: {
       user: "resend",
-      pass: serverEnv.resendApiKey ?? "missing-resend-api-key",
+      pass: apiKey,
     },
   });
 };
@@ -37,16 +36,21 @@ export const sendRegistrationVerificationEmail = async (options: {
   rawToken: string;
 }): Promise<void> => {
   const verificationUrl = buildVerificationUrl(options.rawToken);
-  const emailFrom = serverEnv.authEmailFrom ?? fallbackEmailFrom;
 
-  if (!serverEnv.resendApiKey || !serverEnv.authEmailFrom) {
-    throw new Error("Resend verification email provider is not fully configured");
+  const delivery = resolveEmailDelivery({
+    kind: "registration_verification",
+    to: options.email,
+    actionUrl: verificationUrl,
+  });
+
+  if (!delivery) {
+    return;
   }
 
-  const transporter = buildTransport();
+  const transporter = buildTransport(delivery.apiKey);
 
   await transporter.sendMail({
-    from: emailFrom,
+    from: delivery.from,
     to: options.email,
     subject: "Verifikasi akun Lombakita",
     text: [

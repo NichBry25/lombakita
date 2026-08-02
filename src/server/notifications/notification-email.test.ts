@@ -8,6 +8,8 @@ const { serverEnv, sendEmailMock } = vi.hoisted(() => ({
     authEmailFrom: "noreply@lombakita.id",
     authUrl: "https://lombakita.id",
     appBaseUrl: undefined as string | undefined,
+    emailDeliveryEnabled: true,
+    appEnv: "test",
   },
   sendEmailMock: vi.fn(),
 }));

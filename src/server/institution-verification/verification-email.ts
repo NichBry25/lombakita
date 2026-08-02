@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
+import { resolveEmailDelivery } from "@/server/email/delivery";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/institution-verification/verification-email");
@@ -21,15 +22,22 @@ export const sendInstitutionVerifiedEmail = async (options: {
   toEmail: string;
   institutionDisplayName: string;
 }): Promise<void> => {
-  if (!serverEnv.resendApiKey || !serverEnv.authEmailFrom) {
-    throw new Error("Resend email provider is not fully configured");
+  const dashboardUrl = buildDashboardUrl();
+
+  const delivery = resolveEmailDelivery({
+    kind: "institution_verified",
+    to: options.toEmail,
+    actionUrl: dashboardUrl,
+  });
+
+  if (!delivery) {
+    return;
   }
 
-  const dashboardUrl = buildDashboardUrl();
-  const resend = new Resend(serverEnv.resendApiKey);
+  const resend = new Resend(delivery.apiKey);
 
   const { error } = await resend.emails.send({
-    from: serverEnv.authEmailFrom,
+    from: delivery.from,
     to: options.toEmail,
     subject: `${options.institutionDisplayName} telah terverifikasi di Lombakita`,
     text: [
@@ -78,15 +86,22 @@ export const sendInstitutionVerificationRevokedEmail = async (options: {
   institutionDisplayName: string;
   revocationReason: string;
 }): Promise<void> => {
-  if (!serverEnv.resendApiKey || !serverEnv.authEmailFrom) {
-    throw new Error("Resend email provider is not fully configured");
+  const contactUrl = buildContactUrl();
+
+  const delivery = resolveEmailDelivery({
+    kind: "institution_verification_revoked",
+    to: options.toEmail,
+    actionUrl: contactUrl,
+  });
+
+  if (!delivery) {
+    return;
   }
 
-  const contactUrl = buildContactUrl();
-  const resend = new Resend(serverEnv.resendApiKey);
+  const resend = new Resend(delivery.apiKey);
 
   const { error } = await resend.emails.send({
-    from: serverEnv.authEmailFrom,
+    from: delivery.from,
     to: options.toEmail,
     subject: `Verifikasi ${options.institutionDisplayName} dicabut`,
     text: [
@@ -136,15 +151,22 @@ export const sendInstitutionRejectedEmail = async (options: {
   institutionDisplayName: string;
   rejectionReason: string;
 }): Promise<void> => {
-  if (!serverEnv.resendApiKey || !serverEnv.authEmailFrom) {
-    throw new Error("Resend email provider is not fully configured");
+  const contactUrl = buildContactUrl();
+
+  const delivery = resolveEmailDelivery({
+    kind: "institution_verification_rejected",
+    to: options.toEmail,
+    actionUrl: contactUrl,
+  });
+
+  if (!delivery) {
+    return;
   }
 
-  const contactUrl = buildContactUrl();
-  const resend = new Resend(serverEnv.resendApiKey);
+  const resend = new Resend(delivery.apiKey);
 
   const { error } = await resend.emails.send({
-    from: serverEnv.authEmailFrom,
+    from: delivery.from,
     to: options.toEmail,
     subject: `Permohonan verifikasi ${options.institutionDisplayName} ditolak`,
     text: [

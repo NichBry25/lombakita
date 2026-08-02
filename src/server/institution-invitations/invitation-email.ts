@@ -2,6 +2,7 @@ import { Resend } from "resend";
 import { publicEnv } from "@/config/env";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
+import { resolveEmailDelivery } from "@/server/email/delivery";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/institution-invitations/invitation-email");
@@ -50,10 +51,6 @@ export const sendInstitutionInvitationEmail = async (options: {
   // Required for `claim` mode (the signup link); ignored for `targeted`.
   rawToken?: string;
 }): Promise<void> => {
-  if (!serverEnv.resendApiKey || !serverEnv.authEmailFrom) {
-    throw new Error("Resend invitation email provider is not fully configured");
-  }
-
   if (options.mode === "claim" && !options.rawToken) {
     throw new Error("claim-mode invitation email requires a rawToken");
   }
@@ -68,10 +65,20 @@ export const sendInstitutionInvitationEmail = async (options: {
     ? `Buat akun Lombakita dengan email ini untuk menerima undangan sebagai ${roleLabel}.`
     : `Buka kotak masuk Anda di Lombakita untuk menerima atau menolak undangan sebagai ${roleLabel}.`;
 
-  const resend = new Resend(serverEnv.resendApiKey);
+  const delivery = resolveEmailDelivery({
+    kind: "institution_invitation",
+    to: options.toEmail,
+    actionUrl,
+  });
+
+  if (!delivery) {
+    return;
+  }
+
+  const resend = new Resend(delivery.apiKey);
 
   const { error } = await resend.emails.send({
-    from: serverEnv.authEmailFrom,
+    from: delivery.from,
     to: options.toEmail,
     subject: `Undangan bergabung ke ${options.institutionDisplayName} di Lombakita`,
     text: [

@@ -96,6 +96,18 @@ const resolveAppBaseUrl = (env: NodeJS.ProcessEnv): string | undefined => {
   });
 };
 
+// Local development keeps a real RESEND_API_KEY configured so the email code path stays
+// exercised, but must not actually deliver: seed and test fixtures address non-routable domains
+// (.local, .example), and every send to those hard-bounces against the sending domain's
+// reputation. Deployed environments always deliver; local delivers only on explicit opt-in.
+const resolveEmailDeliveryEnabled = (env: NodeJS.ProcessEnv, appEnv: AppEnvironment): boolean => {
+  if (appEnv !== "local") {
+    return true;
+  }
+
+  return parseBoolean(env.EMAIL_DELIVERY_ENABLED, false);
+};
+
 export const buildServerEnv = (env: NodeJS.ProcessEnv) => {
   const appEnv = resolveAppEnvironment(env.APP_ENV ?? env.NEXT_PUBLIC_APP_ENV);
   const appBaseUrl = resolveAppBaseUrl(env);
@@ -127,6 +139,7 @@ export const buildServerEnv = (env: NodeJS.ProcessEnv) => {
     r2AccessKeyId: read(env.R2_ACCESS_KEY_ID),
     r2SecretAccessKey: read(env.R2_SECRET_ACCESS_KEY),
     resendApiKey: read(env.RESEND_API_KEY),
+    emailDeliveryEnabled: resolveEmailDeliveryEnabled(env, appEnv),
     xenditSecretKey: read(env.XENDIT_SECRET_KEY),
     sentryDsn: read(env.SENTRY_DSN),
     workerConcurrency: parseInteger(env.WORKER_CONCURRENCY, 5),

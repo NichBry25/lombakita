@@ -2,6 +2,7 @@ import { Resend } from "resend";
 import { publicEnv } from "@/config/env";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
+import { resolveEmailDelivery } from "@/server/email/delivery";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/teams/team-email");
@@ -41,10 +42,6 @@ export const sendTeamInvitationEmail = async (options: {
   // Required for `claim` mode (the signup link); ignored for `targeted`.
   rawToken?: string;
 }): Promise<void> => {
-  if (!serverEnv.resendApiKey || !serverEnv.authEmailFrom) {
-    throw new Error("Resend team invitation email provider is not fully configured");
-  }
-
   if (options.mode === "claim" && !options.rawToken) {
     throw new Error("claim-mode team invitation email requires a rawToken");
   }
@@ -59,10 +56,20 @@ export const sendTeamInvitationEmail = async (options: {
     ? "Buat akun Lombakita dengan email ini untuk menerima atau menolak undangan."
     : "Buka kotak masuk Anda di Lombakita untuk menerima atau menolak undangan.";
 
-  const resend = new Resend(serverEnv.resendApiKey);
+  const delivery = resolveEmailDelivery({
+    kind: "team_invitation",
+    to: options.toEmail,
+    actionUrl,
+  });
+
+  if (!delivery) {
+    return;
+  }
+
+  const resend = new Resend(delivery.apiKey);
 
   const { error } = await resend.emails.send({
-    from: serverEnv.authEmailFrom,
+    from: delivery.from,
     to: options.toEmail,
     subject: `Undangan tim ${options.teamName} untuk ${options.competitionTitle}`,
     text: [
