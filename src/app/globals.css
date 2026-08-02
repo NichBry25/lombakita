@@ -1752,7 +1752,7 @@ button.header-nav-link {
 .footer-inner {
   display: grid;
   width: min(100%, var(--content-max));
-  grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(var(--content-footer-column), 1fr));
+  grid-template-columns: minmax(0, 1.4fr) minmax(var(--content-footer-column), 1fr);
   gap: var(--space-10);
   margin-inline: auto;
   padding: var(--space-12) var(--page-padding);
@@ -1780,27 +1780,39 @@ button.header-nav-link {
   color: var(--brand-mist);
 }
 
-.footer-links {
+.footer-support {
   display: grid;
   align-content: start;
   gap: var(--space-2);
 }
 
-.footer-links h3 {
+.footer-support h3 {
   font-family: var(--font-data);
   font-size: var(--text-micro);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
 
-.footer-links a {
-  width: fit-content;
+.footer-support-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
   color: var(--brand-mist);
-  text-decoration: none;
 }
 
-.footer-links a:hover {
-  color: var(--brand-lime);
+/* A version is data, so it aligns column-wise down the list rather than drifting with the glyph
+   widths of the browser name beside it. */
+.footer-support-version {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+.footer-support-note {
+  max-width: var(--content-narrow);
+  color: var(--brand-mist);
+  font-size: var(--text-micro);
 }
 
 /* Brand bands and procedural artwork */

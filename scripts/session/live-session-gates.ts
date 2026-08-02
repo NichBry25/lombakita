@@ -143,8 +143,9 @@ const main = async (): Promise<void> => {
     // broken app. Visibility is decided client-side from `session.user.role` (RG-D4), so this has
     // to be read after hydration — it is simply absent from server HTML.
     //
-    // Counted per region, because the two regions do NOT agree. Collapsing them into one count
-    // hides which of the two is wrong, which is the whole question RG-T1 asks.
+    // Counted per region. The two once disagreed — the header withheld the link and the footer did
+    // not (RG-D8) — and keeping them separate is what surfaced that. The footer no longer carries
+    // navigation at all, so its count is now asserted at zero alongside the header's.
     const linkCounts = async (
       context: import("playwright").BrowserContext,
     ): Promise<{ header: number; footer: number }> => {
@@ -162,22 +163,19 @@ const main = async (): Promise<void> => {
     const candLinks = await linkCounts(candContext);
 
     check(
-      opsLinks.header === 0,
-      `RG1-03  the HEADER withholds participant navigation from an operational account (found ${opsLinks.header})`,
+      opsLinks.header === 0 && opsLinks.footer === 0,
+      `RG1-03  participant navigation is withheld from an operational account in BOTH regions (header ${opsLinks.header}, footer ${opsLinks.footer})`,
     );
     check(
       candLinks.header > 0,
       `RG1-04  control: the header DOES offer it to a candidate, so RG1-03 is not a false pass (found ${candLinks.header})`,
     );
-
-    // CHARACTERIZATION, NOT AN ENDORSEMENT. The site footer is session-independent and links every
-    // visitor to /candidate-dashboard, so an operational account is offered a link that bounces
-    // straight back to /admin. Filed as RG-D8. This asserts the CURRENT behaviour so the gap is
-    // visible in a passing run rather than forgotten; when the footer is fixed, flip this to
-    // `=== 0` and fold it into RG1-03.
+    // The footer carries no navigation for anyone now, so a candidate sees zero there too. Asserted
+    // rather than assumed: a footer link would reach operational accounts as well, which is exactly
+    // how RG-D8 happened.
     check(
-      opsLinks.footer === 1,
-      `RG1-05  KNOWN GAP (RG-D8): the FOOTER still offers the participant link to an operational account (found ${opsLinks.footer}, expected 1 until fixed)`,
+      candLinks.footer === 0,
+      `RG1-05  the footer carries no participant navigation for any account (candidate found ${candLinks.footer})`,
     );
   } finally {
     for (const restore of restores) {
