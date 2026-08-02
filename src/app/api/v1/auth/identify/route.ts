@@ -9,7 +9,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
 
-// Step 6.5d.1 — method-first credentials entry classification. Given an email, returns whether it
+// Method-first credentials entry classification. Given an email, returns whether it
 // maps to no account (`none`), an unverified account (`unverified`), or a verified account
 // (`verified`). The single `/auth/login` page uses this to branch the credentials path:
 // `verified` → attempt password sign-in; `unverified` → verify-notice + resend; `none` → role

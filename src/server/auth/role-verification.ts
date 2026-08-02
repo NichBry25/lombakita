@@ -10,7 +10,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/auth/role-verification");
 
-// Step 4.0b — Role verification entry points.
+// Role verification entry points.
 //
 // The set of roles a user-level account may verify. Note this is intentionally narrower than
 // AppRole — `reviewer_or_judge`, `platform_ops`, and `finance_ops` are not user-self-verifiable
@@ -172,7 +172,7 @@ export const markRoleAsVerified = async (
       );
     }
 
-    // Step 4.0c (4.0c-M1 fix) — when the recruiter mode is flipped to verified, the recruiter
+    // When the recruiter mode is flipped to verified, the recruiter
     // verification tier must be auto-granted to `minimal` in the SAME UPDATE statement. This
     // mirrors the credentials-auth signup path (`?as=recruiter`) and preserves the invariant
     // that any row holding `recruiterVerifiedAt IS NOT NULL` also holds tier >= `minimal`.

@@ -129,7 +129,7 @@ export const assertCompetitionInInstitution = async (
 };
 
 // Resolves a competition by institution slug + competition slug (both scoped together).
-// This is the page-level slug lookup for G6 institution-side routes. Institution-scoped:
+// This is the page-level slug lookup for institution-side routes. Institution-scoped:
 // the same competition slug under two different institutions resolves independently with no
 // cross-tenant leak. Returns the competitionId for downstream service calls, or throws 404.
 // Resolves the competition's id and title from the institution-scoped slug pair. Pages that put
@@ -185,7 +185,7 @@ const requireInstitutionMembershipBySlug = async (
         eq(institutionMemberships.institutionId, institutions.id),
         eq(institutionMemberships.userId, actorUserId),
         eq(institutionMemberships.status, "active"),
-        inArray(institutionMemberships.membershipRole, MEMBER_ROLES), // institution_member excluded per CCR-09 / DEC-0043
+        inArray(institutionMemberships.membershipRole, MEMBER_ROLES), // institution_member excluded (DEC-0043)
       ),
     )
     .where(eq(institutions.slug, institutionSlug))
@@ -208,17 +208,17 @@ export const createCompetitionDraft = async (
     db,
   );
 
-  // Step 6.2 — a suspended institution cannot author new competition drafts.
+  // A suspended institution cannot author new competition drafts.
   await assertInstitutionNotSuspended(institutionId, db);
 
   const baseSlug = input.slug ?? deriveSlugBaseFromTitle(input.title);
 
-  // F5/F14 (Step 6.5b) — mode defaults to individual when unspecified; team sizes are then
+  // Mode defaults to individual when unspecified; team sizes are then
   // normalized to that mode so a freshly created draft never persists null/inconsistent sizes
   // (e.g. an individual competition must store 1/1, not null/null).
   const effectiveMode = input.mode ?? "individual";
 
-  // Step 6.5f.1 — a personal institution can only run individual-mode competitions. No-op for full
+  // A personal institution can only run individual-mode competitions. No-op for full
   // or legacy institutions; throws 422 competition_personal_individual_only for personal + team/both.
   await assertPersonalInstitutionIndividualMode(institutionId, effectiveMode, db);
 
@@ -228,7 +228,7 @@ export const createCompetitionDraft = async (
     input.maxTeamSize ?? null,
   );
 
-  // F12 — effective cancellation policy; reject allow=true with no cutoff before any DB write
+  // Effective cancellation policy; reject allow=true with no cutoff before any DB write
   // (mirrors competitions_cancellation_policy_chk).
   const allowCancellation = input.allowCancellation ?? false;
   const cancellationCutoffDays = input.cancellationCutoffDays ?? null;
@@ -471,9 +471,9 @@ const loadEditClassificationSnapshot = async (
   };
 };
 
-// F17 / F6 — post-publish edit path. Two layers:
-//   outer (locked, Step 3.3): IMMUTABLE_AFTER_PUBLISH fields can never change → 422.
-//   inner (data-aware, F17): classify the remaining changes against existing registrations.
+// Post-publish edit path. Two layers:
+//   outer (locked): IMMUTABLE_AFTER_PUBLISH fields can never change → 422.
+//   inner (data-aware): classify the remaining changes against existing registrations.
 // blocked → refuse; notify → persist + fan out competition.edited; trivial → persist silently.
 const updatePublishedCompetition = async (
   competition: CompetitionRow,
@@ -622,7 +622,7 @@ export const updateCompetitionDraft = async (
 ): Promise<CompetitionRow> => {
   const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
 
-  // F6 — published competitions are editable in place via the data-aware classifier path.
+  // Published competitions are editable in place via the data-aware classifier path.
   if (competition.status === "published") {
     return updatePublishedCompetition(competition, patch, db);
   }
@@ -653,7 +653,7 @@ export const updateCompetitionDraft = async (
     );
   }
 
-  // Step 6.5f.1 — a draft edit may not move a personal-owned competition off individual mode.
+  // A draft edit may not move a personal-owned competition off individual mode.
   // Only checked when the patch actually touches mode (no-op for full/legacy institutions).
   if (patch.mode !== undefined) {
     await assertPersonalInstitutionIndividualMode(competition.institutionId, patch.mode, db);
@@ -662,7 +662,7 @@ export const updateCompetitionDraft = async (
   const updates: Record<string, unknown> = { updatedAt: sql`now()` };
   applySimplePatchColumns(updates, patch);
 
-  // F12 — validate the effective cancellation policy across patch + existing row.
+  // Validate the effective cancellation policy across patch + existing row.
   const effectiveAllowCancellation =
     patch.allowCancellation !== undefined ? patch.allowCancellation : competition.allowCancellation;
   const effectiveCutoffDays =
@@ -706,7 +706,7 @@ export const updateCompetitionDraft = async (
         : competition.resultAnnouncementAt,
   });
 
-  // F5 — normalize team sizes to the effective mode whenever the patch touches mode or a size
+  // Normalize team sizes to the effective mode whenever the patch touches mode or a size
   // field. Resolve effective mode/sizes from the patch where present, falling back to the
   // existing row. This catches cross-field cases parse-time validation cannot see (e.g. patching
   // only minTeamSize while the row already has mode=team) and keeps individual/both fixed values
@@ -808,8 +808,7 @@ export const transitionCompetitionStatus = async (
   // Publish guards: the acting recruiter must be Trusted (account-level gate), the institution
   // must not be suspended, and the publish-validation checklist must pass. Validation runs
   // against the merged DB row (not caller payload) so partial PATCHes that left the row
-  // internally inconsistent are caught here. This is the second gate referenced in DEC-0028 and
-  // addresses the latent material finding D5 from the Step 3.2 depth review.
+  // internally inconsistent are caught here. This is the second gate referenced in DEC-0028.
   if (competition.status === "draft" && targetStatus === "published") {
     await assertActorIsTrustedRecruiter(actorUserId, db);
     await assertInstitutionNotSuspended(competition.institutionId, db);
@@ -840,7 +839,7 @@ export const transitionCompetitionStatus = async (
       );
     }
 
-    // Step 6.5f.1 — personal-institution reach cap: at most MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL
+    // Personal-institution reach cap: at most MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL
     // competitions may be in published status at once, and the mode must be individual. No-op for
     // full or legacy institutions.
     await assertPersonalCompetitionPublishable(
@@ -860,10 +859,9 @@ export const transitionCompetitionStatus = async (
   if (targetStatus === "published") updates.publishedAt = new Date();
   // publishedAt is intentionally NOT cleared on unpublish (published → draft). It records the
   // first-publication timestamp as historical metadata — useful for audit and discovery signals.
-  // DEC-0030: accepted design decision.
 
   // CAS guard: WHERE also checks current status equals the snapshot status to prevent
-  // concurrent transitions from landing on top of each other (3.3-D12 resolution).
+  // concurrent transitions from landing on top of each other.
   const [row] = await db
     .update(competitions)
     .set(updates)
@@ -905,7 +903,7 @@ export type UnpublishCompetitionResult = {
   cancelledCount: number;
 };
 
-// F6 — unpublish-as-cancellation. Transitions a published competition back to draft AND cancels
+// Unpublish-as-cancellation. Transitions a published competition back to draft AND cancels
 // every non-cancelled registration in one transaction (DEC-0070: rows are never hard-deleted,
 // status='cancelled' is terminal). publishedAt is preserved (DEC-0030). After commit, fans out the
 // competition.cancelled dual-channel notice (recipients re-derived at job-run from the institution

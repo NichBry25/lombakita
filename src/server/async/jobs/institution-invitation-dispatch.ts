@@ -23,15 +23,15 @@ export type InstitutionInvitationDispatchJob = Job<
   typeof ASYNC_JOB_NAMES.institutionInvitationDispatch
 >;
 
-// Step 6.5e — queued send for an institution invitation (the email half of the dual channel; the
+// Queued send for an institution invitation (the email half of the dual channel; the
 // in-app inbox entry is already live via target_user_id at creation). The email variant is derived
 // from the invitation's CURRENT status so a row cancelled/accepted/claimed between enqueue and run
 // is never emailed stale:
 //   pending       → targeted email (recipient has an account; link to inbox)
 //   pending_claim → claim email (no account yet; link to /auth/login?invite=<rawToken>)
 //   anything else → skip (cancelled / declined / accepted / expired)
-// A Resend failure rethrows so BullMQ retries (transactional email reliability), consistent with the
-// Step 6.1 notification workers.
+// A Resend failure rethrows so BullMQ retries (transactional email reliability), consistent with
+// the other notification workers.
 export const processInstitutionInvitationDispatchJob = async (
   job: InstitutionInvitationDispatchJob,
 ): Promise<void> => {

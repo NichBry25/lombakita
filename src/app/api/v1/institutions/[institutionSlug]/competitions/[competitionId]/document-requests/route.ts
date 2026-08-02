@@ -13,7 +13,7 @@ import {
   listDocumentRequestsForCompetition,
 } from "@/server/registration-documents/registration-document-service";
 
-// Organizer tooling acting on other users' registrations. CCR-09 (institution_member excluded) is
+// Organizer tooling acting on other users' registrations. The institution_member exclusion is
 // enforced by requireAdminInstitutionBySlug, and per Rule #16 the cross-session guard is
 // deliberately NOT applied — this does not act on the caller's own data.
 

@@ -2,8 +2,8 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/candidate-registrations/candidate-registration-service");
 
-// Step 4.5 — Read-only services for the candidate participation dashboard.
-// Depends on competition_registrations rows produced by Step 4.2 (individual) and Step 4.4 (team).
+// Read-only services for the candidate participation dashboard.
+// Depends on competition_registrations rows produced by the individual and team registration paths.
 // No mutations. userId must always be session.user.id — callers enforce authorization.
 
 import { and, desc, eq, isNull } from "drizzle-orm";

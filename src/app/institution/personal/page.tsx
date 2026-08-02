@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 
 const PERSONAL_INSTITUTION_PATH = "/institution/personal";
 
-// Step 6.5f.1 — minimal-proof create surface for a personal institution. Recruiter session
+// Minimal-proof create surface for a personal institution. Recruiter session
 // required. The expected user id is rendered from the server-side session and threaded into the
 // client shell for the Rule #16 cross-session guard.
 export default async function PersonalInstitutionPage() {

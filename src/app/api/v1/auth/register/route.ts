@@ -13,11 +13,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 export async function POST(request: Request): Promise<Response> {
   try {
     const url = new URL(request.url);
-    // Rollback Step 1.3 / CCR-03 / DEC-0058: accept the role declaration from the `?as=`
-    // query param. Bodies that also carry `signupRole` or `role` are merged in
-    // parseRegistrationInput as a fallback so callers (tests, native apps) that cannot easily
-    // shape a URL can still supply the declaration explicitly. The server REJECTS a missing
-    // / unknown declaration — there is no silent default.
+    // The role declaration is read from the `?as=` query param. Bodies that also carry
+    // `signupRole` or `role` are merged in parseRegistrationInput as a fallback so callers
+    // (tests, native apps) that cannot easily shape a URL can still supply the declaration
+    // explicitly. The server REJECTS a missing / unknown declaration — there is no silent default.
     const querySignupRole = url.searchParams.get("as");
     const rawPayload = await request.json();
     const payload = isRecord(rawPayload) ? { ...rawPayload } : rawPayload;

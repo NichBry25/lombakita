@@ -7,9 +7,9 @@ import { and, eq, gt, isNull, isNotNull } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import { institutionInvitations, teamInvitations, users } from "@/server/db/schema";
 
-// Step 6.5e — shared invite-recipient resolution for BOTH invitation systems (institution
-// membership + team). Extends the Step 6.5.1 invite-time email→user resolution (DEC-0082) to also
-// accept a username, and to handle the no-account case with the `pending_claim` lifecycle.
+// Shared invite-recipient resolution for BOTH invitation systems (institution membership + team).
+// Resolves an email or a username to a user at invite time (DEC-0082), and handles the
+// no-account case with the `pending_claim` lifecycle.
 //
 // This is the single resolver — neither service builds its own. The two invitation services parse
 // the raw identifier into the discriminated `InviteIdentifier` (mapping a malformed value to their
@@ -102,7 +102,7 @@ export const resolveInviteRecipient = async (
   };
 };
 
-// Step 6.5e — claim-link reconciliation (item 3). The claim email links to
+// Claim-link reconciliation (item 3). The claim email links to
 // `/auth/login?invite=<rawToken>` (DIRECT, so the DEC-0084 /auth/register→/auth/login redirect
 // cannot drop the param). The login page calls this to resolve the token to the invited email and
 // prefill the signup field, so the new account is created with the address claim-at-signup matches.

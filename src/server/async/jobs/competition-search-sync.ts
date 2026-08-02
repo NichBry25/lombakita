@@ -72,7 +72,7 @@ const loadPublishedCompetitionForIndex = async (
     // Resolve the institution name (personal institutions store NULL and derive from the owner
     // username). The index document carries the name resolved at sync time; a later username change
     // re-stales it until the competition is re-synced (parallels existing index staleness — see
-    // 6.5f.1-Amendment debt).
+    // 6.5f.1-Amendment-D1 debt).
     institutionName: getInstitutionDisplayName(
       { displayName: row.institutionDisplayName, institutionType: row.institutionType },
       { username: row.institutionOwnerUsername },

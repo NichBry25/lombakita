@@ -1,4 +1,4 @@
-// Step 6.5.1 — In-app notification type catalogue.
+// In-app notification type catalogue.
 //
 // These string values are persisted in `notifications.type` (free-text column, validated here at
 // the application layer rather than via a DB enum so new participant-facing event types can ship

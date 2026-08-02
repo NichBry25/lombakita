@@ -108,7 +108,7 @@ export const lookupInstitutionBySlug = async (
   return row ? mapInstitutionLookupRow(row) : null;
 };
 
-// F20: Resolve an institution by slug OR display name (case-insensitive). Returns the first
+// Resolve an institution by slug OR display name (case-insensitive). Returns the first
 // match when multiple institutions share a display name. Slug match takes natural precedence
 // because the ORDER of the OR condition checks slug first in index-scan plans.
 //

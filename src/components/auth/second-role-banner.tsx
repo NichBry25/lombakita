@@ -20,7 +20,7 @@ const COPY: Record<VerifiableRole, { headline: string; cta: string }> = {
   },
 };
 
-// Step 4.0b — dismissible second-role verification banner. Visibility decision is made on the
+// Dismissible second-role verification banner. Visibility decision is made on the
 // server (the dashboard page only renders this when the second role is unverified). Dismissal
 // is session-scoped via sessionStorage so a full page reload in the same tab preserves the
 // dismissal, but a new browser session shows the banner again. Key includes userId so account

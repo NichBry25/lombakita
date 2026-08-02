@@ -1,4 +1,4 @@
-// Step 4.5 — Pure utility for deriving upcoming deadlines from a candidate's registrations.
+// Pure utility for deriving upcoming deadlines from a candidate's registrations.
 // No DB access, no server-only imports. Safe to import in server components and utilities.
 
 export type UpcomingDeadline = {

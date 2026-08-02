@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-// F2 (Step 6.5b): /auth/sign-in is the legacy login entry — redirect to /auth/login.
+// /auth/sign-in is the legacy login entry — redirect to /auth/login.
 // Preserves any callbackUrl, error, verified, and email query params.
 export default async function SignInRedirectPage(props: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;

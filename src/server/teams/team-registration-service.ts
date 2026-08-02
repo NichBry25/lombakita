@@ -178,7 +178,7 @@ const assertCaptainAccess = (
   }
 };
 
-// Step 4.4 — Captain submits the team for the given competition. Pre-transaction guards run in
+// Captain submits the team for the given competition. Pre-transaction guards run in
 // the order documented in the implementation prompt. The actual writes happen inside a single
 // transaction with a TOCTOU backstop on the team status update.
 export const submitTeamRegistration = async (
@@ -335,7 +335,7 @@ export const submitTeamRegistration = async (
     }
     // CHECK-constraint violation backstop for `competition_registrations_type_team_id_chk`.
     // All current code paths write `registrationType: "team"` + `teamId` atomically, so this
-    // is unreachable today. Mirrors the Step 4.3 `team_name_taken` 23505 defense — surfaces
+    // is unreachable today. Mirrors the `team_name_taken` 23505 defense — surfaces
     // a typed 422 instead of a raw 500 if a future regression ever produces a row that
     // violates the type/team_id co-presence invariant.
     if (code === "23514") {
@@ -364,8 +364,8 @@ export const submitTeamRegistration = async (
   return submitResult;
 };
 
-// Step 4.4 / 6.5f — Captain reverts a submitted team back to forming by cancelling every team-typed
-// registration row. F12 applies the same candidate-cancellation policy as the individual path:
+// Captain reverts a submitted team back to forming by cancelling every team-typed
+// registration row. The same candidate-cancellation policy as the individual path applies:
 // reason required, paid block (Phase 7 placeholder), institution allow toggle, and the cutoff
 // window measured against event_start_at. Gate order is fail-closed: captain + submitted-status
 // (ownership/state) before any reason or policy error.
@@ -408,7 +408,7 @@ export const cancelTeamRegistration = async (
     throw new TeamError("team_competition_not_found", "Competition not found");
   }
 
-  // Paid block — paid cancellation lands in Phase 7. TODO Phase 7 (DEC-0073).
+  // Paid block — paid cancellation lands in Phase 7. TODO Phase 7 (DEC-0074).
   if (isPaidCompetition(competition.feeAmount)) {
     throw new TeamError(
       "cancellation_not_supported_for_paid",

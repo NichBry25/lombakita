@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { SUBMISSIONS_MAX_FILE_SIZE_BYTES } from "@/server/submissions/submission-constants";
 
-// Step 4.6 — Competition submission intake error codes.
+// Competition submission intake error codes.
 // Each maps to a specific failure in the upload-url / record / finalize / read chain.
 //
 // `submission_invalid_payload` — body/metadata is malformed (non-object, blank fileName, wrong

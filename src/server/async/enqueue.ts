@@ -158,7 +158,7 @@ export const enqueueSubmissionFinalized = async (input: {
   });
 };
 
-// Step 6.5f — competition edited fan-out. Idempotency key includes the edit epoch (DEC-0081):
+// Competition edited fan-out. Idempotency key includes the edit epoch (DEC-0081):
 // job id `competition.edited__{competitionId}__{epoch}`. Each genuine edit (distinct epoch) is a
 // fresh job that fires; a true same-epoch double-enqueue dedups. The worker re-derives recipients
 // from current DB state. Fire-and-forget — callers must catch errors.
@@ -194,7 +194,7 @@ export const enqueueCompetitionCancelled = async (input: {
   });
 };
 
-// Step 6.5e — queued invite send (dual-channel). Idempotency key: invitationId, so a re-invite
+// Queued invite send (dual-channel). Idempotency key: invitationId, so a re-invite
 // (which creates a NEW invitation row + id) is a distinct job while a double-enqueue of the same
 // invitation dedups. Fire-and-forget from the invite-creation path — callers MUST catch errors so
 // an enqueue failure never blocks invite creation (the in-app inbox entry is already live via

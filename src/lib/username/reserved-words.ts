@@ -2,8 +2,8 @@
  * Reserved username / slug words — the single authoritative source of truth.
  *
  * A word in this list cannot be claimed as a `/{username}` handle, because it
- * would collide with a current or future top-level system route segment. From
- * Step 2.2 the institution-slug creation/edit path imports this same module to
+ * would collide with a current or future top-level system route segment. The
+ * institution-slug creation/edit path imports this same module to
  * protect the institution-slug namespace — there is exactly one list.
  *
  * HOW TO EXTEND: when a new top-level route segment is added to the app, add the
@@ -14,11 +14,9 @@
  * Matching is case-insensitive: every consumer lowercases input before comparing,
  * so every entry here is lowercase. Exported as a plain `string[]` so it can be
  * imported by either namespace module without circular dependencies.
- *
- * Step 2.1a / DEC-0054.
  */
 export const RESERVED_WORDS: readonly string[] = [
-  // --- CCR-20 / B8 mandated minimum (system route segments) ---
+  // --- System route segments ---
   "auth",
   "profile",
   "settings",
@@ -41,19 +39,18 @@ export const RESERVED_WORDS: readonly string[] = [
   "admin",
   "api",
   "static",
-  // Live top-level App Router segments not in the CCR-20 text but already
-  // routable — added per the same-commit convention (Step 2.1a depth review).
+  // Live top-level App Router segments added per the same-commit convention above.
   "invitations",
   "protected",
   // Static create-action segments under /institution/ that must never be claimed as an institution
   // slug, or the static route would shadow /institution/<slug> and make that institution
-  // unreachable. Personal institutions share the flat /institution/<slug> namespace (Step 6.5f.1),
+  // unreachable. Personal institutions share the flat /institution/<slug> namespace,
   // so reserving these keeps the create surfaces collision-free.
   "personal",
   "workspace",
   "create",
 
-  // --- Carried forward from the Step 2.1 RESERVED_USERNAMES set ---
+  // --- Carried forward from the original RESERVED_USERNAMES set ---
   // Kept so centralising the list does not regress the username namespace.
   "competition",
   "institutions",
@@ -77,16 +74,15 @@ export const RESERVED_WORDS: readonly string[] = [
   "null",
   "undefined",
 
-  // --- Security-relevant additions beyond the CCR-20 minimum (Step 2.1a) ---
+  // --- Security-relevant additions beyond the route segments ---
   // Defensive: handles that read as system / internal identities or that commonly
-  // map to infrastructure subdomains. Documented in the Step 2.1a commit.
+  // map to infrastructure subdomains.
   "root",
   "support",
   "www",
   // `user` is the synthetic base `normalizeUsernameBase` falls back to when a
   // name yields no usable ASCII (e.g. a fully non-Latin-script name). Reserving
   // the bare word keeps the `user_NNNN` fallback namespace synthetic-only and
-  // stops a real account from claiming the ambiguous bare `user` handle
-  // (Step 2.1a depth review, D1).
+  // stops a real account from claiming the ambiguous bare `user` handle.
   "user",
 ];

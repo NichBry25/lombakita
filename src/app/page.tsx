@@ -6,9 +6,9 @@ import { listFeaturedCompetitions } from "@/server/competitions/competition-publ
 import { logger } from "@/lib/logger";
 import type { PublicCompetitionItem } from "@/server/competitions/competition-public-service";
 
-// Featured placement is ops-managed and changes rarely (Step 5.5), so a short staleness
+// Featured placement is ops-managed and changes rarely, so a short staleness
 // window is acceptable — ISR avoids a DB round trip on every request to the highest-traffic
-// page. The render has no session-dependent content (see pre-flight audit, W0), so caching it
+// page. The render has no session-dependent content, so caching it
 // is safe: identical HTML for every visitor.
 export const revalidate = 300;
 

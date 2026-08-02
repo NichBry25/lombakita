@@ -7,7 +7,7 @@ import { getCurrentSession } from "@/server/auth/session";
 import { getDb } from "@/server/db/client";
 import { users } from "@/server/db/schema";
 
-// Rollback Step 1.3 minimal-proof surface.
+// Minimal-proof surface.
 // Renders the current session, the user's user-level role, and the per-role verification flags
 // (candidateVerifiedAt / recruiterVerifiedAt) so the candidate-only vs recruiter-only state is
 // visibly distinguishable in the browser. Pre-existing /protected behaviour preserved.
@@ -67,7 +67,7 @@ export default async function ProtectedPage() {
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">CCR-02 / DEC-0036</p>
+            <p className="eyebrow">Status akun</p>
             <h2>Verifikasi per peran</h2>
           </div>
         </div>

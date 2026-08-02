@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-// Step 6.5d.1 — the two-page login/register split (6.5b, F2) is intentionally superseded by the
+// The two-page login/register split is intentionally superseded by the
 // single method-first `/auth/login`. `/auth/register` is now a redirect that preserves every query
 // param (notably `oauth` for the brand-new-Google-user role picker, plus `as`, `callbackUrl`, and
 // future `invite` for 6.5e). The role declaration moved into the login page's signup sub-flow.

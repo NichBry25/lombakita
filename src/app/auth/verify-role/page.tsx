@@ -16,7 +16,7 @@ const ROLE_HEADLINE: Record<VerifiableRole, string> = {
   recruiter: "Verifikasi sebagai Rekruter",
 };
 
-// CCR-19 — verification mechanics deferred. This page collects the per-role verification data
+// Verification mechanics are deferred. This page collects the per-role verification data
 // and flips the per-role *_verified_at timestamp via the completion API. The candidate path
 // mirrors the registration onboarding form (full name, phone, occupation, date of birth).
 export default async function VerifyRolePage(props: { searchParams?: Promise<{ as?: string }> }) {

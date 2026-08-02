@@ -6,8 +6,8 @@ import { Button, SelectField, usePageTransition } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 
-// Step 6.5d — minimal-proof OAuth role picker. Reached after a brand-new Google user is routed to
-// /auth/login?oauth=<carrier> (Step 6.5d.1 merged the role picker onto the single login page). The
+// Minimal-proof OAuth role picker. Reached after a brand-new Google user is routed to
+// /auth/login?oauth=<carrier> — the role picker lives on the single login page. The
 // carrier is the server's HMAC-signed Google identity; this
 // component never parses it, it only forwards it (plus the declared role) to the oauth-finalize
 // credentials provider, which verifies the carrier, creates the account, and signs the user in.
@@ -34,7 +34,7 @@ const OCCUPATION_OPTIONS = [
 
 const mapFinalizeError = (error: string | null | undefined): string => {
   const normalized = error?.toUpperCase() ?? "";
-  // 6.5-HARDENING.1 — single-use carrier. A replayed carrier (already redeemed) and a fail-closed
+  // Single-use carrier. A replayed carrier (already redeemed) and a fail-closed
   // "cannot confirm single-use" both mean the same user action: start Google sign-in again.
   if (normalized.includes("REPLAYED") || normalized.includes("UNAVAILABLE")) {
     return "Sesi pendaftaran Google ini tidak dapat digunakan lagi. Silakan mulai lagi masuk dengan Google.";

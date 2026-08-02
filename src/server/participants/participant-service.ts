@@ -62,7 +62,7 @@ export type ParticipantRecord = {
     }>;
   } | null;
   submission: SubmissionView | null;
-  // Institution-internal review state (Step 5.2) — never returned to candidates.
+  // Institution-internal review state — never returned to candidates.
   internalReviewStatus: CompetitionRegistrationReviewStatus;
   internalNotes: string | null;
 };

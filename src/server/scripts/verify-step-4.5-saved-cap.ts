@@ -1,5 +1,5 @@
 /**
- * Step 4.5 verification — saved competitions preview cap (Step 6 of manual checklist).
+ * Verification — saved competitions preview cap (step 6 of the manual checklist).
  *
  * Verifies that listSavedCompetitions called with { limit: 5 } returns exactly 5 items
  * for nicholasbryan250@gmail.com even though 6 saves exist, and that calling with
@@ -53,7 +53,7 @@ const run = async (): Promise<void> => {
 
   console.log(`\nUser: ${user.email} (${user.id})\n`);
   console.log("─────────────────────────────────────────────────────");
-  console.log("Step 4.5 — Saved Preview Cap (Manual Test Step 6)");
+  console.log("Saved Preview Cap (manual checklist step 6)");
   console.log("─────────────────────────────────────────────────────");
 
   // ── SAVE-1: { limit: 5 } returns exactly 5 data rows ───────────────────────

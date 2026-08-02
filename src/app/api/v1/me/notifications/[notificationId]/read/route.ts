@@ -7,7 +7,7 @@ import {
 import { getDb } from "@/server/db/client";
 import { markNotificationAsRead } from "@/server/notifications/notification-service";
 
-// Step 6.5.1 — mark one of the caller's own notifications as read.
+// Mark one of the caller's own notifications as read.
 //
 // Acts on the caller's OWN data (userId derived from the session), so CLAUDE.md Rule #16 applies:
 // the cross-session guard runs immediately after the auth gate. Ownership + existence collapse in

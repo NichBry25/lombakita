@@ -61,10 +61,10 @@ export const assertSessionMatchesExpectedUser = (
   }
 };
 
-// Rollback Step 1.3 (CCR-01 / DEC-0035): a session role that is missing, empty, or carries a
+// A session role that is missing, empty, or carries a
 // legacy/unknown token (e.g. "student", "institution_admin", "institution_staff" from
-// pre-rollback JWTs) is rejected — NOT silently coerced to a default role. AUTH_SECRET rotation
-// at deploy invalidates pre-rollback JWTs at the signature layer; this guard is the second line
+// older JWTs) is rejected — NOT silently coerced to a default role. AUTH_SECRET rotation
+// at deploy invalidates those JWTs at the signature layer; this guard is the second line
 // of defense for any token that somehow passes signature validation but does not match the new
 // user-level role set.
 export const normalizeSessionRole = (value: string | undefined | null): AppRole => {
@@ -80,7 +80,7 @@ export const assertAuthenticatedSession = (session: Session | null): Authenticat
     throw new AccessError("unauthenticated", 401, "Authentication required");
   }
 
-  // Step 6.2 — suspension gate. Runs before any role check and applies uniformly to all roles.
+  // Suspension gate. Runs before any role check and applies uniformly to all roles.
   // The session callback sets `suspendedAt` from a live DB read, so a suspended account is blocked
   // on its next authenticated request (immediate effect). platform_ops accounts cannot be
   // suspended (enforced at the moderation service layer), so this should never fire for them.

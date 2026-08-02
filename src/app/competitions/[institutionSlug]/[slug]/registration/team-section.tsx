@@ -395,7 +395,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       body: <TeamCancelReasonForm onConfirm={submitTeamCancel} onCancel={closeModal} />,
     });
 
-  // F16: warn on hard navigation (URL change, tab close, refresh) when team is incomplete.
+  // Warn on hard navigation (URL change, tab close, refresh) when team is incomplete.
   useEffect(() => {
     if (!sizeBelowMin || status !== "forming") return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -406,7 +406,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     return () => window.removeEventListener("beforeunload", handler);
   }, [sizeBelowMin, status]);
 
-  // F16: offer to save the competition as a bookmark when backing out with an incomplete team.
+  // Offer to save the competition as a bookmark when backing out with an incomplete team.
   const handleBackOut = () => {
     if (!sizeBelowMin || status !== "forming") {
       router.back();

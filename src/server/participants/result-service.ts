@@ -1,4 +1,4 @@
-// Competition result publication service (Step 5.3).
+// Competition result publication service.
 //
 // Institution-controlled publication of competition results. A result row is
 // draft by default and transitions to published when the institution explicitly

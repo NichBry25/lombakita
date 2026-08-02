@@ -1,6 +1,6 @@
 // The organizer's read access to a participant's submitted work.
 //
-// Candidates have been able to upload submissions to R2 since Step 4.6, but nothing ever read
+// Candidates can upload submissions to R2, but nothing else reads
 // them back: `resolveSubmissionAccess` (submission-service.ts) grants only the registrant and
 // their active teammates, so a committee could see that a file existed and never open it. This
 // module is the institution-scoped counterpart — metadata for the review page, and a short-lived

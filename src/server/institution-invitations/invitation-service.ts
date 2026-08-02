@@ -106,7 +106,7 @@ export const createInstitutionInvitation = async (
     db,
   );
 
-  // Step 6.5f.1 — a personal institution is single-member: it cannot invite staff or members.
+  // A personal institution is single-member: it cannot invite staff or members.
   // No-op for full or legacy institutions (NULL type).
   if (isPersonalInstitutionType(institutionType)) {
     throw new InstitutionInvitationError(
@@ -116,7 +116,7 @@ export const createInstitutionInvitation = async (
     );
   }
 
-  // Step 6.5e — classify the identifier (username or email) and resolve the recipient. This is the
+  // Classify the identifier (username or email) and resolve the recipient. This is the
   // shared resolver (extends DEC-0082); the service never builds its own.
   const classified = classifyInviteIdentifier(input.invitedIdentifier);
   if (!classified) {
@@ -227,13 +227,13 @@ export const createInstitutionInvitation = async (
   return invitation;
 };
 
-// Step 6.5e — in-app, session-id-matched acceptance. Acceptance is no longer token-in-URL: the
+// In-app, session-id-matched acceptance. Acceptance is no longer token-in-URL: the
 // invitation is addressed by id (from the recipient's inbox) and accepted ONLY when
 // session.user.id === target_user_id. A `pending_claim` invite has a null target and is therefore
 // unacceptable by anyone until claim-at-signup attaches it. A non-leaking 404 collapses
 // "invitation does not exist" and "addressed to a different user" so a caller cannot probe.
 //
-// The verification gate (CCR-08 / DEC-0042) fires HERE, at the accept mutation, not at display.
+// The verification gate (DEC-0042) fires HERE, at the accept mutation, not at display.
 export const acceptInstitutionInvitationForUser = async (
   invitationId: string,
   userId: string,
@@ -273,7 +273,7 @@ export const acceptInstitutionInvitationForUser = async (
       );
     }
 
-    // CCR-07 / CCR-08 / DEC-0042: institution_owner and institution_staff invites require the
+    // institution_owner and institution_staff invites require the
     // accepting account to hold "recruiter" in its verified roles; institution_member invites accept
     // any authenticated account. Enforced server-side at the accept moment — the inbox may render
     // the card, but the server is the gate.
@@ -360,7 +360,7 @@ export const acceptInstitutionInvitationForUser = async (
   });
 };
 
-// Step 6.5e — in-app decline, session-id matched. Same ownership/non-leak model as accept. Only a
+// In-app decline, session-id matched. Same ownership/non-leak model as accept. Only a
 // live `pending` invite addressed to the caller can be declined.
 export const declineInstitutionInvitationForUser = async (
   invitationId: string,

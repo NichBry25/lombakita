@@ -7,7 +7,7 @@ import {
 import { TeamError, toTeamErrorResponse } from "@/server/teams/team-core";
 import { declineTeamInvitationForUser } from "@/server/teams/team-service";
 
-// Step 6.5e — in-app team invitation decline (reject). Session-id matched; same model as accept.
+// In-app team invitation decline (reject). Session-id matched; same model as accept.
 // CLAUDE.md Rule #16 applies (own data).
 export async function POST(
   request: Request,

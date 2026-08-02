@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui";
 
-// Step 6.5.1 — homepage notification bell. Polls the lightweight unread-count endpoint, shows a
+// Homepage notification bell. Polls the lightweight unread-count endpoint, shows a
 // badge, and plays a short audio ping when the unread count rises (a new notification/invitation
 // arrived). Self-hides for unauthenticated visitors (the endpoint returns 401). Real-time delivery
 // (websockets/SSE) is out of scope — a periodic poll is the MVP mechanism.

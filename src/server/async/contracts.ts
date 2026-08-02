@@ -41,15 +41,14 @@ export type CompetitionSearchSyncPayload = {
   action: "upsert" | "remove";
 };
 
-// Step 5.3 — notification trigger for published results.
-// Worker activated at Step 6.1.
+// Notification trigger for published results.
 export type ResultPublishedPayload = {
   registrationId: string;
   competitionId: string;
   teamId?: string;
 };
 
-// Step 6.1 — transactional notification payloads.
+// Transactional notification payloads.
 // Workers do DB lookups for recipient email and competition title at dispatch time.
 export type RegistrationConfirmedPayload = {
   registrationId: string;
@@ -72,7 +71,7 @@ export type SubmissionFinalizedPayload = {
   competitionId: string;
 };
 
-// Step 6.5.1 / 6.5f — competition lifecycle fan-out events. The worker re-derives all
+// Competition lifecycle fan-out events. The worker re-derives all
 // non-cancelled registrations for the competition at job-run time and writes one in-app
 // notification row + one email per recipient (DEC-0076). `epoch` is the enqueue-time timestamp
 // folded into the idempotency key (DEC-0081) so a genuine re-fire produces a fresh notification
@@ -89,7 +88,7 @@ export type CompetitionCancelledPayload = {
   epoch: number;
 };
 
-// Step 6.5e — queued dual-channel invite send. The worker derives the email variant from the
+// Queued dual-channel invite send. The worker derives the email variant from the
 // invitation's CURRENT status (pending → "you have an invite, open your inbox"; pending_claim →
 // "create an account to accept", linking /auth/login?invite=<rawToken>). The raw token is carried
 // here because only its SHA-256 hash is persisted; it grants no acceptance (acceptance is in-app,

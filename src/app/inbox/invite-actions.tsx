@@ -11,10 +11,10 @@ import {
 } from "@/lib/session/session-fetch";
 import { useModal, useToast } from "@/components/ui/primitives";
 
-// Step 6.5e — actionable accept/reject controls for an inbox invitation card. Acceptance is in-app
+// Actionable accept/reject controls for an inbox invitation card. Acceptance is in-app
 // and session-id matched server-side (the invitation is addressed by id; the server checks
 // target_user_id). Mutates the caller's own data, so it uses `sessionFetch` (X-Expected-User-Id;
-// CLAUDE.md Rule #16). Confirm + error states go through the 6.5.2 modal/toast primitive (Rule 20) —
+// CLAUDE.md Rule #16). Confirm + error states go through the shared modal/toast primitive (Rule 20) —
 // no inline error state.
 
 type InviteKind = "institution" | "team";

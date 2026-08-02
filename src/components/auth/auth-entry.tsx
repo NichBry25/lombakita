@@ -6,11 +6,11 @@ import { Button, SelectField, usePageTransition } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
 
-// Step 6.5d.1 — method-first single-page auth entry. Replaces the 6.5b two-page login/register
+// Method-first single-page auth entry. Replaces the earlier two-page login/register
 // toggle. The user first picks a sign-in method; then:
 //   - Google: full redirect; the signIn callback decides everything server-side (existing →
 //     signed in; new → /auth/login?oauth=<carrier> role picker; suspended → /suspended; unverified
-//     same-email → deny notice). Built in 6.5d, reused unchanged here.
+//     same-email → deny notice).
 //   - Email & password: the user enters email + password. We classify the email server-side
 //     (/api/v1/auth/identify) and branch:
 //       • verified  → attempt the password sign-in (path a). Wrong/absent password → generic
@@ -18,8 +18,8 @@ import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
 //       • unverified→ show "email belum diverifikasi" + resend; never offer signup (would 23505).
 //       • none      → role picker + name; create the account via the existing register endpoint,
 //                     which sends the Resend verification (path b). Account usable on verification.
-// Suspension is enforced in `authorize` (6.5c) regardless of this shell; we route the
-// ACCOUNT_SUSPENDED signal to /suspended exactly as the old form did.
+// Suspension is enforced in `authorize` regardless of this shell; we route the
+// ACCOUNT_SUSPENDED signal to /suspended.
 
 type AuthEntryProps = {
   googleEnabled: boolean;
@@ -148,7 +148,7 @@ export const AuthEntry = ({
       redirect: false,
     });
 
-    // 6.5c — suspended accounts are blocked in `authorize`; route the distinct signal to the
+    // Suspended accounts are blocked in `authorize`; route the distinct signal to the
     // public /suspended page. No second-role flag is set on this branch.
     if (result?.error?.toUpperCase().includes("ACCOUNT_SUSPENDED")) {
       beginPageTransition("Mengalihkan…");
@@ -156,7 +156,7 @@ export const AuthEntry = ({
       return;
     }
 
-    // 6.5-HARDENING.1 — failed-attempt lockout. `authorize` throws RATE_LIMITED once too many failed
+    // Failed-attempt lockout. `authorize` throws RATE_LIMITED once too many failed
     // logins for this IP+email accumulate; surface a distinct, non-enumerating message.
     if (result?.error?.toUpperCase().includes("RATE_LIMITED")) {
       addToast({
@@ -204,7 +204,7 @@ export const AuthEntry = ({
         body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
 
-      // 6.5-HARDENING.1 — the identify endpoint is per-IP rate-limited; a 429 is distinct from a
+      // The identify endpoint is per-IP rate-limited; a 429 is distinct from a
       // validation failure and must not be reported as a bad email format.
       if (response.status === 429) {
         addToast({

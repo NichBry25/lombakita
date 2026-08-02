@@ -16,7 +16,7 @@ const resolveBaseUrl = (): string => {
   return serverEnv.authUrl ?? serverEnv.appBaseUrl ?? publicEnv.appUrl ?? "http://localhost:3000";
 };
 
-// Step 6.5e — acceptance is now in-app (session-id matched), so the email no longer carries a
+// Acceptance is now in-app (session-id matched), so the email no longer carries a
 // token-acceptance link. Two variants:
 //   targeted → the recipient already has an account; link them to their inbox to accept/reject.
 //   claim    → the recipient has no account yet; link them to the method-first signup with the

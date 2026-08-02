@@ -32,7 +32,7 @@ assertRuntimeEnv("web");
 
 export const isEmailAuthConfigured = Boolean(serverEnv.resendApiKey && serverEnv.authEmailFrom);
 
-// Step 6.5d — the Google provider is registered only when both OAuth credentials are present.
+// The Google provider is registered only when both OAuth credentials are present.
 // Absent locally → "Sign in with Google" is simply unavailable; credentials sign-in is unaffected.
 export const isGoogleAuthConfigured = Boolean(
   serverEnv.googleClientId && serverEnv.googleClientSecret,
@@ -49,16 +49,16 @@ const authAdapter: Adapter | undefined = isAuthPersistenceConfigured
     }) as Adapter)
   : undefined;
 
-// Rollback Step 1.3 / CCR-15 / DEC-0049 — persistent session cookie behaviour.
+// Persistent session cookie behaviour.
 // Target lifetime is one year. Refresh-on-activity advances the cookie's effective expiry every
 // time the session callback fires (each request that resolves the session). Session strategy
-// remains "jwt" per DEC-0015 (explicitly preserved). Termination on explicit logout, password
+// remains "jwt". Termination on explicit logout, password
 // change, or server-initiated invalidation is provided by next-auth + AUTH_SECRET rotation.
 export const PERSISTENT_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
-// CCR-02 / CCR-04 — per-mode verification state, surfaced as the verifiedRoles array on the
+// Per-mode verification state, surfaced as the verifiedRoles array on the
 // session. A role is in verifiedRoles iff its corresponding *_verified_at timestamp on the user
-// row is non-null (the Step 1.3 schema: users.candidateVerifiedAt, users.recruiterVerifiedAt;
+// row is non-null (users.candidateVerifiedAt, users.recruiterVerifiedAt;
 // DB CHECK users_one_verified_role_chk guarantees at least one is non-null per account).
 // Reads are bounded — populated on sign-in, on next-auth update trigger, and once for any
 // pre-existing JWT that does not yet carry the field. Degrades to an empty array on DB error
@@ -228,12 +228,12 @@ export const authOptions: NextAuthOptions = {
           throw new Error("INVALID_CREDENTIALS");
         });
 
-        // Step 6.5c — suspended accounts are blocked here, after the credentials service has
+        // Suspended accounts are blocked here, after the credentials service has
         // confirmed the password. Throwing aborts authorize without returning a user object, so
         // next-auth issues no JWT/session. The thrown message propagates verbatim to the client
         // via next-auth v4's credentials error path (core/routes/callback.js → redirect
         // `?error=<message>` → react signIn `result.error`); the sign-in form maps this distinct
-        // signal to a /suspended redirect. OAuth suspension blocking is deferred to Step 6.5d.
+        // signal to a /suspended redirect.
         if (result.status === "account_suspended") {
           throw new Error("ACCOUNT_SUSPENDED");
         }
@@ -267,7 +267,7 @@ export const authOptions: NextAuthOptions = {
         };
       },
     }),
-    // Step 6.5d — OAuth finalization provider. A brand-new Google user is routed to the role
+    // OAuth finalization provider. A brand-new Google user is routed to the role
     // picker (the signIn callback returns a redirect, so no users row is created by the OAuth
     // adapter). Once a role is declared, the client calls signIn("oauth-finalize", { carrier, role
     // }); authorize verifies the integrity-protected carrier, creates the account transactionally,
@@ -311,7 +311,7 @@ export const authOptions: NextAuthOptions = {
         };
       },
     }),
-    // Step 6.5d — Google OAuth sign-in. allowDangerousEmailAccountLinking is intentionally TRUE:
+    // Google OAuth sign-in. allowDangerousEmailAccountLinking is intentionally TRUE:
     // it is the only way next-auth v4 will link a Google identity into an existing same-email
     // account during a fresh (unauthenticated) sign-in. The danger it names — auto-linking on an
     // unverified email match — is neutralized by the signIn callback's safe-link gate, which lets
@@ -337,7 +337,7 @@ export const authOptions: NextAuthOptions = {
       : []),
   ],
   callbacks: {
-    // Step 6.5d — Google sign-in interception. Fires BEFORE the adapter createUser/linkAccount
+    // Google sign-in interception. Fires BEFORE the adapter createUser/linkAccount
     // (next-auth@4.24.13, core/routes/callback.js). For the credentials and oauth-finalize
     // providers this is a pass-through (their authorize already gated the sign-in). For Google we
     // delegate to resolveGoogleOAuthSignIn, which returns `true` to proceed (existing-linked or
@@ -391,7 +391,7 @@ export const authOptions: NextAuthOptions = {
         delete token.role;
       }
 
-      // CCR-02 / CCR-04 — populate verifiedRoles. Read DB on sign-in (user present), on
+      // Populate verifiedRoles. Read DB on sign-in (user present), on
       // explicit session update (trigger==="update"), and once for any legacy JWT that does
       // not yet carry the field. Steady-state requests reuse the cached array without a DB hit.
       const userIdForLoad = typeof user?.id === "string" ? user.id : token.sub;
@@ -401,13 +401,13 @@ export const authOptions: NextAuthOptions = {
         token.verifiedRoles = await loadVerifiedRoles(userIdForLoad);
       }
 
-      // CCR-15 / DEC-0049 — refresh on activity. `trigger === "update"` fires when the session
+      // Refresh on activity. `trigger === "update"` fires when the session
       // is read or updated; we stamp the token to ensure next-auth rewrites the cookie with the
       // sliding expiry. The token's `iat` / `exp` are managed by next-auth based on maxAge.
       if (trigger === "update") {
         token.lastActiveAt = Math.floor(Date.now() / 1000);
 
-        // Step 4.0b — second-role prompt dismissal. Caller passes
+        // Second-role prompt dismissal. Caller passes
         // `update({ secondRolePromptDismissed: true })` from "Skip for now". The flag is
         // session-scoped: it lives on the JWT and clears naturally on next sign-in because a
         // fresh JWT is minted. We accept only a boolean and only the dismissal-true case; no
@@ -468,7 +468,7 @@ export const authOptions: NextAuthOptions = {
 
       session.user.verifiedRoles = sanitizeVerifiedRoles(token?.verifiedRoles);
 
-      // Step 4.0b — surface the session-scoped dismissal flag so server components can decide
+      // Surface the session-scoped dismissal flag so server components can decide
       // whether to render the post-login interstitial without an extra DB round-trip.
       if (token?.secondRolePromptDismissed === true) {
         session.secondRolePromptDismissed = true;

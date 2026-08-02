@@ -5,7 +5,7 @@ import { requireAuthenticatedSession } from "@/server/auth/session";
 import { getDb } from "@/server/db/client";
 import { users } from "@/server/db/schema";
 
-// Rollback Step 1.3 minimal-proof surface.
+// Minimal-proof surface.
 // Returns the authenticated user's user-level role and the per-role verification flags so the
 // candidate-only vs recruiter-only state is visibly distinguishable from a browser tab or curl.
 // The endpoint requires authentication; access-core.normalizeSessionRole rejects any session

@@ -1,4 +1,4 @@
-// Field-bucket classification for post-publish competition edits (Step 6.5f / F17).
+// Field-bucket classification for post-publish competition edits.
 //
 // A published competition may be edited in place, but each changed field is classified by its
 // impact on existing non-cancelled registrations:
@@ -13,7 +13,7 @@
 // (updateCompetition service) decides what to do per bucket. It has no DB or server-only imports
 // so it can be unit-tested directly.
 //
-// Relationship to IMMUTABLE_AFTER_PUBLISH (Step 3.3): mode / minTeamSize / maxTeamSize are
+// Relationship to IMMUTABLE_AFTER_PUBLISH: mode / minTeamSize / maxTeamSize are
 // hard-immutable on a published competition and are rejected by the service's outer immutability
 // layer BEFORE this classifier runs. Their handling below is retained for completeness and direct
 // unit testing, but in the live edit path those fields never reach the classifier. Loosening

@@ -4,7 +4,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/auth/oauth-identity-carrier");
 
-// Step 6.5d — transient Google-identity carrier.
+// Transient Google-identity carrier.
 //
 // When a brand-new Google user (no linked account, no existing same-email account) signs in, the
 // signIn callback must NOT create a users row before a role is declared (the

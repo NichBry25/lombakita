@@ -37,7 +37,7 @@ const NAME_MIN_LENGTH = 2;
 const NAME_MAX_LENGTH = 120;
 const REGISTRATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
-// Step 2.1a / DEC-0054 — split the single `name` field into first/last name tokens
+// Splits the single `name` field into first/last name tokens
 // for username generation. The first whitespace-delimited token is the first name;
 // everything after it is the last name (may be empty for a single-word name).
 const splitName = (name: string): { firstName: string; lastName: string } => {
@@ -48,11 +48,11 @@ const splitName = (name: string): { firstName: string; lastName: string } => {
   };
 };
 
-// Rollback Step 1.3 — CCR-03 / DEC-0037 / DEC-0058: signup role declaration. Exactly one of
+// Signup role declaration. Exactly one of
 // these two values is accepted on POST /api/v1/auth/register. The declared role determines:
 //   1. The user-level `users.role` value persisted on the row.
-//   2. Which of the two per-role verification timestamps is set at account-creation time
-//      (CCR-02 / DEC-0036). The undeclared role's timestamp stays NULL.
+//   2. Which of the two per-role verification timestamps is set at account-creation time.
+//      The undeclared role's timestamp stays NULL.
 // Server-side enforcement: a missing / unknown `as` value is rejected with 400; the client
 // cannot fabricate the verified-role state.
 export const SIGNUP_ROLE_VALUES = ["candidate", "recruiter"] as const;
@@ -62,12 +62,12 @@ export const isSignupRole = (value: unknown): value is SignupRole => {
   return typeof value === "string" && (SIGNUP_ROLE_VALUES as readonly string[]).includes(value);
 };
 
-// Step 6.5d — shared signup primitives, extracted so the Google-OAuth finalization path
+// Shared signup primitives, extracted so the Google-OAuth finalization path
 // (`finalizeOAuthSignup` in oauth-account.ts) creates a users row through the SAME role/tier
 // derivation and username generation as the credentials registration transaction, rather than
 // duplicating the logic. Both call sites must agree byte-for-byte on:
 //   - which per-role verification timestamp is set for a declared role, and
-//   - that recruiter signup atomically grants the `minimal` tier (Step 4.0c / DEC-0053),
+//   - that recruiter signup atomically grants the `minimal` tier,
 //     keeping `users_recruiter_tier_consistency_chk` satisfied.
 
 // The exact column set written to `users` for a declared signup role. The undeclared role's
@@ -90,7 +90,7 @@ export const deriveSignupRoleColumns = (
 });
 
 // Generates a unique, reserved-word-safe username from a display name, probing availability inside
-// the caller's transaction. Wraps the Step 2.1a generator + name split so both signup paths share
+// the caller's transaction. Wraps the username generator + name split so both signup paths share
 // one implementation. Throws UsernameGenerationError if the bounded retry loop is exhausted; both
 // callers translate that into a clean 503.
 export const generateUniqueUsernameForName = async (
@@ -360,9 +360,9 @@ export const registerUserWithCredentials = async (
         .where(eq(users.email, input.email))
         .limit(1);
 
-      // Step 6.5d.1 (M1) — duplicate-account guard. This fires for ANY verified account, whether
-      // it authenticates by password OR by a linked OAuth identity. Google-only accounts (Step
-      // 6.5d) have `emailVerified` set but NO `user_password_credentials` row; the prior guard only
+      // Duplicate-account guard. This fires for ANY verified account, whether
+      // it authenticates by password OR by a linked OAuth identity. Google-only accounts have
+      // `emailVerified` set but NO `user_password_credentials` row; the prior guard only
       // threw when a password row existed, so a Google-only account fell through and this PUBLIC
       // endpoint would write an attacker-supplied password (and re-apply an attacker-declared role)
       // onto it — a silent, unauthenticated account takeover. A verified account is already a real
@@ -382,7 +382,7 @@ export const registerUserWithCredentials = async (
         );
       }
 
-      // Rollback Step 1.3 — write the declared user-level role and the matching
+      // Write the declared user-level role and the matching
       // *_verified_at timestamp at account-creation time. The CHECK constraint
       // `users_one_verified_role_chk` enforces the invariant at the DB layer; the application
       // also sets exactly one timestamp here so the constraint passes on the first INSERT.
@@ -390,7 +390,7 @@ export const registerUserWithCredentials = async (
       // email verification) we re-apply the declared role + verifiedAt to reflect the latest
       // declaration.
       //
-      // Step 4.0c (CCR-19 / DEC-0053) — recruiter signup auto-grants the `minimal` tier in the
+      // Recruiter signup auto-grants the `minimal` tier in the
       // same INSERT/UPDATE statement so tier and recruiterVerifiedAt land atomically. Candidate
       // signups leave the tier at the column default ('unverified'); the tier is only meaningful
       // once the account verifies the recruiter mode.
@@ -400,7 +400,7 @@ export const registerUserWithCredentials = async (
       let userId = existingUser?.id;
 
       if (!userId) {
-        // Step 2.1a / DEC-0054 — generate a valid, unique, reserved-word-safe
+        // Generate a valid, unique, reserved-word-safe
         // username before the user INSERT. Generation runs inside this
         // transaction: the uniqueness probe sees only committed rows, and a
         // generation failure aborts the transaction so no user row is ever
@@ -528,7 +528,7 @@ export const registerUserWithCredentials = async (
       throw error;
     }
 
-    // Step 2.1a / DEC-0054 — username generation exhausted its bounded retry
+    // Username generation exhausted its bounded retry
     // loop. Recoverable: log and surface a clean 503 instead of a raw 500.
     if (error instanceof UsernameGenerationError) {
       logger.error("username.generation.exhausted", { email: input.email });
@@ -539,7 +539,7 @@ export const registerUserWithCredentials = async (
       );
     }
 
-    // Step 2.1a / DEC-0054 — the `users` table now carries two unique
+    // The `users` table carries two unique
     // constraints reachable on INSERT: `email` and `users_username_unique_idx`.
     // A 23505 must be classified by constraint, otherwise a username collision
     // (e.g. the bounded generation loop loses a concurrent-registration race)
@@ -722,7 +722,7 @@ export const verifyRegistrationEmailToken = async (
         ),
       );
 
-    // Step 6.5e — claim-at-signup. Now that this account's email is verified, attach every
+    // Claim-at-signup. Now that this account's email is verified, attach every
     // `pending_claim` invitation addressed to it (target_user_id IS NULL) across both invitation
     // systems and flip them to `pending`. Runs in the SAME transaction as the verification flip so a
     // half-claimed state cannot occur. Claim fires ONLY on verified-email match — an unverified
@@ -736,7 +736,7 @@ export const verifyRegistrationEmailToken = async (
   };
 };
 
-// Step 6.5d.1 — method-first credentials entry. The single `/auth/login` page asks for email +
+// Method-first credentials entry. The single `/auth/login` page asks for email +
 // password, then must branch existing-vs-new BEFORE deciding whether to attempt a password
 // sign-in, show an "email not verified" notice, or offer the role picker. Credentials is
 // email-first (unlike OAuth, where the provider resolves identity), so we classify by email:
@@ -751,8 +751,8 @@ export const verifyRegistrationEmailToken = async (
 // Enumeration note (flagged for security review): branching existing-vs-new inherently reveals
 // whether an email has an account — this is intrinsic to the owner-approved method-first UX. It
 // exposes nothing the existing register endpoint does not already leak (register returns 409
-// `email_exists` for a taken, verified email). Server-side rate-limiting is a future hardening
-// item (6.5d.1 debt), not added here.
+// `email_exists` for a taken, verified email). Server-side rate-limiting is handled at the
+// route layer, not here.
 export type EmailLoginState = "none" | "unverified" | "verified";
 
 export const classifyEmailForLogin = async (
@@ -800,7 +800,7 @@ export const authenticateWithEmailPassword = async (
       email: users.email,
       role: users.role,
       emailVerified: users.emailVerified,
-      // Step 6.5c — suspension is read from this same row used for password verification. No
+      // Suspension is read from this same row used for password verification. No
       // independent suspension query is issued at authorize time, so there is no separate lookup
       // that could fail and force a fail-open/fail-closed decision here.
       suspendedAt: users.suspendedAt,
@@ -825,13 +825,13 @@ export const authenticateWithEmailPassword = async (
     };
   }
 
-  // Step 6.5c — login-time suspension block (the server-side guarantee point). This is evaluated
+  // Login-time suspension block (the server-side guarantee point). This is evaluated
   // only AFTER the password is confirmed correct: a wrong password for a suspended account falls
   // through the `!verified` branch above and returns the generic `invalid_credentials`, so the
   // suspended signal is never observable to anyone who did not supply the correct password
   // (account-enumeration safety). A non-null `suspended_at` aborts the login before any user
   // object is returned to authorize, so no JWT/session is ever issued. platform_ops accounts are
-  // protected from suspension at the service layer (Step 6.2), so their `suspended_at` is always
+  // protected from suspension at the service layer, so their `suspended_at` is always
   // null and this uniform check passes them without role special-casing. The existing per-request
   // `account_suspended` 403 in assertAuthenticatedSession remains as defense in depth.
   if (userRecord.suspendedAt) {

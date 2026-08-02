@@ -16,7 +16,7 @@ export type TeamInvitationDispatchJob = Job<
   typeof ASYNC_JOB_NAMES.teamInvitationDispatch
 >;
 
-// Step 6.5e — queued send for a team invitation. Same shape as the institution dispatch worker:
+// Queued send for a team invitation. Same shape as the institution dispatch worker:
 // the email variant is derived from the invitation's current status; the in-app inbox entry is
 // already live via target_user_id. Resend failure rethrows for BullMQ retry.
 export const processTeamInvitationDispatchJob = async (

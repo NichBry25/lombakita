@@ -10,7 +10,7 @@ import {
 } from "@/server/institution-invitations/invitation-core";
 import { declineInstitutionInvitationForUser } from "@/server/institution-invitations/invitation-service";
 
-// Step 6.5e — in-app institution invitation decline (reject). Session-id matched; same
+// In-app institution invitation decline (reject). Session-id matched; same
 // ownership/non-leak model as accept. CLAUDE.md Rule #16 applies (own data).
 export async function POST(
   request: Request,

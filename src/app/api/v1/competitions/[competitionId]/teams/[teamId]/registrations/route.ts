@@ -12,7 +12,7 @@ import {
 
 type RouteContext = { params: Promise<{ competitionId: string; teamId: string }> };
 
-// Step 4.4 — POST submits the team for the competition. Captain-only; gates enforced by the
+// POST submits the team for the competition. Captain-only; gates enforced by the
 // service. Auth + role=candidate runs before any DB read; non-candidates receive 403.
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
@@ -27,8 +27,9 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   }
 }
 
-// Step 4.4 / 6.5f — DELETE reverts a submitted team back to forming and cancels its registrations.
-// Captain-only. F12 policy (allow toggle, cutoff, required reason) enforced in the service. The
+// DELETE reverts a submitted team back to forming and cancels its registrations.
+// Captain-only. The cancellation policy (allow toggle, cutoff, required reason) is enforced in
+// the service. The
 // optional JSON body carries the required cancellationReason; structural shape is validated here,
 // the required-and-length business rule lives in the service after the captain + status gates.
 export async function DELETE(request: Request, context: RouteContext): Promise<Response> {

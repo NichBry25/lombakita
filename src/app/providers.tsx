@@ -6,7 +6,7 @@ import { SecondRolePromptModal } from "@/components/auth/second-role-prompt-moda
 import { PageTransitionProvider } from "@/components/ui/page-transition";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 
-// Step 4.0b — root-level next-auth SessionProvider. Required so client components that call
+// Root-level next-auth SessionProvider. Required so client components that call
 // `useSession()` (e.g. SkipForNowButton, VerifyRoleForm) can refresh the JWT via
 // `update()` after the second-role verification flow. The provider does not pass an initial
 // session — children call /api/auth/session lazily when they need it.
@@ -15,7 +15,7 @@ import { UIPrimitivesProvider } from "@/components/ui/primitives";
 // (after sign-in we now land on `/` rather than the dedicated prompt page). Modal is
 // dismissible per-tab via sessionStorage; can be re-triggered from /profile via a custom event.
 //
-// UIPrimitivesProvider (Step 6.5.2) — mounts ModalProvider + ToastProvider once at the root.
+// UIPrimitivesProvider mounts ModalProvider + ToastProvider once at the root.
 // All surfaces consume useModal / useToast from @/components/ui/primitives.
 //
 // PageTransitionProvider owns the blocking full-page loading screen shown while an action

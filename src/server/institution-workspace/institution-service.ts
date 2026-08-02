@@ -199,7 +199,7 @@ export type UserInstitutionMembership = {
   role: typeof OWNER_ROLE | typeof STAFF_ROLE;
   isOwner: boolean;
   // Count of the institution's active operational members (owner + staff), so the dashboard can show
-  // team size. institution_member is excluded — cosmetic-at-launch, no operational surface (CCR-09).
+  // team size. institution_member is excluded — cosmetic-at-launch, no operational surface.
   staffCount: number;
   // Presigned display URLs, null when nothing is stored or R2 is unavailable. A personal institution
   // resolves to its owner's avatar and banner (resolveInstitutionMediaKeys).
@@ -208,7 +208,7 @@ export type UserInstitutionMembership = {
 };
 
 // Lists the institutions an account actively participates in as owner or staff, for the recruiter
-// dashboard. institution_member memberships are excluded (CCR-09 — members have no operational
+// dashboard. institution_member memberships are excluded (members have no operational
 // surface). A personal institution stores no display name; the owner username resolves it through
 // getInstitutionDisplayName, sourced from the correlated owner-username subquery.
 export const listUserInstitutionMemberships = async (
@@ -533,7 +533,7 @@ const isInstitutionSlugUniqueViolation = (error: unknown): boolean => {
   return false;
 };
 
-// Full-institution creation. Step 6.5f.1: the recruiter-tier gate (now `elevated`) is enforced in
+// Full-institution creation. The recruiter-tier gate (`elevated`) is enforced in
 // the route layer via assertRecruiterTier; this service owns the per-recruiter limit. The limit
 // count EXCLUDES personal-typed institutions (FULL_INSTITUTION_TYPE_CONDITION) — a recruiter at the
 // full limit can still hold a personal institution, and a personal institution never consumes a
@@ -544,8 +544,8 @@ export const createInstitutionWorkspaceForUser = async (
   payload: unknown,
   db: Database = getDb(),
 ): Promise<InstitutionWorkspaceShell> => {
-  // F7 (Step 6.5b): count active institution_owner memberships for this recruiter, excluding
-  // personal-typed institutions (Step 6.5f.1). Scoped to this user only — another recruiter at
+  // Count active institution_owner memberships for this recruiter, excluding
+  // personal-typed institutions. Scoped to this user only — another recruiter at
   // their limit is unaffected.
   const ownedCount = await countOwnedInstitutionsWhere(userId, FULL_INSTITUTION_TYPE_CONDITION, db);
 
@@ -608,7 +608,7 @@ const loadOwnerUsername = async (userId: string, db: Database): Promise<string> 
   return row.username;
 };
 
-// Step 6.5f.1 — lightweight personal institution creation. The recruiter-tier gate (now `minimal`)
+// Lightweight personal institution creation. The recruiter-tier gate (now `minimal`)
 // is enforced in the route layer; this service owns the one-personal-per-recruiter invariant. The
 // created row is institution_type='personal' and the creator becomes its sole institution_owner.
 // The personal reach caps (≤2 published competitions, individual-only, no featured, no staff/member
@@ -620,7 +620,7 @@ const loadOwnerUsername = async (userId: string, db: Database): Promise<string> 
 //
 // A personal institution is created with verification_status = 'pending_verification' (the schema
 // default, same as full). The personal verification gate is KTP-only at MVP and asynchronous; the
-// KTP capture, submission surface, and review flow are built in Step 6.5g (F10). This step records
+// KTP capture, submission surface, and review flow live elsewhere. This path records
 // the semantics only — it does not capture or review KTP.
 export const createPersonalInstitutionForUser = async (
   userId: string,
@@ -1300,7 +1300,7 @@ export const upgradeInstitutionTypeForOwnerBySlug = async (
   return result;
 };
 
-// Step 6.5f.1 (Amendment) — resolve an institution's type by slug for owner-or-staff UI surfaces
+// Resolve an institution's type by slug for owner-or-staff UI surfaces
 // that decide whether to hide personal-only affordances (the competition mode selector and the
 // staff-invite form). Returns null for a full/legacy institution or a slug that does not resolve;
 // callers treat null as "not personal" and fall back to the full UI. Server-side guards remain the

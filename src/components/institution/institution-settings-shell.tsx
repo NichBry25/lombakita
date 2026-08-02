@@ -129,7 +129,7 @@ export const InstitutionSettingsShell = ({
   const [displayName, setDisplayName] = useState("");
   const [slug, setSlug] = useState("");
   const [status, setStatus] = useState<"active" | "inactive" | "suspended">("inactive");
-  // Step 6.5f.1 — a personal institution's name is derived from the owner username and is read-only;
+  // A personal institution's name is derived from the owner username and is read-only;
   // the type also drives the minimal "Personal" indicator in the header.
   const [isPersonal, setIsPersonal] = useState(false);
   const [institutionType, setInstitutionType] = useState<string | null>(null);

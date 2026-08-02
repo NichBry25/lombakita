@@ -179,16 +179,16 @@ export const createIndividualRegistration = async (
 
   // (b-d) publication, mode, and deadline.
   // DEBT (4.4-D2 carry-forward): this individual-registration path enforces only the END
-  // bound of the registration window. The Step 4.4 team-submission path enforces BOTH start
+  // bound of the registration window. The team-submission path enforces BOTH start
   // and end (registration_not_yet_open vs registration_window_closed as distinct codes). A
   // candidate registering individually before `registrationStartAt` currently succeeds. This
-  // is documented as a Phase 4 cleanup target — either add `registration_not_yet_open` here
+  // is documented as a cleanup target — either add `registration_not_yet_open` here
   // for parity, or downgrade the team-side enforcement. Decision deferred until the contract
   // pass.
   assertCompetitionAcceptsIndividualRegistration(competition, requestAt);
 
   // (e) duplicate guard — block if any prior registration row exists. Re-registration after
-  // cancellation is intentionally deferred (Step 4.2 product simplification). The DB-level
+  // cancellation is intentionally deferred (product simplification). The DB-level
   // partial unique index protects against concurrent race; this application-layer check
   // additionally blocks the cancelled-then-re-register path.
   const existing = await findAnyExistingRegistration(studentId, competitionId, db);
@@ -293,13 +293,13 @@ const isPaidCompetition = (feeAmount: string | null): boolean => {
   return Number.isFinite(n) && n > 0;
 };
 
-// Cancel an individual registration owned by the calling candidate (F12).
+// Cancel an individual registration owned by the calling candidate.
 // Enforcement order (fail-closed, ownership before any policy or reason error):
 //   (a) registration exists and matches the URL competitionId
 //   (b) registration belongs to this candidate (ownership)
 //   (c) registration.status === 'confirmed' (cancelled terminal; pending_payment is Phase 7)
 //   (d) cancellationReason required (non-empty, <= 500 chars)
-//   (e) competition is free, not paid (paid cancellation is Phase 7 — DEC-0073)
+//   (e) competition is free, not paid (paid cancellation is Phase 7 — DEC-0074)
 //   (f) institution allows cancellation (allow_cancellation = true)
 //   (g) within the cancellation window: now <= event_start_at - cutoff days
 export const cancelRegistration = async (
@@ -356,7 +356,7 @@ export const cancelRegistration = async (
   }
 
   // (e) paid registrations cannot self-cancel in MVP.
-  // TODO Phase 7 (DEC-0073): paid cancellation + Xendit refund path lands here.
+  // TODO Phase 7 (DEC-0074): paid cancellation + Xendit refund path lands here.
   if (isPaidCompetition(competition.feeAmount)) {
     throw new RegistrationError(
       "cancellation_not_supported_for_paid",
