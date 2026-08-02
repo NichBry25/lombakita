@@ -509,7 +509,16 @@ export const registerUserWithCredentials = async (
           name: input.name,
           rawToken: registrationState.verificationRawToken,
         });
-      } catch {
+      } catch (error) {
+        // The cause never reaches the caller — the response is a generic 503 so it cannot leak
+        // provider detail — so it has to be logged here or it is lost. A quota rejection, a
+        // revoked key, an unverified sender domain and a network failure are otherwise
+        // indistinguishable from the outside.
+        logger.error("auth.verification_email.dispatch_failed", {
+          email: input.email,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+
         throw new CredentialsAuthError(
           "verification_email_failed",
           503,
@@ -624,7 +633,12 @@ export const resendRegistrationVerification = async (
       name: userRecord.name ?? "Pengguna Lombakita",
       rawToken: challenge.rawToken,
     });
-  } catch {
+  } catch (error) {
+    logger.error("auth.verification_email.dispatch_failed", {
+      email,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+
     throw new CredentialsAuthError(
       "verification_email_failed",
       503,
