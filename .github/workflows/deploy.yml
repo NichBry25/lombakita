@@ -44,6 +44,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       # Same Vercel CLI sequence as production, minus every --prod flag, so this
       # pulls the "preview" env and produces a preview (not live) deploy.
@@ -56,6 +58,34 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      # ── ENVIRONMENT GATE (layers 1 and 2) ──
+      # Both read the file `vercel pull` just wrote, so they check the exact values this
+      # deployment will run with — not the runner's own empty environment. They run BEFORE
+      # `vercel build`, so a misconfigured environment fails the PR check without producing a
+      # deployment at all.
+      #
+      # `vercel build` does its own isolated install, so this npm ci exists only to provide tsx
+      # and the connector SDKs to the two gate steps.
+      #
+      # --require-env-file is the anti-silent-no-op guard: if a Vercel CLI change ever moves the
+      # pulled file, these fail loudly instead of passing against nothing.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify environment configuration
+        run: npm run verify:deploy-env -- --environment=preview --require-env-file
+
+      # The placeholder base URL is needed for the same reason `vercel build` needs one: the probe
+      # import chain reaches db/client.ts, whose assertRuntimeEnv("web") runs at module load and
+      # refuses to start when no base URL resolves. Preview genuinely has none — Vercel injects it
+      # per-deployment from VERCEL_URL — so one is supplied here purely to let the module load.
+      # No probe reads it, and it is NOT supplied to the shape check above, which must see the
+      # real (absent) value rather than a placeholder that would pass its https rule.
+      - name: Verify connectors are reachable
+        env:
+          APP_BASE_URL: https://connector-probe.invalid
+        run: npm run connectors:status:live -- --environment=preview --require-env-file
 
       # `vercel build` runs here, not on Vercel, so Vercel's system variables
       # are absent — including VERCEL_URL, which is what resolves the base URL
@@ -88,13 +118,24 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
+      # Posted before the smoke test, and unconditionally, so a preview that deploys but fails its
+      # smoke still hands you the URL to look at — which is exactly when you want it.
       - name: Comment preview URL on the PR
+        if: always() && steps.deploy.outputs.url != ''
         env:
           GH_TOKEN: ${{ github.token }}
           PREVIEW_URL: ${{ steps.deploy.outputs.url }}
         run: |
           gh pr comment "${{ github.event.pull_request.number }}" \
             --body "🔎 **Preview deployed** for \`${{ github.sha }}\`: ${PREVIEW_URL}"
+
+      # ── ENVIRONMENT GATE (layer 3) ──
+      # The only check that exercises the deployed runtime, where Vercel injects the environment
+      # and a request is actually served. Layers 1 and 2 cannot see that far.
+      - name: Smoke test the preview deployment
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node scripts/deploy/smoke.mjs "${{ steps.deploy.outputs.url }}"
 
   # ── PRODUCTION: live deploy on merge to main (never on PRs). ──
   # Gated by the "production" GitHub Environment: a human reviewer must approve
@@ -126,6 +167,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       # ── WEB: VERCEL ──
       # Pull production settings/env, let `vercel build --prod` do its own
@@ -140,6 +183,27 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      # ── ENVIRONMENT GATE (layers 1 and 2) ──
+      # Checks the values `vercel pull` just wrote — the exact ones this deploy will run with —
+      # before anything is built or promoted. A bad value stops the job here, with production
+      # still serving the previous deployment.
+      #
+      # This gates the CONFIGURATION, which is all that can be gated before the fact: a check
+      # against a production deployment that does not exist yet is not possible. The running
+      # deployment is covered by the smoke test below, which detects rather than prevents;
+      # rolling back is `gh workflow run deploy.yml --ref <last-good-sha>`.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify environment configuration
+        run: npm run verify:deploy-env -- --environment=production --require-env-file
+
+      # No placeholder base URL here, unlike preview: production sets APP_BASE_URL for real, and
+      # the shape check above has already failed the job if it is absent or malformed. Supplying
+      # one would override the real value in the probe process and hide that.
+      - name: Verify connectors are reachable
+        run: npm run connectors:status:live -- --environment=production --require-env-file
 
       - name: Build (prebuilt output)
         run: vercel build --prod
@@ -170,3 +234,23 @@ jobs:
         run: |
           npm install --global @railway/cli
           railway up --ci --service worker
+
+      # ── ENVIRONMENT GATE (layer 3) ──
+      # Last, so it verifies the fully promoted system rather than a half-promoted one: web and
+      # worker go up in lockstep, and only then is the result checked.
+      #
+      # Aimed at the canonical apex rather than the deployment URL, because absolute URLs in
+      # emails and OAuth callbacks are built from APP_BASE_URL while next-auth cookies are
+      # host-only — the host users actually reach is part of what has to work. Read from the
+      # pulled env rather than hardcoded, so it cannot drift from what the app itself uses.
+      #
+      # This one DETECTS rather than prevents: nothing can test a deployment that does not exist
+      # yet. A red result here means roll back with
+      # `gh workflow run deploy.yml --ref <last-good-sha>`.
+      - name: Smoke test production
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          BASE_URL=$(node -e 'process.loadEnvFile(".vercel/.env.production.local"); process.stdout.write(process.env.APP_BASE_URL ?? "")')
+          test -n "$BASE_URL" || { echo "APP_BASE_URL is absent from the pulled production env"; exit 1; }
+          node scripts/deploy/smoke.mjs "$BASE_URL"
