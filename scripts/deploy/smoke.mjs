@@ -24,11 +24,13 @@ if (!baseUrl) {
   process.exit(1);
 }
 
-const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+// Trimmed because the value is pasted through two consoles on its way here, and a stray newline
+// would otherwise travel into an HTTP header.
+const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
 
-const requestHeaders = bypassSecret
-  ? { "x-vercel-protection-bypass": bypassSecret, "x-vercel-set-bypass-cookie": "true" }
-  : {};
+// x-vercel-set-bypass-cookie is deliberately NOT sent: it asks Vercel to set a cookie so later
+// browser requests bypass too, and this script makes one-shot requests that never reuse a session.
+const requestHeaders = bypassSecret ? { "x-vercel-protection-bypass": bypassSecret } : {};
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -41,6 +43,23 @@ const pass = (label, detail) => {
 const fail = (label, detail) => {
   failures += 1;
   console.log(`  FAIL  ${label.padEnd(22)} ${detail}`);
+};
+
+// `fetch` reports every transport problem as the same opaque "TypeError: fetch failed" and puts
+// the actual reason — DNS failure, TLS error, redirect loop — on `cause`. Reporting only the
+// message turns four distinct faults into one indistinguishable line, which is how a diagnosis
+// turns into a bisection.
+const describeError = (error) => {
+  const parts = [];
+  let current = error;
+
+  while (current) {
+    const code = current.code ? ` (${current.code})` : "";
+    parts.push(`${current.name ?? "Error"}: ${current.message ?? String(current)}${code}`);
+    current = current.cause instanceof Error ? current.cause : undefined;
+  }
+
+  return parts.join(" ← ");
 };
 
 const describeProtectionBlock = () =>
@@ -103,7 +122,7 @@ const checkHealth = async () => {
   const { response, body, transportError } = await fetchHealth();
 
   if (transportError) {
-    fail("health reachable", `${transportError.name}: ${transportError.message}`);
+    fail("health reachable", describeError(transportError));
     return;
   }
 
@@ -161,7 +180,7 @@ const checkHomepage = async () => {
       );
     }
   } catch (error) {
-    fail("homepage renders", `${error.name}: ${error.message}`);
+    fail("homepage renders", describeError(error));
   }
 };
 
