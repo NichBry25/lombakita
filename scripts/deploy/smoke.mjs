@@ -43,12 +43,36 @@ const fail = (label, detail) => {
   console.log(`  FAIL  ${label.padEnd(22)} ${detail}`);
 };
 
-const describeProtectionBlock = (status) =>
-  `HTTP ${status} — Vercel Deployment Protection is intercepting this request. ` +
-  "Set VERCEL_AUTOMATION_BYPASS_SECRET (Project Settings → Deployment Protection → " +
-  "Protection Bypass for Automation) or disable protection for this environment.";
+const describeProtectionBlock = () =>
+  "Vercel Deployment Protection is intercepting this request. Set " +
+  "VERCEL_AUTOMATION_BYPASS_SECRET (Project Settings → Deployment Protection → Protection " +
+  "Bypass for Automation, then add it as a GitHub secret) or disable protection for this " +
+  "environment.";
 
-const isProtectionBlock = (status) => status === 401;
+// Protection does NOT answer 401. It answers 302 to vercel.com/sso-api, and fetch follows that
+// to a 200 HTML login page — so status alone reports success on a request that never reached the
+// app. The reliable signal is where the redirect chain ended up: bounced onto vercel.com means
+// the deployment refused us. A same-site or apex redirect (www → apex is a real 308) is
+// unaffected, because only the vercel.com SSO host counts as a block.
+const SSO_HOST = "vercel.com";
+
+const isProtectionBlocked = (response) => {
+  if (response.status === 401) {
+    return true;
+  }
+
+  try {
+    const finalHost = new URL(response.url).hostname;
+
+    return finalHost === SSO_HOST || finalHost.endsWith(`.${SSO_HOST}`);
+  } catch {
+    return false;
+  }
+};
+
+// A 200 is not proof the app served the page — Vercel's own interstitials are 200s too. Asserting
+// on content is what makes this check mean something.
+const APP_MARKER = "lombakita";
 
 // A deployment that has only just been created can answer before it is routable, so transport
 // errors and gateway statuses are retried. A response the app itself produced — including a 503
@@ -83,8 +107,8 @@ const checkHealth = async () => {
     return;
   }
 
-  if (isProtectionBlock(response.status)) {
-    fail("health reachable", describeProtectionBlock(response.status));
+  if (isProtectionBlocked(response)) {
+    fail("health reachable", describeProtectionBlock());
     return;
   }
 
@@ -116,15 +140,25 @@ const checkHomepage = async () => {
   try {
     const response = await fetch(baseUrl, { headers: requestHeaders });
 
-    if (isProtectionBlock(response.status)) {
-      fail("homepage renders", describeProtectionBlock(response.status));
+    if (isProtectionBlocked(response)) {
+      fail("homepage renders", describeProtectionBlock());
       return;
     }
 
-    if (response.ok) {
-      pass("homepage renders", `HTTP ${response.status}`);
-    } else {
+    if (!response.ok) {
       fail("homepage renders", `HTTP ${response.status}`);
+      return;
+    }
+
+    const body = await response.text();
+
+    if (body.toLowerCase().includes(APP_MARKER)) {
+      pass("homepage renders", `HTTP ${response.status}, served by the app`);
+    } else {
+      fail(
+        "homepage renders",
+        `HTTP ${response.status} but the body carries no "${APP_MARKER}" marker — something other than the app answered`,
+      );
     }
   } catch (error) {
     fail("homepage renders", `${error.name}: ${error.message}`);
