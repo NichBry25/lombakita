@@ -33,6 +33,32 @@ that does not exist yet. A red smoke means roll back with
 On production the smoke runs **last**, after the Railway worker step, so web and worker promote in
 lockstep and the check sees the whole promoted system rather than half of one.
 
+## The Railway worker step
+
+`railway-worker-deploy.mjs` deploys the worker and reports the **build's** outcome. It replaced
+`railway up --ci`, which derives its exit code from the build-LOG STREAM and therefore exits 1 when
+it merely loses that connection — as it did on run #30923921869, where the build went on to succeed
+and the worker booted correctly while CI reported failure. **That is not cosmetic: because the step
+is upstream of the smoke, a false failure SKIPS the production smoke test entirely**, so a deploy
+ships unverified. It also trains an operator to wave through a red worker step, which is exactly
+when a real failure gets missed.
+
+The script detaches (`railway up --detach`) and polls `railway status --json`. Two details are
+load-bearing:
+
+- **The new deployment is identified by its id CHANGING**, never by reading "the latest one". A
+  poll issued before Railway registers the new deployment would otherwise read the PREVIOUS
+  deployment's terminal `SUCCESS` and report a deploy that never happened — the same
+  reports-success-does-nothing failure the rest of this gate exists to prevent.
+- **Every environment is walked**, rather than assuming which one the token is scoped to. A
+  project token may expose one environment or several; guessing would poll the wrong worker.
+
+A transient `railway status` failure is not treated as a deploy failure — it keeps polling to the
+15-minute deadline. On timeout it says the build may still be running and tells you to check the
+build-logs URL before redeploying, because a redeploy on top of a live build is how you get two.
+
+Build logs are still reachable at the URL `railway up` prints; only the streaming is gone.
+
 ## Running them by hand
 
 Against whatever is in `.env.local`:
