@@ -226,14 +226,21 @@ jobs:
       # job still reports success — a silent no-op that looks like a deploy.
       #
       # RAILWAY_TOKEN must be a project-scoped token carrying the worker's
-      # Railway project and environment; --service must match the service name.
+      # Railway project and environment; the service name must match Railway's.
+      #
+      # Deployed through a script rather than `railway up --ci`, which derives its
+      # exit code from the build-LOG STREAM and so exits 1 when it merely loses
+      # that connection. That happened on run #30923921869: the build went on to
+      # succeed and the worker booted correctly, while CI reported failure and
+      # SKIPPED the production smoke test below. The script detaches and polls
+      # Railway for the deployment's real status instead.
       - name: Deploy worker (Railway)
         if: env.HAS_RAILWAY_TOKEN == 'true'
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           npm install --global @railway/cli
-          railway up --ci --service worker
+          node scripts/deploy/railway-worker-deploy.mjs worker
 
       # ── ENVIRONMENT GATE (layer 3) ──
       # Last, so it verifies the fully promoted system rather than a half-promoted one: web and
