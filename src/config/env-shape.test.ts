@@ -20,6 +20,7 @@ const wellFormedEnv = (): Record<string, string> => ({
   R2_ACCESS_KEY_ID: "c".repeat(32),
   R2_SECRET_ACCESS_KEY: "d".repeat(64),
   RESEND_API_KEY: "re_abcdef123456",
+  AUTH_EMAIL_FROM: "noreply@auth.lombakita.com",
   APP_BASE_URL: "https://lombakita.com",
   AUTH_URL: "https://lombakita.com",
   NEXT_PUBLIC_APP_URL: "https://lombakita.com",
@@ -32,8 +33,10 @@ const wellFormedEnv = (): Record<string, string> => ({
 const errorsIn = (problems: DeployConfigProblem[]): DeployConfigProblem[] =>
   problems.filter((problem) => problem.severity === "error");
 
-const problemFor = (problems: DeployConfigProblem[], key: string): DeployConfigProblem | undefined =>
-  problems.find((problem) => problem.key === key);
+const problemFor = (
+  problems: DeployConfigProblem[],
+  key: string,
+): DeployConfigProblem | undefined => problems.find((problem) => problem.key === key);
 
 describe("findDeployConfigProblems", () => {
   it("reports nothing for a fully provisioned production environment", () => {
@@ -56,7 +59,10 @@ describe("findDeployConfigProblems", () => {
 
   // The Railway fault: a literal <account-id> that cleared every presence check.
   it("catches an unsubstituted angle-bracket placeholder", () => {
-    const env = { ...wellFormedEnv(), R2_ENDPOINT: "https://<account-id>.r2.cloudflarestorage.com" };
+    const env = {
+      ...wellFormedEnv(),
+      R2_ENDPOINT: "https://<account-id>.r2.cloudflarestorage.com",
+    };
 
     const problem = problemFor(findDeployConfigProblems(env, "production"), "R2_ENDPOINT");
 
@@ -102,6 +108,9 @@ describe("findDeployConfigProblems", () => {
     ["APP_BASE_URL", "https://lombakita.com/app"],
     ["AUTH_URL", "http://lombakita.com"],
     ["AUTH_SECRET", "too-short"],
+    ["AUTH_EMAIL_FROM", "noreply"],
+    ["AUTH_EMAIL_FROM", "noreply@localhost"],
+    ["AUTH_EMAIL_FROM", "noreply@auth.lombakita.com, ops@lombakita.com"],
   ])("rejects a malformed %s", (key, value) => {
     const problem = problemFor(
       findDeployConfigProblems({ ...wellFormedEnv(), [key]: value }, "production"),
@@ -110,6 +119,33 @@ describe("findDeployConfigProblems", () => {
 
     expect(problem?.severity).toBe("error");
     expect(problem?.problem).toContain("does not look like");
+  });
+
+  it.each([["noreply@auth.lombakita.com"], ["noreply@preview-auth.lombakita.com"]])(
+    "accepts %s as a sender",
+    (value) => {
+      const problems = findDeployConfigProblems(
+        { ...wellFormedEnv(), AUTH_EMAIL_FROM: value },
+        "production",
+      );
+
+      expect(problemFor(problems, "AUTH_EMAIL_FROM")).toBeUndefined();
+    },
+  );
+
+  // Resend accepts a display name, but the placeholder check owns angle brackets and runs first.
+  // Pinned so the interaction is a documented refusal rather than a surprise during a deploy.
+  it("refuses a display-name sender, as a placeholder rather than a shape failure", () => {
+    const problem = problemFor(
+      findDeployConfigProblems(
+        { ...wellFormedEnv(), AUTH_EMAIL_FROM: "Lombakita <noreply@auth.lombakita.com>" },
+        "production",
+      ),
+      "AUTH_EMAIL_FROM",
+    );
+
+    expect(problem?.severity).toBe("error");
+    expect(problem?.problem).toContain("placeholder");
   });
 
   it("treats a missing required key as an error", () => {
@@ -177,6 +213,7 @@ describe("findDeployConfigProblems", () => {
       "R2_ACCESS_KEY_ID",
       "R2_SECRET_ACCESS_KEY",
       "RESEND_API_KEY",
+      "AUTH_EMAIL_FROM",
       "APP_BASE_URL",
       "AUTH_URL",
       "NEXT_PUBLIC_APP_URL",

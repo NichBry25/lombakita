@@ -155,6 +155,24 @@ export const DEPLOY_ENV_KEY_SPECS: readonly DeployKeySpec[] = [
       accepts: (value) => /^re_[A-Za-z0-9_-]{10,}$/.test(value),
     },
   },
+  // Checked because the sender and the key must belong to the same Resend account, and preview and
+  // production now use different ones. A sender whose domain is not verified on that account fails
+  // every send with a 403 — invisible until someone tries to sign up. The shape is all this can
+  // catch; that the domain is actually verified is proven by sending to a Resend simulator address.
+  //
+  // BARE ADDRESS ONLY. Resend also accepts `Display Name <address@domain>`, but the generic
+  // placeholder check owns angle brackets and runs first, so that form is refused as an
+  // unsubstituted placeholder before this rule is reached. Both environments use the bare form;
+  // supporting the other one would mean exempting this key from the placeholder check, which trades
+  // a real guard for a format nothing uses.
+  {
+    key: "AUTH_EMAIL_FROM",
+    requiredIn: BOTH,
+    rule: {
+      expectation: "a bare email address, with no display name or angle brackets",
+      accepts: (value) => /^[^\s<>@]+@[^\s<>@.]+\.[^\s<>@]+$/.test(value),
+    },
+  },
   // Preview derives its base URL from VERCEL_URL per deployment, so an absent value there is
   // correct rather than missing. Production pins the canonical apex.
   {
