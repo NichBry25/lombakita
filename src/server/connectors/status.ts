@@ -42,6 +42,10 @@ export const getConnectorStatusPayload = async (
       configured: isDatabaseConfigured(),
       includeLiveChecks,
       probe: probeDatabase,
+      // The only connector that scales to zero, so the first connection after an idle period can
+      // exceed the client's 10s connect timeout while the compute wakes. A second attempt finds it
+      // awake. See the retries note on runConnectorProbe for the dual-stack half of the reason.
+      retries: 1,
     }),
     runConnectorProbe({
       name: "redis",

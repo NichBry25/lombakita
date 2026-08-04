@@ -9,9 +9,18 @@
  * --require-env-file to fail when that file is absent rather than silently checking an empty
  * environment.
  */
+import { setDefaultResultOrder } from "node:dns";
+
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/scripts/connectors-status");
+
+// Scoped to this script, deliberately NOT set app-wide. Neon publishes both A and AAAA records and
+// returns them in rotating order; Node tries them in the order given rather than preferring IPv4.
+// A GitHub runner has no IPv6 route and drops those packets silently, so an unlucky draw hangs
+// until the client's connect timeout instead of failing fast. Vercel and Railway both have working
+// IPv6 and would lose it for no benefit, which is why this belongs to the CI entry point only.
+setDefaultResultOrder("ipv4first");
 
 import {
   assertEnvFileLoaded,

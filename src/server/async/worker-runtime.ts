@@ -21,6 +21,7 @@ import {
 } from "@/server/async/observability";
 import { getQueueRegistrations, getRegisteredQueueNames } from "@/server/async/registry";
 import { registerRetentionPurgeSchedule } from "@/server/async/retention-scheduler";
+import { captureWorkerJobFailure } from "@/server/observability/worker-sentry";
 import { createBullmqRedisClient } from "@/server/redis/client";
 
 type QueueWorkerBundle = {
@@ -150,7 +151,18 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
           attemptsPlanned: resolvePlannedAttempts(job),
           errorMessage,
         });
+
+        return;
       }
+
+      captureWorkerJobFailure({
+        queueName,
+        jobName: toAsyncJobName(job.name),
+        jobId: job.id,
+        attemptsMade: job.attemptsMade,
+        attemptsPlanned: resolvePlannedAttempts(job),
+        error,
+      });
     });
 
     worker.on("error", (error) => {

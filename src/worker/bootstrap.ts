@@ -1,6 +1,7 @@
 import { assertRuntimeEnv, serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
 import { createAsyncWorkerRuntime } from "@/server/async/worker-runtime";
+import { initializeWorkerSentry } from "@/server/observability/worker-sentry";
 
 const bindSignalHandlers = (shutdown: (signal: NodeJS.Signals) => Promise<void>): void => {
   const supportedSignals: NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
@@ -14,6 +15,7 @@ const bindSignalHandlers = (shutdown: (signal: NodeJS.Signals) => Promise<void>)
 
 export const runWorkerBootstrap = async (): Promise<void> => {
   assertRuntimeEnv("worker");
+  initializeWorkerSentry();
 
   const runtime = createAsyncWorkerRuntime();
   let shuttingDown = false;
