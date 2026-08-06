@@ -18,6 +18,11 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { APP_ROLES, DEFAULT_APP_ROLE } from "@/lib/access/roles";
+import {
+  PAYMENT_EVENT_ACTOR_TYPES,
+  PAYMENT_EVENT_TYPES,
+  PAYMENT_SUBJECT_TYPES,
+} from "@/lib/finance/payment-model";
 
 export const appRoleEnum = pgEnum("app_role", APP_ROLES);
 
@@ -1660,6 +1665,240 @@ export type RecruiterVerificationSubmissionRecord =
   typeof recruiterVerificationSubmissions.$inferSelect;
 export type RecruiterVerificationDocumentRecord =
   typeof recruiterVerificationDocuments.$inferSelect;
+
+// ---------------------------------------------------------------------------------------------
+// Finance domain.
+//
+// THE PLATFORM NEVER CUSTODIES FUNDS (DEC-0130). A payer pays into the institution's own gateway
+// sub-account and the platform fee splits at transaction time, so no Lombakita-controlled balance
+// ever exists. Every row below answers "what happened", never "what does the platform hold" —
+// there is deliberately no balance table, no payout-owed table, and no unclaimed-funds concept,
+// and no column here may ever acquire that meaning.
+//
+// THE LEDGER IS APPEND-ONLY (DEC-0133). `finance_payment_events` rows are INSERTed and never
+// UPDATEd or DELETEd; a correction is a compensating event and a refund is a reversing event.
+// Enforced at the service layer, following the house convention of `platform_ops_audit_logs` and
+// `institution_audit_logs` — no database triggers or rules, which this codebase uses nowhere.
+//
+// MONEY IS INTEGER MINOR UNITS, always paired with an ISO-4217 currency. `bigint` rather than
+// `integer`: a realistic IDR gross approaches the 32-bit ceiling (int4 tops out at 2,147,483,647,
+// which is only Rp 2,1 miliar), and a silent overflow in a financial column is unrecoverable.
+// Read as JS `number` (mode: "number"), safe to 2^53 ≈ Rp 9 quadriliun. The exponent convention
+// is documented once, in `@/lib/finance/money`.
+// ---------------------------------------------------------------------------------------------
+
+export const financePaymentSubjectEnum = pgEnum("finance_payment_subject", PAYMENT_SUBJECT_TYPES);
+
+export const financePaymentEventTypeEnum = pgEnum("finance_payment_event_type", PAYMENT_EVENT_TYPES);
+
+export const financePaymentEventActorEnum = pgEnum(
+  "finance_payment_event_actor",
+  PAYMENT_EVENT_ACTOR_TYPES,
+);
+
+// Effective-dated platform fee rules. `institution_id` NULL is the global default; a non-null row
+// overrides it for that institution over its own effective window.
+//
+// Rows are configuration, not money — but a payment snapshots the terms it was priced under and
+// keeps a provenance pointer here, so a rule that has priced anything must survive. Hence NO ACTION
+// (no cascade, no set-null) on every finance foreign key: the delete is refused, and nothing in
+// this domain disappears because a neighbouring row did.
+export const financeFeeRules = pgTable(
+  "finance_fee_rules",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    // NULL = the platform-wide default rule.
+    institutionId: text("institution_id").references(() => institutions.id),
+    currency: text("currency").notNull(),
+    // Proportional component, 1/100th of a percent. 250 = 2,5%.
+    basisPoints: integer("basis_points").notNull().default(0),
+    // Fixed component in minor units, charged on top of the proportional one.
+    flatAmount: bigint("flat_amount", { mode: "number" }).notNull().default(0),
+    minimumFeeAmount: bigint("minimum_fee_amount", { mode: "number" }),
+    maximumFeeAmount: bigint("maximum_fee_amount", { mode: "number" }),
+    effectiveFrom: timestamp("effective_from", { mode: "date", withTimezone: true }).notNull(),
+    // NULL = open-ended.
+    effectiveTo: timestamp("effective_to", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("finance_fee_rules_scope_effective_idx").on(table.institutionId, table.effectiveFrom),
+    check("finance_fee_rules_currency_chk", sql`${table.currency} ~ '^[A-Z]{3}$'`),
+    check(
+      "finance_fee_rules_basis_points_chk",
+      sql`${table.basisPoints} >= 0 AND ${table.basisPoints} <= 10000`,
+    ),
+    check("finance_fee_rules_flat_amount_chk", sql`${table.flatAmount} >= 0`),
+    check(
+      "finance_fee_rules_bounds_chk",
+      sql`(${table.minimumFeeAmount} IS NULL OR ${table.minimumFeeAmount} >= 0) AND (${table.maximumFeeAmount} IS NULL OR ${table.maximumFeeAmount} >= 0) AND (${table.minimumFeeAmount} IS NULL OR ${table.maximumFeeAmount} IS NULL OR ${table.minimumFeeAmount} <= ${table.maximumFeeAmount})`,
+    ),
+    check(
+      "finance_fee_rules_window_chk",
+      sql`${table.effectiveTo} IS NULL OR ${table.effectiveTo} > ${table.effectiveFrom}`,
+    ),
+  ],
+);
+
+// One row per payment. Immutable after creation — it carries no status column (state is folded
+// from `finance_payment_events`) and nothing in the service layer updates it.
+//
+// `receiving_institution_id` is NOT NULL by design (DEC-0130): a payment that cannot name who
+// receives the money is a payment the platform would implicitly be holding, which is the exact
+// concept this schema must be unable to express.
+//
+// THE FEE SNAPSHOT IS STRUCTURAL, NOT AN ADD-ON. `fee_basis_points`, `fee_flat_amount`,
+// `platform_fee_amount`, `institution_net_amount`, `gross_amount` and `currency` are written at
+// creation and never recomputed. Changing a fee rule next month must not restate what a payment
+// recorded last month; `fee_rule_id` records only WHICH rule priced it, and is never re-read to
+// derive a figure.
+export const financePayments = pgTable(
+  "finance_payments",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    payerUserId: text("payer_user_id").notNull(),
+    receivingInstitutionId: text("receiving_institution_id").notNull(),
+    subjectType: financePaymentSubjectEnum("subject_type").notNull(),
+    // One nullable real foreign key per subject type. A new subject type adds its own column
+    // here and widens the XOR CHECK below in the same migration.
+    competitionRegistrationId: text("competition_registration_id"),
+    currency: text("currency").notNull(),
+    grossAmount: bigint("gross_amount", { mode: "number" }).notNull(),
+    // --- fee snapshot ---
+    feeRuleId: text("fee_rule_id").notNull(),
+    feeBasisPoints: integer("fee_basis_points").notNull(),
+    feeFlatAmount: bigint("fee_flat_amount", { mode: "number" }).notNull(),
+    platformFeeAmount: bigint("platform_fee_amount", { mode: "number" }).notNull(),
+    institutionNetAmount: bigint("institution_net_amount", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    // Foreign keys are named explicitly: Drizzle's generated names concatenate both table names
+    // and would exceed Postgres's 63-character identifier limit here, where they truncate silently
+    // and then diverge from this file.
+    foreignKey({
+      columns: [table.payerUserId],
+      foreignColumns: [users.id],
+      name: "finance_payments_payer_user_id_fk",
+    }),
+    foreignKey({
+      columns: [table.receivingInstitutionId],
+      foreignColumns: [institutions.id],
+      name: "finance_payments_receiving_institution_id_fk",
+    }),
+    foreignKey({
+      columns: [table.competitionRegistrationId],
+      foreignColumns: [competitionRegistrations.id],
+      name: "finance_payments_competition_registration_id_fk",
+    }),
+    foreignKey({
+      columns: [table.feeRuleId],
+      foreignColumns: [financeFeeRules.id],
+      name: "finance_payments_fee_rule_id_fk",
+    }),
+    index("finance_payments_receiving_institution_id_idx").on(table.receivingInstitutionId),
+    index("finance_payments_payer_user_id_idx").on(table.payerUserId),
+    // NOT unique, deliberately. Capping a registration to one live payment is a cross-row count
+    // race whose correct mechanism is the per-owner advisory lock convention (DEC-0099), and whose
+    // semantics — what counts as live, and what a second attempt after a failure means — belong to
+    // the checkout flow that will own them. Duplicate payments per registration are unconstrained
+    // until then; half-building the cap here would look like a guard without being one.
+    index("finance_payments_competition_registration_id_idx").on(table.competitionRegistrationId),
+    // Exactly one subject key, agreeing with subject_type. One arm per subject type today; adding
+    // a subject adds its own arm, which must assert its key non-null AND every other subject key
+    // null.
+    check(
+      "finance_payments_subject_xor_chk",
+      sql`(${table.subjectType} = 'competition_registration' AND ${table.competitionRegistrationId} IS NOT NULL)`,
+    ),
+    check("finance_payments_currency_chk", sql`${table.currency} ~ '^[A-Z]{3}$'`),
+    check("finance_payments_gross_amount_chk", sql`${table.grossAmount} >= 0`),
+    check(
+      "finance_payments_fee_snapshot_chk",
+      sql`${table.feeBasisPoints} >= 0 AND ${table.feeBasisPoints} <= 10000 AND ${table.feeFlatAmount} >= 0 AND ${table.platformFeeAmount} >= 0 AND ${table.institutionNetAmount} >= 0`,
+    ),
+    // The split has to add up, in the database, forever. A fee larger than the gross would mean an
+    // institution owing money on a sale it made.
+    check(
+      "finance_payments_split_balance_chk",
+      sql`${table.platformFeeAmount} + ${table.institutionNetAmount} = ${table.grossAmount}`,
+    ),
+  ],
+);
+
+// The append-only ledger. INSERT ONLY: no service function updates or deletes a row here, and a
+// test asserts that no such function exists. The payment FK carries no ON DELETE action, so
+// deleting a payment that has events is refused and an event can never be orphaned.
+export const financePaymentEvents = pgTable(
+  "finance_payment_events",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    paymentId: text("payment_id").notNull(),
+    eventType: financePaymentEventTypeEnum("event_type").notNull(),
+    // When it happened, per the source of truth (a gateway callback carries its own instant).
+    occurredAt: timestamp("occurred_at", { mode: "date", withTimezone: true }).notNull(),
+    // When we wrote it down. Distinct from occurred_at because the gap between the two is itself
+    // diagnostic — a webhook replayed hours late is a different situation from one handled live.
+    recordedAt: timestamp("recorded_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    // Monetary events carry both; non-monetary events carry neither (CHECK enforces the pairing).
+    amount: bigint("amount", { mode: "number" }),
+    currency: text("currency"),
+    actorType: financePaymentEventActorEnum("actor_type").notNull(),
+    actorUserId: text("actor_user_id"),
+    // Required for the two event types that restate already-recorded money.
+    reason: text("reason"),
+    metadata: jsonb("metadata"),
+    // The replay guard, enforced by the unique index below — NOT by a read-then-insert check,
+    // which cannot close the race it appears to close.
+    idempotencyKey: text("idempotency_key").notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.paymentId],
+      foreignColumns: [financePayments.id],
+      name: "finance_payment_events_payment_id_fk",
+    }),
+    foreignKey({
+      columns: [table.actorUserId],
+      foreignColumns: [users.id],
+      name: "finance_payment_events_actor_user_id_fk",
+    }),
+    uniqueIndex("finance_payment_events_idempotency_key_idx").on(table.idempotencyKey),
+    // The fold's read path: every event for one payment, in canonical order.
+    index("finance_payment_events_payment_occurred_idx").on(table.paymentId, table.occurredAt),
+    check(
+      "finance_payment_events_amount_currency_chk",
+      sql`(${table.amount} IS NULL AND ${table.currency} IS NULL) OR (${table.amount} IS NOT NULL AND ${table.currency} IS NOT NULL AND ${table.currency} ~ '^[A-Z]{3}$')`,
+    ),
+    // Only a correction may be negative — it is the only way an append-only table can walk back an
+    // over-recorded figure.
+    check(
+      "finance_payment_events_amount_sign_chk",
+      sql`${table.amount} IS NULL OR ${table.amount} >= 0 OR ${table.eventType} = 'corrected'`,
+    ),
+    check(
+      "finance_payment_events_reason_required_chk",
+      sql`${table.eventType} NOT IN ('refunded', 'corrected') OR (${table.reason} IS NOT NULL AND btrim(${table.reason}) <> '')`,
+    ),
+    // A named human is required for, and only for, a 'user' event.
+    check(
+      "finance_payment_events_actor_chk",
+      sql`(${table.actorType} = 'user' AND ${table.actorUserId} IS NOT NULL) OR (${table.actorType} <> 'user' AND ${table.actorUserId} IS NULL)`,
+    ),
+  ],
+);
+
+export type FinanceFeeRuleRecord = typeof financeFeeRules.$inferSelect;
+export type FinancePaymentRecord = typeof financePayments.$inferSelect;
+export type FinancePaymentEventRecord = typeof financePaymentEvents.$inferSelect;
 
 // Non-domain bootstrap table for validating migration workflow only.
 export const infrastructureProbe = pgTable("infrastructure_probe", {
