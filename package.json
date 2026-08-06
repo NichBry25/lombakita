@@ -26,6 +26,7 @@
     "env:check:worker": "node --import tsx src/server/scripts/validate-env.ts --runtime=worker",
     "env:check": "node --import tsx src/server/scripts/validate-env.ts --runtime=web",
     "verify:concurrency": "for f in scripts/verify-owner-cap-concurrency.ts scripts/concurrency/*.ts; do case \"$f\" in *harness.ts) continue ;; esac; echo \"→ $f\"; node --import tsx \"$f\" || exit 1; done",
+    "verify:finance": "node --import tsx scripts/finance/verify-payment-ledger.ts",
     "verify:contrast-selftest": "node scripts/testing/contrast-audit-selftest.mjs",
     "verify:deploy-env": "node --import tsx src/server/scripts/verify-deploy-env.ts",
     "verify:deploy-smoke": "node scripts/deploy/smoke.mjs"
