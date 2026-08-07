@@ -183,3 +183,57 @@ export const consumeSingleUseToken = async (params: {
     throw error;
   }
 };
+
+// Lua script for an atomic "read the value, then delete the key" — Redis GETDEL (6.2+) expressed
+// portably, since this project's target Redis version is not pinned. A plain GET-then-DEL from the
+// client has a window where two concurrent callers can both read the value before either deletes
+// it, which defeats single-use; EVAL runs the whole thing as one atomic operation on the server.
+const GET_AND_DELETE_SCRIPT = `
+local v = redis.call('GET', KEYS[1])
+if v then redis.call('DEL', KEYS[1]) end
+return v
+`;
+
+// Stores a single-use, short-lived grant: `key` maps to `value` for `ttlSeconds`, then expires on
+// its own if never consumed. Fail-CLOSED, matching consumeSingleUseToken: this backs the MFA
+// elevation grant (server/auth/mfa/mfa-elevation.ts), and if the grant cannot be POSITIVELY
+// confirmed stored, the caller must not tell the operator they are one step from being elevated —
+// the operation is refused and the challenge can be retried.
+export const issueStoredGrant = async (params: {
+  key: string;
+  value: string;
+  ttlSeconds: number;
+}): Promise<void> => {
+  if (!serverEnv.redisUrl) {
+    throw new Error("stored-grant issue unavailable: REDIS_URL not configured");
+  }
+
+  try {
+    await runRedisCommand(async (redis) => {
+      await redis.set(params.key, params.value, "EX", Math.max(1, params.ttlSeconds));
+    });
+  } catch (error) {
+    reportRedisDegradation("stored-grant-issue", error);
+    throw error;
+  }
+};
+
+// Atomically reads and deletes a grant written by issueStoredGrant. Returns the stored value on
+// first consume, or null when the key never existed or was already consumed (replay). Fail-CLOSED:
+// a Redis error here must not be read as "grant valid" or "grant invalid" — it is reported and
+// re-thrown so the caller refuses the elevation outright.
+export const consumeStoredGrant = async (key: string): Promise<string | null> => {
+  if (!serverEnv.redisUrl) {
+    throw new Error("stored-grant consume unavailable: REDIS_URL not configured");
+  }
+
+  try {
+    return await runRedisCommand(async (redis) => {
+      const result = await redis.eval(GET_AND_DELETE_SCRIPT, 1, key);
+      return typeof result === "string" ? result : null;
+    });
+  } catch (error) {
+    reportRedisDegradation("stored-grant-consume", error);
+    throw error;
+  }
+};

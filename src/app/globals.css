@@ -877,6 +877,16 @@ svg {
   gap: var(--space-2);
 }
 
+/* Divides a form into stages — "set this up" above, "now prove it" below. A real <hr>, so the
+   break is announced rather than being a line only sighted users get. */
+.form-separator {
+  width: 100%;
+  height: 0;
+  margin: var(--space-0);
+  border: 0;
+  border-block-start: var(--border-thin) solid var(--color-line-soft);
+}
+
 .form-label {
   color: var(--color-ink-soft);
   font-size: var(--text-meta);
@@ -5662,6 +5672,76 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   font-family: var(--font-data);
   font-size: var(--text-meta);
   line-height: var(--leading-body);
+}
+
+/* One of the two labelled ways to register the authenticator key. */
+.mfa-method {
+  display: grid;
+  gap: var(--space-3);
+}
+
+/* A real h2, sized down to a label: the A/B split is document structure, so it should be
+   navigable by heading, but it must not compete with the page's own display heading. */
+.mfa-method-title {
+  margin: var(--space-0);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: var(--text-meta);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-body);
+}
+
+/* A secondary route within a method, subordinate to the thing above it. Holds the 44px target as a
+   block, since it is a full-width line of text rather than a word inside a sentence. */
+.mfa-method-link {
+  display: flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  color: var(--color-ink-soft);
+  font-size: var(--text-meta);
+  line-height: var(--leading-body);
+}
+
+/* The key and its copy control on one line, so the control belongs to the value it copies rather
+   than floating beneath the container as a separate decision. */
+.mfa-key {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border: var(--border-thin) solid var(--color-line-soft);
+  border-radius: var(--radius-input);
+  background: var(--color-inset);
+}
+
+.mfa-key-value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-ink-soft);
+  font-family: var(--font-data);
+  font-size: var(--text-meta);
+  line-height: var(--leading-body);
+}
+
+/* The QR itself must stay pure black on white to decode reliably, so the white plate is part of the
+   image and does not follow the theme. The frame around it does. */
+.mfa-qr {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4);
+  border: var(--border-thin) solid var(--color-line-soft);
+  border-radius: var(--radius-input);
+  background: var(--color-inset);
+}
+
+/* Deliberately unrounded. The white quiet zone is part of the PNG and the three corner finder
+   patterns sit close to it, so any corner radius eats the very pixels a scanner locks onto. */
+.mfa-qr img {
+  width: 240px;
+  max-width: 100%;
+  height: auto;
+  border-radius: 0;
 }
 
 .participants-table,

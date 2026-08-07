@@ -17,6 +17,9 @@ import {
   OAUTH_FINALIZE_PROVIDER_ID,
   resolveGoogleOAuthSignIn,
 } from "@/server/auth/oauth-account";
+import { consumeMfaElevationGrant } from "@/server/auth/mfa/mfa-elevation";
+import { hasVerifiedMfaFactorSql } from "@/server/auth/mfa/mfa-factor-sql";
+import { resolveMfaStatus } from "@/server/auth/mfa/mfa-status";
 import {
   clearFailedAttempts,
   isFailedAttemptLimited,
@@ -113,14 +116,29 @@ const sanitizeVerifiedRoles = (value: unknown): AppRole[] => {
 // `role` is typed nullable even though users.role is NOT NULL, so an out-of-band write or a future
 // schema change that admits a null can only ever produce a roleless session, never a coerced one.
 type LiveAccountState =
-  | { status: "found"; role: string | null; suspendedAt: Date | null }
+  | {
+      status: "found";
+      role: string | null;
+      suspendedAt: Date | null;
+      // Read in the SAME indexed-PK SELECT as role/suspendedAt: `mfaInvalidatedAt` is
+      // one extra projected column on `users` (the DEC-0112 precedent), and `hasVerifiedMfaFactor`
+      // is a correlated EXISTS subquery rather than a join — same shape as
+      // institutionOwnerAvatarKeySql elsewhere in this codebase. This stays ONE SELECT.
+      mfaInvalidatedAt: Date | null;
+      hasVerifiedMfaFactor: boolean;
+    }
   | { status: "missing" }
   | { status: "unavailable" };
 
 const loadLiveAccountState = async (userId: string): Promise<LiveAccountState> => {
   try {
     const [row] = await getDb()
-      .select({ role: users.role, suspendedAt: users.suspendedAt })
+      .select({
+        role: users.role,
+        suspendedAt: users.suspendedAt,
+        mfaInvalidatedAt: users.mfaInvalidatedAt,
+        hasVerifiedMfaFactor: hasVerifiedMfaFactorSql,
+      })
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
@@ -129,7 +147,13 @@ const loadLiveAccountState = async (userId: string): Promise<LiveAccountState> =
       return { status: "missing" };
     }
 
-    return { status: "found", role: row.role, suspendedAt: row.suspendedAt };
+    return {
+      status: "found",
+      role: row.role,
+      suspendedAt: row.suspendedAt,
+      mfaInvalidatedAt: row.mfaInvalidatedAt,
+      hasVerifiedMfaFactor: row.hasVerifiedMfaFactor,
+    };
   } catch (error) {
     logger.error("auth.liveAccountState.load_failed", {
       userId,
@@ -420,12 +444,39 @@ export const authOptions: NextAuthOptions = {
         ) {
           token.secondRolePromptDismissed = true;
         }
+
+        // MFA elevation. The client NEVER asserts an `mfaVerified` boolean — it passes
+        // only an opaque grant id, minted server-side by the challenge/enrol-confirm routes AFTER a
+        // TOTP or recovery code has already been verified. The ONLY trust decision made here is
+        // whether consuming that id (a fail-closed, single-use Redis GETDEL) returns THIS token's
+        // own userId. A forged `update({ mfaElevationGrant: "anything" })` with no real grant behind
+        // it consumes nothing and elevates nothing — `consumeMfaElevationGrant` returns null for a
+        // missing/expired/already-consumed id, and any exception (Redis unavailable) is caught and
+        // also elevates nothing, matching the fail-closed posture the rest of this gate depends on.
+        const elevationGrant = (session as { mfaElevationGrant?: unknown } | null)?.mfaElevationGrant;
+        if (typeof elevationGrant === "string" && elevationGrant.length > 0) {
+          try {
+            const grantedUserId = await consumeMfaElevationGrant(elevationGrant);
+            if (grantedUserId && grantedUserId === token.sub) {
+              token.mfaVerifiedAt = Math.floor(Date.now() / 1000);
+            }
+          } catch (error) {
+            logger.warn("auth.mfa.elevation_grant_consume_failed", {
+              userId: token.sub,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
       }
 
       // Fresh sign-in mints a new JWT — explicitly clear any carried dismissal so a previous
       // login session's "Skip for now" does not silently suppress the prompt on the next login.
+      // `mfaVerifiedAt` is cleared for the identical reason: an operational account must re-
+      // challenge on every new sign-in, whichever provider was used — a prior session's elevation
+      // must never carry into a fresh one.
       if (user) {
         delete token.secondRolePromptDismissed;
+        delete token.mfaVerifiedAt;
       }
 
       return token;
@@ -467,6 +518,20 @@ export const authOptions: NextAuthOptions = {
       }
 
       session.user.verifiedRoles = sanitizeVerifiedRoles(token?.verifiedRoles);
+
+      // Recomputed on every session resolution from the SAME live read as role and
+      // suspension — never cached beyond this request. `effectiveRole` (not the raw token role) is
+      // what decides applicability, so an operational role whose live read failed and fell back to
+      // "no role at all" (resolveEffectiveRole's fail-closed branch) correctly reads
+      // not_applicable here too: normalizeSessionRole already rejects a roleless session before any
+      // role gate is reached, so this fold does not need to reproduce that rejection.
+      session.user.mfaStatus = resolveMfaStatus({
+        role: effectiveRole,
+        hasVerifiedFactor: account.status === "found" ? account.hasVerifiedMfaFactor : false,
+        mfaInvalidatedAt: account.status === "found" ? account.mfaInvalidatedAt : null,
+        tokenMfaVerifiedAtSeconds:
+          typeof token?.mfaVerifiedAt === "number" ? token.mfaVerifiedAt : undefined,
+      });
 
       // Surface the session-scoped dismissal flag so server components can decide
       // whether to render the post-login interstitial without an extra DB round-trip.

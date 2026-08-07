@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
-import { requireAuthenticatedSession } from "@/server/auth/session";
+import { requireSessionRole } from "@/server/auth/session";
 import {
   parseVerifyInput,
   VerificationError,
@@ -12,7 +12,7 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   try {
-    const session = await requireAuthenticatedSession();
+    const session = await requireSessionRole(["platform_ops"]);
     const { id } = await context.params;
 
     let body: unknown;

@@ -210,6 +210,26 @@ export const DEPLOY_ENV_KEY_SPECS: readonly DeployKeySpec[] = [
   // it twice would put the same knowledge in two places. Listed so absence is reported.
   { key: "SENTRY_DSN", requiredIn: NEITHER },
   { key: "NEXT_PUBLIC_SENTRY_DSN", requiredIn: NEITHER },
+  // AES-256-GCM key encrypting platform_ops/finance_ops TOTP secrets at rest — web
+  // runtime only, never read by the Railway worker. Required in BOTH environments from day one:
+  // unlike R2/Meilisearch/Resend, there is no local-development carve-out for this key, because an
+  // absent key does not degrade a feature gracefully — it blocks every operational account from
+  // ever reaching an admin surface. Shape check catches the same wrong-length mistake the probe's
+  // round trip also catches, but cheaply and before any live check runs.
+  {
+    key: "MFA_SECRET_ENCRYPTION_KEY",
+    requiredIn: BOTH,
+    rule: {
+      expectation: "32 raw bytes, base64-encoded (44 characters, base64 padding included)",
+      accepts: (value) => {
+        try {
+          return Buffer.from(value, "base64").length === 32;
+        } catch {
+          return false;
+        }
+      },
+    },
+  },
 ];
 
 const PLACEHOLDER_PATTERNS: readonly RegExp[] = [

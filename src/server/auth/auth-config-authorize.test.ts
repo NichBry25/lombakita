@@ -58,6 +58,10 @@ vi.mock("@/server/db/schema", () => ({
   accounts: {},
   sessions: {},
   verificationTokens: {},
+  // Step 7.1-MFA: auth.config.ts's loadLiveAccountState builds a correlated EXISTS subquery
+  // referencing mfaFactors.userId/verifiedAt. A full-replacement schema mock without this key
+  // throws "Cannot read properties of undefined" the moment the session callback runs.
+  mfaFactors: { userId: "user_id", verifiedAt: "verified_at" },
   // Reached transitively via oauth-account → candidate-profile-core, which reads .enumValues
   // at module load.
   candidateOccupationEnum: {

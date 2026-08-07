@@ -28,6 +28,7 @@ const wellFormedEnv = (): Record<string, string> => ({
   GOOGLE_CLIENT_SECRET: "GOCSPX-abcdefghijklmnop",
   SENTRY_DSN: "https://key@o1.ingest.sentry.io/2",
   NEXT_PUBLIC_SENTRY_DSN: "https://key@o1.ingest.sentry.io/2",
+  MFA_SECRET_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
 });
 
 const errorsIn = (problems: DeployConfigProblem[]): DeployConfigProblem[] =>
@@ -199,6 +200,15 @@ describe("findDeployConfigProblems", () => {
     ]);
   });
 
+  it("catches an MFA_SECRET_ENCRYPTION_KEY that does not decode to 32 bytes", () => {
+    const env = { ...wellFormedEnv(), MFA_SECRET_ENCRYPTION_KEY: Buffer.alloc(16).toString("base64") };
+
+    const problem = problemFor(findDeployConfigProblems(env, "production"), "MFA_SECRET_ENCRYPTION_KEY");
+
+    expect(problem?.severity).toBe("error");
+    expect(problem?.problem).toContain("32 raw bytes");
+  });
+
   // A gate that inspects nothing passes everything. This pins the inspected set so a spec deleted
   // by accident fails here rather than silently narrowing the gate.
   it("inspects every key the deployed web runtime depends on", () => {
@@ -221,6 +231,7 @@ describe("findDeployConfigProblems", () => {
       "GOOGLE_CLIENT_SECRET",
       "SENTRY_DSN",
       "NEXT_PUBLIC_SENTRY_DSN",
+      "MFA_SECRET_ENCRYPTION_KEY",
     ]);
   });
 });

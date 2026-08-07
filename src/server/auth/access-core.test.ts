@@ -133,6 +133,99 @@ describe("access-core", () => {
   });
 });
 
+// Step 7.1-MFA choke point #1 of 2 (the other is requireRolePage, page-guard.test.ts). This is the
+// API-side half of the "confined session" guard-removal proof: an operational session that passes
+// sessionHasRole must still be refused by assertSessionRole until mfaStatus is satisfied.
+describe("assertSessionRole — MFA gate", () => {
+  it("throws mfa_enrolment_required for an operational role with no verified factor", () => {
+    const session = assertAuthenticatedSession(
+      buildSession({
+        user: { id: "ops_1", role: "platform_ops", mfaStatus: "enrolment_required" } as Session["user"],
+      }),
+    );
+
+    try {
+      assertSessionRole(session, ["platform_ops"]);
+      throw new Error("expected AccessError");
+    } catch (e) {
+      expect(e).toBeInstanceOf(AccessError);
+      expect((e as AccessError).code).toBe("mfa_enrolment_required");
+      expect((e as AccessError).status).toBe(403);
+    }
+  });
+
+  it("throws mfa_challenge_required for an operational role with a stale or absent claim", () => {
+    const session = assertAuthenticatedSession(
+      buildSession({
+        user: { id: "ops_1", role: "finance_ops", mfaStatus: "challenge_required" } as Session["user"],
+      }),
+    );
+
+    expect(() => assertSessionRole(session, ["finance_ops"])).toThrowError(AccessError);
+    try {
+      assertSessionRole(session, ["finance_ops"]);
+    } catch (e) {
+      expect((e as AccessError).code).toBe("mfa_challenge_required");
+    }
+  });
+
+  // GUARD-REMOVAL PROOF target, together with the two throwing cases above: deleting
+  // assertMfaSatisfiedForOperationalSession's call site makes every one of these three tests
+  // indistinguishable — the two "required" cases would stop throwing.
+  it("allows an operational role once mfaStatus is satisfied", () => {
+    const session = assertAuthenticatedSession(
+      buildSession({
+        user: { id: "ops_1", role: "platform_ops", mfaStatus: "satisfied" } as Session["user"],
+      }),
+    );
+
+    expect(() => assertSessionRole(session, ["platform_ops"])).not.toThrow();
+  });
+
+  it("never gates a self-service role on mfaStatus, even if the field were somehow set", () => {
+    const session = assertAuthenticatedSession(
+      buildSession({
+        user: {
+          id: "cand_1",
+          role: "candidate",
+          verifiedRoles: ["candidate"],
+          mfaStatus: "enrolment_required",
+        } as Session["user"],
+      }),
+    );
+
+    expect(() => assertSessionRole(session, ["candidate"])).not.toThrow();
+  });
+
+  it("covers reviewer_or_judge by the isSelfServiceRole negation, not a role literal", () => {
+    const session = assertAuthenticatedSession(
+      buildSession({
+        user: {
+          id: "rev_1",
+          role: "reviewer_or_judge",
+          mfaStatus: "enrolment_required",
+        } as Session["user"],
+      }),
+    );
+
+    try {
+      assertSessionRole(session, ["reviewer_or_judge"]);
+      throw new Error("expected AccessError");
+    } catch (e) {
+      expect((e as AccessError).code).toBe("mfa_enrolment_required");
+    }
+  });
+
+  it("defaults an absent mfaStatus (a pre-existing test fixture) to not_applicable", () => {
+    const session = assertAuthenticatedSession(
+      buildSession({ user: { id: "ops_1", role: "platform_ops" } as Session["user"] }),
+    );
+
+    expect(session.user.mfaStatus).toBe("not_applicable");
+    expect(() => assertSessionRole(session, ["platform_ops"])).not.toThrow();
+  });
+});
+
 describe("normalizeSessionRole — Rollback Step 1.3 fail-clean behaviour", () => {
   it.each(["candidate", "recruiter", "reviewer_or_judge", "platform_ops", "finance_ops"] as const)(
     "accepts %s as a valid user-level role",

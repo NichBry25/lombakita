@@ -12,7 +12,7 @@
  *
  * Usage: node --import tsx scripts/seed-test-matrix.ts
  */
-import { createHash, scrypt } from "crypto";
+import { createCipheriv, createHash, randomBytes, scrypt } from "crypto";
 import { promisify } from "util";
 import { readFileSync } from "fs";
 import { resolve } from "path";
@@ -90,6 +90,11 @@ const main = async (): Promise<void> => {
       // Operational account: candidate_verified_at is the users_one_verified_role_chk
       // satisfier only (migration-0015 carve-out) — deliberately NO candidate_profiles row.
       { id: "seed-user-ops", name: "Ops Seed", email: EMAIL("seed.ops"), emailVerified: d(-100), role: "platform_ops", username: "seed_ops", candAt: d(-100), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
+      // The three MFA states an operational account can be in (Step 7.1-MFA). `seed-user-ops` is
+      // the working operator and carries a verified factor, so every existing /admin surface stays
+      // reachable once the harness elevates its session; these two sit permanently in the gate.
+      { id: "seed-user-ops-enrol", name: "Ops Belum Enrol", email: EMAIL("seed.ops.enrol"), emailVerified: d(-100), role: "platform_ops", username: "seed_ops_enrol", candAt: d(-100), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
+      { id: "seed-user-ops-chal", name: "Ops Perlu Tantangan", email: EMAIL("seed.ops.chal"), emailVerified: d(-100), role: "platform_ops", username: "seed_ops_chal", candAt: d(-100), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
       { id: "seed-user-susp", name: "Sari Utami", email: EMAIL("seed.susp"), emailVerified: d(-40), role: "candidate", username: "seed_susp", candAt: d(-40), recAt: null, tier: "unverified", suspendedAt: d(-1), suspensionReason: "Pelanggaran ketentuan (data uji)" },
       { id: "seed-user-unver", name: "Udin Baru", email: EMAIL("seed.unver"), emailVerified: null, role: "candidate", username: "seed_unver", candAt: d(-1), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
     ];
@@ -121,6 +126,42 @@ const main = async (): Promise<void> => {
         ON CONFLICT (user_id) DO UPDATE SET display_name = EXCLUDED.display_name, updated_at = now()
       `;
     }
+
+    // MFA factors (Step 7.1-MFA). Two of the three operational accounts carry a VERIFIED factor;
+    // `seed-user-ops-enrol` deliberately carries none, which is what puts it in enrolment_required.
+    // The secret is the fixed harness secret, encrypted here exactly as mfa-encryption.ts does
+    // (AES-256-GCM, 12-byte IV, key from MFA_SECRET_ENCRYPTION_KEY) so the app can decrypt it and
+    // the harness can generate matching codes without ever reading the ciphertext back.
+    //
+    // `last_used_step` is left NULL rather than stamped: the replay guard refuses any step at or
+    // below it, so a seeded value from an earlier run would refuse the current code and every
+    // operational session would fail to elevate for the rest of that step window.
+    const mfaEncryptionKey = process.env.MFA_SECRET_ENCRYPTION_KEY;
+    if (!mfaEncryptionKey) throw new Error("MFA_SECRET_ENCRYPTION_KEY is not set");
+    const mfaKey = Buffer.from(mfaEncryptionKey, "base64");
+    const mfaSecret = Buffer.from("5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed", "hex");
+
+    for (const userId of ["seed-user-ops", "seed-user-ops-chal"]) {
+      const iv = randomBytes(12);
+      const cipher = createCipheriv("aes-256-gcm", mfaKey, iv);
+      const ciphertext = Buffer.concat([cipher.update(mfaSecret), cipher.final()]);
+      // BASE64 STRINGS, not Buffers: the three columns are `text` and encryptMfaSecret writes
+      // `.toString("base64")`. Handing postgres a Buffer for a text column stores a representation
+      // decryptMfaSecret cannot read back, and the failure surfaces far away — a GCM auth-tag
+      // mismatch inside the challenge endpoint, reported as a generic 500.
+      await sql`
+        INSERT INTO mfa_factors (user_id, encrypted_secret, secret_iv, secret_auth_tag, verified_at,
+          last_used_step, failed_attempt_count, locked_until)
+        VALUES (${userId}, ${ciphertext.toString("base64")}, ${iv.toString("base64")},
+          ${cipher.getAuthTag().toString("base64")}, ${d(-90)},
+          ${null}, 0, ${null})
+        ON CONFLICT (user_id) DO UPDATE SET
+          encrypted_secret = EXCLUDED.encrypted_secret, secret_iv = EXCLUDED.secret_iv,
+          secret_auth_tag = EXCLUDED.secret_auth_tag, verified_at = EXCLUDED.verified_at,
+          last_used_step = NULL, failed_attempt_count = 0, locked_until = NULL, updated_at = now()
+      `;
+    }
+    await sql`DELETE FROM mfa_factors WHERE user_id = 'seed-user-ops-enrol'`;
 
     // Candidate onboarding profiles (every candidate-verified account EXCEPT the ops carve-out).
     const candidateProfiles = [
@@ -799,6 +840,7 @@ const main = async (): Promise<void> => {
       UNION ALL SELECT 'notifications', count(*)::int FROM notifications WHERE id LIKE 'seed-notif-%'
       UNION ALL SELECT 'recruiter_verifs', count(*)::int FROM recruiter_verification_submissions WHERE id LIKE 'seed-rvs-%'
       UNION ALL SELECT 'inst_verifs', count(*)::int FROM institution_verification_submissions WHERE id LIKE 'seed-ivs-%'
+      UNION ALL SELECT 'mfa_factors', count(*)::int FROM mfa_factors WHERE user_id LIKE 'seed-user-%'
     `;
     for (const row of counts) console.log(`${row.label.padEnd(18)} ${row.n}`);
     console.log("Seed complete. All seed accounts use password: UjiCoba123!");

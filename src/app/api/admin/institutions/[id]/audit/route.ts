@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
-import { requireAuthenticatedSession } from "@/server/auth/session";
+import { requireSessionRole } from "@/server/auth/session";
 import { getInstitutionVerificationAudit } from "@/server/institution-verification/verification-service";
 
 export async function GET(
@@ -8,7 +8,7 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   try {
-    const session = await requireAuthenticatedSession();
+    const session = await requireSessionRole(["platform_ops"]);
     const { id } = await context.params;
 
     const entries = await getInstitutionVerificationAudit(id, session.user.role);

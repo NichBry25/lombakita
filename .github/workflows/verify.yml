@@ -89,6 +89,14 @@ jobs:
       - name: Run concurrency race scripts
         run: npm run verify:concurrency
 
+      # DEC-0142: the MFA constraint/lockout suite mocks nothing — it needs the real Postgres this
+      # job already stood up and migrated above, and MFA_SECRET_ENCRYPTION_KEY is set by the test
+      # file itself (a fixed, deterministic 32-byte key — never a real secret), so no extra env is
+      # needed here. `npm run test` never sets DATABASE_URL, so this suite otherwise skips on every
+      # CI run (the FINANCE-D4 shape); joining it here is what makes it stop being informational.
+      - name: Run MFA DB-backed constraint and lifecycle suite
+        run: npx vitest run src/server/auth/mfa/mfa-schema-db.integration.test.ts
+
   contrast-selftest:
     name: contrast auditor self-test
     runs-on: ubuntu-latest
