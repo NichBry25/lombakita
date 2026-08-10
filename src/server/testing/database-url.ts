@@ -1,7 +1,7 @@
 // Test-only. How a database-backed suite finds its connection string, and — the part that matters —
 // what it does when there isn't one.
 //
-// THE PROBLEM THIS EXISTS TO CLOSE (FINANCE-D4, DEC-0142). Every DB-backed suite here is written so
+// THE PROBLEM THIS EXISTS TO CLOSE (DEC-0142). Every DB-backed suite here is written so
 // that deleting its guard makes it FAIL, because the unit suite mocks the database and a removed
 // CHECK leaves mocked tests green. That property is worth nothing if the suite never runs, and it
 // never ran: `npm run test` does not set DATABASE_URL, so `describe.skipIf(!DATABASE_URL)` skipped

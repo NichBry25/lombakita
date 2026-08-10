@@ -1,6 +1,5 @@
 /**
- * Live proof that the finance ledger's idempotency guard holds under genuine concurrency
- * (FINANCE-T1).
+ * Live proof that the finance ledger's idempotency guard holds under genuine concurrency.
  *
  * WHY THIS CANNOT BE A UNIT TEST. The guard is a unique INDEX consumed via `ON CONFLICT DO NOTHING`
  * — it lives entirely in Postgres. The unit suite mocks the database, so `db.insert` is a no-op and
@@ -16,7 +15,7 @@
  * it is the reason the guard is `ON CONFLICT` against an index rather than a read-then-insert: a
  * read-first check has a window between the read and the insert that is exactly this race.
  *
- * RACE 2 — two genuine refunds on one payment (FINANCE-D11). Two simultaneous refunds keyed by
+ * RACE 2 — two genuine refunds on one payment. Two simultaneous refunds keyed by
  * `mintPlatformPaymentEventKey` must record TWO rows. Under the old `<verb>__<paymentId>` shape
  * both racers would mint the same key and the second refund would vanish — in an append-only
  * ledger, an event that never landed cannot be restated later.
@@ -357,7 +356,7 @@ const main = async (): Promise<void> => {
     return { rowsPerRun, keys };
   };
 
-  // ---- RACE 2: two genuine refunds on one payment (FINANCE-D11) -----------
+  // ---- RACE 2: two genuine refunds on one payment ---------------------------
 
   const runConcurrentRefundRace = async (): Promise<void> => {
     console.log(`\nRACE 2: two concurrent refunds on one payment, keys minted per call`);

@@ -36,9 +36,9 @@ assertServerOnly("server/finance/idempotency-key");
 // invoice collides with the original capture, so the refund is swallowed; bind it to a value that
 // ROTATES per delivery attempt and the same capture records once per retry. Which Xendit field
 // satisfies this cannot be confirmed from documentation alone and there is no account to verify it
-// against yet, so it is an ENTRY OBLIGATION on whichever step writes the first webhook handler:
-// the binding is chosen and proven against real deliveries before that handler exists, never
-// inferred at the keyboard.
+// against yet, so it is an ENTRY OBLIGATION (FINANCE-D23) on whichever step writes the first
+// webhook handler: the binding is chosen and proven against real deliveries before that handler
+// exists, never inferred at the keyboard.
 //
 // A PLATFORM key is UNIQUE, carrying a minted UUID. That is equally the point: a deterministic
 // platform key of the obvious shape — `refunded__<paymentId>`, or anything else built only from the
