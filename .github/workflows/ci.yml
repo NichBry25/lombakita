@@ -81,7 +81,14 @@ jobs:
           psql "$DATABASE_URL" -tAc "SELECT current_setting('default_transaction_isolation')" \
             | grep -qx 'read committed'
 
+      # TEMPORARY — DEC-0142 red-run proof (PR #18). Removed in the very next commit. Overrides
+      # DATABASE_URL to empty for this step only, so the job's earlier steps (checkout, migrate)
+      # still ran against the real service, and only the tripwire in src/server/testing/database-url.ts
+      # is exercised: REQUIRE_DB_TESTS=1 with no DATABASE_URL must throw at module load and fail this
+      # step, proving a missing database goes red rather than silently skipping.
       - name: Test
+        env:
+          DATABASE_URL: ""
         run: npm run test
 
       # Build is intentionally NOT run here. `next build` requires runtime env
