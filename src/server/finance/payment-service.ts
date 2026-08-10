@@ -24,6 +24,7 @@ import {
   type PaymentDerivedState,
 } from "@/lib/finance/payment-state";
 import { resolveFeeRule, toFeeRuleTerms } from "@/server/finance/fee-rule-service";
+import { isPaymentEventIdempotencyKey } from "@/server/finance/idempotency-key";
 
 // THE WRITE SURFACE OF THE FINANCE LEDGER, AND ALL OF IT.
 //
@@ -51,6 +52,7 @@ export type PaymentErrorCode =
   | "payment_event_actor_invalid"
   | "payment_event_actor_unknown"
   | "payment_event_idempotency_key_required"
+  | "payment_event_idempotency_key_malformed"
   | "payment_event_idempotency_key_conflict";
 
 export class PaymentError extends Error {
@@ -116,8 +118,7 @@ const constraintOf = (error: unknown): string | null => {
   return driver?.constraint_name ?? driver?.constraint ?? null;
 };
 
-const isForeignKeyViolation = (error: unknown): boolean =>
-  findDriverError(error)?.code === "23503";
+const isForeignKeyViolation = (error: unknown): boolean => findDriverError(error)?.code === "23503";
 
 /** Restates a database failure without the SQL or the values that were bound into it. */
 const asDatabaseError = (error: unknown, operation: string): PaymentDatabaseError =>
@@ -251,7 +252,11 @@ export type AppendPaymentEventInput = {
   reason?: string | null;
   metadata?: Record<string, unknown> | null;
   // The replay guard. Enforced by a unique index — a second append under the same key returns the
-  // first event rather than recording a second one.
+  // first event rather than recording a second one. MUST come from `mintGatewayPaymentEventKey`
+  // (deterministic, so a webhook retry collapses) or `mintPlatformPaymentEventKey` (unique, so a
+  // second refund is a second event); see server/finance/idempotency-key.ts. A hand-built key is
+  // refused — the two halves have opposite requirements and mixing them loses either replay
+  // protection or a real event.
   idempotencyKey: string;
 };
 
@@ -261,11 +266,28 @@ export type AppendPaymentEventResult = {
   deduplicated: boolean;
 };
 
-const assertEventInput = (actor: PaymentEventActor, input: AppendPaymentEventInput): void => {
-  if (input.idempotencyKey.trim().length === 0) {
+const assertEventInput = (
+  actor: PaymentEventActor,
+  input: AppendPaymentEventInput,
+  idempotencyKey: string,
+): void => {
+  if (idempotencyKey.length === 0) {
     throw new PaymentError(
       "payment_event_idempotency_key_required",
       "An idempotency key is required for every payment event",
+    );
+  }
+
+  // The convention is enforced here, not just written down. The key space is global
+  // and its two halves have opposite requirements — a gateway key must be reproducible, a platform
+  // key must not be — so a hand-built key is not a style question: `refunded__<paymentId>` collides
+  // by construction on the second refund of one payment, and the first thing that would notice is
+  // an operator wondering why a refund they issued is not in the ledger. Refusing at the write is
+  // what keeps the two halves from being mixed by a caller who did not read the module.
+  if (!isPaymentEventIdempotencyKey(idempotencyKey)) {
+    throw new PaymentError(
+      "payment_event_idempotency_key_malformed",
+      "Idempotency keys must be minted by mintGatewayPaymentEventKey or mintPlatformPaymentEventKey (see server/finance/idempotency-key.ts)",
     );
   }
 
@@ -340,7 +362,15 @@ export const appendPaymentEvent = async (
   input: AppendPaymentEventInput,
   db: Database = getDb(),
 ): Promise<AppendPaymentEventResult> => {
-  assertEventInput(actor, input);
+  // ONE canonical form of the key, derived once and used by the check, the insert and the readback.
+  // Validating a trimmed value while storing the raw one lets a padded key pass the check and land
+  // in the table with its padding: the retry then mints the canonical form, the unique index sees a
+  // different string, `ON CONFLICT` does not fire, and one gateway event is recorded twice in a
+  // ledger that has no delete path. Three uses of one value is what makes the index's guarantee and
+  // this function's guarantee the same guarantee.
+  const idempotencyKey = input.idempotencyKey.trim();
+
+  assertEventInput(actor, input, idempotencyKey);
 
   const values = {
     paymentId: input.paymentId,
@@ -352,7 +382,7 @@ export const appendPaymentEvent = async (
     actorUserId: actor.type === "user" ? actor.userId : null,
     reason: input.reason ?? null,
     metadata: input.metadata ?? null,
-    idempotencyKey: input.idempotencyKey,
+    idempotencyKey,
   };
 
   let inserted: FinancePaymentEventRecord | undefined;
@@ -388,7 +418,7 @@ export const appendPaymentEvent = async (
   const [existing] = await db
     .select()
     .from(financePaymentEvents)
-    .where(eq(financePaymentEvents.idempotencyKey, input.idempotencyKey))
+    .where(eq(financePaymentEvents.idempotencyKey, idempotencyKey))
     .limit(1);
 
   if (!existing) {
@@ -397,7 +427,9 @@ export const appendPaymentEvent = async (
     // duplicate that then rolls back proceeds and inserts rather than arriving here. A stricter
     // isolation level raises 40001 before reaching this line. Reporting success would invent an
     // event that does not exist.
-    throw new Error(`Payment event conflicted on ${IDEMPOTENCY_CONSTRAINT} but could not be read back`);
+    throw new Error(
+      `Payment event conflicted on ${IDEMPOTENCY_CONSTRAINT} but could not be read back`,
+    );
   }
 
   // The key is unique GLOBALLY, not per payment, so a suppressed insert proves only that this key

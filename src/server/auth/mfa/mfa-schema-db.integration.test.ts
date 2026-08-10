@@ -10,12 +10,13 @@
 // Every test runs inside a transaction that is ALWAYS rolled back, so the dev database is left
 // byte-identical. Nothing here is committed.
 //
-// SKIPPED when DATABASE_URL is absent, so CI (which has no database) stays green; joined to the
-// nightly Postgres-service-container job per DEC-0142 (see .github/workflows/verify.yml).
+// Skipped when no DATABASE_URL is reachable, so a developer without a local database can still
+// run `npm test`. NOT skippable in CI: `REQUIRE_DB_TESTS=1` makes a missing database a hard
+// failure instead (see server/testing/database-url.ts). Runs on every PR against the ci.yml
+// Postgres service, and again in the nightly job (DEC-0142).
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { TransactionRollbackError, eq } from "drizzle-orm";
 import postgres from "postgres";
@@ -23,20 +24,7 @@ import { mfaFactors, mfaRecoveryCodes, platformOpsAuditLogs, users } from "@/ser
 import { MFA_LOCKOUT_SECONDS } from "@/server/auth/mfa/mfa-core";
 import { hasVerifiedMfaFactorSql } from "./mfa-factor-sql";
 
-const resolveDatabaseUrl = (): string | undefined => {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-
-  const envPath = resolve(process.cwd(), ".env.local");
-  if (!existsSync(envPath)) return undefined;
-
-  for (const line of readFileSync(envPath, "utf8").split("\n")) {
-    const match = line.match(/^DATABASE_URL=(.*)$/);
-    if (match?.[1]) return match[1].trim().replace(/^["']|["']$/g, "");
-  }
-  return undefined;
-};
-
-const DATABASE_URL = resolveDatabaseUrl();
+const DATABASE_URL = TEST_DATABASE_URL;
 
 // Set BEFORE any dynamic import of factor-service/recovery-service (which happens inside each test
 // body, well after this module's top-level statements run) so env.server.ts's module-load-time
@@ -116,7 +104,7 @@ const seedUser = async (tx: Tx): Promise<string> => {
 // that Postgres resolves happily — to the WRONG table — so there is no error to notice, only a
 // wrong answer. Both directions are asserted, because a subquery that always answers `true` is
 // equally broken and equally silent.
-describe.skipIf(!DATABASE_URL)("hasVerifiedMfaFactorSql (real database)", () => {
+describe.skipIf(skipWithoutDatabase)("hasVerifiedMfaFactorSql (real database)", () => {
   const readFlag = async (tx: Tx, userId: string): Promise<boolean> => {
     const [row] = await tx
       .select({ hasVerifiedMfaFactor: hasVerifiedMfaFactorSql })
@@ -164,7 +152,7 @@ describe.skipIf(!DATABASE_URL)("hasVerifiedMfaFactorSql (real database)", () => 
   });
 });
 
-describe.skipIf(!DATABASE_URL)("mfa_factors constraints (real database)", () => {
+describe.skipIf(skipWithoutDatabase)("mfa_factors constraints (real database)", () => {
   it("refuses a second factor row for the same user — one factor per account", async () => {
     await inRollback(async (tx) => {
       const userId = await seedUser(tx);
@@ -223,7 +211,7 @@ describe.skipIf(!DATABASE_URL)("mfa_factors constraints (real database)", () => 
   });
 });
 
-describe.skipIf(!DATABASE_URL)("mfa_recovery_codes constraints (real database)", () => {
+describe.skipIf(skipWithoutDatabase)("mfa_recovery_codes constraints (real database)", () => {
   it("refuses two codes sharing the same hash", async () => {
     await inRollback(async (tx) => {
       const userId = await seedUser(tx);
@@ -255,7 +243,7 @@ describe.skipIf(!DATABASE_URL)("mfa_recovery_codes constraints (real database)",
   });
 });
 
-describe.skipIf(!DATABASE_URL)("MFA lifecycle end to end (real database)", () => {
+describe.skipIf(skipWithoutDatabase)("MFA lifecycle end to end (real database)", () => {
   it("enrols, confirms, and challenges successfully, with an audit row for enrolment", async () => {
     await inRollback(async (tx) => {
       const { startMfaEnrolment, confirmMfaEnrolment, challengeMfaFactor } = await import(

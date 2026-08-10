@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSession } from "next-auth/react";
 import { Button, usePageTransition } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import { describeMfaLockout, readMfaErrorPayload } from "@/lib/mfa/mfa-error-response";
+import { describeMfaLockout, presentMfaError, readMfaErrorPayload } from "@/lib/mfa/mfa-error-response";
 import { sessionFetch } from "@/lib/session/session-fetch";
 
 type MfaChallengeFormProps = {
@@ -25,14 +25,16 @@ export function MfaChallengeForm({ callbackUrl }: MfaChallengeFormProps) {
 
   const expectedUserId = sessionData?.user?.id;
 
-  // One toast at a time. Five wrong codes previously stacked five identical toasts over the submit
+  // One toast at a time. Without this, five wrong codes stack five identical toasts over the submit
   // button and the recovery link — the controls the operator needed next — and repeating the same
   // sentence conveys nothing the first one did not.
-  const showError = (message: string) => {
+  // `durationMs` is threaded through rather than left to the primitive's 5000ms default: a throttle
+  // notice must outlive the wait it names, and a platform-degraded notice must not expire at all.
+  const showError = (message: string, durationMs?: number) => {
     if (lastToastIdRef.current) {
       removeToast(lastToastIdRef.current);
     }
-    lastToastIdRef.current = addToast({ type: "error", message });
+    lastToastIdRef.current = addToast({ type: "error", message, ...(durationMs === undefined ? {} : { duration: durationMs }) });
   };
 
   // The lock clears itself at the moment the server would start accepting codes again, so the notice
@@ -68,18 +70,20 @@ export function MfaChallengeForm({ callbackUrl }: MfaChallengeFormProps) {
 
       if (!response.ok) {
         const payload = await readMfaErrorPayload(response);
+        const presentation = presentMfaError(payload);
 
         // A lockout is page state, not a transient one: it holds for fifteen minutes and names the
         // only way out, so it renders as a panel that stays put. A toast that vanishes in five
-        // seconds cannot carry either fact.
-        if (payload.retryAfterSeconds !== null) {
+        // seconds cannot carry either fact. A throttle carries a wait too but is NOT a lockout, so
+        // the branch is on the classified presentation rather than on `retryAfterSeconds` alone.
+        if (presentation.render === "panel") {
           if (lastToastIdRef.current) {
             removeToast(lastToastIdRef.current);
             lastToastIdRef.current = null;
           }
-          setLockoutSeconds(payload.retryAfterSeconds);
+          setLockoutSeconds(presentation.retryAfterSeconds);
         } else {
-          showError(payload.message ?? "Kode tidak valid. Coba lagi.");
+          showError(presentation.message, presentation.durationMs);
         }
 
         setBusy(false);

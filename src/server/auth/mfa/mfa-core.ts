@@ -38,6 +38,13 @@ export type MfaErrorCode =
   | "mfa_invalid_code"
   | "mfa_invalid_recovery_code"
   | "mfa_locked_out"
+  // Over the per-account request ceiling. Distinct from `mfa_locked_out` because it says nothing
+  // about how many codes were wrong — a throttled operator may have submitted none — and clears on
+  // its own in under a minute rather than holding for fifteen and naming support as the way out.
+  | "mfa_rate_limited"
+  // The fail-closed limiter could not reach Redis, so nothing established this request was under
+  // the ceiling. Refusing without being able to count is the point; see rate-limit.ts.
+  | "mfa_rate_limit_unavailable"
   | "mfa_elevation_unavailable";
 
 export class MfaError extends Error {
@@ -51,7 +58,7 @@ export class MfaError extends Error {
    */
   constructor(
     public readonly code: MfaErrorCode,
-    public readonly status: 401 | 403 | 404 | 409 | 423 | 503,
+    public readonly status: 401 | 403 | 404 | 409 | 423 | 429 | 503,
     message: string,
     public readonly retryAfterSeconds: number | null = null,
   ) {

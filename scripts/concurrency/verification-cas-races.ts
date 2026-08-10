@@ -103,17 +103,29 @@ const main = async (): Promise<void> => {
       releaseBarrier = resolve;
     });
 
-    const barrier = client.begin(async (tx) => {
-      await lockRow(tx as unknown as typeof client);
-      await barrierReleased;
-    });
+    // Every promise here is created and only awaited several `await`s later, so each needs a
+    // handler attached AT CREATION. A promise that rejects while nothing is listening is an
+    // unhandled rejection, which Node answers by killing the process — skipping the `finally` that
+    // deletes this script's seed rows. `.catch(() => {})` marks the rejection handled without
+    // consuming it: the later `await` still throws and still reaches the real handler.
+    const handled = <T>(promise: Promise<T>): Promise<T> => {
+      promise.catch(() => {});
+      return promise;
+    };
+
+    const barrier = handled(
+      client.begin(async (tx) => {
+        await lockRow(tx as unknown as typeof client);
+        await barrierReleased;
+      }),
+    );
 
     // Give the barrier transaction time to take the row lock before the racers start.
     await delay(50);
 
-    const firstRacer = first();
+    const firstRacer = handled(first());
     const firstQueued = await waitForBlockedRacers(1);
-    const secondRacer = second();
+    const secondRacer = handled(second());
     const bothQueued = await waitForBlockedRacers(2);
 
     releaseBarrier?.();

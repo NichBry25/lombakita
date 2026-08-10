@@ -16,10 +16,14 @@ export const POST = withMfaRouteAuth(async (request, session) => {
 
   const { recoveryCodes } = await confirmMfaEnrolment(session.user.id, parsed.code, new Date());
 
-  // Enrolment has already committed at this point (factor verified, recovery codes minted) — a
-  // Redis outage on the elevation grant must not turn a successful enrolment into an error
-  // response that loses the operator's only chance to see their recovery codes. Elevation is a
-  // convenience on top of a successful enrolment, not a condition of one.
+  // Enrolment has already committed at this point (factor verified, recovery codes minted), and
+  // this response is the only place the recovery codes ever appear. Elevation is a convenience on
+  // top of a successful enrolment, not a condition of one, so a failure to mint the grant must not
+  // become an error response that takes the codes with it.
+  //
+  // The window is narrow: the fail-closed limiter in `withMfaRouteAuth` refuses this request before
+  // the handler runs when Redis is already unreachable, so the case left here is Redis failing
+  // between the two calls. Narrow is not zero, and what it costs is unrecoverable.
   let elevationGrantId: string | null = null;
   try {
     elevationGrantId = await issueMfaElevationGrant(session.user.id);

@@ -19,6 +19,36 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    # DEC-0142. Every database-backed suite in this repo is written so that deleting
+    # its guard makes it FAIL — which was worth nothing, because none of them ever RAN here:
+    # `npm run test` sets no DATABASE_URL, so they all skipped and reported the same green tick as a
+    # pass. The finance constraint suite is the only proof any finance CHECK exists at all, and a
+    # PR could break one without this workflow noticing.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lombakita_ci
+        ports:
+          - 5432:5432
+        # Without a healthcheck the migration step races the server's startup.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lombakita_ci
+      APP_ENV: test
+      AUTH_SECRET: ci-only-secret-not-used-for-signing-anything-real
+      # The tripwire. With this set, a missing database is a hard failure at module load instead of
+      # a silent skip — so removing the service block above turns this job red naming the reason,
+      # rather than quietly restoring the defect this whole block exists to close.
+      REQUIRE_DB_TESTS: "1"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,6 +68,18 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      # The suites assert against real tables, CHECKs and unique indexes, so the schema has to be
+      # there before they run. Guarded rather than raw `drizzle-kit migrate` (CLAUDE.md Rule 13).
+      - name: Apply migrations
+        run: npm run db:migrate:guarded
+
+      # Every CAS and post-lock count in this codebase is reasoned about under READ COMMITTED.
+      # Failing here makes the cause obvious rather than burying it in a later assertion.
+      - name: Confirm READ COMMITTED
+        run: |
+          psql "$DATABASE_URL" -tAc "SELECT current_setting('default_transaction_isolation')" \
+            | grep -qx 'read committed'
 
       - name: Test
         run: npm run test

@@ -45,6 +45,10 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lombakita_verify
+      # A database-backed suite that cannot see a database SKIPS by default, which reports green.
+      # This job stood one up, so an absent connection string here is a broken job rather than an
+      # environment without Postgres — fail instead of quietly testing nothing.
+      REQUIRE_DB_TESTS: "1"
       APP_ENV: test
       AUTH_SECRET: verification-only-secret-not-used-for-signing-anything-real
       # PLACEHOLDERS — there is no object storage in this job and nothing here reaches one.
@@ -92,8 +96,13 @@ jobs:
       # DEC-0142: the MFA constraint/lockout suite mocks nothing — it needs the real Postgres this
       # job already stood up and migrated above, and MFA_SECRET_ENCRYPTION_KEY is set by the test
       # file itself (a fixed, deterministic 32-byte key — never a real secret), so no extra env is
-      # needed here. `npm run test` never sets DATABASE_URL, so this suite otherwise skips on every
-      # CI run (the FINANCE-D4 shape); joining it here is what makes it stop being informational.
+      # needed here.
+      #
+      # This is not the only place it runs: ci.yml stands up its own Postgres and runs every
+      # DB-backed suite on every PR, which is where a broken constraint should be caught — on the PR
+      # that broke it, not the next morning. Kept here deliberately, because the two jobs fail
+      # independently and this one also exercises the suite against a database that has just been
+      # migrated from zero.
       - name: Run MFA DB-backed constraint and lifecycle suite
         run: npx vitest run src/server/auth/mfa/mfa-schema-db.integration.test.ts
 

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSession } from "next-auth/react";
 import { Button, Icon, IconButton, usePageTransition } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import { describeMfaLockout, readMfaErrorPayload } from "@/lib/mfa/mfa-error-response";
+import { describeMfaLockout, presentMfaError, readMfaErrorPayload } from "@/lib/mfa/mfa-error-response";
 import { sessionFetch } from "@/lib/session/session-fetch";
 
 type MfaEnrollFormProps = {
@@ -38,11 +38,13 @@ export function MfaEnrollForm({
 
   // One toast at a time — repeated failures replace the previous notice rather than stacking over
   // the very controls the operator needs next.
-  const showError = (message: string) => {
+  // `durationMs` is threaded through rather than left to the primitive's 5000ms default: a throttle
+  // notice must outlive the wait it names, and a platform-degraded notice must not expire at all.
+  const showError = (message: string, durationMs?: number) => {
     if (lastToastIdRef.current) {
       removeToast(lastToastIdRef.current);
     }
-    lastToastIdRef.current = addToast({ type: "error", message });
+    lastToastIdRef.current = addToast({ type: "error", message, ...(durationMs === undefined ? {} : { duration: durationMs }) });
   };
 
   // Clears itself when the server would start accepting codes again, so the notice never outlives
@@ -81,17 +83,19 @@ export function MfaEnrollForm({
 
       if (!response.ok) {
         const payload = await readMfaErrorPayload(response);
+        const presentation = presentMfaError(payload);
 
         // A lockout holds for fifteen minutes and names the only way out, so it is page state rather
-        // than a five-second toast.
-        if (payload.retryAfterSeconds !== null) {
+        // than a five-second toast. A throttle also carries a wait but is not a lockout, so the
+        // branch is on the classified presentation rather than on `retryAfterSeconds` alone.
+        if (presentation.render === "panel") {
           if (lastToastIdRef.current) {
             removeToast(lastToastIdRef.current);
             lastToastIdRef.current = null;
           }
-          setLockoutSeconds(payload.retryAfterSeconds);
+          setLockoutSeconds(presentation.retryAfterSeconds);
         } else {
-          showError(payload.message ?? "Kode tidak valid. Coba lagi.");
+          showError(presentation.message, presentation.durationMs);
         }
 
         setBusy(false);
@@ -139,8 +143,9 @@ export function MfaEnrollForm({
   if (stage === "recovery-codes") {
     return (
       <div className="stack-md">
-        {/* The QR is scanned and gone by this point. The heading used to sit on the page and stay
-            "Pindai kode QR" while this screen asked the operator to save ten recovery codes. */}
+        {/* The QR is scanned and gone by this point, so the heading belongs to this stage rather
+            than the page — a page-level "Pindai kode QR" would sit above a screen asking the
+            operator to save ten recovery codes. */}
         <header className="auth-entry-header">
           <p className="eyebrow">Verifikasi dua langkah</p>
           <h1>Simpan kode pemulihan Anda</h1>
@@ -160,8 +165,8 @@ export function MfaEnrollForm({
           Salin
         </Button>
         {/* `.checkbox-field` is the house checkbox row — a flex line that centres the box against
-            its text and holds the 44px target. The `.form-label` this used to carry is a block
-            label, which left the box sitting proud of the sentence it belongs to. */}
+            its text and holds the 44px target. `.form-label` is the wrong class here: it is a block
+            label, which leaves the box sitting proud of the sentence it belongs to. */}
         <label className="checkbox-field" htmlFor="mfa-recovery-ack">
           <input
             id="mfa-recovery-ack"
