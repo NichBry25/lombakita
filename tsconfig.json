@@ -31,5 +31,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "Lomba Kita v2"]
+  "exclude": ["node_modules", "docs/lombakita-ui-guide"]
 }

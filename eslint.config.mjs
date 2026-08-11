@@ -11,7 +11,7 @@ const eslintConfig = defineConfig([
     "build/**",
     "coverage/**",
     "next-env.d.ts",
-    "Lomba Kita v2/**",
+    "docs/lombakita-ui-guide/**",
   ]),
 ]);
 

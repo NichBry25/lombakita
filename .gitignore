@@ -39,8 +39,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files — including the .example templates (owner decision 2026-07-16:
-# these stay local-only, never tracked or pushed again; see note below)
+# env files
 .env*
 
 # vercel
@@ -52,12 +51,11 @@ next-env.d.ts
 .claude/setting.local.json
 .codebase-memory/
 
-# design-track working material (belongs on design/ui-pass)
-Lomba Kita v2/
+# design-track
+docs/lombakita-ui-guide/
 
-# Architecture/decision docs — local-only, intentionally untracked (DEC-0101)
-# Purged from git history 2026-07-16; never re-commit or push these again
-/.claude/
+# separate version control
+/.claude
 /CLAUDE.md
 /docs/
 /README.md
