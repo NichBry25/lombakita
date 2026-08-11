@@ -1,6 +1,18 @@
 export const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 export const PASSWORD = "UjiCoba123!";
 
+// The TOTP secret behind every seeded MFA factor. Fixed and shared so the harness can generate a
+// valid code without reading it back out of the database (it is stored encrypted), and so a human
+// running the stage-9 checklist can add ONE authenticator entry and use it for every seeded
+// operational account. Never a real secret — it exists only in seed data.
+export const MFA_FACTOR_SECRET_HEX = "5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed";
+
+// `mfa` records which of the three operational states the account is seeded into. The harness reads
+// it to decide whether a minted session must also complete a challenge before it is usable:
+//   null / absent  — self-service account, the gate does not apply
+//   "enrolment"    — operational, NO factor          → every guarded surface sends it to /auth/mfa/enroll
+//   "challenge"    — operational, factor but no claim → every guarded surface sends it to /auth/mfa/challenge
+//   "satisfied"    — operational, factor AND the harness elevates the session after signing in
 export const USERS = {
   candA: { id: "seed-user-cand-a", email: "seed.cand.a@seed.lombakita.local", username: "seed_cand_a" },
   candB: { id: "seed-user-cand-b", email: "seed.cand.b@seed.lombakita.local", username: "seed_cand_b" },
@@ -10,7 +22,9 @@ export const USERS = {
   recRej: { id: "seed-user-rec-rej", email: "seed.rec.rej@seed.lombakita.local", username: "seed_rec_rej" },
   recDraft: { id: "seed-user-rec-draft", email: "seed.rec.draft@seed.lombakita.local", username: "seed_rec_draft" },
   dual: { id: "seed-user-dual", email: "seed.dual@seed.lombakita.local", username: "seed_dual" },
-  ops: { id: "seed-user-ops", email: "seed.ops@seed.lombakita.local", username: "seed_ops" },
+  ops: { id: "seed-user-ops", email: "seed.ops@seed.lombakita.local", username: "seed_ops", mfa: "satisfied" },
+  opsEnrol: { id: "seed-user-ops-enrol", email: "seed.ops.enrol@seed.lombakita.local", username: "seed_ops_enrol", mfa: "enrolment" },
+  opsChal: { id: "seed-user-ops-chal", email: "seed.ops.chal@seed.lombakita.local", username: "seed_ops_chal", mfa: "challenge" },
   susp: { id: "seed-user-susp", email: "seed.susp@seed.lombakita.local", username: "seed_susp" },
   unver: { id: "seed-user-unver", email: "seed.unver@seed.lombakita.local", username: "seed_unver" },
 };

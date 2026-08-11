@@ -52,6 +52,8 @@ vi.mock("@/server/db/schema", () => ({
   accounts: { __name: "accounts" },
   sessions: { __name: "sessions" },
   verificationTokens: { __name: "verificationTokens" },
+  // Step 7.1-MFA: see the identical comment in auth-config-authorize.test.ts.
+  mfaFactors: { userId: "user_id", verifiedAt: "verified_at" },
   // Reached transitively via oauth-account → candidate-profile-core, which reads .enumValues
   // at module load.
   candidateOccupationEnum: {

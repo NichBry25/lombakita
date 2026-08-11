@@ -1,6 +1,6 @@
 // @vitest-environment node
 //
-// Step 6.5-HARDENING.1 — Redis-backed rate-limit primitive. These tests drive the primitive against
+// Redis-backed rate-limit primitive. These tests drive the primitive against
 // a fake ioredis client (mocked getRedisClient) and assert the fail-open limiters (fixed-window,
 // failed-attempt) and the fail-closed single-use consume, including the Redis-error branches.
 
@@ -24,9 +24,12 @@ vi.mock("@/server/redis/client", () => ({ getRedisClient: getRedisClientMock }))
 
 import {
   checkFixedWindowLimit,
+  checkFixedWindowLimitFailClosed,
   clearFailedAttempts,
   consumeSingleUseToken,
+  consumeStoredGrant,
   isFailedAttemptLimited,
+  issueStoredGrant,
   recordFailedAttempt,
 } from "@/server/redis/rate-limit";
 
@@ -39,6 +42,7 @@ type FakeRedis = {
   get: ReturnType<typeof vi.fn>;
   del: ReturnType<typeof vi.fn>;
   set: ReturnType<typeof vi.fn>;
+  eval: ReturnType<typeof vi.fn>;
 };
 
 let redis: FakeRedis;
@@ -54,6 +58,7 @@ beforeEach(() => {
     get: vi.fn(),
     del: vi.fn(async () => 1),
     set: vi.fn(),
+    eval: vi.fn(),
   };
   getRedisClientMock.mockReturnValue(redis);
 });
@@ -197,5 +202,177 @@ describe("consumeSingleUseToken — fail-closed single-use", () => {
     await consumeSingleUseToken({ key: "nonce:1", ttlSeconds: 0 });
 
     expect(redis.set).toHaveBeenCalledWith("nonce:1", "1", "EX", 1, "NX");
+  });
+});
+
+// The elevation grant primitive: an atomic "store a value, then read-and-delete it once"
+// pair, fail-closed like consumeSingleUseToken (this backs an operational-role MFA gate, not a
+// throttle).
+describe("issueStoredGrant — fail-closed store", () => {
+  it("writes the value with the requested TTL", async () => {
+    redis.set.mockResolvedValue("OK");
+
+    await issueStoredGrant({ key: "grant:1", value: "user_123", ttlSeconds: 120 });
+
+    expect(redis.set).toHaveBeenCalledWith("grant:1", "user_123", "EX", 120);
+  });
+
+  it("clamps a non-positive TTL to at least 1 second", async () => {
+    redis.set.mockResolvedValue("OK");
+
+    await issueStoredGrant({ key: "grant:1", value: "user_123", ttlSeconds: 0 });
+
+    expect(redis.set).toHaveBeenCalledWith("grant:1", "user_123", "EX", 1);
+  });
+
+  it("throws (fails closed) and records to Sentry on a Redis error", async () => {
+    redis.set.mockRejectedValue(new Error("redis down"));
+
+    await expect(
+      issueStoredGrant({ key: "grant:1", value: "user_123", ttlSeconds: 120 }),
+    ).rejects.toThrow();
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws (fails closed) when REDIS_URL is not configured", async () => {
+    serverEnvMock.redisUrl = undefined;
+
+    await expect(
+      issueStoredGrant({ key: "grant:1", value: "user_123", ttlSeconds: 120 }),
+    ).rejects.toThrow();
+    expect(getRedisClientMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("consumeStoredGrant — fail-closed atomic get-and-delete", () => {
+  it("returns the stored value via a single atomic EVAL, not a separate GET+DEL", async () => {
+    redis.eval.mockResolvedValue("user_123");
+
+    const result = await consumeStoredGrant("grant:1");
+
+    expect(result).toBe("user_123");
+    expect(redis.eval).toHaveBeenCalledTimes(1);
+    expect(redis.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call"), 1, "grant:1");
+    // Neither client-side command ran — the read-then-delete is server-side and atomic, closing
+    // the two-concurrent-consumers race a plain GET-then-DEL from the client would reopen.
+    expect(redis.get).not.toHaveBeenCalled();
+    expect(redis.del).not.toHaveBeenCalled();
+  });
+
+  it("returns null when the grant is missing, expired, or already consumed", async () => {
+    redis.eval.mockResolvedValue(null);
+
+    const result = await consumeStoredGrant("grant:1");
+
+    expect(result).toBeNull();
+  });
+
+  it("throws (fails closed) and records to Sentry on a Redis error", async () => {
+    redis.eval.mockRejectedValue(new Error("redis down"));
+
+    await expect(consumeStoredGrant("grant:1")).rejects.toThrow();
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws (fails closed) when REDIS_URL is not configured", async () => {
+    serverEnvMock.redisUrl = undefined;
+
+    await expect(consumeStoredGrant("grant:1")).rejects.toThrow();
+    expect(getRedisClientMock).not.toHaveBeenCalled();
+  });
+});
+
+// The fail-CLOSED twin of checkFixedWindowLimit. The window arithmetic is shared, so what
+// these tests are for is the direction it fails in — the property the operational surfaces depend
+// on, and the one thing that differs from the limiter above.
+describe("checkFixedWindowLimitFailClosed", () => {
+  it("allows while the count is at or under the limit", async () => {
+    redis.incr.mockResolvedValue(3);
+
+    const result = await checkFixedWindowLimitFailClosed({
+      key: "rl:mfa:ops_1",
+      limit: 10,
+      windowSeconds: 60,
+    });
+
+    expect(result).toEqual({ decision: "allowed" });
+  });
+
+  it("arms the TTL on the first request of a window", async () => {
+    redis.incr.mockResolvedValue(1);
+
+    await checkFixedWindowLimitFailClosed({ key: "rl:mfa:ops_1", limit: 10, windowSeconds: 60 });
+
+    expect(redis.expire).toHaveBeenCalledWith("rl:mfa:ops_1", 60);
+  });
+
+  it("throttles once the count exceeds the limit, reporting the live TTL as the wait", async () => {
+    redis.incr.mockResolvedValue(11);
+    redis.ttl.mockResolvedValue(37);
+
+    const result = await checkFixedWindowLimitFailClosed({
+      key: "rl:mfa:ops_1",
+      limit: 10,
+      windowSeconds: 60,
+    });
+
+    expect(result).toEqual({ decision: "throttled", retryAfterSeconds: 37 });
+  });
+
+  it("re-arms a window whose TTL was lost, so a throttle can never become permanent", async () => {
+    redis.incr.mockResolvedValue(11);
+    redis.ttl.mockResolvedValue(-1);
+
+    const result = await checkFixedWindowLimitFailClosed({
+      key: "rl:mfa:ops_1",
+      limit: 10,
+      windowSeconds: 60,
+    });
+
+    expect(redis.expire).toHaveBeenLastCalledWith("rl:mfa:ops_1", 60);
+    expect(result).toEqual({ decision: "throttled", retryAfterSeconds: 60 });
+  });
+
+  it("reports unavailable (not allowed) on a Redis error, and records the degradation", async () => {
+    redis.incr.mockRejectedValue(new Error("redis down"));
+
+    const result = await checkFixedWindowLimitFailClosed({
+      key: "rl:mfa:ops_1",
+      limit: 10,
+      windowSeconds: 60,
+    });
+
+    // The whole reason this function exists. checkFixedWindowLimit returns allowed here.
+    expect(result).toEqual({ decision: "unavailable" });
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports unavailable when REDIS_URL is not configured", async () => {
+    serverEnvMock.redisUrl = undefined;
+
+    const result = await checkFixedWindowLimitFailClosed({
+      key: "rl:mfa:ops_1",
+      limit: 10,
+      windowSeconds: 60,
+    });
+
+    // A fail-closed limiter has no "feature off" reading available to it: it has not established
+    // the request is under the limit, so it must not say that it has.
+    expect(result).toEqual({ decision: "unavailable" });
+    expect(getRedisClientMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves the fail-OPEN limiter's behaviour untouched on the same Redis error", async () => {
+    redis.incr.mockRejectedValue(new Error("redis down"));
+
+    const openResult = await checkFixedWindowLimit({
+      key: "rl:identify:1.2.3.4",
+      limit: 60,
+      windowSeconds: 60,
+    });
+
+    // Pins the asymmetry itself: extracting the shared window body must not have quietly changed
+    // how the self-service surface answers, or a Redis blip starts locking users out of sign-in.
+    expect(openResult).toEqual({ allowed: true, retryAfterSeconds: 0 });
   });
 });

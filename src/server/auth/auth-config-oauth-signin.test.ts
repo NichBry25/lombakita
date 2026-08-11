@@ -28,6 +28,8 @@ vi.mock("@/server/db/schema", () => ({
   accounts: {},
   sessions: {},
   verificationTokens: {},
+  // Step 7.1-MFA: see the identical comment in auth-config-authorize.test.ts.
+  mfaFactors: { userId: "user_id", verifiedAt: "verified_at" },
 }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
 

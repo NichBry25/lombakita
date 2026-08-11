@@ -141,6 +141,13 @@ export const buildServerEnv = (env: NodeJS.ProcessEnv) => {
     resendApiKey: read(env.RESEND_API_KEY),
     emailDeliveryEnabled: resolveEmailDeliveryEnabled(env, appEnv),
     xenditSecretKey: read(env.XENDIT_SECRET_KEY),
+    // AES-256-GCM key encrypting platform_ops/finance_ops TOTP secrets at rest.
+    // Web runtime only — nothing in the Railway worker ever touches an MFA secret. Deliberately NOT
+    // derived from AUTH_SECRET: AUTH_SECRET rotation is a session-invalidation lever, and deriving
+    // from it would destroy every enrolment on every rotation. Validated lazily (32 raw bytes once
+    // base64-decoded) by mfa-encryption.ts on first use, not eagerly here — an absent/malformed key
+    // must not crash every request that merely resolves a session.
+    mfaSecretEncryptionKey: read(env.MFA_SECRET_ENCRYPTION_KEY),
     sentryDsn: read(env.SENTRY_DSN),
     workerConcurrency: parseInteger(env.WORKER_CONCURRENCY, 5),
     workerRuntimeTarget: read(env.WORKER_RUNTIME_TARGET) ?? "pending_selection",

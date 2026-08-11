@@ -11,11 +11,13 @@
 // Every test runs inside a transaction that is ALWAYS rolled back, so the dev database is left
 // byte-identical. Nothing here is committed.
 //
-// SKIPPED when DATABASE_URL is absent, so CI (which has no database) stays green.
+// Skipped when no DATABASE_URL is reachable, so a developer without a local database can still
+// run `npm test`. NOT skippable in CI: `REQUIRE_DB_TESTS=1` makes a missing database a hard
+// failure instead (see server/testing/database-url.ts) — this suite proving nothing while
+// reporting green is the defect this guard exists to prevent.
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { TransactionRollbackError } from "drizzle-orm";
 import postgres from "postgres";
@@ -28,29 +30,7 @@ import {
 } from "@/server/db/schema";
 import { listCompetitionsDueForSubmissionPurge } from "@/server/submissions/submission-service";
 
-/**
- * The connection string, read from `.env.local` when it is not already in the environment.
- *
- * Reading the file rather than requiring an exported variable is deliberate: exporting DATABASE_URL
- * into the shell also injects APP_BASE_URL and friends, which makes `env.server.test.ts` fail —
- * that suite asserts what happens when those are ABSENT. So a plain `npm run test` would have had
- * to choose between running this file and passing that one. This way a normal local run does both,
- * and CI (no `.env.local`, no DATABASE_URL) simply skips.
- */
-const resolveDatabaseUrl = (): string | undefined => {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-
-  const envPath = resolve(process.cwd(), ".env.local");
-  if (!existsSync(envPath)) return undefined;
-
-  for (const line of readFileSync(envPath, "utf8").split("\n")) {
-    const match = line.match(/^DATABASE_URL=(.*)$/);
-    if (match?.[1]) return match[1].trim().replace(/^["']|["']$/g, "");
-  }
-  return undefined;
-};
-
-const DATABASE_URL = resolveDatabaseUrl();
+const DATABASE_URL = TEST_DATABASE_URL;
 
 const NOW = new Date("2026-07-30T00:00:00.000Z");
 const GRACE_DAYS = 90;
@@ -151,7 +131,7 @@ const seedSubmission = async (tx: Tx, options: SeedOptions): Promise<string> => 
 const due = (tx: Tx): Promise<string[]> =>
   listCompetitionsDueForSubmissionPurge(GRACE_DAYS, tx as never, NOW);
 
-describe.skipIf(!DATABASE_URL)("listCompetitionsDueForSubmissionPurge (real database)", () => {
+describe.skipIf(skipWithoutDatabase)("listCompetitionsDueForSubmissionPurge (real database)", () => {
   it("returns a competition whose event ended before the cutoff with an unfinalized submission", async () => {
     await inRollback(async (tx) => {
       const competitionId = await seedSubmission(tx, {

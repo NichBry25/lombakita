@@ -1,4 +1,5 @@
-import { BASE, PASSWORD } from "./seeds.mjs";
+import { BASE, MFA_FACTOR_SECRET_HEX, PASSWORD } from "./seeds.mjs";
+import { generateTotpCode } from "./lib-totp.mjs";
 
 const parseSetCookies = (res, jar) => {
   const list = res.headers.getSetCookie ? res.headers.getSetCookie() : [];
@@ -59,6 +60,49 @@ export async function mintSession(email, password = PASSWORD) {
     error: errorMatch ? decodeURIComponent(errorMatch[1]) : null,
     status: loginRes.status,
   };
+}
+
+/**
+ * Drives a freshly minted operational session through a real TOTP challenge so it reaches
+ * `mfaStatus: "satisfied"` — the state a human operator is in after typing a code, and the only
+ * state in which /admin surfaces render.
+ *
+ * It runs the production path end to end rather than forging a claim: the challenge endpoint
+ * verifies the code and mints an opaque single-use elevation grant, and the jwt callback's `update`
+ * trigger is what turns that grant into `mfaVerifiedAt`. There is deliberately no shortcut — the
+ * whole point of the grant is that a client cannot assert its own elevation, so a harness that
+ * could would be testing a different application.
+ *
+ * Mutates `jar` in place, because the update response reissues the session cookie.
+ */
+export async function elevateMfaSession(jar) {
+  const code = generateTotpCode(Buffer.from(MFA_FACTOR_SECRET_HEX, "hex"));
+
+  const challengeRes = await fetch(`${BASE}/api/v1/auth/mfa/challenge`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: cookieHeader(jar) },
+    body: JSON.stringify({ code }),
+  });
+  if (!challengeRes.ok) {
+    const detail = await challengeRes.text();
+    throw new Error(`MFA challenge failed (${challengeRes.status}): ${detail.slice(0, 160)}`);
+  }
+  const { elevationGrantId } = await challengeRes.json();
+
+  const csrfRes = await fetch(`${BASE}/api/auth/csrf`, { headers: { cookie: cookieHeader(jar) } });
+  parseSetCookies(csrfRes, jar);
+  const { csrfToken } = await csrfRes.json();
+
+  const updateRes = await fetch(`${BASE}/api/auth/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: cookieHeader(jar) },
+    body: JSON.stringify({ csrfToken, data: { mfaElevationGrant: elevationGrantId } }),
+  });
+  parseSetCookies(updateRes, jar);
+  if (!updateRes.ok) {
+    throw new Error(`MFA session update failed (${updateRes.status})`);
+  }
+  return cookieHeader(jar);
 }
 
 /** Fetch with a session cookie; returns { status, body (parsed json or text), contentType }. */

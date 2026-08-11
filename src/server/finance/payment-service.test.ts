@@ -60,7 +60,7 @@ const eventInput = (overrides: Partial<AppendPaymentEventInput> = {}): AppendPay
   occurredAt: NOW,
   amount: 150_000,
   currency: "IDR",
-  idempotencyKey: "gateway__evt_1",
+  idempotencyKey: "gw:xendit:succeeded:evt_1",
   ...overrides,
 });
 
@@ -184,7 +184,7 @@ describe("appendPaymentEvent", () => {
       amount: 150_000,
       currency: "IDR",
       reason: "caller supplied",
-      idempotencyKey: "gateway__evt_2",
+      idempotencyKey: "gw:xendit:succeeded:evt_2",
       actorType: "user",
       actorUserId: "attacker",
     };
@@ -287,7 +287,7 @@ describe("appendPaymentEvent", () => {
       paymentId: "pay_1",
       eventType: "succeeded",
       amount: 150_000,
-      idempotencyKey: "gateway__evt_1",
+      idempotencyKey: "gw:xendit:succeeded:evt_1",
     };
 
     const result = await appendPaymentEvent(GATEWAY, eventInput(), makeConflictDb(existing));
@@ -304,7 +304,7 @@ describe("appendPaymentEvent", () => {
       eventType: "succeeded",
       amount: 1_000_000,
       reason: "why the other institution's money moved",
-      idempotencyKey: "gateway__evt_1",
+      idempotencyKey: "gw:xendit:succeeded:evt_1",
     };
 
     const promise = appendPaymentEvent(GATEWAY, eventInput(), makeConflictDb(otherTenantsEvent));
@@ -324,7 +324,7 @@ describe("appendPaymentEvent", () => {
       paymentId: "pay_1",
       eventType: "succeeded",
       amount: 1_000_000,
-      idempotencyKey: "gateway__evt_1",
+      idempotencyKey: "gw:xendit:succeeded:evt_1",
     };
 
     // A partial refund arriving under a key already used by the capture it reverses.

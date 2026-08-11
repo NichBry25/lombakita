@@ -12,6 +12,7 @@ export type IconName =
   | "check"
   | "chevron-down"
   | "close"
+  | "copy"
   | "download"
   | "edit"
   | "eye"
@@ -98,6 +99,15 @@ function IconPaths({ name }: { name: IconName }) {
         <>
           <path d="m6 6 12 12" />
           <path d="m18 6-12 12" />
+        </>
+      );
+    // The two-offset-sheets glyph every platform uses for copy. `share` was standing in for it and
+    // draws three connected nodes, which is the share-to glyph and reads as "send this somewhere".
+    case "copy":
+      return (
+        <>
+          <rect x="9" y="9" width="12" height="12" rx="2.5" />
+          <path d="M6.5 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1.5" />
         </>
       );
     case "download":

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
-import { requireAuthenticatedSession } from "@/server/auth/session";
+import { requireSessionRole } from "@/server/auth/session";
 import { listInstitutionsForPlatformOps } from "@/server/institution-verification/verification-service";
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const session = await requireAuthenticatedSession();
+    const session = await requireSessionRole(["platform_ops"]);
     const { searchParams } = new URL(request.url);
     const statusFilter = searchParams.get("status") ?? undefined;
     const page = Number.parseInt(searchParams.get("page") ?? "1", 10);

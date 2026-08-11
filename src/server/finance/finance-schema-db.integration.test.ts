@@ -15,11 +15,13 @@
 // Every test runs inside a transaction that is ALWAYS rolled back, so the dev database is left
 // byte-identical. Nothing here is committed.
 //
-// SKIPPED when DATABASE_URL is absent, so CI (which has no database) stays green.
+// Skipped when no DATABASE_URL is reachable, so a developer without a local database can still
+// run `npm test`. NOT skippable in CI: `REQUIRE_DB_TESTS=1` makes a missing database a hard
+// failure instead (see server/testing/database-url.ts) — this suite proving nothing while
+// reporting green is the defect this guard exists to prevent.
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { TransactionRollbackError, eq } from "drizzle-orm";
 import postgres from "postgres";
@@ -34,26 +36,7 @@ import {
 } from "@/server/db/schema";
 import { computePlatformFee } from "@/lib/finance/fee";
 
-/**
- * The connection string, read from `.env.local` when it is not already in the environment — same
- * reasoning as submission-purge-db.integration.test.ts: exporting DATABASE_URL into the shell also
- * injects APP_BASE_URL and friends, which breaks the suite that asserts what happens when those
- * are ABSENT.
- */
-const resolveDatabaseUrl = (): string | undefined => {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-
-  const envPath = resolve(process.cwd(), ".env.local");
-  if (!existsSync(envPath)) return undefined;
-
-  for (const line of readFileSync(envPath, "utf8").split("\n")) {
-    const match = line.match(/^DATABASE_URL=(.*)$/);
-    if (match?.[1]) return match[1].trim().replace(/^["']|["']$/g, "");
-  }
-  return undefined;
-};
-
-const DATABASE_URL = resolveDatabaseUrl();
+const DATABASE_URL = TEST_DATABASE_URL;
 
 const NOW = new Date("2026-08-10T00:00:00.000Z");
 const LAST_MONTH = new Date("2026-07-01T00:00:00.000Z");
@@ -98,7 +81,12 @@ const expectRejection = async (
     // Drizzle wraps the driver error; the SQLSTATE lives on the cause, not on what was thrown.
     let current: unknown = error;
     for (let depth = 0; current && depth < 5; depth += 1) {
-      const e = current as { code?: string; constraint_name?: string; constraint?: string; cause?: unknown };
+      const e = current as {
+        code?: string;
+        constraint_name?: string;
+        constraint?: string;
+        cause?: unknown;
+      };
       if (typeof e.code === "string") {
         return { code: e.code, constraint: e.constraint_name ?? e.constraint ?? "" };
       }
@@ -225,7 +213,7 @@ const seedPayment = async (tx: Tx, fixture: Fixture): Promise<string> => {
   return payment!.id;
 };
 
-describe.skipIf(!DATABASE_URL)("finance_payments constraints (real database)", () => {
+describe.skipIf(skipWithoutDatabase)("finance_payments constraints (real database)", () => {
   it("refuses a payment with no subject key at all", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
@@ -320,7 +308,7 @@ describe.skipIf(!DATABASE_URL)("finance_payments constraints (real database)", (
   });
 });
 
-describe.skipIf(!DATABASE_URL)("finance_payment_events constraints (real database)", () => {
+describe.skipIf(skipWithoutDatabase)("finance_payment_events constraints (real database)", () => {
   const eventValues = (paymentId: string, overrides: Record<string, unknown> = {}) => ({
     paymentId,
     eventType: "succeeded" as const,
@@ -328,7 +316,7 @@ describe.skipIf(!DATABASE_URL)("finance_payment_events constraints (real databas
     amount: 1_000_000,
     currency: "IDR",
     actorType: "gateway" as const,
-    idempotencyKey: `key_${uniqueSuffix()}`,
+    idempotencyKey: `gw:xendit:succeeded:key_${uniqueSuffix()}`,
     ...overrides,
   });
 
@@ -343,7 +331,14 @@ describe.skipIf(!DATABASE_URL)("finance_payment_events constraints (real databas
       const rejection = await expectRejection(tx, (nested) =>
         nested
           .insert(financePaymentEvents)
-          .values(eventValues(paymentId, { idempotencyKey: key, eventType: "failed", amount: null, currency: null })),
+          .values(
+            eventValues(paymentId, {
+              idempotencyKey: key,
+              eventType: "failed",
+              amount: null,
+              currency: null,
+            }),
+          ),
       );
 
       expect(rejection.code).toBe("23505");
@@ -452,7 +447,7 @@ describe.skipIf(!DATABASE_URL)("finance_payment_events constraints (real databas
   });
 });
 
-describe.skipIf(!DATABASE_URL)("fee rules and the payment snapshot (real database)", () => {
+describe.skipIf(skipWithoutDatabase)("fee rules and the payment snapshot (real database)", () => {
   it("prefers an institution-scoped rule over the global default", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
@@ -546,13 +541,12 @@ describe.skipIf(!DATABASE_URL)("fee rules and the payment snapshot (real databas
   });
 });
 
-describe.skipIf(!DATABASE_URL)("loadPaymentLedger (real database)", () => {
+describe.skipIf(skipWithoutDatabase)("loadPaymentLedger (real database)", () => {
   it("folds the stored events and scopes the read to the owning institution", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
-      const { appendPaymentEvent, loadPaymentLedger } = await import(
-        "@/server/finance/payment-service"
-      );
+      const { appendPaymentEvent, loadPaymentLedger } =
+        await import("@/server/finance/payment-service");
       const paymentId = await seedPayment(tx, fixture);
 
       await appendPaymentEvent(
@@ -563,12 +557,12 @@ describe.skipIf(!DATABASE_URL)("loadPaymentLedger (real database)", () => {
           occurredAt: NOW,
           amount: 1_000_000,
           currency: "IDR",
-          idempotencyKey: `ok_${uniqueSuffix()}`,
+          idempotencyKey: `gw:xendit:succeeded:ok_${uniqueSuffix()}`,
         },
         tx as never,
       );
 
-      const refundKey = `refund_${uniqueSuffix()}`;
+      const refundKey = `gw:xendit:refunded:refund_${uniqueSuffix()}`;
       const first = await appendPaymentEvent(
         { type: "user", userId: fixture.userId },
         {
@@ -633,7 +627,7 @@ describe.skipIf(!DATABASE_URL)("loadPaymentLedger (real database)", () => {
         .values(paymentValues(fixture, { receivingInstitutionId: fixture.otherInstitutionId }))
         .returning({ id: financePayments.id });
 
-      const sharedKey = `collision_${uniqueSuffix()}`;
+      const sharedKey = `gw:xendit:succeeded:collision_${uniqueSuffix()}`;
 
       await appendPaymentEvent(
         { type: "gateway" },
@@ -674,9 +668,8 @@ describe.skipIf(!DATABASE_URL)("loadPaymentLedger (real database)", () => {
   it("refuses a second partial refund that reuses the first refund's key", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
-      const { appendPaymentEvent, loadPaymentLedger } = await import(
-        "@/server/finance/payment-service"
-      );
+      const { appendPaymentEvent, loadPaymentLedger } =
+        await import("@/server/finance/payment-service");
       const paymentId = await seedPayment(tx, fixture);
 
       await appendPaymentEvent(
@@ -687,15 +680,18 @@ describe.skipIf(!DATABASE_URL)("loadPaymentLedger (real database)", () => {
           occurredAt: NOW,
           amount: 1_000_000,
           currency: "IDR",
-          idempotencyKey: `cap_${uniqueSuffix()}`,
+          idempotencyKey: `gw:xendit:succeeded:cap_${uniqueSuffix()}`,
         },
         tx as never,
       );
 
-      // The key a "refund this payment" call naturally reaches for: derived from the payment.
+      // The key a "refund this payment" call naturally reaches for: derived from the payment. This
+      // is that defect in its original form, and it is refused BEFORE it can be
+      // written — the convention's enforcement in assertEventInput turns a key that would have
+      // collided on the second refund into an input error on the first.
       const derivedKey = `refund__${paymentId}`;
 
-      const partial = (amount: number) =>
+      const partial = (amount: number, idempotencyKey: string) =>
         appendPaymentEvent(
           { type: "user", userId: fixture.userId },
           {
@@ -705,14 +701,21 @@ describe.skipIf(!DATABASE_URL)("loadPaymentLedger (real database)", () => {
             amount,
             currency: "IDR",
             reason: "partial refund",
-            idempotencyKey: derivedKey,
+            idempotencyKey,
           },
           tx as never,
         );
 
-      await partial(400_000);
+      await expect(partial(400_000, derivedKey)).rejects.toMatchObject({
+        code: "payment_event_idempotency_key_malformed",
+      });
 
-      await expect(partial(600_000)).rejects.toMatchObject({
+      // And the conflict guard still stands behind it for a CONFORMING key reused across two
+      // different amounts, which is what a gateway replaying one event id under a changed payload
+      // would look like. Belt and braces: the convention stops the shape, this stops the reuse.
+      const conformingKey = `gw:xendit:succeeded:reused_${uniqueSuffix()}`;
+      await partial(400_000, conformingKey);
+      await expect(partial(600_000, conformingKey)).rejects.toMatchObject({
         code: "payment_event_idempotency_key_conflict",
       });
 
@@ -720,6 +723,105 @@ describe.skipIf(!DATABASE_URL)("loadPaymentLedger (real database)", () => {
       const ledger = await loadPaymentLedger(fixture.institutionId, paymentId, tx as never);
       expect(ledger?.state.refundedAmount).toBe(400_000);
       expect(ledger?.state.status).toBe("succeeded");
+    });
+  });
+
+  // The key that is CHECKED must be the key that is STORED, or the guard checks one string and the
+  // index enforces another. Validating a trimmed value while inserting the raw one lets a padded key
+  // land with its padding: the gateway's retry then mints the canonical form, the index sees a
+  // different string, `ON CONFLICT` does not fire, and one event records twice in a ledger with no
+  // delete path. Only a real database can show this — a mocked insert stores nothing to compare.
+  it("stores the canonical key it validated, so a padded replay still collapses", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { appendPaymentEvent, loadPaymentLedger } =
+        await import("@/server/finance/payment-service");
+      const paymentId = await seedPayment(tx, fixture);
+
+      const canonical = `gw:xendit:succeeded:pad_${uniqueSuffix()}`;
+      const capture = (idempotencyKey: string) =>
+        appendPaymentEvent(
+          { type: "gateway" },
+          {
+            paymentId,
+            eventType: "succeeded",
+            occurredAt: NOW,
+            amount: 1_000_000,
+            currency: "IDR",
+            idempotencyKey,
+          },
+          tx as never,
+        );
+
+      const padded = await capture(`  ${canonical}\n`);
+      expect(padded.deduplicated).toBe(false);
+      expect(padded.event.idempotencyKey).toBe(canonical);
+
+      // The retry, arriving with the key the minting helper produces. It must be recognised as the
+      // same event rather than recorded as a second capture of the same money.
+      const retry = await capture(canonical);
+      expect(retry.deduplicated).toBe(true);
+      expect(retry.event.id).toBe(padded.event.id);
+
+      const ledger = await loadPaymentLedger(fixture.institutionId, paymentId, tx as never);
+      expect(ledger?.events).toHaveLength(1);
+    });
+  });
+
+  // The property the whole convention exists for, proven against a real database: two genuine
+  // partial refunds on ONE payment, keyed by the minting helper, both record. Under the old
+  // `<verb>__<paymentId>` shape the second was swallowed or refused, and the ledger understated
+  // what had actually been refunded — in an append-only ledger, an event that never landed is the
+  // worse harm, because there is no later write that restates it.
+  it("records a second partial refund on the same payment when keys are minted (FINANCE-D11)", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { appendPaymentEvent, loadPaymentLedger } =
+        await import("@/server/finance/payment-service");
+      const { mintPlatformPaymentEventKey } = await import("@/server/finance/idempotency-key");
+      const paymentId = await seedPayment(tx, fixture);
+
+      await appendPaymentEvent(
+        { type: "gateway" },
+        {
+          paymentId,
+          eventType: "succeeded",
+          occurredAt: NOW,
+          amount: 1_000_000,
+          currency: "IDR",
+          idempotencyKey: `gw:xendit:succeeded:cap_${uniqueSuffix()}`,
+        },
+        tx as never,
+      );
+
+      const refund = (amount: number) =>
+        appendPaymentEvent(
+          { type: "user", userId: fixture.userId },
+          {
+            paymentId,
+            eventType: "refunded",
+            occurredAt: NOW,
+            amount,
+            currency: "IDR",
+            reason: "partial refund",
+            // Minted per call. Two refunds are two intents, and the UUID is what lets the ledger
+            // say so.
+            idempotencyKey: mintPlatformPaymentEventKey({ action: "refunded", paymentId }),
+          },
+          tx as never,
+        );
+
+      const first = await refund(400_000);
+      const second = await refund(600_000);
+
+      expect(first.deduplicated).toBe(false);
+      expect(second.deduplicated).toBe(false);
+      expect(second.event.id).not.toBe(first.event.id);
+
+      // Both landed, so the fold sees the payment fully refunded rather than half of it.
+      const ledger = await loadPaymentLedger(fixture.institutionId, paymentId, tx as never);
+      expect(ledger?.state.refundedAmount).toBe(1_000_000);
+      expect(ledger?.state.status).toBe("refunded");
     });
   });
 });

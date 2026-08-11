@@ -1,12 +1,14 @@
 import type { Session } from "next-auth";
 import { NextResponse } from "next/server";
-import { type AppRole, isAppRole, sessionHasRole } from "@/lib/access/roles";
+import { type AppRole, isAppRole, isSelfServiceRole, sessionHasRole } from "@/lib/access/roles";
+import type { MfaStatus } from "@/server/auth/mfa/mfa-status";
 
 export type AuthenticatedSession = Session & {
   user: NonNullable<Session["user"]> & {
     id: string;
     role: AppRole;
     verifiedRoles: AppRole[];
+    mfaStatus: MfaStatus;
   };
 };
 
@@ -21,7 +23,9 @@ export class AccessError extends Error {
       | "unauthenticated"
       | "forbidden"
       | "session_user_mismatch"
-      | "account_suspended",
+      | "account_suspended"
+      | "mfa_enrolment_required"
+      | "mfa_challenge_required",
     public readonly status: 401 | 403 | 409,
     message: string,
   ) {
@@ -92,6 +96,10 @@ export const assertAuthenticatedSession = (session: Session | null): Authenticat
   const verifiedRoles = Array.isArray(session.user.verifiedRoles)
     ? session.user.verifiedRoles.filter((entry): entry is AppRole => isAppRole(entry as string))
     : [];
+  // See the next-auth.d.ts comment on `mfaStatus`: real sessions always carry a computed value from
+  // the session callback; this default only ever fires for a hand-constructed test fixture that
+  // predates this field, and it preserves that fixture's old (no-MFA-gate) behaviour exactly.
+  const mfaStatus: MfaStatus = session.user.mfaStatus ?? "not_applicable";
 
   return {
     ...session,
@@ -99,8 +107,36 @@ export const assertAuthenticatedSession = (session: Session | null): Authenticat
       ...session.user,
       role,
       verifiedRoles,
+      mfaStatus,
     },
   } as AuthenticatedSession;
+};
+
+// MFA choke point #1 of 2 (the other is requireRolePage). Scoped to the NEGATION of
+// isSelfServiceRole, never to a `platform_ops` literal, so `finance_ops` — and `reviewer_or_judge`
+// — are covered by construction rather than by remembering to list every operational role. Runs
+// AFTER the role-permission check passes, so a session that fails sessionHasRole gets the existing
+// generic 403 rather than leaking MFA state about a role it does not even hold.
+const assertMfaSatisfiedForOperationalSession = (session: AuthenticatedSession): void => {
+  if (isSelfServiceRole(session.user.role)) {
+    return;
+  }
+
+  if (session.user.mfaStatus === "enrolment_required") {
+    throw new AccessError(
+      "mfa_enrolment_required",
+      403,
+      "This account must enrol a multi-factor authentication method before continuing",
+    );
+  }
+
+  if (session.user.mfaStatus === "challenge_required") {
+    throw new AccessError(
+      "mfa_challenge_required",
+      403,
+      "This session must complete a multi-factor authentication challenge before continuing",
+    );
+  }
 };
 
 export const assertSessionRole = (
@@ -116,6 +152,8 @@ export const assertSessionRole = (
   if (!permitted) {
     throw new AccessError("forbidden", 403, "Insufficient role permissions");
   }
+
+  assertMfaSatisfiedForOperationalSession(session);
 
   return session;
 };

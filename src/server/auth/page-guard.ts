@@ -55,6 +55,21 @@ export const requireRolePage = async (
   const session = assertPageSession(await getCurrentSession(), loginPath);
 
   if (sessionHasRole(session.user.role, session.user.verifiedRoles, role)) {
+    // MFA choke point #2 of 2 (the other is assertSessionRole). Scoped to the negation of
+    // isSelfServiceRole, never a role literal, so finance_ops and reviewer_or_judge are covered by
+    // construction. The two MFA flow pages themselves (/auth/mfa/enroll, /auth/mfa/challenge) do
+    // NOT call requireRolePage — they need a session that is operational but NOT yet satisfied,
+    // the opposite predicate, so gating them here would be a redirect loop. They use their own
+    // bespoke guard, the same way /auth/verify-role does not go through requireRolePage either.
+    if (!isSelfServiceRole(session.user.role)) {
+      const callback = encodeURIComponent(callbackPath);
+      if (session.user.mfaStatus === "enrolment_required") {
+        redirect(`/auth/mfa/enroll?callbackUrl=${callback}`);
+      }
+      if (session.user.mfaStatus === "challenge_required") {
+        redirect(`/auth/mfa/challenge?callbackUrl=${callback}`);
+      }
+    }
     return session;
   }
 

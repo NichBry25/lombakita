@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import { chromium } from "playwright";
-import { mintSession } from "./lib-auth.mjs";
-import { BASE } from "./seeds.mjs";
+import { elevateMfaSession, mintSession } from "./lib-auth.mjs";
+import { BASE, USERS } from "./seeds.mjs";
 
 export const DESKTOP = { width: 1440, height: 900 };
 export const MOBILE = { width: 390, height: 844 };
@@ -29,6 +29,13 @@ export async function contextFor(browser, email) {
   if (email) {
     const s = await mintSession(email);
     if (!s.ok) throw new Error(`session mint failed for ${email}: ${s.error}`);
+    // Signing in is not enough for an operational account: a fresh JWT carries no MFA claim, so
+    // every guarded surface would redirect to /auth/mfa/challenge. Complete the challenge here for
+    // the accounts seeded as "satisfied", and leave the other two in the gate on purpose — those
+    // are the fixtures for the enrolment and challenge pages themselves.
+    if (Object.values(USERS).find((u) => u.email === email)?.mfa === "satisfied") {
+      await elevateMfaSession(s.jar);
+    }
     const cookies = [...s.jar.entries()].map(([name, value]) => ({
       name, value, domain: "localhost", path: "/", httpOnly: false, secure: false, sameSite: "Lax",
     }));

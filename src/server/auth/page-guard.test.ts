@@ -175,3 +175,65 @@ describe("requireRolePage", () => {
     expect(redirectMock).not.toHaveBeenCalledWith("/");
   });
 });
+
+// Step 7.1-MFA choke point #2 of 2 (the other is assertSessionRole, access-core.test.ts). This is
+// the "confined session" guard-removal target for the page-guard half: an operational account
+// whose sessionHasRole check passes must still be refused the actual page render until its
+// mfaStatus is "satisfied".
+describe("requireRolePage — MFA gate", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("redirects an operational session needing enrolment to /auth/mfa/enroll", async () => {
+    getCurrentSessionMock.mockResolvedValue(
+      buildSession({ role: "platform_ops", verifiedRoles: [], mfaStatus: "enrolment_required" } as never),
+    );
+
+    await expect(
+      requireRolePage("platform_ops", { callbackPath: "/admin/moderation" }),
+    ).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(redirectMock).toHaveBeenCalledWith("/auth/mfa/enroll?callbackUrl=%2Fadmin%2Fmoderation");
+  });
+
+  it("redirects an operational session needing a challenge to /auth/mfa/challenge", async () => {
+    getCurrentSessionMock.mockResolvedValue(
+      buildSession({ role: "finance_ops", verifiedRoles: [], mfaStatus: "challenge_required" } as never),
+    );
+
+    await expect(
+      requireRolePage("finance_ops", { callbackPath: "/admin/finance" }),
+    ).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(redirectMock).toHaveBeenCalledWith("/auth/mfa/challenge?callbackUrl=%2Fadmin%2Ffinance");
+  });
+
+  // GUARD-REMOVAL PROOF target: the `!isSelfServiceRole(...)` / mfaStatus branch inside
+  // requireRolePage. Deleting it makes this test indistinguishable from the "satisfied" case below
+  // ONLY if the enrolment/challenge cases above also stop redirecting — together these three prove
+  // the branch is load-bearing in both directions.
+  it("renders the page for an operational session that is already satisfied", async () => {
+    getCurrentSessionMock.mockResolvedValue(
+      buildSession({ role: "platform_ops", verifiedRoles: [], mfaStatus: "satisfied" } as never),
+    );
+
+    const result = await requireRolePage("platform_ops", { callbackPath: "/admin" });
+
+    expect(result.user.role).toBe("platform_ops");
+    expect(redirectMock).not.toHaveBeenCalled();
+  });
+
+  it("never gates a self-service session on mfaStatus", async () => {
+    getCurrentSessionMock.mockResolvedValue(
+      buildSession({
+        role: "candidate",
+        verifiedRoles: ["candidate"],
+        mfaStatus: "enrolment_required",
+      } as never),
+    );
+
+    const result = await requireRolePage("candidate", { callbackPath: "/saved" });
+
+    expect(result.user.role).toBe("candidate");
+    expect(redirectMock).not.toHaveBeenCalled();
+  });
+});

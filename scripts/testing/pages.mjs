@@ -96,4 +96,12 @@ export const PAGES = [
   { id: "86-admin-verification", as: "ops", path: "/admin/verification", label: "Institution document verification queue" },
   { id: "87-ops-on-candidate-surface", as: "ops", path: "/candidate-dashboard", label: "Operational account denied a participant surface" },
   { id: "88-ops-home", as: "ops", path: "/", label: "Landing page as operational account (nav withheld)" },
+
+  // ---------------------------------------------------------------- MFA gate
+  // Rendered by accounts deliberately left INSIDE the gate — `seed_ops_enrol` holds no factor and
+  // `seed_ops_chal` holds one with no satisfied claim, so each lands on its own surface rather than
+  // being redirected past it.
+  { id: "90-mfa-enroll", as: "opsEnrol", path: "/auth/mfa/enroll", label: "MFA enrolment — QR, secret, recovery codes" },
+  { id: "91-mfa-challenge", as: "opsChal", path: "/auth/mfa/challenge", label: "MFA challenge — code entry + recovery link" },
+  { id: "92-mfa-gate-redirect", as: "opsEnrol", path: "/admin", label: "Guarded surface redirecting an un-enrolled operator" },
 ];

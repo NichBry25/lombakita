@@ -4,23 +4,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 import { VerificationError } from "@/server/institution-verification/verification-core";
 
-const { requireAuthenticatedSession, verifyInstitution } = vi.hoisted(() => ({
-  requireAuthenticatedSession: vi.fn(),
+const { requireSessionRole, verifyInstitution } = vi.hoisted(() => ({
+  requireSessionRole: vi.fn(),
   verifyInstitution: vi.fn(),
 }));
 
-vi.mock("@/server/auth/session", () => ({ requireAuthenticatedSession }));
+vi.mock("@/server/auth/session", () => ({ requireSessionRole }));
 vi.mock("@/server/institution-verification/verification-service", () => ({ verifyInstitution }));
 
 import { PATCH } from "@/app/api/admin/institutions/[id]/verify/route";
 
 const platformOpsSession = {
   user: { id: "ops_1", role: "platform_ops", email: "ops@example.com" },
-  expires: new Date(Date.now() + 60_000).toISOString(),
-};
-
-const recruiterSession = {
-  user: { id: "admin_1", role: "recruiter", email: "admin@example.com" },
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
@@ -57,7 +52,7 @@ describe("PATCH /api/admin/institutions/[id]/verify", () => {
   afterEach(() => vi.clearAllMocks());
 
   it("returns 200 on successful transition to under_review", async () => {
-    requireAuthenticatedSession.mockResolvedValue(platformOpsSession);
+    requireSessionRole.mockResolvedValue(platformOpsSession);
     verifyInstitution.mockResolvedValue(mockVerifyResult);
 
     const response = await PATCH(
@@ -78,10 +73,14 @@ describe("PATCH /api/admin/institutions/[id]/verify", () => {
     );
   });
 
-  it("returns 403 when called by recruiter (not platform_ops)", async () => {
-    requireAuthenticatedSession.mockResolvedValue(recruiterSession);
-    verifyInstitution.mockRejectedValue(
-      new AccessError("forbidden", 403, "platform_ops access required"),
+  // The refusal now comes from the ROUTE's role gate rather than from the service it calls. That
+  // is the point of the change: `requireSessionRole` routes through `assertSessionRole`, which is
+  // where the operational-account MFA requirement lives, so a route that only reached the service's
+  // own `requirePlatformOps` refused the wrong ROLE while letting an un-elevated operational
+  // session straight through. Asserting the service is never reached is what pins that ordering.
+  it("returns 403 when called by recruiter (not platform_ops), before the service is reached", async () => {
+    requireSessionRole.mockRejectedValue(
+      new AccessError("forbidden", 403, "Insufficient role permissions"),
     );
 
     const response = await PATCH(
@@ -90,10 +89,11 @@ describe("PATCH /api/admin/institutions/[id]/verify", () => {
     );
 
     expect(response.status).toBe(403);
+    expect(verifyInstitution).not.toHaveBeenCalled();
   });
 
   it("returns 401 when unauthenticated", async () => {
-    requireAuthenticatedSession.mockRejectedValue(
+    requireSessionRole.mockRejectedValue(
       new AccessError("unauthenticated", 401, "Authentication required"),
     );
 
@@ -106,7 +106,7 @@ describe("PATCH /api/admin/institutions/[id]/verify", () => {
   });
 
   it("returns 422 when rejecting without reason", async () => {
-    requireAuthenticatedSession.mockResolvedValue(platformOpsSession);
+    requireSessionRole.mockResolvedValue(platformOpsSession);
 
     const response = await PATCH(
       makeRequest({ targetStatus: "rejected" }) as never,
@@ -120,7 +120,7 @@ describe("PATCH /api/admin/institutions/[id]/verify", () => {
   });
 
   it("returns 409 on invalid transition (e.g. pending_verification → verified)", async () => {
-    requireAuthenticatedSession.mockResolvedValue(platformOpsSession);
+    requireSessionRole.mockResolvedValue(platformOpsSession);
     verifyInstitution.mockRejectedValue(
       new VerificationError(
         "verification_invalid_transition",
@@ -140,7 +140,7 @@ describe("PATCH /api/admin/institutions/[id]/verify", () => {
   });
 
   it("returns 400 for invalid JSON body", async () => {
-    requireAuthenticatedSession.mockResolvedValue(platformOpsSession);
+    requireSessionRole.mockResolvedValue(platformOpsSession);
 
     const request = new Request("http://localhost", {
       method: "PATCH",
@@ -156,7 +156,7 @@ describe("PATCH /api/admin/institutions/[id]/verify", () => {
   });
 
   it("returns 200 on rejection with reason and writes audit entry", async () => {
-    requireAuthenticatedSession.mockResolvedValue(platformOpsSession);
+    requireSessionRole.mockResolvedValue(platformOpsSession);
     const rejectedResult = {
       institution: {
         id: "inst_1",

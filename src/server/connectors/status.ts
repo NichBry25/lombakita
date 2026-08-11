@@ -3,6 +3,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 assertServerOnly("server/connectors/status");
 
 import { isAsyncWorkersConfigured, probeAsyncWorkerLiveness } from "@/server/async/probe";
+import { isMfaEncryptionConfigured, probeMfaEncryption } from "@/server/auth/mfa/mfa-encryption-probe";
 import { runConnectorProbe, type ConnectorReadiness } from "@/server/connectors/shared";
 import { isDatabaseConfigured, probeDatabase } from "@/server/db/probe";
 import { isResendConfigured, probeResend } from "@/server/email/probe";
@@ -76,6 +77,12 @@ export const getConnectorStatusPayload = async (
       configured: isSentryConfigured(),
       includeLiveChecks,
       probe: probeSentry,
+    }),
+    runConnectorProbe({
+      name: "mfa-encryption",
+      configured: isMfaEncryptionConfigured(),
+      includeLiveChecks,
+      probe: probeMfaEncryption,
     }),
     runConnectorProbe({
       name: "worker",
