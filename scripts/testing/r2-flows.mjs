@@ -7,7 +7,7 @@ import { writeFileSync, mkdirSync } from "fs";
 import { mintSession, apiFetch } from "./lib-auth.mjs";
 import { USERS, INST, COMP, REG } from "./seeds.mjs";
 
-const REPO = "/Users/nikau/Desktop/lombakita";
+const REPO = "/Users/nikau/Developer/lombakita";
 const results = [];
 const record = (id, name, expected, actual, pass, note = "") => {
   results.push({ id, name, expected, actual, pass, note });

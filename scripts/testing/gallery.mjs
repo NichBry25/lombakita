@@ -14,7 +14,7 @@ import { launch, contextFor, setTheme, visit, shot, DESKTOP, MOBILE } from "./li
 import { PAGES } from "./pages.mjs";
 import { USERS } from "./seeds.mjs";
 
-const REPO = "/Users/nikau/Desktop/lombakita";
+const REPO = "/Users/nikau/Developer/lombakita";
 const OUT = `${REPO}/test-artifacts/gallery`;
 const STATE = `${OUT}/gallery.json`;
 const MODES = ["desktop-light", "desktop-dark", "mobile-light", "mobile-dark"];

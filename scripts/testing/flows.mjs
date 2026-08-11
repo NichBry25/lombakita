@@ -7,7 +7,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { launch, contextFor, visit, shot, DESKTOP } from "./lib-browser.mjs";
 import { USERS, BASE, PASSWORD } from "./seeds.mjs";
 
-const REPO = "/Users/nikau/Desktop/lombakita";
+const REPO = "/Users/nikau/Developer/lombakita";
 const OUT = `${REPO}/test-artifacts/behavior/flows`;
 const steps = [];
 
