@@ -111,6 +111,12 @@ describe("the product repo ignores the symlinked doc lane (DEC-0159)", () => {
     // `docs/` is a real directory, not a symlink, so `/docs/` is correct there. Asserted so a
     // future sweep that "consistently" removes trailing slashes does not read this file as
     // demanding it everywhere — the rule is about symlinks, not about slashes.
-    expect(checkIgnore("docs").ignored).toBe(true);
+    //
+    // The queried path keeps its trailing slash, and must. `check-ignore` classifies a path as a
+    // directory by looking at the working tree, so a bare `docs` matches a directory-only rule
+    // only where the directory exists on disk — true in a developer checkout, false in CI, where
+    // `docs/` is absent precisely because it is ignored. The slash states the kind in the query
+    // itself, so the assertion tests the rule rather than the checkout.
+    expect(checkIgnore("docs/").ignored).toBe(true);
   });
 });
