@@ -126,3 +126,31 @@ export const computePlatformFee = (grossAmount: number, terms: FeeRuleTerms): Fe
     currency: terms.currency,
   };
 };
+
+// The proportional rate at which the platform takes the whole payment. Representable in the schema —
+// the CHECK allows 0..10000 — and handled correctly by the clamp above, which is precisely why it
+// needs its own refusal: nothing downstream ever errors on it.
+export const FULL_TAKE_BASIS_POINTS = BASIS_POINTS_DENOMINATOR;
+
+export type FeeRuleRejectionCode = "fee_rule_takes_entire_payment";
+
+/**
+ * Why `terms` may not be STORED as a fee rule, or null when they may be.
+ *
+ * Separate from `assertTerms`, which asks whether terms are arithmetically usable. These terms are:
+ * a 100% rate computes cleanly and clamps to a zero institution net, and the clamp is correct — it
+ * is what stops a fee larger than the payment producing a negative net. The configuration is what is
+ * wrong, and because the arithmetic never fails, refusing it at the point of configuration is the
+ * only place it can be caught.
+ *
+ * DELIBERATELY NOT COVERED: a flat or minimum component also drives the net to zero for payments at
+ * or below that component. That is true of every flat fee, and refusing it needs a minimum
+ * chargeable payment amount to measure against — a product threshold that does not exist yet.
+ */
+export const findFeeRuleRejection = (terms: FeeRuleTerms): FeeRuleRejectionCode | null => {
+  if (terms.basisPoints >= FULL_TAKE_BASIS_POINTS) {
+    return "fee_rule_takes_entire_payment";
+  }
+
+  return null;
+};

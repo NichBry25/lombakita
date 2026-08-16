@@ -60,7 +60,20 @@ describe("finance write surface", () => {
       .filter((name) => typeof (feeRuleService as Record<string, unknown>)[name] === "function")
       .sort();
 
-    expect(exported).toEqual(["FeeRuleError", "resolveFeeRule", "toFeeRuleTerms"]);
+    // This list may grow with READS and with INSERTS; it may never grow with an update or a delete.
+    //
+    // `createFeeRule` belongs here on that reading. Fee rules are effective-dated, so a rate change
+    // is a NEW ROW that takes over from a date — there is deliberately no edit-in-place, because
+    // rewriting a rule's terms would leave already-recorded payments naming an authority whose
+    // figures no longer match what they were priced under.
+    expect(exported).toEqual([
+      "FeeRuleError",
+      "createFeeRule",
+      "listFeeRules",
+      "requireFeeRuleInForce",
+      "resolveFeeRule",
+      "toFeeRuleTerms",
+    ]);
   });
 
   it("names no exported symbol that reads as a mutation of recorded finance rows", () => {

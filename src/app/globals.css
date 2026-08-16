@@ -5538,6 +5538,40 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   color: var(--color-link);
 }
 
+.admin-section {
+  display: grid;
+  gap: var(--space-4);
+  margin-block-start: var(--space-6);
+}
+
+.fee-rule-form {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* auto-fit rather than a fixed column count: the form holds nine fields, and at 390px they must
+   stack to one column without a breakpoint list that has to be maintained alongside them. */
+.fee-rule-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(var(--control-select-min), 100%), 1fr));
+  gap: var(--space-4);
+}
+
+/* Grid items default to `min-width: auto`, which resolves to the item's min-content size and
+   refuses to shrink below it. A `datetime-local` input reports a ~208px intrinsic width, wider than
+   a column at 390px, and that automatic minimum outranks both `width: 100%` and `max-width` — so
+   the input has to be told explicitly that it may shrink. Applied at both levels because
+   `.form-field` is itself a grid: releasing only the outer item leaves the input pushing past it. */
+.fee-rule-form-grid > *,
+.fee-rule-form-grid .form-input {
+  min-width: 0;
+}
+
+.fee-rule-form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .featured-row-form {
   display: flex;
   min-width: max-content;

@@ -21,9 +21,11 @@ import { openPool } from "../lib/live-harness";
 
 export {
   POOL_SIZE,
+  assertLocalDatabase,
   createChecker,
   databaseUrl,
   finish,
+  isLocalDatabaseHost,
   oneRow,
   openPool,
   resolveIterations,

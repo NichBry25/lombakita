@@ -6,7 +6,11 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    // `scripts/` is included so the operator scripts' pure helpers are testable at all. Only
+    // side-effect-free modules there may be imported from a test: `live-harness.ts` reads
+    // `.env.local` and throws on a missing DATABASE_URL at import time, so a test reaching through
+    // it would depend on an environment the assertion under test does not need.
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "scripts/**/*.test.ts"],
     // Raised from the 5s default. Several auth suites import the auth.config module graph from
     // inside the test body, so the first test in each of those files pays a cold Vite transform of
     // next-auth + the Drizzle adapter + the server auth modules. That import is ~5s on a loaded
