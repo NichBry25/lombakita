@@ -61,6 +61,7 @@ DO $$
 DECLARE
   fractional_count bigint;
   uncurrencied_count bigint;
+  existing_payment_count bigint;
   unverified_paid_count bigint;
 BEGIN
   -- PRE-FLIGHT REFUSAL 1 — a fee with a fractional part cannot survive the cast.
@@ -91,6 +92,23 @@ BEGIN
     RAISE EXCEPTION
       'Refusing fee_amount migration: % priced competition row(s) carry a null or non-IDR fee_currency. Set fee_currency before migrating.',
       uncurrencied_count;
+  END IF;
+
+  -- PRE-FLIGHT REFUSAL 3 — finance_payments.origin is added NOT NULL with NO DEFAULT, on purpose.
+  -- Origin records which lane a payment was actually taken through, and for a row that predates the
+  -- column there is no true answer: 'manual_transfer' and 'gateway' would both be a guess written
+  -- into the ledger as fact, and every fee accrual, split assertion and reconciliation downstream
+  -- reads it as though somebody knew. A backfill is therefore FORBIDDEN, not merely undesirable.
+  --
+  -- The bare ADD COLUMN below would fail on its own, but with a SQLSTATE 23502 that reads as an
+  -- oversight and invites exactly the DEFAULT someone would add to make it pass. This refusal says
+  -- what the right response is instead: stop, and escalate.
+  SELECT count(*) INTO existing_payment_count FROM finance_payments;
+
+  IF existing_payment_count > 0 THEN
+    RAISE EXCEPTION
+      'Refusing origin migration: finance_payments holds % row(s) predating the origin column. Do NOT add a DEFAULT and do NOT backfill — every available value would be a fabricated claim about which lane real money moved through. Escalate before proceeding.',
+      existing_payment_count;
   END IF;
 
   -- NOT a refusal (DEC-0158). A paid competition owned by an institution that is not verified is a
@@ -127,10 +145,13 @@ ALTER TABLE "finance_manual_payment_proofs" ADD CONSTRAINT "finance_manual_payme
 ALTER TABLE "finance_manual_payment_proofs" ADD CONSTRAINT "finance_manual_payment_proofs_reviewer_user_id_fk" FOREIGN KEY ("reviewer_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "institution_payment_instructions" ADD CONSTRAINT "institution_payment_instructions_institution_id_fk" FOREIGN KEY ("institution_id") REFERENCES "public"."institutions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "finance_fee_accruals_payment_accrued_unique_idx" ON "finance_fee_accruals" USING btree ("payment_id") WHERE "finance_fee_accruals"."entry_type" = 'accrued';--> statement-breakpoint
+CREATE UNIQUE INDEX "finance_fee_accruals_payment_reversed_unique_idx" ON "finance_fee_accruals" USING btree ("payment_id") WHERE "finance_fee_accruals"."entry_type" = 'reversed';--> statement-breakpoint
 CREATE INDEX "finance_fee_accruals_owing_institution_id_idx" ON "finance_fee_accruals" USING btree ("owing_institution_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "finance_manual_payment_proofs_payment_unique_idx" ON "finance_manual_payment_proofs" USING btree ("payment_id");--> statement-breakpoint
 CREATE INDEX "finance_manual_payment_proofs_competition_status_idx" ON "finance_manual_payment_proofs" USING btree ("competition_id","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "institution_payment_instructions_institution_unique_idx" ON "institution_payment_instructions" USING btree ("institution_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "teams_competition_id_id_unique_idx" ON "teams" USING btree ("competition_id","id");--> statement-breakpoint
+ALTER TABLE "competition_registrations" ADD CONSTRAINT "competition_registrations_competition_team_fk" FOREIGN KEY ("competition_id","team_id") REFERENCES "public"."teams"("competition_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "competitions" ADD CONSTRAINT "competitions_fee_currency_required_chk" CHECK ("competitions"."fee_amount" IS NULL OR "competitions"."fee_amount" = 0 OR "competitions"."fee_currency" IS NOT NULL);--> statement-breakpoint
 ALTER TABLE "competitions" ADD CONSTRAINT "competitions_fee_currency_shape_chk" CHECK ("competitions"."fee_currency" IS NULL OR "competitions"."fee_currency" ~ '^[A-Z]{3}$');--> statement-breakpoint
 ALTER TABLE "competitions" ADD CONSTRAINT "competitions_payment_window_days_chk" CHECK ("competitions"."payment_window_days" >= 1 AND "competitions"."payment_window_days" <= 30);--> statement-breakpoint

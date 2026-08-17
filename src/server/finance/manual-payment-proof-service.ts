@@ -2,10 +2,11 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/finance/manual-payment-proof-service");
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitionRegistrations,
+  competitions,
   financeManualPaymentProofs,
   financePayments,
   type FinanceManualPaymentProofRecord,
@@ -14,8 +15,8 @@ import { appendPaymentEvent } from "@/server/finance/payment-service";
 import { recordFeeAccrual, recordFeeAccrualReversal } from "@/server/finance/fee-accrual-service";
 import { mintManualPaymentEventKey } from "@/server/finance/idempotency-key";
 
-// THE BUKTI TRANSFER REVIEW LOOP. Schema and services only — this step ships no upload route and no
-// verification route; 7.2-MANUAL.2 builds the surfaces that call these.
+// THE BUKTI TRANSFER REVIEW LOOP. Services only — there is no upload route and no verification
+// route yet; the surfaces that call these are not built.
 //
 // EVERY TRANSITION IS AN OPTIMISTIC CAS on the proof's status, and that is the concurrency guard the
 // whole manual lane rests on (Rule 25: CAS for a single-row transition). It is NOT the idempotency
@@ -23,6 +24,19 @@ import { mintManualPaymentEventKey } from "@/server/finance/idempotency-key";
 // design, so two organisers clicking "verify" at once would write two `succeeded` events — which the
 // fold tolerates — and two fee accruals, which is money billed twice. The CAS means exactly one of
 // those calls transitions the row and therefore exactly one reaches the accrual write.
+//
+// EVERY FUNCTION HERE IS SCOPED IN ITS OWN QUERY, and the scope sits in the same WHERE as the CAS
+// rather than in a check the caller is trusted to have run first. Two scopes, because there are two
+// kinds of actor:
+//
+//   ORGANISER SIDE  (verify / reject / read) — scoped to the institution that owns the proof's
+//                   competition. A proof id from another organiser's competition matches no row and
+//                   is indistinguishable from one that does not exist.
+//   CANDIDATE SIDE  (submit / reopen)        — scoped to the person whose money it is. A payer may
+//                   only file and refile evidence against their own payment.
+//
+// `voidManualPaymentProof` is deliberately unscoped: it is platform_ops-only, and operating across
+// every tenant is what that role is for. Its authorization lives at its route.
 
 export type ManualProofErrorCode =
   | "manual_proof_payment_not_found"
@@ -33,6 +47,7 @@ export type ManualProofErrorCode =
   | "manual_proof_resubmission_barred"
   | "manual_proof_not_rejected"
   | "manual_proof_reason_required"
+  | "manual_proof_object_key_invalid"
   | "manual_proof_concurrently_modified";
 
 export class ManualProofError extends Error {
@@ -62,6 +77,19 @@ export class ManualProofError extends Error {
 export const buildManualProofObjectPrefix = (competitionId: string, paymentId: string): string =>
   `payment-proofs/${competitionId}/${paymentId}/`;
 
+/**
+ * The competition ids one institution owns, as a subquery.
+ *
+ * Returned as a subquery rather than a resolved array so the scope composes into the SAME statement
+ * as the CAS it guards. Resolving it first and comparing in application code reintroduces the gap
+ * the scope exists to close: between the two round trips the row can move.
+ */
+const competitionIdsOwnedBy = (institutionId: string, db: Database) =>
+  db
+    .select({ id: competitions.id })
+    .from(competitions)
+    .where(eq(competitions.institutionId, institutionId));
+
 export type SubmitManualProofInput = {
   paymentId: string;
   submittedByUserId: string;
@@ -77,6 +105,9 @@ export type SubmitManualProofInput = {
  * One proof per payment, enforced by a unique index. A second submission is a RESUBMISSION and goes
  * through `reopenManualPaymentProof`, which is the only path that respects the organiser's
  * resubmission bar — inserting a fresh row here instead would walk straight around it.
+ *
+ * The payment lookup is filtered on the PAYER, so a candidate can only file evidence against their
+ * own payment. Someone else's payment id reads as no payment at all.
  */
 export const submitManualPaymentProof = async (
   input: SubmitManualProofInput,
@@ -89,7 +120,12 @@ export const submitManualPaymentProof = async (
       registrationId: financePayments.competitionRegistrationId,
     })
     .from(financePayments)
-    .where(eq(financePayments.id, input.paymentId))
+    .where(
+      and(
+        eq(financePayments.id, input.paymentId),
+        eq(financePayments.payerUserId, input.submittedByUserId),
+      ),
+    )
     .limit(1);
 
   if (!payment) {
@@ -173,6 +209,7 @@ const loadCompetitionIdForPayment = async (paymentId: string, db: Database): Pro
  *      sits behind both the CAS and the partial unique index.
  */
 export const verifyManualPaymentProof = async (
+  institutionId: string,
   reviewerUserId: string,
   proofId: string,
   db: Database = getDb(),
@@ -188,11 +225,17 @@ export const verifyManualPaymentProof = async (
         updatedAt: now,
       })
       // The CAS. `status = 'pending_review'` in the WHERE is the whole guard: a concurrent verify
-      // that already moved the row matches nothing and returns no row.
+      // that already moved the row matches nothing and returns no row. The tenant scope rides in the
+      // same WHERE, so accepting another organiser's transfer — and accruing a fee against their
+      // institution — matches nothing either.
       .where(
         and(
           eq(financeManualPaymentProofs.id, proofId),
           eq(financeManualPaymentProofs.status, "pending_review"),
+          inArray(
+            financeManualPaymentProofs.competitionId,
+            competitionIdsOwnedBy(institutionId, tx as unknown as Database),
+          ),
         ),
       )
       .returning();
@@ -258,6 +301,7 @@ export const verifyManualPaymentProof = async (
  * organiser has not said.
  */
 export const rejectManualPaymentProof = async (
+  institutionId: string,
   reviewerUserId: string,
   proofId: string,
   reason: string,
@@ -286,6 +330,7 @@ export const rejectManualPaymentProof = async (
       and(
         eq(financeManualPaymentProofs.id, proofId),
         eq(financeManualPaymentProofs.status, "pending_review"),
+        inArray(financeManualPaymentProofs.competitionId, competitionIdsOwnedBy(institutionId, db)),
       ),
     )
     .returning();
@@ -303,6 +348,8 @@ export const rejectManualPaymentProof = async (
 
 export type ReopenManualProofInput = {
   proofId: string;
+  // The payer refiling their own evidence. Scoped on in the query, never assumed by the caller.
+  submittedByUserId: string;
   r2Key: string;
   originalFileName: string;
   fileSizeBytes: number;
@@ -318,13 +365,54 @@ export type ReopenManualProofInput = {
  *
  * THE RESUBMISSION BAR IS IN THIS CAS, not in a caller's if-statement and not in a hidden control:
  * `resubmission_allowed = true` sits in the WHERE alongside `status = 'rejected'`, so a barred proof
- * matches nothing no matter which surface calls this.
+ * matches nothing no matter which surface calls this. `submitted_by_user_id` rides in the same
+ * WHERE: only the payer refiles their own evidence.
+ *
+ * The replacement key is checked against `buildManualProofObjectPrefix` before it is stored. Without
+ * that check the prefix is a naming convention rather than a boundary, and a caller could point a
+ * proof row at any object in the bucket — including another payer's receipt, which this row would
+ * then present as its own.
  */
 export const reopenManualPaymentProof = async (
   input: ReopenManualProofInput,
   db: Database = getDb(),
   now: Date = new Date(),
 ): Promise<FinanceManualPaymentProofRecord> => {
+  const [existing] = await db
+    .select({
+      id: financeManualPaymentProofs.id,
+      paymentId: financeManualPaymentProofs.paymentId,
+      competitionId: financeManualPaymentProofs.competitionId,
+    })
+    .from(financeManualPaymentProofs)
+    .where(
+      and(
+        eq(financeManualPaymentProofs.id, input.proofId),
+        eq(financeManualPaymentProofs.submittedByUserId, input.submittedByUserId),
+      ),
+    )
+    .limit(1);
+
+  // One message for every cause, deliberately: a candidate learning which of "not yours", "already
+  // reopened" and "barred from reopening" applies gains nothing they can act on, and the states are
+  // adjacent enough that distinguishing them invites probing.
+  if (!existing) {
+    throw new ManualProofError(
+      "manual_proof_resubmission_barred",
+      "This bukti transfer cannot be resubmitted",
+      409,
+    );
+  }
+
+  const prefix = buildManualProofObjectPrefix(existing.competitionId, existing.paymentId);
+
+  if (!input.r2Key.startsWith(prefix)) {
+    throw new ManualProofError(
+      "manual_proof_object_key_invalid",
+      "The replacement file is not stored under this payment's own prefix",
+    );
+  }
+
   const [proof] = await db
     .update(financeManualPaymentProofs)
     .set({
@@ -342,6 +430,7 @@ export const reopenManualPaymentProof = async (
     .where(
       and(
         eq(financeManualPaymentProofs.id, input.proofId),
+        eq(financeManualPaymentProofs.submittedByUserId, input.submittedByUserId),
         eq(financeManualPaymentProofs.status, "rejected"),
         eq(financeManualPaymentProofs.resubmissionAllowed, true),
       ),
@@ -349,9 +438,6 @@ export const reopenManualPaymentProof = async (
     .returning();
 
   if (!proof) {
-    // One message for both causes, deliberately: a candidate learning which of "already reopened"
-    // and "barred from reopening" applies gains nothing they can act on, and the states are
-    // adjacent enough that distinguishing them invites probing.
     throw new ManualProofError(
       "manual_proof_resubmission_barred",
       "This bukti transfer cannot be resubmitted",
@@ -433,14 +519,27 @@ export const reverseVerifiedPaymentFee = async (
   await recordFeeAccrualReversal(paymentId, reason, db);
 };
 
+/**
+ * One bukti transfer, readable only by the institution whose competition it belongs to.
+ *
+ * A proof row carries the payer's `r2_key`, file name and rejection history, so an unscoped reader
+ * over proof ids is a cross-tenant read waiting for its first caller. Another institution's proof is
+ * indistinguishable from one that does not exist: null.
+ */
 export const loadManualPaymentProof = async (
+  institutionId: string,
   proofId: string,
   db: Database = getDb(),
 ): Promise<FinanceManualPaymentProofRecord | null> => {
   const [proof] = await db
     .select()
     .from(financeManualPaymentProofs)
-    .where(eq(financeManualPaymentProofs.id, proofId))
+    .where(
+      and(
+        eq(financeManualPaymentProofs.id, proofId),
+        inArray(financeManualPaymentProofs.competitionId, competitionIdsOwnedBy(institutionId, db)),
+      ),
+    )
     .limit(1);
 
   return proof ?? null;

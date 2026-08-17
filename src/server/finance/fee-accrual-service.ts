@@ -32,6 +32,7 @@ export type FeeAccrualErrorCode =
   | "fee_accrual_not_manual_lane"
   | "fee_accrual_rule_missing"
   | "fee_accrual_already_recorded"
+  | "fee_accrual_already_reversed"
   | "fee_accrual_reason_required"
   | "fee_accrual_nothing_to_reverse";
 
@@ -48,8 +49,9 @@ export class FeeAccrualError extends Error {
 
 const UNIQUE_VIOLATION = "23505";
 const ACCRUED_UNIQUE_INDEX = "finance_fee_accruals_payment_accrued_unique_idx";
+const REVERSED_UNIQUE_INDEX = "finance_fee_accruals_payment_reversed_unique_idx";
 
-const isDuplicateAccrual = (error: unknown): boolean => {
+const violatesUniqueIndex = (error: unknown, indexName: string): boolean => {
   let current: unknown = error;
 
   for (let depth = 0; current && depth < 5; depth += 1) {
@@ -63,7 +65,7 @@ const isDuplicateAccrual = (error: unknown): boolean => {
     };
     if (candidate.code === UNIQUE_VIOLATION) {
       const name = candidate.constraint_name ?? candidate.constraint ?? "";
-      return name.includes(ACCRUED_UNIQUE_INDEX);
+      return name.includes(indexName);
     }
     current = candidate.cause;
   }
@@ -87,12 +89,22 @@ const isDuplicateAccrual = (error: unknown): boolean => {
  *
  * The rule is loaded BY THE ID THE PAYMENT SNAPSHOTTED, never re-resolved by date. Re-resolving
  * would let a rule inserted after the fact price a payment retroactively, which is the exact
- * failure the Step 7.1 snapshot exists to prevent.
+ * failure the payment's own rule snapshot exists to prevent.
+ *
+ * IDEMPOTENT ON AN ACCRUAL THAT ALREADY EXISTS, and that matters far more than it looks. This runs
+ * inside the transaction that transitioned the proof row, so throwing on an existing accrual rolls
+ * that transition back too: the proof returns to `pending_review`, the organiser clicks verify
+ * again, and the identical failure repeats forever. A payment whose fee is already recorded has
+ * satisfied the invariant this function exists to establish, so it returns the row rather than
+ * wedging a money path over a condition that is already correct.
  */
 export const recordFeeAccrual = async (
   paymentId: string,
   db: Database = getDb(),
 ): Promise<FinanceFeeAccrualRecord> => {
+  const existing = await loadAccruedRow(paymentId, db);
+  if (existing) return existing;
+
   const [payment] = await db
     .select()
     .from(financePayments)
@@ -151,7 +163,10 @@ export const recordFeeAccrual = async (
 
     return created;
   } catch (error) {
-    if (isDuplicateAccrual(error)) {
+    // Reached only when a concurrent caller inserted between the read above and this write. The
+    // index is what makes that safe, and it is the guarantee of record — the read is an
+    // optimisation, not the constraint.
+    if (violatesUniqueIndex(error, ACCRUED_UNIQUE_INDEX)) {
       throw new FeeAccrualError(
         "fee_accrual_already_recorded",
         `Payment ${paymentId} has already accrued its platform fee`,
@@ -162,13 +177,33 @@ export const recordFeeAccrual = async (
   }
 };
 
+/** The single `accrued` row for a payment, or null. The partial unique index makes it at most one. */
+const loadAccruedRow = async (
+  paymentId: string,
+  db: Database,
+): Promise<FinanceFeeAccrualRecord | null> => {
+  const [row] = await db
+    .select()
+    .from(financeFeeAccruals)
+    .where(
+      and(eq(financeFeeAccruals.paymentId, paymentId), eq(financeFeeAccruals.entryType, "accrued")),
+    )
+    .limit(1);
+
+  return row ?? null;
+};
+
 /**
  * Walks an accrual back with a compensating row.
  *
- * Deliberately UNCONSTRAINED in count — a figure may need correcting more than once — which is why
- * the unique index is partial on the `accrued` arm rather than covering the table. The reason is
- * mandatory here and at the database, because a fee removed without a stated why is the one thing
- * an auditor cannot reconstruct afterwards.
+ * AT MOST ONE PER PAYMENT, enforced by a partial unique index on the `reversed` arm. The amount is
+ * the exact negation of the accrual, so with both arms capped the signed sum of a payment's rows is
+ * either the fee or zero and can never go below it. An unbounded reversal count would let the total
+ * run negative, and a negative total says the platform owes the institution — the custody direction
+ * DEC-0130 forbids the platform to be in at all.
+ *
+ * The reason is mandatory here and at the database, because a fee removed without a stated why is
+ * the one thing an auditor cannot reconstruct afterwards.
  */
 export const recordFeeAccrualReversal = async (
   paymentId: string,
@@ -179,13 +214,7 @@ export const recordFeeAccrualReversal = async (
     throw new FeeAccrualError("fee_accrual_reason_required", "A reversal must state its reason");
   }
 
-  const [accrued] = await db
-    .select()
-    .from(financeFeeAccruals)
-    .where(
-      and(eq(financeFeeAccruals.paymentId, paymentId), eq(financeFeeAccruals.entryType, "accrued")),
-    )
-    .limit(1);
+  const accrued = await loadAccruedRow(paymentId, db);
 
   if (!accrued) {
     throw new FeeAccrualError(
@@ -195,29 +224,40 @@ export const recordFeeAccrualReversal = async (
     );
   }
 
-  const [created] = await db
-    .insert(financeFeeAccruals)
-    .values({
-      paymentId: accrued.paymentId,
-      owingInstitutionId: accrued.owingInstitutionId,
-      entryType: "reversed",
-      currency: accrued.currency,
-      // Negated, so the institution's outstanding fee is the SUM of its rows and never needs a
-      // second column recording which rows are "still open".
-      amount: -accrued.amount,
-      feeRuleId: accrued.feeRuleId,
-      feeBasisPoints: accrued.feeBasisPoints,
-      feeFlatAmount: accrued.feeFlatAmount,
-      grossAmount: accrued.grossAmount,
-      reason: reason.trim(),
-    })
-    .returning();
+  try {
+    const [created] = await db
+      .insert(financeFeeAccruals)
+      .values({
+        paymentId: accrued.paymentId,
+        owingInstitutionId: accrued.owingInstitutionId,
+        entryType: "reversed",
+        currency: accrued.currency,
+        // Negated, so the institution's outstanding fee is the SUM of its rows and never needs a
+        // second column recording which rows are "still open".
+        amount: -accrued.amount,
+        feeRuleId: accrued.feeRuleId,
+        feeBasisPoints: accrued.feeBasisPoints,
+        feeFlatAmount: accrued.feeFlatAmount,
+        grossAmount: accrued.grossAmount,
+        reason: reason.trim(),
+      })
+      .returning();
 
-  if (!created) {
-    throw new FeeAccrualError("fee_accrual_rule_missing", "Fee reversal could not be recorded");
+    if (!created) {
+      throw new FeeAccrualError("fee_accrual_rule_missing", "Fee reversal could not be recorded");
+    }
+
+    return created;
+  } catch (error) {
+    if (violatesUniqueIndex(error, REVERSED_UNIQUE_INDEX)) {
+      throw new FeeAccrualError(
+        "fee_accrual_already_reversed",
+        `Payment ${paymentId} has already had its platform fee reversed`,
+        409,
+      );
+    }
+    throw error;
   }
-
-  return created;
 };
 
 /**

@@ -55,7 +55,10 @@ import {
   type CompetitionRow,
 } from "@/server/competitions/competition-access";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
-import { hasCompetitionPaymentInFlight } from "@/server/finance/paid-registration";
+import {
+  hasActiveFreeRegistrations,
+  hasCompetitionPaymentInFlight,
+} from "@/server/finance/paid-registration";
 
 assertServerOnly("server/competitions/competition-service");
 
@@ -390,7 +393,44 @@ const applySimplePatchColumns = (
     updates.cancellationCutoffDays = patch.cancellationCutoffDays;
 };
 
-const toClassifiable = (row: CompetitionRow): ClassifiableCompetition => ({
+/**
+ * A competition's pricing, read separately because PUBLIC_COMPETITION_COLUMNS omits it.
+ *
+ * Both the charging gate and the edit classifier need these three columns, and neither may read
+ * them off a projection that excludes them: a money gate whose input is structurally absent reads
+ * as free no matter what the row says.
+ */
+type CompetitionPricing = {
+  feeAmount: number | null;
+  feeCurrency: string | null;
+  paymentWindowDays: number;
+};
+
+const loadCompetitionPricing = async (
+  competitionId: string,
+  db: Database,
+): Promise<CompetitionPricing> => {
+  const [row] = await db
+    .select({
+      feeAmount: competitions.feeAmount,
+      feeCurrency: competitions.feeCurrency,
+      paymentWindowDays: competitions.paymentWindowDays,
+    })
+    .from(competitions)
+    .where(eq(competitions.id, competitionId))
+    .limit(1);
+
+  if (!row) {
+    throw new CompetitionError("competition_not_found", 404, "Competition not found");
+  }
+
+  return row;
+};
+
+const toClassifiable = (
+  row: CompetitionRow,
+  pricing: CompetitionPricing,
+): ClassifiableCompetition => ({
   title: row.title,
   slug: row.slug,
   description: row.description,
@@ -405,14 +445,17 @@ const toClassifiable = (row: CompetitionRow): ClassifiableCompetition => ({
   resultAnnouncementAt: row.resultAnnouncementAt,
   allowCancellation: row.allowCancellation,
   cancellationCutoffDays: row.cancellationCutoffDays,
-  // feeAmount intentionally omitted — API-blocked on edit (DEC-0022); the classifier skips it.
+  feeAmount: pricing.feeAmount,
+  feeCurrency: pricing.feeCurrency,
+  paymentWindowDays: pricing.paymentWindowDays,
 });
 
 const mergeForClassification = (
   row: CompetitionRow,
   patch: CompetitionPatchInput,
+  pricing: CompetitionPricing,
 ): ClassifiableCompetition => {
-  const merged = toClassifiable(row);
+  const merged = toClassifiable(row, pricing);
   if (patch.title !== undefined) merged.title = patch.title;
   if (patch.slug !== undefined) merged.slug = patch.slug;
   if (patch.description !== undefined) merged.description = patch.description;
@@ -469,8 +512,11 @@ const loadEditClassificationSnapshot = async (
     hasActiveIndividual,
     hasActiveTeam,
     activeTeamSizes: [...teamCounts.values()],
-    // MVP competitions are free (fee deferred, DEC-0022): any non-cancelled registration is free.
-    hasActiveFree: rows.length > 0,
+    // Derived by asking which payment groups carry a priced payment, not by assuming the answer.
+    // This used to read `rows.length > 0` on the premise that every competition was free; a
+    // competition can now be priced, and under that premise a paid registrant counted as a free one
+    // and the free→paid block fired on competitions that had never taken a free registration.
+    hasActiveFree: await hasActiveFreeRegistrations(competitionId, db),
     hasPaymentInFlight: await hasCompetitionPaymentInFlight(competitionId, db),
   };
 };
@@ -498,7 +544,8 @@ const updatePublishedCompetition = async (
     );
   }
 
-  const merged = mergeForClassification(competition, patch);
+  const pricing = await loadCompetitionPricing(competition.id, db);
+  const merged = mergeForClassification(competition, patch, pricing);
   validateCancellationPolicy(merged.allowCancellation, merged.cancellationCutoffDays);
   validateMinimumParticipation({
     minimumParticipantEntries: competition.minimumParticipantEntries,
@@ -559,7 +606,11 @@ const updatePublishedCompetition = async (
   }
 
   const snapshot = await loadEditClassificationSnapshot(competition.id, db);
-  const classification = classifyCompetitionEdit(toClassifiable(competition), merged, snapshot);
+  const classification = classifyCompetitionEdit(
+    toClassifiable(competition, pricing),
+    merged,
+    snapshot,
+  );
 
   if (classification.blocked.length > 0) {
     throw new CompetitionError(
@@ -850,13 +901,9 @@ export const transitionCompetitionStatus = async (
     // Read here rather than taken from `competition`, because PUBLIC_COMPETITION_COLUMNS
     // deliberately omits the fee fields (DEC-0022) and a projection that excludes the value cannot
     // be the thing a money gate reads.
-    const [pricing] = await db
-      .select({ feeAmount: competitions.feeAmount })
-      .from(competitions)
-      .where(eq(competitions.id, competitionId))
-      .limit(1);
+    const pricing = await loadCompetitionPricing(competitionId, db);
 
-    if (isPaidCompetition(pricing?.feeAmount ?? null)) {
+    if (isPaidCompetition(pricing.feeAmount)) {
       await assertInstitutionVerified(competition.institutionId, db);
     }
 

@@ -1162,6 +1162,20 @@ export const competitionRegistrations = pgTable(
       "competition_registrations_type_team_id_chk",
       sql`(${table.registrationType} = 'team' AND ${table.teamId} IS NOT NULL) OR (${table.registrationType} = 'individual' AND ${table.teamId} IS NULL)`,
     ),
+    // A registration's team must belong to the SAME competition the registration does. The two
+    // single-column foreign keys above each hold on their own while the pair is nonsense — a row
+    // pointing at this competition and at a team from a different one satisfies both. That pairing
+    // is what the payment group is derived from, so a mismatched pair puts one competition's
+    // registrations into another competition's payment.
+    //
+    // MATCH SIMPLE (the default) is what makes this correct for individual registrations: with
+    // team_id NULL the constraint is satisfied without a referenced row, so nothing here forces a
+    // team onto a registration that has none.
+    foreignKey({
+      columns: [table.competitionId, table.teamId],
+      foreignColumns: [teams.competitionId, teams.id],
+      name: "competition_registrations_competition_team_fk",
+    }).onDelete("cascade"),
   ],
 );
 
@@ -1350,6 +1364,10 @@ export const teams = pgTable(
     uniqueIndex("teams_competition_id_name_unique_idx").on(table.competitionId, table.name),
     index("teams_competition_id_idx").on(table.competitionId),
     index("teams_captain_id_idx").on(table.captainId),
+    // Redundant on its own — `id` is already the primary key — and required by Postgres so that
+    // competition_registrations can carry a composite foreign key on (competition_id, team_id). A
+    // referenced column list must be backed by a unique constraint, so the pair needs its own.
+    uniqueIndex("teams_competition_id_id_unique_idx").on(table.competitionId, table.id),
   ],
 );
 
@@ -1902,8 +1920,8 @@ export const financePayments = pgTable(
       "finance_payments_manual_lane_no_split_chk",
       sql`${table.origin} <> 'manual_transfer' OR (${table.platformFeeAmount} = 0 AND ${table.institutionNetAmount} = ${table.grossAmount})`,
     ),
-    // A manual payment without a deadline never lapses, so the expiry sweep that lands in
-    // 7.2-MANUAL.2 would step over it forever.
+    // A manual payment without a deadline never lapses, so an expiry sweep would step over it
+    // forever and the payment would sit pending indefinitely.
     check(
       "finance_payments_manual_due_at_chk",
       sql`${table.origin} <> 'manual_transfer' OR ${table.dueAt} IS NOT NULL`,
@@ -1976,11 +1994,22 @@ export const financeFeeAccruals = pgTable(
       name: "finance_fee_accruals_fee_rule_id_fk",
     }),
     // EXACTLY ONE accrual per payment, enforced by Postgres rather than by a service that reads
-    // first and writes second. Partial, so compensating rows stay unconstrained: a fee may be
-    // reversed more than once, but it may only be charged once.
+    // first and writes second.
     uniqueIndex("finance_fee_accruals_payment_accrued_unique_idx")
       .on(table.paymentId)
       .where(sql`${table.entryType} = 'accrued'`),
+    // EXACTLY ONE reversal per payment, for a reason that is about direction rather than tidiness.
+    // A reversal negates the accrued amount exactly, so with both arms capped at one row the signed
+    // SUM of a payment's rows can only be the fee or zero. Leaving this arm unbounded lets repeated
+    // reversals drive that sum NEGATIVE, and a negative total reads as the platform owing the
+    // institution money — the custody direction DEC-0130 forbids the platform to be in at all.
+    //
+    // The cost is real and accepted: a fee is now charge-once, reverse-once, terminal. Correcting a
+    // reversal is not expressible and would need a decision about what a second correction means
+    // before it could be, which is a better place to be than a table that can silently go negative.
+    uniqueIndex("finance_fee_accruals_payment_reversed_unique_idx")
+      .on(table.paymentId)
+      .where(sql`${table.entryType} = 'reversed'`),
     index("finance_fee_accruals_owing_institution_id_idx").on(table.owingInstitutionId),
     check("finance_fee_accruals_currency_chk", sql`${table.currency} ~ '^[A-Z]{3}$'`),
     check(

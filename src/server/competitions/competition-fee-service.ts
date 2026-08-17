@@ -11,34 +11,35 @@ import {
 } from "@/server/competitions/competition-access";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import { isMinorUnitAmount, isSupportedCurrency } from "@/lib/finance/money";
+import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { isValidPaymentWindowDays } from "@/lib/finance/payment-window";
 import { requireFeeRuleInForce } from "@/server/finance/fee-rule-service";
-import { hasCompetitionPaymentInFlight } from "@/server/finance/paid-registration";
+import {
+  hasActiveFreeRegistrations,
+  hasCompetitionPaymentInFlight,
+} from "@/server/finance/paid-registration";
 
 // THE FEE-SETTING WRITE PATH — the one place a competition's price is written.
 //
-// PREMISE CORRECTION, stated here because a reader will otherwise look for the path this replaces.
-// The step prompt refers to "the write path that sets a non-zero fee on a competition" as an
-// existing surface to wire guards into. It did not exist: `feeAmount` and `feeCurrency` are both in
-// competition-core's SILENT_STRIP_FIELDS, so the create and patch endpoints drop them without
-// error, and no service anywhere wrote either column. This module IS that write path, created here
-// so the guards have something real to sit on.
+// `feeAmount` and `feeCurrency` are both in competition-core's SILENT_STRIP_FIELDS, so the create
+// and patch endpoints drop them without error and no other service writes either column. Every
+// price change in the system passes through here, which is what lets the guards below be complete
+// rather than merely present. It is a SERVICE WITH NO ROUTE: the organiser-facing surface that
+// calls it is not built yet.
 //
-// It is a SERVICE WITH NO ROUTE, following the same pattern as the rest of this step: the
-// organiser-facing surface that calls it belongs to 7.2-MANUAL.2, and adding one here would ship
-// the organiser-transactional surface this step explicitly excludes. The guards below are live and
-// tested; what is deferred is the button.
-//
-// Three gates, in an order chosen so the cheapest refusal that is also the most informative comes
+// Five gates, in an order chosen so the cheapest refusal that is also the most informative comes
 // first, and so nothing about the platform's pricing configuration leaks to someone who is not
 // allowed to charge at all:
 //
-//   1. Ownership   — assertCompetitionAccess admin.
-//   2. Charging    — assertInstitutionVerified (DEC-0158). Only for a NON-ZERO fee; setting a
-//                    competition back to free is always allowed, including for an institution whose
-//                    verification was just revoked. Revocation must not trap an organiser into
-//                    keeping a price it can no longer honour.
-//   3. Priceable   — requireFeeRuleInForce (fail-closed). Only for a NON-ZERO fee.
+//   1. Ownership     — assertCompetitionAccess admin.
+//   2. In flight     — no price may move while a bukti transfer is outstanding (DEC-0132's sibling).
+//   3. Free entrants — a competition that took registrations for free cannot acquire a price.
+//                      Only for a FREE → PAID transition.
+//   4. Charging      — assertInstitutionVerified (DEC-0158). Only for a NON-ZERO fee; setting a
+//                      competition back to free is always allowed, including for an institution
+//                      whose verification was just revoked. Revocation must not trap an organiser
+//                      into keeping a price it can no longer honour.
+//   5. Priceable     — requireFeeRuleInForce (fail-closed). Only for a NON-ZERO fee.
 
 export type SetCompetitionFeeInput = {
   // Integer smallest unit (@/lib/finance/money). 0 or null both mean free.
@@ -100,8 +101,8 @@ export const setCompetitionFee = async (
   const isCharging = feeAmount > 0;
 
   if (!isCharging) {
-    // Clearing a fee needs neither gate. Both exist to stop money being taken; neither has anything
-    // to say about stopping.
+    // Clearing a fee needs none of the gates below. They exist to stop money being taken; none of
+    // them has anything to say about stopping.
     await writeFee(competitionId, null, null, input.paymentWindowDays, db);
     return;
   }
@@ -117,6 +118,28 @@ export const setCompetitionFee = async (
     );
   }
 
+  // A COMPETITION THAT TOOK FREE REGISTRATIONS CANNOT ACQUIRE A PRICE.
+  //
+  // Not a display concern. Candidate self-cancellation is refused on a priced competition, and that
+  // rule reads the competition's CURRENT fee — so pricing a competition retroactively strips the
+  // right to leave from people who were never asked to pay anything and have no payment to withdraw.
+  // They would be locked into an event they joined for free.
+  //
+  // Scoped to the FREE → PAID transition, which is the whole of the harm: an already-priced
+  // competition changing its price does not move anyone across that boundary.
+  const currentPricing = await loadCompetitionFee(competitionId, db);
+
+  if (!isPaidCompetition(currentPricing.feeAmount)) {
+    if (await hasActiveFreeRegistrations(competitionId, db)) {
+      throw new CompetitionError(
+        "competition_fee_blocked_free_registrations",
+        409,
+        "Biaya tidak dapat ditetapkan karena sudah ada pendaftar yang mendaftar tanpa biaya",
+        { fields: ["feeAmount"] },
+      );
+    }
+  }
+
   await assertInstitutionVerified(competition.institutionId, db);
 
   // FAIL-CLOSED FEE RESOLUTION. `resolveFeeRule` returning null is a real state — no commercial
@@ -126,6 +149,24 @@ export const setCompetitionFee = async (
   await requireFeeRuleInForce(competition.institutionId, now, db);
 
   await writeFee(competitionId, feeAmount, currency, input.paymentWindowDays, db);
+};
+
+/** The competition's price as it stands now, which is what decides whether this is a transition. */
+const loadCompetitionFee = async (
+  competitionId: string,
+  db: Database,
+): Promise<{ feeAmount: number | null }> => {
+  const [row] = await db
+    .select({ feeAmount: competitions.feeAmount })
+    .from(competitions)
+    .where(eq(competitions.id, competitionId))
+    .limit(1);
+
+  if (!row) {
+    throw new CompetitionError("competition_not_found", 404, "Competition not found");
+  }
+
+  return row;
 };
 
 const writeFee = async (

@@ -492,9 +492,16 @@ describe("getCompetitionIdByInstitutionAndSlug", () => {
 
 // A personal institution is never document-verified — it has no documents, and it is excluded
 // from the platform-ops verification queue for exactly that reason. These tests pin the
-// consequence that matters: excluding it costs it no capability. Publishing is gated on the
-// ACCOUNT-level Trusted Recruiter check plus the personal reach cap, and reads nothing about the
-// institution's verification_status (assertInstitutionVerified has no caller on this path).
+// consequence that matters: excluding it costs it no capability it would otherwise have. Publishing
+// a FREE competition is gated on the ACCOUNT-level Trusted Recruiter check plus the personal reach
+// cap, and reads nothing about the institution's verification_status.
+//
+// That does NOT mean assertInstitutionVerified has no caller on this path — it does, and the
+// distinction is the whole of DEC-0158. transitionCompetitionStatus calls it whenever the
+// competition being published is PRICED, so an unverified institution may publish freely and may
+// not charge. These tests use free competitions, which is why the gate does not fire in them; the
+// paid case is proven against a live Postgres in manual-lane-db.integration.test.ts, including a
+// test that fails if the call is removed.
 describe("personal institution publish — capability is independent of institution verification", () => {
   afterEach(() => vi.clearAllMocks());
 

@@ -24,9 +24,12 @@ import type { CompetitionCategory, CompetitionMode } from "@/server/db/schema";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// The subset of competition fields this classifier reasons about. The fee fields are optional
-// because they are not written through the generic PATCH path — they have their own guarded write
-// path (setCompetitionFee) — so when either side omits them they are simply not classified.
+// The subset of competition fields this classifier reasons about.
+//
+// EVERY FIELD IS REQUIRED, including the three pricing fields, and that is load-bearing rather than
+// tidy. While they were optional a caller could omit them and every fee rule below silently
+// classified nothing — no error, no failing test, a whole branch of this module unreachable. Making
+// them required turns that omission into a compile error at the caller.
 export type ClassifiableCompetition = {
   title: string;
   slug: string;
@@ -42,11 +45,10 @@ export type ClassifiableCompetition = {
   resultAnnouncementAt: Date | null;
   allowCancellation: boolean;
   cancellationCutoffDays: number | null;
-  // Integer smallest unit (@/lib/finance/money). `string` remains accepted so a caller reading a
-  // row through an older projection is classified rather than silently skipped.
-  feeAmount?: string | number | null;
-  feeCurrency?: string | null;
-  paymentWindowDays?: number | null;
+  // Integer smallest unit (@/lib/finance/money). NULL and 0 both mean free.
+  feeAmount: number | null;
+  feeCurrency: string | null;
+  paymentWindowDays: number;
 };
 
 // Snapshot of the competition's non-cancelled registrations at edit time. activeTeamSizes holds
@@ -71,11 +73,7 @@ export type EditClassification = {
 
 const timeOf = (value: Date | null): number | null => (value ? value.getTime() : null);
 
-const feeToNumber = (value: string | number | null | undefined): number => {
-  if (value === null || value === undefined) return 0;
-  const n = typeof value === "number" ? value : Number.parseFloat(value);
-  return Number.isFinite(n) ? n : 0;
-};
+const feeToNumber = (value: number | null): number => value ?? 0;
 
 // Returns true when changing mode from `from` to `to` would strand at least one existing
 // non-cancelled registration of the now-unsupported kind.
@@ -139,17 +137,15 @@ export const classifyCompetitionEdit = (
   // The pre-existing free→paid block survives alongside it and is NOT the same rule: it protects
   // registrations that were taken for free from acquiring a price retroactively, which is true even
   // when nothing is in flight.
-  if (oldRow.feeAmount !== undefined && newRow.feeAmount !== undefined) {
-    const oldFee = feeToNumber(oldRow.feeAmount);
-    const newFee = feeToNumber(newRow.feeAmount);
-    if (oldFee !== newFee) {
-      if (snapshot.hasPaymentInFlight) {
-        blocked.push("feeAmount");
-      } else if (oldFee === 0 && newFee > 0 && snapshot.hasActiveFree) {
-        blocked.push("feeAmount");
-      } else {
-        notify.push("feeAmount");
-      }
+  const oldFee = feeToNumber(oldRow.feeAmount);
+  const newFee = feeToNumber(newRow.feeAmount);
+  if (oldFee !== newFee) {
+    if (snapshot.hasPaymentInFlight) {
+      blocked.push("feeAmount");
+    } else if (oldFee === 0 && newFee > 0 && snapshot.hasActiveFree) {
+      blocked.push("feeAmount");
+    } else {
+      notify.push("feeAmount");
     }
   }
 
@@ -158,13 +154,11 @@ export const classifyCompetitionEdit = (
   // transfer is in flight restates what the payer owes exactly as surely as changing the number.
   // This field was absent from the classifier entirely, which meant a currency change was
   // classified as nothing at all.
-  if (oldRow.feeCurrency !== undefined && newRow.feeCurrency !== undefined) {
-    if (oldRow.feeCurrency !== newRow.feeCurrency) {
-      if (snapshot.hasPaymentInFlight) {
-        blocked.push("feeCurrency");
-      } else {
-        notify.push("feeCurrency");
-      }
+  if (oldRow.feeCurrency !== newRow.feeCurrency) {
+    if (snapshot.hasPaymentInFlight) {
+      blocked.push("feeCurrency");
+    } else {
+      notify.push("feeCurrency");
     }
   }
 
@@ -172,10 +166,8 @@ export const classifyCompetitionEdit = (
   // paying: a deadline is snapshotted onto each payment at creation and never recomputed, so an
   // existing pending payment keeps the deadline it was given. It is participant-relevant for
   // everyone who registers AFTER the change, which is what notify is for.
-  if (oldRow.paymentWindowDays !== undefined && newRow.paymentWindowDays !== undefined) {
-    if (oldRow.paymentWindowDays !== newRow.paymentWindowDays) {
-      notify.push("paymentWindowDays");
-    }
+  if (oldRow.paymentWindowDays !== newRow.paymentWindowDays) {
+    notify.push("paymentWindowDays");
   }
 
   // eventStartAt — once the event has begun, when it began is a fact rather than a field. Two
@@ -212,8 +204,20 @@ export const classifyCompetitionEdit = (
   if (timeOf(oldRow.eventEndAt) !== timeOf(newRow.eventEndAt)) notify.push("eventEndAt");
   if (timeOf(oldRow.registrationStartAt) !== timeOf(newRow.registrationStartAt))
     notify.push("registrationStartAt");
-  if (timeOf(oldRow.registrationEndAt) !== timeOf(newRow.registrationEndAt))
-    notify.push("registrationEndAt");
+
+  // registrationEndAt — BLOCKED while money is in flight, notify otherwise. Each payment's deadline
+  // is clamped to this date once, at creation, and is never recomputed afterwards (see
+  // @/lib/finance/payment-window). That is the right design — a deadline someone was given must not
+  // move underneath them — but it means an outstanding payment goes on carrying a deadline derived
+  // from a date that no longer exists, and nothing anywhere reconciles the two. Blocking the edit
+  // rather than recomputing the deadline is what keeps both facts true at once.
+  if (timeOf(oldRow.registrationEndAt) !== timeOf(newRow.registrationEndAt)) {
+    if (snapshot.hasPaymentInFlight) {
+      blocked.push("registrationEndAt");
+    } else {
+      notify.push("registrationEndAt");
+    }
+  }
   // Moving the promised results date is exactly what a waiting participant needs to hear about.
   if (timeOf(oldRow.resultAnnouncementAt) !== timeOf(newRow.resultAnnouncementAt))
     notify.push("resultAnnouncementAt");

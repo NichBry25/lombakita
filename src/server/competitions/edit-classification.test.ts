@@ -25,6 +25,9 @@ const base = (overrides: Partial<ClassifiableCompetition> = {}): ClassifiableCom
   resultAnnouncementAt: null,
   allowCancellation: false,
   cancellationCutoffDays: null,
+  feeAmount: null,
+  feeCurrency: null,
+  paymentWindowDays: 3,
   ...overrides,
 });
 
@@ -141,8 +144,8 @@ describe("classifyCompetitionEdit — team size bounds", () => {
 describe("classifyCompetitionEdit — fee", () => {
   it("blocks 0 → positive fee when active free registrations exist", () => {
     const result = classifyCompetitionEdit(
-      base({ feeAmount: "0" }),
-      base({ feeAmount: "50000" }),
+      base({ feeAmount: 0 }),
+      base({ feeAmount: 50_000 }),
       snapshot({ nonCancelledCount: 1, hasActiveFree: true }),
       NOW,
     );
@@ -151,8 +154,8 @@ describe("classifyCompetitionEdit — fee", () => {
 
   it("notifies a fee change when no free registrations are stranded", () => {
     const result = classifyCompetitionEdit(
-      base({ feeAmount: "0" }),
-      base({ feeAmount: "50000" }),
+      base({ feeAmount: 0 }),
+      base({ feeAmount: 50_000 }),
       snapshot({ nonCancelledCount: 0, hasActiveFree: false }),
       NOW,
     );
@@ -160,8 +163,14 @@ describe("classifyCompetitionEdit — fee", () => {
     expect(result.blocked).not.toContain("feeAmount");
   });
 
-  it("does not classify fee when it is omitted on either side", () => {
-    const result = classifyCompetitionEdit(base(), base({ title: "Lomba Baru" }), snapshot(), NOW);
+  it("treats NULL and 0 as the same free price rather than as a change", () => {
+    // The column stores both, and a competition moving between them has not changed its price.
+    const result = classifyCompetitionEdit(
+      base({ feeAmount: null }),
+      base({ feeAmount: 0 }),
+      snapshot({ hasActiveFree: true }),
+      NOW,
+    );
     expect(result.blocked).not.toContain("feeAmount");
     expect(result.notify).not.toContain("feeAmount");
   });
@@ -396,12 +405,52 @@ describe("classifyCompetitionEdit — fee fields while money is in flight", () =
     expect(result.blocked).not.toContain("paymentWindowDays");
   });
 
-  it("classifies nothing when a fee field is absent on either side", () => {
+  it("classifies nothing when no fee field changed", () => {
     const result = classifyCompetitionEdit(base({}), base({}), snapshot({}));
 
     expect(result.blocked).not.toContain("feeCurrency");
     expect(result.notify).not.toContain("feeCurrency");
     expect(result.notify).not.toContain("paymentWindowDays");
+  });
+});
+
+describe("classifyCompetitionEdit — registrationEndAt under an in-flight payment", () => {
+  it("BLOCKS moving the registration deadline while a transfer is outstanding", () => {
+    // Each payment's own deadline is clamped to this date at creation and never recomputed. Moving
+    // the date leaves an outstanding payment carrying a deadline derived from a date that no longer
+    // exists, and nothing reconciles the two afterwards.
+    const result = classifyCompetitionEdit(
+      base({ registrationEndAt: new Date("2026-07-01T00:00:00.000Z") }),
+      base({ registrationEndAt: new Date("2026-06-15T00:00:00.000Z") }),
+      snapshot({ hasPaymentInFlight: true }),
+      NOW,
+    );
+
+    expect(result.blocked).toContain("registrationEndAt");
+    expect(result.notify).not.toContain("registrationEndAt");
+  });
+
+  it("blocks a LATER deadline too, not only an earlier one", () => {
+    const result = classifyCompetitionEdit(
+      base({ registrationEndAt: new Date("2026-07-01T00:00:00.000Z") }),
+      base({ registrationEndAt: new Date("2026-09-01T00:00:00.000Z") }),
+      snapshot({ hasPaymentInFlight: true }),
+      NOW,
+    );
+
+    expect(result.blocked).toContain("registrationEndAt");
+  });
+
+  it("still only notifies when nothing is in flight", () => {
+    const result = classifyCompetitionEdit(
+      base({ registrationEndAt: new Date("2026-07-01T00:00:00.000Z") }),
+      base({ registrationEndAt: new Date("2026-06-15T00:00:00.000Z") }),
+      snapshot({ hasPaymentInFlight: false }),
+      NOW,
+    );
+
+    expect(result.notify).toContain("registrationEndAt");
+    expect(result.blocked).not.toContain("registrationEndAt");
   });
 });
 

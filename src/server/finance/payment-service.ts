@@ -207,9 +207,9 @@ export const createPayment = async (
   // checkout flow, a webhook, or a script that reaches createPayment without passing the earlier
   // gates still cannot charge on behalf of an unverified institution.
   //
-  // Gated on a PRICED payment, not on every payment. Step 7.1 accepts gross = 0 for a free
-  // registration, and refusing those would make an unverified institution unable to run the free
-  // competitions DEC-0158 explicitly permits it to run.
+  // Gated on a PRICED payment, not on every payment. `finance_payments` accepts gross = 0 for a
+  // free registration, and refusing those would make an unverified institution unable to run the
+  // free competitions DEC-0158 explicitly permits it to run.
   if (input.grossAmount > 0) {
     await assertInstitutionVerified(input.receivingInstitutionId, db);
   }

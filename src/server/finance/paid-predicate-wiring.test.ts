@@ -32,6 +32,22 @@ const readCode = (relative: string): string =>
     .replace(/^\s*\/\/.*$/gm, " ")
     .replace(/\s*\n\s*/g, " ");
 
+/**
+ * The source of ONE exported function, comment-stripped, from its declaration to the next one.
+ *
+ * Whole-file substring checks cannot tell the two predicates apart: swap their bodies and every
+ * identifier is still present somewhere in the file, so the scan stays green while the DEC-0132
+ * block fires on the wrong moment. Slicing per function is what makes a body swap visible.
+ */
+const functionBody = (relative: string, name: string): string => {
+  const source = readCode(relative);
+  const start = source.indexOf(`export const ${name} =`);
+  if (start === -1) throw new Error(`${name} not found in ${relative}`);
+  const rest = source.slice(start + name.length);
+  const next = rest.indexOf("export const ");
+  return next === -1 ? rest : rest.slice(0, next);
+};
+
 const PREDICATES = "src/server/finance/paid-registration.ts";
 const COMPETITION_SERVICE = "src/server/competitions/competition-service.ts";
 const FEE_SERVICE = "src/server/competitions/competition-fee-service.ts";
@@ -64,11 +80,21 @@ describe("paid predicates are defined once, distinctly", () => {
   });
 
   it("filters on a positive gross amount — row existence is not the predicate", () => {
-    // Step 7.1 accepts gross = 0, so a FREE registration can carry a payment row. A predicate that
-    // only checks for a row reports every free registration as paid.
+    // `finance_payments` accepts gross = 0, so a FREE registration can carry a payment row. A
+    // predicate that only checks for a row reports every free registration as paid.
     const source = read(PREDICATES);
 
     expect(source).toContain("gt(financePayments.grossAmount, 0)");
+  });
+
+  it("prices the COMPETITION-level predicate too, in its own body", () => {
+    // This one does not go through the payment group, so the shared filter above says nothing about
+    // it. Without its own join it reduced to "a proof row exists", and a single proof against a
+    // zero-gross payment would block a free competition's unpublish forever.
+    const body = functionBody(PREDICATES, "hasCompetitionPaymentInFlight");
+
+    expect(body).toContain("financePayments");
+    expect(body).toContain("gt(financePayments.grossAmount, 0)");
   });
 
   it("derives confirmed-paid by FOLDING events, never by reading a status column", () => {
@@ -76,6 +102,22 @@ describe("paid predicates are defined once, distinctly", () => {
 
     expect(source).toContain("foldPaymentEvents");
     expect(source).toContain('status === "succeeded"');
+  });
+
+  it("keeps each predicate's own mechanism in its own body — a swap is visible here", () => {
+    // Both are booleans about "has this been paid", so exchanging their bodies compiles, type-checks
+    // and leaves every whole-file substring check green. These assertions are per function, which is
+    // what makes that swap fail.
+    const confirmed = functionBody(PREDICATES, "isRegistrationConfirmedPaid");
+    const inFlight = functionBody(PREDICATES, "isRegistrationPaymentInFlight");
+
+    // Confirmed paid folds the EVENT stream and knows nothing about proof review states.
+    expect(confirmed).toContain("foldPaymentEvents");
+    expect(confirmed).not.toContain("IN_FLIGHT_PROOF_STATUSES");
+
+    // In flight reads the PROOF's review state and never folds events.
+    expect(inFlight).toContain("IN_FLIGHT_PROOF_STATUSES");
+    expect(inFlight).not.toContain("foldPaymentEvents");
   });
 });
 
@@ -115,16 +157,24 @@ describe("the fee-setting write path uses PAYMENT IN FLIGHT", () => {
   it("gates charging and fee resolution on the SAME shared guards, not private copies", () => {
     const source = read(FEE_SERVICE);
 
-    // Item 9 is explicit that no second, lighter verification check may be written.
+    // A second, lighter verification check written locally is how one path ends up permitting what
+    // the shared guard refuses.
     expect(source).toContain("assertInstitutionVerified(competition.institutionId, db)");
     expect(source).toContain("requireFeeRuleInForce(competition.institutionId, now, db)");
+  });
+
+  it("refuses to price a competition that already took free registrations", () => {
+    const source = read(FEE_SERVICE);
+
+    expect(source).toContain("hasActiveFreeRegistrations(competitionId, db)");
+    expect(source).toContain("competition_fee_blocked_free_registrations");
   });
 });
 
 describe("DEC-0131's non-refundable rule is the confirmed-paid question", () => {
   it("still refuses candidate self-cancellation on a paid competition", () => {
-    // DEC-0131's presentation changes are 7.2-MANUAL.2; what must hold here is that the rule keys
-    // off the competition being priced, through the ONE shared helper rather than a local parse.
+    // What must hold is that the rule keys off the competition being priced, through the ONE shared
+    // helper rather than a local parse.
     const source = readCode(REGISTRATION_SERVICE);
 
     expect(source).toContain("isPaidCompetition(competition.feeAmount)");

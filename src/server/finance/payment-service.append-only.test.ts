@@ -18,6 +18,7 @@ import * as feeRuleService from "@/server/finance/fee-rule-service";
 
 const FINANCE_DIR = resolve(process.cwd(), "src/server/finance");
 const SRC_DIR = resolve(process.cwd(), "src");
+const SCRIPTS_DIR = resolve(process.cwd(), "scripts");
 
 /**
  * Finance-domain tables that are deliberately MUTABLE, and why each one is.
@@ -41,25 +42,49 @@ const MUTABLE_FINANCE_TABLES = [
 ] as const;
 
 /**
+ * Verification harnesses that seed and tear down their OWN rows against a scratch database.
+ *
+ * DEC-0133 constrains the application: nothing the product runs may move a recorded money fact.
+ * A harness that inserts a fixture, races it, and deletes exactly what it inserted is not the
+ * application and never runs against a real ledger. Pinned by exact path rather than by a
+ * `scripts/` blanket, so a NEW script that mutates finance rows fails here and has to be argued in.
+ */
+const HARNESS_FILES = [
+  "scripts/concurrency/finance-idempotency-races.ts",
+  "scripts/finance/verify-payment-ledger.ts",
+] as const;
+
+/**
+ * How a finance table can be named in raw SQL: bare, schema-qualified, quoted either way, and with
+ * ONLY in front of it. Each spelling reaches the same rows, and a scan that knows one of them
+ * reports the other three as clean.
+ */
+const RAW_TABLE = String.raw`(?:only\s+)?(?:"?public"?\s*\.\s*)?"?finance_\w*`;
+
+const MUTATION_PATTERNS = [
+  // The query builder.
+  new RegExp(String.raw`\.\s*(?:update|delete)\s*\(\s*finance[A-Za-z]*`, "g"),
+  new RegExp(String.raw`\bupdate\s+${RAW_TABLE}`, "gi"),
+  new RegExp(String.raw`\bdelete\s+from\s+${RAW_TABLE}`, "gi"),
+  // TRUNCATE deletes every row in the table and contains neither `delete` nor `update`. It is the
+  // single most destructive statement that could be aimed at the ledger, and the scan did not
+  // mention it.
+  new RegExp(String.raw`\btruncate\s+(?:table\s+)?${RAW_TABLE}`, "gi"),
+];
+
+/**
  * Every forbidden finance mutation in one source string.
  *
  * Extracted from the directory walk so it can be exercised against synthetic sources that DO
  * mutate the ledger — otherwise the exception list could silently neutralise the scan and every
  * test in this file would keep reporting green.
- *
- * Two patterns, because a mutation has two shapes. The query builder is the obvious one; raw SQL is
- * the one a "just fix this one row" change actually reaches for, and it contains no `.update(` at
- * all.
  */
 const findForbiddenMutations = (source: string): string[] => {
   // Newlines collapsed so `db\n  .update(financePayments)` cannot straddle the line boundary and
   // escape a line-oriented scan.
   const flattened = source.replace(/\s*\n\s*/g, " ");
 
-  const hits = [
-    ...(flattened.match(/\.\s*(update|delete)\s*\(\s*finance[A-Za-z]*/g) ?? []),
-    ...(flattened.match(/\b(update\s+finance_|delete\s+from\s+finance_)\w*/gi) ?? []),
-  ];
+  const hits = MUTATION_PATTERNS.flatMap((pattern) => flattened.match(pattern) ?? []);
 
   return hits.filter((hit) => !MUTABLE_FINANCE_TABLES.some((allowed) => hit.includes(allowed)));
 };
@@ -69,6 +94,14 @@ const financeSourceFiles = (): string[] =>
     .filter((name) => name.endsWith(".ts") && !name.includes(".test."))
     .map((name) => resolve(FINANCE_DIR, name));
 
+const walk = (dir: string): string[] =>
+  readdirSync(dir).flatMap((name) => {
+    const path = resolve(dir, name);
+    if (statSync(path).isDirectory()) return walk(path);
+    if (!/\.(ts|tsx|mjs|js)$/.test(name) || name.includes(".test.")) return [];
+    return [path];
+  });
+
 /**
  * Every non-test source file under `src/`.
  *
@@ -77,13 +110,18 @@ const financeSourceFiles = (): string[] =>
  * the append-only guarantee as one written here, and scanning one directory would have declared it
  * safe.
  */
-const allSourceFiles = (dir: string = SRC_DIR): string[] =>
-  readdirSync(dir).flatMap((name) => {
-    const path = resolve(dir, name);
-    if (statSync(path).isDirectory()) return allSourceFiles(path);
-    if (!/\.(ts|tsx)$/.test(name) || name.includes(".test.")) return [];
-    return [path];
-  });
+const allSourceFiles = (): string[] => walk(SRC_DIR);
+
+const relative = (path: string): string => path.replace(`${process.cwd()}/`, "");
+
+/**
+ * Everything the scan covers: `src/` plus `scripts/`.
+ *
+ * `scripts/` was outside the scan entirely, which is the wrong side of the line to leave open — an
+ * operational script pointed at a real database is the most plausible place a "just fix this one
+ * row" ledger mutation actually gets written, and it would have passed silently.
+ */
+const allScannedFiles = (): string[] => [...allSourceFiles(), ...walk(SCRIPTS_DIR)];
 
 describe("finance write surface", () => {
   it("exports exactly the intended payment functions — no update, no delete", () => {
@@ -144,13 +182,30 @@ describe("finance write surface", () => {
     // remembered to extend.
     const offending: string[] = [];
 
-    for (const file of allSourceFiles()) {
+    for (const file of allScannedFiles()) {
+      const path = relative(file);
+      if (HARNESS_FILES.includes(path as (typeof HARNESS_FILES)[number])) continue;
       if (findForbiddenMutations(readFileSync(file, "utf8")).length > 0) {
-        offending.push(file.replace(`${process.cwd()}/`, ""));
+        offending.push(path);
       }
     }
 
     expect(offending, "a finance row is mutated — the ledger is append-only").toEqual([]);
+  });
+
+  it("pins the harness exception list so a new mutating script cannot slip in", () => {
+    // Same discipline as the mutable-table list: this is the other place the guarantee can be
+    // weakened, so adding an entry fails here first and has to be argued for.
+    expect(HARNESS_FILES).toEqual([
+      "scripts/concurrency/finance-idempotency-races.ts",
+      "scripts/finance/verify-payment-ledger.ts",
+    ]);
+
+    // And each pinned file still exists, so a rename does not silently retire an exception while
+    // leaving the real file unscanned under its new name.
+    for (const path of HARNESS_FILES) {
+      expect(allScannedFiles().map(relative), path).toContain(path);
+    }
   });
 
   it("still catches a ledger mutation despite the exception list — the scan can fail", () => {
@@ -166,6 +221,17 @@ describe("finance write surface", () => {
       "await sql`delete from finance_payment_events where id = 1`;",
       // Newline-straddling form, which a line-oriented scan would miss.
       "await db\n  .update(financePayments)\n  .set({});",
+      // TRUNCATE empties the table and contains neither `update` nor `delete`.
+      "await sql`truncate table finance_payments`;",
+      "await sql`TRUNCATE finance_payment_events CASCADE`;",
+      // Quoted, schema-qualified and ONLY spellings all reach the same rows.
+      'await sql`update "finance_payments" set gross_amount = 0`;',
+      "await sql`update public.finance_payments set gross_amount = 0`;",
+      'await sql`delete from "public"."finance_payment_events" where id = 1`;',
+      "await sql`update only finance_payments set gross_amount = 0`;",
+      // Aliased forms, which read nothing like the bare statement.
+      "await sql`update finance_payments AS p set gross_amount = 0 where p.id = 1`;",
+      "await sql`delete from finance_fee_accruals a using x where a.id = x.id`;",
     ];
 
     for (const source of mutatesLedger) {

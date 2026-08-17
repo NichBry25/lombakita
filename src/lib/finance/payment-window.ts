@@ -4,7 +4,7 @@
 // split is the whole design. An organiser who shortens the window next week must not move a
 // deadline already promised to someone who is mid-transfer, so the resolved instant is written
 // onto the payment row at creation and never recomputed from the competition again — the same
-// reasoning that makes the Step 7.1 fee snapshot structural rather than an optimisation.
+// reasoning that makes the payment's fee snapshot structural rather than an optimisation.
 //
 // Client-safe: pure, no server-only imports, no I/O.
 

@@ -1,5 +1,5 @@
 {
-  "id": "c22c718f-c0eb-4040-9c64-a936341e1aba",
+  "id": "d4d95243-9b3f-4c0a-86aa-03b26f363dd2",
   "prevId": "4836bc17-a7a1-4e22-9bbc-e73ff07e0097",
   "version": "7",
   "dialect": "postgresql",
@@ -749,6 +749,21 @@
             "team_id"
           ],
           "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "competition_registrations_competition_team_fk": {
+          "name": "competition_registrations_competition_team_fk",
+          "tableFrom": "competition_registrations",
+          "tableTo": "teams",
+          "columnsFrom": [
+            "competition_id",
+            "team_id"
+          ],
+          "columnsTo": [
+            "competition_id",
             "id"
           ],
           "onDelete": "cascade",
@@ -1892,6 +1907,22 @@
           ],
           "isUnique": true,
           "where": "\"finance_fee_accruals\".\"entry_type\" = 'accrued'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "finance_fee_accruals_payment_reversed_unique_idx": {
+          "name": "finance_fee_accruals_payment_reversed_unique_idx",
+          "columns": [
+            {
+              "expression": "payment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"finance_fee_accruals\".\"entry_type\" = 'reversed'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5859,6 +5890,27 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "teams_competition_id_id_unique_idx": {
+          "name": "teams_competition_id_id_unique_idx",
+          "columns": [
+            {
+              "expression": "competition_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}

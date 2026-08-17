@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/finance/paid-registration");
 
-import { and, eq, gt, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray, ne } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitionRegistrations,
@@ -28,8 +28,8 @@ import { foldPaymentEvents } from "@/lib/finance/payment-state";
 // Collapsing them into one "is this paid" helper would pick one of those two moments and get the
 // other wrong. In flight but not confirmed is the common case, not an edge case.
 //
-// ROW EXISTENCE IS NOT THE PREDICATE. Step 7.1 accepts `gross_amount = 0`, so a FREE registration
-// can legitimately carry a payment row, and there is no status column to read — state is FOLDED
+// ROW EXISTENCE IS NOT THE PREDICATE. `finance_payments` accepts `gross_amount = 0`, so a FREE
+// registration can legitimately carry a payment row, and there is no status column to read — FOLDED
 // from the event stream (DEC-0133). "A finance_payments row exists" is therefore true of free
 // competitions and of failed attempts alike, and any predicate written that way reports paid for
 // both.
@@ -159,6 +159,10 @@ export const isRegistrationPaymentInFlight = async (
  * indexed read regardless of how many people have registered, and so a registration row cancelled
  * in the same transaction cannot make an outstanding proof invisible to the guard that runs before
  * it.
+ *
+ * THE PRICED JOIN IS THE PREDICATE, not the proof row's existence. A proof attached to a zero-gross
+ * payment is a receipt for nothing, and counting it would let one stray row block an unpublish and
+ * a fee change on a free competition forever, with no surface anywhere to clear it.
  */
 export const hasCompetitionPaymentInFlight = async (
   competitionId: string,
@@ -167,13 +171,63 @@ export const hasCompetitionPaymentInFlight = async (
   const [row] = await db
     .select({ id: financeManualPaymentProofs.id })
     .from(financeManualPaymentProofs)
+    .innerJoin(financePayments, eq(financePayments.id, financeManualPaymentProofs.paymentId))
     .where(
       and(
         eq(financeManualPaymentProofs.competitionId, competitionId),
         inArray(financeManualPaymentProofs.status, [...IN_FLIGHT_PROOF_STATUSES]),
+        gt(financePayments.grossAmount, 0),
       ),
     )
     .limit(1);
 
   return row !== undefined;
+};
+
+/**
+ * Whether anyone holds a non-cancelled registration on this competition that carries no price.
+ *
+ * The question a free→paid transition has to ask: pricing a competition that already took free
+ * registrations would retroactively attach a fee to people who agreed to none, and the rule that
+ * refuses candidate self-cancellation on a priced competition would then strip their right to leave.
+ *
+ * DERIVED PER PAYMENT GROUP, not per row, for the reason `resolvePaymentGroupRegistrationIds`
+ * exists: a four-member team holds four rows and pays once, so three of them carry no payment of
+ * their own and a per-row reading would report a fully-paid team as three free registrations.
+ */
+export const hasActiveFreeRegistrations = async (
+  competitionId: string,
+  db: Database = getDb(),
+): Promise<boolean> => {
+  const rows = await db
+    .select({
+      id: competitionRegistrations.id,
+      teamId: competitionRegistrations.teamId,
+      pricedPaymentId: financePayments.id,
+    })
+    .from(competitionRegistrations)
+    .leftJoin(
+      financePayments,
+      and(
+        eq(financePayments.competitionRegistrationId, competitionRegistrations.id),
+        gt(financePayments.grossAmount, 0),
+      ),
+    )
+    .where(
+      and(
+        eq(competitionRegistrations.competitionId, competitionId),
+        ne(competitionRegistrations.status, "cancelled"),
+      ),
+    );
+
+  const groups = new Set<string>();
+  const pricedGroups = new Set<string>();
+
+  for (const row of rows) {
+    const group = row.teamId ?? row.id;
+    groups.add(group);
+    if (row.pricedPaymentId !== null) pricedGroups.add(group);
+  }
+
+  return [...groups].some((group) => !pricedGroups.has(group));
 };

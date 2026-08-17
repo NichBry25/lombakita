@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/institutions/payment-instructions-service");
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitions,
@@ -10,8 +10,8 @@ import {
   type InstitutionPaymentInstructionsRecord,
 } from "@/server/db/schema";
 
-// WHERE AN INSTITUTION WANTS TO BE PAID on the manual lane. READS ONLY in this step — the editing
-// form is 7.2-MANUAL.2, and there is deliberately no write function here for it to call yet.
+// WHERE AN INSTITUTION WANTS TO BE PAID on the manual lane. READS ONLY — the editing form does not
+// exist yet, and there is deliberately no write function here for it to call.
 //
 // Institution-level and reused across every competition the institution runs. There is no
 // per-competition override, on purpose: an organiser maintaining one copy of its bank details per
@@ -43,8 +43,13 @@ export const loadPaymentInstructionsForInstitution = async (
  * a mismatched pair, and the failure mode of that mistake is a payer sending money to the wrong
  * organiser's bank account.
  *
- * Null means the institution has not configured any instructions — a real state a paid competition
- * must not be allowed to reach, and one the 7.2-MANUAL.2 checkout surface is responsible for
+ * Answers only for a competition somebody can actually be paying for: PUBLISHED and not soft-
+ * deleted. These are an institution's real bank account details, and a draft or withdrawn
+ * competition takes no registrations and therefore no money — publishing account details against
+ * one hands them out with no transaction to justify it.
+ *
+ * Null means either that, or that the institution has configured no instructions — a real state a
+ * paid competition must not be allowed to reach, and one the checkout surface is responsible for
  * refusing on rather than rendering blank.
  */
 export const loadPaymentInstructionsForCompetition = async (
@@ -58,7 +63,13 @@ export const loadPaymentInstructionsForCompetition = async (
       institutionPaymentInstructions,
       eq(institutionPaymentInstructions.institutionId, competitions.institutionId),
     )
-    .where(eq(competitions.id, competitionId))
+    .where(
+      and(
+        eq(competitions.id, competitionId),
+        eq(competitions.status, "published"),
+        isNull(competitions.deletedAt),
+      ),
+    )
     .limit(1);
 
   return row?.instructions ?? null;

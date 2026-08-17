@@ -72,6 +72,9 @@ type CompetitionErrorCode =
   | "competition_unpublish_blocked_payment_in_flight"
   // DEC-0132's sibling at the write: a price cannot move while a transfer against it is unresolved.
   | "competition_fee_change_blocked_payment_in_flight"
+  // A competition that already took registrations for free cannot acquire a price: pricing it would
+  // retroactively remove the right to self-cancel from candidates who never paid anything.
+  | "competition_fee_blocked_free_registrations"
   | "competition_already_cancelled"
   | "competition_participation_not_configured"
   | "competition_participation_decision_unavailable"
