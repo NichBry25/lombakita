@@ -14,6 +14,7 @@ import { logger } from "@/lib/logger";
 import { enqueueRegistrationConfirmed, enqueueRegistrationCancelled } from "@/server/async/enqueue";
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
+import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 
 const REGISTRATION_COLUMNS = {
   id: competitionRegistrations.id,
@@ -62,7 +63,7 @@ type CompetitionGuardSnapshot = {
   cancelledAt: Date | null;
   allowCancellation: boolean;
   cancellationCutoffDays: number | null;
-  feeAmount: string | null;
+  feeAmount: number | null;
 };
 
 type DbOrTx = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
@@ -286,12 +287,6 @@ const loadRegistrationById = async (
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-const isPaidCompetition = (feeAmount: string | null): boolean => {
-  if (feeAmount === null) return false;
-  const n = Number.parseFloat(feeAmount);
-  return Number.isFinite(n) && n > 0;
-};
 
 // Cancel an individual registration owned by the calling candidate.
 // Enforcement order (fail-closed, ownership before any policy or reason error):

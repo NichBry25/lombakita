@@ -521,12 +521,20 @@ describe("personal institution publish — capability is independent of institut
     });
 
   // Serves exactly the reads the publish path is expected to make, in order:
-  //   1. loadInstitutionTypeById  → 'personal'
-  //   2. published-competition count for the reach cap
-  // Anything beyond that — a re-wired institution-verification lookup, for instance — draws an
-  // empty result and fails the transition, so this mock is the tripwire, not just a stub.
+  //   1. the competition's fee, for the DEC-0158 charging gate → FREE here
+  //   2. loadInstitutionTypeById  → 'personal'
+  //   3. published-competition count for the reach cap
+  // Anything beyond that draws an empty result and fails the transition, so this mock is the
+  // tripwire, not just a stub.
+  //
+  // Read 1 returns a null fee deliberately, and it is what these two tests are ABOUT: publishing is
+  // independent of institution verification, so a FREE competition must sail past the charging gate
+  // without a verification lookup happening at all. If the gate ever started firing on free
+  // competitions, the verification read would land here, draw an empty result, and fail — which is
+  // the tripwire working.
   const makePersonalPublishDb = (publishedCount: number) => {
     const selectResults: unknown[][] = [
+      [{ feeAmount: null }],
       [{ institutionType: "personal" }],
       [{ count: publishedCount }],
     ];

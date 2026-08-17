@@ -46,6 +46,7 @@ import {
   assertCompetitionAccess,
   assertCompetitionRead,
   assertInstitutionNotSuspended,
+  assertInstitutionVerified,
   assertPersonalCompetitionPublishable,
   assertPersonalInstitutionIndividualMode,
   hasActiveRegistrationsForCompetition,
@@ -53,6 +54,8 @@ import {
   PUBLIC_COMPETITION_COLUMNS,
   type CompetitionRow,
 } from "@/server/competitions/competition-access";
+import { isPaidCompetition } from "@/lib/competitions/paid-competition";
+import { hasCompetitionPaymentInFlight } from "@/server/finance/paid-registration";
 
 assertServerOnly("server/competitions/competition-service");
 
@@ -468,6 +471,7 @@ const loadEditClassificationSnapshot = async (
     activeTeamSizes: [...teamCounts.values()],
     // MVP competitions are free (fee deferred, DEC-0022): any non-cancelled registration is free.
     hasActiveFree: rows.length > 0,
+    hasPaymentInFlight: await hasCompetitionPaymentInFlight(competitionId, db),
   };
 };
 
@@ -839,6 +843,23 @@ export const transitionCompetitionStatus = async (
       );
     }
 
+    // THE CHARGING GATE AT PUBLISH (DEC-0158). A PAID competition cannot go live for an
+    // institution that is not verified; a FREE one publishes normally, which is the whole point of
+    // the distinction — verification gates the right to charge, never the right to publish.
+    //
+    // Read here rather than taken from `competition`, because PUBLIC_COMPETITION_COLUMNS
+    // deliberately omits the fee fields (DEC-0022) and a projection that excludes the value cannot
+    // be the thing a money gate reads.
+    const [pricing] = await db
+      .select({ feeAmount: competitions.feeAmount })
+      .from(competitions)
+      .where(eq(competitions.id, competitionId))
+      .limit(1);
+
+    if (isPaidCompetition(pricing?.feeAmount ?? null)) {
+      await assertInstitutionVerified(competition.institutionId, db);
+    }
+
     // Personal-institution reach cap: at most MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL
     // competitions may be in published status at once, and the mode must be individual. No-op for
     // full or legacy institutions.
@@ -954,6 +975,27 @@ export const unpublishCompetition = async (
         422,
         "Cannot withdraw a competition after participantConfirmationAt",
         { fields: ["participantConfirmationAt"] },
+      );
+    }
+
+    // DEC-0132 — UNPUBLISH IS BLOCKED WHILE MONEY IS IN FLIGHT.
+    //
+    // Placed BEFORE the status CAS and the registration cancellation below, which is the whole
+    // point: this function's next act is to cancel every registration on the competition, and a
+    // candidate who has already transferred real rupiah to the organiser's bank account would be
+    // cancelled with their money gone and no in-app record that they are owed anything.
+    //
+    // Keyed off PAYMENT IN FLIGHT rather than confirmed-paid, deliberately. The dangerous window is
+    // the one where the transfer has happened but the organiser has not verified it yet — the
+    // narrower predicate would let exactly that case through.
+    //
+    // The message names the escape hatch because there is one: platform_ops cancellation, which
+    // exists so an organiser with a genuine reason is not simply stuck.
+    if (await hasCompetitionPaymentInFlight(competitionId, tx)) {
+      throw new CompetitionError(
+        "competition_unpublish_blocked_payment_in_flight",
+        409,
+        "Kompetisi tidak dapat ditarik selama masih ada bukti transfer yang menunggu verifikasi. Hubungi tim Lombakita untuk pembatalan.",
       );
     }
 

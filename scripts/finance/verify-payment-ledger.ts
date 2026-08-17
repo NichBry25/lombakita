@@ -117,7 +117,8 @@ const main = async (): Promise<void> => {
         subject,
         grossAmount: 150_000,
         currency: "IDR",
-        pricedAt: NOW,
+        origin: "gateway",
+      pricedAt: NOW,
       },
       db,
     );

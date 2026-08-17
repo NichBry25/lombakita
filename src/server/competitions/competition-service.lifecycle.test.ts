@@ -20,6 +20,10 @@ const {
   enqueueCompetitionSearchSync: vi.fn(),
 }));
 
+const { hasCompetitionPaymentInFlightMock } = vi.hoisted(() => ({
+  hasCompetitionPaymentInFlightMock: vi.fn().mockResolvedValue(false),
+}));
+
 vi.mock("@/server/competitions/competition-access", async () => {
   const actual = await vi.importActual<typeof import("@/server/competitions/competition-access")>(
     "@/server/competitions/competition-access",
@@ -34,6 +38,14 @@ vi.mock("@/server/async/enqueue", () => ({
 }));
 vi.mock("@/server/competitions/competition-participation-lock", () => ({
   acquireCompetitionParticipationLock: vi.fn(),
+}));
+
+// The DEC-0132 in-flight guard, which unpublishCompetition and the edit classifier both consult.
+// Defaulted to "nothing in flight" so the pre-existing lifecycle assertions keep testing what they
+// were written to test; the guard's own behaviour — that it blocks, and that the classifier blocks
+// a fee edit behind it — is proven separately against a live Postgres.
+vi.mock("@/server/finance/paid-registration", () => ({
+  hasCompetitionPaymentInFlight: hasCompetitionPaymentInFlightMock,
 }));
 
 import type { Database } from "@/server/db/client";

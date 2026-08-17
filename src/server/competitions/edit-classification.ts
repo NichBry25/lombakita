@@ -24,9 +24,9 @@ import type { CompetitionCategory, CompetitionMode } from "@/server/db/schema";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// The subset of competition fields this classifier reasons about. feeAmount is optional because
-// it is API-blocked on the edit path (DEC-0022) and the public projection omits it; when omitted
-// on either side it is simply not classified.
+// The subset of competition fields this classifier reasons about. The fee fields are optional
+// because they are not written through the generic PATCH path — they have their own guarded write
+// path (setCompetitionFee) — so when either side omits them they are simply not classified.
 export type ClassifiableCompetition = {
   title: string;
   slug: string;
@@ -42,7 +42,11 @@ export type ClassifiableCompetition = {
   resultAnnouncementAt: Date | null;
   allowCancellation: boolean;
   cancellationCutoffDays: number | null;
+  // Integer smallest unit (@/lib/finance/money). `string` remains accepted so a caller reading a
+  // row through an older projection is classified rather than silently skipped.
   feeAmount?: string | number | null;
+  feeCurrency?: string | null;
+  paymentWindowDays?: number | null;
 };
 
 // Snapshot of the competition's non-cancelled registrations at edit time. activeTeamSizes holds
@@ -53,6 +57,10 @@ export type EditClassificationSnapshot = {
   hasActiveTeam: boolean;
   activeTeamSizes: number[];
   hasActiveFree: boolean;
+  // Whether a bukti transfer is submitted and unresolved anywhere on this competition — the
+  // PAYMENT IN FLIGHT predicate (server/finance/paid-registration.ts), passed in rather than
+  // queried because this module is pure.
+  hasPaymentInFlight: boolean;
 };
 
 export type EditClassification = {
@@ -123,17 +131,50 @@ export const classifyCompetitionEdit = (
     }
   }
 
-  // feeAmount — turning a free competition into a paid one while free registrations exist would
-  // strand those registrations (paid flow is Phase 7). Only classified when fee is supplied.
+  // feeAmount — BLOCKED whenever money is in flight on this competition, whatever the change is.
+  // Someone has transferred real rupiah against the price they were shown, and moving that price
+  // underneath them while the organiser has not yet verified the transfer is the one fee edit that
+  // cannot be made safe by notifying anybody afterwards.
+  //
+  // The pre-existing free→paid block survives alongside it and is NOT the same rule: it protects
+  // registrations that were taken for free from acquiring a price retroactively, which is true even
+  // when nothing is in flight.
   if (oldRow.feeAmount !== undefined && newRow.feeAmount !== undefined) {
     const oldFee = feeToNumber(oldRow.feeAmount);
     const newFee = feeToNumber(newRow.feeAmount);
     if (oldFee !== newFee) {
-      if (oldFee === 0 && newFee > 0 && snapshot.hasActiveFree) {
+      if (snapshot.hasPaymentInFlight) {
+        blocked.push("feeAmount");
+      } else if (oldFee === 0 && newFee > 0 && snapshot.hasActiveFree) {
         blocked.push("feeAmount");
       } else {
         notify.push("feeAmount");
       }
+    }
+  }
+
+  // feeCurrency — the same rule, because it is half of the same fact. An amount without its
+  // currency is not a price (@/lib/finance/money), so changing IDR to anything else while a
+  // transfer is in flight restates what the payer owes exactly as surely as changing the number.
+  // This field was absent from the classifier entirely, which meant a currency change was
+  // classified as nothing at all.
+  if (oldRow.feeCurrency !== undefined && newRow.feeCurrency !== undefined) {
+    if (oldRow.feeCurrency !== newRow.feeCurrency) {
+      if (snapshot.hasPaymentInFlight) {
+        blocked.push("feeCurrency");
+      } else {
+        notify.push("feeCurrency");
+      }
+    }
+  }
+
+  // paymentWindowDays — NOTIFY, never blocked. Shortening the window cannot harm anyone already
+  // paying: a deadline is snapshotted onto each payment at creation and never recomputed, so an
+  // existing pending payment keeps the deadline it was given. It is participant-relevant for
+  // everyone who registers AFTER the change, which is what notify is for.
+  if (oldRow.paymentWindowDays !== undefined && newRow.paymentWindowDays !== undefined) {
+    if (oldRow.paymentWindowDays !== newRow.paymentWindowDays) {
+      notify.push("paymentWindowDays");
     }
   }
 

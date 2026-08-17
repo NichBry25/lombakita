@@ -457,7 +457,7 @@ describe("cancelTeamRegistration", () => {
   });
 
   it("rejects cancellation_not_supported_for_paid for a paid competition", async () => {
-    const { db } = makeDb([[team({ status: "submitted" })], [competition({ feeAmount: "50000" })]]);
+    const { db } = makeDb([[team({ status: "submitted" })], [competition({ feeAmount: 50_000 })]]);
     await expect(
       cancelTeamRegistration("cap_1", "comp_1", "team_1", "alasan", db as never, NOW),
     ).rejects.toMatchObject({ code: "cancellation_not_supported_for_paid" });

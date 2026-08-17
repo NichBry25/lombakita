@@ -36,6 +36,7 @@ const snapshot = (
   hasActiveTeam: false,
   activeTeamSizes: [],
   hasActiveFree: false,
+  hasPaymentInFlight: false,
   ...overrides,
 });
 
@@ -321,3 +322,86 @@ describe("classifyCompetitionEdit — buckets in isolation", () => {
     expect(result).toEqual({ blocked: [], notify: [], trivial: [] });
   });
 });
+
+describe("classifyCompetitionEdit — fee fields while money is in flight", () => {
+  it("BLOCKS a fee change whenever a payment is in flight, in either direction", () => {
+    // Someone has transferred real rupiah against the price they were shown. Moving that price
+    // underneath them is the one fee edit no after-the-fact notification can make safe.
+    const raise = classifyCompetitionEdit(
+      base({ feeAmount: 50_000 }),
+      base({ feeAmount: 75_000 }),
+      snapshot({ hasPaymentInFlight: true }),
+    );
+    expect(raise.blocked).toContain("feeAmount");
+
+    const lower = classifyCompetitionEdit(
+      base({ feeAmount: 50_000 }),
+      base({ feeAmount: 25_000 }),
+      snapshot({ hasPaymentInFlight: true }),
+    );
+    expect(lower.blocked).toContain("feeAmount");
+  });
+
+  it("still only NOTIFIES on a fee change when nothing is in flight", () => {
+    const result = classifyCompetitionEdit(
+      base({ feeAmount: 50_000 }),
+      base({ feeAmount: 75_000 }),
+      snapshot({ hasPaymentInFlight: false }),
+    );
+
+    expect(result.notify).toContain("feeAmount");
+    expect(result.blocked).not.toContain("feeAmount");
+  });
+
+  it("keeps the pre-existing free→paid block, which is a different rule", () => {
+    // This one protects registrations taken for free from acquiring a price retroactively, and is
+    // true even when nothing is in flight.
+    const result = classifyCompetitionEdit(
+      base({ feeAmount: 0 }),
+      base({ feeAmount: 50_000 }),
+      snapshot({ hasActiveFree: true, hasPaymentInFlight: false }),
+    );
+
+    expect(result.blocked).toContain("feeAmount");
+  });
+
+  it("classifies feeCurrency, which was previously not classified at all", () => {
+    // An amount without its currency is not a price, so changing IDR to anything else restates what
+    // the payer owes exactly as surely as changing the number.
+    const blocked = classifyCompetitionEdit(
+      base({ feeCurrency: "IDR" }),
+      base({ feeCurrency: "USD" }),
+      snapshot({ hasPaymentInFlight: true }),
+    );
+    expect(blocked.blocked).toContain("feeCurrency");
+
+    const notified = classifyCompetitionEdit(
+      base({ feeCurrency: "IDR" }),
+      base({ feeCurrency: "USD" }),
+      snapshot({ hasPaymentInFlight: false }),
+    );
+    expect(notified.notify).toContain("feeCurrency");
+  });
+
+  it("classifies paymentWindowDays as NOTIFY, never blocked", () => {
+    // Shortening the window cannot harm anyone already paying: the deadline is snapshotted per
+    // payment and never recomputed, so an existing pending payment keeps what it was given.
+    const result = classifyCompetitionEdit(
+      base({ paymentWindowDays: 3 }),
+      base({ paymentWindowDays: 1 }),
+      snapshot({ hasPaymentInFlight: true }),
+    );
+
+    expect(result.notify).toContain("paymentWindowDays");
+    expect(result.blocked).not.toContain("paymentWindowDays");
+  });
+
+  it("classifies nothing when a fee field is absent on either side", () => {
+    const result = classifyCompetitionEdit(base({}), base({}), snapshot({}));
+
+    expect(result.blocked).not.toContain("feeCurrency");
+    expect(result.notify).not.toContain("feeCurrency");
+    expect(result.notify).not.toContain("paymentWindowDays");
+  });
+});
+

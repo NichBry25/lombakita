@@ -67,6 +67,11 @@ type CompetitionErrorCode =
   | "competition_post_publish_blocked"
   | "competition_unpublish_blocked_after_start"
   | "competition_unpublish_blocked_after_participation_confirmation"
+  // DEC-0132: money is in flight, so withdrawing would cancel a registration someone has already
+  // paid for. Escape hatch is the platform_ops cancellation route.
+  | "competition_unpublish_blocked_payment_in_flight"
+  // DEC-0132's sibling at the write: a price cannot move while a transfer against it is unresolved.
+  | "competition_fee_change_blocked_payment_in_flight"
   | "competition_already_cancelled"
   | "competition_participation_not_configured"
   | "competition_participation_decision_unavailable"

@@ -71,7 +71,8 @@ const competitionHasPublishedResultSql = sql<boolean>`exists (
 )`;
 
 // Public listing columns — includes institution display name joined from the institutions table.
-// Does not expose fee_amount or fee_currency (DEC-0022). isFeatured is exposed for placement UI.
+// The LISTING exposes neither fee_amount nor fee_currency (DEC-0022); the DETAIL projection below
+// exposes BOTH, together. isFeatured is exposed for placement UI.
 // institutionName is resolved through getInstitutionDisplayName (mapPublicListingRow): a personal
 // institution stores NULL and derives its name from the owner username (institutionOwnerUsername).
 const PUBLIC_LISTING_COLUMNS = {
@@ -572,6 +573,7 @@ const PUBLIC_DETAIL_COLUMNS = {
   cancelledAt: competitions.cancelledAt,
   cancellationReason: competitions.cancellationReason,
   feeAmount: competitions.feeAmount,
+  feeCurrency: competitions.feeCurrency,
   eligibilityNote: competitions.eligibilityNote,
   publishedAt: competitions.publishedAt,
   institutionId: institutions.id,
@@ -627,7 +629,8 @@ export type PublicCompetitionDetail = {
   cancellationReason: string | null;
   participantEntryCount: number;
   participationState: CompetitionParticipationState;
-  feeAmount: string | null;
+  feeAmount: number | null;
+  feeCurrency: string | null;
   eligibilityNote: string | null;
   tags: string[];
   publishedAt: Date | null;
@@ -809,6 +812,7 @@ export const getPublicCompetitionDetail = async (
     cancelledAt: row.cancelledAt,
     cancellationReason: row.cancellationReason,
     feeAmount: row.feeAmount,
+    feeCurrency: row.feeCurrency,
     eligibilityNote: row.eligibilityNote,
     tags,
     publishedAt: row.publishedAt,
