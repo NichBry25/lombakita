@@ -78,6 +78,41 @@ export const buildManualProofObjectPrefix = (competitionId: string, paymentId: s
   `payment-proofs/${competitionId}/${paymentId}/`;
 
 /**
+ * Refuses an object key that is not this payment's own.
+ *
+ * THE ONE PLACE THE PREFIX IS ENFORCED, called by every path that writes `r2_key`. Checking it at
+ * one of two write paths is what makes the prefix a naming convention rather than a boundary: a
+ * proof row could then point at any object in the bucket, including another payer's receipt, which
+ * the row would go on to present as its own evidence.
+ *
+ * Three rules, and the second is the one that is easy to argue away:
+ *
+ *   1. The key sits under this competition and payment's prefix. The trailing slash is doing real
+ *      work — without it a competition whose id is a string prefix of another's would match.
+ *   2. No path segment is `..`. Object keys are literal strings in R2 and `..` resolves to nothing
+ *      there, so this is not exploitable against today's storage. It is refused anyway because that
+ *      is a property of the CURRENT STORAGE LAYER rather than of the key, and keys travel — a local
+ *      cache, a presigner that canonicalises, or a CDN that collapses segments each turn the same
+ *      string into a traversal.
+ *   3. Something follows the prefix. A key equal to the prefix names a folder, not evidence.
+ */
+const assertObjectKeyBelongsToPayment = (
+  r2Key: string,
+  competitionId: string,
+  paymentId: string,
+): void => {
+  const prefix = buildManualProofObjectPrefix(competitionId, paymentId);
+  const hasTraversalSegment = r2Key.split("/").includes("..");
+
+  if (!r2Key.startsWith(prefix) || r2Key.length === prefix.length || hasTraversalSegment) {
+    throw new ManualProofError(
+      "manual_proof_object_key_invalid",
+      "The uploaded file is not stored under this payment's own prefix",
+    );
+  }
+};
+
+/**
  * The competition ids one institution owns, as a subquery.
  *
  * Returned as a subquery rather than a resolved array so the scope composes into the SAME statement
@@ -108,6 +143,10 @@ export type SubmitManualProofInput = {
  *
  * The payment lookup is filtered on the PAYER, so a candidate can only file evidence against their
  * own payment. Someone else's payment id reads as no payment at all.
+ *
+ * The object key is held to this payment's own prefix BEFORE the insert, the same rule a
+ * resubmission is held to. A first submission is the more common path, so checking only the
+ * resubmission would leave the boundary open on the side that carries most of the traffic.
  */
 export const submitManualPaymentProof = async (
   input: SubmitManualProofInput,
@@ -140,6 +179,8 @@ export const submitManualPaymentProof = async (
   }
 
   const competitionId = await loadCompetitionIdForPayment(payment.id, db);
+
+  assertObjectKeyBelongsToPayment(input.r2Key, competitionId, payment.id);
 
   const [created] = await db
     .insert(financeManualPaymentProofs)
@@ -368,10 +409,8 @@ export type ReopenManualProofInput = {
  * matches nothing no matter which surface calls this. `submitted_by_user_id` rides in the same
  * WHERE: only the payer refiles their own evidence.
  *
- * The replacement key is checked against `buildManualProofObjectPrefix` before it is stored. Without
- * that check the prefix is a naming convention rather than a boundary, and a caller could point a
- * proof row at any object in the bucket — including another payer's receipt, which this row would
- * then present as its own.
+ * The replacement key goes through the same `assertObjectKeyBelongsToPayment` the first submission
+ * does, so a resubmission cannot reach an object the original could not have.
  */
 export const reopenManualPaymentProof = async (
   input: ReopenManualProofInput,
@@ -404,14 +443,7 @@ export const reopenManualPaymentProof = async (
     );
   }
 
-  const prefix = buildManualProofObjectPrefix(existing.competitionId, existing.paymentId);
-
-  if (!input.r2Key.startsWith(prefix)) {
-    throw new ManualProofError(
-      "manual_proof_object_key_invalid",
-      "The replacement file is not stored under this payment's own prefix",
-    );
-  }
+  assertObjectKeyBelongsToPayment(input.r2Key, existing.competitionId, existing.paymentId);
 
   const [proof] = await db
     .update(financeManualPaymentProofs)

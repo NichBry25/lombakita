@@ -1390,9 +1390,6 @@ describe.skipIf(skipWithoutDatabase)("proof access is tenant-scoped (real databa
   });
 
   it("refuses a replacement file stored outside this payment's own prefix", async () => {
-    // buildManualProofObjectPrefix is the boundary a proof row's key is held to, not a naming
-    // convention. Without this check a resubmission could point the row at any object in the
-    // bucket — including another payer's receipt, which this row would then present as its own.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const { rejectManualPaymentProof, reopenManualPaymentProof } = await import(
@@ -1424,6 +1421,192 @@ describe.skipIf(skipWithoutDatabase)("proof access is tenant-scoped (real databa
           NOW,
         ),
       ).rejects.toMatchObject({ code: "manual_proof_object_key_invalid" });
+    });
+  });
+});
+
+describe.skipIf(skipWithoutDatabase)("the object key is held to its own payment's prefix", () => {
+  // buildManualProofObjectPrefix is the boundary a proof row's key is held to, not a naming
+  // convention. BOTH write paths enforce it: checking only the resubmission would leave the boundary
+  // open on the side that carries most of the traffic.
+  const submitWithKey = async (tx: Tx, fixture: Fixture, paymentId: string, r2Key: string) => {
+    const { submitManualPaymentProof } = await import(
+      "@/server/finance/manual-payment-proof-service"
+    );
+    return submitManualPaymentProof(
+      {
+        paymentId,
+        submittedByUserId: fixture.userId,
+        r2Key,
+        originalFileName: "bukti.jpg",
+        fileSizeBytes: 2048,
+        contentType: "image/jpeg",
+      },
+      tx as never,
+    );
+  };
+
+  const countProofs = async (tx: Tx, paymentId: string): Promise<number> => {
+    const rows = await tx
+      .select({ id: financeManualPaymentProofs.id })
+      .from(financeManualPaymentProofs)
+      .where(eq(financeManualPaymentProofs.paymentId, paymentId));
+    return rows.length;
+  };
+
+  it("accepts a FIRST submission under this payment's own prefix", async () => {
+    // The negative control. A validator that refused everything would pass every test below while
+    // making it impossible to file any bukti transfer at all.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      const proof = await submitWithKey(
+        tx,
+        fixture,
+        paymentId,
+        `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
+      );
+
+      expect(proof.status).toBe("pending_review");
+      expect(await countProofs(tx, paymentId)).toBe(1);
+    });
+  });
+
+  it("accepts a key nested deeper under its own prefix", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      const proof = await submitWithKey(
+        tx,
+        fixture,
+        paymentId,
+        `payment-proofs/${fixture.competitionId}/${paymentId}/2026/08/bukti.jpg`,
+      );
+
+      expect(proof.status).toBe("pending_review");
+    });
+  });
+
+  it("REFUSES a first submission pointed at another competition, and writes nothing", async () => {
+    // The order-sensitive assertion. Moving the check below the insert leaves the throw in place and
+    // fails this second expectation.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      await expect(
+        submitWithKey(
+          tx,
+          fixture,
+          paymentId,
+          `payment-proofs/${fixture.other.competitionId}/${paymentId}/bukti.jpg`,
+        ),
+      ).rejects.toMatchObject({ code: "manual_proof_object_key_invalid" });
+
+      expect(await countProofs(tx, paymentId)).toBe(0);
+    });
+  });
+
+  it("REFUSES a first submission pointed at another PAYMENT under the same competition", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      await expect(
+        submitWithKey(
+          tx,
+          fixture,
+          paymentId,
+          `payment-proofs/${fixture.competitionId}/some-other-payment/bukti.jpg`,
+        ),
+      ).rejects.toMatchObject({ code: "manual_proof_object_key_invalid" });
+
+      expect(await countProofs(tx, paymentId)).toBe(0);
+    });
+  });
+
+  it("REFUSES a key carrying a `..` segment on BOTH write paths", async () => {
+    // Not exploitable against R2, where an object key is a literal string and `..` resolves to
+    // nothing. Refused anyway: that is a property of the current storage layer rather than of the
+    // key, and keys travel.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { rejectManualPaymentProof, reopenManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      const paymentId = await seedManualPayment(tx, fixture);
+      const traversal = `payment-proofs/${fixture.competitionId}/${paymentId}/../../${fixture.other.competitionId}/x/bukti.jpg`;
+
+      await expect(submitWithKey(tx, fixture, paymentId, traversal)).rejects.toMatchObject({
+        code: "manual_proof_object_key_invalid",
+      });
+      expect(await countProofs(tx, paymentId)).toBe(0);
+
+      // And the same key on the resubmission path.
+      const proofId = await seedProof(tx, fixture, paymentId);
+      await rejectManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proofId,
+        "nominal tidak sesuai",
+        true,
+        tx as never,
+        NOW,
+      );
+
+      await expect(
+        reopenManualPaymentProof(
+          {
+            proofId,
+            submittedByUserId: fixture.userId,
+            r2Key: traversal,
+            originalFileName: "bukti2.jpg",
+            fileSizeBytes: 4096,
+            contentType: "image/jpeg",
+          },
+          tx as never,
+          NOW,
+        ),
+      ).rejects.toMatchObject({ code: "manual_proof_object_key_invalid" });
+    });
+  });
+
+  it("REFUSES a key equal to the prefix — a folder is not evidence", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      await expect(
+        submitWithKey(
+          tx,
+          fixture,
+          paymentId,
+          `payment-proofs/${fixture.competitionId}/${paymentId}/`,
+        ),
+      ).rejects.toMatchObject({ code: "manual_proof_object_key_invalid" });
+
+      expect(await countProofs(tx, paymentId)).toBe(0);
+    });
+  });
+
+  it("REFUSES a sibling whose competition id merely STARTS with this one", async () => {
+    // The trailing slash in the prefix is what makes this a refusal rather than a match.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      await expect(
+        submitWithKey(
+          tx,
+          fixture,
+          paymentId,
+          `payment-proofs/${fixture.competitionId}X/${paymentId}/bukti.jpg`,
+        ),
+      ).rejects.toMatchObject({ code: "manual_proof_object_key_invalid" });
+
+      expect(await countProofs(tx, paymentId)).toBe(0);
     });
   });
 });
