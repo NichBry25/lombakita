@@ -3245,6 +3245,14 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   padding-block-start: var(--space-12);
 }
 
+/* The detail grid closes with the page shell's own trailing space, which is right when it ends the
+   page and wrong when a rail follows: the shell's padding and the rail's own opening space stack
+   into a gap roughly twice the one between two consecutive rails. Drop the shell's half when a rail
+   is next, so every seam down the foot of the page is the same size. */
+.detail-layout:has(+ .detail-rail-section) {
+  padding-block-end: 0;
+}
+
 .detail-rail-section:last-child {
   padding-block-end: var(--space-16);
 }
@@ -5551,10 +5559,12 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
 /* auto-fit rather than a fixed column count: the form holds nine fields, and at 390px they must
    stack to one column without a breakpoint list that has to be maintained alongside them. */
-.fee-rule-form-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(var(--control-select-min), 100%), 1fr));
-  gap: var(--space-4);
+/* Layout comes from `.form-grid`; this class only carries what the fee form needs on top of it.
+   A field whose label and control have no help text beneath them would otherwise distribute the
+   row's spare height between the two, dropping the control below its neighbours and pushing it
+   over their help text. */
+.fee-rule-form-grid .form-field {
+  align-content: start;
 }
 
 /* Grid items default to `min-width: auto`, which resolves to the item's min-content size and
@@ -5565,11 +5575,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 .fee-rule-form-grid > *,
 .fee-rule-form-grid .form-input {
   min-width: 0;
-}
-
-.fee-rule-form-actions {
-  display: flex;
-  justify-content: flex-end;
 }
 
 .featured-row-form {

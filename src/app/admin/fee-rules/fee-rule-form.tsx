@@ -5,15 +5,19 @@ import { useRouter } from "next/navigation";
 import {
   Button,
   Feedback,
+  FormActionBar,
   FormField,
   FormHelp,
   FormInput,
   FormLabel,
+  Icon,
+  IconButton,
   SelectField,
 } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { computePlatformFee, findFeeRuleRejection, type FeeRuleTerms } from "@/lib/finance/fee";
 import { SUPPORTED_CURRENCIES } from "@/lib/finance/money";
+import type { FeeRuleErrorCode } from "@/server/finance/fee-rule-service";
 import { formatBasisPoints, formatMinorUnits } from "./fee-rule-display";
 
 // A representative sale used only to show the operator what their terms would charge. Nothing is
@@ -27,6 +31,24 @@ const SCOPE_OPTIONS = [
 ];
 
 const CURRENCY_OPTIONS = SUPPORTED_CURRENCIES.map((code) => ({ value: code, label: code }));
+
+// The endpoint answers with a stable machine code beside an English developer message. The operator
+// reads the Indonesian line keyed off that code; the developer message is never surfaced. Codes
+// createFeeRule cannot raise are deliberately absent and fall through to the generic line, and the
+// `satisfies` clause makes a key that no longer matches a server code a compile error.
+const ERROR_MESSAGES: Record<string, string> = {
+  fee_rule_takes_entire_payment:
+    "Tarif ini mengambil seluruh pembayaran. Institusi tidak menerima apa pun dari penjualannya sendiri, jadi aturan ini ditolak.",
+  fee_rule_terms_invalid:
+    "Nilai aturan tidak valid. Setiap nominal harus bilangan bulat dan tidak boleh negatif.",
+  fee_rule_effective_window_invalid:
+    "Rentang berlaku tidak valid. Tanggal mulai wajib diisi dan tanggal berakhir harus setelah tanggal mulai.",
+  fee_rule_currency_unsupported: "Mata uang ini belum didukung.",
+  fee_rule_institution_not_found: "Institusi tidak ditemukan. Periksa kembali ID institusi.",
+} satisfies Partial<Record<FeeRuleErrorCode, string>>;
+
+const messageFor = (code: string | undefined, status: number): string =>
+  (code && ERROR_MESSAGES[code]) ?? `Aturan gagal disimpan (${status}).`;
 
 // A blank optional amount is null, not zero: "no maximum" and "a maximum of nothing" are different
 // rules, and coercing the first into the second would cap every fee at zero.
@@ -109,12 +131,12 @@ export function FeeRuleForm() {
         }),
       });
 
-      const data = (await response.json()) as { error?: { message?: string } };
+      const data = (await response.json()) as { error?: { code?: string } };
 
       if (!response.ok) {
         addToast({
           type: "error",
-          message: data?.error?.message ?? `Aturan gagal disimpan (${response.status}).`,
+          message: messageFor(data?.error?.code, response.status),
         });
         return;
       }
@@ -131,7 +153,7 @@ export function FeeRuleForm() {
 
   return (
     <form onSubmit={(event) => void handleSubmit(event)} className="fee-rule-form">
-      <div className="fee-rule-form-grid">
+      <div className="form-grid fee-rule-form-grid">
         <FormField>
           <FormLabel htmlFor="fee-rule-scope" required>
             Cakupan
@@ -189,7 +211,9 @@ export function FeeRuleForm() {
             onChange={(event) => setBasisPoints(event.target.value)}
             required
           />
-          <FormHelp>100 basis poin = 1%. Saat ini {formatBasisPoints(toAmount(basisPoints))}.</FormHelp>
+          <FormHelp>
+            100 basis poin = 1%. Saat ini {formatBasisPoints(toAmount(basisPoints))}.
+          </FormHelp>
         </FormField>
 
         <FormField>
@@ -274,11 +298,18 @@ export function FeeRuleForm() {
         </Feedback>
       )}
 
-      <div className="fee-rule-form-actions">
-        <Button type="submit" loading={saving}>
-          Simpan aturan
-        </Button>
-      </div>
+      <FormActionBar>
+        <IconButton
+          icon="arrow-left"
+          label="Kembali ke Platform Operations"
+          onClick={() => router.push("/admin")}
+        />
+        <div className="form-action-bar-end">
+          <Button type="submit" loading={saving} leadingIcon={<Icon name="save" />}>
+            Simpan
+          </Button>
+        </div>
+      </FormActionBar>
     </form>
   );
 }
