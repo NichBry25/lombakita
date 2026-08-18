@@ -94,6 +94,7 @@ export const PAGES = [
   { id: "84-admin-featured", as: "ops", path: "/admin/featured", label: "Featured placement controls" },
   { id: "85-admin-recruiter-verification", as: "ops", path: "/admin/recruiter-verification", label: "Recruiter verification queue" },
   { id: "86-admin-verification", as: "ops", path: "/admin/verification", label: "Institution document verification queue" },
+  { id: "86b-admin-fee-rules", as: "ops", path: "/admin/fee-rules", label: "Platform fee rule administration" },
   { id: "87-ops-on-candidate-surface", as: "ops", path: "/candidate-dashboard", label: "Operational account denied a participant surface" },
   { id: "88-ops-home", as: "ops", path: "/", label: "Landing page as operational account (nav withheld)" },
 

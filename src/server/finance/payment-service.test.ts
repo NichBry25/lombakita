@@ -15,6 +15,15 @@ const { resolveFeeRule, toFeeRuleTerms } = vi.hoisted(() => ({
 }));
 vi.mock("@/server/finance/fee-rule-service", () => ({ resolveFeeRule, toFeeRuleTerms }));
 
+// The charging gate (DEC-0158) that createPayment calls on any priced payment. Mocked here because
+// this file tests createPayment's OWN validation order against a db with no query surface; that the
+// gate is real, is reached, and actually refuses is proven against a live Postgres in
+// finance-charging-gate-db.integration.test.ts — including a test that fails if the call is removed.
+const { assertInstitutionVerified } = vi.hoisted(() => ({
+  assertInstitutionVerified: vi.fn().mockResolvedValue({ verificationStatus: "verified" }),
+}));
+vi.mock("@/server/competitions/competition-access", () => ({ assertInstitutionVerified }));
+
 import {
   appendPaymentEvent,
   createPayment,
@@ -51,6 +60,7 @@ const paymentInput = (overrides: Partial<CreatePaymentInput> = {}): CreatePaymen
   grossAmount: 150_000,
   currency: "IDR",
   pricedAt: NOW,
+  origin: "gateway",
   ...overrides,
 });
 

@@ -17,14 +17,9 @@ import { TeamError } from "@/server/teams/team-core";
 import { MAX_CANCELLATION_REASON_LENGTH } from "@/server/registrations/registration-core";
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
+import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-const isPaidCompetition = (feeAmount: string | null): boolean => {
-  if (feeAmount === null) return false;
-  const n = Number.parseFloat(feeAmount);
-  return Number.isFinite(n) && n > 0;
-};
 
 // Postgres error code extraction — mirrors the pattern used in team-service.ts. Drizzle wraps
 // the underlying pg error in a DrizzleQueryError; read both shapes (direct + cause).
@@ -50,7 +45,7 @@ type CompetitionSnapshot = {
   cancelledAt: Date | null;
   allowCancellation: boolean;
   cancellationCutoffDays: number | null;
-  feeAmount: string | null;
+  feeAmount: number | null;
 };
 
 type TeamSnapshot = {

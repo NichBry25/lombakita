@@ -217,10 +217,26 @@ export const assertActorIsTrustedRecruiter = async (
   }
 };
 
-// Asserts that the institution's verification_status is "verified". No longer wired into the
-// publish transition (superseded by assertActorIsTrustedRecruiter, the account-level trust
-// gate); parked for the Phase 7 payout path, where institution-level document verification
-// becomes the money gate. Throws CompetitionError 422 competition_institution_not_verified.
+// THE CHARGING GATE (DEC-0158). Asserts that the institution's verification_status is "verified".
+//
+// Verification gates the right to CHARGE MONEY, never the right to publish. An unverified
+// institution runs free competitions and publishes them normally; what it may not do is take
+// payment. Publishing is gated separately by assertActorIsTrustedRecruiter, the account-level trust
+// gate, which is why this is not on the generic publish path.
+//
+// Revocation is read live through this call rather than snapshotted, so an institution whose
+// verification is withdrawn stops being able to enable charging immediately. That is a CREDIBILITY
+// change, not an operational takedown (DEC-0118): its existing free competitions are untouched and
+// still publishable, and an in-flight bukti transfer can still be verified so a candidate who has
+// already sent real money is not stranded. Suspension is the takedown axis, enforced separately by
+// assertInstitutionNotSuspended.
+//
+// THIS IS THE ONLY VERIFICATION CHECK for charging. Every caller — the fee-setting write path, the
+// publish gate for an already-priced competition, and payment creation as the fail-closed backstop
+// — routes through this one function. A second, lighter check written elsewhere would be a second
+// answer to the same question, and the two would drift.
+//
+// Throws CompetitionError 422 competition_institution_not_verified.
 export const assertInstitutionVerified = async (
   institutionId: string,
   db: Database = getDb(),
@@ -238,7 +254,7 @@ export const assertInstitutionVerified = async (
     throw new CompetitionError(
       "competition_institution_not_verified",
       422,
-      "Institution must be verified by platform ops before publishing competitions",
+      "Institusi harus terverifikasi sebelum dapat memungut biaya pendaftaran. Kompetisi gratis tetap dapat dipublikasikan.",
     );
   }
   return row;

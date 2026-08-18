@@ -15,6 +15,7 @@
 
 import { readFileSync } from "fs";
 import { resolve } from "path";
+import { isLocalDatabaseHost, parseDatabaseHost } from "./local-database-host";
 
 try {
   for (const line of readFileSync(resolve(process.cwd(), ".env.local"), "utf8").split("\n")) {
@@ -89,4 +90,24 @@ export const resolveIterations = (fallback: number): number => {
 export const finish = (failures: number, label: string): never => {
   console.log(`\n${failures === 0 ? `ALL ${label} CHECKS PASSED` : `${failures} CHECK(S) FAILED`}`);
   process.exit(failures === 0 ? 0 : 1);
+};
+
+export { isLocalDatabaseHost, parseDatabaseHost } from "./local-database-host";
+
+// Refuses to continue unless `url` is a loopback database, naming the host it rejected.
+//
+// For scripts that seed or remove rows in financial tables. A connection string pointed at a shared
+// or deployed database is a plausible mistake — a paste, an exported shell — and neither direction
+// is recoverable by inspection afterwards: seeded fixtures are indistinguishable from real ledger
+// rows, and a ledger row deleted from the wrong database has no application path that could restore
+// it. Called before the pool opens, so the refusal precedes the connection rather than the query.
+export const assertLocalDatabase = (url: string, purpose: string): void => {
+  if (isLocalDatabaseHost(url)) {
+    return;
+  }
+
+  throw new Error(
+    `${purpose} refuses to run against host "${parseDatabaseHost(url) ?? "<unparseable>"}" — it ` +
+      "operates on financial tables, so it is restricted to a local development database",
+  );
 };

@@ -31,6 +31,7 @@ import { SaveButton } from "./save-button";
 import { DetailActions } from "./detail-actions";
 import { CompetitionReviewForm } from "./competition-review-form";
 import { formatTeamSizeText } from "./team-size-utils";
+import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 
 const formatDate = (date: Date | string | null) =>
   date
@@ -52,15 +53,35 @@ const formatDateTime = (date: Date | string | null) =>
       })
     : "—";
 
-function FeeDisplay({ feeAmount }: { feeAmount: string | null }) {
-  const amount = feeAmount ? parseFloat(feeAmount) : 0;
-  if (!feeAmount || amount === 0) {
+// The fee and its currency are read TOGETHER. `fee_amount` is an integer count of the currency's
+// smallest unit (@/lib/finance/money), so the number alone does not say what it means — the same
+// 50000 is Rp 50.000 under IDR's exponent 0 and $500.00 under USD's exponent 2. Formatting it
+// without reading the currency beside it is the exact defect that convention exists to prevent,
+// and it is why this surface previously showed a price the API never denominated.
+function FeeDisplay({
+  feeAmount,
+  feeCurrency,
+}: {
+  feeAmount: number | null;
+  feeCurrency: string | null;
+}) {
+  if (!isPaidCompetition(feeAmount)) {
     return <p className="detail-fee-free">Gratis</p>;
   }
 
+  // Non-null once isPaidCompetition passes; the CHECK constraint requires a currency on any
+  // priced competition, so the fallback is unreachable rather than a guess at what was meant.
+  const currency = feeCurrency ?? "IDR";
+
   return (
     <div className="stack-xs">
-      <p className="detail-fee-amount">Rp {amount.toLocaleString("id-ID")}</p>
+      <p className="detail-fee-amount">
+        {new Intl.NumberFormat("id-ID", {
+          style: "currency",
+          currency,
+          maximumFractionDigits: 0,
+        }).format(feeAmount as number)}
+      </p>
       <p className="detail-rail-note">Pembayaran online segera hadir.</p>
     </div>
   );
@@ -608,7 +629,10 @@ export default async function CompetitionDetailPage({
 
           <div className="stack-xs">
             <p className="eyebrow">Biaya pendaftaran</p>
-            <FeeDisplay feeAmount={competition.feeAmount} />
+            <FeeDisplay
+              feeAmount={competition.feeAmount}
+              feeCurrency={competition.feeCurrency}
+            />
           </div>
           <div className="detail-rail-actions">
             <div className="detail-primary-actions">

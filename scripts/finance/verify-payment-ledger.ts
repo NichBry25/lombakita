@@ -20,9 +20,13 @@
  * and these are seeded fixtures, not a ledger anybody relies on. Because every finance foreign key
  * is NO ACTION, teardown has to run children-before-parents or the database will refuse it, which
  * is itself a small confirmation that the ledger will not quietly disappear.
+ *
+ * LOCAL DATABASES ONLY, checked before the pool opens. This script writes payments and commits a
+ * fee-rule rate change, so the rows it leaves on a shared database are indistinguishable from real
+ * ledger data and `finance_payments` has no application delete path to remove them with.
  */
 
-import { createChecker, finish, oneRow, openPool } from "../lib/live-harness";
+import { assertLocalDatabase, createChecker, databaseUrl, finish, oneRow, openPool } from "../lib/live-harness";
 
 const NOW = new Date("2026-08-10T00:00:00.000Z");
 const LAST_MONTH = new Date("2026-07-01T00:00:00.000Z");
@@ -32,6 +36,8 @@ const LAST_MONTH = new Date("2026-07-01T00:00:00.000Z");
 const iso = (at: Date): string => at.toISOString();
 
 const main = async (): Promise<void> => {
+  assertLocalDatabase(databaseUrl, "verify-payment-ledger");
+
   const { client, db } = await openPool(4);
   const { check, failureCount } = createChecker();
 
@@ -111,7 +117,8 @@ const main = async (): Promise<void> => {
         subject,
         grossAmount: 150_000,
         currency: "IDR",
-        pricedAt: NOW,
+        origin: "gateway",
+      pricedAt: NOW,
       },
       db,
     );

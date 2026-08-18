@@ -25,6 +25,9 @@ const base = (overrides: Partial<ClassifiableCompetition> = {}): ClassifiableCom
   resultAnnouncementAt: null,
   allowCancellation: false,
   cancellationCutoffDays: null,
+  feeAmount: null,
+  feeCurrency: null,
+  paymentWindowDays: 3,
   ...overrides,
 });
 
@@ -36,6 +39,7 @@ const snapshot = (
   hasActiveTeam: false,
   activeTeamSizes: [],
   hasActiveFree: false,
+  hasPaymentInFlight: false,
   ...overrides,
 });
 
@@ -140,8 +144,8 @@ describe("classifyCompetitionEdit — team size bounds", () => {
 describe("classifyCompetitionEdit — fee", () => {
   it("blocks 0 → positive fee when active free registrations exist", () => {
     const result = classifyCompetitionEdit(
-      base({ feeAmount: "0" }),
-      base({ feeAmount: "50000" }),
+      base({ feeAmount: 0 }),
+      base({ feeAmount: 50_000 }),
       snapshot({ nonCancelledCount: 1, hasActiveFree: true }),
       NOW,
     );
@@ -150,8 +154,8 @@ describe("classifyCompetitionEdit — fee", () => {
 
   it("notifies a fee change when no free registrations are stranded", () => {
     const result = classifyCompetitionEdit(
-      base({ feeAmount: "0" }),
-      base({ feeAmount: "50000" }),
+      base({ feeAmount: 0 }),
+      base({ feeAmount: 50_000 }),
       snapshot({ nonCancelledCount: 0, hasActiveFree: false }),
       NOW,
     );
@@ -159,8 +163,14 @@ describe("classifyCompetitionEdit — fee", () => {
     expect(result.blocked).not.toContain("feeAmount");
   });
 
-  it("does not classify fee when it is omitted on either side", () => {
-    const result = classifyCompetitionEdit(base(), base({ title: "Lomba Baru" }), snapshot(), NOW);
+  it("treats NULL and 0 as the same free price rather than as a change", () => {
+    // The column stores both, and a competition moving between them has not changed its price.
+    const result = classifyCompetitionEdit(
+      base({ feeAmount: null }),
+      base({ feeAmount: 0 }),
+      snapshot({ hasActiveFree: true }),
+      NOW,
+    );
     expect(result.blocked).not.toContain("feeAmount");
     expect(result.notify).not.toContain("feeAmount");
   });
@@ -321,3 +331,126 @@ describe("classifyCompetitionEdit — buckets in isolation", () => {
     expect(result).toEqual({ blocked: [], notify: [], trivial: [] });
   });
 });
+
+describe("classifyCompetitionEdit — fee fields while money is in flight", () => {
+  it("BLOCKS a fee change whenever a payment is in flight, in either direction", () => {
+    // Someone has transferred real rupiah against the price they were shown. Moving that price
+    // underneath them is the one fee edit no after-the-fact notification can make safe.
+    const raise = classifyCompetitionEdit(
+      base({ feeAmount: 50_000 }),
+      base({ feeAmount: 75_000 }),
+      snapshot({ hasPaymentInFlight: true }),
+    );
+    expect(raise.blocked).toContain("feeAmount");
+
+    const lower = classifyCompetitionEdit(
+      base({ feeAmount: 50_000 }),
+      base({ feeAmount: 25_000 }),
+      snapshot({ hasPaymentInFlight: true }),
+    );
+    expect(lower.blocked).toContain("feeAmount");
+  });
+
+  it("still only NOTIFIES on a fee change when nothing is in flight", () => {
+    const result = classifyCompetitionEdit(
+      base({ feeAmount: 50_000 }),
+      base({ feeAmount: 75_000 }),
+      snapshot({ hasPaymentInFlight: false }),
+    );
+
+    expect(result.notify).toContain("feeAmount");
+    expect(result.blocked).not.toContain("feeAmount");
+  });
+
+  it("keeps the pre-existing free→paid block, which is a different rule", () => {
+    // This one protects registrations taken for free from acquiring a price retroactively, and is
+    // true even when nothing is in flight.
+    const result = classifyCompetitionEdit(
+      base({ feeAmount: 0 }),
+      base({ feeAmount: 50_000 }),
+      snapshot({ hasActiveFree: true, hasPaymentInFlight: false }),
+    );
+
+    expect(result.blocked).toContain("feeAmount");
+  });
+
+  it("classifies feeCurrency, which was previously not classified at all", () => {
+    // An amount without its currency is not a price, so changing IDR to anything else restates what
+    // the payer owes exactly as surely as changing the number.
+    const blocked = classifyCompetitionEdit(
+      base({ feeCurrency: "IDR" }),
+      base({ feeCurrency: "USD" }),
+      snapshot({ hasPaymentInFlight: true }),
+    );
+    expect(blocked.blocked).toContain("feeCurrency");
+
+    const notified = classifyCompetitionEdit(
+      base({ feeCurrency: "IDR" }),
+      base({ feeCurrency: "USD" }),
+      snapshot({ hasPaymentInFlight: false }),
+    );
+    expect(notified.notify).toContain("feeCurrency");
+  });
+
+  it("classifies paymentWindowDays as NOTIFY, never blocked", () => {
+    // Shortening the window cannot harm anyone already paying: the deadline is snapshotted per
+    // payment and never recomputed, so an existing pending payment keeps what it was given.
+    const result = classifyCompetitionEdit(
+      base({ paymentWindowDays: 3 }),
+      base({ paymentWindowDays: 1 }),
+      snapshot({ hasPaymentInFlight: true }),
+    );
+
+    expect(result.notify).toContain("paymentWindowDays");
+    expect(result.blocked).not.toContain("paymentWindowDays");
+  });
+
+  it("classifies nothing when no fee field changed", () => {
+    const result = classifyCompetitionEdit(base({}), base({}), snapshot({}));
+
+    expect(result.blocked).not.toContain("feeCurrency");
+    expect(result.notify).not.toContain("feeCurrency");
+    expect(result.notify).not.toContain("paymentWindowDays");
+  });
+});
+
+describe("classifyCompetitionEdit — registrationEndAt under an in-flight payment", () => {
+  it("BLOCKS moving the registration deadline while a transfer is outstanding", () => {
+    // Each payment's own deadline is clamped to this date at creation and never recomputed. Moving
+    // the date leaves an outstanding payment carrying a deadline derived from a date that no longer
+    // exists, and nothing reconciles the two afterwards.
+    const result = classifyCompetitionEdit(
+      base({ registrationEndAt: new Date("2026-07-01T00:00:00.000Z") }),
+      base({ registrationEndAt: new Date("2026-06-15T00:00:00.000Z") }),
+      snapshot({ hasPaymentInFlight: true }),
+      NOW,
+    );
+
+    expect(result.blocked).toContain("registrationEndAt");
+    expect(result.notify).not.toContain("registrationEndAt");
+  });
+
+  it("blocks a LATER deadline too, not only an earlier one", () => {
+    const result = classifyCompetitionEdit(
+      base({ registrationEndAt: new Date("2026-07-01T00:00:00.000Z") }),
+      base({ registrationEndAt: new Date("2026-09-01T00:00:00.000Z") }),
+      snapshot({ hasPaymentInFlight: true }),
+      NOW,
+    );
+
+    expect(result.blocked).toContain("registrationEndAt");
+  });
+
+  it("still only notifies when nothing is in flight", () => {
+    const result = classifyCompetitionEdit(
+      base({ registrationEndAt: new Date("2026-07-01T00:00:00.000Z") }),
+      base({ registrationEndAt: new Date("2026-06-15T00:00:00.000Z") }),
+      snapshot({ hasPaymentInFlight: false }),
+      NOW,
+    );
+
+    expect(result.notify).toContain("registrationEndAt");
+    expect(result.blocked).not.toContain("registrationEndAt");
+  });
+});
+

@@ -1,7 +1,13 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
-import { computePlatformFee, FeeComputationError, type FeeRuleTerms } from "@/lib/finance/fee";
+import {
+  computePlatformFee,
+  FeeComputationError,
+  findFeeRuleRejection,
+  FULL_TAKE_BASIS_POINTS,
+  type FeeRuleTerms,
+} from "@/lib/finance/fee";
 import {
   CURRENCY_EXPONENTS,
   isIso4217Code,
@@ -125,5 +131,39 @@ describe("computePlatformFee", () => {
     expect(() =>
       computePlatformFee(1_000, terms({ minimumFeeAmount: 900, maximumFeeAmount: 100 })),
     ).toThrow(FeeComputationError);
+  });
+});
+
+describe("findFeeRuleRejection — what an operator may not configure", () => {
+  it("refuses a 100% rate, which computes cleanly and leaves the institution nothing", () => {
+    // The point of the check. This does NOT throw in computePlatformFee — the clamp handles it and
+    // returns a coherent result — so without a refusal at configuration time it reaches production
+    // as a working rule that takes every rupiah of someone else's sale.
+    const full = terms({ basisPoints: FULL_TAKE_BASIS_POINTS });
+
+    expect(computePlatformFee(250_000, full).institutionNetAmount).toBe(0);
+    expect(() => computePlatformFee(250_000, full)).not.toThrow();
+    expect(findFeeRuleRejection(full)).toBe("fee_rule_takes_entire_payment");
+  });
+
+  it("accepts the highest rate that still leaves the institution something", () => {
+    const justUnder = terms({ basisPoints: FULL_TAKE_BASIS_POINTS - 1 });
+
+    expect(findFeeRuleRejection(justUnder)).toBeNull();
+    expect(computePlatformFee(1_000_000, justUnder).institutionNetAmount).toBeGreaterThan(0);
+  });
+
+  it("accepts ordinary commercial terms", () => {
+    expect(findFeeRuleRejection(terms({ basisPoints: 250, flatAmount: 5_000 }))).toBeNull();
+    expect(findFeeRuleRejection(terms())).toBeNull();
+  });
+
+  it("does not refuse a flat fee, whose zero-net case needs a minimum chargeable amount", () => {
+    // Documents the deliberate gap rather than leaving it implicit: a flat 5.000 fee takes the whole
+    // of a 5.000 payment, and no threshold exists yet to measure that against.
+    const flat = terms({ flatAmount: 5_000 });
+
+    expect(findFeeRuleRejection(flat)).toBeNull();
+    expect(computePlatformFee(5_000, flat).institutionNetAmount).toBe(0);
   });
 });

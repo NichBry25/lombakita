@@ -19,10 +19,18 @@ import {
 } from "drizzle-orm/pg-core";
 import { APP_ROLES, DEFAULT_APP_ROLE } from "@/lib/access/roles";
 import {
+  FEE_ACCRUAL_ENTRY_TYPES,
+  MANUAL_PAYMENT_PROOF_STATUSES,
   PAYMENT_EVENT_ACTOR_TYPES,
   PAYMENT_EVENT_TYPES,
+  PAYMENT_ORIGINS,
   PAYMENT_SUBJECT_TYPES,
 } from "@/lib/finance/payment-model";
+import {
+  DEFAULT_PAYMENT_WINDOW_DAYS,
+  MAX_PAYMENT_WINDOW_DAYS,
+  MIN_PAYMENT_WINDOW_DAYS,
+} from "@/lib/finance/payment-window";
 
 export const appRoleEnum = pgEnum("app_role", APP_ROLES);
 
@@ -849,8 +857,20 @@ export const competitions = pgTable(
     // (enforced by competitions_cancellation_policy_chk below).
     allowCancellation: boolean("allow_cancellation").notNull().default(false),
     cancellationCutoffDays: integer("cancellation_cutoff_days"),
-    feeAmount: numeric("fee_amount", { precision: 12, scale: 2 }),
+    // INTEGER SMALLEST UNIT, paired with fee_currency — the convention lives in
+    // @/lib/finance/money and nowhere else. IDR is exponent 0, so 50000 means Rp 50.000. This was
+    // a `numeric(12,2)` read as a string and coerced with Number.parseFloat, which is exactly the
+    // shape money.ts exists to forbid: a decimal column invites a float parse, and a float cannot
+    // represent money. NULL and 0 both mean free (see isPaidCompetition).
+    feeAmount: bigint("fee_amount", { mode: "number" }),
     feeCurrency: text("fee_currency"),
+    // How many days a candidate has to send a bukti transfer before the payment lapses. The
+    // resolved DEADLINE is snapshotted per payment (finance_payments.due_at) and is never
+    // recomputed from this column, so shortening the window cannot move a deadline someone has
+    // already been given. See @/lib/finance/payment-window.
+    paymentWindowDays: integer("payment_window_days")
+      .notNull()
+      .default(DEFAULT_PAYMENT_WINDOW_DAYS),
     // Descriptive, organizer-authored eligibility note. Display ONLY — never read to authorize any
     // action (open candidacy, DEC-0106). Registration remains open to every verified candidate.
     eligibilityNote: text("eligibility_note"),
@@ -871,6 +891,24 @@ export const competitions = pgTable(
     check(
       "competitions_fee_amount_non_negative_chk",
       sql`${table.feeAmount} IS NULL OR ${table.feeAmount} >= 0`,
+    ),
+    // A stored amount is meaningless without the currency that says what its integer counts, so a
+    // competition that charges anything must name one. Zero and NULL are exempt: a free
+    // competition has no price to denominate.
+    check(
+      "competitions_fee_currency_required_chk",
+      sql`${table.feeAmount} IS NULL OR ${table.feeAmount} = 0 OR ${table.feeCurrency} IS NOT NULL`,
+    ),
+    check(
+      "competitions_fee_currency_shape_chk",
+      sql`${table.feeCurrency} IS NULL OR ${table.feeCurrency} ~ '^[A-Z]{3}$'`,
+    ),
+    // sql.raw on the bounds is required, not stylistic: a bare `${MIN_PAYMENT_WINDOW_DAYS}` is
+    // interpolated as a BIND PARAMETER, and drizzle-kit emits the resulting `$1`/`$2` verbatim
+    // into the migration file, where it is not runnable SQL.
+    check(
+      "competitions_payment_window_days_chk",
+      sql`${table.paymentWindowDays} >= ${sql.raw(String(MIN_PAYMENT_WINDOW_DAYS))} AND ${table.paymentWindowDays} <= ${sql.raw(String(MAX_PAYMENT_WINDOW_DAYS))}`,
     ),
     // Cutoff is required (and non-negative) when cancellation is allowed; ignored otherwise.
     check(
@@ -1124,6 +1162,20 @@ export const competitionRegistrations = pgTable(
       "competition_registrations_type_team_id_chk",
       sql`(${table.registrationType} = 'team' AND ${table.teamId} IS NOT NULL) OR (${table.registrationType} = 'individual' AND ${table.teamId} IS NULL)`,
     ),
+    // A registration's team must belong to the SAME competition the registration does. The two
+    // single-column foreign keys above each hold on their own while the pair is nonsense — a row
+    // pointing at this competition and at a team from a different one satisfies both. That pairing
+    // is what the payment group is derived from, so a mismatched pair puts one competition's
+    // registrations into another competition's payment.
+    //
+    // MATCH SIMPLE (the default) is what makes this correct for individual registrations: with
+    // team_id NULL the constraint is satisfied without a referenced row, so nothing here forces a
+    // team onto a registration that has none.
+    foreignKey({
+      columns: [table.competitionId, table.teamId],
+      foreignColumns: [teams.competitionId, teams.id],
+      name: "competition_registrations_competition_team_fk",
+    }).onDelete("cascade"),
   ],
 );
 
@@ -1312,6 +1364,10 @@ export const teams = pgTable(
     uniqueIndex("teams_competition_id_name_unique_idx").on(table.competitionId, table.name),
     index("teams_competition_id_idx").on(table.competitionId),
     index("teams_captain_id_idx").on(table.captainId),
+    // Redundant on its own — `id` is already the primary key — and required by Postgres so that
+    // competition_registrations can carry a composite foreign key on (competition_id, team_id). A
+    // referenced column list must be backed by a unique constraint, so the pair needs its own.
+    uniqueIndex("teams_competition_id_id_unique_idx").on(table.competitionId, table.id),
   ],
 );
 
@@ -1702,6 +1758,18 @@ export const financePaymentEventActorEnum = pgEnum(
   PAYMENT_EVENT_ACTOR_TYPES,
 );
 
+export const financePaymentOriginEnum = pgEnum("finance_payment_origin", PAYMENT_ORIGINS);
+
+export const financeFeeAccrualEntryEnum = pgEnum(
+  "finance_fee_accrual_entry",
+  FEE_ACCRUAL_ENTRY_TYPES,
+);
+
+export const financeManualProofStatusEnum = pgEnum(
+  "finance_manual_proof_status",
+  MANUAL_PAYMENT_PROOF_STATUSES,
+);
+
 // Effective-dated platform fee rules. `institution_id` NULL is the global default; a non-null row
 // overrides it for that institution over its own effective window.
 //
@@ -1768,6 +1836,10 @@ export const financePayments = pgTable(
       .default(sql`gen_random_uuid()::text`),
     payerUserId: text("payer_user_id").notNull(),
     receivingInstitutionId: text("receiving_institution_id").notNull(),
+    // Which lane carried the money. NOT NULL with NO DEFAULT, deliberately: a default would let a
+    // future insert that forgot to declare its lane land silently as whichever value was chosen
+    // here, and the fee columns mean different things per lane. Every caller states it.
+    origin: financePaymentOriginEnum("origin").notNull(),
     subjectType: financePaymentSubjectEnum("subject_type").notNull(),
     // One nullable real foreign key per subject type. A new subject type adds its own column
     // here and widens the XOR CHECK below in the same migration.
@@ -1780,6 +1852,11 @@ export const financePayments = pgTable(
     feeFlatAmount: bigint("fee_flat_amount", { mode: "number" }).notNull(),
     platformFeeAmount: bigint("platform_fee_amount", { mode: "number" }).notNull(),
     institutionNetAmount: bigint("institution_net_amount", { mode: "number" }).notNull(),
+    // THE DEADLINE THIS PAYMENT WAS GIVEN, snapshotted at creation from the competition's window
+    // and never recomputed. Editing the window does not reach back — that is the entire reason
+    // this is a column rather than a join. Required on the manual lane (CHECK below) and null on
+    // the gateway lane, where the provider owns expiry.
+    dueAt: timestamp("due_at", { mode: "date", withTimezone: true }),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
@@ -1832,6 +1909,255 @@ export const financePayments = pgTable(
     check(
       "finance_payments_split_balance_chk",
       sql`${table.platformFeeAmount} + ${table.institutionNetAmount} = ${table.grossAmount}`,
+    ),
+    // THE MANUAL LANE SPLITS NOTHING. The fee columns on this table mean "what moved apart at
+    // transaction time"; on a manual transfer the payer sent the whole amount straight to the
+    // institution's own account, so the truthful record is a zero platform fee and a net equal to
+    // gross. The platform's fee on that payment is a SEPARATE debt, recorded in
+    // finance_fee_accruals. Without this CHECK the same columns would quietly carry two different
+    // meanings depending on origin, which is how a reconciliation ends up double-counting a fee.
+    check(
+      "finance_payments_manual_lane_no_split_chk",
+      sql`${table.origin} <> 'manual_transfer' OR (${table.platformFeeAmount} = 0 AND ${table.institutionNetAmount} = ${table.grossAmount})`,
+    ),
+    // A manual payment without a deadline never lapses, so an expiry sweep would step over it
+    // forever and the payment would sit pending indefinitely.
+    check(
+      "finance_payments_manual_due_at_chk",
+      sql`${table.origin} <> 'manual_transfer' OR ${table.dueAt} IS NOT NULL`,
+    ),
+  ],
+);
+
+// WHAT AN INSTITUTION OWES THE PLATFORM on a manual-lane payment. Append-only (DEC-0133): a
+// correction is a compensating `reversed` row, never an edit.
+//
+// THIS IS NOT A BALANCE TABLE AND MUST NOT BECOME ONE. DEC-0130 forbids the platform recording
+// what it HOLDS on someone else's behalf — money owed TO an institution, custodied by us. This
+// table records the OPPOSITE DIRECTION: a fee the institution owes US, on money it already
+// received directly and that never touched a platform-controlled account. The two are not
+// symmetric and collapsing them would be wrong in both directions.
+//
+// Concretely, so a later reader does not "clean this up":
+//   - Do NOT delete this table as a DEC-0130 violation. It is not one.
+//   - Do NOT generalise it into one by adding a column meaning "owed to the institution", a
+//     running balance, a settled/unsettled flag pair used as a wallet, or a netting column. A
+//     statement or an invoice is DERIVED by summing these rows; it is never stored here.
+//
+// One accrual per payment is a DATABASE guarantee (partial unique index on the `accrued` arm),
+// not a service read-then-write, because the write races: the platform idempotency arm mints a
+// fresh UUID per call by design, so two clicks produce two `succeeded` events. The fold tolerates
+// that; a doubled fee does not.
+export const financeFeeAccruals = pgTable(
+  "finance_fee_accruals",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    paymentId: text("payment_id").notNull(),
+    // Who owes it. Denormalised from the payment deliberately: this is the axis every statement
+    // groups by, and re-deriving it through a join would make the owing institution a property of
+    // a row that can be read without it.
+    owingInstitutionId: text("owing_institution_id").notNull(),
+    entryType: financeFeeAccrualEntryEnum("entry_type").notNull(),
+    currency: text("currency").notNull(),
+    // Signed. Positive on `accrued`, non-positive on `reversed` — a compensating row has no other
+    // way to express itself in a table with no update path.
+    amount: bigint("amount", { mode: "number" }).notNull(),
+    // --- the rule snapshot, mirroring finance_payments and never recomputed ---
+    // `fee_rule_id` records only WHICH rule priced this accrual. Every figure that matters is
+    // copied here, so editing a rule next month cannot restate what was accrued last month.
+    feeRuleId: text("fee_rule_id").notNull(),
+    feeBasisPoints: integer("fee_basis_points").notNull(),
+    feeFlatAmount: bigint("fee_flat_amount", { mode: "number" }).notNull(),
+    // The gross the fee was computed against, so a row is auditable without reading the payment.
+    grossAmount: bigint("gross_amount", { mode: "number" }).notNull(),
+    // Mandatory on `reversed` (CHECK below): a fee walked back without a stated why is the one
+    // thing an auditor cannot reconstruct later.
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.paymentId],
+      foreignColumns: [financePayments.id],
+      name: "finance_fee_accruals_payment_id_fk",
+    }),
+    foreignKey({
+      columns: [table.owingInstitutionId],
+      foreignColumns: [institutions.id],
+      name: "finance_fee_accruals_owing_institution_id_fk",
+    }),
+    foreignKey({
+      columns: [table.feeRuleId],
+      foreignColumns: [financeFeeRules.id],
+      name: "finance_fee_accruals_fee_rule_id_fk",
+    }),
+    // EXACTLY ONE accrual per payment, enforced by Postgres rather than by a service that reads
+    // first and writes second.
+    uniqueIndex("finance_fee_accruals_payment_accrued_unique_idx")
+      .on(table.paymentId)
+      .where(sql`${table.entryType} = 'accrued'`),
+    // EXACTLY ONE reversal per payment, for a reason that is about direction rather than tidiness.
+    // A reversal negates the accrued amount exactly, so with both arms capped at one row the signed
+    // SUM of a payment's rows can only be the fee or zero. Leaving this arm unbounded lets repeated
+    // reversals drive that sum NEGATIVE, and a negative total reads as the platform owing the
+    // institution money — the custody direction DEC-0130 forbids the platform to be in at all.
+    //
+    // The cost is real and accepted: a fee is now charge-once, reverse-once, terminal. Correcting a
+    // reversal is not expressible and would need a decision about what a second correction means
+    // before it could be, which is a better place to be than a table that can silently go negative.
+    uniqueIndex("finance_fee_accruals_payment_reversed_unique_idx")
+      .on(table.paymentId)
+      .where(sql`${table.entryType} = 'reversed'`),
+    index("finance_fee_accruals_owing_institution_id_idx").on(table.owingInstitutionId),
+    check("finance_fee_accruals_currency_chk", sql`${table.currency} ~ '^[A-Z]{3}$'`),
+    check(
+      "finance_fee_accruals_amount_sign_chk",
+      sql`(${table.entryType} = 'accrued' AND ${table.amount} >= 0) OR (${table.entryType} = 'reversed' AND ${table.amount} <= 0)`,
+    ),
+    check(
+      "finance_fee_accruals_reason_required_chk",
+      sql`${table.entryType} <> 'reversed' OR (${table.reason} IS NOT NULL AND btrim(${table.reason}) <> '')`,
+    ),
+    check(
+      "finance_fee_accruals_fee_snapshot_chk",
+      sql`${table.feeBasisPoints} >= 0 AND ${table.feeBasisPoints} <= 10000 AND ${table.feeFlatAmount} >= 0 AND ${table.grossAmount} >= 0`,
+    ),
+  ],
+);
+
+// The bukti transfer: a candidate's evidence that they sent the money, and the organiser's review
+// of it. ONE row per payment, reopened in place through the DEC-0115 revision loop rather than
+// stacked as new rows, so `rejection_reason` survives the reopen and the reviewer of attempt two
+// can read what attempt one was refused for.
+//
+// NOT part of the append-only ledger, and deliberately so. This row carries a REVIEW STATUS that
+// transitions (pending_review → verified / rejected → pending_review …); the money facts live in
+// finance_payments and finance_payment_events, which do not move. Its status changes are the one
+// mutation in the finance domain, made through an optimistic CAS on the status column.
+//
+// RETENTION: a bukti transfer is FINANCIAL EVIDENCE AND IS NEVER PURGED, at any age. The
+// competition-scoped retention sweep must never reach it — see the assertion in
+// finance-retention-exclusion.test.ts, which fails if the sweep's purge surface ever names this
+// table or its object prefix.
+export const financeManualPaymentProofs = pgTable(
+  "finance_manual_payment_proofs",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    paymentId: text("payment_id").notNull(),
+    // Scope carried on the row so every organiser-side read filters in the query rather than
+    // trusting the caller to filter afterwards.
+    competitionId: text("competition_id").notNull(),
+    submittedByUserId: text("submitted_by_user_id").notNull(),
+    status: financeManualProofStatusEnum("status").notNull().default("pending_review"),
+    // --- file metadata, the DEC-0125/0126 hardened shape ---
+    r2Key: text("r2_key").notNull(),
+    originalFileName: text("original_file_name").notNull(),
+    fileSizeBytes: bigint("file_size_bytes", { mode: "number" }).notNull(),
+    contentType: text("content_type").notNull(),
+    reviewerUserId: text("reviewer_user_id"),
+    // Retained across a reopen, never cleared on resubmission.
+    rejectionReason: text("rejection_reason"),
+    // Whether the candidate may resubmit after a rejection. ORGANISER-CONTROLLED, default allowed,
+    // and enforced in the reopen CAS rather than by hiding a control — a bar that only exists in
+    // the UI is not a bar.
+    resubmissionAllowed: boolean("resubmission_allowed").notNull().default(true),
+    resubmissionCount: integer("resubmission_count").notNull().default(0),
+    submittedAt: timestamp("submitted_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    reviewedAt: timestamp("reviewed_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.paymentId],
+      foreignColumns: [financePayments.id],
+      name: "finance_manual_payment_proofs_payment_id_fk",
+    }),
+    foreignKey({
+      columns: [table.competitionId],
+      foreignColumns: [competitions.id],
+      name: "finance_manual_payment_proofs_competition_id_fk",
+    }),
+    foreignKey({
+      columns: [table.submittedByUserId],
+      foreignColumns: [users.id],
+      name: "finance_manual_payment_proofs_submitted_by_user_id_fk",
+    }),
+    foreignKey({
+      columns: [table.reviewerUserId],
+      foreignColumns: [users.id],
+      name: "finance_manual_payment_proofs_reviewer_user_id_fk",
+    }),
+    // One proof per payment. The revision loop reopens THIS row; it never inserts a second.
+    uniqueIndex("finance_manual_payment_proofs_payment_unique_idx").on(table.paymentId),
+    // Serves the payment-in-flight predicate and the organiser review queue in one shape.
+    index("finance_manual_payment_proofs_competition_status_idx").on(
+      table.competitionId,
+      table.status,
+    ),
+    check(
+      "finance_manual_payment_proofs_rejection_reason_chk",
+      sql`${table.status} <> 'rejected' OR (${table.rejectionReason} IS NOT NULL AND btrim(${table.rejectionReason}) <> '')`,
+    ),
+    check(
+      "finance_manual_payment_proofs_reviewed_chk",
+      sql`${table.status} IN ('pending_review') OR ${table.reviewedAt} IS NOT NULL`,
+    ),
+    check("finance_manual_payment_proofs_file_size_chk", sql`${table.fileSizeBytes} > 0`),
+    check(
+      "finance_manual_payment_proofs_resubmission_count_chk",
+      sql`${table.resubmissionCount} >= 0`,
+    ),
+  ],
+);
+
+// Where an institution wants to be paid on the manual lane. INSTITUTION-LEVEL and reused across
+// every competition it runs — there is deliberately no per-competition override, because an
+// organiser maintaining N copies of one bank account is how a stale account number ends up
+// collecting nobody's money.
+//
+// The platform never holds these funds (DEC-0130); this is the institution's own account, shown
+// to a payer so they can transfer to it directly.
+export const institutionPaymentInstructions = pgTable(
+  "institution_payment_instructions",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    institutionId: text("institution_id").notNull(),
+    bankName: text("bank_name"),
+    accountNumber: text("account_number"),
+    accountHolderName: text("account_holder_name"),
+    // R2 key of an uploaded QRIS image, when the institution offers one.
+    qrisR2Key: text("qris_r2_key"),
+    // Free-text notes shown alongside the account details ("cantumkan nama tim di berita acara").
+    instructionsNote: text("instructions_note"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    // Named explicitly for the same reason the finance foreign keys are: Drizzle's generated name
+    // concatenates both table names and lands at 66 characters here, which Postgres truncates
+    // silently at 63 — leaving the live constraint name permanently different from the one this
+    // file appears to declare.
+    foreignKey({
+      columns: [table.institutionId],
+      foreignColumns: [institutions.id],
+      name: "institution_payment_instructions_institution_id_fk",
+    }).onDelete("cascade"),
+    uniqueIndex("institution_payment_instructions_institution_unique_idx").on(table.institutionId),
+    // A row that names neither a bank account nor a QRIS tells a payer nothing, so it must not
+    // exist — an institution with no instructions has no row, which is a state the reader already
+    // handles. A bank account needs all three parts to be usable.
+    check(
+      "institution_payment_instructions_payable_chk",
+      sql`${table.qrisR2Key} IS NOT NULL OR (${table.bankName} IS NOT NULL AND ${table.accountNumber} IS NOT NULL AND ${table.accountHolderName} IS NOT NULL)`,
     ),
   ],
 );
@@ -1905,6 +2231,10 @@ export const financePaymentEvents = pgTable(
 export type FinanceFeeRuleRecord = typeof financeFeeRules.$inferSelect;
 export type FinancePaymentRecord = typeof financePayments.$inferSelect;
 export type FinancePaymentEventRecord = typeof financePaymentEvents.$inferSelect;
+export type FinanceFeeAccrualRecord = typeof financeFeeAccruals.$inferSelect;
+export type FinanceManualPaymentProofRecord = typeof financeManualPaymentProofs.$inferSelect;
+export type InstitutionPaymentInstructionsRecord =
+  typeof institutionPaymentInstructions.$inferSelect;
 
 // ---------------------------------------------------------------------------------------------
 // Platform-ops MFA. One verified TOTP factor per account and its ten

@@ -29,7 +29,7 @@ type CompetitionRow = {
   cancelledAt: Date | null;
   allowCancellation: boolean;
   cancellationCutoffDays: number | null;
-  feeAmount: string | null;
+  feeAmount: number | null;
 };
 
 type RegistrationRow = {
@@ -455,7 +455,7 @@ describe("cancelRegistration enforcement chain", () => {
       [reg],
       [
         baseCompetition({
-          feeAmount: "50000",
+          feeAmount: 50_000,
           allowCancellation: true,
           cancellationCutoffDays: 0,
           eventStartAt: FUTURE,

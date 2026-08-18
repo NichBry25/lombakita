@@ -25,6 +25,13 @@
  * `payment_event_idempotency_key_conflict` rather than being handed the other payment's row. This
  * is 7.1's mis-scoped-readback defect, re-proven at the interleaving that makes it reachable.
  *
+ * LOCAL DATABASES ONLY. This script seeds users, institutions, competitions, registrations, fee
+ * rules and payments, and `DATABASE_URL` is checked against a loopback host before the pool opens.
+ * The rows it writes are financial ones, `finance_payments` has no application delete path to remove
+ * them with, and residue on a shared database is indistinguishable from real ledger data by
+ * inspection. Fixtures are swept on exit and on SIGINT/SIGTERM, and the sweep asserts its own
+ * post-condition rather than trusting that its DELETEs ran.
+ *
  * Usage: node --import tsx scripts/concurrency/finance-idempotency-races.ts
  *   PROVE_GUARD_REMOVAL=1  drops the unique index, re-runs race 1 (whose invariant must then
  *                          collapse), and ALWAYS restores the index — deleting the rows the probe
@@ -36,10 +43,13 @@
 
 import { randomUUID } from "crypto";
 import {
+  assertLocalDatabase,
   assertReadCommitted,
   createChecker,
+  databaseUrl,
   describeOutcome,
   finish,
+  isLocalDatabaseHost,
   oneRow,
   openPool,
   resolveIterations,
@@ -65,6 +75,14 @@ const BARRIER_WAIT_TIMEOUT_MS = 5000;
 const BARRIER_POLL_INTERVAL_MS = 25;
 
 const main = async (): Promise<void> => {
+  // BEFORE the pool opens, because the refusal must precede the first INSERT rather than follow it.
+  // This script seeds users, institutions, competitions, registrations, fee rules and payments; the
+  // rows it leaves behind on a shared database are indistinguishable from real ledger data by
+  // inspection, and `finance_payments` has no delete path in the application to remove them with.
+  // The guard-removal probe below has always been host-restricted. The main path was not, which left
+  // "a non-empty deployed finance table" with two explanations instead of one.
+  assertLocalDatabase(databaseUrl, "finance-idempotency-races");
+
   const { client, db } = await openPool();
   await assertReadCommitted(client);
 
@@ -75,6 +93,9 @@ const main = async (): Promise<void> => {
   const { check, failureCount } = createChecker();
   const createdUserIds: string[] = [];
   const createdInstitutionIds: string[] = [];
+  // Both the exit path and the signal handler can reach `removeFixtures`; this makes the second
+  // caller a no-op rather than a second pass of DELETEs against already-empty tables.
+  let fixturesRemovalAttempted = false;
 
   /**
    * Confirms `finance_payment_events` still carries its replay guard, in the shape migration 0056
@@ -87,8 +108,8 @@ const main = async (): Promise<void> => {
    * silently removed a uniqueness guarantee from a financial table is the worst outcome available
    * here. It has already happened once.
    *
-   * What it cannot cover: a signal that kills the process outright. Nothing running in-process can.
-   * That residual is why the probe refuses any host but a local one.
+   * What it cannot cover: SIGKILL, which no in-process handler can. SIGINT and SIGTERM are handled.
+   * That residual is why the script refuses any host but a local one.
    */
   const assertIdempotencyGuardIntact = async (): Promise<void> => {
     const rows = await client<{ indexdef: string }[]>`
@@ -101,6 +122,145 @@ const main = async (): Promise<void> => {
         (found === IDEMPOTENCY_INDEX_DEFINITION ? "" : ` — found: ${found}`),
     );
   };
+
+  // ---- fixture teardown ---------------------------------------------------
+
+  /**
+   * Deletes every row this run seeded, child-first.
+   *
+   * A failed DELETE does not abort the sweep. One institution whose competitions picked up an
+   * unexpected child row would otherwise strand every institution after it in the loop, turning one
+   * stuck fixture into a full run's worth of residue. Failures are recorded and reported; whether
+   * the sweep actually worked is decided by `assertFixturesRemoved`, not by this function returning.
+   *
+   * Idempotent, because the signal handler and the `finally` can both reach it.
+   */
+  const removeFixtures = async (): Promise<void> => {
+    if (fixturesRemovalAttempted) {
+      return;
+    }
+    fixturesRemovalAttempted = true;
+
+    const failures: string[] = [];
+
+    const attempt = async (label: string, run: () => Promise<unknown>): Promise<void> => {
+      try {
+        await run();
+      } catch (error) {
+        failures.push(`${label}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+
+    // Ordered child-first; finance_payments has no ON DELETE action, matching the house convention
+    // of FKs with no cascade plus service-layer discipline.
+    for (const userId of createdUserIds) {
+      await attempt(
+        `payment events for user ${userId}`,
+        () => client`DELETE FROM finance_payment_events WHERE actor_user_id = ${userId}`,
+      );
+    }
+
+    for (const institutionId of createdInstitutionIds) {
+      await attempt(
+        `payment events for institution ${institutionId}`,
+        () => client`
+          DELETE FROM finance_payment_events
+          WHERE payment_id IN (SELECT id FROM finance_payments WHERE receiving_institution_id = ${institutionId})
+        `,
+      );
+      await attempt(
+        `payments for institution ${institutionId}`,
+        () => client`DELETE FROM finance_payments WHERE receiving_institution_id = ${institutionId}`,
+      );
+      await attempt(
+        `fee rules for institution ${institutionId}`,
+        () => client`DELETE FROM finance_fee_rules WHERE institution_id = ${institutionId}`,
+      );
+      await attempt(
+        `registrations for institution ${institutionId}`,
+        () => client`
+          DELETE FROM competition_registrations
+          WHERE competition_id IN (SELECT id FROM competitions WHERE institution_id = ${institutionId})
+        `,
+      );
+      await attempt(
+        `competitions for institution ${institutionId}`,
+        () => client`DELETE FROM competitions WHERE institution_id = ${institutionId}`,
+      );
+      await attempt(
+        `institution ${institutionId}`,
+        () => client`DELETE FROM institutions WHERE id = ${institutionId}`,
+      );
+    }
+
+    for (const userId of createdUserIds) {
+      await attempt(`user ${userId}`, () => client`DELETE FROM users WHERE id = ${userId}`);
+    }
+
+    for (const failure of failures) {
+      console.log(`  CLEANUP ERROR  ${failure}`);
+    }
+  };
+
+  /**
+   * Post-condition: the fixtures this run seeded are actually gone.
+   *
+   * A probe that creates financial rows owes the same guarantee as one that drops a constraint —
+   * "I ran the DELETE statements" is not evidence, for the same reason "I ran the CREATE INDEX" was
+   * not. This counts what survived and fails the run if anything did, which is how the 21 payments
+   * and 21 fee rules left on the local database would have announced themselves at the time instead
+   * of being found by a later step's verification gate.
+   */
+  const assertFixturesRemoved = async (): Promise<void> => {
+    if (createdUserIds.length === 0 && createdInstitutionIds.length === 0) {
+      return;
+    }
+
+    const [survivors] = await client<
+      { payments: number; events: number; fee_rules: number; users: number; institutions: number }[]
+    >`
+      SELECT
+        (SELECT count(*) FROM finance_payments WHERE receiving_institution_id = ANY(${createdInstitutionIds}))::int AS payments,
+        (SELECT count(*) FROM finance_payment_events WHERE actor_user_id = ANY(${createdUserIds}))::int AS events,
+        (SELECT count(*) FROM finance_fee_rules WHERE institution_id = ANY(${createdInstitutionIds}))::int AS fee_rules,
+        (SELECT count(*) FROM users WHERE id = ANY(${createdUserIds}))::int AS users,
+        (SELECT count(*) FROM institutions WHERE id = ANY(${createdInstitutionIds}))::int AS institutions
+    `;
+
+    const total =
+      (survivors?.payments ?? 0) +
+      (survivors?.events ?? 0) +
+      (survivors?.fee_rules ?? 0) +
+      (survivors?.users ?? 0) +
+      (survivors?.institutions ?? 0);
+
+    check(
+      total === 0,
+      "every fixture row this run seeded is removed on exit" +
+        (total === 0
+          ? ""
+          : ` — ${total} survived (payments ${survivors?.payments}, events ${survivors?.events}, ` +
+            `fee rules ${survivors?.fee_rules}, users ${survivors?.users}, ` +
+            `institutions ${survivors?.institutions})`),
+    );
+  };
+
+  // Ctrl-C is the residue's most likely cause: `finally` does not run on a signal, so an interrupted
+  // run leaves its full fixture set behind. SIGINT and SIGTERM are catchable and handled here.
+  // SIGKILL still cannot be, which is the residual the host restriction covers.
+  const handleSignal = (signal: NodeJS.Signals, exitCode: number): void => {
+    process.once(signal, () => {
+      console.log(`\n${signal} received — removing fixtures before exit`);
+      void removeFixtures()
+        .catch((error) => console.error("cleanup after signal failed:", error))
+        .finally(() => {
+          void client.end().finally(() => process.exit(exitCode));
+        });
+    });
+  };
+
+  handleSignal("SIGINT", 130);
+  handleSignal("SIGTERM", 143);
 
   // ---- seeding ------------------------------------------------------------
 
@@ -506,10 +666,11 @@ const main = async (): Promise<void> => {
     // duplicate-accepting with nothing reporting it. Two variables pointed at a shared or deployed
     // database is a plausible mistake — a pasted connection string, an exported shell — so the host
     // is checked rather than trusted.
-    const host = new URL(migrationUrl).hostname;
-    const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "::1";
-
-    if (!isLocalHost) {
+    //
+    // `MIGRATION_DATABASE_URL` is checked separately from the app URL asserted in `main`: they are
+    // different roles and nothing requires them to name the same host.
+    if (!isLocalDatabaseHost(migrationUrl)) {
+      const host = new URL(migrationUrl).hostname;
       check(
         false,
         `guard-removal probe refuses to run against host "${host}" — it drops a uniqueness guard ` +
@@ -578,33 +739,17 @@ const main = async (): Promise<void> => {
       await proveGuardRemoval();
     }
   } finally {
-    // Before anything else, and whether the run passed or threw: the table this script writes to
-    // must still have its replay guard.
-    await assertIdempotencyGuardIntact();
-
-    // Ordered child-first; finance_payments has no ON DELETE action, matching the house convention
-    // of FKs with no cascade plus service-layer discipline.
-    for (const userId of createdUserIds) {
-      await client`DELETE FROM finance_payment_events WHERE actor_user_id = ${userId}`;
+    // The guard assertion USED to be the first statement in this block, ahead of every DELETE. It
+    // issues a query, so a broken pool made it throw and took the whole cleanup down with it — the
+    // fixtures then survived the run with nothing saying so. Removal is attempted first now, and the
+    // guard assertion runs after, where its own failure can no longer suppress it.
+    try {
+      await removeFixtures();
+    } finally {
+      await assertIdempotencyGuardIntact();
+      await assertFixturesRemoved();
+      await client.end();
     }
-    for (const institutionId of createdInstitutionIds) {
-      await client`
-        DELETE FROM finance_payment_events
-        WHERE payment_id IN (SELECT id FROM finance_payments WHERE receiving_institution_id = ${institutionId})
-      `;
-      await client`DELETE FROM finance_payments WHERE receiving_institution_id = ${institutionId}`;
-      await client`DELETE FROM finance_fee_rules WHERE institution_id = ${institutionId}`;
-      await client`
-        DELETE FROM competition_registrations
-        WHERE competition_id IN (SELECT id FROM competitions WHERE institution_id = ${institutionId})
-      `;
-      await client`DELETE FROM competitions WHERE institution_id = ${institutionId}`;
-      await client`DELETE FROM institutions WHERE id = ${institutionId}`;
-    }
-    for (const userId of createdUserIds) {
-      await client`DELETE FROM users WHERE id = ${userId}`;
-    }
-    await client.end();
   }
 
   finish(failureCount(), "FINANCE IDEMPOTENCY");

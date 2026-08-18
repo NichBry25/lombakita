@@ -73,8 +73,19 @@ export type PaymentGateway = "xendit";
  */
 export type PlatformPaymentAction = Extract<PaymentEventType, "refunded" | "corrected">;
 
+/**
+ * The manual-lane actions a human organiser can originate by reviewing a bukti transfer.
+ *
+ * `succeeded` is on THIS arm rather than the gateway one, and that is not a technicality: on the
+ * manual lane nobody's API observed the money. An organiser looked at a transfer receipt and said
+ * yes, so there is no provider event id to derive a key from — but the event still needs to
+ * collapse on replay, which the platform arm's random UUID cannot do.
+ */
+export type ManualPaymentAction = Extract<PaymentEventType, "succeeded" | "expired">;
+
 export const GATEWAY_KEY_PREFIX = "gw";
 export const PLATFORM_KEY_PREFIX = "pf";
+export const MANUAL_KEY_PREFIX = "mn";
 
 // The alphabet already accepted by `sanitizeIdempotencyKey` for BullMQ job ids. Reused rather than
 // invented so one idea keeps one shape across the codebase; `:` is the separator in both.
@@ -157,7 +168,36 @@ export const mintPlatformPaymentEventKey = (params: {
 };
 
 /**
- * Whether a key was minted by one of the two functions above.
+ * Mints the key for an event a human organiser originated by reviewing a bukti transfer.
+ * DETERMINISTIC, like the gateway arm and unlike the platform arm.
+ *
+ * Determinism is correct here for a reason the platform arm's header spells out in the negative.
+ * Two operator refunds are two INTENTS and no key can tell them apart, so that arm must randomise.
+ * A proof verification is the opposite: the proof row leaves `pending_review` exactly once per
+ * revision (the CAS enforces it), so a repeated verification of the same attempt is genuinely the
+ * same event and must collapse rather than record a second `succeeded`.
+ *
+ * `attempt` is the proof's `resubmission_count`, and it is load-bearing. Without it a proof that was
+ * rejected, resubmitted and then verified would mint the key its FIRST attempt already used, and the
+ * real verification would be swallowed as a replay of a verification that never happened.
+ */
+export const mintManualPaymentEventKey = (params: {
+  action: ManualPaymentAction;
+  proofId: string;
+  attempt: number;
+}): string => {
+  const action = assertSegment(params.action, "action");
+  const proofId = assertSegment(params.proofId, "proofId");
+
+  if (!Number.isInteger(params.attempt) || params.attempt < 0) {
+    throw new PaymentIdempotencyKeyError("attempt");
+  }
+
+  return `${MANUAL_KEY_PREFIX}:${action}:${proofId}:${params.attempt}`;
+};
+
+/**
+ * Whether a key was minted by one of the three functions above.
  *
  * `appendPaymentEvent` calls this, so the convention is ENFORCED rather than merely documented — a
  * convention that lives only in a comment is one a caller can violate with nothing failing. The
@@ -173,6 +213,10 @@ export const isPaymentEventIdempotencyKey = (value: string): boolean => {
   }
 
   if (segments[0] === PLATFORM_KEY_PREFIX) {
+    return segments.length === 4 && segments.slice(1).every((s) => KEY_SEGMENT_PATTERN.test(s));
+  }
+
+  if (segments[0] === MANUAL_KEY_PREFIX) {
     return segments.length === 4 && segments.slice(1).every((s) => KEY_SEGMENT_PATTERN.test(s));
   }
 

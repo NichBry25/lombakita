@@ -17,7 +17,9 @@ import {
   SIGNED_AMOUNT_EVENT_TYPES,
   type PaymentEventActorType,
   type PaymentEventType,
+  type PaymentOrigin,
 } from "@/lib/finance/payment-model";
+import { assertInstitutionVerified } from "@/server/competitions/competition-access";
 import {
   comparePaymentEvents,
   foldPaymentEvents,
@@ -43,6 +45,8 @@ const ACTOR_CONSTRAINT = "finance_payment_events_actor_user_id_fk";
 export type PaymentErrorCode =
   | "payment_currency_unsupported"
   | "payment_gross_amount_invalid"
+  | "payment_due_at_required"
+  | "payment_due_at_not_applicable"
   | "payment_fee_rule_not_found"
   | "payment_fee_rule_currency_mismatch"
   | "payment_not_found"
@@ -142,6 +146,15 @@ export type CreatePaymentInput = {
   // The instant the fee rule is resolved against. Explicit so a caller replaying a historical
   // payment prices it under the rule that was in force THEN.
   pricedAt: Date;
+  // Which lane carries the money. Required, with no default, because the fee columns below mean
+  // different things per lane and a caller that has not thought about which one it is on is a
+  // caller that should not be recording a payment.
+  origin: PaymentOrigin;
+  // The deadline this payment is being given, already resolved by the caller through
+  // `resolvePaymentDueAt` (which clamps it to registration close). Required on the manual lane and
+  // rejected on the gateway lane, where the provider owns expiry. SNAPSHOTTED: nothing recomputes
+  // it, so editing the competition's window never moves a deadline already handed out.
+  dueAt?: Date | null;
 };
 
 /**
@@ -171,6 +184,36 @@ export const createPayment = async (
     );
   }
 
+  const dueAt = input.dueAt ?? null;
+
+  if (input.origin === "manual_transfer" && dueAt === null) {
+    throw new PaymentError(
+      "payment_due_at_required",
+      "A manual-transfer payment must carry the deadline it was given — resolve it with resolvePaymentDueAt",
+    );
+  }
+
+  if (input.origin !== "manual_transfer" && dueAt !== null) {
+    // The gateway owns expiry on its own lane. A second deadline recorded here would be one nothing
+    // enforces, sitting next to the one that is actually binding.
+    throw new PaymentError(
+      "payment_due_at_not_applicable",
+      "Only a manual-transfer payment carries a due date — the gateway owns expiry on its lane",
+    );
+  }
+
+  // THE CHARGING GATE, fail-closed backstop (DEC-0158). This is the LAST place money can be
+  // refused, and it is deliberately here rather than only at the surfaces that lead here: a future
+  // checkout flow, a webhook, or a script that reaches createPayment without passing the earlier
+  // gates still cannot charge on behalf of an unverified institution.
+  //
+  // Gated on a PRICED payment, not on every payment. `finance_payments` accepts gross = 0 for a
+  // free registration, and refusing those would make an unverified institution unable to run the
+  // free competitions DEC-0158 explicitly permits it to run.
+  if (input.grossAmount > 0) {
+    await assertInstitutionVerified(input.receivingInstitutionId, db);
+  }
+
   const rule = await resolveFeeRule(input.receivingInstitutionId, input.pricedAt, db);
 
   if (!rule) {
@@ -191,6 +234,16 @@ export const createPayment = async (
 
   const fee = computePlatformFee(input.grossAmount, terms);
 
+  // THE MANUAL LANE SPLITS NOTHING. The payer transferred the whole amount into the institution's
+  // own account, so the truthful record is fee 0 / net = gross; the platform's fee on this payment
+  // is a separate debt recorded in `finance_fee_accruals` once the transfer is verified. The
+  // computed `fee` above is still what prices that accrual — it is not discarded, it is just not
+  // what this row describes. A database CHECK enforces the same rule, so a future caller that
+  // writes the split directly is refused rather than quietly recording a fee that never moved.
+  const isManualLane = input.origin === "manual_transfer";
+  const platformFeeAmount = isManualLane ? 0 : fee.platformFeeAmount;
+  const institutionNetAmount = isManualLane ? fee.grossAmount : fee.institutionNetAmount;
+
   let payment: FinancePaymentRecord | undefined;
 
   try {
@@ -202,12 +255,14 @@ export const createPayment = async (
         subjectType: input.subject.type,
         competitionRegistrationId: input.subject.competitionRegistrationId,
         currency: input.currency,
+        origin: input.origin,
         grossAmount: fee.grossAmount,
         feeRuleId: rule.id,
         feeBasisPoints: fee.feeBasisPoints,
         feeFlatAmount: fee.feeFlatAmount,
-        platformFeeAmount: fee.platformFeeAmount,
-        institutionNetAmount: fee.institutionNetAmount,
+        platformFeeAmount,
+        institutionNetAmount,
+        dueAt: dueAt,
       })
       .returning();
   } catch (error) {

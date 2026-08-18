@@ -30,6 +30,7 @@ const makeDetail = (overrides = {}) => ({
   participantEntryCount: 0,
   participationState: "not_configured" as const,
   feeAmount: null,
+  feeCurrency: null,
   eligibilityNote: null,
   tags: [],
   publishedAt: new Date("2026-05-01"),

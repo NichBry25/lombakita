@@ -32,6 +32,12 @@ const ADMIN_LINKS = [
     description: "Kurasi urutan kompetisi yang ditonjolkan ke publik.",
     icon: "trophy" as const,
   },
+  {
+    href: "/admin/fee-rules",
+    label: "Aturan biaya platform",
+    description: "Tetapkan tarif komisi yang berlaku sejak tanggal tertentu.",
+    icon: "settings" as const,
+  },
 ];
 
 export default function AdminHubPage() {

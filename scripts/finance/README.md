@@ -53,4 +53,26 @@ gets nothing.
 - **Timestamps in the hand-written seed SQL go in as ISO strings.** Drizzle binds a JS `Date`; the
   raw `postgres.js` client used for seeding does not, and fails with an opaque
   `ERR_INVALID_ARG_TYPE` naming `Buffer.byteLength` rather than the column.
-- Do **not** point this at preview or production. It writes rows and mutates a fee rule.
+- **Local databases only, and this is enforced rather than requested.** `DATABASE_URL` is checked
+  against a loopback host before the pool opens; a deployed host is refused with exit 1 and no
+  connection is made. The script writes payments and commits a fee-rule rate change, so this is a
+  control rather than a note.
+
+## Clearing local finance residue
+
+`clear-local-finance-residue.ts` empties the finance tables on a local database, and optionally the
+fixture users, institutions, competitions and registrations the concurrency harness mints.
+
+```bash
+node --import tsx scripts/finance/clear-local-finance-residue.ts          # reports, deletes nothing
+node --import tsx scripts/finance/clear-local-finance-residue.ts --apply  # deletes
+```
+
+It exists because a migration that adds a NOT NULL column with no default needs `finance_payments`
+empty, and a development database accumulates rows from the scripts above whose teardown a Ctrl-C
+skips. It is an **operator** script: DEC-0133's append-only guarantee forbids an application delete
+path for ledger rows, which is enforced by the append-only scan across `src/**`. Nothing in
+`scripts/` is reachable from the app, and nothing here changes that.
+
+Host-restricted on the same control as the scripts above, deletes children-first, and asserts the
+tables are actually empty on exit rather than trusting that its DELETEs ran.

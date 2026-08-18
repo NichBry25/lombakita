@@ -12,7 +12,9 @@ vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn(
 import {
   isPaymentEventIdempotencyKey,
   mintGatewayPaymentEventKey,
+  mintManualPaymentEventKey,
   mintPlatformPaymentEventKey,
+  PaymentIdempotencyKeyError,
 } from "./idempotency-key";
 
 describe("mintGatewayPaymentEventKey", () => {
@@ -160,3 +162,66 @@ describe("isPaymentEventIdempotencyKey", () => {
     expect(isPaymentEventIdempotencyKey("")).toBe(false);
   });
 });
+
+describe("mintManualPaymentEventKey", () => {
+  it("is DETERMINISTIC for one attempt at one proof — a repeated verify collapses", () => {
+    // The opposite of the platform arm, and correctly so. A proof leaves pending_review exactly
+    // once per revision (the CAS enforces it), so a repeated verification of the same attempt IS
+    // the same event and must not record a second `succeeded`.
+    const first = mintManualPaymentEventKey({ action: "succeeded", proofId: "proof_1", attempt: 0 });
+    const second = mintManualPaymentEventKey({
+      action: "succeeded",
+      proofId: "proof_1",
+      attempt: 0,
+    });
+
+    expect(first).toBe(second);
+    expect(first).toBe("mn:succeeded:proof_1:0");
+  });
+
+  it("mints a DIFFERENT key for a later attempt on the same proof", () => {
+    // Without the attempt segment, a proof that was rejected, resubmitted and then verified would
+    // mint the key its first attempt already used, and the real verification would be swallowed as
+    // a replay of a verification that never happened.
+    const first = mintManualPaymentEventKey({ action: "succeeded", proofId: "proof_1", attempt: 0 });
+    const second = mintManualPaymentEventKey({
+      action: "succeeded",
+      proofId: "proof_1",
+      attempt: 1,
+    });
+
+    expect(first).not.toBe(second);
+  });
+
+  it("separates proofs and actions", () => {
+    const a = mintManualPaymentEventKey({ action: "succeeded", proofId: "proof_1", attempt: 0 });
+    const b = mintManualPaymentEventKey({ action: "succeeded", proofId: "proof_2", attempt: 0 });
+    const c = mintManualPaymentEventKey({ action: "expired", proofId: "proof_1", attempt: 0 });
+
+    expect(new Set([a, b, c]).size).toBe(3);
+  });
+
+  it("refuses a negative or fractional attempt", () => {
+    expect(() =>
+      mintManualPaymentEventKey({ action: "succeeded", proofId: "proof_1", attempt: -1 }),
+    ).toThrow(PaymentIdempotencyKeyError);
+    expect(() =>
+      mintManualPaymentEventKey({ action: "succeeded", proofId: "proof_1", attempt: 1.5 }),
+    ).toThrow(PaymentIdempotencyKeyError);
+  });
+
+  it("refuses a proof id carrying the separator, which would shift every field right", () => {
+    expect(() =>
+      mintManualPaymentEventKey({ action: "succeeded", proofId: "proof:1", attempt: 0 }),
+    ).toThrow(PaymentIdempotencyKeyError);
+  });
+
+  it("produces a key appendPaymentEvent will accept", () => {
+    expect(
+      isPaymentEventIdempotencyKey(
+        mintManualPaymentEventKey({ action: "succeeded", proofId: "proof_1", attempt: 0 }),
+      ),
+    ).toBe(true);
+  });
+});
+

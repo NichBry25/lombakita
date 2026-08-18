@@ -492,9 +492,16 @@ describe("getCompetitionIdByInstitutionAndSlug", () => {
 
 // A personal institution is never document-verified — it has no documents, and it is excluded
 // from the platform-ops verification queue for exactly that reason. These tests pin the
-// consequence that matters: excluding it costs it no capability. Publishing is gated on the
-// ACCOUNT-level Trusted Recruiter check plus the personal reach cap, and reads nothing about the
-// institution's verification_status (assertInstitutionVerified has no caller on this path).
+// consequence that matters: excluding it costs it no capability it would otherwise have. Publishing
+// a FREE competition is gated on the ACCOUNT-level Trusted Recruiter check plus the personal reach
+// cap, and reads nothing about the institution's verification_status.
+//
+// That does NOT mean assertInstitutionVerified has no caller on this path — it does, and the
+// distinction is the whole of DEC-0158. transitionCompetitionStatus calls it whenever the
+// competition being published is PRICED, so an unverified institution may publish freely and may
+// not charge. These tests use free competitions, which is why the gate does not fire in them; the
+// paid case is proven against a live Postgres in manual-lane-db.integration.test.ts, including a
+// test that fails if the call is removed.
 describe("personal institution publish — capability is independent of institution verification", () => {
   afterEach(() => vi.clearAllMocks());
 
@@ -521,12 +528,20 @@ describe("personal institution publish — capability is independent of institut
     });
 
   // Serves exactly the reads the publish path is expected to make, in order:
-  //   1. loadInstitutionTypeById  → 'personal'
-  //   2. published-competition count for the reach cap
-  // Anything beyond that — a re-wired institution-verification lookup, for instance — draws an
-  // empty result and fails the transition, so this mock is the tripwire, not just a stub.
+  //   1. the competition's fee, for the DEC-0158 charging gate → FREE here
+  //   2. loadInstitutionTypeById  → 'personal'
+  //   3. published-competition count for the reach cap
+  // Anything beyond that draws an empty result and fails the transition, so this mock is the
+  // tripwire, not just a stub.
+  //
+  // Read 1 returns a null fee deliberately, and it is what these two tests are ABOUT: publishing is
+  // independent of institution verification, so a FREE competition must sail past the charging gate
+  // without a verification lookup happening at all. If the gate ever started firing on free
+  // competitions, the verification read would land here, draw an empty result, and fail — which is
+  // the tripwire working.
   const makePersonalPublishDb = (publishedCount: number) => {
     const selectResults: unknown[][] = [
+      [{ feeAmount: null }],
       [{ institutionType: "personal" }],
       [{ count: publishedCount }],
     ];

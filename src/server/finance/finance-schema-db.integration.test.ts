@@ -125,7 +125,15 @@ const seedFixture = async (tx: Tx): Promise<Fixture> => {
   const [institution] = await tx
     .insert(institutions)
     // institutions_display_name_type_chk allows a null display name only for `personal`.
-    .values({ slug: `finance-inst-${id}`, institutionType: "personal" })
+    // VERIFIED, because createPayment's DEC-0158 charging gate refuses a priced payment for an
+    // unverified institution. That refusal is the subject of its own suite
+    // (finance-charging-gate-db.integration.test.ts); here it would only mask what these tests are
+    // actually asserting about constraints and fee snapshots.
+    .values({
+      slug: `finance-inst-${id}`,
+      institutionType: "personal",
+      verificationStatus: "verified",
+    })
     .returning({ id: institutions.id });
 
   const [otherInstitution] = await tx
@@ -183,6 +191,9 @@ const paymentValues = (fixture: Fixture, overrides: Record<string, unknown> = {}
   return {
     payerUserId: fixture.userId,
     receivingInstitutionId: fixture.institutionId,
+    // Gateway lane by default: these fixtures assert the fee SPLIT, which the manual lane
+    // deliberately does not have (a manual payment records fee 0 / net = gross).
+    origin: "gateway" as const,
     subjectType: "competition_registration" as const,
     competitionRegistrationId: fixture.registrationId,
     currency: "IDR",
@@ -507,6 +518,7 @@ describe.skipIf(skipWithoutDatabase)("fee rules and the payment snapshot (real d
         {
           payerUserId: fixture.userId,
           receivingInstitutionId: fixture.institutionId,
+          origin: "gateway",
           subject: {
             type: "competition_registration",
             competitionRegistrationId: fixture.registrationId,
