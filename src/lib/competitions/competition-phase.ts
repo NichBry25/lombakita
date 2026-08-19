@@ -1,3 +1,4 @@
+import type { StatusBadgeTone } from "@/lib/ui/status-badge-tone";
 // How far along a competition is, derived from its dates and whether its results have been
 // published. Nothing here is stored: a phase computed from the clock cannot drift from the clock,
 // so no scheduled job is needed to keep a column honest and the value is correct the moment it is
@@ -149,7 +150,10 @@ const PHASE_LABELS: Record<CompetitionPhase, string> = {
 
 // Maps onto the `data-status` values the shared .status-badge styles already implement, so every
 // phase renders as a tinted pill with its own dot and never depends on colour alone.
-const PHASE_BADGE_STATUS: Record<CompetitionPhase, string> = {
+// Typed to the badge vocabulary rather than `string`. `string` is what let a tone that styles
+// nothing pass review elsewhere in the app: every value here is valid today, and nothing about the
+// type said the next one had to be.
+const PHASE_BADGE_STATUS: Record<CompetitionPhase, StatusBadgeTone> = {
   cancelled: "cancelled",
   upcoming: "upcoming",
   registration_open: "open",
@@ -163,7 +167,7 @@ const PHASE_BADGE_STATUS: Record<CompetitionPhase, string> = {
 
 export const getCompetitionPhaseLabel = (phase: CompetitionPhase): string => PHASE_LABELS[phase];
 
-export const getCompetitionPhaseBadgeStatus = (phase: CompetitionPhase): string =>
+export const getCompetitionPhaseBadgeStatus = (phase: CompetitionPhase): StatusBadgeTone =>
   PHASE_BADGE_STATUS[phase];
 
 export const isAwaitingResultsPhase = (phase: CompetitionPhase): boolean =>
