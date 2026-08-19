@@ -12,7 +12,7 @@
  * marked APPROX and measured against the nearest solid colour instead — reported rather than
  * dropped, because silently skipping is how the gap opens in the first place.
  */
-import { launch, contextFor, setTheme, DESKTOP } from "./lib-browser.mjs";
+import { launch, contextFor, setTheme, DESKTOP, settle } from "./lib-browser.mjs";
 import { audit } from "./lib-contrast.mjs";
 import { PAGES } from "./pages.mjs";
 import { BASE, USERS } from "./seeds.mjs";
@@ -34,7 +34,7 @@ for (const spec of targets) {
   await page.setViewportSize(DESKTOP);
   try {
     await page.goto(`${BASE}${spec.path}`, { waitUntil: "domcontentloaded", timeout: 45000 });
-    await page.waitForTimeout(1200);
+    await settle(page);
     // The theme switch is a cross-fade. Sampling during it reads blended mid-tones that belong to
     // no token — every colour comes back plausible and slightly wrong, which is worse than an
     // obvious error. Kill transitions so the switch is instantaneous and every reading is settled.

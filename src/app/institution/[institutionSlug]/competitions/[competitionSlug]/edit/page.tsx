@@ -5,6 +5,7 @@ import { CompetitionPrizesEditor } from "@/components/institution/competition-pr
 import { CompetitionRoundsEditor } from "@/components/institution/competition-rounds-editor";
 import { CompetitionTagsEditor } from "@/components/institution/competition-tags-editor";
 import { CompetitionEligibilityEditor } from "@/components/institution/competition-eligibility-editor";
+import { CompetitionFeeSection } from "@/components/institution/competition-fee-section";
 import { AccessError } from "@/server/auth/access-core";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { CompetitionError } from "@/server/competitions/competition-core";
@@ -43,6 +44,7 @@ export default async function InstitutionCompetitionEditPage({ params }: Props) 
         competitionId={competitionId}
         expectedUserId={session.user.id}
       />
+      <CompetitionFeeSection competitionId={competitionId} expectedUserId={session.user.id} />
     </InstitutionCompetitionEditShell>
   );
 }

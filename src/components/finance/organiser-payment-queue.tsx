@@ -303,7 +303,7 @@ function RejectForm({
         />
       </FormField>
 
-      <label htmlFor={barredId}>
+      <label className="checkbox-field" htmlFor={barredId}>
         <input
           id={barredId}
           type="checkbox"

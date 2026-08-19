@@ -69,6 +69,9 @@ export const PAGES = [
   { id: "55-competition-detail-mgmt", as: "recElev", path: "/institution/seed-academy/competitions/seed-open", label: "Competition management detail" },
   { id: "56-competition-edit", as: "recElev", path: "/institution/seed-academy/competitions/seed-open/edit", label: "Competition editor (published — immutable fields)" },
   { id: "57-competition-edit-draft", as: "recElev", path: "/institution/seed-academy/competitions/seed-draft/edit", label: "Competition editor (draft — all fields open)" },
+  // Registered separately from 56/57 because only a PAID competition renders the fee disclosure —
+  // three figures and an acknowledgement that exist on no other editor.
+  { id: "57b-competition-edit-paid", as: "recElev", path: "/institution/seed-academy/competitions/seed-paid/edit", label: "Competition editor — paid, with fee disclosure" },
   { id: "58-participants", as: "recElev", path: "/institution/seed-academy/competitions/seed-open/participants", label: "Participants console" },
   { id: "59-participants-done", as: "recElev", path: "/institution/seed-academy/competitions/seed-done/participants", label: "Participants console — finished competition" },
   { id: "60-participant-review", as: "recElev", path: "/institution/seed-academy/competitions/seed-done/participants/seed-reg-a-done", label: "Participant review + result + documents" },

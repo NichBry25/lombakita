@@ -8,7 +8,7 @@
  *
  * Taste still needs eyes; this finds the things eyes miss and proves the fixes landed.
  */
-import { launch, contextFor, MOBILE } from "./lib-browser.mjs";
+import { launch, contextFor, MOBILE, settle } from "./lib-browser.mjs";
 import { PAGES } from "./pages.mjs";
 import { BASE, USERS } from "./seeds.mjs";
 
@@ -103,7 +103,7 @@ for (const spec of targets) {
     // Heavy forms measure mid-layout at shorter waits and report phantom 25px-tall inputs. Always
     // re-run a flagged page on its own before believing it; in dev a cold compile can also time a
     // page out entirely.
-    await page.waitForTimeout(1600);
+    await settle(page);
     const r = await audit(page);
     const overflow = r.scrollWidth > r.viewport + 1;
     if (overflow || r.wide.length || r.small.length) {

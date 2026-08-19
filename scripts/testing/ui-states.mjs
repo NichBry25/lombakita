@@ -204,6 +204,42 @@ export const CASES = [
     absent: [],
     why: "proves the two absences are the tenant boundary, not a page that renders nothing",
   },
+
+  // ── Surface 4: enabling paid registration, with the disclosure ────────────────────────────────
+  {
+    id: "fee-disclosure-on-paid-competition",
+    as: "recElev",
+    path: `/institution/${INST.a.slug}/competitions/${COMP.paid.slug}/edit`,
+    present: [
+      "Biaya pendaftaran",
+      "Rincian per pendaftaran",
+      // UPPERCASE because `.detail-grid dt` sets text-transform and innerText returns RENDERED
+      // text. Written from the source string these three silently missed — the same shape as the
+      // non-breaking space in `Rp\u00a0150.000`: the expectation was wrong, not the render.
+      "DIBAYAR PESERTA",
+      "BIAYA LAYANAN LOMBAKITA",
+      "DITERIMA LEMBAGA ANDA",
+      // The FIGURES, not just the labels. 250 bps on Rp 150.000 is Rp 3.750, leaving Rp 146.250 —
+      // asserting the arithmetic reached the screen, since a disclosure showing the wrong number
+      // is worse than one showing none.
+      "Rp\u00a0150.000",
+      "Rp\u00a03.750",
+      "Rp\u00a0146.250",
+      "Saya menyetujui rincian biaya layanan di atas.",
+    ],
+    absent: [],
+    why: "consent to a bill is worthless unless the amount being consented to is on the screen",
+  },
+  {
+    id: "fee-disclosure-withheld-on-free-competition",
+    as: "recElev",
+    path: `/institution/${INST.a.slug}/competitions/${COMP.open.slug}/edit`,
+    present: ["Biaya pendaftaran", "Pendaftaran gratis"],
+    // Paired with the case above. A free competition has no amount, so there is nothing to
+    // disclose and nothing to consent to — the acknowledgement must not be reachable.
+    absent: ["Rincian per pendaftaran", "Saya menyetujui rincian biaya layanan di atas."],
+    why: "an acknowledgement offered against a blank disclosure records consent to nothing",
+  },
 ];
 
 const filter = process.argv[2] ? new RegExp(process.argv[2]) : null;

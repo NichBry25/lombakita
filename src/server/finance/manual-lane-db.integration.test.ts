@@ -25,10 +25,13 @@ import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { TransactionRollbackError, and, eq, sql } from "drizzle-orm";
 import postgres from "postgres";
 import type { Database } from "@/server/db/client";
+import { CompetitionError } from "@/server/competitions/competition-core";
+import { PaymentInstructionsError } from "@/server/institutions/payment-instructions-service";
 import {
   competitionRegistrations,
   competitions,
   financeFeeAccruals,
+  financeFeeDisclosureAcknowledgements,
   financeFeeRules,
   financeManualPaymentProofAttempts,
   financeManualPaymentProofs,
@@ -1888,6 +1891,20 @@ describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against 
     );
   };
 
+  /** The fixture registers a candidate for free; pricing is blocked while one exists. */
+  const clearFreeRegistrant = async (tx: Tx, tenant: Tenant): Promise<void> => {
+    await tx
+      .update(competitionRegistrations)
+      .set({ status: "cancelled", cancellationReason: "withdrew" })
+      .where(eq(competitionRegistrations.id, tenant.registrationId));
+  };
+
+  const acknowledgementsFor = async (tx: Tx, competitionId: string) =>
+    tx
+      .select({ id: financeFeeDisclosureAcknowledgements.id })
+      .from(financeFeeDisclosureAcknowledgements)
+      .where(eq(financeFeeDisclosureAcknowledgements.competitionId, competitionId));
+
   it("prices a competition that has no free registrants", async () => {
     // The negative control for every refusal below.
     await inRollback(async (tx) => {
@@ -1904,6 +1921,164 @@ describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against 
         feeAmount: 75_000,
         feeCurrency: "IDR",
       });
+    });
+  });
+
+  // R12 — PAYMENT INSTRUCTIONS ARE A PRECONDITION. This is where surface 3's work becomes
+  // load-bearing: enabling a price for an institution that has published nowhere to send the money
+  // produces a candidate owing a debt they cannot discharge and nobody able to tell them where.
+  it("REFUSES to price an institution that has published no payment instructions, and writes nothing", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await grantOwnership(tx, fixture);
+      await clearFreeRegistrant(tx, fixture);
+
+      // seedFixture publishes instructions for the primary tenant, because almost every other test
+      // needs a chargeable institution. Removing them is what puts this fixture in the state the
+      // gate is about.
+      await tx
+        .delete(institutionPaymentInstructions)
+        .where(eq(institutionPaymentInstructions.institutionId, fixture.institutionId));
+
+      // PaymentInstructionsError, not CompetitionError. Worth asserting the exact family: the
+      // route converts three of them, and it originally converted one — sending this refusal, the
+      // most likely legitimate one on the surface, out as an English HTTP 500.
+      await expect(priceIt(tx, fixture)).rejects.toBeInstanceOf(PaymentInstructionsError);
+
+      expect(await readFee(tx, fixture.competitionId)).toEqual({
+        feeAmount: null,
+        feeCurrency: null,
+      });
+    });
+  });
+
+  it("prices the SAME institution once instructions exist — the precondition's control", async () => {
+    // Without this the refusal above could be caused by anything the fixture happens to lack.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await grantOwnership(tx, fixture);
+      await clearFreeRegistrant(tx, fixture);
+
+      await tx
+        .delete(institutionPaymentInstructions)
+        .where(eq(institutionPaymentInstructions.institutionId, fixture.institutionId));
+      await expect(priceIt(tx, fixture)).rejects.toBeInstanceOf(PaymentInstructionsError);
+
+      await tx.insert(institutionPaymentInstructions).values({
+        institutionId: fixture.institutionId,
+        bankName: "Bank Contoh",
+        accountNumber: "1234567890",
+        accountHolderName: "Panitia Lomba",
+      });
+
+      await priceIt(tx, fixture);
+
+      expect((await readFee(tx, fixture.competitionId)).feeAmount).toBe(75_000);
+    });
+  });
+
+  it("still lets an institution with no instructions set its competition back to FREE", async () => {
+    // Same asymmetry as the verification gate: the gates exist to stop money being taken, and none
+    // of them has anything to say about stopping.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await grantOwnership(tx, fixture);
+      await clearFreeRegistrant(tx, fixture);
+      await tx
+        .delete(institutionPaymentInstructions)
+        .where(eq(institutionPaymentInstructions.institutionId, fixture.institutionId));
+
+      await priceIt(tx, fixture, 0);
+
+      expect(await readFee(tx, fixture.competitionId)).toEqual({
+        feeAmount: null,
+        feeCurrency: null,
+      });
+    });
+  });
+
+  // R2 — THE DISCLOSURE IS RECORDED, not displayed. A rate the organiser was shown and a rate they
+  // are billed at are the same fact only if the platform kept the evidence.
+  it("REFUSES to price without an acknowledgement, and writes nothing", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await grantOwnership(tx, fixture);
+      await clearFreeRegistrant(tx, fixture);
+
+      await expect(
+        priceIt(tx, fixture, 75_000, { feeDisclosureAcknowledged: false }),
+      ).rejects.toBeInstanceOf(CompetitionError);
+
+      expect(await readFee(tx, fixture.competitionId)).toEqual({
+        feeAmount: null,
+        feeCurrency: null,
+      });
+      expect(await acknowledgementsFor(tx, fixture.competitionId)).toEqual([]);
+    });
+  });
+
+  it("REFUSES a MISSING acknowledgement exactly as it refuses a false one", async () => {
+    // An omitted field must not read as consent. `feeDisclosureAcknowledged` is optional in the
+    // input type, so absence is the shape a client produces by simply not implementing it.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await grantOwnership(tx, fixture);
+      await clearFreeRegistrant(tx, fixture);
+
+      await expect(
+        priceIt(tx, fixture, 75_000, { feeDisclosureAcknowledged: undefined }),
+      ).rejects.toBeInstanceOf(CompetitionError);
+
+      expect(await acknowledgementsFor(tx, fixture.competitionId)).toEqual([]);
+    });
+  });
+
+  it("RECORDS the acknowledgement with the rate snapshot and the price it was given for", async () => {
+    // The columns are the point. A row saying only "somebody agreed" settles no dispute; the
+    // dispute is always about WHICH RATE, so the terms are copied in rather than referenced.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await grantOwnership(tx, fixture);
+      await clearFreeRegistrant(tx, fixture);
+
+      await priceIt(tx, fixture, 75_000);
+
+      const [ack] = await tx
+        .select()
+        .from(financeFeeDisclosureAcknowledgements)
+        .where(eq(financeFeeDisclosureAcknowledgements.competitionId, fixture.competitionId));
+
+      expect(ack).toMatchObject({
+        institutionId: fixture.institutionId,
+        acknowledgedByUserId: fixture.userId,
+        feeRuleId: fixture.feeRuleId,
+        feeBasisPoints: 250,
+        feeFlatAmount: 0,
+        feeAmount: 75_000,
+        feeCurrency: "IDR",
+      });
+      expect(ack!.acknowledgedAt).toBeInstanceOf(Date);
+    });
+  });
+
+  it("writes the acknowledgement and the price TOGETHER OR NOT AT ALL", async () => {
+    // They share a transaction. An acknowledgement standing over a price that was never written
+    // evidences consent to a bill nobody incurred; a price with no acknowledgement is the evidence
+    // gap the gate exists to close. Forcing the fee write to fail proves the pairing rather than
+    // asserting it from the source.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await grantOwnership(tx, fixture);
+      await clearFreeRegistrant(tx, fixture);
+
+      // A negative payment window violates the competitions CHECK, so the UPDATE inside the
+      // transaction fails after the acknowledgement insert has already run.
+      await expect(
+        priceIt(tx, fixture, 75_000, { paymentWindowDays: 0 }),
+      ).rejects.toBeDefined();
+
+      expect(await acknowledgementsFor(tx, fixture.competitionId)).toEqual([]);
+      expect((await readFee(tx, fixture.competitionId)).feeAmount).toBeNull();
     });
   });
 
@@ -2014,6 +2189,41 @@ describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against 
       });
 
       expect((await readFee(tx, fixture.competitionId)).feeAmount).toBe(50_000);
+    });
+  });
+
+  it("REFUSES to CLEAR a fee while a bukti transfer is outstanding, and writes nothing", async () => {
+    // THE UNPROTECTED DIRECTION, and the one place the classifier's POSITION is load-bearing rather
+    // than merely correct.
+    //
+    // The matrix blocks a feeAmount change whenever money is in flight, whatever the direction —
+    // so paid→free is blocked too. But the clear path writes OUTSIDE any transaction, unlike the
+    // priced path. Move the classifier below the write there and the fee is genuinely gone, with no
+    // rollback to undo it: a candidate has transferred real rupiah against a price the competition
+    // no longer has, and the organiser has no record of what they were charged.
+    //
+    // Class B, so post-state is the correct detector here — which is exactly why the priced path
+    // needed a different one. Same guard, two call paths, two classes.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await grantOwnership(tx, fixture);
+      await tx
+        .update(competitions)
+        .set({ feeAmount: 50_000, feeCurrency: "IDR" })
+        .where(eq(competitions.id, fixture.competitionId));
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      await seedProof(tx, fixture, paymentId);
+
+      await expect(priceIt(tx, fixture, 0)).rejects.toMatchObject({
+        code: "competition_fee_change_blocked_payment_in_flight",
+      });
+
+      // The fee is still there. Under a moved classifier this reads null.
+      expect(await readFee(tx, fixture.competitionId)).toEqual({
+        feeAmount: 50_000,
+        feeCurrency: "IDR",
+      });
     });
   });
 
