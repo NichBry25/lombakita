@@ -156,6 +156,54 @@ export const CASES = [
     absent: [],
     why: "proves the outsider assertions are about the tenant boundary and not about a blank page",
   },
+
+  // ── Surface 3: where the institution wants to be paid ─────────────────────────────────────────
+  {
+    id: "payment-instructions-owner",
+    as: "recElev",
+    path: `/institution/${INST.a.slug}/settings`,
+    present: [
+      "Informasi pembayaran",
+      "Nomor rekening",
+      "Nama pemilik rekening",
+      // DEC-0130 stated to the person entering the digits, which is the only place it changes
+      // anyone's behaviour.
+      "Lombakita tidak menampung dana",
+    ],
+    absent: [],
+    why: "the owner must be able to publish an account, and be told the platform never holds the money",
+  },
+  {
+    id: "payment-instructions-withheld-from-staff",
+    // OUTSIDER ONE, and the substantive access decision on this surface: staff at THIS institution.
+    // Staff already rule on whether a transfer arrived; letting them also set where transfers go
+    // puts both halves of "redirect the money and confirm it received" in one pair of hands.
+    as: "dual",
+    path: `/institution/${INST.a.slug}/settings`,
+    present: [],
+    absent: ["Informasi pembayaran", "Nomor rekening"],
+    why: "a staff member must not be able to repoint the institution's bank account",
+  },
+  {
+    id: "payment-instructions-withheld-from-other-owner",
+    // OUTSIDER TWO, the other direction: an owner — of D and P — at institution A. Not the same
+    // assertion as above, because this one is an OWNER and would pass any check that asked only
+    // whether the caller owns something.
+    as: "recMin",
+    path: `/institution/${INST.a.slug}/settings`,
+    present: [],
+    absent: ["Informasi pembayaran", "Nomor rekening"],
+    why: "owning one institution grants nothing at another's banking settings",
+  },
+  {
+    id: "payment-instructions-own-tenant",
+    // The pairing that makes both absences meaningful: the SAME user, at the institution they own.
+    as: "recMin",
+    path: `/institution/${INST.d.slug}/settings`,
+    present: ["Informasi pembayaran", "Nomor rekening"],
+    absent: [],
+    why: "proves the two absences are the tenant boundary, not a page that renders nothing",
+  },
 ];
 
 const filter = process.argv[2] ? new RegExp(process.argv[2]) : null;

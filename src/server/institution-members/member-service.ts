@@ -27,9 +27,11 @@ const RECRUITER_REQUIRED_ROLES: readonly InstitutionMembershipRole[] = [
 // institution_owner or institution_staff membership for it. Returns the resolved
 // institutionId for downstream use. 403 on slug-not-found or insufficient role
 // (identical message — accepted info-hiding trade-off per 2.3-D1).
-export const requireAdminInstitutionBySlug = async (
+const requireMembershipBySlug = async (
   actorUserId: string,
   institutionSlug: string,
+  allowedRoles: readonly InstitutionMembershipRole[],
+  requiredMessage: string,
   db: Database,
 ): Promise<{ institutionId: string; actorMembershipId: string }> => {
   const [row] = await db
@@ -40,7 +42,7 @@ export const requireAdminInstitutionBySlug = async (
       and(
         eq(institutionMemberships.institutionId, institutions.id),
         eq(institutionMemberships.userId, actorUserId),
-        inArray(institutionMemberships.membershipRole, [...ADMIN_ROLES]),
+        inArray(institutionMemberships.membershipRole, [...allowedRoles]),
         eq(institutionMemberships.status, "active"),
       ),
     )
@@ -48,15 +50,44 @@ export const requireAdminInstitutionBySlug = async (
     .limit(1);
 
   if (!row) {
-    throw new AccessError(
-      "forbidden",
-      403,
-      "institution_owner or institution_staff access required",
-    );
+    throw new AccessError("forbidden", 403, requiredMessage);
   }
 
   return row;
 };
+
+export const requireAdminInstitutionBySlug = async (
+  actorUserId: string,
+  institutionSlug: string,
+  db: Database,
+): Promise<{ institutionId: string; actorMembershipId: string }> =>
+  requireMembershipBySlug(
+    actorUserId,
+    institutionSlug,
+    ADMIN_ROLES,
+    "institution_owner or institution_staff access required",
+    db,
+  );
+
+/**
+ * Owner-only sibling, for surfaces where staff access would be a separation-of-duties failure.
+ *
+ * Payment instructions are the one. Staff already decide whether a transfer ARRIVED; letting them
+ * also decide WHERE transfers are sent would put both halves of "redirect the money and mark it
+ * received" in one pair of hands. The owner is the account holder, so the owner sets the account.
+ */
+export const requireOwnerInstitutionBySlug = async (
+  actorUserId: string,
+  institutionSlug: string,
+  db: Database,
+): Promise<{ institutionId: string; actorMembershipId: string }> =>
+  requireMembershipBySlug(
+    actorUserId,
+    institutionSlug,
+    ["institution_owner"],
+    "institution_owner access required",
+    db,
+  );
 
 // Read-only sibling of requireAdminInstitutionBySlug — returns true iff the user holds
 // an active membership with one of the allowed roles for the slug. Intended for

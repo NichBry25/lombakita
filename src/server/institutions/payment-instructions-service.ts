@@ -4,6 +4,13 @@ assertServerOnly("server/institutions/payment-instructions-service");
 
 import { and, eq, isNull } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
+import { randomUUID } from "node:crypto";
+import { generatePresignedPutUrl, isR2Available } from "@/server/storage/r2.client";
+import {
+  QRIS_FORMAT_HINT,
+  qrisMimeTypeForFileName,
+  type QrisMimeType,
+} from "@/lib/finance/qris-file";
 import {
   competitions,
   institutionPaymentInstructions,
@@ -79,7 +86,9 @@ export const loadPaymentInstructionsForCompetition = async (
 export type PaymentInstructionsErrorCode =
   | "payment_instructions_incomplete"
   | "payment_instructions_missing"
-  | "payment_instructions_qris_key_invalid";
+  | "payment_instructions_qris_key_invalid"
+  | "payment_instructions_qris_format_unsupported"
+  | "payment_instructions_upload_unavailable";
 
 export class PaymentInstructionsError extends Error {
   constructor(
@@ -270,4 +279,58 @@ const normalizeOptional = (value: string | null): string | null => {
   if (value === null) return null;
   const trimmed = value.trim();
   return trimmed.length === 0 ? null : trimmed;
+};
+
+const QRIS_UPLOAD_EXPIRY_SECONDS = 5 * 60;
+
+export type QrisUploadGrant = {
+  uploadUrl: string;
+  r2Key: string;
+  contentType: QrisMimeType;
+  expiresAt: Date;
+};
+
+/**
+ * A short-lived URL for uploading this institution's QRIS image.
+ *
+ * THE KEY IS BUILT HERE AND NEVER ACCEPTED FROM THE CALLER. `assertQrisKeyBelongsToInstitution`
+ * exists because `savePaymentInstructions` does take a key from a request body; this path removes
+ * the question entirely by minting the only key the upload can write to. The two guards are not
+ * redundant — a caller can still POST a key straight to save without ever asking for a grant.
+ *
+ * A FRESH KEY EVERY TIME, never a stable per-institution path. Snapshots taken for earlier payers
+ * point at the object they were actually shown, so overwriting one key would rewrite what a payer
+ * was told to scan months after they paid against it.
+ */
+export const generateQrisUploadUrl = async (
+  institutionId: string,
+  input: { fileName: string },
+  now: Date = new Date(),
+): Promise<QrisUploadGrant> => {
+  const contentType = qrisMimeTypeForFileName(input.fileName);
+
+  if (contentType === null) {
+    throw new PaymentInstructionsError(
+      "payment_instructions_qris_format_unsupported",
+      `Format tidak didukung. Unggah QRIS dalam format ${QRIS_FORMAT_HINT}.`,
+    );
+  }
+
+  if (!isR2Available()) {
+    throw new PaymentInstructionsError(
+      "payment_instructions_upload_unavailable",
+      "Penyimpanan berkas belum dikonfigurasi — unggahan QRIS sementara tidak tersedia",
+      503,
+    );
+  }
+
+  const r2Key = `${buildQrisObjectPrefix(institutionId)}${randomUUID()}`;
+  const uploadUrl = await generatePresignedPutUrl(r2Key, contentType, QRIS_UPLOAD_EXPIRY_SECONDS);
+
+  return {
+    uploadUrl,
+    r2Key,
+    contentType,
+    expiresAt: new Date(now.getTime() + QRIS_UPLOAD_EXPIRY_SECONDS * 1000),
+  };
 };
