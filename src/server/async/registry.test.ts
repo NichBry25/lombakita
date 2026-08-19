@@ -17,7 +17,7 @@ describe("async queue registration baseline", () => {
     // added registration.document.requested + registration.document.reviewed — all on the
     // notifications queue. The retention sweep added retention.purge on infrastructure — the only
     // job in the system fired by a timer rather than a request.
-    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(14);
+    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(15);
 
     const probe = getRegistrationByJobName(ASYNC_JOB_NAMES.probePing);
     expect(probe).toBeDefined();
@@ -94,7 +94,7 @@ describe("async queue registration baseline", () => {
       ]),
     );
     // probe.ping + retention.purge — the latter is the one scheduled job in the system.
-    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.infrastructure)).toHaveLength(2);
+    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.infrastructure)).toHaveLength(3);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.competition)).toHaveLength(1);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.results)).toHaveLength(1);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.notifications)).toHaveLength(10);

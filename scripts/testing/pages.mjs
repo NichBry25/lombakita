@@ -38,6 +38,12 @@ export const PAGES = [
   { id: "31-candidate-profile", as: "candA", path: "/candidate-dashboard/profile", label: "Candidate onboarding profile" },
   { id: "32-registration-detail-docreq", as: "candA", path: "/candidate-dashboard/registrations/seed-reg-a-inprog", label: "Registration detail — open document request" },
   { id: "33-registration-detail-finalized", as: "candA", path: "/candidate-dashboard/registrations/seed-reg-a-done", label: "Registration detail — finalized submission" },
+  // The manual payment lane in each of the three states a candidate can be in. Three pages rather
+  // than one because the panel renders differently in each and a single sample would audit only the
+  // state that happened to be seeded.
+  { id: "33a-payment-awaiting-transfer", as: "candA", path: "/candidate-dashboard/registrations/seed-reg-a-paid", label: "Registration detail — payment owed, nothing sent" },
+  { id: "33b-payment-awaiting-review", as: "candB", path: "/candidate-dashboard/registrations/seed-reg-b-paid", label: "Registration detail — bukti transfer awaiting review" },
+  { id: "33c-payment-rejected", as: "candC", path: "/candidate-dashboard/registrations/seed-reg-c-paid", label: "Registration detail — bukti transfer rejected, resubmittable" },
   { id: "34-results-list", as: "candA", path: "/candidate-dashboard/results", label: "Candidate results list" },
   { id: "35-result-detail", as: "candA", path: "/candidate-dashboard/results/seed-reg-a-done", label: "Published result detail" },
   { id: "36-saved", as: "candA", path: "/saved", label: "Saved competitions" },
@@ -67,6 +73,11 @@ export const PAGES = [
   { id: "59-participants-done", as: "recElev", path: "/institution/seed-academy/competitions/seed-done/participants", label: "Participants console — finished competition" },
   { id: "60-participant-review", as: "recElev", path: "/institution/seed-academy/competitions/seed-done/participants/seed-reg-a-done", label: "Participant review + result + documents" },
   { id: "61-participation-decision", as: "recElev", path: "/institution/seed-academy/competitions/seed-closed/participants", label: "Minimum-entry decision surface" },
+  // The organiser's verdict queue. Registered as ONE page carrying all three proof states at once —
+  // pending, verified and rejected — because the tones for the settled two render nowhere else, and
+  // an unmeasured tone is how a badge that styles nothing survives a full audit.
+  { id: "61b-payment-verification", as: "recElev", path: "/institution/seed-academy/competitions/seed-paid/payments", label: "Bukti transfer verification queue" },
+  { id: "61c-payment-verification-empty", as: "recElev", path: "/institution/seed-academy/competitions/seed-open/payments", label: "Bukti transfer queue — nothing submitted yet" },
   { id: "62-institution-team", as: "recElev", path: "/institution/seed-academy/team", label: "Institution members & invitations" },
   { id: "63-institution-settings", as: "recElev", path: "/institution/seed-academy/settings", label: "Institution settings" },
   { id: "64-institution-verification-full", as: "recElev", path: "/institution/seed-academy/verification", label: "Institution verification — verified panel" },

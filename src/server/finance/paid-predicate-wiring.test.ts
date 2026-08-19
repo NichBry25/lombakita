@@ -146,12 +146,29 @@ describe("the DEC-0132 unpublish block uses PAYMENT IN FLIGHT", () => {
   });
 });
 
-describe("the fee-setting write path uses PAYMENT IN FLIGHT", () => {
-  it("blocks a price change behind the in-flight predicate", () => {
+describe("the fee-setting write path enforces the edit matrix THROUGH the classifier", () => {
+  // The in-flight and free-entrants rules used to be written out a second time in this service,
+  // next to the copies in `classifyCompetitionEdit`. These assertions pinned the DUPLICATES, so
+  // they passed precisely because the duplication existed and would have gone on passing while the
+  // two copies drifted apart. What matters now is that there is ONE statement of the matrix and
+  // that this path reaches it — the refusals themselves are proven behaviourally against a real
+  // database in manual-lane-db.integration.test.ts, which is where a rule that stopped firing
+  // would actually be caught.
+  it("routes through classifyCompetitionEdit rather than restating the matrix", () => {
     const source = read(FEE_SERVICE);
 
-    expect(source).toContain("hasCompetitionPaymentInFlight(competitionId, db)");
-    expect(source).toContain("competition_fee_change_blocked_payment_in_flight");
+    expect(source).toContain("classifyCompetitionEdit(");
+    expect(source).toContain("loadEditClassificationSnapshot(");
+  });
+
+  it("keeps no private copy of either matrix rule", () => {
+    const source = read(FEE_SERVICE);
+
+    // A local re-check is how one path ends up permitting what the shared rule refuses. Both of
+    // these predicates belong to the classifier's snapshot now, and calling either directly here
+    // would be the duplication returning.
+    expect(source).not.toContain("hasCompetitionPaymentInFlight(");
+    expect(source).not.toContain("hasActiveFreeRegistrations(");
   });
 
   it("gates charging and fee resolution on the SAME shared guards, not private copies", () => {
@@ -161,13 +178,7 @@ describe("the fee-setting write path uses PAYMENT IN FLIGHT", () => {
     // the shared guard refuses.
     expect(source).toContain("assertInstitutionVerified(competition.institutionId, db)");
     expect(source).toContain("requireFeeRuleInForce(competition.institutionId, now, db)");
-  });
-
-  it("refuses to price a competition that already took free registrations", () => {
-    const source = read(FEE_SERVICE);
-
-    expect(source).toContain("hasActiveFreeRegistrations(competitionId, db)");
-    expect(source).toContain("competition_fee_blocked_free_registrations");
+    expect(source).toContain("requirePaymentInstructions(competition.institutionId, db)");
   });
 });
 

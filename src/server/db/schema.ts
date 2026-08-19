@@ -2228,11 +2228,242 @@ export const financePaymentEvents = pgTable(
   ],
 );
 
+// WHAT THE PAYER WAS TOLD, frozen at the moment their payment was created.
+//
+// The same reasoning that puts `due_at` on the payment rather than joining to the competition: bank
+// details that change after a candidate has been told where to send money leave that candidate
+// holding instructions the platform no longer displays anywhere, and under the rule that the
+// platform never touches the funds, this snapshot is the only record of where it told them to send
+// it. A join would answer with today's account number and quietly rewrite history.
+//
+// A SEPARATE TABLE rather than columns on `finance_payments`, for two reasons. The value is
+// compound — five fields — and the ledger table is append-only, so a snapshot that had to be
+// written alongside a payment would either widen that table by five nullable columns or require a
+// backfill for rows that predate it. An empty side table needs neither.
+//
+// Written in the SAME TRANSACTION as the payment it belongs to. Nothing enforces that at the
+// schema level (a payment row is legal without one, which is what makes the table addable at all);
+// the writer is the enforcement, and a test proves the two are inseparable.
+export const financePaymentInstructionSnapshots = pgTable(
+  "finance_payment_instruction_snapshots",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    paymentId: text("payment_id").notNull(),
+    bankName: text("bank_name"),
+    accountNumber: text("account_number"),
+    accountHolderName: text("account_holder_name"),
+    qrisR2Key: text("qris_r2_key"),
+    instructionsNote: text("instructions_note"),
+    capturedAt: timestamp("captured_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.paymentId],
+      foreignColumns: [financePayments.id],
+      name: "finance_payment_instruction_snapshots_payment_id_fk",
+    }),
+    // One snapshot per payment. A second would mean the payer was told two different things.
+    uniqueIndex("finance_payment_instruction_snapshots_payment_unique_idx").on(table.paymentId),
+    // THE SAME DISJUNCTION the source row is held to, restated rather than referenced. An
+    // institution may publish a QRIS and no bank account at all, so the bank columns cannot be
+    // NOT NULL — but a snapshot naming neither channel tells a payer nothing, which is the state
+    // this refuses. Copying the constraint is what stops the snapshot being weaker than the row it
+    // was taken from.
+    check(
+      "finance_payment_instruction_snapshots_payable_chk",
+      sql`${table.qrisR2Key} IS NOT NULL OR (${table.bankName} IS NOT NULL AND ${table.accountNumber} IS NOT NULL AND ${table.accountHolderName} IS NOT NULL)`,
+    ),
+  ],
+);
+
+// EVERY VERDICT EVER RENDERED on a bukti transfer, one row per closed attempt.
+//
+// The live proof row holds ONE attempt — the current one — and a resubmission overwrites its
+// `r2_key`, file name, size, content type and `submitted_at` in place. Without this table, the
+// first thing a dispute reader sees after a single resubmission is attempt two and no indication
+// that attempt one existed. Since the uploaded file is the platform's only artifact that money
+// moved, losing the earlier ones loses the evidence itself.
+//
+// APPEND-ONLY, and written at the moment an attempt CLOSES rather than when it opens. A row
+// inserted at submission would have to be updated later to carry its verdict, and an update is
+// exactly what this table may not take. So: attempts 1..N-1 live here with their outcomes, and the
+// open attempt N is the live proof row. The two together are the complete history, with no row
+// ever moving.
+//
+// The prior `r2_key` values stay referenced from here, which is also what stops them becoming
+// orphaned objects when a resubmission replaces the live pointer. Nothing deletes them.
+export const financeManualPaymentProofAttempts = pgTable(
+  "finance_manual_payment_proof_attempts",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    proofId: text("proof_id").notNull(),
+    // Denormalised so the dispute view can reach an attempt from the payment without joining
+    // through the live proof row, whose own scope columns may have moved on.
+    paymentId: text("payment_id").notNull(),
+    competitionId: text("competition_id").notNull(),
+    // The value `resubmission_count` held while this attempt was open. Attempt 0 is the first
+    // submission, matching the counter's own base.
+    attemptNumber: integer("attempt_number").notNull(),
+    submittedByUserId: text("submitted_by_user_id").notNull(),
+    r2Key: text("r2_key").notNull(),
+    originalFileName: text("original_file_name").notNull(),
+    fileSizeBytes: bigint("file_size_bytes", { mode: "number" }).notNull(),
+    contentType: text("content_type").notNull(),
+    submittedAt: timestamp("submitted_at", { mode: "date", withTimezone: true }).notNull(),
+    // Reuses the proof status enum rather than declaring a second one — a verdict IS the status the
+    // attempt closed in. Constrained below to the three closing values, so `pending_review` (an
+    // attempt that has not closed and therefore has no row here) cannot be written.
+    verdict: financeManualProofStatusEnum("verdict").notNull(),
+    verdictReason: text("verdict_reason"),
+    reviewerUserId: text("reviewer_user_id").notNull(),
+    reviewedAt: timestamp("reviewed_at", { mode: "date", withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.proofId],
+      foreignColumns: [financeManualPaymentProofs.id],
+      name: "finance_manual_payment_proof_attempts_proof_id_fk",
+    }),
+    foreignKey({
+      columns: [table.paymentId],
+      foreignColumns: [financePayments.id],
+      name: "finance_manual_payment_proof_attempts_payment_id_fk",
+    }),
+    foreignKey({
+      columns: [table.competitionId],
+      foreignColumns: [competitions.id],
+      name: "finance_manual_payment_proof_attempts_competition_id_fk",
+    }),
+    foreignKey({
+      columns: [table.submittedByUserId],
+      foreignColumns: [users.id],
+      name: "finance_manual_payment_proof_attempts_submitted_by_user_id_fk",
+    }),
+    foreignKey({
+      columns: [table.reviewerUserId],
+      foreignColumns: [users.id],
+      name: "finance_manual_payment_proof_attempts_reviewer_user_id_fk",
+    }),
+    // ONE VERDICT PER ATTEMPT. Each attempt closes through a compare-and-set out of
+    // `pending_review`, so a second row for the same attempt could only come from a replayed write;
+    // this index is what turns that into a refusal rather than a duplicated history entry.
+    uniqueIndex("finance_manual_payment_proof_attempts_attempt_unique_idx").on(
+      table.proofId,
+      table.attemptNumber,
+    ),
+    index("finance_manual_payment_proof_attempts_payment_id_idx").on(table.paymentId),
+    check(
+      "finance_manual_payment_proof_attempts_verdict_chk",
+      sql`${table.verdict} IN ('verified', 'rejected', 'voided')`,
+    ),
+    check(
+      "finance_manual_payment_proof_attempts_attempt_number_chk",
+      sql`${table.attemptNumber} >= 0`,
+    ),
+    check(
+      "finance_manual_payment_proof_attempts_file_size_chk",
+      sql`${table.fileSizeBytes} > 0`,
+    ),
+    // A refusal with no stated reason is not reviewable after the fact. Verification needs none —
+    // accepting a transfer says everything it has to say.
+    check(
+      "finance_manual_payment_proof_attempts_reason_chk",
+      sql`${table.verdict} = 'verified' OR (${table.verdictReason} IS NOT NULL AND btrim(${table.verdictReason}) <> '')`,
+    ),
+  ],
+);
+
+// THE ORGANISER SAW THE PLATFORM'S RATE BEFORE THEY CHARGED ANYBODY, recorded once per act of
+// enabling a fee.
+//
+// Append-only, and a table rather than a pair of columns on `competitions`, because re-enabling or
+// repricing produces a NEW acknowledgement and the sequence is the evidence. A column would hold
+// only the most recent one, which is the wrong one in the case that matters: an organiser disputing
+// a bill is disputing the rate in force when the fee they are being billed for was switched on.
+//
+// The resolved terms are copied in rather than joined to the rule, for the same reason the payment
+// snapshots its own fee terms — a rule edited afterwards would otherwise rewrite what the organiser
+// is recorded as having agreed to.
+export const financeFeeDisclosureAcknowledgements = pgTable(
+  "finance_fee_disclosure_acknowledgements",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    competitionId: text("competition_id").notNull(),
+    // Who is billed. Carried explicitly so a statement of fees owed can be assembled without
+    // walking back through the competition, which may have moved or been deleted.
+    institutionId: text("institution_id").notNull(),
+    acknowledgedByUserId: text("acknowledged_by_user_id").notNull(),
+    // --- the rule in force, and the terms it resolved to at this instant ---
+    feeRuleId: text("fee_rule_id").notNull(),
+    feeBasisPoints: integer("fee_basis_points").notNull(),
+    feeFlatAmount: bigint("fee_flat_amount", { mode: "number" }).notNull(),
+    // --- the price being enabled, which is what the terms above will be applied to ---
+    feeAmount: bigint("fee_amount", { mode: "number" }).notNull(),
+    feeCurrency: text("fee_currency").notNull(),
+    acknowledgedAt: timestamp("acknowledged_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.competitionId],
+      foreignColumns: [competitions.id],
+      name: "finance_fee_disclosure_acknowledgements_competition_id_fk",
+    }),
+    foreignKey({
+      columns: [table.institutionId],
+      foreignColumns: [institutions.id],
+      name: "finance_fee_disclosure_acknowledgements_institution_id_fk",
+    }),
+    foreignKey({
+      columns: [table.acknowledgedByUserId],
+      foreignColumns: [users.id],
+      name: "finance_fee_disclosure_acknowledgements_user_id_fk",
+    }),
+    foreignKey({
+      columns: [table.feeRuleId],
+      foreignColumns: [financeFeeRules.id],
+      name: "finance_fee_disclosure_acknowledgements_fee_rule_id_fk",
+    }),
+    // NO unique index, deliberately. Repeated acknowledgements are the expected shape — one per act
+    // of enabling a price — and collapsing them to the latest is exactly the loss this table exists
+    // to prevent.
+    index("finance_fee_disclosure_acknowledgements_competition_id_idx").on(table.competitionId),
+    index("finance_fee_disclosure_acknowledgements_institution_id_idx").on(table.institutionId),
+    // An acknowledgement is only meaningful against a price actually being charged. Disclosing a
+    // rate while setting a competition back to free would record consent to a bill nobody incurs.
+    check("finance_fee_disclosure_acknowledgements_fee_amount_chk", sql`${table.feeAmount} > 0`),
+    check(
+      "finance_fee_disclosure_acknowledgements_fee_terms_chk",
+      sql`${table.feeBasisPoints} >= 0 AND ${table.feeFlatAmount} >= 0`,
+    ),
+    check(
+      "finance_fee_disclosure_acknowledgements_currency_shape_chk",
+      sql`${table.feeCurrency} ~ '^[A-Z]{3}$'`,
+    ),
+  ],
+);
+
 export type FinanceFeeRuleRecord = typeof financeFeeRules.$inferSelect;
 export type FinancePaymentRecord = typeof financePayments.$inferSelect;
 export type FinancePaymentEventRecord = typeof financePaymentEvents.$inferSelect;
 export type FinanceFeeAccrualRecord = typeof financeFeeAccruals.$inferSelect;
 export type FinanceManualPaymentProofRecord = typeof financeManualPaymentProofs.$inferSelect;
+export type FinancePaymentInstructionSnapshotRecord =
+  typeof financePaymentInstructionSnapshots.$inferSelect;
+export type FinanceManualPaymentProofAttemptRecord =
+  typeof financeManualPaymentProofAttempts.$inferSelect;
+export type FinanceFeeDisclosureAcknowledgementRecord =
+  typeof financeFeeDisclosureAcknowledgements.$inferSelect;
 export type InstitutionPaymentInstructionsRecord =
   typeof institutionPaymentInstructions.$inferSelect;
 

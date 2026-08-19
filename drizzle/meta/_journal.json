@@ -414,6 +414,13 @@
       "when": 1786894503529,
       "tag": "0058_workable_joseph",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1787039145547,
+      "tag": "0059_smiling_black_panther",
+      "breakpoints": true
     }
   ]
 }

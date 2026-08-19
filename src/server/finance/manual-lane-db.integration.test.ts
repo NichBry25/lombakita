@@ -16,17 +16,26 @@
 // byte-identical. Nothing here is committed.
 
 import { afterAll, describe, expect, it } from "vitest";
-import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
+import {
+  TEST_DATABASE_URL,
+  TEST_DDL_DATABASE_URL,
+  skipWithoutDatabase,
+} from "@/server/testing/database-url";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { TransactionRollbackError, and, eq } from "drizzle-orm";
+import { TransactionRollbackError, and, eq, sql } from "drizzle-orm";
 import postgres from "postgres";
+import type { Database } from "@/server/db/client";
 import {
   competitionRegistrations,
   competitions,
   financeFeeAccruals,
   financeFeeRules,
+  financeManualPaymentProofAttempts,
   financeManualPaymentProofs,
+  financePaymentEvents,
+  financePaymentInstructionSnapshots,
   financePayments,
+  institutionAuditLogs,
   institutionMemberships,
   institutionPaymentInstructions,
   institutions,
@@ -62,6 +71,31 @@ const inRollback = async (body: (tx: Tx) => Promise<void>): Promise<void> => {
 };
 
 /** Runs `body` in a SAVEPOINT and returns the SQLSTATE plus constraint Postgres refused it with. */
+/**
+ * The driver error inside whatever Drizzle threw.
+ *
+ * Drizzle wraps a failed query, so the SQLSTATE is on `cause` rather than on the error itself and
+ * reading `error.code` directly returns undefined against a real database.
+ */
+const driverErrorOf = (error: unknown): { code: string; constraint: string } | null => {
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const e = current as {
+      code?: string;
+      constraint_name?: string;
+      constraint?: string;
+      cause?: unknown;
+    };
+    if (typeof e.code === "string") {
+      return { code: e.code, constraint: e.constraint_name ?? e.constraint ?? "" };
+    }
+    current = e.cause;
+  }
+  return null;
+};
+
+const sqlStateOf = (error: unknown): string | null => driverErrorOf(error)?.code ?? null;
+
 const expectRejection = async (
   tx: Tx,
   body: (tx: Tx) => Promise<unknown>,
@@ -71,19 +105,8 @@ const expectRejection = async (
       await body(nested);
     });
   } catch (error) {
-    let current: unknown = error;
-    for (let depth = 0; current && depth < 5; depth += 1) {
-      const e = current as {
-        code?: string;
-        constraint_name?: string;
-        constraint?: string;
-        cause?: unknown;
-      };
-      if (typeof e.code === "string") {
-        return { code: e.code, constraint: e.constraint_name ?? e.constraint ?? "" };
-      }
-      current = e.cause;
-    }
+    const driver = driverErrorOf(error);
+    if (driver) return driver;
     throw error;
   }
   throw new Error("expected the database to refuse this row, but it was accepted");
@@ -177,6 +200,19 @@ const seedFixture = async (tx: Tx): Promise<Fixture> => {
       effectiveFrom: LAST_MONTH,
     })
     .returning({ id: financeFeeRules.id });
+
+  // The primary tenant can be paid. `createPayment` refuses a PRICED manual payment for an
+  // institution that has published no account, so without this every fixture built here would be
+  // an institution charging money it has given nobody a way to send. The unverified tenant is left
+  // without instructions deliberately — it is the one the charging-gate tests expect to be refused,
+  // and giving it an account would let a broken verification gate pass on the instructions gate's
+  // refusal instead.
+  await tx.insert(institutionPaymentInstructions).values({
+    institutionId: primary.institutionId,
+    bankName: "Bank Contoh",
+    accountNumber: "1234567890",
+    accountHolderName: "Panitia Lomba",
+  });
 
   return {
     ...primary,
@@ -517,8 +553,12 @@ describe.skipIf(skipWithoutDatabase)("institution_payment_instructions (real dat
   it("permits exactly one instructions row per institution", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
+      // The tenant with no instructions of its own, so the FIRST insert below is the one that
+      // succeeds. Pointing this at the primary tenant — which the fixture already gives an account
+      // — would make the first insert the refused one and the test would pass while proving
+      // nothing about the second.
       const values = {
-        institutionId: fixture.institutionId,
+        institutionId: fixture.unverifiedInstitutionId,
         bankName: "BCA",
         accountNumber: "1234567890",
         accountHolderName: "Yayasan Contoh",
@@ -1187,8 +1227,24 @@ describe.skipIf(skipWithoutDatabase)("the proof review loop is CAS-guarded (real
 
       expect(reopened.status).toBe("pending_review");
       expect(reopened.resubmissionCount).toBe(1);
-      // Retained on purpose: the reviewer of attempt two needs to see what attempt one failed on.
-      expect(reopened.rejectionReason).toBe("nominal tidak sesuai");
+
+      // CLEARED on the live row. Attempt one's reason belonged to attempt one; leaving it here
+      // would show the reviewer of attempt two a refusal of a file they are not looking at.
+      expect(reopened.rejectionReason).toBeNull();
+
+      // And PRESERVED where it now belongs, against the attempt it actually judged — together with
+      // the file that attempt uploaded, which the live row has since overwritten.
+      const attempts = await tx
+        .select()
+        .from(financeManualPaymentProofAttempts)
+        .where(eq(financeManualPaymentProofAttempts.proofId, proofId));
+
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0]!.attemptNumber).toBe(0);
+      expect(attempts[0]!.verdict).toBe("rejected");
+      expect(attempts[0]!.verdictReason).toBe("nominal tidak sesuai");
+      expect(attempts[0]!.r2Key).toContain("bukti.jpg");
+      expect(reopened.r2Key).toContain("second.jpg");
     });
   });
 
@@ -1733,15 +1789,9 @@ describe.skipIf(skipWithoutDatabase)("hasActiveFreeRegistrations (real database)
 });
 
 describe.skipIf(skipWithoutDatabase)("payment instructions are only readable when payable", () => {
-  const seedInstructions = async (tx: Tx, institutionId: string): Promise<void> => {
-    await tx.insert(institutionPaymentInstructions).values({
-      institutionId,
-      bankName: "Bank Contoh",
-      accountNumber: "1234567890",
-      accountHolderName: "Panitia Lomba",
-    });
-  };
-
+  // The fixture's primary institution already publishes instructions — a priced manual payment
+  // cannot be created without them — so these tests assert that the COMPETITION's state is what
+  // withholds them, with the instructions themselves known to exist.
   it("returns nothing for a DRAFT competition", async () => {
     // Real bank account details. A draft takes no registrations and therefore no money, so there is
     // no transaction to justify publishing somebody's account number against it.
@@ -1750,7 +1800,6 @@ describe.skipIf(skipWithoutDatabase)("payment instructions are only readable whe
       const { loadPaymentInstructionsForCompetition } = await import(
         "@/server/institutions/payment-instructions-service"
       );
-      await seedInstructions(tx, fixture.institutionId);
 
       expect(
         await loadPaymentInstructionsForCompetition(fixture.competitionId, tx as never),
@@ -1764,7 +1813,6 @@ describe.skipIf(skipWithoutDatabase)("payment instructions are only readable whe
       const { loadPaymentInstructionsForCompetition } = await import(
         "@/server/institutions/payment-instructions-service"
       );
-      await seedInstructions(tx, fixture.institutionId);
       await tx
         .update(competitions)
         .set({ status: "published", deletedAt: NOW })
@@ -1782,7 +1830,6 @@ describe.skipIf(skipWithoutDatabase)("payment instructions are only readable whe
       const { loadPaymentInstructionsForCompetition } = await import(
         "@/server/institutions/payment-instructions-service"
       );
-      await seedInstructions(tx, fixture.institutionId);
       await tx
         .update(competitions)
         .set({ status: "published" })
@@ -1817,12 +1864,25 @@ describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against 
     return row!;
   };
 
-  const priceIt = async (tx: Tx, tenant: Tenant, feeAmount: number | null = 75_000) => {
+  const priceIt = async (
+    tx: Tx,
+    tenant: Tenant,
+    feeAmount: number | null = 75_000,
+    overrides: Record<string, unknown> = {},
+  ) => {
     const { setCompetitionFee } = await import("@/server/competitions/competition-fee-service");
     return setCompetitionFee(
       tenant.userId,
       tenant.competitionId,
-      { feeAmount, feeCurrency: feeAmount === null || feeAmount === 0 ? null : "IDR" },
+      {
+        feeAmount,
+        feeCurrency: feeAmount === null || feeAmount === 0 ? null : "IDR",
+        // Enabling a price requires the organiser to have acknowledged the platform's rate. The
+        // gate itself gets its own tests below; here it is satisfied so the OTHER gates are what
+        // each test is measuring.
+        feeDisclosureAcknowledged: true,
+        ...overrides,
+      },
       tx as never,
       NOW,
     );
@@ -2243,6 +2303,1263 @@ describe.skipIf(skipWithoutDatabase)("cancelCompetitionAsOps — the DEC-0132 es
       await voidPaymentProofAsOps(operatorId, proof!.id, "refunded by bank", tx as never, NOW);
 
       expect(await hasCompetitionPaymentInFlight(fixture.competitionId, tx as never)).toBe(false);
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// CODE DEPLOYED AHEAD OF ITS MIGRATION.
+//
+// The deploy pipeline runs no migrations and performs no schema-drift check, so nothing prevents
+// the payment-creating code reaching an environment that has not applied 0059. Accepting that gap
+// rests ENTIRELY on the failure being atomic and loud rather than partial: a payment row surviving
+// without its instructions snapshot would be a debt whose payer cannot be told where to send the
+// money, and it would look like ordinary data rather than a fault.
+//
+// Asserted here rather than reasoned about, because "the insert is inside the transaction so it
+// must roll back" stays true right up until someone moves the insert — which is the one change
+// this file has to notice.
+//
+// Runs on the OWNER connection. The application role cannot drop a table (42501), which is a real
+// protection worth keeping; a probe asking what happens without the table has to borrow the role
+// that could remove it.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+const ddlClient = TEST_DDL_DATABASE_URL ? postgres(TEST_DDL_DATABASE_URL, { max: 1 }) : null;
+const ddlDb = ddlClient ? drizzle(ddlClient) : null;
+
+afterAll(async () => {
+  await ddlClient?.end();
+});
+
+describe.skipIf(skipWithoutDatabase)("code deployed ahead of migration 0059", () => {
+  /**
+   * Runs `body` with the snapshot table removed, inside a transaction that ALWAYS rolls back.
+   *
+   * Rule 35: this probe removes a table, so it owes a post-condition at least as strong as the
+   * guard it tests. Postgres DDL is transactional, so the rollback restores the table whether the
+   * body passes, fails or throws — there is no teardown step that could itself be skipped, which
+   * is the failure mode a `finally` block still has. `lock_timeout` covers the one thing rollback
+   * cannot: a conflicting lock held by a parallel test file fails this in seconds, never hangs.
+   */
+  const withoutSnapshotTable = async (body: (tx: Tx) => Promise<void>): Promise<void> => {
+    if (!ddlDb) throw new Error("no DDL database");
+    try {
+      await ddlDb.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL lock_timeout = '5s'`);
+
+        try {
+          await tx.execute(sql`DROP TABLE finance_payment_instruction_snapshots`);
+        } catch (error) {
+          // NEVER A SKIP. `TEST_DDL_DATABASE_URL` falls back to `DATABASE_URL`, and locally that is
+          // the application role, which does not own the finance tables — so the single likeliest
+          // misconfiguration of this probe is one where it cannot remove anything. Skipping there
+          // would leave a probe that reports success while doing nothing, against exactly the
+          // failure it exists to catch. It fails, and it names the fix.
+          if (sqlStateOf(error) === "42501") {
+            throw new Error(
+              "This probe must run as the owner of finance_payment_instruction_snapshots and is " +
+                "connected as a role that cannot drop it (42501). Set MIGRATION_DATABASE_URL — " +
+                "TEST_DDL_DATABASE_URL falls back to DATABASE_URL, which locally is the " +
+                "application role. Do NOT relax this into a skip.",
+              { cause: error },
+            );
+          }
+          throw error;
+        }
+
+        const gone = await tx.execute(
+          sql`select 1 from information_schema.tables
+              where table_name = 'finance_payment_instruction_snapshots'`,
+        );
+        // Without this the assertions below would pass against a DROP that silently did nothing.
+        expect([...gone], "the probe did not actually remove the table").toHaveLength(0);
+
+        await body(tx as unknown as Tx);
+        tx.rollback();
+      });
+    } catch (error) {
+      if (!(error instanceof TransactionRollbackError)) throw error;
+    }
+  };
+
+  it("refuses a PRICED payment atomically — no orphan payment row survives", async () => {
+    await withoutSnapshotTable(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { createPayment } = await import("@/server/finance/payment-service");
+
+      await expect(
+        createPayment(
+          {
+            payerUserId: fixture.userId,
+            receivingInstitutionId: fixture.institutionId,
+            origin: "manual_transfer",
+            subject: {
+              type: "competition_registration",
+              competitionRegistrationId: fixture.registrationId,
+            },
+            grossAmount: 1_000_000,
+            currency: "IDR",
+            pricedAt: NOW,
+            dueAt: DUE,
+          },
+          tx as never,
+        ),
+      ).rejects.toThrow();
+
+      // THE WHOLE RULING RESTS ON THIS QUERY, and it is load-bearing in two different ways.
+      //
+      // What it proves directly: no payment row survived the refusal.
+      //
+      // What it proves incidentally, and what actually catches the regression that matters: that
+      // the refusal left this transaction USABLE. Move the snapshot insert outside
+      // `createPayment`'s transaction and the payment insert releases its savepoint before the
+      // failure escapes, poisoning the enclosing transaction — and this SELECT is what goes red,
+      // with 25P02 rather than a row count.
+      //
+      // Verified by performing that move and watching this test fail. Stated explicitly because a
+      // rollback harness structurally CANNOT observe the orphan itself: everything here runs inside
+      // one real transaction, so a leaked write and a rolled-back one are indistinguishable by row
+      // count. The transaction's health is the observable that separates them.
+      const orphans = await tx
+        .select({ id: financePayments.id })
+        .from(financePayments)
+        .where(eq(financePayments.competitionRegistrationId, fixture.registrationId));
+
+      expect(orphans, "a payment survived without its instructions snapshot").toHaveLength(0);
+    });
+  });
+
+  it("leaves the FREE registration path untouched", async () => {
+    // A zero-gross payment takes no snapshot, so the absent table is not on its path at all. This
+    // is what bounds the accepted gap: an environment behind on 0059 loses paid registration, and
+    // free registration — the overwhelming majority of the product — is unaffected.
+    await withoutSnapshotTable(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { createPayment } = await import("@/server/finance/payment-service");
+
+      const payment = await createPayment(
+        {
+          payerUserId: fixture.userId,
+          receivingInstitutionId: fixture.institutionId,
+          origin: "manual_transfer",
+          subject: {
+            type: "competition_registration",
+            competitionRegistrationId: fixture.registrationId,
+          },
+          grossAmount: 0,
+          currency: "IDR",
+          pricedAt: NOW,
+          dueAt: DUE,
+        },
+        tx as never,
+      );
+
+      expect(payment.grossAmount).toBe(0);
+    });
+  });
+
+  it("puts the table back, so the probe leaves the database as it found it", async () => {
+    // Rule 35's post-condition, asserted on a DIFFERENT connection from the one that removed the
+    // table and after the transactions that removed it. Last in the block so it observes what the
+    // two probes above actually left behind.
+    if (!db) throw new Error("no database");
+
+    const present = await db.execute(
+      sql`select 1 from information_schema.tables
+          where table_name = 'finance_payment_instruction_snapshots'`,
+    );
+
+    expect([...present], "the probe dropped a finance table and did not restore it").toHaveLength(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// THE CHARGING GATE, REACHED THROUGH THE REAL REGISTRATION PATH.
+//
+// `createPayment` carries two guards — the institution must be verified, and it must have published
+// an account to be paid into. Both were already unit-tested against `createPayment` called
+// directly. That proves the FUNCTION and not the WIRING, and the wiring is where this project's
+// worst defect lived: six passing tests over a block that had never once executed because the
+// caller never populated the fields it read.
+//
+// So every test here starts at `createIndividualRegistration` — the function the route calls — and
+// never constructs a payment input by hand.
+//
+// Each refusal also asserts NO REGISTRATION ROW SURVIVES, which is the guard-MOVE detector: move
+// `createRegistrationPayment` outside the registration's transaction and the registration commits
+// while the payment is refused, leaving a candidate registered for a competition that could not
+// price them.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe.skipIf(skipWithoutDatabase)("registering for a priced competition", () => {
+  const REGISTRATION_CLOSES = new Date("2026-09-30T00:00:00.000Z");
+
+  /** A published competition a fresh candidate can actually register for. */
+  const seedRegisterable = async (
+    tx: Tx,
+    options: { verified: boolean; withInstructions: boolean; feeAmount: number | null },
+  ) => {
+    const tenant = await seedTenant(tx, "reg", options.verified);
+    const id = uniqueSuffix();
+
+    if (options.withInstructions) {
+      await tx.insert(institutionPaymentInstructions).values({
+        institutionId: tenant.institutionId,
+        bankName: "Bank Contoh",
+        accountNumber: "1234567890",
+        accountHolderName: "Panitia Lomba",
+      });
+    }
+
+    await tx.insert(financeFeeRules).values({
+      institutionId: tenant.institutionId,
+      currency: "IDR",
+      basisPoints: 250,
+      flatAmount: 0,
+      effectiveFrom: LAST_MONTH,
+    });
+
+    await tx
+      .update(competitions)
+      .set({
+        status: "published",
+        mode: "individual",
+        registrationEndAt: REGISTRATION_CLOSES,
+        feeAmount: options.feeAmount,
+        feeCurrency: options.feeAmount === null ? null : "IDR",
+        paymentWindowDays: 3,
+      })
+      .where(eq(competitions.id, tenant.competitionId));
+
+    // A candidate with no registration of their own — the fixture's own user already holds one.
+    const [candidate] = await tx
+      .insert(users)
+      .values({
+        email: `candidate_${id}@example.test`,
+        username: `candidate_${id}`,
+        candidateVerifiedAt: NOW,
+      })
+      .returning({ id: users.id });
+
+    return { ...tenant, candidateUserId: candidate!.id };
+  };
+
+  const registrationsFor = async (tx: Tx, candidateUserId: string) =>
+    tx
+      .select({ id: competitionRegistrations.id })
+      .from(competitionRegistrations)
+      .where(eq(competitionRegistrations.studentId, candidateUserId));
+
+  it("records the payment, its deadline and its instructions snapshot in one go", async () => {
+    // The positive control. Without it every refusal below would also pass against a gate that
+    // refused unconditionally.
+    await inRollback(async (tx) => {
+      const fixture = await seedRegisterable(tx, {
+        verified: true,
+        withInstructions: true,
+        feeAmount: 150_000,
+      });
+      const { createIndividualRegistration } = await import(
+        "@/server/registrations/registration-service"
+      );
+
+      const registration = await createIndividualRegistration(
+        fixture.candidateUserId,
+        fixture.competitionId,
+        tx as never,
+        NOW,
+      );
+
+      const [payment] = await tx
+        .select()
+        .from(financePayments)
+        .where(eq(financePayments.competitionRegistrationId, registration.id));
+
+      expect(payment, "a priced registration was created with no payment").toBeDefined();
+      expect(payment!.grossAmount).toBe(150_000);
+      expect(payment!.origin).toBe("manual_transfer");
+      // The manual lane splits nothing: the payer transfers the whole amount to the organiser.
+      expect(payment!.platformFeeAmount).toBe(0);
+      expect(payment!.institutionNetAmount).toBe(150_000);
+      // Three days from registration, which lands before registration closes and so is not clamped.
+      expect(payment!.dueAt?.toISOString()).toBe("2026-08-13T00:00:00.000Z");
+
+      const [snapshot] = await tx
+        .select()
+        .from(financePaymentInstructionSnapshots)
+        .where(eq(financePaymentInstructionSnapshots.paymentId, payment!.id));
+
+      expect(snapshot, "the payer was given no record of where to send the money").toBeDefined();
+      expect(snapshot!.accountNumber).toBe("1234567890");
+      // Same transaction, so both rows read one clock. Equality of instants is not by itself proof
+      // of atomicity — that is asserted separately, by removing the snapshot table.
+      expect(snapshot!.capturedAt.toISOString()).toBe(payment!.createdAt.toISOString());
+    });
+  });
+
+  it("REFUSES when the institution is unverified, and registers nobody", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedRegisterable(tx, {
+        verified: false,
+        withInstructions: true,
+        feeAmount: 150_000,
+      });
+      const { createIndividualRegistration } = await import(
+        "@/server/registrations/registration-service"
+      );
+
+      await expect(
+        createIndividualRegistration(
+          fixture.candidateUserId,
+          fixture.competitionId,
+          tx as never,
+          NOW,
+        ),
+      ).rejects.toMatchObject({ code: "registration_payment_unavailable" });
+
+      expect(
+        await registrationsFor(tx, fixture.candidateUserId),
+        "the candidate is registered for a competition that could not charge them",
+      ).toHaveLength(0);
+    });
+  });
+
+  it("REFUSES when the institution has published no account, and registers nobody", async () => {
+    // A separate guard from verification, and a separately reachable one: a verified institution
+    // that never filled the instructions form would otherwise take a registration and leave the
+    // candidate owing money with no account to send it to.
+    await inRollback(async (tx) => {
+      const fixture = await seedRegisterable(tx, {
+        verified: true,
+        withInstructions: false,
+        feeAmount: 150_000,
+      });
+      const { createIndividualRegistration } = await import(
+        "@/server/registrations/registration-service"
+      );
+
+      await expect(
+        createIndividualRegistration(
+          fixture.candidateUserId,
+          fixture.competitionId,
+          tx as never,
+          NOW,
+        ),
+      ).rejects.toMatchObject({ code: "registration_payment_unavailable" });
+
+      expect(
+        await registrationsFor(tx, fixture.candidateUserId),
+        "the candidate is registered but has nowhere to pay",
+      ).toHaveLength(0);
+    });
+  });
+
+  it("lets a FREE competition register with no payment row and neither guard applied", async () => {
+    // Verification gates the right to CHARGE, never the right to run a competition. This fixture
+    // fails BOTH guards — unverified, no account — and must still register, because a free
+    // competition asks nobody for money.
+    await inRollback(async (tx) => {
+      const fixture = await seedRegisterable(tx, {
+        verified: false,
+        withInstructions: false,
+        feeAmount: null,
+      });
+      const { createIndividualRegistration } = await import(
+        "@/server/registrations/registration-service"
+      );
+
+      const registration = await createIndividualRegistration(
+        fixture.candidateUserId,
+        fixture.competitionId,
+        tx as never,
+        NOW,
+      );
+
+      expect(registration.status).toBe("confirmed");
+
+      const payments = await tx
+        .select({ id: financePayments.id })
+        .from(financePayments)
+        .where(eq(financePayments.competitionRegistrationId, registration.id));
+
+      // Not a zero-gross row — none at all. A free registration has no debt to record.
+      expect(payments, "a free registration recorded a payment").toHaveLength(0);
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// THE PAYMENT DEADLINE LAPSING.
+//
+// The sweep ends registrations nobody paid for. What it must NOT do is end one belonging to a
+// candidate who transferred real money — so most of these tests are about when it declines.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe.skipIf(skipWithoutDatabase)("the payment expiry sweep", () => {
+  // DUE is 2026-08-13; sweeping from here is a day past it.
+  const AFTER_DEADLINE = new Date("2026-08-14T00:00:00.000Z");
+
+  const sweep = async (tx: Tx, at: Date = AFTER_DEADLINE) => {
+    const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+    return sweepExpiredPayments(at, tx as never);
+  };
+
+  const registrationStatus = async (tx: Tx, registrationId: string) => {
+    const [row] = await tx
+      .select({
+        status: competitionRegistrations.status,
+        reason: competitionRegistrations.cancellationReason,
+      })
+      .from(competitionRegistrations)
+      .where(eq(competitionRegistrations.id, registrationId));
+    return row!;
+  };
+
+  const expiredEventsFor = async (tx: Tx, paymentId: string) =>
+    tx
+      .select({ id: financePaymentEvents.id })
+      .from(financePaymentEvents)
+      .where(
+        and(
+          eq(financePaymentEvents.paymentId, paymentId),
+          eq(financePaymentEvents.eventType, "expired"),
+        ),
+      );
+
+  it("ends an unpaid registration and marks it separably from a withdrawal", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      const result = await sweep(tx);
+
+      expect(result.expired.map((o) => o.paymentId)).toContain(paymentId);
+      expect(await expiredEventsFor(tx, paymentId)).toHaveLength(1);
+
+      const registration = await registrationStatus(tx, fixture.registrationId);
+      expect(registration.status).toBe("cancelled");
+      // A distinct sentinel, not prose. Every later report has to separate "the candidate withdrew"
+      // from "nobody paid", and a free-text sentence cannot be filtered on.
+      expect(registration.reason).toBe("payment_deadline_expired");
+    });
+  });
+
+  it("SUSPENDS expiry while a bukti transfer is awaiting review", async () => {
+    // The rule that matters most here. The deadline governs SUBMISSION, never the organiser's
+    // verdict — a candidate who transferred and uploaded in time must never be cancelled because
+    // the organiser was slow. Delete the pending-proof re-check and this test fails.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      await seedProof(tx, fixture, paymentId);
+
+      const result = await sweep(tx);
+
+      expect(result.expired).toHaveLength(0);
+      expect(await expiredEventsFor(tx, paymentId)).toHaveLength(0);
+      expect((await registrationStatus(tx, fixture.registrationId)).status).toBe("confirmed");
+    });
+  });
+
+  it("leaves a payment that already succeeded alone", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      await tx.insert(financePaymentEvents).values({
+        paymentId,
+        eventType: "succeeded",
+        occurredAt: NOW,
+        amount: 1_000_000,
+        currency: "IDR",
+        actorType: "system",
+        idempotencyKey: `mn:succeeded:${paymentId}:0`,
+      });
+
+      const result = await sweep(tx);
+
+      expect(result.expired).toHaveLength(0);
+      expect((await registrationStatus(tx, fixture.registrationId)).status).toBe("confirmed");
+    });
+  });
+
+  it("leaves a payment whose deadline has not passed alone", async () => {
+    // The negative control. Without it every assertion above would also pass against a sweep that
+    // expired everything it could reach.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      const result = await sweep(tx, new Date("2026-08-11T00:00:00.000Z"));
+
+      expect(result.expired).toHaveLength(0);
+      expect(await expiredEventsFor(tx, paymentId)).toHaveLength(0);
+    });
+  });
+
+  it("writes ONE expired event however many times it sweeps", async () => {
+    // The sweep is scheduled, so the same overdue payment is revisited by retries, overlapping
+    // runs and redeploys. A second visit must collapse onto the first event, not append another to
+    // a ledger with no delete path.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      await sweep(tx);
+      await sweep(tx);
+      await sweep(tx);
+
+      expect(await expiredEventsFor(tx, paymentId)).toHaveLength(1);
+    });
+  });
+
+  it("ends EVERY member's registration when a team's payment lapses", async () => {
+    // A team pays once, so a lapsed team payment ends the whole roster. Leaving three members
+    // "registered" for a competition their team never paid for would be worse than cancelling them.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+
+      const [team] = await tx
+        .insert(teams)
+        .values({
+          competitionId: fixture.competitionId,
+          captainId: fixture.userId,
+          name: `Tim ${uniqueSuffix()}`,
+          status: "submitted",
+        })
+        .returning({ id: teams.id });
+
+      const memberIds: string[] = [];
+      for (let index = 0; index < 3; index += 1) {
+        const suffix = uniqueSuffix();
+        const [member] = await tx
+          .insert(users)
+          .values({
+            email: `member_${suffix}@example.test`,
+            username: `member_${suffix}`,
+            candidateVerifiedAt: NOW,
+          })
+          .returning({ id: users.id });
+
+        const [registration] = await tx
+          .insert(competitionRegistrations)
+          .values({
+            competitionId: fixture.competitionId,
+            studentId: member!.id,
+            teamId: team!.id,
+            registrationType: "team",
+            status: "confirmed",
+          })
+          .returning({ id: competitionRegistrations.id });
+
+        memberIds.push(registration!.id);
+      }
+
+      // One payment for the whole team, anchored on the first member's row.
+      await seedManualPayment(tx, fixture, { competitionRegistrationId: memberIds[0]! });
+
+      const result = await sweep(tx);
+
+      expect(result.expired).toHaveLength(1);
+      expect(result.expired[0]!.registrationsCancelled).toBe(3);
+
+      for (const registrationId of memberIds) {
+        expect((await registrationStatus(tx, registrationId)).status).toBe("cancelled");
+      }
+    });
+  });
+});
+
+describe.skipIf(skipWithoutDatabase)("what a candidate is told about money they owe", () => {
+  const view = async (tx: Tx, registrationId: string, userId: string) => {
+    const { loadCandidatePaymentView } = await import("@/server/finance/candidate-payment-view");
+    return loadCandidatePaymentView(registrationId, userId, tx as never);
+  };
+
+  /** The fixture's own registration converted to a team, plus one more member. */
+  const seedTeamOf = async (tx: Tx, fixture: Fixture) => {
+    const id = uniqueSuffix();
+
+    const [team] = await tx
+      .insert(teams)
+      .values({
+        competitionId: fixture.competitionId,
+        captainId: fixture.userId,
+        name: `Tim ${id}`,
+        status: "submitted",
+      })
+      .returning({ id: teams.id });
+
+    await tx
+      .update(competitionRegistrations)
+      .set({ registrationType: "team", teamId: team!.id })
+      .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+    const [member] = await tx
+      .insert(users)
+      .values({
+        email: `mate_${id}@example.test`,
+        username: `mate_${id}`,
+        candidateVerifiedAt: NOW,
+      })
+      .returning({ id: users.id });
+
+    const [memberRegistration] = await tx
+      .insert(competitionRegistrations)
+      .values({
+        competitionId: fixture.competitionId,
+        studentId: member!.id,
+        registrationType: "team",
+        teamId: team!.id,
+      })
+      .returning({ id: competitionRegistrations.id });
+
+    return { memberUserId: member!.id, memberRegistrationId: memberRegistration!.id };
+  };
+
+  it("shows the payer what is owed, where to send it, and by when", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      await tx.insert(financePaymentInstructionSnapshots).values({
+        paymentId,
+        bankName: "Bank Contoh",
+        accountNumber: "1234567890",
+        accountHolderName: "Panitia Lomba",
+      });
+
+      const result = await view(tx, fixture.registrationId, fixture.userId);
+
+      expect(result).not.toBeNull();
+      expect(result!.grossAmount).toBe(1_000_000);
+      expect(result!.currency).toBe("IDR");
+      expect(result!.dueAt?.toISOString()).toBe(DUE.toISOString());
+      expect(result!.instructions?.accountNumber).toBe("1234567890");
+      expect(result!.isPayer).toBe(true);
+      expect(result!.canSubmitProof).toBe(true);
+    });
+  });
+
+  it("reads the SNAPSHOT, so an organiser changing banks cannot repoint a payer mid-transfer", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      await tx.insert(financePaymentInstructionSnapshots).values({
+        paymentId,
+        bankName: "Bank Contoh",
+        accountNumber: "1234567890",
+        accountHolderName: "Panitia Lomba",
+      });
+
+      // The institution moves its account AFTER the payment was created.
+      await tx
+        .update(institutionPaymentInstructions)
+        .set({ accountNumber: "9999999999", bankName: "Bank Lain" })
+        .where(eq(institutionPaymentInstructions.institutionId, fixture.institutionId));
+
+      const result = await view(tx, fixture.registrationId, fixture.userId);
+
+      // The payer still sees the account they agreed to pay. Reading the live row here would send
+      // real money to an account the payer never saw, and the platform would have moved it.
+      expect(result!.instructions?.accountNumber).toBe("1234567890");
+      expect(result!.instructions?.bankName).toBe("Bank Contoh");
+    });
+  });
+
+  it("shows EVERY team member the team's one payment, not just the captain", async () => {
+    // A team pays once, anchored on the captain's row. Scoping this read to the caller's own
+    // registration would tell three of four members their team owes nothing.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedManualPayment(tx, fixture);
+      const { memberUserId, memberRegistrationId } = await seedTeamOf(tx, fixture);
+
+      const result = await view(tx, memberRegistrationId, memberUserId);
+
+      expect(result).not.toBeNull();
+      expect(result!.grossAmount).toBe(1_000_000);
+    });
+  });
+
+  it("answers a teammate who asks using the CAPTAIN'S registration id", async () => {
+    // The scope is asked of the payment GROUP, not of the registration that was named, and this is
+    // the only test that can tell the two apart: a member passing their OWN id is matched by either
+    // version. Narrow the WHERE to `id = registrationId` and this goes red while every other test
+    // here stays green — which is exactly how the weaker scope would have shipped.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedManualPayment(tx, fixture);
+      const { memberUserId } = await seedTeamOf(tx, fixture);
+
+      const result = await view(tx, fixture.registrationId, memberUserId);
+
+      expect(result).not.toBeNull();
+      expect(result!.isPayer).toBe(false);
+    });
+  });
+
+  it("WITHHOLDS the upload affordance from a teammate who is not the payer", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedManualPayment(tx, fixture);
+      const { memberUserId, memberRegistrationId } = await seedTeamOf(tx, fixture);
+
+      const result = await view(tx, memberRegistrationId, memberUserId);
+
+      // Withheld, not rendered-and-refused: `submitManualPaymentProof` filters on the payer, so a
+      // control offered here could only ever fail. The teammate still sees what is owed.
+      expect(result!.isPayer).toBe(false);
+      expect(result!.canSubmitProof).toBe(false);
+      expect(result!.canResubmitProof).toBe(false);
+    });
+  });
+
+  it("tells a candidate from another institution nothing at all", async () => {
+    // The cross-tenant negative, against a SECOND real institution rather than a contrived id. A
+    // single-tenant fixture cannot catch a missing scope: every id it has belongs to the same
+    // tenant, so an unscoped query looks correct.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedManualPayment(tx, fixture);
+
+      const result = await view(tx, fixture.registrationId, fixture.other.userId);
+
+      expect(result).toBeNull();
+    });
+  });
+
+  it("tells a candidate nothing about a registration that is not theirs in their own tenant", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedManualPayment(tx, fixture);
+      const { memberUserId } = await seedTeamOf(tx, fixture);
+
+      // A real user, a real payment, but a registration in a group they do not belong to. Seeded by
+      // pointing the other tenant's registration at this user's id would be a contrivance; instead
+      // the teammate asks about the OTHER tenant's registration.
+      const result = await view(tx, fixture.other.registrationId, memberUserId);
+
+      expect(result).toBeNull();
+    });
+  });
+
+  it("says nothing to pay for a free competition", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      // A zero-gross row: a free registration that happens to have been recorded. Row existence is
+      // not the predicate.
+      await seedManualPayment(tx, fixture, { grossAmount: 0, institutionNetAmount: 0 });
+
+      expect(await view(tx, fixture.registrationId, fixture.userId)).toBeNull();
+    });
+  });
+
+  it("offers resubmission after a rejection the organiser left open, and withholds it after a bar", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proofId = await seedProof(tx, fixture, paymentId, {
+        status: "rejected",
+        rejectionReason: "Nominal tidak cocok",
+        reviewerUserId: fixture.userId,
+        reviewedAt: NOW,
+        resubmissionAllowed: true,
+      });
+
+      const open = await view(tx, fixture.registrationId, fixture.userId);
+      expect(open!.canResubmitProof).toBe(true);
+      expect(open!.canSubmitProof).toBe(false);
+
+      await tx
+        .update(financeManualPaymentProofs)
+        .set({ resubmissionAllowed: false })
+        .where(eq(financeManualPaymentProofs.id, proofId));
+
+      const barred = await view(tx, fixture.registrationId, fixture.userId);
+      expect(barred!.canResubmitProof).toBe(false);
+    });
+  });
+
+  it("offers resubmission after a VOID even though the organiser barred it", async () => {
+    // The void arm ignores the bar deliberately: the bar was set against the organiser's own
+    // rejection, and a void is platform_ops correcting something else. Without this the payer is
+    // stranded — nothing in flight, no way to refile, and the deadline still running.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      await seedProof(tx, fixture, paymentId, {
+        status: "voided",
+        reviewerUserId: fixture.userId,
+        reviewedAt: NOW,
+        resubmissionAllowed: false,
+      });
+
+      const result = await view(tx, fixture.registrationId, fixture.userId);
+
+      expect(result!.canResubmitProof).toBe(true);
+    });
+  });
+
+  it("WITHHOLDS everything once the payment has succeeded", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      const { appendPaymentEvent } = await import("@/server/finance/payment-service");
+      await appendPaymentEvent(
+        { type: "system" },
+        {
+          paymentId,
+          eventType: "succeeded",
+          occurredAt: NOW,
+          amount: 1_000_000,
+          currency: "IDR",
+          idempotencyKey: `mn:succeeded:${paymentId}:0`,
+        },
+        tx as never,
+      );
+
+      const result = await view(tx, fixture.registrationId, fixture.userId);
+
+      expect(result!.status).toBe("succeeded");
+      expect(result!.canSubmitProof).toBe(false);
+      expect(result!.canResubmitProof).toBe(false);
+    });
+  });
+
+  it("WITHHOLDS everything once the registration has been cancelled", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedManualPayment(tx, fixture);
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "cancelled", cancelledAt: NOW, cancellationReason: "payment_deadline_expired" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+      const result = await view(tx, fixture.registrationId, fixture.userId);
+
+      expect(result!.canSubmitProof).toBe(false);
+    });
+  });
+});
+
+// THE ORGANISER REVIEW SURFACE, from both sides of the tenant boundary.
+//
+// Every negative here is exercised in BOTH directions with two DIFFERENT outsiders, because one
+// standing in for both cannot distinguish "the scope works" from "this particular fixture happens
+// not to match". The two directions are also not symmetric in practice: an admin of A reaching for
+// D's proof is the accidental case (a stale link, a copied id), and an admin of D reaching for A's
+// proof is the deliberate one.
+describe.skipIf(skipWithoutDatabase)("organiser payment review across tenants (real database)", () => {
+  const paymentValuesFor = (fixture: Fixture, tenant: Tenant) =>
+    manualPaymentValues(fixture, {
+      payerUserId: tenant.userId,
+      receivingInstitutionId: tenant.institutionId,
+      competitionRegistrationId: tenant.registrationId,
+    });
+
+  /** A manual payment plus one pending bukti transfer, owned by `tenant`. */
+  const seedPendingProof = async (
+    tx: Tx,
+    fixture: Fixture,
+    tenant: Tenant,
+  ): Promise<{ paymentId: string; proofId: string }> => {
+    const [payment] = await tx
+      .insert(financePayments)
+      .values(paymentValuesFor(fixture, tenant))
+      .returning({ id: financePayments.id });
+
+    const [proof] = await tx
+      .insert(financeManualPaymentProofs)
+      .values({
+        paymentId: payment!.id,
+        competitionId: tenant.competitionId,
+        submittedByUserId: tenant.userId,
+        status: "pending_review" as const,
+        r2Key: `payment-proofs/${tenant.competitionId}/${payment!.id}/file`,
+        originalFileName: "bukti.jpg",
+        fileSizeBytes: 1024,
+        contentType: "image/jpeg",
+      })
+      .returning({ id: financeManualPaymentProofs.id });
+
+    return { paymentId: payment!.id, proofId: proof!.id };
+  };
+
+  const statusOf = async (tx: Tx, proofId: string): Promise<string> => {
+    const [row] = await tx
+      .select({ status: financeManualPaymentProofs.status })
+      .from(financeManualPaymentProofs)
+      .where(eq(financeManualPaymentProofs.id, proofId))
+      .limit(1);
+    return row!.status;
+  };
+
+  describe("loadOrganiserPaymentQueue", () => {
+    it("shows an institution its OWN competition's proofs", async () => {
+      // The positive that makes the two negatives below mean something. Without it they would pass
+      // against a function that returns an empty array unconditionally.
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { proofId } = await seedPendingProof(tx, fixture, fixture);
+        const { loadOrganiserPaymentQueue } = await import(
+          "@/server/finance/organiser-payment-review"
+        );
+
+        const queue = await loadOrganiserPaymentQueue(
+          fixture.institutionId,
+          fixture.competitionId,
+          tx as unknown as Database,
+        );
+
+        expect(queue.map((row) => row.proofId)).toEqual([proofId]);
+      });
+    });
+
+    it("shows an admin of A nothing when they ask for D's competition", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        await seedPendingProof(tx, fixture, fixture.other);
+        const { loadOrganiserPaymentQueue } = await import(
+          "@/server/finance/organiser-payment-review"
+        );
+
+        const queue = await loadOrganiserPaymentQueue(
+          fixture.institutionId,
+          fixture.other.competitionId,
+          tx as unknown as Database,
+        );
+
+        expect(queue).toEqual([]);
+      });
+    });
+
+    it("shows an admin of D nothing when they ask for A's competition", async () => {
+      // The other direction, with the other outsider. Not the same assertion twice: this one fails
+      // if the scope is written against the PROOF's institution rather than the competition's.
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        await seedPendingProof(tx, fixture, fixture);
+        const { loadOrganiserPaymentQueue } = await import(
+          "@/server/finance/organiser-payment-review"
+        );
+
+        const queue = await loadOrganiserPaymentQueue(
+          fixture.other.institutionId,
+          fixture.competitionId,
+          tx as unknown as Database,
+        );
+
+        expect(queue).toEqual([]);
+      });
+    });
+
+    it("never carries the payer's email, only a display name", async () => {
+      // An organiser reviewing a transfer needs to know whose it is, not how to reach them off
+      // platform. Asserted on the serialised row so a future column addition cannot slip one in.
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        await seedPendingProof(tx, fixture, fixture);
+        const { loadOrganiserPaymentQueue } = await import(
+          "@/server/finance/organiser-payment-review"
+        );
+
+        const [row] = await loadOrganiserPaymentQueue(
+          fixture.institutionId,
+          fixture.competitionId,
+          tx as unknown as Database,
+        );
+
+        expect(JSON.stringify(row)).not.toContain("@example.test");
+        expect(row!.payer.displayName).toContain("manual_");
+      });
+    });
+  });
+
+  describe("verifyManualPaymentProof", () => {
+    it("verifies a proof on the institution's own competition", async () => {
+      // The positive. Both negatives below assert a refusal, and a refusal proves nothing unless
+      // the same call succeeds when it should.
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { proofId } = await seedPendingProof(tx, fixture, fixture);
+        const { verifyManualPaymentProof } = await import(
+          "@/server/finance/manual-payment-proof-service"
+        );
+
+        await verifyManualPaymentProof(
+          fixture.institutionId,
+          fixture.userId,
+          proofId,
+          tx as unknown as Database,
+          NOW,
+        );
+
+        expect(await statusOf(tx, proofId)).toBe("verified");
+      });
+    });
+
+    it("REFUSES an admin of A verifying D's proof, and leaves the proof untouched", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { proofId } = await seedPendingProof(tx, fixture, fixture.other);
+        const { verifyManualPaymentProof, ManualProofError } = await import(
+          "@/server/finance/manual-payment-proof-service"
+        );
+
+        await expect(
+          verifyManualPaymentProof(
+            fixture.institutionId,
+            fixture.userId,
+            proofId,
+            tx as unknown as Database,
+            NOW,
+          ),
+        ).rejects.toBeInstanceOf(ManualProofError);
+
+        // The post-condition, not just the throw. A guard that refuses AFTER writing is not a guard.
+        expect(await statusOf(tx, proofId)).toBe("pending_review");
+      });
+    });
+
+    it("REFUSES an admin of D verifying A's proof, and leaves the proof untouched", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { proofId } = await seedPendingProof(tx, fixture, fixture);
+        const { verifyManualPaymentProof, ManualProofError } = await import(
+          "@/server/finance/manual-payment-proof-service"
+        );
+
+        await expect(
+          verifyManualPaymentProof(
+            fixture.other.institutionId,
+            fixture.other.userId,
+            proofId,
+            tx as unknown as Database,
+            NOW,
+          ),
+        ).rejects.toBeInstanceOf(ManualProofError);
+
+        expect(await statusOf(tx, proofId)).toBe("pending_review");
+      });
+    });
+
+    it("writes NO ledger event and NO fee accrual for the payment when the verify is refused", async () => {
+      // The consequence that makes this boundary worth guarding: verifying is not a status change,
+      // it is a declaration that money arrived — a `succeeded` event and a platform fee accrual,
+      // both in an append-only ledger with no delete.
+      //
+      // Scoped to the PAYMENT, not to the outsider's institution. A first version asked whether an
+      // accrual existed against `other.institutionId` and stayed green with the guard removed, for
+      // a reason that had nothing to do with the guard: `owingInstitutionId` is copied from the
+      // payment's `receivingInstitutionId`, so an accrual can never carry the reviewer's id and
+      // that query could never return a row either way.
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { paymentId, proofId } = await seedPendingProof(tx, fixture, fixture);
+        const { verifyManualPaymentProof } = await import(
+          "@/server/finance/manual-payment-proof-service"
+        );
+
+        await verifyManualPaymentProof(
+          fixture.other.institutionId,
+          fixture.other.userId,
+          proofId,
+          tx as unknown as Database,
+          NOW,
+        ).catch(() => undefined);
+
+        const accruals = await tx
+          .select({ id: financeFeeAccruals.id })
+          .from(financeFeeAccruals)
+          .where(eq(financeFeeAccruals.paymentId, paymentId));
+
+        const events = await tx
+          .select({ type: financePaymentEvents.eventType })
+          .from(financePaymentEvents)
+          .where(eq(financePaymentEvents.paymentId, paymentId));
+
+        expect(accruals).toEqual([]);
+        expect(events.map((event) => event.type)).not.toContain("succeeded");
+      });
+    });
+
+    it("refuses a foreign PENDING proof and a foreign SETTLED proof INDISTINGUISHABLY", async () => {
+      // THE MOVE DETECTOR, and the reason it takes this shape rather than an assertion about the
+      // row: the service does its work inside a transaction, so a tenant check moved BELOW the
+      // write still rolls the write back, and every post-state assertion above stays green. What a
+      // move cannot preserve is this — with the scope inside the CAS's WHERE, a foreign proof
+      // matches no row whatever state it is in, so both cases return the identical "not pending"
+      // refusal. Move the scope to a check after the update and the pending one now reaches that
+      // check and answers differently from the settled one, which both fails this test and hands an
+      // outsider an oracle for whether a proof exists and is awaiting review.
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const pending = await seedPendingProof(tx, fixture, fixture);
+        const settled = await seedPendingProof(tx, fixture, fixture);
+
+        await tx
+          .update(financeManualPaymentProofs)
+          .set({ status: "verified", reviewerUserId: fixture.userId, reviewedAt: NOW })
+          .where(eq(financeManualPaymentProofs.id, settled.proofId));
+
+        const { verifyManualPaymentProof, ManualProofError } = await import(
+          "@/server/finance/manual-payment-proof-service"
+        );
+
+        const refusalFor = async (proofId: string) => {
+          try {
+            await verifyManualPaymentProof(
+              fixture.other.institutionId,
+              fixture.other.userId,
+              proofId,
+              tx as unknown as Database,
+              NOW,
+            );
+            return null;
+          } catch (error) {
+            if (!(error instanceof ManualProofError)) throw error;
+            return { code: error.code, status: error.status, message: error.message };
+          }
+        };
+
+        const onPending = await refusalFor(pending.proofId);
+        const onSettled = await refusalFor(settled.proofId);
+
+        expect(onPending).not.toBeNull();
+        expect(onPending).toEqual(onSettled);
+      });
+    });
+  });
+
+  describe("generateManualProofViewUrl", () => {
+    const accessRowsFor = async (tx: Tx, institutionId: string) =>
+      tx
+        .select({ id: institutionAuditLogs.id })
+        .from(institutionAuditLogs)
+        .where(
+          and(
+            eq(institutionAuditLogs.institutionId, institutionId),
+            eq(institutionAuditLogs.action, "payment_proof.file_accessed"),
+          ),
+        );
+
+    it("gets PAST the boundary for the institution's own proof", async () => {
+      // The positive, stated as what it can honestly claim. Minting the URL needs object storage,
+      // which a local checkout may not have configured, so this asserts the boundary was cleared
+      // rather than that a URL came back: any refusal here must NOT be the not-found the tenant
+      // scope raises. Without this the negative below would pass against a function that throws
+      // unconditionally.
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { proofId } = await seedPendingProof(tx, fixture, fixture);
+        const { generateManualProofViewUrl } = await import(
+          "@/server/finance/manual-payment-proof-service"
+        );
+
+        const outcome = await generateManualProofViewUrl(
+          fixture.institutionId,
+          fixture.userId,
+          proofId,
+          tx as unknown as Database,
+        ).catch((error: unknown) => error);
+
+        const code = outcome instanceof Error ? (outcome as { code?: string }).code : null;
+        expect(code).not.toBe("manual_proof_not_found");
+      });
+    });
+
+    it("RECORDS NO ACCESS when an outsider asks to view a proof", async () => {
+      // An audit row for a refused read is worse than none: it puts an access in the record that
+      // never happened, against an organiser who was turned away.
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { proofId } = await seedPendingProof(tx, fixture, fixture);
+        const { generateManualProofViewUrl } = await import(
+          "@/server/finance/manual-payment-proof-service"
+        );
+
+        await generateManualProofViewUrl(
+          fixture.other.institutionId,
+          fixture.other.userId,
+          proofId,
+          tx as unknown as Database,
+        ).catch(() => undefined);
+
+        expect(await accessRowsFor(tx, fixture.other.institutionId)).toEqual([]);
+        // Nor against the owning institution — a refused outsider must leave no trace anywhere,
+        // least of all one that reads as the owner having opened their own file.
+        expect(await accessRowsFor(tx, fixture.institutionId)).toEqual([]);
+      });
+    });
+  });
+
+  describe("rejectManualPaymentProof", () => {
+    it("REFUSES an admin of A rejecting D's proof, and leaves the proof untouched", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { proofId } = await seedPendingProof(tx, fixture, fixture.other);
+        const { rejectManualPaymentProof, ManualProofError } = await import(
+          "@/server/finance/manual-payment-proof-service"
+        );
+
+        await expect(
+          rejectManualPaymentProof(
+            fixture.institutionId,
+            fixture.userId,
+            proofId,
+            "Nominal tidak cocok",
+            true,
+            tx as unknown as Database,
+            NOW,
+          ),
+        ).rejects.toBeInstanceOf(ManualProofError);
+
+        expect(await statusOf(tx, proofId)).toBe("pending_review");
+      });
+    });
+
+    it("REFUSES an admin of D rejecting A's proof, and leaves the proof untouched", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { proofId } = await seedPendingProof(tx, fixture, fixture);
+        const { rejectManualPaymentProof, ManualProofError } = await import(
+          "@/server/finance/manual-payment-proof-service"
+        );
+
+        await expect(
+          rejectManualPaymentProof(
+            fixture.other.institutionId,
+            fixture.other.userId,
+            proofId,
+            "Nominal tidak cocok",
+            true,
+            tx as unknown as Database,
+            NOW,
+          ),
+        ).rejects.toBeInstanceOf(ManualProofError);
+
+        expect(await statusOf(tx, proofId)).toBe("pending_review");
+      });
+    });
+
+    it("rejects a proof on the institution's own competition", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { proofId } = await seedPendingProof(tx, fixture, fixture);
+        const { rejectManualPaymentProof } = await import(
+          "@/server/finance/manual-payment-proof-service"
+        );
+
+        await rejectManualPaymentProof(
+          fixture.institutionId,
+          fixture.userId,
+          proofId,
+          "Nominal tidak cocok",
+          true,
+          tx as unknown as Database,
+          NOW,
+        );
+
+        expect(await statusOf(tx, proofId)).toBe("rejected");
+      });
     });
   });
 });

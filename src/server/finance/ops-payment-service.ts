@@ -58,7 +58,7 @@ const requireReason = (reason: string): string => {
   if (trimmed.length === 0) {
     throw new OpsPaymentError(
       "ops_reason_required",
-      "An operator action that overrides a participant protection must state its reason",
+      "Tindakan operator yang mengesampingkan perlindungan peserta harus menyertakan alasan",
     );
   }
 
@@ -117,7 +117,7 @@ export const cancelCompetitionAsOps = async (
       .limit(1);
 
     if (!competition) {
-      throw new OpsPaymentError("ops_competition_not_found", "Competition not found", 404);
+      throw new OpsPaymentError("ops_competition_not_found", "Kompetisi tidak ditemukan", 404);
     }
 
     if (competition.status !== "published") {
@@ -136,7 +136,7 @@ export const cancelCompetitionAsOps = async (
     if (!statusRow) {
       throw new OpsPaymentError(
         "ops_competition_concurrently_modified",
-        "Competition status was modified concurrently — reload and retry the cancellation",
+        "Status kompetisi berubah bersamaan — muat ulang lalu coba batalkan lagi",
         409,
       );
     }

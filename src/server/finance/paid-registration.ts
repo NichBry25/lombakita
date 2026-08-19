@@ -13,20 +13,25 @@ import {
 import { IN_FLIGHT_PROOF_STATUSES } from "@/lib/finance/payment-model";
 import { foldPaymentEvents } from "@/lib/finance/payment-state";
 
-// THE TWO PAID PREDICATES. They are different questions with different answers, and they are kept
-// apart here for the same reason DEC-0131 and DEC-0132 are kept apart:
+// THE THREE PAID PREDICATES. They are different questions with different answers, and they are
+// kept apart here because the rules they drive are kept apart:
 //
-//   CONFIRMED PAID     — money is known to have arrived. Drives DEC-0131 (non-refundable on
-//                        candidate initiative). Answering yes commits the platform to the position
-//                        that a candidate has parted with money.
+//   CONFIRMED PAID     — money is known to have arrived. Drives the non-refundable-on-candidate-
+//                        initiative rule. Answering yes commits the platform to the position that a
+//                        candidate has parted with money.
 //   PAYMENT IN FLIGHT  — someone has claimed to have sent money and nobody has said otherwise.
-//                        Drives DEC-0132 (unpublish blocked). Fires EARLIER than confirmed-paid, on
-//                        purpose: the window where a candidate has transferred real rupiah but the
-//                        organiser has not verified it yet is exactly the window in which
-//                        unpublishing would strand them.
+//                        Drives the unpublish block. Fires EARLIER than confirmed-paid, on purpose:
+//                        the window where a candidate has transferred real rupiah but the organiser
+//                        has not verified it yet is exactly the window in which unpublishing would
+//                        strand them.
+//   PROOF SUBMITTED    — the candidate has asserted they sent money, whatever came of it. Drives
+//                        whether the cancel affordance is OFFERED. Fires earliest of the three and,
+//                        unlike the other two, NEVER GOES BACK TO FALSE — a rejected or voided proof
+//                        still counts, because the platform cannot establish that no money moved.
 //
-// Collapsing them into one "is this paid" helper would pick one of those two moments and get the
-// other wrong. In flight but not confirmed is the common case, not an edge case.
+// Collapsing any pair into one "is this paid" helper would pick one of those moments and get the
+// others wrong. In flight but not confirmed is the common case, not an edge case; submitted but not
+// in flight is what a rejected proof is.
 //
 // ROW EXISTENCE IS NOT THE PREDICATE. `finance_payments` accepts `gross_amount = 0`, so a FREE
 // registration can legitimately carry a payment row, and there is no status column to read — FOLDED
@@ -147,6 +152,46 @@ export const isRegistrationPaymentInFlight = async (
         inArray(financeManualPaymentProofs.status, [...IN_FLIGHT_PROOF_STATUSES]),
       ),
     )
+    .limit(1);
+
+  return row !== undefined;
+};
+
+/**
+ * HAS THE CANDIDATE ASSERTED THEY SENT MONEY — a proof row exists on this registration's payment
+ * group in ANY status, including `rejected` and `voided`.
+ *
+ * THE THIRD CONDITION, and deliberately neither of the two above. Confirmed-paid asks whether money
+ * is known to have arrived; payment-in-flight asks whether an unresolved claim is outstanding. This
+ * asks a question neither of them can: has the candidate ever put their hand up and said they paid.
+ * Once they have, the answer here never goes back to false.
+ *
+ * It governs whether the CANCEL AFFORDANCE IS OFFERED AT ALL. Not whether a cancellation is refused
+ * — offered. A control that appears and then refuses teaches a candidate that the platform is
+ * broken; a control that is absent, next to a sentence explaining why, teaches them the rule.
+ *
+ * WHY A REJECTED OR VOIDED PROOF STILL COUNTS, which is the part that looks wrong and is not: the
+ * platform never touches this money. It has no bank feed, no gateway record, no independent way to
+ * establish whether a transfer happened. A rejected proof means the ORGANISER was not satisfied by
+ * the evidence — it does not mean no money moved, and the platform is in no position to rule that
+ * it did not. Withholding the affordance on a rejected proof is the conservative side of a mistake
+ * the platform cannot detect, let alone correct: cancelling a registration whose payer really did
+ * transfer would destroy the only record connecting them to it.
+ *
+ * Status is not filtered here, and that absence is the predicate. Any filter added to this query
+ * turns it into one of the other two.
+ */
+export const hasSubmittedPaymentProof = async (
+  registrationId: string,
+  db: Database = getDb(),
+): Promise<boolean> => {
+  const paymentIds = await loadChargeablePaymentIds(registrationId, db);
+  if (paymentIds.length === 0) return false;
+
+  const [row] = await db
+    .select({ id: financeManualPaymentProofs.id })
+    .from(financeManualPaymentProofs)
+    .where(inArray(financeManualPaymentProofs.paymentId, paymentIds))
     .limit(1);
 
   return row !== undefined;

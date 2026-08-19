@@ -2,18 +2,30 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/finance/manual-payment-proof-service");
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   competitionRegistrations,
   competitions,
+  financeManualPaymentProofAttempts,
   financeManualPaymentProofs,
   financePayments,
+  institutionAuditLogs,
   type FinanceManualPaymentProofRecord,
 } from "@/server/db/schema";
 import { appendPaymentEvent } from "@/server/finance/payment-service";
 import { recordFeeAccrual, recordFeeAccrualReversal } from "@/server/finance/fee-accrual-service";
 import { mintManualPaymentEventKey } from "@/server/finance/idempotency-key";
+import {
+  generatePresignedGetUrl,
+  generatePresignedPutUrl,
+  isR2Available,
+} from "@/server/storage/r2.client";
+import {
+  PAYMENT_PROOF_FORMAT_HINT,
+  paymentProofMimeTypeForFileName,
+} from "@/lib/finance/payment-proof-file";
 
 // THE BUKTI TRANSFER REVIEW LOOP. Services only — there is no upload route and no verification
 // route yet; the surfaces that call these are not built.
@@ -43,11 +55,19 @@ export type ManualProofErrorCode =
   | "manual_proof_not_found"
   | "manual_proof_not_manual_lane"
   | "manual_proof_already_submitted"
+  | "manual_proof_registration_cancelled"
   | "manual_proof_not_pending"
   | "manual_proof_resubmission_barred"
   | "manual_proof_not_rejected"
   | "manual_proof_reason_required"
   | "manual_proof_object_key_invalid"
+  // The request named an action the verdict route does not implement. A malformed request, not a
+  // judgement about the proof — which is why it does not borrow `manual_proof_not_pending`, a code
+  // that asserts something specific and false about the row's state.
+  | "manual_proof_action_unrecognised"
+  | "manual_proof_upload_unavailable"
+  // Not a refusal. Raised only by an internal invariant assertion; see `recordProofAttempt`.
+  | "manual_proof_invariant_violation"
   | "manual_proof_concurrently_modified";
 
 export class ManualProofError extends Error {
@@ -107,9 +127,76 @@ const assertObjectKeyBelongsToPayment = (
   if (!r2Key.startsWith(prefix) || r2Key.length === prefix.length || hasTraversalSegment) {
     throw new ManualProofError(
       "manual_proof_object_key_invalid",
-      "The uploaded file is not stored under this payment's own prefix",
+      "Berkas yang diunggah tidak tersimpan di lokasi bukti transfer pembayaran ini",
     );
   }
+};
+
+/** The three statuses an attempt can close in. `pending_review` is not one: it has not closed. */
+type ProofVerdict = Extract<
+  FinanceManualPaymentProofRecord["status"],
+  "verified" | "rejected" | "voided"
+>;
+
+/**
+ * Preserves a closing attempt in the append-only history, from the row the CAS just returned.
+ *
+ * WRITTEN AT CLOSE, NEVER AT SUBMISSION, and that is what keeps the history table append-only: a
+ * row inserted when an attempt opened would have to be updated later to carry its verdict. So the
+ * live proof row holds the OPEN attempt and this table holds every closed one; together they are
+ * the whole history and nothing ever moves.
+ *
+ * Every value comes from the CAS's own `RETURNING` rather than a prior read. A second read could
+ * observe a row that has since been reopened, and would then file attempt two's file under attempt
+ * one's verdict — the exact confusion this table exists to prevent.
+ *
+ * Must be called inside the verdict's transaction. The unique index on (proof, attempt) is what
+ * makes a replayed verdict a refusal rather than a duplicated history entry.
+ */
+const recordProofAttempt = async (
+  tx: Database,
+  proof: FinanceManualPaymentProofRecord,
+  verdict: ProofVerdict,
+  verdictReason: string | null,
+): Promise<void> => {
+  if (proof.reviewerUserId === null || proof.reviewedAt === null) {
+    // INVARIANT ASSERTION, NOT A REFUSAL — and the three markers below are what say so, because a
+    // reader who cannot tell those apart will translate this message on the next Indonesian sweep
+    // and destroy the only signal it carries.
+    //
+    //   1. The `INVARIANT:` prefix. Deliberately English: this text is read in Sentry by a
+    //      developer, never by a candidate, and an Indonesian sentence here would look like every
+    //      other refusal in this file.
+    //   2. Its OWN code. Reusing `manual_proof_not_pending` — which it did — made an alert on that
+    //      code unable to separate "an organiser double-clicked verify" from "this row is corrupt".
+    //   3. HTTP 500. No user action can produce this; it is unreachable through any verdict path,
+    //      since each sets reviewer and reviewedAt in the same statement as the status.
+    //
+    // Asserted rather than coerced, so a future transition that forgets one fails here instead of
+    // writing an attempt whose reviewer is unknown.
+    throw new ManualProofError(
+      "manual_proof_invariant_violation",
+      "INVARIANT: a closed bukti transfer attempt must name its reviewer and the moment it was reviewed",
+      500,
+    );
+  }
+
+  await tx.insert(financeManualPaymentProofAttempts).values({
+    proofId: proof.id,
+    paymentId: proof.paymentId,
+    competitionId: proof.competitionId,
+    attemptNumber: proof.resubmissionCount,
+    submittedByUserId: proof.submittedByUserId,
+    r2Key: proof.r2Key,
+    originalFileName: proof.originalFileName,
+    fileSizeBytes: proof.fileSizeBytes,
+    contentType: proof.contentType,
+    submittedAt: proof.submittedAt,
+    verdict,
+    verdictReason,
+    reviewerUserId: proof.reviewerUserId,
+    reviewedAt: proof.reviewedAt,
+  });
 };
 
 /**
@@ -124,6 +211,152 @@ const competitionIdsOwnedBy = (institutionId: string, db: Database) =>
     .select({ id: competitions.id })
     .from(competitions)
     .where(eq(competitions.institutionId, institutionId));
+
+export type ManualProofUploadGrant = {
+  uploadUrl: string;
+  r2Key: string;
+  contentType: string;
+  expiresAt: Date;
+};
+
+const MANUAL_PROOF_UPLOAD_EXPIRY_SECONDS = 10 * 60;
+
+// Short, because the URL is unauthenticated once minted: anyone holding it can read the receipt.
+// Five minutes is long enough to open and read one and short enough that a URL pasted into a chat
+// is dead before it travels.
+const MANUAL_PROOF_VIEW_EXPIRY_SECONDS = 5 * 60;
+
+/**
+ * Presigns a PUT for one bukti transfer file.
+ *
+ * THE KEY IS BUILT HERE, NEVER ACCEPTED FROM THE CLIENT. `submitManualPaymentProof` and
+ * `reopenManualPaymentProof` both hold whatever key they are handed to this payment's own prefix,
+ * so a caller-supplied key can only ever be refused — but a presign that signed one would have
+ * already granted write access to that object before the refusal. Deriving it from the payment the
+ * payer actually owns is what makes the prefix rule a boundary rather than a late check.
+ *
+ * A fresh UUID per call, so a re-presign never overwrites the object a previous attempt uploaded.
+ * The old object is orphaned rather than replaced; it is unreferenced by any row and is swept by
+ * retention on the same prefix.
+ *
+ * The payment is looked up by PAYER, matching every other candidate-side function here: another
+ * person's payment id reads as no payment at all rather than as a refusal that confirms it exists.
+ */
+export const generateManualProofUploadUrl = async (
+  paymentId: string,
+  payerUserId: string,
+  input: { fileName: string },
+  db: Database = getDb(),
+  now: Date = new Date(),
+): Promise<ManualProofUploadGrant> => {
+  const [payment] = await db
+    .select({ id: financePayments.id, origin: financePayments.origin })
+    .from(financePayments)
+    .where(and(eq(financePayments.id, paymentId), eq(financePayments.payerUserId, payerUserId)))
+    .limit(1);
+
+  if (!payment) {
+    throw new ManualProofError(
+      "manual_proof_payment_not_found",
+      "Pembayaran tidak ditemukan",
+      404,
+    );
+  }
+
+  if (payment.origin !== "manual_transfer") {
+    throw new ManualProofError(
+      "manual_proof_not_manual_lane",
+      "Hanya pembayaran transfer manual yang menerima bukti transfer",
+    );
+  }
+
+  const contentType = paymentProofMimeTypeForFileName(input.fileName);
+
+  if (contentType === null) {
+    throw new ManualProofError(
+      "manual_proof_object_key_invalid",
+      `Format tidak didukung. Unggah bukti transfer dalam format ${PAYMENT_PROOF_FORMAT_HINT}.`,
+    );
+  }
+
+  if (!isR2Available()) {
+    throw new ManualProofError(
+      "manual_proof_upload_unavailable",
+      "Penyimpanan berkas belum dikonfigurasi — unggahan sementara tidak tersedia",
+      503,
+    );
+  }
+
+  const competitionId = await loadCompetitionIdForPayment(payment.id, db);
+  const r2Key = `${buildManualProofObjectPrefix(competitionId, payment.id)}${randomUUID()}`;
+  const uploadUrl = await generatePresignedPutUrl(
+    r2Key,
+    contentType,
+    MANUAL_PROOF_UPLOAD_EXPIRY_SECONDS,
+  );
+
+  return {
+    uploadUrl,
+    r2Key,
+    contentType,
+    expiresAt: new Date(now.getTime() + MANUAL_PROOF_UPLOAD_EXPIRY_SECONDS * 1000),
+  };
+};
+
+/**
+ * A short-lived URL letting the reviewing organiser look at one bukti transfer.
+ *
+ * AUDITED, matching how every other organiser access to a candidate's uploaded file is treated
+ * (`submission.file_accessed`, `document_request.file_accessed`). A transfer receipt carries the
+ * payer's bank details and account name — reading it is an act on their data, and an institution
+ * that later disputes what it saw needs a record that it looked.
+ *
+ * Scoped through `loadManualPaymentProof`, so a proof id from another organiser's competition
+ * resolves to nothing and no URL is minted. The audit row is written only after that resolves,
+ * because an audit entry for a read that was refused records an access that never happened.
+ *
+ * Rendered INLINE for the types this lane accepts. A receipt the reviewer has to download, open in
+ * another application and match back to a row is a receipt that gets approved without being read.
+ */
+export const generateManualProofViewUrl = async (
+  institutionId: string,
+  actorUserId: string,
+  proofId: string,
+  db: Database = getDb(),
+): Promise<{ url: string; contentType: string }> => {
+  const proof = await loadManualPaymentProof(institutionId, proofId, db);
+
+  if (!proof) {
+    throw new ManualProofError("manual_proof_not_found", "Bukti transfer tidak ditemukan", 404);
+  }
+
+  if (!isR2Available()) {
+    throw new ManualProofError(
+      "manual_proof_upload_unavailable",
+      "Penyimpanan berkas belum dikonfigurasi — bukti transfer tidak dapat dibuka",
+      503,
+    );
+  }
+
+  await db.insert(institutionAuditLogs).values({
+    institutionId,
+    actorUserId,
+    action: "payment_proof.file_accessed",
+    metadata: {
+      proofId: proof.id,
+      paymentId: proof.paymentId,
+      competitionId: proof.competitionId,
+      attempt: proof.resubmissionCount,
+    },
+  });
+
+  const url = await generatePresignedGetUrl(proof.r2Key, MANUAL_PROOF_VIEW_EXPIRY_SECONDS, {
+    responseContentType: proof.contentType,
+    responseContentDisposition: "inline",
+  });
+
+  return { url, contentType: proof.contentType };
+};
 
 export type SubmitManualProofInput = {
   paymentId: string;
@@ -168,13 +401,13 @@ export const submitManualPaymentProof = async (
     .limit(1);
 
   if (!payment) {
-    throw new ManualProofError("manual_proof_payment_not_found", "Payment not found", 404);
+    throw new ManualProofError("manual_proof_payment_not_found", "Pembayaran tidak ditemukan", 404);
   }
 
   if (payment.origin !== "manual_transfer") {
     throw new ManualProofError(
       "manual_proof_not_manual_lane",
-      "Only a manual-transfer payment takes a bukti transfer",
+      "Hanya pembayaran transfer manual yang menerima bukti transfer",
     );
   }
 
@@ -182,30 +415,67 @@ export const submitManualPaymentProof = async (
 
   assertObjectKeyBelongsToPayment(input.r2Key, competitionId, payment.id);
 
-  const [created] = await db
-    .insert(financeManualPaymentProofs)
-    .values({
-      paymentId: payment.id,
-      competitionId,
-      submittedByUserId: input.submittedByUserId,
-      status: "pending_review",
-      r2Key: input.r2Key,
-      originalFileName: input.originalFileName,
-      fileSizeBytes: input.fileSizeBytes,
-      contentType: input.contentType,
-    })
-    .onConflictDoNothing({ target: financeManualPaymentProofs.paymentId })
-    .returning();
+  return db.transaction(async (tx) => {
+    const scoped = tx as unknown as Database;
 
-  if (!created) {
-    throw new ManualProofError(
-      "manual_proof_already_submitted",
-      "This payment already has a bukti transfer — resubmit through the revision loop instead",
-      409,
+    // THE SAME ROW LOCK THE EXPIRY SWEEP TAKES, and taken here for that reason alone.
+    //
+    // Submitting a bukti transfer and expiring the payment it belongs to are the two writes that
+    // must never interleave: a candidate uploading their evidence in the same instant the deadline
+    // sweep runs would otherwise end up with a `pending_review` proof against a cancelled
+    // registration, having transferred real money. The anchor registration row is the only object
+    // both paths touch, so it is where they serialize.
+    //
+    // Whichever arrives first wins cleanly: the sweep cancels and this submission is refused below,
+    // or this submission lands and the sweep re-reads the proof table under the lock and declines.
+    const registrationRows = await scoped.execute(
+      sql`select status from competition_registrations
+          where id = ${payment.registrationId} for update`,
     );
-  }
 
-  return created;
+    const [registration] = [...registrationRows] as { status: string }[];
+
+    if (!registration) {
+      throw new ManualProofError(
+        "manual_proof_payment_not_found",
+        "Pembayaran ini tidak lagi terhubung ke pendaftaran mana pun",
+        404,
+      );
+    }
+
+    if (registration.status === "cancelled") {
+      throw new ManualProofError(
+        "manual_proof_registration_cancelled",
+        "Pendaftaran ini sudah dibatalkan, sehingga bukti transfer tidak dapat dikirim",
+        409,
+      );
+    }
+
+    const [created] = await scoped
+      .insert(financeManualPaymentProofs)
+      .values({
+        paymentId: payment.id,
+        competitionId,
+        submittedByUserId: input.submittedByUserId,
+        status: "pending_review",
+        r2Key: input.r2Key,
+        originalFileName: input.originalFileName,
+        fileSizeBytes: input.fileSizeBytes,
+        contentType: input.contentType,
+      })
+      .onConflictDoNothing({ target: financeManualPaymentProofs.paymentId })
+      .returning();
+
+    if (!created) {
+      throw new ManualProofError(
+        "manual_proof_already_submitted",
+        "Pembayaran ini sudah memiliki bukti transfer — kirim ulang melalui alur revisi",
+        409,
+      );
+    }
+
+    return created;
+  });
 };
 
 /**
@@ -229,7 +499,7 @@ const loadCompetitionIdForPayment = async (paymentId: string, db: Database): Pro
   if (!row) {
     throw new ManualProofError(
       "manual_proof_payment_not_found",
-      "Payment has no competition registration to scope its proof to",
+      "Pembayaran ini tidak terhubung ke pendaftaran mana pun",
       404,
     );
   }
@@ -284,7 +554,7 @@ export const verifyManualPaymentProof = async (
     if (!proof) {
       throw new ManualProofError(
         "manual_proof_not_pending",
-        "This bukti transfer is not awaiting review — it may have been reviewed already",
+        "Bukti transfer ini tidak sedang menunggu tinjauan — mungkin sudah ditinjau",
         409,
       );
     }
@@ -300,8 +570,10 @@ export const verifyManualPaymentProof = async (
       .limit(1);
 
     if (!payment) {
-      throw new ManualProofError("manual_proof_payment_not_found", "Payment not found", 404);
+      throw new ManualProofError("manual_proof_payment_not_found", "Pembayaran tidak ditemukan", 404);
     }
+
+    await recordProofAttempt(tx as unknown as Database, proof, "verified", null);
 
     await appendPaymentEvent(
       // A named human accepted this transfer, so the actor is that human. Positional by design —
@@ -353,38 +625,50 @@ export const rejectManualPaymentProof = async (
   if (reason.trim().length === 0) {
     throw new ManualProofError(
       "manual_proof_reason_required",
-      "A rejection must state its reason so the candidate knows what to fix",
+      "Penolakan harus menyertakan alasan agar peserta tahu apa yang perlu diperbaiki",
     );
   }
 
-  const [proof] = await db
-    .update(financeManualPaymentProofs)
-    .set({
-      status: "rejected",
-      reviewerUserId,
-      rejectionReason: reason.trim(),
-      resubmissionAllowed,
-      reviewedAt: now,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(financeManualPaymentProofs.id, proofId),
-        eq(financeManualPaymentProofs.status, "pending_review"),
-        inArray(financeManualPaymentProofs.competitionId, competitionIdsOwnedBy(institutionId, db)),
-      ),
-    )
-    .returning();
+  const trimmedReason = reason.trim();
 
-  if (!proof) {
-    throw new ManualProofError(
-      "manual_proof_not_pending",
-      "This bukti transfer is not awaiting review — it may have been reviewed already",
-      409,
-    );
-  }
+  // The CAS and the history row are one transaction: a rejection recorded on the live row while its
+  // attempt failed to reach the history would lose the attempt the moment the candidate resubmits
+  // over it, which is precisely the loss the history exists to prevent.
+  return db.transaction(async (tx) => {
+    const [proof] = await tx
+      .update(financeManualPaymentProofs)
+      .set({
+        status: "rejected",
+        reviewerUserId,
+        rejectionReason: trimmedReason,
+        resubmissionAllowed,
+        reviewedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(financeManualPaymentProofs.id, proofId),
+          eq(financeManualPaymentProofs.status, "pending_review"),
+          inArray(
+            financeManualPaymentProofs.competitionId,
+            competitionIdsOwnedBy(institutionId, tx as unknown as Database),
+          ),
+        ),
+      )
+      .returning();
 
-  return proof;
+    if (!proof) {
+      throw new ManualProofError(
+        "manual_proof_not_pending",
+        "Bukti transfer ini tidak sedang menunggu tinjauan — mungkin sudah ditinjau",
+        409,
+      );
+    }
+
+    await recordProofAttempt(tx as unknown as Database, proof, "rejected", trimmedReason);
+
+    return proof;
+  });
 };
 
 export type ReopenManualProofInput = {
@@ -398,19 +682,34 @@ export type ReopenManualProofInput = {
 };
 
 /**
- * Reopens a rejected bukti transfer with a replacement file (DEC-0115 revision loop).
+ * Reopens a closed bukti transfer with a replacement file — the candidate-initiated revision loop.
  *
- * `rejection_reason` is deliberately NOT cleared. The reviewer of attempt two needs to see what
- * attempt one was refused for, and clearing it would hand them a fresh-looking submission with no
- * indication it is a second try.
+ * TWO ARMS IN ONE CAS, and only one of them is gated:
  *
- * THE RESUBMISSION BAR IS IN THIS CAS, not in a caller's if-statement and not in a hidden control:
- * `resubmission_allowed = true` sits in the WHERE alongside `status = 'rejected'`, so a barred proof
- * matches nothing no matter which surface calls this. `submitted_by_user_id` rides in the same
- * WHERE: only the payer refiles their own evidence.
+ *   rejected → pending_review   requires `resubmission_allowed = true`. The organiser looked at the
+ *                               evidence and set a bar; this is that bar.
+ *   voided   → pending_review   IGNORES the bar, deliberately. A void is platform_ops correcting a
+ *                               platform-side or dispute-side mistake, not the organiser ruling on
+ *                               the money — and the organiser's bar was set against their own
+ *                               rejection, which is a different decision about a different thing.
  *
- * The replacement key goes through the same `assertObjectKeyBelongsToPayment` the first submission
- * does, so a resubmission cannot reach an object the original could not have.
+ * The voided arm exists because without it a void permanently strands the payer: the live row is no
+ * longer `pending_review` so nothing is in flight, `submitManualPaymentProof` refuses against the
+ * surviving row, and the payment simply runs out its deadline. An undo that leaves the payer with
+ * no way to pay is not an undo.
+ *
+ * BOTH ARMS BUMP `resubmission_count`, and the bumped value is read from this statement's own
+ * RETURNING. The attempt segment of the idempotency key is derived from it, so taking it from a
+ * prior SELECT would mint attempt two's key from attempt one's count and the second verification
+ * would be swallowed as a replay of the first.
+ *
+ * `rejection_reason` IS cleared here. Each attempt's reason now lives on its own history row, so
+ * carrying the previous one forward onto a fresh submission would show the reviewer of attempt two
+ * a refusal that belongs to attempt one, with nothing marking it as stale.
+ *
+ * `submitted_by_user_id` rides in the same WHERE as the status: only the payer refiles their own
+ * evidence. The replacement key goes through the same `assertObjectKeyBelongsToPayment` the first
+ * submission does, so a resubmission cannot reach an object the original could not have.
  */
 export const reopenManualPaymentProof = async (
   input: ReopenManualProofInput,
@@ -438,7 +737,7 @@ export const reopenManualPaymentProof = async (
   if (!existing) {
     throw new ManualProofError(
       "manual_proof_resubmission_barred",
-      "This bukti transfer cannot be resubmitted",
+      "Bukti transfer ini tidak dapat dikirim ulang",
       409,
     );
   }
@@ -456,6 +755,7 @@ export const reopenManualPaymentProof = async (
       resubmissionCount: sql`${financeManualPaymentProofs.resubmissionCount} + 1`,
       reviewerUserId: null,
       reviewedAt: null,
+      rejectionReason: null,
       submittedAt: now,
       updatedAt: now,
     })
@@ -463,8 +763,13 @@ export const reopenManualPaymentProof = async (
       and(
         eq(financeManualPaymentProofs.id, input.proofId),
         eq(financeManualPaymentProofs.submittedByUserId, input.submittedByUserId),
-        eq(financeManualPaymentProofs.status, "rejected"),
-        eq(financeManualPaymentProofs.resubmissionAllowed, true),
+        or(
+          and(
+            eq(financeManualPaymentProofs.status, "rejected"),
+            eq(financeManualPaymentProofs.resubmissionAllowed, true),
+          ),
+          eq(financeManualPaymentProofs.status, "voided"),
+        ),
       ),
     )
     .returning();
@@ -472,7 +777,7 @@ export const reopenManualPaymentProof = async (
   if (!proof) {
     throw new ManualProofError(
       "manual_proof_resubmission_barred",
-      "This bukti transfer cannot be resubmitted",
+      "Bukti transfer ini tidak dapat dikirim ulang",
       409,
     );
   }
@@ -503,36 +808,42 @@ export const voidManualPaymentProof = async (
   if (reason.trim().length === 0) {
     throw new ManualProofError(
       "manual_proof_reason_required",
-      "Voiding a bukti transfer must state its reason",
+      "Pembatalan bukti transfer harus menyertakan alasan",
     );
   }
 
-  const [proof] = await db
-    .update(financeManualPaymentProofs)
-    .set({
-      status: "voided",
-      reviewerUserId: actorUserId,
-      rejectionReason: reason.trim(),
-      reviewedAt: now,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(financeManualPaymentProofs.id, proofId),
-        eq(financeManualPaymentProofs.status, "pending_review"),
-      ),
-    )
-    .returning();
+  const trimmedReason = reason.trim();
 
-  if (!proof) {
-    throw new ManualProofError(
-      "manual_proof_not_pending",
-      "Only a bukti transfer still awaiting review can be voided",
-      409,
-    );
-  }
+  return db.transaction(async (tx) => {
+    const [proof] = await tx
+      .update(financeManualPaymentProofs)
+      .set({
+        status: "voided",
+        reviewerUserId: actorUserId,
+        rejectionReason: trimmedReason,
+        reviewedAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(financeManualPaymentProofs.id, proofId),
+          eq(financeManualPaymentProofs.status, "pending_review"),
+        ),
+      )
+      .returning();
 
-  return proof;
+    if (!proof) {
+      throw new ManualProofError(
+        "manual_proof_not_pending",
+        "Hanya bukti transfer yang masih menunggu tinjauan yang dapat dibatalkan",
+        409,
+      );
+    }
+
+    await recordProofAttempt(tx as unknown as Database, proof, "voided", trimmedReason);
+
+    return proof;
+  });
 };
 
 /**

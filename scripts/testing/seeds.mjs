@@ -34,6 +34,10 @@ export const INST = {
   b: { id: "seed-inst-b", slug: "seed-ventures" },
   c: { id: "seed-inst-c", slug: "seed-suspended-org" },
   p: { id: "seed-inst-p", slug: "seed-rec-min" },
+  // The SECOND verified tenant, and the only one that can express a cross-tenant violation. `a` and
+  // `b` cannot: `rec-elev` administers both, so "an outsider reaching into another institution" has
+  // no outsider. `d` is owned by `rec-min`, who administers nothing at `a`.
+  d: { id: "seed-inst-d", slug: "seed-kolektif" },
 };
 
 export const COMP = {
@@ -55,6 +59,8 @@ export const COMP = {
   personalDraft: { id: "seed-comp-personal-draft", slug: "seed-personal-draft" },
   susp: { id: "seed-comp-susp", slug: "seed-susp-open" },
   bDraft: { id: "seed-comp-b-draft", slug: "seed-b-draft" },
+  paid: { id: "seed-comp-paid", slug: "seed-paid" },
+  dPaid: { id: "seed-comp-d-paid", slug: "seed-kolektif-paid" },
 };
 
 export const REG = {

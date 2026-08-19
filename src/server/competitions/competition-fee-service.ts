@@ -11,35 +11,53 @@ import {
 } from "@/server/competitions/competition-access";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import { isMinorUnitAmount, isSupportedCurrency } from "@/lib/finance/money";
-import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { isValidPaymentWindowDays } from "@/lib/finance/payment-window";
 import { requireFeeRuleInForce } from "@/server/finance/fee-rule-service";
+import { requirePaymentInstructions } from "@/server/institutions/payment-instructions-service";
+import { financeFeeDisclosureAcknowledgements } from "@/server/db/schema";
 import {
-  hasActiveFreeRegistrations,
-  hasCompetitionPaymentInFlight,
-} from "@/server/finance/paid-registration";
+  classifyCompetitionEdit,
+  type EditClassificationSnapshot,
+} from "@/server/competitions/edit-classification";
+import {
+  loadCompetitionPricing,
+  loadEditClassificationSnapshot,
+  toClassifiable,
+  type CompetitionPricing,
+} from "@/server/competitions/competition-service";
+import { enqueueCompetitionEdited } from "@/server/async/enqueue";
 
 // THE FEE-SETTING WRITE PATH — the one place a competition's price is written.
 //
 // `feeAmount` and `feeCurrency` are both in competition-core's SILENT_STRIP_FIELDS, so the create
 // and patch endpoints drop them without error and no other service writes either column. Every
 // price change in the system passes through here, which is what lets the guards below be complete
-// rather than merely present. It is a SERVICE WITH NO ROUTE: the organiser-facing surface that
-// calls it is not built yet.
+// rather than merely present.
 //
-// Five gates, in an order chosen so the cheapest refusal that is also the most informative comes
+// Six gates, in an order chosen so the cheapest refusal that is also the most informative comes
 // first, and so nothing about the platform's pricing configuration leaks to someone who is not
 // allowed to charge at all:
 //
 //   1. Ownership     — assertCompetitionAccess admin.
-//   2. In flight     — no price may move while a bukti transfer is outstanding (DEC-0132's sibling).
-//   3. Free entrants — a competition that took registrations for free cannot acquire a price.
-//                      Only for a FREE → PAID transition.
-//   4. Charging      — assertInstitutionVerified (DEC-0158). Only for a NON-ZERO fee; setting a
-//                      competition back to free is always allowed, including for an institution
-//                      whose verification was just revoked. Revocation must not trap an organiser
-//                      into keeping a price it can no longer honour.
+//   2. Edit matrix   — classifyCompetitionEdit. Carries BOTH the payment-in-flight block and the
+//                      free-entrants block; see the note below on why they are not restated here.
+//   3. Charging      — assertInstitutionVerified. Only for a NON-ZERO fee; setting a competition
+//                      back to free is always allowed, including for an institution whose
+//                      verification was just revoked. Revocation must not trap an organiser into
+//                      keeping a price it can no longer honour.
+//   4. Payable       — the institution must have published payment instructions. Only for a
+//                      NON-ZERO fee. Enabling a price with nowhere to send the money produces a
+//                      candidate who owes a debt they cannot discharge.
 //   5. Priceable     — requireFeeRuleInForce (fail-closed). Only for a NON-ZERO fee.
+//   6. Disclosed     — the organiser must have acknowledged the platform's rate, and the
+//                      acknowledgement is RECORDED. Only for a NON-ZERO fee.
+//
+// THE EDIT MATRIX IS NOT RE-IMPLEMENTED HERE. The in-flight and free-entrants rules were previously
+// written out a second time in this function, alongside the copies in `classifyCompetitionEdit`
+// that the ordinary edit path uses. Two implementations of one rule are two things to keep in
+// agreement, and the failure mode is silent: they diverge, and which one you get depends on which
+// surface the organiser happened to use. The classifier is the single statement of the matrix and
+// this path is now one of its two callers.
 
 export type SetCompetitionFeeInput = {
   // Integer smallest unit (@/lib/finance/money). 0 or null both mean free.
@@ -48,6 +66,10 @@ export type SetCompetitionFeeInput = {
   feeCurrency: string | null;
   // Optional. Left unchanged when omitted.
   paymentWindowDays?: number;
+  // The organiser confirming they have been shown what the platform charges. REQUIRED to enable a
+  // price and refused when absent — a disclosure the organiser can skip is not a disclosure, and
+  // the recorded acknowledgement is the platform's only evidence when a bill is later disputed.
+  feeDisclosureAcknowledged?: boolean;
 };
 
 /**
@@ -87,15 +109,28 @@ export const setCompetitionFee = async (
     );
   }
 
-  // DEC-0132's sibling rule, at the write rather than only in the classifier: while somebody's
-  // money is in flight, the price they are paying against cannot move underneath them.
-  if (await hasCompetitionPaymentInFlight(competitionId, db)) {
-    throw new CompetitionError(
-      "competition_fee_change_blocked_payment_in_flight",
-      409,
-      "Biaya tidak dapat diubah selama masih ada bukti transfer yang menunggu verifikasi",
-      { fields: ["feeAmount"] },
-    );
+  // THE EDIT MATRIX, evaluated by the same function the ordinary edit path uses.
+  //
+  // Everything the matrix knows about a price change arrives through here: the payment-in-flight
+  // block, the free→paid block, and the notify classification. `paymentWindowDays` is threaded in
+  // as the value that will actually be written, so an unchanged window classifies as unchanged
+  // rather than as an edit nobody made.
+  const pricing = await loadCompetitionPricing(competitionId, db);
+  const nextPricing: CompetitionPricing = {
+    feeAmount,
+    feeCurrency: feeAmount > 0 ? input.feeCurrency : null,
+    paymentWindowDays: input.paymentWindowDays ?? pricing.paymentWindowDays,
+  };
+
+  const snapshot = await loadEditClassificationSnapshot(competitionId, db);
+  const classification = classifyCompetitionEdit(
+    toClassifiable(competition, pricing),
+    toClassifiable(competition, nextPricing),
+    snapshot,
+  );
+
+  if (classification.blocked.length > 0) {
+    throw toBlockedFeeEditError(classification.blocked, snapshot);
   }
 
   const isCharging = feeAmount > 0;
@@ -104,6 +139,7 @@ export const setCompetitionFee = async (
     // Clearing a fee needs none of the gates below. They exist to stop money being taken; none of
     // them has anything to say about stopping.
     await writeFee(competitionId, null, null, input.paymentWindowDays, db);
+    await notifyFeeEdit(competitionId, competition.status, classification.notify);
     return;
   }
 
@@ -118,55 +154,100 @@ export const setCompetitionFee = async (
     );
   }
 
-  // A COMPETITION THAT TOOK FREE REGISTRATIONS CANNOT ACQUIRE A PRICE.
-  //
-  // Not a display concern. Candidate self-cancellation is refused on a priced competition, and that
-  // rule reads the competition's CURRENT fee — so pricing a competition retroactively strips the
-  // right to leave from people who were never asked to pay anything and have no payment to withdraw.
-  // They would be locked into an event they joined for free.
-  //
-  // Scoped to the FREE → PAID transition, which is the whole of the harm: an already-priced
-  // competition changing its price does not move anyone across that boundary.
-  const currentPricing = await loadCompetitionFee(competitionId, db);
-
-  if (!isPaidCompetition(currentPricing.feeAmount)) {
-    if (await hasActiveFreeRegistrations(competitionId, db)) {
-      throw new CompetitionError(
-        "competition_fee_blocked_free_registrations",
-        409,
-        "Biaya tidak dapat ditetapkan karena sudah ada pendaftar yang mendaftar tanpa biaya",
-        { fields: ["feeAmount"] },
-      );
-    }
-  }
-
   await assertInstitutionVerified(competition.institutionId, db);
+
+  // NOWHERE TO SEND THE MONEY IS NOT A CHARGEABLE STATE. The payer transfers directly into the
+  // institution's own account, so an institution that has published none leaves a candidate owing
+  // a debt with no way to discharge it and no party able to tell them where to send it.
+  await requirePaymentInstructions(competition.institutionId, db);
 
   // FAIL-CLOSED FEE RESOLUTION. `resolveFeeRule` returning null is a real state — no commercial
   // rate is seeded — and treating it as zero here would let an organiser switch pricing on, take
   // real money, and accrue nothing, with every downstream assertion passing. A refusal is
   // recoverable by configuring a rule; a ledger of silently free transactions is not.
-  await requireFeeRuleInForce(competition.institutionId, now, db);
+  const rule = await requireFeeRuleInForce(competition.institutionId, now, db);
 
-  await writeFee(competitionId, feeAmount, currency, input.paymentWindowDays, db);
-};
-
-/** The competition's price as it stands now, which is what decides whether this is a transition. */
-const loadCompetitionFee = async (
-  competitionId: string,
-  db: Database,
-): Promise<{ feeAmount: number | null }> => {
-  const [row] = await db
-    .select({ feeAmount: competitions.feeAmount })
-    .from(competitions)
-    .where(eq(competitions.id, competitionId))
-    .limit(1);
-
-  if (!row) {
-    throw new CompetitionError("competition_not_found", 404, "Competition not found");
+  if (input.feeDisclosureAcknowledged !== true) {
+    throw new CompetitionError(
+      "competition_fee_disclosure_required",
+      422,
+      "Setujui rincian biaya layanan Lombakita sebelum mengaktifkan pendaftaran berbayar",
+      { fields: ["feeDisclosureAcknowledged"] },
+    );
   }
 
-  return row;
+  // The acknowledgement and the price land together or not at all. An acknowledgement recorded
+  // against a fee that was never written would evidence consent to a bill nobody incurred, and a
+  // price written without one is the evidence gap this whole gate exists to close.
+  await db.transaction(async (tx) => {
+    await tx.insert(financeFeeDisclosureAcknowledgements).values({
+      competitionId,
+      institutionId: competition.institutionId,
+      acknowledgedByUserId: actorUserId,
+      feeRuleId: rule.id,
+      feeBasisPoints: rule.basisPoints,
+      feeFlatAmount: rule.flatAmount,
+      feeAmount,
+      feeCurrency: currency,
+    });
+
+    await writeFee(competitionId, feeAmount, currency, input.paymentWindowDays, tx);
+  });
+
+  await notifyFeeEdit(competitionId, competition.status, classification.notify);
+};
+
+/**
+ * Turns the classifier's blocked-field list into the refusal an organiser can act on.
+ *
+ * The classifier reports WHICH fields are blocked but not why, because it is pure and the reason
+ * lives in the snapshot it was handed. Both causes block the same fields, so the snapshot is what
+ * separates them — and telling an organiser "someone is mid-payment" when the real cause is "you
+ * already have free registrants" sends them to wait for something that will never resolve.
+ */
+const toBlockedFeeEditError = (
+  blocked: string[],
+  snapshot: EditClassificationSnapshot,
+): CompetitionError => {
+  if (snapshot.hasPaymentInFlight) {
+    return new CompetitionError(
+      "competition_fee_change_blocked_payment_in_flight",
+      409,
+      "Biaya tidak dapat diubah selama masih ada bukti transfer yang menunggu verifikasi",
+      { fields: blocked },
+    );
+  }
+
+  return new CompetitionError(
+    "competition_fee_blocked_free_registrations",
+    409,
+    "Biaya tidak dapat ditetapkan karena sudah ada pendaftar yang mendaftar tanpa biaya",
+    { fields: blocked },
+  );
+};
+
+/**
+ * Fans out the participant-facing notice for a price change, on a PUBLISHED competition only.
+ *
+ * A draft has no registrations to notify, and classifying its first price as a change would
+ * announce an edit to nobody about a competition that has never been visible. Fire-and-forget for
+ * the same reason the ordinary edit path is: an enqueue failure must not fail the price change that
+ * has already been written.
+ */
+const notifyFeeEdit = async (
+  competitionId: string,
+  status: string,
+  changedFields: string[],
+): Promise<void> => {
+  if (status !== "published" || changedFields.length === 0) return;
+
+  enqueueCompetitionEdited({
+    competitionId,
+    changedFields,
+    epoch: Date.now(),
+  }).catch(() => {
+    // Swallowed deliberately; the price is already persisted and the enqueue is best-effort.
+  });
 };
 
 const writeFee = async (

@@ -16,6 +16,7 @@ import { createCipheriv, createHash, randomBytes, scrypt } from "crypto";
 import { promisify } from "util";
 import { readFileSync } from "fs";
 import { resolve } from "path";
+import { isLocalDatabaseHost, parseDatabaseHost } from "./lib/local-database-host";
 
 try {
   for (const line of readFileSync(resolve(process.cwd(), ".env.local"), "utf8").split("\n")) {
@@ -36,6 +37,44 @@ try {
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is not set");
+
+/**
+ * Refuses to seed anything but a local database.
+ *
+ * `isLocalDatabaseHost` is IMPORTED rather than reimplemented, and that matters more than it looks:
+ * a second copy of this predicate is a second place to get IPv6 wrong. `new URL().hostname` returns
+ * "[::1]" with brackets, and a hand-rolled set listing the bare "::1" never matches — which fails
+ * closed, refuses a legitimate local IPv6 database, and is therefore invisible until someone runs
+ * one. The shared module has that case and a test for it.
+ *
+ * WHY THIS SCRIPT NEEDS IT, beyond the general rule the other finance scripts already follow:
+ *
+ *   1. DEC-0133 makes `finance_payments`, `finance_payment_events` and `finance_fee_accruals`
+ *      APPEND-ONLY. There is no cleanup path. Every other table here is recoverable by deleting
+ *      `seed-%` rows; a seeded ledger row is permanent in whatever database receives it.
+ *   2. Migration 0058 REFUSES to run against a non-empty `finance_payments` (DEC-0165 forbids
+ *      backfilling `origin`). An environment receiving seeded payments before 0058 lands there can
+ *      never have 0058 applied — and 0058 has not reached preview or production.
+ *   3. The emptiness of `finance_payments` in every deployed environment is a PREMISE the
+ *      migration-ordering analysis rests on. This script is the writer that analysis assumed did
+ *      not exist.
+ *
+ * No override. An override is what someone reaches for at the moment they are least able to judge
+ * whether they should, and the failure it permits cannot be undone. CI is unaffected: its Postgres
+ * service is `localhost:5432`.
+ */
+if (!isLocalDatabaseHost(databaseUrl)) {
+  throw new Error(
+    `Refusing to seed: DATABASE_URL points at "${parseDatabaseHost(databaseUrl) ?? "<unparseable>"}", ` +
+      `which is not a local database.\n` +
+      `This script writes finance_payments rows, and DEC-0133 makes those APPEND-ONLY — there is ` +
+      `no path to remove them afterwards from any environment that receives them. Seeded payments ` +
+      `also make migration 0058 permanently unapplicable there (it refuses a non-empty ` +
+      `finance_payments, per DEC-0165).\n` +
+      `There is deliberately no override. If a deployed environment genuinely needs fixture data, ` +
+      `that is a migration or an operator runbook, not this script.`,
+  );
+}
 
 const scryptAsync = promisify(scrypt);
 const DAY = 24 * 60 * 60 * 1000;
@@ -82,6 +121,10 @@ const main = async (): Promise<void> => {
       { id: "seed-user-cand-a", name: "Andi Saputra", email: EMAIL("seed.cand.a"), emailVerified: d(-60), role: "candidate", username: "seed_cand_a", candAt: d(-60), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
       { id: "seed-user-cand-b", name: "Bela Rahma", email: EMAIL("seed.cand.b"), emailVerified: d(-55), role: "candidate", username: "seed_cand_b", candAt: d(-55), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
       { id: "seed-user-cand-c", name: "Citra Dewi", email: EMAIL("seed.cand.c"), emailVerified: d(-50), role: "candidate", username: "seed_cand_c", candAt: d(-50), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
+      // Exists to hold the one payment state no other candidate can: verified and settled. Without
+      // a row in it, `paid` renders on no page, so the badge tone, the withheld verdict controls and
+      // the "Lunas" copy are all unreachable by any browser audit.
+      { id: "seed-user-cand-d", name: "Dewi Anggraini", email: EMAIL("seed.cand.d"), emailVerified: d(-48), role: "candidate", username: "seed_cand_d", candAt: d(-48), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
       { id: "seed-user-rec-min", name: "Rina Wijaya", email: EMAIL("seed.rec.min"), emailVerified: d(-30), role: "recruiter", username: "seed_rec_min", candAt: null, recAt: d(-30), tier: "minimal", suspendedAt: null, suspensionReason: null },
       { id: "seed-user-rec-elev", name: "Eko Prasetyo", email: EMAIL("seed.rec.elev"), emailVerified: d(-90), role: "recruiter", username: "seed_rec_elev", candAt: null, recAt: d(-90), tier: "elevated", suspendedAt: null, suspensionReason: null },
       { id: "seed-user-rec-rej", name: "Raka Nugraha", email: EMAIL("seed.rec.rej"), emailVerified: d(-20), role: "recruiter", username: "seed_rec_rej", candAt: null, recAt: d(-20), tier: "minimal", suspendedAt: null, suspensionReason: null },
@@ -168,6 +211,7 @@ const main = async (): Promise<void> => {
       { userId: "seed-user-cand-a", fullName: "Andi Saputra", phone: "+6281200000001", occupation: "college_student", dob: "2004-05-14" },
       { userId: "seed-user-cand-b", fullName: "Bela Rahma", phone: "+6281200000002", occupation: "school_student", dob: "2008-11-02" },
       { userId: "seed-user-cand-c", fullName: "Citra Dewi", phone: "+6281200000003", occupation: "professional", dob: "1998-03-27" },
+      { userId: "seed-user-cand-d", fullName: "Dewi Anggraini", phone: "+6281200000007", occupation: "new_graduate", dob: "2000-09-12" },
       { userId: "seed-user-dual", fullName: "Dina Kusuma", phone: "+6281200000004", occupation: "college_student", dob: "2003-08-19" },
       { userId: "seed-user-susp", fullName: "Sari Utami", phone: "+6281200000005", occupation: "new_graduate", dob: "2001-01-09" },
       { userId: "seed-user-unver", fullName: "Udin Baru", phone: "+6281200000006", occupation: "other", dob: "2005-06-30" },
@@ -205,6 +249,18 @@ const main = async (): Promise<void> => {
         id: "seed-inst-b", displayName: "Seed Ventures", slug: "seed-ventures", type: "company",
         verification: "pending_verification", verifiedAt: null, suspendedAt: null, suspensionReason: null,
         description: "Perusahaan data uji — menunggu verifikasi dokumen.",
+        about: null, contactName: null, contactEmail: null, contactPhone: null, websiteUrl: null,
+      },
+      {
+        // THE SECOND VERIFIED TENANT, and it exists for one reason: a single-institution fixture is
+        // structurally incapable of catching a missing tenant scope, because every id it holds
+        // belongs to the same tenant and an unscoped query looks correct against all of them
+        // (MANUAL-D6). Institution B cannot serve — it is pending_verification and so cannot host a
+        // paid competition at all. This one is verified, priced, and deliberately owned by someone
+        // who administers NOTHING at seed-inst-a.
+        id: "seed-inst-d", displayName: "Seed Kolektif", slug: "seed-kolektif", type: "foundation",
+        verification: "verified", verifiedAt: d(-35), suspendedAt: null, suspensionReason: null,
+        description: "Tenant kedua data uji — panggung uji batas antar-institusi.",
         about: null, contactName: null, contactEmail: null, contactPhone: null, websiteUrl: null,
       },
       {
@@ -247,6 +303,9 @@ const main = async (): Promise<void> => {
       { id: "seed-mem-b-owner", inst: "seed-inst-b", user: "seed-user-rec-elev", role: "institution_owner" },
       { id: "seed-mem-c-owner", inst: "seed-inst-c", user: "seed-user-rec-elev", role: "institution_owner" },
       { id: "seed-mem-p-owner", inst: "seed-inst-p", user: "seed-user-rec-min", role: "institution_owner" },
+      // Owner of D, admin of NOTHING at seed-inst-a. That asymmetry is the fixture: rec-elev owns
+      // both A and B, so it can never demonstrate a boundary violation between them.
+      { id: "seed-mem-d-owner", inst: "seed-inst-d", user: "seed-user-rec-min", role: "institution_owner" },
     ];
     for (const m of memberships) {
       await sql`
@@ -328,6 +387,31 @@ const main = async (): Promise<void> => {
         rs: d(-10), re: d(3), es: d(12), ee: d(13), ra: d(20),
         allowCancel: true, cutoffDays: 2, eligibilityNote: null,
         featured: false, featuredOrder: null, publishedAt: d(-10),
+      },
+      {
+        // THE MANUAL PAYMENT LANE'S STAGE. Priced, registration open, individual mode, and owned by
+        // a VERIFIED institution that has published bank details — all three are required before
+        // `createPayment` will accept a priced manual payment, so a competition missing any one of
+        // them cannot host this lane at all.
+        id: "seed-comp-paid", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
+        slug: "seed-paid", title: "Seed Olimpiade Berbayar",
+        description: "Kompetisi berbayar data uji: transfer manual ke rekening penyelenggara, lalu unggah bukti transfer.",
+        status: "published", category: "olympiad", mode: "individual", minTeam: null, maxTeam: null,
+        rs: d(-6), re: d(28), es: d(34), ee: d(35), ra: d(42),
+        allowCancel: true, cutoffDays: 3, eligibilityNote: null,
+        featured: false, featuredOrder: null, publishedAt: d(-6),
+      },
+      {
+        // Institution D's priced competition — the other side of the tenant boundary. Same shape as
+        // seed-comp-paid so a verdict route that leaked would succeed rather than fail for an
+        // unrelated reason.
+        id: "seed-comp-d-paid", inst: "seed-inst-d", createdBy: "seed-user-rec-min",
+        slug: "seed-kolektif-paid", title: "Seed Festival Kolektif",
+        description: "Kompetisi berbayar milik tenant kedua — dipakai untuk menguji batas antar-institusi.",
+        status: "published", category: "design", mode: "individual", minTeam: null, maxTeam: null,
+        rs: d(-6), re: d(28), es: d(34), ee: d(35), ra: d(42),
+        allowCancel: true, cutoffDays: 3, eligibilityNote: null,
+        featured: false, featuredOrder: null, publishedAt: d(-6),
       },
       {
         // Team-capable, registration open, and deliberately EMPTY of registrations. Every other
@@ -566,6 +650,11 @@ const main = async (): Promise<void> => {
       { id: "seed-reg-a-inprog", comp: "seed-comp-inprogress", student: "seed-user-cand-a", team: null, type: "individual", status: "confirmed", registeredAt: d(-25), cancelledAt: null, cancellationReason: null, reviewStatus: "under_review", internalNotes: null },
       { id: "seed-reg-a-done", comp: "seed-comp-done", student: "seed-user-cand-a", team: null, type: "individual", status: "confirmed", registeredAt: d(-50), cancelledAt: null, cancellationReason: null, reviewStatus: "shortlisted", internalNotes: "Kandidat kuat — finalis (catatan internal seed)." },
       { id: "seed-reg-b-done", comp: "seed-comp-done", student: "seed-user-cand-b", team: null, type: "individual", status: "confirmed", registeredAt: d(-49), cancelledAt: null, cancellationReason: null, reviewStatus: "under_review", internalNotes: null },
+      { id: "seed-reg-a-paid", comp: "seed-comp-paid", student: "seed-user-cand-a", team: null, type: "individual", status: "confirmed", registeredAt: d(-5), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
+      { id: "seed-reg-b-paid", comp: "seed-comp-paid", student: "seed-user-cand-b", team: null, type: "individual", status: "confirmed", registeredAt: d(-5), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
+      { id: "seed-reg-c-paid", comp: "seed-comp-paid", student: "seed-user-cand-c", team: null, type: "individual", status: "confirmed", registeredAt: d(-5), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
+      { id: "seed-reg-d-paid", comp: "seed-comp-paid", student: "seed-user-cand-d", team: null, type: "individual", status: "confirmed", registeredAt: d(-5), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
+      { id: "seed-reg-a-dpaid", comp: "seed-comp-d-paid", student: "seed-user-cand-a", team: null, type: "individual", status: "confirmed", registeredAt: d(-4), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
       { id: "seed-reg-tb-b", comp: "seed-comp-closing", student: "seed-user-cand-b", team: "seed-team-b", type: "team", status: "confirmed", registeredAt: d(-5), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
       { id: "seed-reg-tb-c", comp: "seed-comp-closing", student: "seed-user-cand-c", team: "seed-team-b", type: "team", status: "confirmed", registeredAt: d(-5), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
     ];
@@ -786,11 +875,238 @@ const main = async (): Promise<void> => {
         rating = EXCLUDED.rating, body = EXCLUDED.body, status = EXCLUDED.status, updated_at = now()
     `;
 
+    // --------------------------------------------------------- manual payment lane
+    // Everything the bukti transfer lane needs, in the three states a candidate can be in. Seeded
+    // as a block rather than scattered because the lane has an ORDER: a competition cannot be
+    // priced without a fee rule to resolve, and a priced payment cannot be created without the
+    // institution having published somewhere to send the money.
+    await sql`
+      UPDATE competitions
+      SET fee_amount = 150000, fee_currency = 'IDR', payment_window_days = 3, updated_at = now()
+      WHERE id = 'seed-comp-paid'
+    `;
+
+    // SCOPED TO seed-inst-a, deliberately NOT a platform default (institution_id NULL).
+    //
+    // A platform-wide rule is a global fallback — it resolves for every institution in the
+    // database, including fixtures built by other suites. Seeding one made "no fee rule is in
+    // force" unreachable and broke two real-database tests that assert the charging gate fails
+    // closed without one. Scoping it here keeps the seed institution priceable without changing
+    // what any other tenant resolves.
+    await sql`
+      INSERT INTO finance_fee_rules (id, institution_id, currency, basis_points, flat_amount,
+        effective_from)
+      VALUES ('seed-feerule-default', 'seed-inst-a', 'IDR', 250, 0, ${d(-90)})
+      ON CONFLICT (id) DO UPDATE SET
+        -- institution_id is in the SET list because it is the column most likely to CHANGE between
+        -- seed revisions and the one whose omission is invisible: an earlier run that wrote NULL
+        -- here would survive every later run, and the rule would go on resolving for every tenant
+        -- while the source read as institution-scoped.
+        institution_id = EXCLUDED.institution_id,
+        basis_points = EXCLUDED.basis_points, flat_amount = EXCLUDED.flat_amount,
+        effective_from = EXCLUDED.effective_from
+    `;
+
+    await sql`
+      INSERT INTO institution_payment_instructions (id, institution_id, bank_name, account_number,
+        account_holder_name, instructions_note)
+      VALUES ('seed-payinstr-a', 'seed-inst-a', 'Bank Mandiri', '1370012345678',
+        'Yayasan Seed Academy',
+        'Cantumkan nama lengkap dan nama kompetisi pada berita transfer.')
+      ON CONFLICT (institution_id) DO UPDATE SET
+        bank_name = EXCLUDED.bank_name, account_number = EXCLUDED.account_number,
+        account_holder_name = EXCLUDED.account_holder_name,
+        instructions_note = EXCLUDED.instructions_note, updated_at = now()
+    `;
+
+    // One payment per registration, each carrying its own deadline snapshot and its own copy of the
+    // account details — never a reference to the institution's live row, so an organiser changing
+    // banks cannot repoint a payer who is mid-transfer.
+    type PaySeed = { id: string; reg: string; payer: string; dueAt: Date };
+    const payments: PaySeed[] = [
+      { id: "seed-pay-a", reg: "seed-reg-a-paid", payer: "seed-user-cand-a", dueAt: d(2) },
+      { id: "seed-pay-b", reg: "seed-reg-b-paid", payer: "seed-user-cand-b", dueAt: d(2) },
+      { id: "seed-pay-c", reg: "seed-reg-c-paid", payer: "seed-user-cand-c", dueAt: d(2) },
+      { id: "seed-pay-d-settled", reg: "seed-reg-d-paid", payer: "seed-user-cand-d", dueAt: d(2) },
+    ];
+    for (const pay of payments) {
+      await sql`
+        INSERT INTO finance_payments (id, payer_user_id, receiving_institution_id, origin,
+          subject_type, competition_registration_id, currency, gross_amount, fee_rule_id,
+          fee_basis_points, fee_flat_amount, platform_fee_amount, institution_net_amount, due_at)
+        VALUES (${pay.id}, ${pay.payer}, 'seed-inst-a', 'manual_transfer',
+          'competition_registration', ${pay.reg}, 'IDR', 150000, 'seed-feerule-default',
+          250, 0, 0, 150000, ${pay.dueAt})
+        ON CONFLICT (id) DO UPDATE SET due_at = EXCLUDED.due_at
+      `;
+      await sql`
+        INSERT INTO finance_payment_instruction_snapshots (id, payment_id, bank_name,
+          account_number, account_holder_name, instructions_note)
+        VALUES (${`seed-paysnap-${pay.id}`}, ${pay.id}, 'Bank Mandiri', '1370012345678',
+          'Yayasan Seed Academy',
+          'Cantumkan nama lengkap dan nama kompetisi pada berita transfer.')
+        ON CONFLICT (payment_id) DO NOTHING
+      `;
+    }
+
+    // Institution D's own pricing, instructions and payment. A DIFFERENT account number on purpose:
+    // if a verdict or a read ever crosses the boundary, the wrong bank details are the visible
+    // symptom, whereas two tenants sharing "1370012345678" would leak silently.
+    await sql`
+      UPDATE competitions
+      SET fee_amount = 90000, fee_currency = 'IDR', payment_window_days = 3, updated_at = now()
+      WHERE id = 'seed-comp-d-paid'
+    `;
+    await sql`
+      INSERT INTO finance_fee_rules (id, institution_id, currency, basis_points, flat_amount,
+        effective_from)
+      VALUES ('seed-feerule-d', 'seed-inst-d', 'IDR', 250, 0, ${d(-60)})
+      ON CONFLICT (id) DO UPDATE SET
+        institution_id = EXCLUDED.institution_id,
+        basis_points = EXCLUDED.basis_points, flat_amount = EXCLUDED.flat_amount,
+        effective_from = EXCLUDED.effective_from
+    `;
+    await sql`
+      INSERT INTO institution_payment_instructions (id, institution_id, bank_name, account_number,
+        account_holder_name, instructions_note)
+      VALUES ('seed-payinstr-d', 'seed-inst-d', 'Bank BCA', '8880099887766',
+        'Kolektif Seed Nusantara', 'Transfer sebelum batas waktu, sertakan nama peserta.')
+      ON CONFLICT (institution_id) DO UPDATE SET
+        bank_name = EXCLUDED.bank_name, account_number = EXCLUDED.account_number,
+        account_holder_name = EXCLUDED.account_holder_name,
+        instructions_note = EXCLUDED.instructions_note, updated_at = now()
+    `;
+    await sql`
+      INSERT INTO finance_payments (id, payer_user_id, receiving_institution_id, origin,
+        subject_type, competition_registration_id, currency, gross_amount, fee_rule_id,
+        fee_basis_points, fee_flat_amount, platform_fee_amount, institution_net_amount, due_at)
+      VALUES ('seed-pay-d', 'seed-user-cand-a', 'seed-inst-d', 'manual_transfer',
+        'competition_registration', 'seed-reg-a-dpaid', 'IDR', 90000, 'seed-feerule-d',
+        250, 0, 0, 90000, ${d(2)})
+      ON CONFLICT (id) DO UPDATE SET due_at = EXCLUDED.due_at
+    `;
+    await sql`
+      INSERT INTO finance_payment_instruction_snapshots (id, payment_id, bank_name,
+        account_number, account_holder_name, instructions_note)
+      VALUES ('seed-paysnap-seed-pay-d', 'seed-pay-d', 'Bank BCA', '8880099887766',
+        'Kolektif Seed Nusantara', 'Transfer sebelum batas waktu, sertakan nama peserta.')
+      ON CONFLICT (payment_id) DO NOTHING
+    `;
+    // Awaiting review, so it is a proof an outsider could plausibly try to rule on. A proof already
+    // closed would be refused by the CAS for a reason that has nothing to do with tenancy, and the
+    // boundary test would pass without the boundary.
+    await sql`
+      INSERT INTO finance_manual_payment_proofs (id, payment_id, competition_id,
+        submitted_by_user_id, status, r2_key, original_file_name, file_size_bytes, content_type,
+        submitted_at)
+      VALUES ('seed-proof-d', 'seed-pay-d', 'seed-comp-d-paid', 'seed-user-cand-a',
+        'pending_review', 'payment-proofs/seed-comp-d-paid/seed-pay-d/seed-bukti-d',
+        'bukti-transfer-andi-kolektif.jpg', 152064, 'image/jpeg', ${h(-8)})
+      ON CONFLICT (payment_id) DO UPDATE SET
+        status = EXCLUDED.status, submitted_at = EXCLUDED.submitted_at,
+        reviewer_user_id = NULL, reviewed_at = NULL, rejection_reason = NULL,
+        resubmission_allowed = true, resubmission_count = 0, updated_at = now()
+    `;
+
+    // Candidate A: nothing sent — the "awaiting_transfer" state, so A's panel shows the upload form.
+    // Candidate B: evidence with the organiser — "awaiting_review".
+    // Candidate C: refused with the door left open — "rejected_resubmittable".
+    // Together they also give the organiser's review queue one row in each state.
+    await sql`
+      INSERT INTO finance_manual_payment_proofs (id, payment_id, competition_id,
+        submitted_by_user_id, status, r2_key, original_file_name, file_size_bytes, content_type,
+        submitted_at)
+      VALUES ('seed-proof-b', 'seed-pay-b', 'seed-comp-paid', 'seed-user-cand-b', 'pending_review',
+        'payment-proofs/seed-comp-paid/seed-pay-b/seed-bukti-b', 'bukti-transfer-bela.jpg',
+        184320, 'image/jpeg', ${h(-6)})
+      ON CONFLICT (payment_id) DO UPDATE SET
+        status = EXCLUDED.status, submitted_at = EXCLUDED.submitted_at,
+        reviewer_user_id = NULL, reviewed_at = NULL, rejection_reason = NULL,
+        resubmission_allowed = true, resubmission_count = 0, updated_at = now()
+    `;
+    await sql`
+      INSERT INTO finance_manual_payment_proofs (id, payment_id, competition_id,
+        submitted_by_user_id, status, r2_key, original_file_name, file_size_bytes, content_type,
+        submitted_at, reviewer_user_id, reviewed_at, rejection_reason, resubmission_allowed)
+      VALUES ('seed-proof-c', 'seed-pay-c', 'seed-comp-paid', 'seed-user-cand-c', 'rejected',
+        'payment-proofs/seed-comp-paid/seed-pay-c/seed-bukti-c', 'bukti-transfer-cindy.jpg',
+        96256, 'image/jpeg', ${h(-30)}, 'seed-user-rec-elev', ${h(-20)},
+        'Nominal transfer tidak sesuai — tertera Rp100.000, seharusnya Rp150.000.', true)
+      ON CONFLICT (payment_id) DO UPDATE SET
+        status = EXCLUDED.status, reviewer_user_id = EXCLUDED.reviewer_user_id,
+        reviewed_at = EXCLUDED.reviewed_at, rejection_reason = EXCLUDED.rejection_reason,
+        resubmission_allowed = EXCLUDED.resubmission_allowed, resubmission_count = 0,
+        updated_at = now()
+    `;
+    // Candidate D: SETTLED. The only seeded row in the state a completed manual payment ends in.
+    //
+    // It carries its own payment (`seed-pay-d-settled`) precisely because the ledger cannot be
+    // rewound: verifying writes a `succeeded` event and a fee accrual into append-only tables, and
+    // the reset below deletes neither. Attaching this state to an existing payment would make that
+    // payment permanently settled in any database this script has ever touched.
+    await sql`
+      INSERT INTO finance_manual_payment_proofs (id, payment_id, competition_id,
+        submitted_by_user_id, status, r2_key, original_file_name, file_size_bytes, content_type,
+        submitted_at, reviewer_user_id, reviewed_at)
+      VALUES ('seed-proof-d-settled', 'seed-pay-d-settled', 'seed-comp-paid', 'seed-user-cand-d',
+        'verified', 'payment-proofs/seed-comp-paid/seed-pay-d-settled/seed-bukti-dewi',
+        'bukti-transfer-dewi.pdf', 208896, 'application/pdf', ${h(-52)},
+        'seed-user-rec-elev', ${h(-44)})
+      ON CONFLICT (payment_id) DO UPDATE SET
+        status = EXCLUDED.status, submitted_at = EXCLUDED.submitted_at,
+        reviewer_user_id = EXCLUDED.reviewer_user_id, reviewed_at = EXCLUDED.reviewed_at,
+        rejection_reason = NULL, resubmission_allowed = true, resubmission_count = 0,
+        updated_at = now()
+    `;
+    // The money facts a real verification writes alongside the proof. Without them the ledger says
+    // `pending` while the proof says `verified`, and the candidate view would correctly report the
+    // weaker "menunggu verifikasi" — leaving `paid` unreachable, which is the whole point of this
+    // row. ON CONFLICT DO NOTHING because these are append-only and the reset does not remove them.
+    await sql`
+      INSERT INTO finance_payment_events (id, payment_id, event_type, occurred_at, amount,
+        currency, actor_type, actor_user_id, idempotency_key)
+      VALUES ('seed-payev-d-settled', 'seed-pay-d-settled', 'succeeded', ${h(-44)}, 150000,
+        'IDR', 'user', 'seed-user-rec-elev', 'mn:verified:seed-proof-d-settled:0')
+      ON CONFLICT (id) DO NOTHING
+    `;
+    await sql`
+      INSERT INTO finance_fee_accruals (id, payment_id, owing_institution_id, entry_type, currency,
+        amount, fee_rule_id, fee_basis_points, fee_flat_amount, gross_amount)
+      VALUES ('seed-accrual-d-settled', 'seed-pay-d-settled', 'seed-inst-a', 'accrued', 'IDR',
+        3750, 'seed-feerule-default', 250, 0, 150000)
+      ON CONFLICT (id) DO NOTHING
+    `;
+
+    // The rejection's own history row. Written at CLOSE, which is what keeps the table append-only.
+    await sql`
+      INSERT INTO finance_manual_payment_proof_attempts (id, proof_id, payment_id, competition_id,
+        attempt_number, submitted_by_user_id, r2_key, original_file_name, file_size_bytes,
+        content_type, submitted_at, verdict, verdict_reason, reviewer_user_id, reviewed_at)
+      VALUES ('seed-proofatt-c-0', 'seed-proof-c', 'seed-pay-c', 'seed-comp-paid', 0,
+        'seed-user-cand-c', 'payment-proofs/seed-comp-paid/seed-pay-c/seed-bukti-c',
+        'bukti-transfer-cindy.jpg', 96256, 'image/jpeg', ${h(-30)}, 'rejected',
+        'Nominal transfer tidak sesuai — tertera Rp100.000, seharusnya Rp150.000.',
+        'seed-user-rec-elev', ${h(-20)})
+      ON CONFLICT (proof_id, attempt_number) DO NOTHING
+    `;
+
     // ------------------------------------------------- reset automation scratch
     // The automated pass writes to a few rows (uploads a submission and finalizes it, raises and
     // reviews a document request). Clearing them here is what makes the whole pipeline re-runnable
     // rather than one-shot. Only rows the automation creates are removed.
     await sql`DELETE FROM competition_submissions WHERE registration_id = 'seed-reg-a-inprog'`;
+    // Candidate A's panel must start EMPTY so the upload flow has somewhere to run; an automated
+    // pass that uploaded a receipt would leave A in "awaiting_review" and every later run would
+    // find no upload control. Only rows the automation creates are removed.
+    await sql`
+      DELETE FROM finance_manual_payment_proofs
+      WHERE payment_id LIKE 'seed-pay-%' AND id NOT LIKE 'seed-proof-%'
+    `;
+    // NOTHING IS DELETED FROM finance_payment_events OR finance_fee_accruals, and that is not an
+    // omission. DEC-0133 makes those append-only: a seed that un-records a money fact is doing the
+    // one thing the ledger exists to prevent, and the append-only source scan refuses it. No
+    // automated pass writes them today. A future pass that VERIFIES a seeded proof must create its
+    // own payment for that purpose rather than expect this script to reverse the ledger.
     await sql`
       DELETE FROM competition_document_requests
       WHERE registration_id IN (SELECT id FROM competition_registrations WHERE id LIKE 'seed-reg-%')
@@ -841,6 +1157,8 @@ const main = async (): Promise<void> => {
       UNION ALL SELECT 'recruiter_verifs', count(*)::int FROM recruiter_verification_submissions WHERE id LIKE 'seed-rvs-%'
       UNION ALL SELECT 'inst_verifs', count(*)::int FROM institution_verification_submissions WHERE id LIKE 'seed-ivs-%'
       UNION ALL SELECT 'mfa_factors', count(*)::int FROM mfa_factors WHERE user_id LIKE 'seed-user-%'
+      UNION ALL SELECT 'payments', count(*)::int FROM finance_payments WHERE id LIKE 'seed-pay-%'
+      UNION ALL SELECT 'payment_proofs', count(*)::int FROM finance_manual_payment_proofs WHERE id LIKE 'seed-proof-%'
     `;
     for (const row of counts) console.log(`${row.label.padEnd(18)} ${row.n}`);
     console.log("Seed complete. All seed accounts use password: UjiCoba123!");

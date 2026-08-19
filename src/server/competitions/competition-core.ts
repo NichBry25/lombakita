@@ -75,6 +75,9 @@ type CompetitionErrorCode =
   // A competition that already took registrations for free cannot acquire a price: pricing it would
   // retroactively remove the right to self-cancel from candidates who never paid anything.
   | "competition_fee_blocked_free_registrations"
+  // The organiser must be shown, and confirm, what the platform charges before a price goes live.
+  // The confirmation is recorded; this refusal is what makes it unskippable.
+  | "competition_fee_disclosure_required"
   | "competition_already_cancelled"
   | "competition_participation_not_configured"
   | "competition_participation_decision_unavailable"

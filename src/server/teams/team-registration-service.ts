@@ -18,6 +18,11 @@ import { MAX_CANCELLATION_REASON_LENGTH } from "@/server/registrations/registrat
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
+import { hasSubmittedPaymentProof } from "@/server/finance/paid-registration";
+import {
+  createRegistrationPayment,
+  loadRegistrationPricing,
+} from "@/server/registrations/registration-payment";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -305,6 +310,38 @@ export const submitTeamRegistration = async (
         );
       }
 
+      // ONE PAYMENT FOR THE WHOLE TEAM, anchored on the CAPTAIN'S row.
+      //
+      // N members produce N registration rows but a single debt, so the payment attaches to one of
+      // them and the payment-group predicates resolve the rest back to it through `team_id`.
+      // Charging per row would bill a four-person team four times; anchoring on an arbitrary row
+      // would make which member pays depend on insert order.
+      //
+      // Same transaction as the registrations and the team transition, so a priced team is either
+      // fully registered and priced or not registered at all.
+      const captainRegistration = insertedRows.find((row) => row.studentId === team.captainId);
+
+      if (!captainRegistration) {
+        // The captain is required to be an active member, so this is unreachable. Asserted because
+        // silently anchoring on someone else would put another member's name on the debt.
+        throw new TeamError(
+          "team_registration_invariant_violation",
+          "The captain has no registration row to anchor the team's payment on",
+        );
+      }
+
+      const pricing = await loadRegistrationPricing(competitionId, tx);
+
+      if (pricing) {
+        await createRegistrationPayment(
+          pricing,
+          captainRegistration.id,
+          team.captainId,
+          mutationAt,
+          tx,
+        );
+      }
+
       logger.info("team_registration.submitted", {
         teamId,
         competitionId,
@@ -361,9 +398,9 @@ export const submitTeamRegistration = async (
 
 // Captain reverts a submitted team back to forming by cancelling every team-typed
 // registration row. The same candidate-cancellation policy as the individual path applies:
-// reason required, paid block (Phase 7 placeholder), institution allow toggle, and the cutoff
-// window measured against event_start_at. Gate order is fail-closed: captain + submitted-status
-// (ownership/state) before any reason or policy error.
+// reason required, the paid block conditional on a submitted bukti transfer, institution allow
+// toggle, and the cutoff window measured against event_start_at. Gate order is fail-closed:
+// captain + submitted-status (ownership/state) before any reason or policy error.
 export const cancelTeamRegistration = async (
   callerUserId: string,
   competitionId: string,
@@ -403,12 +440,31 @@ export const cancelTeamRegistration = async (
     throw new TeamError("team_competition_not_found", "Competition not found");
   }
 
-  // Paid block — paid cancellation lands in Phase 7. TODO Phase 7 (DEC-0074).
+  // The same conditional the individual cancel path applies, deliberately reached through the same
+  // predicate rather than restated. A team pays ONCE, anchored on the captain's row, and the
+  // predicate resolves the whole payment group — so a captain cancelling a team whose payment is
+  // evidenced is refused for exactly the reason an individual would be, and a team that has
+  // transferred nothing keeps the right to disband.
+  //
+  // Leaving this arm blanket while the individual arm became conditional would mean a captain and
+  // a solo entrant on the same competition, both having paid nothing, got different answers.
   if (isPaidCompetition(competition.feeAmount)) {
-    throw new TeamError(
-      "cancellation_not_supported_for_paid",
-      "Paid registrations cannot be cancelled yet",
-    );
+    // ANY member's row identifies the group. The predicate resolves the whole payment group from
+    // whichever row it is handed, so this does not need to be the captain's — and asking for a
+    // specific member's row here would add a way to get the wrong answer for no benefit. A team
+    // with no registration rows at all has no payment and therefore no proof.
+    const [groupMember] = await db
+      .select({ id: competitionRegistrations.id })
+      .from(competitionRegistrations)
+      .where(eq(competitionRegistrations.teamId, teamId))
+      .limit(1);
+
+    if (groupMember && (await hasSubmittedPaymentProof(groupMember.id, db))) {
+      throw new TeamError(
+        "cancellation_not_supported_for_paid",
+        "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
+      );
+    }
   }
 
   // Institution must allow cancellation.

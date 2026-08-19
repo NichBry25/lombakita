@@ -1098,6 +1098,25 @@ svg {
   color: var(--color-error-text);
 }
 
+/* Payment-lane badges. Same construction as the lifecycle phases above: existing semantic families
+   only, no new colour, each with its own dot. They exist because the lifecycle vocabulary cannot
+   express a payment — a paid, expired or refunded transfer has no equivalent among open/closing/
+   upcoming/ongoing, and reusing one of those would put a competition's word on a payment's state. */
+.status-badge[data-status="paid"] {
+  background: var(--color-success-surface);
+  color: var(--color-success-text);
+}
+
+.status-badge[data-status="expired"] {
+  background: var(--color-error-surface);
+  color: var(--color-error-text);
+}
+
+.status-badge[data-status="refunded"] {
+  background: var(--color-info-surface);
+  color: var(--color-info-text);
+}
+
 .status-badge:is(
     [data-status="open"],
     [data-status="closing"],
@@ -1107,7 +1126,10 @@ svg {
     [data-status="awaiting"],
     [data-status="overdue"],
     [data-status="announced"],
-    [data-status="cancelled"]
+    [data-status="cancelled"],
+    [data-status="paid"],
+    [data-status="expired"],
+    [data-status="refunded"]
   )::before {
   width: var(--space-1-5);
   height: var(--space-1-5);
@@ -1151,6 +1173,18 @@ svg {
 
 .status-badge[data-status="cancelled"]::before {
   background: var(--color-error-border);
+}
+
+.status-badge[data-status="paid"]::before {
+  background: var(--color-success-border);
+}
+
+.status-badge[data-status="expired"]::before {
+  background: var(--color-error-border);
+}
+
+.status-badge[data-status="refunded"]::before {
+  background: var(--color-info-border);
 }
 
 .table-scroll {

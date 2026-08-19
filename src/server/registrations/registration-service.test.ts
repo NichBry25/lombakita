@@ -12,6 +12,15 @@ vi.mock("@/server/competitions/competition-participation-lock", () => ({
   acquireCompetitionParticipationLock: vi.fn(),
 }));
 
+// The predicate deciding whether a priced registration may still self-cancel. Mocked here because
+// this file tests cancelRegistration's OWN gate ORDER against a queued fake with no proof tables;
+// that the predicate reads a real proof row, and that both of its answers drive the right outcome,
+// is proven against a live Postgres in the manual-lane integration suite.
+const { hasSubmittedPaymentProof } = vi.hoisted(() => ({
+  hasSubmittedPaymentProof: vi.fn().mockResolvedValue(false),
+}));
+vi.mock("@/server/finance/paid-registration", () => ({ hasSubmittedPaymentProof }));
+
 import {
   cancelRegistration,
   createIndividualRegistration,
@@ -191,9 +200,10 @@ describe("createIndividualRegistration enforcement chain", () => {
   // Open-candidacy negative contract (DEC-0106): there is no age band and no eligibility
   // gate. A candidate who would have been blocked under the retired 18–32 rule must be able
   // to register. The service never receives a date of birth and must never look one up: the
-  // only SELECTs on the happy path are the competition load, duplicate-registration check, and
-  // locked deadline re-check. If a future change reintroduces an age/eligibility lookup, either
-  // registration stops succeeding or another SELECT appears here — both fail this test.
+  // only SELECTs on the happy path are the competition load, duplicate-registration check, the
+  // locked deadline re-check, and the pricing read that decides whether a payment is owed. If a
+  // future change reintroduces an age/eligibility lookup, either registration stops succeeding or
+  // another SELECT appears here — both fail this test.
   it("allows a candidate over 32 to register (no age/eligibility gate — DEC-0106)", async () => {
     const inserted = baseRegistration({ studentId: "candidate_over_32" });
     const { db, spies } = makeQueuedDb(
@@ -213,8 +223,9 @@ describe("createIndividualRegistration enforcement chain", () => {
     );
 
     expect(result).toEqual(inserted);
-    // No profile/age/eligibility SELECT was issued — exactly the three enforcement-chain reads.
-    expect(spies.selectCallTraces).toHaveLength(3);
+    // No profile/age/eligibility SELECT was issued. Four reads: the three enforcement-chain ones
+    // plus the pricing read that decides whether this registration owes a payment.
+    expect(spies.selectCallTraces).toHaveLength(4);
   });
 
   it("rejects with competition_not_found when competition does not exist", async () => {
@@ -449,7 +460,8 @@ describe("cancelRegistration enforcement chain", () => {
     ).rejects.toMatchObject({ code: "cancellation_reason_too_long" });
   });
 
-  it("rejects with cancellation_not_supported_for_paid for a paid competition", async () => {
+  it("rejects with cancellation_not_supported_for_paid once a bukti transfer has been submitted", async () => {
+    hasSubmittedPaymentProof.mockResolvedValueOnce(true);
     const reg = baseRegistration();
     const { db } = makeQueuedDb([
       [reg],
@@ -466,6 +478,29 @@ describe("cancelRegistration enforcement chain", () => {
     await expect(
       cancelRegistration("stud_1", "comp_1", "reg_1", "ganti rencana", db as never, NOW),
     ).rejects.toMatchObject({ code: "cancellation_not_supported_for_paid" });
+  });
+
+  it("lets a paid registration with NO bukti transfer past the paid gate", async () => {
+    // The other half of the conditional. Without this the refusal above would also pass against
+    // the blanket rule this replaced, which stripped the right to leave from a candidate who had
+    // registered, transferred nothing, and simply changed their mind.
+    hasSubmittedPaymentProof.mockResolvedValueOnce(false);
+    const reg = baseRegistration();
+    const { db } = makeQueuedDb([
+      [reg],
+      [
+        baseCompetition({
+          feeAmount: 50_000,
+          // Refused by the NEXT gate, which is how we know the paid gate let it through: a
+          // still-blanket paid gate would report cancellation_not_supported_for_paid instead.
+          allowCancellation: false,
+        }),
+      ],
+    ]);
+
+    await expect(
+      cancelRegistration("stud_1", "comp_1", "reg_1", "ganti rencana", db as never, NOW),
+    ).rejects.toMatchObject({ code: "cancellation_disabled_by_institution" });
   });
 
   it("rejects with cancellation_disabled_by_institution when allow_cancellation is false", async () => {

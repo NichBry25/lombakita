@@ -400,13 +400,13 @@ const applySimplePatchColumns = (
  * them off a projection that excludes them: a money gate whose input is structurally absent reads
  * as free no matter what the row says.
  */
-type CompetitionPricing = {
+export type CompetitionPricing = {
   feeAmount: number | null;
   feeCurrency: string | null;
   paymentWindowDays: number;
 };
 
-const loadCompetitionPricing = async (
+export const loadCompetitionPricing = async (
   competitionId: string,
   db: Database,
 ): Promise<CompetitionPricing> => {
@@ -427,7 +427,7 @@ const loadCompetitionPricing = async (
   return row;
 };
 
-const toClassifiable = (
+export const toClassifiable = (
   row: CompetitionRow,
   pricing: CompetitionPricing,
 ): ClassifiableCompetition => ({
@@ -478,7 +478,7 @@ const mergeForClassification = (
 
 // Loads the non-cancelled registration snapshot used by the post-publish edit classifier. Team
 // sizes are the per-team count of non-cancelled team-typed rows (each member holds one row).
-const loadEditClassificationSnapshot = async (
+export const loadEditClassificationSnapshot = async (
   competitionId: string,
   db: Database,
 ): Promise<EditClassificationSnapshot> => {

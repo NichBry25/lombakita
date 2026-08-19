@@ -49,6 +49,12 @@ const makeInsertDb = () => {
         return { returning, onConflictDoNothing: vi.fn().mockReturnValue({ returning }) };
       },
     }),
+    // createPayment writes the payment and its instructions snapshot in one transaction. Running
+    // the callback against this same fake is enough for the validation-order assertions here;
+    // whether the two rows are genuinely atomic is a database question, proven in the integration
+    // suite rather than against a fake that cannot roll anything back.
+    transaction: async <T>(fn: (tx: Database) => Promise<T>): Promise<T> =>
+      fn(db as unknown as Database),
   };
   return { db: db as unknown as Database, values };
 };

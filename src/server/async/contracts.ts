@@ -26,6 +26,7 @@ export const ASYNC_JOB_NAMES = {
   registrationDocumentRequested: "registration.document.requested",
   registrationDocumentReviewed: "registration.document.reviewed",
   retentionPurge: "retention.purge",
+  paymentExpirySweep: "payment.expiry.sweep",
 } as const;
 
 export type AsyncJobName = (typeof ASYNC_JOB_NAMES)[keyof typeof ASYNC_JOB_NAMES];
@@ -152,6 +153,14 @@ export type RetentionPurgePayload = {
   scheduledFor: string;
 };
 
+// The second job in the system that no request triggers. A payment deadline lapsing is a fact about
+// the calendar, not an action anyone takes, and the candidate who needs telling is precisely the one
+// not looking at the page — so it cannot be derived lazily at read time. The payload carries the
+// fire time only for log correlation; the sweep reads the overdue list itself.
+export type PaymentExpirySweepPayload = {
+  scheduledFor: string;
+};
+
 export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.probePing]: AsyncProbeJobPayload;
   [ASYNC_JOB_NAMES.competitionSearchSync]: CompetitionSearchSyncPayload;
@@ -167,6 +176,7 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.registrationDocumentRequested]: RegistrationDocumentRequestedPayload;
   [ASYNC_JOB_NAMES.registrationDocumentReviewed]: RegistrationDocumentReviewedPayload;
   [ASYNC_JOB_NAMES.retentionPurge]: RetentionPurgePayload;
+  [ASYNC_JOB_NAMES.paymentExpirySweep]: PaymentExpirySweepPayload;
 };
 
 export const ASYNC_JOB_QUEUE_BY_NAME = {
@@ -186,4 +196,8 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   // Platform maintenance, not a participant-facing event — so it sits on `infrastructure`, away
   // from the notification queue whose backlog matters to users.
   [ASYNC_JOB_NAMES.retentionPurge]: ASYNC_QUEUE_NAMES.infrastructure,
+  // Platform maintenance on the same reasoning as the retention sweep: the sweep itself is not
+  // participant-facing, so it stays off the notification queue whose backlog users feel. The
+  // notifications it causes are enqueued separately, as ordinary participant events.
+  [ASYNC_JOB_NAMES.paymentExpirySweep]: ASYNC_QUEUE_NAMES.infrastructure,
 } as const satisfies Record<AsyncJobName, AsyncQueueName>;

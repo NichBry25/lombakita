@@ -50,6 +50,47 @@ const readDatabaseUrl = (): string | undefined => {
 export const TEST_DATABASE_URL = readDatabaseUrl();
 
 /**
+ * Reads one named variable from the environment, falling back to `.env.local`.
+ *
+ * Same narrow-read reasoning as `readDatabaseUrl`: pull the single value out of the file rather
+ * than loading it, so suites asserting on absent variables keep seeing them absent.
+ */
+const readEnvValue = (name: string): string | undefined => {
+  if (process.env[name]) {
+    return process.env[name];
+  }
+
+  const envPath = resolve(process.cwd(), ".env.local");
+  if (!existsSync(envPath)) {
+    return undefined;
+  }
+
+  for (const line of readFileSync(envPath, "utf8").split("\n")) {
+    const match = line.match(new RegExp(`^${name}=(.*)$`));
+    if (match?.[1]) {
+      return match[1].trim().replace(/^["']|["']$/g, "");
+    }
+  }
+
+  return undefined;
+};
+
+/**
+ * A connection that may execute DDL, for the one probe that needs to remove a table to prove what
+ * happens without it.
+ *
+ * The ordinary `DATABASE_URL` role deliberately cannot: locally it is `lombakita_app` and the
+ * tables are owned by `lombakita_migrate`, so a `DROP TABLE` is refused with SQLSTATE 42501. That
+ * separation is a real protection — the application can never drop a finance table — and it is not
+ * something to work around at runtime. It does mean a probe asking "what does the code do when this
+ * table is absent" has to borrow the owner's connection, which is what this is for.
+ *
+ * Prefers the migration role and falls back to `DATABASE_URL`, which covers CI: there the single
+ * `postgres` superuser both migrates and serves, so the fallback IS the owner.
+ */
+export const TEST_DDL_DATABASE_URL = readEnvValue("MIGRATION_DATABASE_URL") ?? TEST_DATABASE_URL;
+
+/**
  * Whether a database is MANDATORY for this run. Set by CI (see .github/workflows/ci.yml).
  *
  * A separate variable rather than keying off `CI` itself, so that a workflow which deliberately has
