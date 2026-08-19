@@ -222,6 +222,20 @@ if (targets.length === 0) {
  * listening on 3000". The likeliest misconfiguration by far is a forgotten dev server, so it gets
  * the one message that names itself.
  */
+/**
+ * One unasserted navigation, purely to make the dev server compile the route.
+ *
+ * Swallows everything: a warm-up that fails is not a result. If the route is genuinely broken the
+ * measured navigation immediately after will say so, and it will say so about the real attempt.
+ */
+const warmRoute = async (page, path) => {
+  try {
+    await page.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  } catch {
+    // Intentionally ignored.
+  }
+};
+
 const assertAppReachable = async () => {
   try {
     const response = await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(10_000) });
@@ -257,6 +271,12 @@ for (const testCase of targets) {
     const page = await context.newPage();
     await page.setViewportSize(DESKTOP);
 
+    // WARM THE ROUTE FIRST. On a dev server the first request to a route it has not compiled can
+    // exceed the navigation budget on its own, and that failure arrives looking exactly like a
+    // surface that did not render — which is how a real signal gets dismissed as "just flaky".
+    // The warm-up is unmeasured; only the second navigation is asserted against.
+    await warmRoute(page, testCase.path);
+
     await page.goto(`${BASE}${testCase.path}`, { waitUntil: "networkidle" });
     const text = await page.locator("main").innerText();
 
@@ -271,7 +291,11 @@ for (const testCase of targets) {
       }
     }
   } catch (error) {
-    misses.push(`${testCase.id}: could not be checked — ${String(error).slice(0, 160)}`);
+    const detail = String(error).slice(0, 160);
+    // A timeout that survives the warm-up is still more likely to be compilation than a defect, so
+    // the message says so rather than leaving the reader to choose between two explanations.
+    const hint = /Timeout/.test(detail) ? " — COLD COMPILE SUSPECTED, RE-RUN before treating this as a product defect" : "";
+    misses.push(`${testCase.id}: could not be checked — ${detail}${hint}`);
   } finally {
     await context?.close();
   }

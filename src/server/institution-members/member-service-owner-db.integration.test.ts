@@ -75,6 +75,104 @@ const seedMembership = async (
   await tx.insert(institutionMemberships).values({ institutionId, userId, membershipRole, status });
 };
 
+// THE OWNER-OR-STAFF GATE ITSELF, which 43 call sites depend on and which nothing tested.
+//
+// Found by probing the generalisation that introduced `requireMembershipBySlug`: widening this
+// resolver to admit `institution_member` — handing every ordinary member the organiser powers of an
+// owner across the participants console, competition editing, member management, invitations, the
+// audit log and this step's payment verdicts — left all 2596 tests green. Narrowing it to refuse
+// every staff member left 2589 green, caught only by a pairing control written for a different
+// test on the same day.
+//
+// The guard was correct. Nothing would have reported it ceasing to be.
+describe.skipIf(skipWithoutDatabase)("requireAdminInstitutionBySlug (real database)", () => {
+  it("admits an OWNER", async () => {
+    await inRollback(async (tx) => {
+      const owner = await seedUser(tx, "aowner");
+      const institution = await seedInstitution(tx, "adm");
+      await seedMembership(tx, institution.id, owner, "institution_owner");
+
+      const { requireAdminInstitutionBySlug } = await import("./member-service");
+      const resolved = await requireAdminInstitutionBySlug(
+        owner,
+        institution.slug,
+        tx as unknown as Database,
+      );
+
+      expect(resolved.institutionId).toBe(institution.id);
+    });
+  });
+
+  it("admits a STAFF member", async () => {
+    // Narrowing the role set is fail-safe rather than dangerous, but it is still a silent
+    // regression: it locks every staff member out of every organiser surface at once.
+    await inRollback(async (tx) => {
+      const staff = await seedUser(tx, "astaff");
+      const institution = await seedInstitution(tx, "adm");
+      await seedMembership(tx, institution.id, staff, "institution_staff");
+
+      const { requireAdminInstitutionBySlug } = await import("./member-service");
+      const resolved = await requireAdminInstitutionBySlug(
+        staff,
+        institution.slug,
+        tx as unknown as Database,
+      );
+
+      expect(resolved.institutionId).toBe(institution.id);
+    });
+  });
+
+  it("REFUSES an institution_member — the privilege-escalation direction", async () => {
+    // The one that matters. `institution_member` is the ordinary membership an invitation grants;
+    // admitting it here would silently promote every member of every institution to organiser.
+    await inRollback(async (tx) => {
+      const member = await seedUser(tx, "amember");
+      const institution = await seedInstitution(tx, "adm");
+      await seedMembership(tx, institution.id, member, "institution_member");
+
+      const { requireAdminInstitutionBySlug } = await import("./member-service");
+
+      await expect(
+        requireAdminInstitutionBySlug(member, institution.slug, tx as unknown as Database),
+      ).rejects.toBeInstanceOf(AccessError);
+    });
+  });
+
+  it("REFUSES a staff member whose membership is no longer active", async () => {
+    await inRollback(async (tx) => {
+      const exStaff = await seedUser(tx, "aexstaff");
+      const institution = await seedInstitution(tx, "adm");
+      await seedMembership(tx, institution.id, exStaff, "institution_staff", "revoked");
+
+      const { requireAdminInstitutionBySlug } = await import("./member-service");
+
+      await expect(
+        requireAdminInstitutionBySlug(exStaff, institution.slug, tx as unknown as Database),
+      ).rejects.toBeInstanceOf(AccessError);
+    });
+  });
+
+  it("REFUSES an admin of a DIFFERENT institution, in both directions", async () => {
+    await inRollback(async (tx) => {
+      const staffA = await seedUser(tx, "astaffa");
+      const ownerD = await seedUser(tx, "aownerd");
+      const instA = await seedInstitution(tx, "aalpha");
+      const instD = await seedInstitution(tx, "adelta");
+      await seedMembership(tx, instA.id, staffA, "institution_staff");
+      await seedMembership(tx, instD.id, ownerD, "institution_owner");
+
+      const { requireAdminInstitutionBySlug } = await import("./member-service");
+
+      await expect(
+        requireAdminInstitutionBySlug(staffA, instD.slug, tx as unknown as Database),
+      ).rejects.toBeInstanceOf(AccessError);
+      await expect(
+        requireAdminInstitutionBySlug(ownerD, instA.slug, tx as unknown as Database),
+      ).rejects.toBeInstanceOf(AccessError);
+    });
+  });
+});
+
 describe.skipIf(skipWithoutDatabase)("requireOwnerInstitutionBySlug (real database)", () => {
   it("resolves the institution for its OWNER", async () => {
     // The positive. Every refusal below means nothing without it.
