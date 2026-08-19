@@ -3540,6 +3540,57 @@ describe.skipIf(skipWithoutDatabase)("organiser payment review across tenants (r
       });
     });
 
+    it("refuses a foreign PENDING proof and a foreign SETTLED proof INDISTINGUISHABLY", async () => {
+      // The move detector for the reject path, and it exists because a classification pass over
+      // every guard in this lane found this one had only half its pair. Removing reject's tenant
+      // scope turned tests red; MOVING it below the write compiled and left all fourteen green,
+      // exactly as the verify path did before its own detector was written.
+      //
+      // Same reasoning as the verify case: the service works inside a transaction, so a check that
+      // throws after the update rolls the update back and every post-state assertion still passes.
+      // What a move cannot preserve is the refusal being identical whatever state the foreign proof
+      // is in — the moved check answers the pending one differently, which fails here and hands an
+      // outsider an oracle for whether a proof exists and awaits review.
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const pending = await seedPendingProof(tx, fixture, fixture);
+        const settled = await seedPendingProof(tx, fixture, fixture);
+
+        await tx
+          .update(financeManualPaymentProofs)
+          .set({ status: "verified", reviewerUserId: fixture.userId, reviewedAt: NOW })
+          .where(eq(financeManualPaymentProofs.id, settled.proofId));
+
+        const { rejectManualPaymentProof, ManualProofError } = await import(
+          "@/server/finance/manual-payment-proof-service"
+        );
+
+        const refusalFor = async (proofId: string) => {
+          try {
+            await rejectManualPaymentProof(
+              fixture.other.institutionId,
+              fixture.other.userId,
+              proofId,
+              "Nominal tidak cocok",
+              true,
+              tx as unknown as Database,
+              NOW,
+            );
+            return null;
+          } catch (error) {
+            if (!(error instanceof ManualProofError)) throw error;
+            return { code: error.code, status: error.status, message: error.message };
+          }
+        };
+
+        const onPending = await refusalFor(pending.proofId);
+        const onSettled = await refusalFor(settled.proofId);
+
+        expect(onPending).not.toBeNull();
+        expect(onPending).toEqual(onSettled);
+      });
+    });
+
     it("rejects a proof on the institution's own competition", async () => {
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
