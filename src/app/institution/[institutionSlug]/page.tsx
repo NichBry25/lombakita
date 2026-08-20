@@ -118,6 +118,12 @@ export default async function InstitutionHubPage({
           icon: "check" as const,
         },
     {
+      href: `${base}/fees`,
+      label: "Tagihan biaya layanan",
+      description: "Lihat biaya layanan Lombakita yang tercatat atas lembaga Anda.",
+      icon: "settings" as const,
+    },
+    {
       href: `${base}/audit-log`,
       label: "Log audit",
       description: "Telusuri perubahan penting dalam urutan waktu.",

@@ -6114,3 +6114,279 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
     });
   });
 });
+
+describe.skipIf(skipWithoutDatabase)("the institution fee statement (real database)", () => {
+  // A READ-ONLY surface, so the detector is the CONTENT OF THE RESULT rather than a post-state:
+  // there is nothing this function writes whose absence could stand in for a refusal.
+  //
+  // Every accrual under test is written by `verifyManualPaymentProof` — the production verdict path
+  // — not by an insert built here. A hand-constructed accrual row would prove the query and nothing
+  // about whether the figures the organiser is billed on ever reach this page.
+
+  it("renders the rate the line was PRICED under after the platform rate moves", async () => {
+    // DEC-0171. The rule is versioned and a later one supersedes it, so a statement that joined
+    // `finance_fee_rules` would show a rate this institution was never charged — wrong in exactly
+    // the direction that starts a billing dispute.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { verifyManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      const { loadInstitutionFeeStatement } = await import("@/server/finance/fee-statement");
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proofId = await seedProof(tx, fixture, paymentId);
+      await verifyManualPaymentProof(fixture.institutionId, fixture.userId, proofId, tx as never, NOW);
+
+      // The rate moves UNDERNEATH the accrual, which is the whole point: the snapshot has to
+      // survive the rule changing, and only a real rule row can change.
+      await tx
+        .update(financeFeeRules)
+        .set({ basisPoints: 1_000, flatAmount: 50_000 })
+        .where(eq(financeFeeRules.id, fixture.feeRuleId));
+
+      const statement = await loadInstitutionFeeStatement(fixture.institutionId, tx as never);
+
+      expect(statement.lines).toHaveLength(1);
+      expect(statement.lines[0]!.feeBasisPoints).toBe(250);
+      expect(statement.lines[0]!.feeFlatAmount).toBe(0);
+      // 250bp of 1_000_000, priced when the payment was verified.
+      expect(statement.lines[0]!.amount).toBe(25_000);
+      expect(statement.lines[0]!.grossAmount).toBe(1_000_000);
+      expect(statement.outstandingAmount).toBe(25_000);
+    });
+  });
+
+  it("nets a reversal to zero rather than doubling it", async () => {
+    // The accrual row stores the reversal ALREADY NEGATED, so a statement that negates a `reversed`
+    // row a second time reports 2x the fee on the line labelled "not yet billed". Overstating a
+    // receivable is the failure direction that costs an institution money, and no fixture in the
+    // seed set contains a reversal, so nothing else in the suite would show it.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { verifyManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      const { recordFeeAccrualReversal, sumOutstandingFeeAccruals } = await import(
+        "@/server/finance/fee-accrual-service"
+      );
+      const { loadInstitutionFeeStatement } = await import("@/server/finance/fee-statement");
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proofId = await seedProof(tx, fixture, paymentId);
+      await verifyManualPaymentProof(fixture.institutionId, fixture.userId, proofId, tx as never, NOW);
+      await recordFeeAccrualReversal(paymentId, "transfer tidak pernah masuk", tx as never);
+
+      const statement = await loadInstitutionFeeStatement(fixture.institutionId, tx as never);
+
+      expect(statement.lines).toHaveLength(2);
+      expect(statement.accruedAmount).toBe(25_000);
+      // Positive, because it renders under an explicit "−" prefix. Negative here would also make
+      // the page's `reversedAmount > 0` test false and hide the correction entirely.
+      expect(statement.reversedAmount).toBe(25_000);
+      expect(statement.outstandingAmount).toBe(0);
+
+      // Pinned to the figure every other caller reads, so the page and the service cannot drift.
+      expect(statement.outstandingAmount).toBe(
+        await sumOutstandingFeeAccruals(fixture.institutionId, tx as never),
+      );
+    });
+  });
+
+  it("signs each line as stored, so summing the column IS the receivable", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { verifyManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      const { recordFeeAccrualReversal } = await import("@/server/finance/fee-accrual-service");
+      const { loadInstitutionFeeStatement } = await import("@/server/finance/fee-statement");
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proofId = await seedProof(tx, fixture, paymentId);
+      await verifyManualPaymentProof(fixture.institutionId, fixture.userId, proofId, tx as never, NOW);
+      await recordFeeAccrualReversal(paymentId, "koreksi", tx as never);
+
+      const statement = await loadInstitutionFeeStatement(fixture.institutionId, tx as never);
+      const reversal = statement.lines.find((line) => line.entryType === "reversed");
+
+      expect(reversal!.signedAmount).toBe(-25_000);
+      expect(reversal!.amount).toBe(-25_000);
+      expect(reversal!.reason).toBe("koreksi");
+      expect(statement.lines.reduce((total, line) => total + line.signedAmount, 0)).toBe(0);
+    });
+  });
+
+  it("shows one institution NOTHING of what a second institution owes", async () => {
+    // The scope is in the WHERE on `owing_institution_id`, not a filter applied afterwards. Both
+    // tenants accrue through the same production path, so a missing scope surfaces as the rival's
+    // money appearing on this institution's bill rather than as an empty result either way.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { verifyManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      const { loadInstitutionFeeStatement } = await import("@/server/finance/fee-statement");
+
+      const minePaymentId = await seedManualPayment(tx, fixture);
+      const mineProofId = await seedProof(tx, fixture, minePaymentId);
+      await verifyManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        mineProofId,
+        tx as never,
+        NOW,
+      );
+
+      // The rival needs its own published account before it may charge anyone, exactly as the
+      // primary does — `seedFixture` deliberately leaves it without one.
+      await tx.insert(institutionPaymentInstructions).values({
+        institutionId: fixture.other.institutionId,
+        bankName: "Bank Saingan",
+        accountNumber: "9876543210",
+        accountHolderName: "Panitia Saingan",
+      });
+
+      const [rivalPayment] = await tx
+        .insert(financePayments)
+        .values({
+          ...manualPaymentValues(fixture),
+          payerUserId: fixture.other.userId,
+          receivingInstitutionId: fixture.other.institutionId,
+          competitionRegistrationId: fixture.other.registrationId,
+          grossAmount: 4_000_000,
+          institutionNetAmount: 4_000_000,
+        })
+        .returning({ id: financePayments.id });
+
+      const rivalProofId = await seedProof(tx, fixture.other, rivalPayment!.id);
+      await verifyManualPaymentProof(
+        fixture.other.institutionId,
+        fixture.other.userId,
+        rivalProofId,
+        tx as never,
+        NOW,
+      );
+
+      const accrualIdFor = async (forPaymentId: string): Promise<string> => {
+        const [row] = await tx
+          .select({ id: financeFeeAccruals.id })
+          .from(financeFeeAccruals)
+          .where(eq(financeFeeAccruals.paymentId, forPaymentId));
+        return row!.id;
+      };
+      const mineAccrualId = await accrualIdFor(minePaymentId);
+      const rivalAccrualId = await accrualIdFor(rivalPayment!.id);
+
+      const mine = await loadInstitutionFeeStatement(fixture.institutionId, tx as never);
+      const theirs = await loadInstitutionFeeStatement(fixture.other.institutionId, tx as never);
+
+      // ASKED-FOR SETS on both sides. A length check alone passes if each statement returned the
+      // OTHER tenant's single row, which is precisely the failure a missing scope produces.
+      expect(mine.lines.map((line) => line.accrualId)).toEqual([mineAccrualId]);
+      expect(theirs.lines.map((line) => line.accrualId)).toEqual([rivalAccrualId]);
+      expect(mine.lines[0]!.amount).toBe(25_000);
+      expect(theirs.lines[0]!.amount).toBe(100_000);
+      expect(mine.outstandingAmount).toBe(25_000);
+      expect(theirs.outstandingAmount).toBe(100_000);
+    });
+  });
+
+  it("scopes the rate acknowledgements to this institution's own competitions", async () => {
+    // Two conditions, and the test needs both to be load-bearing: the acknowledgement's own
+    // `institution_id`, and the competition still belonging to that institution. A row whose
+    // competition has moved tenants would otherwise render a rival's competition title against
+    // this institution's agreement.
+    await inRollback(async (tx) => {
+      const { loadInstitutionFeeStatement } = await import("@/server/finance/fee-statement");
+      const fixture = await seedFixture(tx);
+
+      await tx.insert(financeFeeDisclosureAcknowledgements).values([
+        {
+          competitionId: fixture.competitionId,
+          institutionId: fixture.institutionId,
+          acknowledgedByUserId: fixture.userId,
+          feeRuleId: fixture.feeRuleId,
+          feeBasisPoints: 250,
+          feeFlatAmount: 0,
+          feeAmount: 25_000,
+          feeCurrency: "IDR",
+        },
+        {
+          competitionId: fixture.other.competitionId,
+          institutionId: fixture.other.institutionId,
+          acknowledgedByUserId: fixture.other.userId,
+          feeRuleId: fixture.feeRuleId,
+          feeBasisPoints: 250,
+          feeFlatAmount: 0,
+          feeAmount: 99_000,
+          feeCurrency: "IDR",
+        },
+      ]);
+
+      const mine = await loadInstitutionFeeStatement(fixture.institutionId, tx as never);
+
+      expect(mine.acknowledgements.map((ack) => ack.competitionId)).toEqual([
+        fixture.competitionId,
+      ]);
+      expect(mine.acknowledgements[0]!.feeAmount).toBe(25_000);
+    });
+  });
+
+  it("cannot be orphaned from its competition, which is why no line can go missing", async () => {
+    // The statement LEFT-joins registration and competition so a line is never DROPPED, and this
+    // test pins the two database facts that currently make that branch unreachable rather than
+    // merely unlikely: `subject_xor` forbids clearing the registration id on a registration-subject
+    // payment, and the payment's FK to the registration is NO ACTION, so cascading a competition
+    // delete through to the registration is refused while a payment still points at it.
+    //
+    // Written as a pair of refusals because that is what keeps the LEFT join honest. If either of
+    // these ever loosens — a SET NULL added to the FK, the XOR relaxed — this test fails, and the
+    // statement's null branch becomes live code that has to render.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { verifyManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      const { loadInstitutionFeeStatement } = await import("@/server/finance/fee-statement");
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proofId = await seedProof(tx, fixture, paymentId);
+      await verifyManualPaymentProof(fixture.institutionId, fixture.userId, proofId, tx as never, NOW);
+
+      const cleared = await expectRejection(tx, (nested) =>
+        nested
+          .update(financePayments)
+          .set({ competitionRegistrationId: null })
+          .where(eq(financePayments.id, paymentId)),
+      );
+      expect(cleared.code).toBe("23514");
+      expect(cleared.constraint).toBe("finance_payments_subject_xor_chk");
+
+      const orphaned = await expectRejection(tx, (nested) =>
+        nested.delete(competitions).where(eq(competitions.id, fixture.competitionId)),
+      );
+      expect(orphaned.code).toBe("23503");
+
+      const statement = await loadInstitutionFeeStatement(fixture.institutionId, tx as never);
+
+      expect(statement.lines).toHaveLength(1);
+      expect(statement.lines[0]!.competitionTitle).not.toBeNull();
+      expect(statement.outstandingAmount).toBe(25_000);
+    });
+  });
+
+  it("reports an institution that has charged nobody as owing nothing, not as an error", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { loadInstitutionFeeStatement } = await import("@/server/finance/fee-statement");
+
+      const statement = await loadInstitutionFeeStatement(fixture.institutionId, tx as never);
+
+      expect(statement.lines).toEqual([]);
+      expect(statement.acknowledgements).toEqual([]);
+      expect(statement.outstandingAmount).toBe(0);
+      expect(statement.currency).toBeNull();
+    });
+  });
+});

@@ -91,6 +91,7 @@ export const PAGES = [
   // an unmeasured tone is how a badge that styles nothing survives a full audit.
   { id: "61b-payment-verification", as: "recElev", path: "/institution/seed-academy/competitions/seed-paid/payments", label: "Bukti transfer verification queue" },
   { id: "61c-payment-verification-empty", as: "recElev", path: "/institution/seed-academy/competitions/seed-open/payments", label: "Bukti transfer queue — nothing submitted yet" },
+  { id: "61d-institution-fee-statement", as: "recElev", path: "/institution/seed-academy/fees", label: "Fee statement — what the institution owes Lombakita, priced at each accrual's own rate" },
   { id: "62-institution-team", as: "recElev", path: "/institution/seed-academy/team", label: "Institution members & invitations" },
   { id: "63-institution-settings", as: "recElev", path: "/institution/seed-academy/settings", label: "Institution settings" },
   { id: "64-institution-verification-full", as: "recElev", path: "/institution/seed-academy/verification", label: "Institution verification — verified panel" },

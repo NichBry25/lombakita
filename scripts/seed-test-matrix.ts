@@ -1109,6 +1109,38 @@ const main = async (): Promise<void> => {
       ON CONFLICT (id) DO NOTHING
     `;
 
+    // A SECOND ACCRUAL PRICED UNDER A SUPERSEDED RULE. Without it the fee statement renders one
+    // line at one rate, and "shows today's rate against a historical accrual" — the failure DEC-0171
+    // exists to prevent, and the one that starts a billing dispute — cannot be observed at all. The
+    // rule it names is retired (effective_to in the past), so a statement that joined the rule table
+    // instead of reading the accrual's own snapshot would show 2,5% here and be wrong.
+    await sql`
+      INSERT INTO finance_fee_rules (id, institution_id, currency, basis_points, flat_amount,
+        effective_from, effective_to)
+      VALUES ('seed-feerule-retired', 'seed-inst-a', 'IDR', 500, 0, ${d(-365)}, ${d(-120)})
+      ON CONFLICT (id) DO UPDATE SET
+        institution_id = EXCLUDED.institution_id, basis_points = EXCLUDED.basis_points,
+        effective_from = EXCLUDED.effective_from, effective_to = EXCLUDED.effective_to
+    `;
+    await sql`
+      INSERT INTO finance_fee_accruals (id, payment_id, owing_institution_id, entry_type, currency,
+        amount, fee_rule_id, fee_basis_points, fee_flat_amount, gross_amount, created_at)
+      VALUES ('seed-accrual-historic', 'seed-pay-a', 'seed-inst-a', 'accrued', 'IDR',
+        7500, 'seed-feerule-retired', 500, 0, 150000, ${d(-150)})
+      ON CONFLICT (id) DO NOTHING
+    `;
+
+    // R2's record: the rate this institution was shown and accepted before it charged anybody. The
+    // snapshot is what makes the receivable defensible, so the statement has to be able to show it.
+    await sql`
+      INSERT INTO finance_fee_disclosure_acknowledgements (id, competition_id, institution_id,
+        acknowledged_by_user_id, fee_rule_id, fee_basis_points, fee_flat_amount, fee_amount,
+        fee_currency, acknowledged_at)
+      VALUES ('seed-feeack-paid', 'seed-comp-paid', 'seed-inst-a', 'seed-user-rec-elev',
+        'seed-feerule-default', 250, 0, 150000, 'IDR', ${d(-30)})
+      ON CONFLICT (id) DO NOTHING
+    `;
+
     // The rejection's own history row. Written at CLOSE, which is what keeps the table append-only.
     await sql`
       INSERT INTO finance_manual_payment_proof_attempts (id, proof_id, payment_id, competition_id,

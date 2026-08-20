@@ -408,6 +408,30 @@ export const CASES = [
     absent: ["Verifikasi", "Tolak"],
     why: "a dispute arrives naming a person and a competition, never an institution",
   },
+  {
+    id: "fee-statement-shows-the-rate-each-line-was-priced-under",
+    as: "recElev",
+    path: `/institution/${INST.a.slug}/fees`,
+    present: [
+      "Tagihan biaya layanan",
+      // BOTH RATES, on one page. The live rule is 2,5%; the older line was priced at 5% under a
+      // rule that has since been retired. A statement that joined the rule table instead of reading
+      // each accrual's own snapshot would render 2,5% twice — wrong, and wrong in the direction of
+      // a billing dispute (DEC-0171).
+      "2,5%",
+      "5%",
+      "Rp\u00a03.750",
+      "Rp\u00a07.500",
+      // DEC-0163's direction, stated where an organiser cannot miss it.
+      "tagihan Lombakita kepada lembaga Anda",
+      "bukan saldo yang kami simpan",
+      // R2: what was agreed, and when.
+      "Persetujuan tarif",
+    ],
+    // R8: it records, it does not bill. Anything that reads as a demand for payment has left scope.
+    absent: ["Bayar sekarang", "Jatuh tempo", "Tagih sekarang"],
+    why: "a statement showing today's rate against a historical accrual is wrong toward a dispute",
+  },
 ];
 
 const filter = process.argv[2] ? new RegExp(process.argv[2]) : null;
