@@ -15,7 +15,7 @@
 // Every test runs inside a transaction that is ALWAYS rolled back, so the dev database is left
 // byte-identical. Nothing here is committed.
 
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   TEST_DATABASE_URL,
   TEST_DDL_DATABASE_URL,
@@ -28,6 +28,7 @@ import type { Database } from "@/server/db/client";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import { PaymentInstructionsError } from "@/server/institutions/payment-instructions-service";
 import {
+  candidateProfiles,
   competitionRegistrations,
   competitions,
   financeFeeAccruals,
@@ -45,6 +46,29 @@ import {
   teams,
   users,
 } from "@/server/db/schema";
+
+// THE ONLY SEAM IN THIS FILE, and it is drawn at the queue rather than at the service.
+//
+// Everything below it runs for real — the service, its transaction, its reads. What is replaced is
+// the BullMQ write, because observing "what would be announced" is the assertion and a real queue
+// would also drag Redis into a database test. `importOriginal` is spread first so the fourteen
+// other enqueue helpers this file's services reach are the real ones; replacing the module wholesale
+// would leave them undefined and break tests that have nothing to do with notifications.
+const { mockEnqueuePaymentProofSubmitted, mockEnqueuePaymentOutcome } = vi.hoisted(() => ({
+  mockEnqueuePaymentProofSubmitted: vi.fn(),
+  mockEnqueuePaymentOutcome: vi.fn(),
+}));
+
+vi.mock("@/server/async/enqueue", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/async/enqueue")>()),
+  enqueuePaymentProofSubmitted: mockEnqueuePaymentProofSubmitted,
+  enqueuePaymentOutcome: mockEnqueuePaymentOutcome,
+}));
+
+beforeEach(() => {
+  mockEnqueuePaymentProofSubmitted.mockReset();
+  mockEnqueuePaymentOutcome.mockReset();
+});
 
 const DATABASE_URL = TEST_DATABASE_URL;
 
@@ -4737,6 +4761,536 @@ describe.skipIf(skipWithoutDatabase)("every A2 guard in the expiry worker (real 
       await expect(
         seedManualPayment(tx, fixture, { competitionRegistrationId: null }),
       ).rejects.toThrow();
+    });
+  });
+});
+
+describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real database)", () => {
+  // Rule 33: every assertion below reaches the queue through the real service — the real
+  // transaction, the real `loadPaymentFacts` join, the real recipient resolvers. A hand-built
+  // payload would prove the notification module and leave the four call sites unproven, which is
+  // exactly the shape of this step's worst prior defect.
+  const submitProof = async (tx: Tx, fixture: Fixture, paymentId: string) => {
+    const { submitManualPaymentProof } = await import(
+      "@/server/finance/manual-payment-proof-service"
+    );
+    return submitManualPaymentProof(
+      {
+        paymentId,
+        submittedByUserId: fixture.userId,
+        r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
+        originalFileName: "bukti.jpg",
+        fileSizeBytes: 2048,
+        contentType: "image/jpeg",
+      },
+      tx as never,
+    );
+  };
+
+  const seedAdmin = async (
+    tx: Tx,
+    institutionId: string,
+    label: string,
+    membershipRole: "institution_owner" | "institution_staff" | "institution_member",
+  ): Promise<string> => {
+    const id = uniqueSuffix();
+    const [user] = await tx
+      .insert(users)
+      .values({
+        email: `${label}_${id}@example.test`,
+        username: `${label}_${id}`,
+        // Both columns together: `users_recruiter_tier_chk` refuses a verified recruiter still
+        // sitting at the `unverified` tier.
+        recruiterVerifiedAt: NOW,
+        recruiterVerificationTier: "minimal",
+      })
+      .returning({ id: users.id });
+
+    await tx
+      .insert(institutionMemberships)
+      .values({ institutionId, userId: user!.id, membershipRole });
+
+    return user!.id;
+  };
+
+  it("tells the organiser a bukti transfer is waiting, and does not tell the payer they pressed a button", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      const proof = await submitProof(tx, fixture, paymentId);
+
+      expect(mockEnqueuePaymentProofSubmitted).toHaveBeenCalledTimes(1);
+      expect(mockEnqueuePaymentProofSubmitted).toHaveBeenCalledWith(
+        expect.objectContaining({
+          paymentId,
+          proofId: proof.id,
+          attempt: 0,
+          institutionId: fixture.institutionId,
+          grossAmount: 1_000_000,
+          currency: "IDR",
+        }),
+      );
+
+      // R13's first half. The payer already sees "Menunggu verifikasi" on the panel they just
+      // submitted from; the people who need telling are the ones who can act.
+      expect(mockEnqueuePaymentOutcome).not.toHaveBeenCalled();
+    });
+  });
+
+  it("tells the organiser again when a rejected payer sends a replacement", async () => {
+    // The proof row is REUSED on a resubmission, so the queue identity has to be the attempt and
+    // not the proof. Without it the second bukti transfer is deduplicated away and the organiser
+    // learns about it only if they happen to reopen the page.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { rejectManualPaymentProof, reopenManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+      await rejectManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proof.id,
+        "Foto tidak terbaca",
+        true,
+        tx as never,
+        NOW,
+      );
+      mockEnqueuePaymentProofSubmitted.mockClear();
+
+      await reopenManualPaymentProof(
+        {
+          proofId: proof.id,
+          submittedByUserId: fixture.userId,
+          r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti2.jpg`,
+          originalFileName: "bukti2.jpg",
+          fileSizeBytes: 4096,
+          contentType: "image/jpeg",
+        },
+        tx as never,
+        NOW,
+      );
+
+      expect(mockEnqueuePaymentProofSubmitted).toHaveBeenCalledTimes(1);
+      expect(mockEnqueuePaymentProofSubmitted).toHaveBeenCalledWith(
+        expect.objectContaining({ proofId: proof.id, attempt: 1 }),
+      );
+    });
+  });
+
+  it("announces a SECOND rejection of the same payment, not just the first", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { rejectManualPaymentProof, reopenManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+
+      const reject = (reason: string) =>
+        rejectManualPaymentProof(
+          fixture.institutionId,
+          fixture.userId,
+          proof.id,
+          reason,
+          true,
+          tx as never,
+          NOW,
+        );
+
+      await reject("Foto tidak terbaca");
+      await reopenManualPaymentProof(
+        {
+          proofId: proof.id,
+          submittedByUserId: fixture.userId,
+          r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti2.jpg`,
+          originalFileName: "bukti2.jpg",
+          fileSizeBytes: 4096,
+          contentType: "image/jpeg",
+        },
+        tx as never,
+        NOW,
+      );
+      await reject("Nominal masih kurang");
+
+      const outcomes = mockEnqueuePaymentOutcome.mock.calls.map(
+        (call) => call[0] as { outcome: string; attempt: number; rejectionReason: string | null },
+      );
+
+      // Two refusals, two announcements, distinguishable by attempt. The second is the one that
+      // matters most — it lands with less of the deadline left than the first.
+      expect(outcomes).toHaveLength(2);
+      expect(outcomes[0]).toMatchObject({ outcome: "rejected", attempt: 0 });
+      expect(outcomes[1]).toMatchObject({
+        outcome: "rejected",
+        attempt: 1,
+        rejectionReason: "Nominal masih kurang",
+      });
+    });
+  });
+
+  it("carries both slugs, so the organiser's link opens the queue rather than a chooser", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      await submitProof(tx, fixture, paymentId);
+
+      const [institution] = await tx
+        .select({ slug: institutions.slug })
+        .from(institutions)
+        .where(eq(institutions.id, fixture.institutionId));
+      const [competition] = await tx
+        .select({ slug: competitions.slug })
+        .from(competitions)
+        .where(eq(competitions.id, fixture.competitionId));
+
+      expect(mockEnqueuePaymentProofSubmitted).toHaveBeenCalledWith(
+        expect.objectContaining({
+          institutionSlug: institution!.slug,
+          competitionSlug: competition!.slug,
+        }),
+      );
+    });
+  });
+
+  it("names the payer by their profile name, never by their email", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      await tx.insert(candidateProfiles).values({
+        userId: fixture.userId,
+        fullName: "Sari Melati",
+        phoneNumber: "081200000000",
+        occupation: "college_student",
+        dateOfBirth: "2004-01-01",
+      });
+
+      await submitProof(tx, fixture, paymentId);
+
+      const payload = mockEnqueuePaymentProofSubmitted.mock.calls[0]![0] as {
+        payerDisplayName: string;
+      };
+      expect(payload.payerDisplayName).toBe("Sari Melati");
+      expect(payload.payerDisplayName).not.toContain("@");
+    });
+  });
+
+  it("resolves the organiser set from THIS institution, never the rival's", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { listInstitutionAdminUserIds } = await import(
+        "@/server/institution-members/member-service"
+      );
+
+      const owner = await seedAdmin(tx, fixture.institutionId, "owner", "institution_owner");
+      const staff = await seedAdmin(tx, fixture.institutionId, "staff", "institution_staff");
+      // Present in the same institution and deliberately excluded: `institution_member` has no
+      // operational surface, so notifying them is telling someone about a decision they cannot make.
+      const plain = await seedAdmin(tx, fixture.institutionId, "plain", "institution_member");
+      // MANUAL-D6's second institution. A single-tenant fixture cannot fail this assertion.
+      const rivalOwner = await seedAdmin(
+        tx,
+        fixture.other.institutionId,
+        "rival",
+        "institution_owner",
+      );
+
+      const recipients = await listInstitutionAdminUserIds(fixture.institutionId, tx as never);
+
+      expect(recipients).toEqual(expect.arrayContaining([owner, staff]));
+      expect(recipients).not.toContain(plain);
+      expect(recipients).not.toContain(rivalOwner);
+    });
+  });
+
+  it("drops a revoked membership from the organiser set", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { listInstitutionAdminUserIds } = await import(
+        "@/server/institution-members/member-service"
+      );
+
+      const owner = await seedAdmin(tx, fixture.institutionId, "owner", "institution_owner");
+      const departed = await seedAdmin(tx, fixture.institutionId, "gone", "institution_staff");
+      await tx
+        .update(institutionMemberships)
+        .set({ status: "revoked" })
+        .where(eq(institutionMemberships.userId, departed));
+
+      const recipients = await listInstitutionAdminUserIds(fixture.institutionId, tx as never);
+
+      expect(recipients).toEqual([owner]);
+    });
+  });
+
+  it("announces a verification to the payer", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { verifyManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+
+      await verifyManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proof.id,
+        tx as never,
+        NOW,
+      );
+
+      expect(mockEnqueuePaymentOutcome).toHaveBeenCalledTimes(1);
+      expect(mockEnqueuePaymentOutcome).toHaveBeenCalledWith(
+        expect.objectContaining({
+          paymentId,
+          registrationId: fixture.registrationId,
+          outcome: "verified",
+          // No reason, no bar. Neither exists for a verification, and carrying a stale one would
+          // put a refusal sentence under a success notice.
+          rejectionReason: null,
+          resubmissionAllowed: null,
+        }),
+      );
+    });
+  });
+
+  it("announces a rejection with the organiser's reason AND the bar they set", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { rejectManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+
+      await rejectManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proof.id,
+        "Nominal transfer tidak sesuai",
+        false,
+        tx as never,
+        NOW,
+      );
+
+      expect(mockEnqueuePaymentOutcome).toHaveBeenCalledWith(
+        expect.objectContaining({
+          paymentId,
+          outcome: "rejected",
+          rejectionReason: "Nominal transfer tidak sesuai",
+          // The bar travels with the notice. Without it the payer is told to try again on a path
+          // the CAS will refuse.
+          resubmissionAllowed: false,
+        }),
+      );
+    });
+  });
+
+  it("announces an expiry with no organiser decision attached to it", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+
+      const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "confirmed" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+      await sweepExpiredPayments(new Date(DUE.getTime() + 86_400_000), tx as never);
+
+      expect(mockEnqueuePaymentOutcome).toHaveBeenCalledWith(
+        expect.objectContaining({
+          paymentId,
+          outcome: "expired",
+          // R6's copy rule at the payload layer: an expiry has no author, so there is no reason to
+          // attribute and no resubmission the organiser allowed or refused.
+          rejectionReason: null,
+          resubmissionAllowed: null,
+        }),
+      );
+    });
+  });
+
+  it("tells a payer nothing when the sweep declined to expire them", async () => {
+    // A proof in `pending_review` SUSPENDS expiry indefinitely (R5). The sweep still examines the
+    // payment and still declines it, so the dispatch has to sit inside the expired branch: moved
+    // out of it, every skipped payment is told its registration was cancelled while the
+    // registration is untouched — a false cancellation notice, which is worse than a missing one.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+
+      const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "confirmed" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+      await submitProof(tx, fixture, paymentId);
+      mockEnqueuePaymentOutcome.mockClear();
+
+      const result = await sweepExpiredPayments(new Date(DUE.getTime() + 86_400_000), tx as never);
+
+      expect(result.skipped).toBe(1);
+      expect(result.expired).toHaveLength(0);
+      expect(mockEnqueuePaymentOutcome).not.toHaveBeenCalled();
+
+      const [row] = await tx
+        .select({ status: competitionRegistrations.status })
+        .from(competitionRegistrations)
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+      expect(row!.status).toBe("confirmed");
+    });
+  });
+
+  it("announces a team's verdict against the anchor registration the whole group resolves from", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { verifyManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      const { resolvePaymentGroupMemberUserIds } = await import(
+        "@/server/finance/paid-registration"
+      );
+
+      const id = uniqueSuffix();
+      const [team] = await tx
+        .insert(teams)
+        .values({
+          competitionId: fixture.competitionId,
+          captainId: fixture.userId,
+          name: `Tim ${id}`,
+          status: "submitted",
+        })
+        .returning({ id: teams.id });
+
+      await tx
+        .update(competitionRegistrations)
+        .set({ registrationType: "team", teamId: team!.id })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+      const memberUserIds: string[] = [];
+      for (let index = 0; index < 3; index += 1) {
+        const [member] = await tx
+          .insert(users)
+          .values({
+            email: `teammate_${id}_${index}@example.test`,
+            username: `teammate_${id}_${index}`,
+            candidateVerifiedAt: NOW,
+          })
+          .returning({ id: users.id });
+
+        await tx.insert(competitionRegistrations).values({
+          competitionId: fixture.competitionId,
+          studentId: member!.id,
+          registrationType: "team",
+          teamId: team!.id,
+        });
+
+        memberUserIds.push(member!.id);
+      }
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+
+      await verifyManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proof.id,
+        tx as never,
+        NOW,
+      );
+
+      const payload = mockEnqueuePaymentOutcome.mock.calls[0]![0] as { registrationId: string };
+      // R13's second half, and the reason the payload carries a registration rather than a list:
+      // the worker resolves recipients at delivery from this id, through the same helper the expiry
+      // sweep cancels by. The set told and the set affected are one set by construction.
+      const recipients = await resolvePaymentGroupMemberUserIds(payload.registrationId, tx as never);
+
+      expect(recipients).toHaveLength(4);
+      expect(recipients).toEqual(expect.arrayContaining([fixture.userId, ...memberUserIds]));
+    });
+  });
+
+  it("keeps the verification when the queue is down", async () => {
+    // CLASS B — the guard is the try/catch wrapping dispatch, it sits AFTER the write, and removing
+    // it lets a queue outage propagate out of a service whose transaction has already committed.
+    // The detector is post-state: the row is verified and the caller did not throw.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { verifyManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+
+      mockEnqueuePaymentOutcome.mockRejectedValueOnce(new Error("redis unreachable"));
+
+      await expect(
+        verifyManualPaymentProof(fixture.institutionId, fixture.userId, proof.id, tx as never, NOW),
+      ).resolves.toMatchObject({ status: "verified" });
+
+      const [row] = await tx
+        .select({ status: financeManualPaymentProofs.status })
+        .from(financeManualPaymentProofs)
+        .where(eq(financeManualPaymentProofs.id, proof.id));
+
+      expect(row!.status).toBe("verified");
+      expect(
+        (
+          await tx
+            .select({ id: financeFeeAccruals.id })
+            .from(financeFeeAccruals)
+            .where(eq(financeFeeAccruals.paymentId, paymentId))
+        ).length,
+      ).toBe(1);
+    });
+  });
+
+  it("announces nothing for a verification that rolled back", async () => {
+    // THE MOVE DETECTOR for the dispatch position. Moving `notifyPaymentOutcome` inside the
+    // transaction — anywhere above `recordFeeAccrual` — makes this test fail: the accrual throws,
+    // the transaction unwinds, the proof is still pending_review, and the queue has been told the
+    // payment succeeded. A refusal-identity detector cannot see that; only the pairing of the
+    // surviving row with the absent enqueue can.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { verifyManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+
+      // The lever: a payment that is no longer manual-lane. `recordFeeAccrual` refuses it —
+      // a gateway payment's fee split at transaction time and accruing it again bills twice — and
+      // that refusal is raised after the CAS has already written `verified`.
+      await tx
+        .update(financePayments)
+        .set({ origin: "gateway" })
+        .where(eq(financePayments.id, paymentId));
+
+      await expect(
+        verifyManualPaymentProof(fixture.institutionId, fixture.userId, proof.id, tx as never, NOW),
+      ).rejects.toMatchObject({ code: "fee_accrual_not_manual_lane" });
+
+      const [row] = await tx
+        .select({ status: financeManualPaymentProofs.status })
+        .from(financeManualPaymentProofs)
+        .where(eq(financeManualPaymentProofs.id, proof.id));
+
+      expect(row!.status).toBe("pending_review");
+      expect(mockEnqueuePaymentOutcome).not.toHaveBeenCalled();
     });
   });
 });

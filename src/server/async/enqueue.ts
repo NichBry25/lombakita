@@ -7,6 +7,8 @@ import {
   ASYNC_JOB_QUEUE_BY_NAME,
   type AsyncJobName,
   type AsyncJobPayloadByName,
+  type PaymentOutcomePayload,
+  type PaymentProofSubmittedPayload,
 } from "@/server/async/contracts";
 import { buildAsyncJobId, sanitizeIdempotencyKey } from "@/server/async/idempotency";
 import { logEnqueueAccepted, logEnqueueRequested } from "@/server/async/observability";
@@ -329,5 +331,43 @@ export const enqueueRegistrationDocumentReviewed = async (input: {
       dueAtIso: input.dueAtIso,
       epoch: input.epoch,
     },
+  });
+};
+
+/**
+ * A bukti transfer needs review. Organiser-only (R13).
+ *
+ * Idempotent on the proof AND ITS ATTEMPT. A resubmission does not create a new proof row — it
+ * reuses the existing one and bumps `resubmission_count` — so keying on the proof alone would make
+ * every later attempt a duplicate of the first and the organiser would never hear that a
+ * replacement transfer arrived. A retry of one attempt is still a duplicate, which is the point.
+ */
+export const enqueuePaymentProofSubmitted = async (
+  // The payload type itself rather than a restatement of its fields: this helper forwards `input`
+  // verbatim, so a second copy of the shape is one place for the two to drift apart.
+  input: PaymentProofSubmittedPayload,
+): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.paymentProofSubmitted>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.paymentProofSubmitted,
+    idempotencyKey: `${input.proofId}__${input.attempt}`,
+    payload: { ...input },
+  });
+};
+
+/**
+ * What became of the money, to every member of the payment group (R13).
+ *
+ * Idempotent on payment + outcome + attempt. A payment produces more than one outcome over its
+ * life, and it can produce the SAME outcome twice: rejected, resubmitted, rejected again. Keying on
+ * payment + outcome alone would announce the first refusal and silently drop the second, which is
+ * the one the payer most needs, because it lands with less of the deadline left.
+ */
+export const enqueuePaymentOutcome = async (
+  input: PaymentOutcomePayload,
+): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.paymentOutcome>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.paymentOutcome,
+    idempotencyKey: `${input.paymentId}__${input.outcome}__${input.attempt}`,
+    payload: { ...input },
   });
 };

@@ -439,3 +439,122 @@ export const sendRegistrationDocumentReviewedEmail = async (options: {
     throw new Error(`Resend document reviewed email dispatch failed: ${error.message}`);
   }
 };
+
+/**
+ * The organiser's copy of "someone says they paid".
+ *
+ * Deliberately does not assert that money arrived — the platform never sees it (DEC-0130). It says
+ * what the candidate CLAIMS and asks for a decision, because the organiser's bank statement is the
+ * only record that can settle it.
+ */
+export const sendPaymentProofSubmittedEmail = async (options: {
+  toEmail: string;
+  recipientId: string;
+  competitionTitle: string;
+  institutionSlug: string;
+  competitionSlug: string;
+  payerDisplayName: string;
+  amount: string;
+}): Promise<void> => {
+  const delivery = resolveNotificationDelivery("payment_proof_submitted", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
+
+  const reviewQueueUrl =
+    `${resolveBaseUrl()}/institution/${encodeURIComponent(options.institutionSlug)}` +
+    `/competitions/${encodeURIComponent(options.competitionSlug)}/payments`;
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from,
+    to: options.toEmail,
+    subject: `Bukti transfer baru untuk ${options.competitionTitle}`,
+    text: [
+      `${options.payerDisplayName} mengirim bukti transfer sebesar ${options.amount} untuk ${options.competitionTitle}.`,
+      "",
+      "Cocokkan dengan mutasi rekening lembaga Anda sebelum memberi keputusan — dana peserta masuk langsung ke rekening Anda, bukan ke Lombakita.",
+      "",
+      `Tinjau di ${reviewQueueUrl}.`,
+    ].join("\n"),
+  });
+
+  if (error) {
+    throw new Error(`Resend payment proof submitted email dispatch failed: ${error.message}`);
+  }
+};
+
+/**
+ * What became of the money, to a member of the payment group.
+ *
+ * THE EXPIRED ARM HAS NO AUTHOR AND MUST NOT SOUND LIKE IT DOES. Nobody rejected this candidate;
+ * a deadline passed. Wording it as a decision would have them contact an organiser to appeal
+ * something no organiser did.
+ */
+export const sendPaymentOutcomeEmail = async (options: {
+  toEmail: string;
+  recipientId: string;
+  competitionTitle: string;
+  outcome: "verified" | "rejected" | "expired";
+  rejectionReason: string | null;
+  resubmissionAllowed: boolean | null;
+  amount: string;
+}): Promise<void> => {
+  const delivery = resolveNotificationDelivery("payment_outcome", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
+
+  const subject =
+    options.outcome === "verified"
+      ? `Pembayaran diverifikasi untuk ${options.competitionTitle}`
+      : options.outcome === "rejected"
+        ? `Bukti transfer ditolak untuk ${options.competitionTitle}`
+        : `Pendaftaran dibatalkan otomatis untuk ${options.competitionTitle}`;
+
+  const body =
+    options.outcome === "verified"
+      ? [
+          `Penyelenggara telah memverifikasi pembayaran sebesar ${options.amount} untuk ${options.competitionTitle}.`,
+          "",
+          "Pendaftaran Anda aktif. Tidak ada tindakan lain yang diperlukan.",
+        ]
+      : options.outcome === "rejected"
+        ? [
+            `Bukti transfer Anda untuk ${options.competitionTitle} ditolak oleh penyelenggara.`,
+            ...(options.rejectionReason ? ["", `Alasan: ${options.rejectionReason}`] : []),
+            "",
+            options.resubmissionAllowed === false
+              ? "Anda tidak dapat mengirim bukti baru. Hubungi penyelenggara sebelum batas waktu — jika terlewat, pendaftaran dibatalkan secara otomatis."
+              : "Unggah bukti transfer yang baru sebelum batas waktu pembayaran.",
+          ]
+        : [
+            // No actor. The sentence names the deadline as the cause and says outright that nobody
+            // decided this, so the recipient does not go looking for someone to appeal to.
+            `Batas waktu pembayaran untuk ${options.competitionTitle} telah lewat, sehingga pendaftaran Anda dibatalkan secara otomatis.`,
+            "",
+            "Pembatalan ini tidak dilakukan oleh penyelenggara dan bukan atas permintaan Anda. Jika Anda sudah melakukan transfer, hubungi penyelenggara.",
+          ];
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from,
+    to: options.toEmail,
+    subject,
+    text: [
+      ...body,
+      "",
+      `Buka pendaftaran Anda di ${resolveBaseUrl()}/candidate-dashboard/registrations.`,
+    ].join("\n"),
+  });
+
+  if (error) {
+    throw new Error(`Resend payment outcome email dispatch failed: ${error.message}`);
+  }
+};

@@ -28,6 +28,8 @@ import {
   sendRegistrationCancelledEmail,
   sendSubmissionFinalizedEmail,
   sendResultPublishedEmail,
+  sendPaymentProofSubmittedEmail,
+  sendPaymentOutcomeEmail,
 } from "@/server/notifications/notification-email";
 
 describe("sendRegistrationConfirmedEmail", () => {
@@ -177,5 +179,113 @@ describe("sendResultPublishedEmail", () => {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
     expect(call.text).toContain("Hai,");
+  });
+});
+
+describe("sendPaymentProofSubmittedEmail", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sendEmailMock.mockResolvedValue({ data: { id: "email_1" }, error: null });
+  });
+
+  it("links to the review queue itself, not to a chooser", async () => {
+    await sendPaymentProofSubmittedEmail({
+      toEmail: "owner@example.com",
+      recipientId: "user_1",
+      competitionTitle: "Seed Coding League",
+      institutionSlug: "seed-academy",
+      competitionSlug: "seed-coding-league",
+      payerDisplayName: "Sari Melati",
+      amount: "Rp 150.000",
+    });
+
+    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
+    expect(call.subject).toBe("Bukti transfer baru untuk Seed Coding League");
+    expect(call.text).toContain("Sari Melati");
+    expect(call.text).toContain("Rp 150.000");
+    // An organiser who administers two institutions cannot act on a link to /institution.
+    expect(call.text).toContain(
+      "https://lombakita.id/institution/seed-academy/competitions/seed-coding-league/payments",
+    );
+  });
+
+  it("repeats that the money never reached Lombakita", async () => {
+    await sendPaymentProofSubmittedEmail({
+      toEmail: "owner@example.com",
+      recipientId: "user_1",
+      competitionTitle: "Seed Coding League",
+      institutionSlug: "seed-academy",
+      competitionSlug: "seed-coding-league",
+      payerDisplayName: "Sari Melati",
+      amount: "Rp 150.000",
+    });
+
+    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
+    // The platform cannot confirm this transfer arrived — only the organiser's own bank statement
+    // can — so the instruction to check it travels with every notice that invites a verdict.
+    expect(call.text).toContain("mutasi rekening");
+    expect(call.text).toContain("bukan ke Lombakita");
+  });
+});
+
+describe("sendPaymentOutcomeEmail", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sendEmailMock.mockResolvedValue({ data: { id: "email_1" }, error: null });
+  });
+
+  const send = (
+    outcome: "verified" | "rejected" | "expired",
+    extra: { rejectionReason?: string | null; resubmissionAllowed?: boolean | null } = {},
+  ) =>
+    sendPaymentOutcomeEmail({
+      toEmail: "payer@example.com",
+      recipientId: "user_1",
+      competitionTitle: "Seed Coding League",
+      outcome,
+      rejectionReason: extra.rejectionReason ?? null,
+      resubmissionAllowed: extra.resubmissionAllowed ?? null,
+      amount: "Rp 150.000",
+    });
+
+  it("confirms a verified payment and asks for nothing further", async () => {
+    await send("verified");
+
+    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
+    expect(call.subject).toBe("Pembayaran diverifikasi untuk Seed Coding League");
+    expect(call.text).toContain("Rp 150.000");
+    expect(call.text).toContain("Tidak ada tindakan lain yang diperlukan.");
+  });
+
+  it("carries the organiser's reason on a rejection", async () => {
+    await send("rejected", { rejectionReason: "Nominal tidak sesuai", resubmissionAllowed: true });
+
+    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
+    expect(call.subject).toBe("Bukti transfer ditolak untuk Seed Coding League");
+    expect(call.text).toContain("Alasan: Nominal tidak sesuai");
+    expect(call.text).toContain("Unggah bukti transfer yang baru");
+  });
+
+  it("warns a barred payer about the deadline instead of inviting a resubmission", async () => {
+    await send("rejected", {
+      rejectionReason: "Bukan transfer ke rekening kami",
+      resubmissionAllowed: false,
+    });
+
+    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
+    expect(call.text).toContain("Anda tidak dapat mengirim bukti baru.");
+    expect(call.text).toContain("sebelum batas waktu");
+    expect(call.text).not.toContain("Unggah bukti transfer yang baru");
+  });
+
+  it("blames the deadline for an expiry, and nobody else", async () => {
+    await send("expired");
+
+    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
+    expect(call.subject).toBe("Pendaftaran dibatalkan otomatis untuk Seed Coding League");
+    expect(call.text).toContain("secara otomatis");
+    expect(call.text).toContain("tidak dilakukan oleh penyelenggara");
+    // No amount either: an expiry is not a statement about money that moved.
+    expect(call.text).not.toContain("ditolak");
   });
 });

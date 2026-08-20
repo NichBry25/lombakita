@@ -319,6 +319,35 @@ export const CASES = [
     absent: ["Rincian per pendaftaran", "Saya menyetujui rincian biaya layanan di atas."],
     why: "an acknowledgement offered against a blank disclosure records consent to nothing",
   },
+  {
+    id: "inbox-expiry-notice-blames-nobody",
+    as: "candA",
+    path: "/inbox",
+    present: [
+      "Pendaftaran dibatalkan otomatis untuk Seed Coding League",
+      "secara otomatis",
+      "Ini bukan keputusan penyelenggara.",
+    ],
+    // The denial is the assertion. An expiry has no author, and a cancellation notice that reads
+    // as a verdict sends the payer to appeal to an organiser who decided nothing.
+    absent: ["ditolak oleh penyelenggara"],
+    why: "a payer told their registration was cancelled must be told the deadline did it, not a person",
+  },
+  {
+    id: "inbox-organiser-hears-about-a-transfer",
+    as: "recElev",
+    path: "/inbox",
+    present: [
+      "Bukti transfer baru untuk Seed Coding League",
+      "Rp 150.000",
+      "Tinjau dan beri keputusan.",
+    ],
+    // Paired with the case above: the organiser is told a proof arrived, and is NOT told the
+    // payer's email — the review queue needs to know whose transfer it is, not how to reach them
+    // off-platform.
+    absent: ["seed.cand.a@seed.lombakita.local"],
+    why: "a bukti transfer nobody is told about waits until the deadline cancels the payer",
+  },
 ];
 
 const filter = process.argv[2] ? new RegExp(process.argv[2]) : null;

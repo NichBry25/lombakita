@@ -97,6 +97,33 @@ export const findTeamPaymentGroupAnchor = async (
   return row?.id ?? null;
 };
 
+/**
+ * Every candidate whose registration shares this payment — the whole team, or the single payer.
+ *
+ * R13's verdict rule in one place: a team pays ONCE, anchored on the captain's row, but a verdict
+ * on that payment ends or confirms the participation of every member. Notifying the captain alone
+ * leaves three people to discover from the competition page that their team is no longer entered.
+ *
+ * Built on `resolvePaymentGroupRegistrationIds` rather than re-deriving the group, so the set that
+ * is NOTIFIED and the set that is CANCELLED by an expiry are the same set by construction.
+ */
+export const resolvePaymentGroupMemberUserIds = async (
+  registrationId: string,
+  db: Database = getDb(),
+): Promise<string[]> => {
+  const groupIds = await resolvePaymentGroupRegistrationIds(registrationId, db);
+  if (groupIds.length === 0) return [];
+
+  const rows = await db
+    .select({ studentId: competitionRegistrations.studentId })
+    .from(competitionRegistrations)
+    .where(inArray(competitionRegistrations.id, groupIds));
+
+  // Deduplicated: nothing stops one account holding two rows in a group, and a duplicate here is a
+  // duplicate email.
+  return [...new Set(rows.map((row) => row.studentId))];
+};
+
 /** The priced payments anchored anywhere on this registration's payment group. */
 const loadChargeablePaymentIds = async (
   registrationId: string,

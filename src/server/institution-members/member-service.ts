@@ -17,6 +17,31 @@ assertServerOnly("server/institution-members/member-service");
 // institution_member is excluded — no operational surface.
 const ADMIN_ROLES = ["institution_owner", "institution_staff"] as const;
 
+/**
+ * Everyone who administers this institution — the exact set the review gate admits.
+ *
+ * Built on ADMIN_ROLES rather than on its own list so the people NOTIFIED about a bukti transfer
+ * and the people PERMITTED to rule on it cannot drift apart. Notifying someone who cannot act, or
+ * failing to notify someone who can, are the two failures a second role list produces.
+ */
+export const listInstitutionAdminUserIds = async (
+  institutionId: string,
+  db: Database = getDb(),
+): Promise<string[]> => {
+  const rows = await db
+    .select({ userId: institutionMemberships.userId })
+    .from(institutionMemberships)
+    .where(
+      and(
+        eq(institutionMemberships.institutionId, institutionId),
+        eq(institutionMemberships.status, "active"),
+        inArray(institutionMemberships.membershipRole, [...ADMIN_ROLES]),
+      ),
+    );
+
+  return rows.map((row) => row.userId);
+};
+
 // Roles that require recruiter verification on the target account (DEC-0042).
 const RECRUITER_REQUIRED_ROLES: readonly InstitutionMembershipRole[] = [
   "institution_owner",

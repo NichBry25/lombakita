@@ -13,6 +13,7 @@ import {
 import { foldPaymentEvents } from "@/lib/finance/payment-state";
 import { appendPaymentEvent } from "@/server/finance/payment-service";
 import { mintManualExpiryEventKey } from "@/server/finance/idempotency-key";
+import { notifyPaymentOutcome } from "@/server/finance/payment-notifications";
 import { logger } from "@/lib/logger";
 
 // WHAT HAPPENS WHEN A BUKTI TRANSFER DEADLINE PASSES WITH NOTHING SUBMITTED.
@@ -268,6 +269,11 @@ export const sweepExpiredPayments = async (
 
       if (outcome) {
         expired.push(outcome);
+        // Dispatched per payment, after that payment's own transaction has committed, so a
+        // notification is only ever sent for a cancellation that survived. The helper swallows its
+        // own failures: a lapsed registration that went unannounced is recoverable, a sweep that
+        // aborts halfway because the queue is down is not.
+        await notifyPaymentOutcome(outcome.paymentId, "expired", {}, db);
       } else {
         skipped += 1;
       }

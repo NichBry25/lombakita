@@ -17,7 +17,7 @@ describe("async queue registration baseline", () => {
     // added registration.document.requested + registration.document.reviewed — all on the
     // notifications queue. The retention sweep added retention.purge on infrastructure — the only
     // job in the system fired by a timer rather than a request.
-    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(15);
+    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(17);
 
     const probe = getRegistrationByJobName(ASYNC_JOB_NAMES.probePing);
     expect(probe).toBeDefined();
@@ -78,6 +78,16 @@ describe("async queue registration baseline", () => {
     expect(documentReviewedJob).toBeDefined();
     expect(documentReviewedJob?.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
 
+    // Both manual-lane notices are participant-facing transactional events, so both belong on the
+    // notifications queue rather than beside the expiry sweep on infrastructure.
+    const proofSubmittedJob = getRegistrationByJobName(ASYNC_JOB_NAMES.paymentProofSubmitted);
+    expect(proofSubmittedJob).toBeDefined();
+    expect(proofSubmittedJob?.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
+
+    const paymentOutcomeJob = getRegistrationByJobName(ASYNC_JOB_NAMES.paymentOutcome);
+    expect(paymentOutcomeJob).toBeDefined();
+    expect(paymentOutcomeJob?.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
+
     // Platform maintenance belongs off the notifications queue, whose backlog users feel.
     const retentionJob = getRegistrationByJobName(ASYNC_JOB_NAMES.retentionPurge);
     expect(retentionJob).toBeDefined();
@@ -97,6 +107,6 @@ describe("async queue registration baseline", () => {
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.infrastructure)).toHaveLength(3);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.competition)).toHaveLength(1);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.results)).toHaveLength(1);
-    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.notifications)).toHaveLength(10);
+    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.notifications)).toHaveLength(12);
   });
 });

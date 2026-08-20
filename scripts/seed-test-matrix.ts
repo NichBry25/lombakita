@@ -777,6 +777,12 @@ const main = async (): Promise<void> => {
       { id: "seed-notif-a2", user: "seed-user-cand-a", type: "registration_confirmed", title: "Pendaftaran dikonfirmasi", body: "Pendaftaran Anda di Seed Hackathon Nusantara telah dikonfirmasi.", readAt: h(-20), createdAt: d(-1) },
       { id: "seed-notif-a3", user: "seed-user-cand-a", type: "registration_document_requested", title: "Dokumen diminta panitia", body: "Panitia Seed Coding League meminta Kartu Pelajar / KTM sebelum tenggat.", readAt: null, createdAt: h(-6) },
       { id: "seed-notif-b1", user: "seed-user-cand-b", type: "submission_finalized", title: "Karya difinalisasi", body: "Karya Anda untuk Seed Scientific Writing Festival telah difinalisasi.", readAt: d(-21), createdAt: d(-22) },
+      // The two manual-lane rows. Seeded READ deliberately: CAND-03 pins candA's unread count at 3,
+      // and a seed that renders a surface must not silently move another surface's assertion.
+      // The expired one is here rather than the verified one because its copy is the one that can
+      // do harm — a cancellation with no named cause reads as the organiser rejecting the payer.
+      { id: "seed-notif-a4", user: "seed-user-cand-a", type: "payment_outcome", title: "Pendaftaran dibatalkan otomatis untuk Seed Coding League", body: "Batas waktu pembayaran telah lewat, sehingga pendaftaran Anda dibatalkan secara otomatis. Ini bukan keputusan penyelenggara. Jika Anda sudah melakukan transfer, hubungi penyelenggara.", readAt: h(-2), createdAt: h(-3) },
+      { id: "seed-notif-r1", user: "seed-user-rec-elev", type: "payment_proof_submitted", title: "Bukti transfer baru untuk Seed Coding League", body: "Seed Candidate A mengirim bukti transfer sebesar Rp 150.000. Tinjau dan beri keputusan.", readAt: h(-2), createdAt: h(-3) },
     ];
     for (const n of notifs) {
       await sql`

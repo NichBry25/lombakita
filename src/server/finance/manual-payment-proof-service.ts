@@ -26,6 +26,10 @@ import {
   PAYMENT_PROOF_FORMAT_HINT,
   paymentProofMimeTypeForFileName,
 } from "@/lib/finance/payment-proof-file";
+import {
+  notifyPaymentOutcome,
+  notifyPaymentProofSubmitted,
+} from "@/server/finance/payment-notifications";
 
 // THE BUKTI TRANSFER REVIEW LOOP. Services only — there is no upload route and no verification
 // route yet; the surfaces that call these are not built.
@@ -415,7 +419,7 @@ export const submitManualPaymentProof = async (
 
   assertObjectKeyBelongsToPayment(input.r2Key, competitionId, payment.id);
 
-  return db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
     const scoped = tx as unknown as Database;
 
     // THE SAME ROW LOCK THE EXPIRY SWEEP TAKES, and taken here for that reason alone.
@@ -476,6 +480,13 @@ export const submitManualPaymentProof = async (
 
     return created;
   });
+
+  // AFTER the commit, never inside it. A queue write inside the transaction would announce a proof
+  // that a later rollback erased, and a queue outage would refuse a submission the database
+  // accepted.
+  await notifyPaymentProofSubmitted(created.paymentId, created.id, created.resubmissionCount, db);
+
+  return created;
 };
 
 /**
@@ -526,7 +537,7 @@ export const verifyManualPaymentProof = async (
   db: Database = getDb(),
   now: Date = new Date(),
 ): Promise<FinanceManualPaymentProofRecord> => {
-  return db.transaction(async (tx) => {
+  const verified = await db.transaction(async (tx) => {
     const [proof] = await tx
       .update(financeManualPaymentProofs)
       .set({
@@ -599,6 +610,10 @@ export const verifyManualPaymentProof = async (
 
     return proof;
   });
+
+  await notifyPaymentOutcome(verified.paymentId, "verified", {}, db);
+
+  return verified;
 };
 
 /**
@@ -634,7 +649,7 @@ export const rejectManualPaymentProof = async (
   // The CAS and the history row are one transaction: a rejection recorded on the live row while its
   // attempt failed to reach the history would lose the attempt the moment the candidate resubmits
   // over it, which is precisely the loss the history exists to prevent.
-  return db.transaction(async (tx) => {
+  const rejected = await db.transaction(async (tx) => {
     const [proof] = await tx
       .update(financeManualPaymentProofs)
       .set({
@@ -669,6 +684,17 @@ export const rejectManualPaymentProof = async (
 
     return proof;
   });
+
+  // The reason and the bar both ride along: a rejection notice that omits either tells the payer
+  // their proof failed without telling them whether there is anything left for them to do.
+  await notifyPaymentOutcome(
+    rejected.paymentId,
+    "rejected",
+    { rejectionReason: trimmedReason, resubmissionAllowed },
+    db,
+  );
+
+  return rejected;
 };
 
 export type ReopenManualProofInput = {
@@ -781,6 +807,10 @@ export const reopenManualPaymentProof = async (
       409,
     );
   }
+
+  // A replacement transfer is a new thing for the organiser to look at, and nothing else tells
+  // them: the row they already rejected simply reappears in the queue.
+  await notifyPaymentProofSubmitted(proof.paymentId, proof.id, proof.resubmissionCount, db);
 
   return proof;
 };
