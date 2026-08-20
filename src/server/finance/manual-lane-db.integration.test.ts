@@ -6322,6 +6322,21 @@ describe.skipIf(skipWithoutDatabase)("the institution fee statement (real databa
           feeAmount: 99_000,
           feeCurrency: "IDR",
         },
+        // THE ROW THAT MAKES THE SECOND CONDITION LOAD-BEARING. Its `institution_id` is mine, so
+        // the first condition admits it; only the competition-ownership check excludes it. Without
+        // this row the join condition could be deleted outright and this test would stay green,
+        // which is presence rather than enforcement. The shape is insertable — the two foreign keys
+        // are independent and nothing pairs them — so it is drift the query has to survive.
+        {
+          competitionId: fixture.other.competitionId,
+          institutionId: fixture.institutionId,
+          acknowledgedByUserId: fixture.userId,
+          feeRuleId: fixture.feeRuleId,
+          feeBasisPoints: 250,
+          feeFlatAmount: 0,
+          feeAmount: 77_000,
+          feeCurrency: "IDR",
+        },
       ]);
 
       const mine = await loadInstitutionFeeStatement(fixture.institutionId, tx as never);
@@ -6329,7 +6344,7 @@ describe.skipIf(skipWithoutDatabase)("the institution fee statement (real databa
       expect(mine.acknowledgements.map((ack) => ack.competitionId)).toEqual([
         fixture.competitionId,
       ]);
-      expect(mine.acknowledgements[0]!.feeAmount).toBe(25_000);
+      expect(mine.acknowledgements.map((ack) => ack.feeAmount)).toEqual([25_000]);
     });
   });
 
