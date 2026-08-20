@@ -4257,3 +4257,213 @@ describe.skipIf(skipWithoutDatabase)("the cancel guards refuse BEFORE they write
     });
   });
 });
+
+describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real database)", () => {
+  // R5 AND R6, asked the way the CANDIDATE'S PAGE asks them.
+  //
+  // The sweep itself is covered elsewhere. What is covered here is that the surface telling a
+  // candidate about the deadline reads the same rule the worker acts on — the suspension in
+  // particular, because a countdown rendered next to evidence already submitted tells someone who
+  // paid on time that they are late, and that is how a person transfers twice.
+
+  const viewFor = async (tx: Tx, fixture: Fixture, registrationId?: string) => {
+    const { loadCandidatePaymentView } = await import("@/server/finance/candidate-payment-view");
+    return loadCandidatePaymentView(
+      registrationId ?? fixture.registrationId,
+      fixture.userId,
+      tx as never,
+    );
+  };
+
+  const submitProofFor = async (tx: Tx, fixture: Fixture, paymentId: string) => {
+    const { submitManualPaymentProof } = await import(
+      "@/server/finance/manual-payment-proof-service"
+    );
+    return submitManualPaymentProof(
+      {
+        paymentId,
+        submittedByUserId: fixture.userId,
+        r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
+        originalFileName: "bukti.jpg",
+        fileSizeBytes: 2048,
+        contentType: "image/jpeg",
+      },
+      tx as never,
+    );
+  };
+
+  it("does NOT suspend the deadline while nothing has been submitted", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await seedManualPayment(tx, fixture);
+
+      expect((await viewFor(tx, fixture))?.deadlineSuspended).toBe(false);
+    });
+  });
+
+  it("SUSPENDS the deadline the moment a proof is awaiting review", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      await submitProofFor(tx, fixture, paymentId);
+
+      expect((await viewFor(tx, fixture))?.deadlineSuspended).toBe(true);
+    });
+  });
+
+  it("RESUMES the deadline once the proof is rejected", async () => {
+    // A rejection puts the candidate back to owing money against a running clock. If this reported
+    // suspended, the surface would tell someone with hours left that they had nothing to do.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProofFor(tx, fixture, paymentId);
+
+      const { rejectManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      await rejectManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proof.id,
+        "nominal tidak sesuai",
+        true,
+        tx as never,
+        NOW,
+      );
+
+      expect((await viewFor(tx, fixture))?.deadlineSuspended).toBe(false);
+    });
+  });
+
+  it("agrees with the worker: a suspended deadline does not expire the registration", async () => {
+    // THE AGREEMENT ASSERTION. The page saying "you are safe" is only worth anything if the worker
+    // then declines to cancel. Both are driven here, in one test, past an overdue deadline.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await submitProofFor(tx, fixture, paymentId);
+
+      expect((await viewFor(tx, fixture))?.deadlineSuspended).toBe(true);
+
+      const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+      const result = await sweepExpiredPayments(
+        new Date(DUE.getTime() + 30 * 86_400_000),
+        tx as never,
+      );
+
+      expect(result.expired.some((entry) => entry.paymentId === paymentId)).toBe(false);
+      expect(
+        (
+          await tx
+            .select({ status: competitionRegistrations.status })
+            .from(competitionRegistrations)
+            .where(eq(competitionRegistrations.id, fixture.registrationId))
+            .limit(1)
+        )[0]!.status,
+      ).toBe("confirmed");
+    });
+  });
+
+  it("R6: expiry cancels with its OWN reason, separable from a withdrawal", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
+
+      const { sweepExpiredPayments, PAYMENT_EXPIRY_CANCELLATION_REASON } = await import(
+        "@/server/finance/payment-expiry-service"
+      );
+      await sweepExpiredPayments(new Date(DUE.getTime() + 86_400_000), tx as never);
+
+      const [row] = await tx
+        .select({
+          status: competitionRegistrations.status,
+          reason: competitionRegistrations.cancellationReason,
+        })
+        .from(competitionRegistrations)
+        .where(eq(competitionRegistrations.id, fixture.registrationId))
+        .limit(1);
+
+      expect(row!.status).toBe("cancelled");
+      // A sentinel, not prose. Every later report has to separate "the candidate withdrew" from
+      // "nobody paid", and a human-written sentence cannot be filtered on.
+      expect(row!.reason).toBe(PAYMENT_EXPIRY_CANCELLATION_REASON);
+      expect(row!.reason).not.toBe("withdrew");
+
+      // R6 has no capacity dimension: nothing is freed, and the copy must not suggest a seat was.
+      // What actually holds is the opposite — the cancelled row still blocks re-registration.
+      // Registration is opened first so the refusal below is the DUPLICATE guard rather than the
+      // window guard, which fires earlier and would make this assertion pass for the wrong reason.
+      await tx
+        .update(competitions)
+        .set({
+          status: "published",
+          mode: "individual",
+          registrationStartAt: new Date(Date.now() - 86_400_000),
+          registrationEndAt: new Date(Date.now() + 30 * 86_400_000),
+        })
+        .where(eq(competitions.id, fixture.competitionId));
+
+      const { createIndividualRegistration } = await import(
+        "@/server/registrations/registration-service"
+      );
+      await expect(
+        createIndividualRegistration(fixture.userId, fixture.competitionId, tx as never),
+      ).rejects.toMatchObject({ code: "registration_already_exists" });
+    });
+  });
+
+  it("stays coherent with the cancel affordance: an expired registration offers neither control", async () => {
+    // The surface 5 interaction. Expiry sets the row to `cancelled`, and the affordance resolver
+    // asks its question only for a `confirmed` row — so an expired candidate sees no cancel button
+    // AND no explanation of a withheld one, which would be a notice about a control that is gone.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await submitProofFor(tx, fixture, paymentId);
+
+      const { rejectManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      const [proofRow] = await tx
+        .select({ id: financeManualPaymentProofs.id })
+        .from(financeManualPaymentProofs)
+        .where(eq(financeManualPaymentProofs.paymentId, paymentId))
+        .limit(1);
+      await rejectManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proofRow!.id,
+        "nominal tidak sesuai",
+        true,
+        tx as never,
+        NOW,
+      );
+
+      // Before expiry: a rejected proof still WITHHOLDS cancel — the one state where a candidate
+      // cannot leave and can still be cancelled by the clock. That is what makes surfacing the
+      // deadline on the rejection notice a fairness requirement rather than a nicety.
+      const { resolveCancelAffordanceState } = await import("@/server/finance/cancel-affordance");
+      expect(
+        (
+          await resolveCancelAffordanceState(
+            { individualRegistration: { id: fixture.registrationId, status: "confirmed" }, team: null },
+            tx as never,
+          )
+        ).individualCancellationClosed,
+      ).toBe(true);
+
+      const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+      await sweepExpiredPayments(new Date(DUE.getTime() + 86_400_000), tx as never);
+
+      // After expiry: the row is cancelled, so the resolver asks nothing and the page renders the
+      // cancelled state rather than a withheld-control explanation.
+      expect(
+        await resolveCancelAffordanceState(
+          { individualRegistration: { id: fixture.registrationId, status: "cancelled" }, team: null },
+          tx as never,
+        ),
+      ).toEqual({ individualCancellationClosed: false, teamCancellationClosed: false });
+    });
+  });
+});

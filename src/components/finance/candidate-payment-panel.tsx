@@ -20,6 +20,7 @@ import {
 } from "@/lib/finance/payment-display";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
 import type { PaymentDerivedStatus } from "@/lib/finance/payment-state";
+import { describePaymentDeadline, formatTimeRemaining } from "@/lib/finance/payment-deadline";
 
 export type CandidatePaymentPanelProps = {
   expectedUserId: string;
@@ -29,6 +30,7 @@ export type CandidatePaymentPanelProps = {
     currency: string;
     grossAmount: number;
     dueAt: string | null;
+    deadlineSuspended: boolean;
     status: PaymentDerivedStatus;
     instructions: {
       bankName: string | null;
@@ -187,16 +189,7 @@ export function CandidatePaymentPanel({
           <dt>Jumlah</dt>
           <dd className="data-text">{formatRupiah(payment.grossAmount, payment.currency)}</dd>
         </div>
-        {payment.dueAt ? (
-          <div>
-            <dt>Batas waktu</dt>
-            <dd>
-              <time dateTime={payment.dueAt} className="data-text">
-                {formatPaymentDeadline(payment.dueAt)}
-              </time>
-            </dd>
-          </div>
-        ) : null}
+        <PaymentDeadline dueAt={payment.dueAt} suspended={payment.deadlineSuspended} />
       </dl>
 
       <PaymentInstructions instructions={payment.instructions} id={instructionsId} />
@@ -326,6 +319,48 @@ function PaymentInstructions({
 }
 
 /**
+ * The deadline, and what it currently means.
+ *
+ * A bare timestamp is not enough on this surface. It cannot say whether the date is tomorrow or
+ * next month, and — the case the ruling is about — it cannot say that the deadline has stopped
+ * applying because the candidate's evidence is with the organiser. Rendered as a countdown next to
+ * a pending proof, a date tells someone who already paid that they are late, which is how a person
+ * transfers twice.
+ *
+ * The instant shown is the payment's own snapshot (DEC-0169). It is never recomputed from the
+ * competition's window, so an organiser shortening that window does not move a deadline already
+ * promised to someone mid-transfer.
+ */
+function PaymentDeadline({ dueAt, suspended }: { dueAt: string | null; suspended: boolean }) {
+  const state = describePaymentDeadline(dueAt, { suspended });
+
+  if (state.kind === "none") return null;
+
+  return (
+    <div>
+      <dt>Batas waktu</dt>
+      <dd className="stack-xs">
+        <time dateTime={state.dueAt} className="data-text">
+          {formatPaymentDeadline(state.dueAt)}
+        </time>
+        {state.kind === "suspended" ? (
+          <span className="form-help">
+            Tidak berlaku selama bukti transfer Anda ditinjau — pendaftaran Anda tidak akan
+            dibatalkan karena batas waktu ini.
+          </span>
+        ) : state.kind === "passed" ? (
+          <span className="form-help">Batas waktu sudah lewat.</span>
+        ) : (
+          <span className={state.urgent ? "status-badge" : "form-help"} data-status={state.urgent ? "closing" : undefined}>
+            {formatTimeRemaining(state.remainingMs)}
+          </span>
+        )}
+      </dd>
+    </div>
+  );
+}
+
+/**
  * What the candidate needs to know about the current state, as page content rather than a toast.
  *
  * A rejection reason is the instruction the candidate works from, so it has to survive a reload —
@@ -340,11 +375,17 @@ function PaymentStateNotice({ payment }: { payment: CandidatePaymentPanelProps["
     );
   }
 
+  // "secara otomatis" is load-bearing: nobody decided this. The organiser did not reject the
+  // candidate and the candidate did not withdraw, and a cancellation with no visible author reads
+  // as one of those two. The re-registration line states what `createIndividualRegistration`
+  // actually does — it refuses on ANY existing row, cancelled included — because the previous copy
+  // promised a way back that the service does not provide.
   if (payment.status === "expired") {
     return (
       <Feedback tone="error">
-        Batas waktu pembayaran telah lewat dan pendaftaran ini dibatalkan. Anda dapat mendaftar
-        kembali selama pendaftaran masih dibuka.
+        Batas waktu pembayaran telah lewat, sehingga pendaftaran ini dibatalkan secara otomatis.
+        Pendaftaran ulang untuk kompetisi ini belum tersedia — hubungi penyelenggara jika Anda
+        sudah melakukan transfer.
       </Feedback>
     );
   }

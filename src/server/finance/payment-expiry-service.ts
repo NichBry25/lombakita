@@ -41,6 +41,36 @@ import { logger } from "@/lib/logger";
  */
 export const PAYMENT_EXPIRY_CANCELLATION_REASON = "payment_deadline_expired";
 
+/**
+ * Whether a proof awaiting a verdict is holding this payment's deadline open.
+ *
+ * THE SUSPENSION RULE, in one place. The worker consults it under a row lock before expiring
+ * anything; the candidate's payment view consults it to decide whether to render the deadline as a
+ * live countdown. A surface that derived this separately would eventually tell a candidate they
+ * are safe while the worker was about to cancel them, or the reverse.
+ *
+ * `pending_review` only. A rejected or voided proof does NOT suspend — the candidate is back to
+ * owing money against a deadline that is still running, which is precisely why the rejection copy
+ * tells them to resubmit before it.
+ */
+export const isExpirySuspendedByPendingProof = async (
+  paymentId: string,
+  db: Database = getDb(),
+): Promise<boolean> => {
+  const [pending] = await db
+    .select({ id: financeManualPaymentProofs.id })
+    .from(financeManualPaymentProofs)
+    .where(
+      and(
+        eq(financeManualPaymentProofs.paymentId, paymentId),
+        eq(financeManualPaymentProofs.status, "pending_review"),
+      ),
+    )
+    .limit(1);
+
+  return pending !== undefined;
+};
+
 export type ExpiredPaymentOutcome = {
   paymentId: string;
   registrationsCancelled: number;
@@ -115,6 +145,12 @@ const resolveGroupRegistrationIds = async (
  *   candidate first — the worker blocks on the lock, and when it acquires it re-reads the proof
  *                     table and finds the new `pending_review` row, so it declines to expire.
  *
+ * EVERY DECLINE HERE RETURNS, AND A RETURN COMMITS. The checks below are not protected by the
+ * surrounding transaction the way a throw would be — `return null` ends the callback normally, so
+ * the transaction commits whatever was written before it. Each of them must therefore stay ABOVE
+ * the cancellation write. Moved below it, a decline still reports "skipped" to the sweep while the
+ * registration it declined to expire is already cancelled and committed.
+ *
  * RELYING ON THE FOLD'S SUPPRESSION INSTEAD WOULD NOT BE ENOUGH, and that is the trap this design
  * exists to avoid. The fold does refuse to let a later `expired` override an earlier `succeeded`,
  * so the payment's STATUS would survive a badly-timed sweep. But the registration cancellation is
@@ -150,19 +186,9 @@ const expireOnePayment = async (
     if ([...locked].length === 0) return null;
 
     // A proof awaiting review suspends expiry, however long the organiser takes. Re-read under the
-    // lock rather than trusted from the selection query.
-    const [pendingProof] = await scoped
-      .select({ id: financeManualPaymentProofs.id })
-      .from(financeManualPaymentProofs)
-      .where(
-        and(
-          eq(financeManualPaymentProofs.paymentId, payment.id),
-          eq(financeManualPaymentProofs.status, "pending_review"),
-        ),
-      )
-      .limit(1);
-
-    if (pendingProof) return null;
+    // lock rather than trusted from the selection query, and through the shared predicate so the
+    // candidate's own view of the deadline cannot disagree with this decision.
+    if (await isExpirySuspendedByPendingProof(payment.id, scoped)) return null;
 
     // Already paid. Re-read and re-folded under the lock, because a verification that committed
     // between selection and here is exactly the race this whole function is shaped around.

@@ -56,6 +56,7 @@ export default async function SubmissionPage({
             currency: payment.currency,
             grossAmount: payment.grossAmount,
             dueAt: payment.dueAt ? payment.dueAt.toISOString() : null,
+            deadlineSuspended: payment.deadlineSuspended,
             status: payment.status,
             instructions: payment.instructions,
             proof: payment.proof

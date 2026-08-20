@@ -45,15 +45,24 @@ export const CASES = [
       "1370012345678",
       "Yayasan Seed Academy",
       "Kirim bukti transfer",
+      "BATAS WAKTU",
     ],
-    absent: [],
+    // The deadline is LIVE here, so the suspension sentence must not appear. Its countdown text is
+    // time-dependent and is asserted in payment-deadline.test.ts rather than pinned to a seed date.
+    absent: ["Tidak berlaku selama bukti transfer Anda ditinjau"],
     why: "the payer must be told the amount and the account, and offered the upload",
   },
   {
     id: "payment-awaiting-review",
     as: "candB",
     path: "/candidate-dashboard/registrations/seed-reg-b-paid",
-    present: ["Menunggu verifikasi", "sedang ditinjau penyelenggara"],
+    present: [
+      "Menunggu verifikasi",
+      "sedang ditinjau penyelenggara",
+      // R5 ON THE PAGE. Evidence is with the organiser, so the deadline cannot end this
+      // registration — and the candidate must be able to see that, not infer it.
+      "Tidak berlaku selama bukti transfer Anda ditinjau",
+    ],
     // THE WITHHELD AFFORDANCE. Paired with the case above, which proves the control renders when it
     // should — without that pairing this assertion would pass on an empty page.
     absent: ["Kirim bukti transfer"],
@@ -67,7 +76,11 @@ export const CASES = [
       "Perlu bukti baru",
       "Nominal transfer tidak sesuai",
       "Unggah bukti transfer baru",
+      "BATAS WAKTU",
     ],
+    // RESUMED. A rejection puts the candidate back on a running clock, so the suspension sentence
+    // must be gone — this is the half of the pairing that catches a suspension that never lifts.
+    absent: ["Tidak berlaku selama bukti transfer Anda ditinjau"],
     absent: [],
     why: "the organiser's reason is the instruction the candidate works from, so it must be page content that survives a reload",
   },

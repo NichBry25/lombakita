@@ -13,6 +13,7 @@ import {
 } from "@/server/db/schema";
 import { foldPaymentEvents, type PaymentDerivedStatus } from "@/lib/finance/payment-state";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
+import { isExpirySuspendedByPendingProof } from "@/server/finance/payment-expiry-service";
 
 // WHAT A CANDIDATE IS TOLD ABOUT MONEY THEY OWE.
 //
@@ -54,6 +55,15 @@ export type CandidatePaymentView = {
   currency: string;
   grossAmount: number;
   dueAt: Date | null;
+  /**
+   * Whether the deadline above is currently held open by a proof awaiting a verdict.
+   *
+   * Resolved through the SAME predicate the expiry worker consults before cancelling anything, so
+   * the countdown this candidate sees and the decision the worker makes cannot disagree. The
+   * deadline governs SUBMISSION, never the organiser's verdict — a candidate waiting on a slow
+   * review is not at risk, and the surface must not imply they are.
+   */
+  deadlineSuspended: boolean;
   status: PaymentDerivedStatus;
   /**
    * Where to send the money, as it stood when the payment was created.
@@ -182,6 +192,7 @@ export const loadCandidatePaymentView = async (
     currency: payment.currency,
     grossAmount: payment.grossAmount,
     dueAt: payment.dueAt,
+    deadlineSuspended: await isExpirySuspendedByPendingProof(payment.id, db),
     status,
     instructions: snapshot
       ? {
