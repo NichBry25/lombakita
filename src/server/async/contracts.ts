@@ -168,6 +168,11 @@ export type PaymentOutcomePayload = {
   registrationId: string;
   // Same reason as the submission payload: reject → resubmit → reject is two distinct verdicts on
   // one payment, and without the attempt the second one is deduplicated away.
+  //
+  // LOAD-BEARING for `verified` and `rejected`, INERT for `expired` — a payment expires once, so
+  // that arm always carries whatever the live proof happens to hold (0 when none was ever filed).
+  // Stated because the next reader sees a constant on the expiry path and concludes the field can
+  // be dropped, which silently re-collapses the two verdict identities.
   attempt: number;
   competitionTitle: string;
   outcome: "verified" | "rejected" | "expired";
