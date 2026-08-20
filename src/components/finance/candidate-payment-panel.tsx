@@ -405,11 +405,19 @@ function PaymentStateNotice({ payment }: { payment: CandidatePaymentPanelProps["
   }
 
   if (payment.proof.status === "rejected") {
+    // BOTH BRANCHES NAME THE DEADLINE, and the barred one needs it more.
+    //
+    // A rejection resumes the clock — only `pending_review` suspends it — so a candidate here is
+    // running out of time in either branch. In the barred branch they also cannot cancel (a proof
+    // exists, so that affordance is withheld) and cannot resubmit, which leaves contacting the
+    // organiser as the only action they have and the deadline as the only thing still moving.
+    // Saying "hubungi penyelenggara" without saying by when is an instruction with no urgency
+    // attached to the one state that has the most.
     return (
       <Feedback tone={payment.proof.resubmissionAllowed ? "warning" : "error"}>
         {payment.proof.resubmissionAllowed
           ? `Bukti transfer ditolak. Alasan: ${payment.proof.rejectionReason ?? "—"}. Unggah bukti yang baru sebelum batas waktu.`
-          : `Bukti transfer ditolak dan tidak dapat dikirim ulang. Alasan: ${payment.proof.rejectionReason ?? "—"}. Hubungi penyelenggara.`}
+          : `Bukti transfer ditolak dan tidak dapat dikirim ulang. Alasan: ${payment.proof.rejectionReason ?? "—"}. Hubungi penyelenggara sebelum batas waktu di atas — jika terlewat, pendaftaran ini dibatalkan secara otomatis.`}
       </Feedback>
     );
   }

@@ -4626,3 +4626,117 @@ describe.skipIf(skipWithoutDatabase)("what an unverified institution is told (re
     });
   });
 });
+
+describe.skipIf(skipWithoutDatabase)("every A2 guard in the expiry worker (real database)", () => {
+  // FIVE RETURNING GUARDS INSIDE ONE TRANSACTION, and a returning guard is not protected by the
+  // rollback a throwing one gets: `return null` ends the callback normally, so the transaction
+  // COMMITS whatever was written before it. Moved below the cancellation write, any of these
+  // commits a wrong cancellation while reporting the payment as "skipped" — a silent wrong
+  // cancellation on a lane where the platform cannot reverse the transfer, in a background worker
+  // whose output nobody reads.
+  //
+  // Post-state is the detector for all of them, and correct position today is not the same as
+  // covered. Two of the five are structurally unreachable and are shown to be, rather than asserted
+  // to be; the other three carry tests.
+
+  const submitProofFor = async (tx: Tx, fixture: Fixture, paymentId: string) => {
+    const { submitManualPaymentProof } = await import(
+      "@/server/finance/manual-payment-proof-service"
+    );
+    return submitManualPaymentProof(
+      {
+        paymentId,
+        submittedByUserId: fixture.userId,
+        r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
+        originalFileName: "bukti.jpg",
+        fileSizeBytes: 2048,
+        contentType: "image/jpeg",
+      },
+      tx as never,
+    );
+  };
+
+  const sweepPast = async (tx: Tx) => {
+    const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+    return sweepExpiredPayments(new Date(DUE.getTime() + 30 * 86_400_000), tx as never);
+  };
+
+  const statusOf = async (tx: Tx, registrationId: string): Promise<string> => {
+    const [row] = await tx
+      .select({ status: competitionRegistrations.status })
+      .from(competitionRegistrations)
+      .where(eq(competitionRegistrations.id, registrationId))
+      .limit(1);
+    return row!.status;
+  };
+
+  it("GUARD 3 — a SUCCEEDED payment is not cancelled by a later sweep", async () => {
+    // The worst of the five. This candidate transferred real money, the organiser verified it, and
+    // a moved guard cancels their registration and reports the payment skipped.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
+      const proof = await submitProofFor(tx, fixture, paymentId);
+
+      const { verifyManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      await verifyManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proof.id,
+        tx as never,
+        NOW,
+      );
+
+      const result = await sweepPast(tx);
+
+      expect(result.expired.some((e) => e.paymentId === paymentId)).toBe(false);
+      expect(await statusOf(tx, fixture.registrationId)).toBe("confirmed");
+    });
+  });
+
+  it("GUARD 4 — a second sweep does not re-cancel an already expired payment", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
+
+      const first = await sweepPast(tx);
+      expect(first.expired.some((e) => e.paymentId === paymentId)).toBe(true);
+      expect(await statusOf(tx, fixture.registrationId)).toBe("cancelled");
+
+      // The registration is put back by hand to a state the second sweep could damage. Without
+      // this the CAS on `status = 'confirmed'` would mask a moved guard: the row is already
+      // cancelled, so re-running the write changes nothing and post-state proves nothing.
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "confirmed", cancelledAt: null, cancellationReason: null })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+      const second = await sweepPast(tx);
+
+      expect(second.expired.some((e) => e.paymentId === paymentId)).toBe(false);
+      expect(await statusOf(tx, fixture.registrationId)).toBe("confirmed");
+    });
+  });
+
+  // GUARD 2 — `if ([...locked].length === 0) return null;` — is likewise unreachable and gets no
+  // fixture. The id being locked comes from `finance_payments.competition_registration_id`, which
+  // carries a foreign key to `competition_registrations` with no ON DELETE action, and no code path
+  // in this repository hard-deletes a registration row (cancellation is a status change; the row is
+  // retained as a historical artefact). So `SELECT ... FOR UPDATE` on that id always finds a row.
+  // Reaching it needs a referential-integrity violation, which the constraint prevents.
+
+  it("GUARD 1 is UNREACHABLE — a payment cannot exist without a registration", async () => {
+    // Shown, not asserted. `finance_payments_subject_xor_chk` requires the registration key to be
+    // non-null for the only subject type that exists, so `!payment?.registrationId` is defensive
+    // against a subject arm nobody has added yet. It gets no post-state detector because no fixture
+    // can reach it without violating the constraint that makes it unreachable.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await expect(
+        seedManualPayment(tx, fixture, { competitionRegistrationId: null }),
+      ).rejects.toThrow();
+    });
+  });
+});
