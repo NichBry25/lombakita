@@ -5821,3 +5821,296 @@ describe.skipIf(skipWithoutDatabase)("who is told where the money went (real dat
     });
   });
 });
+
+describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real database)", () => {
+  const submitProof = async (tx: Tx, fixture: Fixture, paymentId: string) => {
+    const { submitManualPaymentProof } = await import(
+      "@/server/finance/manual-payment-proof-service"
+    );
+    return submitManualPaymentProof(
+      {
+        paymentId,
+        submittedByUserId: fixture.userId,
+        r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
+        originalFileName: "bukti.jpg",
+        fileSizeBytes: 2048,
+        contentType: "image/jpeg",
+      },
+      tx as never,
+    );
+  };
+
+  it("shows the attempt a resubmission overwrote — the whole reason the history table exists", async () => {
+    // The live row carries attempt two's file, reason and verdict. Attempt one survives ONLY in
+    // finance_manual_payment_proof_attempts, and attempt one is what the dispute is about.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { rejectManualPaymentProof, reopenManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      const { loadDisputePaymentDetail } = await import("@/server/finance/dispute-view");
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+      await rejectManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proof.id,
+        "Tanggal transfer tidak terbaca",
+        true,
+        tx as never,
+        NOW,
+      );
+      await reopenManualPaymentProof(
+        {
+          proofId: proof.id,
+          submittedByUserId: fixture.userId,
+          r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti2.jpg`,
+          originalFileName: "bukti2.jpg",
+          fileSizeBytes: 4096,
+          contentType: "image/jpeg",
+        },
+        tx as never,
+        NOW,
+      );
+
+      const detail = await loadDisputePaymentDetail(paymentId, tx as never);
+
+      // The live row is attempt two, with the earlier reason cleared.
+      expect(detail!.originalFileName).toBe("bukti2.jpg");
+      expect(detail!.rejectionReason).toBeNull();
+
+      // And attempt one is still readable, with the reason the candidate is disputing.
+      expect(detail!.history).toHaveLength(1);
+      expect(detail!.history[0]).toMatchObject({
+        attemptNumber: 0,
+        originalFileName: "bukti.jpg",
+        verdict: "rejected",
+        verdictReason: "Tanggal transfer tidak terbaca",
+      });
+    });
+  });
+
+  it("reads the history forwards, oldest attempt first", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { rejectManualPaymentProof, reopenManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      const { loadDisputePaymentDetail } = await import("@/server/finance/dispute-view");
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+
+      for (const [index, reason] of ["Alasan pertama", "Alasan kedua"].entries()) {
+        await rejectManualPaymentProof(
+          fixture.institutionId,
+          fixture.userId,
+          proof.id,
+          reason,
+          true,
+          tx as never,
+          NOW,
+        );
+        await reopenManualPaymentProof(
+          {
+            proofId: proof.id,
+            submittedByUserId: fixture.userId,
+            r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti${index + 2}.jpg`,
+            originalFileName: `bukti${index + 2}.jpg`,
+            fileSizeBytes: 4096,
+            contentType: "image/jpeg",
+          },
+          tx as never,
+          NOW,
+        );
+      }
+
+      const detail = await loadDisputePaymentDetail(paymentId, tx as never);
+
+      // A dispute is read in the order it happened. Newest-first would put the operator at the end
+      // of the argument and make them work backwards to its start.
+      expect(detail!.history.map((attempt) => attempt.verdictReason)).toEqual([
+        "Alasan pertama",
+        "Alasan kedua",
+      ]);
+    });
+  });
+
+  it("sees both institutions at once, because a dispute does not arrive naming a tenant", async () => {
+    // THE INVERTED NEGATIVE. Everywhere else in this lane the second fixture institution proves a
+    // reader CANNOT cross tenants. finance_ops is platform-scoped, so here it proves the opposite,
+    // and a tenant-scoped list would make the operator guess the answer before asking the question.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { loadDisputePayments } = await import("@/server/finance/dispute-view");
+
+      const ownPaymentId = await seedManualPayment(tx, fixture);
+      await submitProof(tx, fixture, ownPaymentId);
+
+      await tx.insert(institutionPaymentInstructions).values({
+        institutionId: fixture.other.institutionId,
+        bankName: "Bank Saingan",
+        accountNumber: "9999999999",
+        accountHolderName: "Panitia Saingan",
+      });
+      const [rivalPayment] = await tx
+        .insert(financePayments)
+        .values(
+          manualPaymentValues(fixture, {
+            payerUserId: fixture.other.userId,
+            receivingInstitutionId: fixture.other.institutionId,
+            competitionRegistrationId: fixture.other.registrationId,
+          }),
+        )
+        .returning({ id: financePayments.id });
+      const { submitManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      await submitManualPaymentProof(
+        {
+          paymentId: rivalPayment!.id,
+          submittedByUserId: fixture.other.userId,
+          r2Key: `payment-proofs/${fixture.other.competitionId}/${rivalPayment!.id}/bukti.jpg`,
+          originalFileName: "bukti.jpg",
+          fileSizeBytes: 2048,
+          contentType: "image/jpeg",
+        },
+        tx as never,
+      );
+
+      const payments = await loadDisputePayments(tx as never);
+      const ids = payments.map((row) => row.paymentId);
+
+      expect(ids).toContain(ownPaymentId);
+      expect(ids).toContain(rivalPayment!.id);
+    });
+  });
+
+  it("folds the ledger rather than trusting a status column, because there is none", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { verifyManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      const { loadDisputeLedgerState } = await import("@/server/finance/dispute-view");
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+
+      expect((await loadDisputeLedgerState(paymentId, tx as never)).status).toBe("pending");
+
+      await verifyManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proof.id,
+        tx as never,
+        NOW,
+      );
+
+      const state = await loadDisputeLedgerState(paymentId, tx as never);
+      // What the append-only stream SAYS moved — the figure a billing dispute actually turns on.
+      expect(state.status).toBe("succeeded");
+      expect(state.netRecordedAmount).toBe(1_000_000);
+    });
+  });
+
+  it("records a dispute read against the PAYER, under its own event type", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { recordDisputeProofAccess, FILE_ACCESSED_EVENT } = await import(
+        "@/server/finance/dispute-view"
+      );
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+
+      // The audit writer directly, NOT through the presigning path. Object storage is unconfigured
+      // in this environment, so routing this assertion through `generateDisputeProofViewUrl` would
+      // take the storage-unavailable branch every time and leave every expectation below
+      // unexecuted — a green reporting an audit trail nobody measured.
+      await recordDisputeProofAccess(
+        fixture.other.userId,
+        {
+          id: proof.id,
+          paymentId,
+          competitionId: fixture.competitionId,
+          attempt: proof.resubmissionCount,
+          payerUserId: fixture.userId,
+        },
+        tx as never,
+      );
+
+      const [audit] = await tx
+        .select({
+          eventType: platformOpsAuditLogs.eventType,
+          targetUserId: platformOpsAuditLogs.targetUserId,
+          targetInstitutionId: platformOpsAuditLogs.targetInstitutionId,
+          reason: platformOpsAuditLogs.reason,
+          metadata: platformOpsAuditLogs.metadata,
+        })
+        .from(platformOpsAuditLogs)
+        .where(eq(platformOpsAuditLogs.actorUserId, fixture.other.userId));
+
+      // A DISTINCT event type from the organiser's `payment_proof.file_accessed`, and targeted at
+      // the payer rather than an institution. Reusing the organiser's path would file a
+      // platform-wide read under one tenant's own trail and make the two indistinguishable — which
+      // is exactly the question an access dispute has to answer.
+      expect(audit!.eventType).toBe(FILE_ACCESSED_EVENT);
+      expect(audit!.eventType).not.toBe("payment_proof.file_accessed");
+      expect(audit!.targetUserId).toBe(fixture.userId);
+      expect(audit!.targetInstitutionId).toBeNull();
+      expect(audit!.reason).toBe("Penanganan sengketa pembayaran");
+      expect(audit!.metadata).toMatchObject({ proofId: proof.id, paymentId, attempt: 0 });
+    });
+  });
+
+  it("writes no audit row when storage is down, because no file was read", async () => {
+    // The ordering property, and the branch this environment actually runs. With object storage
+    // unconfigured the presigner is never reached, so an audit row here would put an operator at a
+    // receipt they could not have opened.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { isR2Available } = await import("@/server/storage/r2.client");
+      const { generateDisputeProofViewUrl } = await import("@/server/finance/dispute-view");
+
+      // Stated rather than assumed: if this environment ever gains storage credentials, the
+      // assertion below stops describing it and the test says so instead of quietly inverting.
+      expect(isR2Available()).toBe(false);
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+
+      await expect(
+        generateDisputeProofViewUrl(fixture.other.userId, proof.id, tx as never),
+      ).rejects.toMatchObject({ code: "manual_proof_upload_unavailable" });
+
+      const rows = await tx
+        .select({ id: platformOpsAuditLogs.id })
+        .from(platformOpsAuditLogs)
+        .where(eq(platformOpsAuditLogs.actorUserId, fixture.other.userId));
+
+      expect(rows).toHaveLength(0);
+    });
+  });
+
+  it("writes no audit row for a proof that does not exist", async () => {
+    // An audit entry for a read that was refused records an access that never happened, which is
+    // worse than no entry: it puts an operator at a receipt they never saw.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { generateDisputeProofViewUrl } = await import("@/server/finance/dispute-view");
+
+      await expect(
+        generateDisputeProofViewUrl(fixture.other.userId, "no-such-proof", tx as never),
+      ).rejects.toMatchObject({ code: "manual_proof_not_found" });
+
+      const rows = await tx
+        .select({ id: platformOpsAuditLogs.id })
+        .from(platformOpsAuditLogs)
+        .where(eq(platformOpsAuditLogs.actorUserId, fixture.other.userId));
+
+      expect(rows).toHaveLength(0);
+    });
+  });
+});

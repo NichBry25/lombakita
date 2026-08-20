@@ -373,6 +373,41 @@ export const CASES = [
     absent: [],
     why: "a void offered on a verified proof would be refused by the CAS after the operator committed to it",
   },
+  {
+    id: "dispute-view-shows-the-attempt-nobody-else-keeps",
+    as: "finOps",
+    path: "/finance/payments/seed-pay-b",
+    present: [
+      "Riwayat percobaan",
+      // Attempt one. The live row was overwritten by the resubmission and carries none of this —
+      // migration 0059's history table is the only place it survives, and the dispute is ABOUT it.
+      "Percobaan ke-1",
+      "bukti-transfer-bela.jpg",
+      "Tanggal transfer tidak terbaca pada bukti.",
+      // UPPERCASE: `.detail-grid dt` sets text-transform and innerText returns RENDERED text. Third
+      // time this trap has fired in this step — the expectation is wrong, never the render.
+      "STATUS BUKU BESAR",
+    ],
+    // DEC-0162: no verdict power. The controls are ABSENT, not disabled — a disabled Verifikasi
+    // still tells the operator they are the person who decides.
+    absent: ["Verifikasi", "Tolak", "Batalkan bukti transfer"],
+    why: "a dispute is almost always about the attempt the live row overwrote",
+  },
+  {
+    id: "dispute-list-crosses-tenants-and-decides-nothing",
+    as: "finOps",
+    path: "/finance/payments",
+    present: [
+      "Sengketa pembayaran",
+      "Halaman ini tidak dapat memverifikasi, menolak, atau membatalkan",
+      // Two institutions in one list. finance_ops is platform-scoped, so seeing across tenants is
+      // the requirement here, not the leak — the boundary that exists is role, not tenancy.
+      "seed-academy",
+      "seed-kolektif",
+    ],
+    absent: ["Verifikasi", "Tolak"],
+    why: "a dispute arrives naming a person and a competition, never an institution",
+  },
 ];
 
 const filter = process.argv[2] ? new RegExp(process.argv[2]) : null;

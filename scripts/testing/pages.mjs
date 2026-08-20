@@ -120,6 +120,8 @@ export const PAGES = [
   { id: "86-admin-verification", as: "ops", path: "/admin/verification", label: "Institution document verification queue" },
   { id: "86b-admin-fee-rules", as: "ops", path: "/admin/fee-rules", label: "Platform fee rule administration" },
   { id: "86c-admin-blocked-payments", as: "ops", path: "/admin/payments", label: "DEC-0132 escape hatch: blocked payments and competitions" },
+  { id: "87a-finance-disputes", as: "finOps", path: "/finance/payments", label: "finance_ops dispute list (read-only, cross-tenant)" },
+  { id: "87b-finance-dispute-detail", as: "finOps", path: "/finance/payments/seed-pay-b", label: "finance_ops dispute detail with attempt history" },
   { id: "87-ops-on-candidate-surface", as: "ops", path: "/candidate-dashboard", label: "Operational account denied a participant surface" },
   { id: "88-ops-home", as: "ops", path: "/", label: "Landing page as operational account (nav withheld)" },
 

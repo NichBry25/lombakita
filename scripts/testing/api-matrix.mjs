@@ -4,7 +4,7 @@
  * Writes test-artifacts/behavior/api-matrix.{json,md} in the repo.
  */
 import { writeFileSync, mkdirSync } from "fs";
-import { mintSession, apiFetch } from "./lib-auth.mjs";
+import { cookieHeader, elevateMfaSession, mintSession, apiFetch } from "./lib-auth.mjs";
 import { USERS, INST, COMP, REG } from "./seeds.mjs";
 
 const REPO = "/Users/nikau/Developer/lombakita";
@@ -25,11 +25,23 @@ const is2xx = (r) => r.status >= 200 && r.status < 300;
 const main = async () => {
   // ---- sessions -----------------------------------------------------------
   const sessions = {};
-  const sessionKeys = ["candA", "candB", "candC", "recMin", "recElev", "recRej", "recDraft", "dual", "ops"];
+  const sessionKeys = ["candA", "candB", "candC", "recMin", "recElev", "recRej", "recDraft", "dual", "ops", "finOps"];
   for (const key of sessionKeys) {
     const s = await mintSession(USERS[key].email);
     if (!s.ok) throw new Error(`Could not mint session for ${key}: ${s.error}`);
-    sessions[key] = s.cookie;
+
+    // OPERATIONAL SESSIONS MUST BE ELEVATED, or every operator case measures the MFA gate instead
+    // of the thing it names. A minted platform_ops session is `challenge_required`, and
+    // `requireSessionRole` answers 403 with `mfa_challenge_required` — the SAME status a role
+    // refusal produces, so a negative case reads as passing while a positive case reads as a
+    // product defect. `lib-browser` has elevated its contexts since Step 7.1; this harness never
+    // did, which is why every OPS/MOD/VERIF/FEAT operator case has been red or falsely green since.
+    if (USERS[key].mfa === "satisfied") {
+      await elevateMfaSession(s.jar);
+      sessions[key] = cookieHeader(s.jar);
+    } else {
+      sessions[key] = s.cookie;
+    }
   }
   record("AUTH-01", "Login succeeds for all seeded active accounts", `${sessionKeys.length} sessions`, `${Object.keys(sessions).length} sessions`, Object.keys(sessions).length === sessionKeys.length);
 
@@ -522,6 +534,61 @@ const main = async () => {
     if (r.status === 429) got429 = true;
   }
   record("RATE-01", "identify rate limit fires within 65 rapid calls", "429 observed", got429 ? "429" : "never", got429);
+
+  // ---- finance_ops: what it may read, and the boundary that actually exists ----
+  //
+  // THE USUAL TENANT NEGATIVE INVERTS HERE. Every other reader in this lane is confined to one
+  // institution and the thing to prove is that it cannot see its neighbour's rows. finance_ops is a
+  // PLATFORM role handling disputes that arrive from any institution, so reading across tenants is
+  // the requirement, not the leak. The boundary that exists is ROLE: nobody else reaches this
+  // surface, and finance_ops reaches no verdict.
+  const finView = await apiFetch("/api/finance-ops/payment-proofs/seed-proof-b/view", {
+    method: "POST", cookie: sessions.finOps,
+  });
+  // 503 is a pass on a machine with no object storage configured: the role gate and the proof
+  // lookup both ran, and only the presigner was unavailable. A 403 here would be the real failure.
+  record("FIN-01", "finance_ops may open a bukti transfer for dispute handling", "200 (or 503 without R2)", `${finView.status}`, finView.status === 200 || finView.status === 503, bodySnippet(finView.body).slice(0, 90));
+
+  const finViewOther = await apiFetch("/api/finance-ops/payment-proofs/seed-proof-d/view", {
+    method: "POST", cookie: sessions.finOps,
+  });
+  // A DIFFERENT INSTITUTION's proof (seed-inst-d's competition). Reachable ON PURPOSE — this is the
+  // cross-tenant positive, and a 403 here would mean disputes could only be handled by guessing
+  // which tenant they came from.
+  record("FIN-02", "finance_ops reads across tenants by design", "200 (or 503 without R2)", `${finViewOther.status}`, finViewOther.status === 200 || finViewOther.status === 503);
+
+  for (const [key, label] of [["recElev", "recruiter"], ["candA", "candidate"], ["ops", "platform_ops"]]) {
+    const refused = await apiFetch("/api/finance-ops/payment-proofs/seed-proof-b/view", {
+      method: "POST", cookie: sessions[key],
+    });
+    // ASSERTED ON THE CODE, NOT THE STATUS, and that distinction is load-bearing: an unelevated
+    // operational session is also refused 403, with `mfa_challenge_required`. A status-only check
+    // here would report a role boundary that was never reached. platform_ops is refused too, and
+    // deliberately — the two operator roles keep separate audit trails, and letting either mint the
+    // other's makes "who looked at this receipt" a question the log can no longer answer.
+    const refusalCode = refused.body?.error?.code ?? "";
+    record(`FIN-03-${label}`, `Dispute file access refused for ${label} (role, not MFA)`, "403 forbidden", `${refused.status} ${refusalCode}`, refused.status === 403 && refusalCode !== "mfa_challenge_required");
+  }
+
+  const finViewAnon = await apiFetch("/api/finance-ops/payment-proofs/seed-proof-b/view", { method: "POST" });
+  record("FIN-04", "Dispute file access refused anon", "401/403", `${finViewAnon.status}`, finViewAnon.status === 401 || finViewAnon.status === 403);
+
+  // DEC-0162 AT THE HTTP LAYER. Withholding the controls in the UI is presentation; these two are
+  // the enforcement, and they are what makes "no verdict power" true rather than merely displayed.
+  const finVoid = await apiFetch("/api/platform-ops/payments/proofs/seed-proof-b/void", {
+    method: "POST", cookie: sessions.finOps, json: { reason: "percobaan finance_ops" },
+  });
+  record("FIN-05", "finance_ops cannot void a bukti transfer", "403", `${finVoid.status}`, finVoid.status === 403);
+
+  const finVerdict = await apiFetch(`/api/v1/institutions/${INST.a.slug}/competitions/${COMP.paid.id}/payment-proofs/seed-proof-b`, {
+    method: "PATCH", cookie: sessions.finOps, json: { action: "verify" },
+  });
+  record("FIN-06", "finance_ops cannot render the organiser's verdict", "403", `${finVerdict.status}`, finVerdict.status === 403);
+
+  const finCancel = await apiFetch(`/api/platform-ops/competitions/${COMP.paid.id}/cancel`, {
+    method: "POST", cookie: sessions.finOps, json: { reason: "percobaan finance_ops" },
+  });
+  record("FIN-07", "finance_ops cannot cancel a competition", "403", `${finCancel.status}`, finCancel.status === 403);
 
   // ---- write artifacts ------------------------------------------------------
   mkdirSync(`${REPO}/test-artifacts/behavior`, { recursive: true });

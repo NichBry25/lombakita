@@ -25,6 +25,7 @@ export const USERS = {
   ops: { id: "seed-user-ops", email: "seed.ops@seed.lombakita.local", username: "seed_ops", mfa: "satisfied" },
   opsEnrol: { id: "seed-user-ops-enrol", email: "seed.ops.enrol@seed.lombakita.local", username: "seed_ops_enrol", mfa: "enrolment" },
   opsChal: { id: "seed-user-ops-chal", email: "seed.ops.chal@seed.lombakita.local", username: "seed_ops_chal", mfa: "challenge" },
+  finOps: { id: "seed-user-fin", email: "seed.fin@seed.lombakita.local", username: "seed_fin", mfa: "satisfied" },
   susp: { id: "seed-user-susp", email: "seed.susp@seed.lombakita.local", username: "seed_susp" },
   unver: { id: "seed-user-unver", email: "seed.unver@seed.lombakita.local", username: "seed_unver" },
 };

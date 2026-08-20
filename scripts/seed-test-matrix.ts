@@ -138,6 +138,9 @@ const main = async (): Promise<void> => {
       // reachable once the harness elevates its session; these two sit permanently in the gate.
       { id: "seed-user-ops-enrol", name: "Ops Belum Enrol", email: EMAIL("seed.ops.enrol"), emailVerified: d(-100), role: "platform_ops", username: "seed_ops_enrol", candAt: d(-100), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
       { id: "seed-user-ops-chal", name: "Ops Perlu Tantangan", email: EMAIL("seed.ops.chal"), emailVerified: d(-100), role: "platform_ops", username: "seed_ops_chal", candAt: d(-100), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
+      // finance_ops: the dispute reader. Distinct from platform_ops on purpose — the two roles
+      // reach different shells and neither may reach the other's, which is what the audits assert.
+      { id: "seed-user-fin", name: "Fina Operasional", email: EMAIL("seed.fin"), emailVerified: d(-100), role: "finance_ops", username: "seed_fin", candAt: d(-100), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
       { id: "seed-user-susp", name: "Sari Utami", email: EMAIL("seed.susp"), emailVerified: d(-40), role: "candidate", username: "seed_susp", candAt: d(-40), recAt: null, tier: "unverified", suspendedAt: d(-1), suspensionReason: "Pelanggaran ketentuan (data uji)" },
       { id: "seed-user-unver", name: "Udin Baru", email: EMAIL("seed.unver"), emailVerified: null, role: "candidate", username: "seed_unver", candAt: d(-1), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
     ];
@@ -184,7 +187,7 @@ const main = async (): Promise<void> => {
     const mfaKey = Buffer.from(mfaEncryptionKey, "base64");
     const mfaSecret = Buffer.from("5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed", "hex");
 
-    for (const userId of ["seed-user-ops", "seed-user-ops-chal"]) {
+    for (const userId of ["seed-user-ops", "seed-user-ops-chal", "seed-user-fin"]) {
       const iv = randomBytes(12);
       const cipher = createCipheriv("aes-256-gcm", mfaKey, iv);
       const ciphertext = Buffer.concat([cipher.update(mfaSecret), cipher.final()]);
@@ -1116,6 +1119,29 @@ const main = async (): Promise<void> => {
         'bukti-transfer-cindy.jpg', 96256, 'image/jpeg', ${h(-30)}, 'rejected',
         'Nominal transfer tidak sesuai — tertera Rp100.000, seharusnya Rp150.000.',
         'seed-user-rec-elev', ${h(-20)})
+      ON CONFLICT (proof_id, attempt_number) DO NOTHING
+    `;
+
+    // A RESUBMITTED proof, and the closed attempt behind it. This is the state the finance_ops
+    // dispute view exists for: the live row shows attempt two, and attempt one — the rejection the
+    // candidate is actually disputing — survives only in the history table (migration 0059). A seed
+    // with no resubmission anywhere would let that view ship without ever rendering a history row.
+    await sql`
+      UPDATE finance_manual_payment_proofs
+      SET status = 'pending_review', resubmission_count = 1, reviewer_user_id = NULL,
+          reviewed_at = NULL, rejection_reason = NULL,
+          original_file_name = 'bukti-transfer-bela-revisi.jpg', submitted_at = ${h(-6)},
+          updated_at = now()
+      WHERE id = 'seed-proof-b'
+    `;
+    await sql`
+      INSERT INTO finance_manual_payment_proof_attempts (id, proof_id, payment_id, competition_id,
+        attempt_number, submitted_by_user_id, r2_key, original_file_name, file_size_bytes,
+        content_type, submitted_at, verdict, verdict_reason, reviewer_user_id, reviewed_at)
+      VALUES ('seed-proofatt-b-0', 'seed-proof-b', 'seed-pay-b', 'seed-comp-paid', 0,
+        'seed-user-cand-b', 'payment-proofs/seed-comp-paid/seed-pay-b/seed-bukti-b-attempt0',
+        'bukti-transfer-bela.jpg', 184320, 'image/jpeg', ${h(-28)}, 'rejected',
+        'Tanggal transfer tidak terbaca pada bukti.', 'seed-user-rec-elev', ${h(-24)})
       ON CONFLICT (proof_id, attempt_number) DO NOTHING
     `;
 

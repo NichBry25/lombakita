@@ -101,7 +101,21 @@ async function challengeWithFreshCode(jar) {
 
     const detail = await res.text();
     const spentCode = res.status === 401 && detail.includes("mfa_invalid_code");
-    if (!spentCode || attempt === 1) {
+
+    if (spentCode && attempt === 1) {
+      // The SECOND refusal after waiting out the step is not replay any more, and saying so is the
+      // difference between a two-minute diagnosis and an hour of it: a fresh code refused means the
+      // seeded factor's secret no longer matches MFA_FACTOR_SECRET_HEX, or the machine clock has
+      // drifted more than one step from the server's. Neither is a product defect on the page under
+      // audit, which is what the bare message would otherwise imply.
+      throw new Error(
+        `MFA challenge refused a FRESH code after waiting out the TOTP step (${res.status}). ` +
+          `This is no longer replay protection — re-seed (npx tsx scripts/seed-test-matrix.ts) or ` +
+          `check clock drift. Detail: ${detail.slice(0, 160)}`,
+      );
+    }
+
+    if (!spentCode) {
       throw new Error(`MFA challenge failed (${res.status}): ${detail.slice(0, 160)}`);
     }
 
