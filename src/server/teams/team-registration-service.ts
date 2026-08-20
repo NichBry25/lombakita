@@ -18,7 +18,10 @@ import { MAX_CANCELLATION_REASON_LENGTH } from "@/server/registrations/registrat
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
-import { hasSubmittedPaymentProof } from "@/server/finance/paid-registration";
+import {
+  findTeamPaymentGroupAnchor,
+  hasSubmittedPaymentProof,
+} from "@/server/finance/paid-registration";
 import {
   createRegistrationPayment,
   loadRegistrationPricing,
@@ -449,17 +452,12 @@ export const cancelTeamRegistration = async (
   // Leaving this arm blanket while the individual arm became conditional would mean a captain and
   // a solo entrant on the same competition, both having paid nothing, got different answers.
   if (isPaidCompetition(competition.feeAmount)) {
-    // ANY member's row identifies the group. The predicate resolves the whole payment group from
-    // whichever row it is handed, so this does not need to be the captain's — and asking for a
-    // specific member's row here would add a way to get the wrong answer for no benefit. A team
-    // with no registration rows at all has no payment and therefore no proof.
-    const [groupMember] = await db
-      .select({ id: competitionRegistrations.id })
-      .from(competitionRegistrations)
-      .where(eq(competitionRegistrations.teamId, teamId))
-      .limit(1);
+    // A team with no registration rows at all has no payment and therefore no proof. The anchor
+    // lookup is shared with the surface that decides whether to OFFER the cancel control, so the
+    // control cannot appear on a team this guard would refuse.
+    const anchorRegistrationId = await findTeamPaymentGroupAnchor(teamId, db);
 
-    if (groupMember && (await hasSubmittedPaymentProof(groupMember.id, db))) {
+    if (anchorRegistrationId !== null && (await hasSubmittedPaymentProof(anchorRegistrationId, db))) {
       throw new TeamError(
         "cancellation_not_supported_for_paid",
         "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",

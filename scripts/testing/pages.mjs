@@ -52,6 +52,12 @@ export const PAGES = [
   { id: "39-profile-edit", as: "candA", path: "/profile/edit", label: "Profile editor" },
   { id: "40-registration-both-mode", as: "candA", path: "/competitions/seed-academy/seed-open/registration", label: "Registration subpage — both modes" },
   { id: "41-registration-team-mode", as: "candA", path: "/competitions/seed-academy/seed-closing/registration", label: "Registration subpage — team mode" },
+  // The cancel affordance in all three states DEC-0131 distinguishes. Registered here rather than
+  // folded into 40/41 because the withheld state only exists on a PRICED competition and only once
+  // a bukti transfer has been filed — neither of which the free fixtures can produce.
+  { id: "42a-registration-paid-cancellable", as: "candA", path: "/competitions/seed-academy/seed-paid/registration", label: "Registration subpage — paid, cancel still offered" },
+  { id: "42b-registration-paid-withheld", as: "candB", path: "/competitions/seed-academy/seed-paid/registration", label: "Registration subpage — cancel withheld, proof under review" },
+  { id: "42c-registration-paid-withheld-rejected", as: "candC", path: "/competitions/seed-academy/seed-paid/registration", label: "Registration subpage — cancel withheld, proof rejected" },
   { id: "42-detail-as-candidate", as: "candA", path: "/competitions/seed-academy/seed-featured", label: "Detail as signed-in candidate (save control)" },
   { id: "43-institution-public-as-candidate", as: "candA", path: "/institution/seed-academy", label: "Public institution page as candidate" },
   { id: "44-verify-role-recruiter", as: "candA", path: "/auth/verify-role?as=recruiter", label: "Second-role verification entry" },

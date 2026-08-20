@@ -20,10 +20,15 @@ vi.mock("@/lib/logger", () => ({
 // against a queued fake with no proof tables. That a team's proof resolves across the whole payment
 // group — one payment anchored on the captain's row, every member's row in the same group — is
 // proven against a live Postgres in the manual-lane integration suite.
-const { hasSubmittedPaymentProof } = vi.hoisted(() => ({
+const { hasSubmittedPaymentProof, findTeamPaymentGroupAnchor } = vi.hoisted(() => ({
   hasSubmittedPaymentProof: vi.fn().mockResolvedValue(false),
+  // A team always has an anchor row here; the no-rows case is covered against a real database.
+  findTeamPaymentGroupAnchor: vi.fn().mockResolvedValue("reg-anchor"),
 }));
-vi.mock("@/server/finance/paid-registration", () => ({ hasSubmittedPaymentProof }));
+vi.mock("@/server/finance/paid-registration", () => ({
+  hasSubmittedPaymentProof,
+  findTeamPaymentGroupAnchor,
+}));
 
 import { cancelTeamRegistration, submitTeamRegistration } from "./team-registration-service";
 

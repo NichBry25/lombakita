@@ -205,6 +205,35 @@ export const CASES = [
     why: "proves the two absences are the tenant boundary, not a page that renders nothing",
   },
 
+  // ── Surface 5: the DEC-0131 cancel affordance ─────────────────────────────────────────────────
+  {
+    id: "cancel-offered-nothing-sent",
+    as: "candA",
+    path: "/competitions/seed-academy/seed-paid/registration",
+    // THE PRESENT HALF. Without it the two absent-assertions below would pass on any page that
+    // failed to render the registration state at all.
+    present: ["Batalkan pendaftaran", "Pembatalan tunduk pada kebijakan penyelenggara"],
+    absent: ["tidak dapat dibatalkan sendiri"],
+    why: "a candidate who owes money and has sent none keeps the right to leave",
+  },
+  {
+    id: "cancel-withheld-proof-under-review",
+    as: "candB",
+    path: "/competitions/seed-academy/seed-paid/registration",
+    present: ["tidak dapat dibatalkan sendiri setelah bukti transfer dikirim"],
+    // WITHHELD, not disabled. The control's words must be off the page entirely.
+    absent: ["Batalkan pendaftaran"],
+    why: "the candidate has asserted a transfer the platform cannot verify or reverse",
+  },
+  {
+    id: "cancel-withheld-proof-rejected",
+    as: "candC",
+    path: "/competitions/seed-academy/seed-paid/registration",
+    present: ["tidak dapat dibatalkan sendiri setelah bukti transfer dikirim"],
+    absent: ["Batalkan pendaftaran"],
+    why: "a rejection means the organiser was unconvinced, not that no money moved",
+  },
+
   // ── Surface 4: enabling paid registration, with the disclosure ────────────────────────────────
   {
     id: "fee-disclosure-on-paid-competition",

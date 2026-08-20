@@ -3869,3 +3869,391 @@ describe.skipIf(skipWithoutDatabase)("organiser payment review across tenants (r
     });
   });
 });
+
+describe.skipIf(skipWithoutDatabase)("the cancel affordance the page offers (real database)", () => {
+  // DEC-0131's third predicate, asked the way the REGISTRATION PAGE asks it.
+  //
+  // The two cancel services are proven elsewhere. What is proven here is that the surface deciding
+  // whether to OFFER the control reaches the same answer — a page that derived this independently
+  // would eventually render a control the server refuses, and the refusal would be the candidate's
+  // first news of the rule.
+  //
+  // Every proof here is submitted through `submitManualPaymentProof`, the real production path, not
+  // inserted. A hand-built proof row proves the predicate; only the real path proves the wiring.
+
+  const resolve = async (
+    tx: Tx,
+    input: {
+      individualRegistration?: { id: string; status: string } | null;
+      team?: { id: string; status: string } | null;
+    },
+  ) => {
+    const { resolveCancelAffordanceState } = await import("@/server/finance/cancel-affordance");
+    return resolveCancelAffordanceState(
+      {
+        individualRegistration: input.individualRegistration ?? null,
+        team: input.team ?? null,
+      },
+      tx as never,
+    );
+  };
+
+  const submitProofFor = async (tx: Tx, fixture: Fixture, paymentId: string) => {
+    const { submitManualPaymentProof } = await import(
+      "@/server/finance/manual-payment-proof-service"
+    );
+    return submitManualPaymentProof(
+      {
+        paymentId,
+        submittedByUserId: fixture.userId,
+        r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
+        originalFileName: "bukti.jpg",
+        fileSizeBytes: 2048,
+        contentType: "image/jpeg",
+      },
+      tx as never,
+    );
+  };
+
+  const seedSubmittedTeam = async (tx: Tx, fixture: Fixture) => {
+    const id = uniqueSuffix();
+    const [team] = await tx
+      .insert(teams)
+      .values({
+        competitionId: fixture.competitionId,
+        captainId: fixture.userId,
+        name: `Tim ${id}`,
+        status: "submitted",
+      })
+      .returning({ id: teams.id });
+
+    await tx
+      .update(competitionRegistrations)
+      .set({ registrationType: "team", teamId: team!.id })
+      .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+    const [mate] = await tx
+      .insert(users)
+      .values({ email: `mate_${id}@example.test`, username: `mate_${id}`, candidateVerifiedAt: NOW })
+      .returning({ id: users.id });
+
+    await tx.insert(competitionRegistrations).values({
+      competitionId: fixture.competitionId,
+      studentId: mate!.id,
+      registrationType: "team",
+      teamId: team!.id,
+    });
+
+    return { teamId: team!.id };
+  };
+
+  it("OFFERS both controls when nothing has been submitted", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { teamId } = await seedSubmittedTeam(tx, fixture);
+      await seedManualPayment(tx, fixture);
+
+      // A priced payment with no proof against it is the common case, and it must not close
+      // anything: the candidate owes money and has sent none, so leaving costs nobody anything.
+      expect(
+        await resolve(tx, {
+          individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+          team: { id: teamId, status: "submitted" },
+        }),
+      ).toEqual({ individualCancellationClosed: false, teamCancellationClosed: false });
+    });
+  });
+
+  it("WITHHOLDS the individual control once a bukti transfer is submitted through the real path", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      await submitProofFor(tx, fixture, paymentId);
+
+      const state = await resolve(tx, {
+        individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+      });
+
+      expect(state.individualCancellationClosed).toBe(true);
+    });
+  });
+
+  it("STILL withholds after the organiser REJECTS the proof", async () => {
+    // The part of DEC-0131 that looks wrong and is not. A rejection means the organiser was not
+    // satisfied by the evidence; it does not establish that no money moved, and the platform — which
+    // never touches this money — is in no position to rule that it did not. This is the assertion
+    // that separates the third predicate from payment-in-flight, which would hand the right to
+    // cancel BACK at this exact moment.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProofFor(tx, fixture, paymentId);
+
+      const { rejectManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      await rejectManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proof.id,
+        "nominal tidak sesuai",
+        true,
+        tx as never,
+        NOW,
+      );
+
+      expect(
+        (
+          await resolve(tx, {
+            individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+          })
+        ).individualCancellationClosed,
+      ).toBe(true);
+    });
+  });
+
+  it("WITHHOLDS the team control from a proof anchored on ONE member's row", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { teamId } = await seedSubmittedTeam(tx, fixture);
+      const paymentId = await seedManualPayment(tx, fixture);
+      await submitProofFor(tx, fixture, paymentId);
+
+      // The payment is anchored on the captain's row; the team answer must still be closed, because
+      // a team pays once and every member's row shares that payment.
+      expect(
+        (await resolve(tx, { team: { id: teamId, status: "submitted" } })).teamCancellationClosed,
+      ).toBe(true);
+    });
+  });
+
+  it("does NOT cross the two answers — an individual proof leaves the team control offered", async () => {
+    // THE SWAP DETECTOR. Both fields are booleans of the same type computed side by side, so a
+    // crossed assignment type-checks and every single-mode test above stays green. This is the only
+    // assertion that fails on it, and it needs a candidate holding BOTH an individual registration
+    // with a proof and a separate team with none.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      await submitProofFor(tx, fixture, paymentId);
+
+      const id = uniqueSuffix();
+      const [mate] = await tx
+        .insert(users)
+        .values({
+          email: `solo_${id}@example.test`,
+          username: `solo_${id}`,
+          candidateVerifiedAt: NOW,
+        })
+        .returning({ id: users.id });
+      const [team] = await tx
+        .insert(teams)
+        .values({
+          competitionId: fixture.competitionId,
+          captainId: mate!.id,
+          name: `Tim ${id}`,
+          status: "submitted",
+        })
+        .returning({ id: teams.id });
+      await tx.insert(competitionRegistrations).values({
+        competitionId: fixture.competitionId,
+        studentId: mate!.id,
+        registrationType: "team",
+        teamId: team!.id,
+      });
+
+      expect(
+        await resolve(tx, {
+          individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+          team: { id: team!.id, status: "submitted" },
+        }),
+      ).toEqual({ individualCancellationClosed: true, teamCancellationClosed: false });
+    });
+  });
+
+  it("asks nothing for a CANCELLED registration or a FORMING team", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { teamId } = await seedSubmittedTeam(tx, fixture);
+      const paymentId = await seedManualPayment(tx, fixture);
+      await submitProofFor(tx, fixture, paymentId);
+
+      // A proof exists, so both would be closed if the status gates were dropped. They are not
+      // asked, because neither state renders a cancel control to withhold.
+      expect(
+        await resolve(tx, {
+          individualRegistration: { id: fixture.registrationId, status: "cancelled" },
+          team: { id: teamId, status: "forming" },
+        }),
+      ).toEqual({ individualCancellationClosed: false, teamCancellationClosed: false });
+    });
+  });
+
+  it("OFFERS the control on a FREE competition that happens to carry a payment row", async () => {
+    // A zero-gross payment is a free registration that was recorded, not a payment. A proof filed
+    // against one must not strip a free entrant's right to leave.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture, {
+        grossAmount: 0,
+        platformFeeAmount: 0,
+        institutionNetAmount: 0,
+      });
+      await submitProofFor(tx, fixture, paymentId);
+
+      expect(
+        (
+          await resolve(tx, {
+            individualRegistration: { id: fixture.registrationId, status: "confirmed" },
+          })
+        ).individualCancellationClosed,
+      ).toBe(false);
+    });
+  });
+});
+
+describe.skipIf(skipWithoutDatabase)("the cancel guards refuse BEFORE they write (real database)", () => {
+  // CLASS B, and it needed a real database to be Class B at all.
+  //
+  // Both cancel guards sit before their write and outside its transaction, so the natural way to
+  // get them wrong — running them after the transaction commits — is detectable by post-state: the
+  // registration is already cancelled when the refusal is thrown. That is the assertion here.
+  //
+  // The existing service tests cannot make it. They run against a queued fake, so moving the guard
+  // past the transaction fails them with `team_state_conflict` — a fake's response ordering, not
+  // the guard's position. A probe that goes red for the wrong reason is the same defect as one that
+  // stays green: neither is measuring the guard.
+
+  const openCancellationWindow = async (tx: Tx, fixture: Fixture) => {
+    await tx
+      .update(competitions)
+      .set({
+        feeAmount: 100_000,
+        feeCurrency: "IDR",
+        allowCancellation: true,
+        cancellationCutoffDays: 1,
+        // Real time, not the frozen NOW: the cancellation window is compared against the clock.
+        eventStartAt: new Date(Date.now() + 30 * 86_400_000),
+      })
+      .where(eq(competitions.id, fixture.competitionId));
+  };
+
+  const submitProofFor = async (tx: Tx, fixture: Fixture, paymentId: string) => {
+    const { submitManualPaymentProof } = await import(
+      "@/server/finance/manual-payment-proof-service"
+    );
+    return submitManualPaymentProof(
+      {
+        paymentId,
+        submittedByUserId: fixture.userId,
+        r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
+        originalFileName: "bukti.jpg",
+        fileSizeBytes: 2048,
+        contentType: "image/jpeg",
+      },
+      tx as never,
+    );
+  };
+
+  const statusOf = async (tx: Tx, registrationId: string): Promise<string> => {
+    const [row] = await tx
+      .select({ status: competitionRegistrations.status })
+      .from(competitionRegistrations)
+      .where(eq(competitionRegistrations.id, registrationId))
+      .limit(1);
+    return row!.status;
+  };
+
+  it("REFUSES an individual cancellation and leaves the registration confirmed", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await openCancellationWindow(tx, fixture);
+      const paymentId = await seedManualPayment(tx, fixture);
+      await submitProofFor(tx, fixture, paymentId);
+
+      const { cancelRegistration } = await import("@/server/registrations/registration-service");
+      await expect(
+        cancelRegistration(
+          fixture.userId,
+          fixture.competitionId,
+          fixture.registrationId,
+          "berubah pikiran",
+          tx as never,
+        ),
+      ).rejects.toMatchObject({
+        code: "cancellation_not_supported_for_paid",
+        // The message too, not just the code. It is what the candidate reads, it is the standing
+        // Indonesian-copy condition, and pinning it is what makes the refusal comparable between
+        // orderings — moving this guard INSIDE the transaction is undetectable precisely because
+        // the refusal is byte-identical, and that claim is only meaningful if the bytes are pinned.
+        message: "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
+      });
+
+      // THE POST-STATE ASSERTION. A guard that ran after the transaction throws the same error and
+      // leaves this row cancelled.
+      expect(await statusOf(tx, fixture.registrationId)).toBe("confirmed");
+    });
+  });
+
+  it("REFUSES a team cancellation and leaves every member's registration confirmed", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await openCancellationWindow(tx, fixture);
+
+      const id = uniqueSuffix();
+      const [team] = await tx
+        .insert(teams)
+        .values({
+          competitionId: fixture.competitionId,
+          captainId: fixture.userId,
+          name: `Tim ${id}`,
+          status: "submitted",
+        })
+        .returning({ id: teams.id });
+      await tx
+        .update(competitionRegistrations)
+        .set({ registrationType: "team", teamId: team!.id })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+      const [mate] = await tx
+        .insert(users)
+        .values({
+          email: `mate_${id}@example.test`,
+          username: `mate_${id}`,
+          candidateVerifiedAt: NOW,
+        })
+        .returning({ id: users.id });
+      const [mateRegistration] = await tx
+        .insert(competitionRegistrations)
+        .values({
+          competitionId: fixture.competitionId,
+          studentId: mate!.id,
+          registrationType: "team",
+          teamId: team!.id,
+        })
+        .returning({ id: competitionRegistrations.id });
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      await submitProofFor(tx, fixture, paymentId);
+
+      const { cancelTeamRegistration } = await import("@/server/teams/team-registration-service");
+      await expect(
+        cancelTeamRegistration(
+          fixture.userId,
+          fixture.competitionId,
+          team!.id,
+          "berubah pikiran",
+          tx as never,
+        ),
+      ).rejects.toMatchObject({
+        code: "cancellation_not_supported_for_paid",
+        message: "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
+      });
+
+      // Both rows, because the team write cancels the whole group in one statement — checking only
+      // the captain's would miss a guard that ran after it.
+      expect(await statusOf(tx, fixture.registrationId)).toBe("confirmed");
+      expect(await statusOf(tx, mateRegistration!.id)).toBe("confirmed");
+    });
+  });
+});

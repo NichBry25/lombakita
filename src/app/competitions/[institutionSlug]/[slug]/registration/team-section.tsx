@@ -11,7 +11,7 @@ import {
 import { getTeamRoleLabel } from "@/lib/access/role-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import { useModal, useToast } from "@/components/ui/primitives";
-import { Button, Icon, IconButton } from "@/components/ui";
+import { Button, Feedback, Icon, IconButton } from "@/components/ui";
 
 type Member = {
   membershipId: string;
@@ -45,6 +45,10 @@ type Props = {
   initialTeam: TeamSnapshot | null;
   initialMembers: Member[];
   initialPendingInvitations: PendingInvitation[];
+  // DEC-0131's third predicate, resolved server-side from ANY member's registration row: a bukti
+  // transfer exists on the team's payment group in ANY status. When true the team cancel control is
+  // WITHHELD. A team pays once, so this is a fact about the team, not about the captain.
+  cancellationClosedByPaymentProof: boolean;
 };
 
 type ApiError = { code: string; message: string; details?: Record<string, unknown> };
@@ -569,7 +573,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               Daftarkan tim
             </Button>
           )}
-          {status === "submitted" && (
+          {status === "submitted" && !props.cancellationClosedByPaymentProof && (
             <Button
               onClick={onCancelSubmission}
               loading={pendingAction === "cancel-submission"}
@@ -592,6 +596,15 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
             </Button>
           )}
         </div>
+      )}
+
+      {/* Stands where the cancel control would have been, and only for the captain — a member who
+          never had the control needs no explanation of its absence. */}
+      {isCaptain && status === "submitted" && props.cancellationClosedByPaymentProof && (
+        <Feedback tone="info">
+          Pendaftaran tim tidak dapat dibatalkan sendiri setelah bukti transfer dikirim. Hubungi
+          penyelenggara jika ada kekeliruan.
+        </Feedback>
       )}
 
       {sizeBelowMin && status === "forming" && (

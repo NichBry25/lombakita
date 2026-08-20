@@ -4,6 +4,7 @@ import { getCurrentSession } from "@/server/auth/session";
 import { getPublicCompetitionDetail } from "@/server/competitions/competition-public-service";
 import { getStudentRegistration } from "@/server/registrations/registration-service";
 import { getTeamForCompetitionAndCandidate } from "@/server/teams/team-service";
+import { resolveCancelAffordanceState } from "@/server/finance/cancel-affordance";
 import { IndividualRegistrationSection } from "./individual-section";
 import { CompetitionTeamSection } from "./team-section";
 import { PageHeader } from "@/components/ui";
@@ -76,6 +77,14 @@ export default async function CompetitionRegistrationPage({
       }))
     : [];
 
+  // Whether either cancel control may be offered at all (DEC-0131). Resolved through the same
+  // predicate the two cancel services call, so the page cannot offer what the server refuses.
+  const { individualCancellationClosed, teamCancellationClosed } =
+    await resolveCancelAffordanceState({
+      individualRegistration: initialRegistration,
+      team: teamSnapshot?.team ?? null,
+    });
+
   const registrationOpen = competition.ctaState === "open";
 
   return (
@@ -112,6 +121,7 @@ export default async function CompetitionRegistrationPage({
           }
           expectedUserId={session.user.id}
           modeLabel={competition.mode === "both" ? "Daftar sebagai individu" : "Daftar"}
+          cancellationClosedByPaymentProof={individualCancellationClosed}
         />
       )}
 
@@ -123,6 +133,7 @@ export default async function CompetitionRegistrationPage({
           maxTeamSize={competition.maxTeamSize}
           registrationOpen={registrationOpen}
           expectedUserId={session.user.id}
+          cancellationClosedByPaymentProof={teamCancellationClosed}
           initialTeam={
             teamSnapshot
               ? {

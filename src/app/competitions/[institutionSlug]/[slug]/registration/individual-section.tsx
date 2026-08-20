@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui";
+import { Button, Feedback } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import {
   SESSION_MISMATCH_CODE,
@@ -25,6 +25,10 @@ type Props = {
   initialRegistration: Registration | null;
   expectedUserId: string;
   modeLabel: string;
+  // DEC-0131's third predicate, resolved server-side: a bukti transfer exists on this
+  // registration's payment group in ANY status. When true the cancel control is WITHHELD — not
+  // rendered disabled, and not rendered and then refused.
+  cancellationClosedByPaymentProof: boolean;
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -96,6 +100,7 @@ export function IndividualRegistrationSection({
   initialRegistration,
   expectedUserId,
   modeLabel,
+  cancellationClosedByPaymentProof,
 }: Props) {
   const router = useRouter();
   const { openModal, closeModal } = useModal();
@@ -180,12 +185,22 @@ export function IndividualRegistrationSection({
           <span className="status-badge" data-status="open">
             ✓ Terdaftar
           </span>
-          <div className="stack-xs">
-            <Button onClick={handleCancel} loading={loading} variant="danger" size="sm">
-              Batalkan pendaftaran
-            </Button>
-            <p className="form-help">Pembatalan tunduk pada kebijakan penyelenggara.</p>
-          </div>
+          {/* WITHHELD, not disabled. A disabled cancel button next to a registration the candidate
+              believes they have paid for reads as a permission they might be able to obtain; the
+              rule is that the decision has left their hands, and the sentence says so. */}
+          {cancellationClosedByPaymentProof ? (
+            <Feedback tone="info">
+              Pendaftaran tidak dapat dibatalkan sendiri setelah bukti transfer dikirim. Hubungi
+              penyelenggara jika ada kekeliruan.
+            </Feedback>
+          ) : (
+            <div className="stack-xs">
+              <Button onClick={handleCancel} loading={loading} variant="danger" size="sm">
+                Batalkan pendaftaran
+              </Button>
+              <p className="form-help">Pembatalan tunduk pada kebijakan penyelenggara.</p>
+            </div>
+          )}
         </div>
       ) : registration && registration.status === "cancelled" ? (
         <div className="registration-state stack-xs">
