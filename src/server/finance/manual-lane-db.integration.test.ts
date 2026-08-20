@@ -2227,6 +2227,47 @@ describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against 
     });
   });
 
+  it("tells a MATRIX-BLOCKED organiser nothing about the platform's pricing configuration", async () => {
+    // THE CLASS A DETECTOR for the classifier's position, and the reason a post-state green on the
+    // priced path is uninformative rather than reassuring.
+    //
+    // The transaction makes a moved WRITE harmless. It does not make the moved REFUSAL harmless.
+    // The gate order exists, in the service's own words, "so nothing about the platform's pricing
+    // configuration leaks to someone who is not allowed to charge at all" — move the classifier
+    // below the write and gates 3 through 6 run first, so an organiser who is blocked outright
+    // learns whether Lombakita has a fee rule configured, whether their institution is verified for
+    // charging, and whether their instructions are published. None of that is answerable to someone
+    // the matrix has already refused.
+    //
+    // The fixture is blocked AND unpriceable at once, so the two orderings give different answers.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await grantOwnership(tx, fixture);
+      await tx
+        .update(competitions)
+        .set({ feeAmount: 50_000, feeCurrency: "IDR" })
+        .where(eq(competitions.id, fixture.competitionId));
+
+      // Blocked by the matrix: a bukti transfer is outstanding.
+      const paymentId = await seedManualPayment(tx, fixture);
+      await seedProof(tx, fixture, paymentId);
+
+      // AND unpriceable: the only fee rule is retired out of force. Retired rather than deleted
+      // because `finance_payments.fee_rule_id` references it — the payment that blocks the matrix
+      // is itself what makes the row undeletable.
+      await tx
+        .update(financeFeeRules)
+        .set({ effectiveFrom: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), effectiveTo: null })
+        .where(eq(financeFeeRules.id, fixture.feeRuleId));
+
+      await expect(priceIt(tx, fixture, 90_000)).rejects.toMatchObject({
+        // The matrix refusal, not `fee_rule_not_in_force`. Under a moved classifier this is the
+        // latter, which answers a question the caller was never entitled to ask.
+        code: "competition_fee_change_blocked_payment_in_flight",
+      });
+    });
+  });
+
   it("REFUSES to price when no fee rule is in force, and writes nothing", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
@@ -2283,12 +2324,16 @@ describe.skipIf(skipWithoutDatabase)("the charging gate at PUBLISH (real databas
         description: "Deskripsi kompetisi yang cukup panjang untuk lolos validasi publikasi.",
         category: "hackathon",
         mode: "individual",
-        registrationStartAt: new Date(NOW.getTime() + 1 * 86_400_000),
-        registrationEndAt: new Date(NOW.getTime() + 10 * 86_400_000),
-        participantConfirmationAt: new Date(NOW.getTime() + 12 * 86_400_000),
-        eventStartAt: new Date(NOW.getTime() + 20 * 86_400_000),
-        eventEndAt: new Date(NOW.getTime() + 21 * 86_400_000),
-        resultAnnouncementAt: new Date(NOW.getTime() + 25 * 86_400_000),
+        // Anchored to REAL time, not to the frozen `NOW` the payment assertions use. Publish
+        // validation compares `registrationEndAt` against the wall clock and takes no injectable
+        // instant, so a fixture dated from `NOW` is a timer: it passes when written and starts
+        // failing on the day real time overtakes it.
+        registrationStartAt: new Date(Date.now() + 1 * 86_400_000),
+        registrationEndAt: new Date(Date.now() + 10 * 86_400_000),
+        participantConfirmationAt: new Date(Date.now() + 12 * 86_400_000),
+        eventStartAt: new Date(Date.now() + 20 * 86_400_000),
+        eventEndAt: new Date(Date.now() + 21 * 86_400_000),
+        resultAnnouncementAt: new Date(Date.now() + 25 * 86_400_000),
         minimumParticipantEntries: 1,
       })
       .where(eq(competitions.id, tenant.competitionId));
