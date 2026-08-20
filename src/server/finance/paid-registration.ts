@@ -98,6 +98,40 @@ export const findTeamPaymentGroupAnchor = async (
 };
 
 /**
+ * Everyone who holds a priced manual-lane payment on this competition — the people who may have
+ * transferred real money to the organiser.
+ *
+ * The set a cancellation notice needs in order to say anything about refunds. Scoped to the PAYER
+ * rather than to every registrant: a team pays once through its captain, so telling three teammates
+ * to chase a refund sends them after money that was never theirs, and a free registrant told the
+ * same is being invented a transfer they never made.
+ *
+ * Manual lane only. A gateway payment is refunded through the gateway, and pointing its payer at
+ * the organiser's bank account would send them somewhere the money never was.
+ */
+export const loadCompetitionPayerUserIds = async (
+  competitionId: string,
+  db: Database = getDb(),
+): Promise<Set<string>> => {
+  const rows = await db
+    .select({ payerUserId: financePayments.payerUserId })
+    .from(financePayments)
+    .innerJoin(
+      competitionRegistrations,
+      eq(competitionRegistrations.id, financePayments.competitionRegistrationId),
+    )
+    .where(
+      and(
+        eq(competitionRegistrations.competitionId, competitionId),
+        gt(financePayments.grossAmount, 0),
+        eq(financePayments.origin, "manual_transfer"),
+      ),
+    );
+
+  return new Set(rows.map((row) => row.payerUserId));
+};
+
+/**
  * Every candidate whose registration shares this payment — the whole team, or the single payer.
  *
  * R13's verdict rule in one place: a team pays ONCE, anchored on the captain's row, but a verdict

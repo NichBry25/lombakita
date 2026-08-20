@@ -33,6 +33,14 @@ const ADMIN_LINKS = [
     icon: "trophy" as const,
   },
   {
+    href: "/admin/payments",
+    label: "Pembayaran tertahan",
+    description: "Batalkan bukti transfer atau kompetisi yang tertahan pembayaran berjalan.",
+    // No money glyph exists in the canonical set and inventing one is a defect, so the icon says
+    // what the queue IS — an exception state waiting on an operator — rather than what it is about.
+    icon: "alert-triangle" as const,
+  },
+  {
     href: "/admin/fee-rules",
     label: "Aturan biaya platform",
     description: "Tetapkan tarif komisi yang berlaku sejak tanggal tertentu.",

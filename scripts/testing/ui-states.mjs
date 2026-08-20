@@ -348,6 +348,31 @@ export const CASES = [
     absent: ["seed.cand.a@seed.lombakita.local"],
     why: "a bukti transfer nobody is told about waits until the deadline cancels the payer",
   },
+  {
+    id: "ops-hatch-offers-both-actions",
+    as: "ops",
+    path: "/admin/payments",
+    present: [
+      "Pembayaran tertahan",
+      "Lombakita tidak pernah menampung dana peserta",
+      "Batalkan bukti transfer",
+      "Batalkan kompetisi",
+    ],
+    // A closed proof is not in flight and never blocked anything, so it must not appear here as
+    // though an operator had something to resolve. `seed-proof-c` is the rejected one.
+    absent: ["bukti-transfer-cindy.jpg"],
+    why: "DEC-0132 makes this the only way to withdraw a paid competition — unreachable means the hatch does not exist",
+  },
+  {
+    id: "ops-hatch-withholds-void-on-a-verified-proof",
+    as: "ops",
+    path: "/admin/payments",
+    // Paired with the case above: the void control is present on the page (asserted there) and the
+    // verified row carries the sentence explaining why it has none, rather than a disabled button.
+    present: ["Sudah diverifikasi penyelenggara — pembatalan bukti tidak berlaku lagi."],
+    absent: [],
+    why: "a void offered on a verified proof would be refused by the CAS after the operator committed to it",
+  },
 ];
 
 const filter = process.argv[2] ? new RegExp(process.argv[2]) : null;

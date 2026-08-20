@@ -281,6 +281,38 @@ describe("the payment verdict notice", () => {
     expect(body).not.toContain("Penyelenggara menolak");
   });
 
+  it("names Lombakita as the actor on a void, and never the organiser", async () => {
+    mockResolvePaymentGroupMemberUserIds.mockResolvedValue(["u_1"]);
+    mockGetDb.mockReturnValue(makeDb([[{ id: "u_1", email: "a@test.com" }]]));
+
+    await processPaymentOutcomeJob(
+      outcomeJob({ outcome: "voided", rejectionReason: "Bukti milik peserta lain" }),
+    );
+
+    const [, , , title, body] = mockWriteNotification.mock.calls[0]!;
+    expect(title).toBe("Bukti transfer dibatalkan untuk Seed Coding League");
+    expect(body).toContain("Tim Lombakita");
+    expect(body).toContain("bukan penyelenggara");
+    expect(body).toContain("Alasan: Bukti milik peserta lain.");
+    // The organiser did not do this; the copy must not say they did.
+    expect(body).not.toContain("Penyelenggara menolak");
+  });
+
+  it("tells a voided payer they may resend, with no condition attached", async () => {
+    // R9/R20 in copy. The voided arm of the reopen CAS ignores the organiser's bar, so a hedged
+    // sentence here would print a restriction the write path does not apply.
+    mockResolvePaymentGroupMemberUserIds.mockResolvedValue(["u_1"]);
+    mockGetDb.mockReturnValue(makeDb([[{ id: "u_1", email: "a@test.com" }]]));
+
+    await processPaymentOutcomeJob(
+      outcomeJob({ outcome: "voided", rejectionReason: null, resubmissionAllowed: false }),
+    );
+
+    const [, , , , body] = mockWriteNotification.mock.calls[0]!;
+    expect(body).toContain("Anda dapat mengirim bukti transfer baru");
+    expect(body).not.toContain("tidak dapat mengirim bukti baru");
+  });
+
   it("does nothing, and does not throw, when the payment group resolves to nobody", async () => {
     mockResolvePaymentGroupMemberUserIds.mockResolvedValue([]);
     mockGetDb.mockReturnValue(makeDb([]));

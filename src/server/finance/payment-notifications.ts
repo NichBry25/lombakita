@@ -145,7 +145,7 @@ export const notifyPaymentProofSubmitted = async (
  */
 export const notifyPaymentOutcome = async (
   paymentId: string,
-  outcome: "verified" | "rejected" | "expired",
+  outcome: "verified" | "rejected" | "expired" | "voided",
   options: { rejectionReason?: string | null; resubmissionAllowed?: boolean | null } = {},
   db: Database = getDb(),
 ): Promise<void> => {
@@ -159,7 +159,11 @@ export const notifyPaymentOutcome = async (
       attempt: facts.attempt,
       competitionTitle: facts.competitionTitle,
       outcome,
-      rejectionReason: outcome === "rejected" ? (options.rejectionReason ?? null) : null,
+      // A void carries a reason like a rejection does, but never a bar: `reopenManualPaymentProof`
+      // lets the voided arm through regardless of the organiser's earlier setting (R9/R20), so
+      // sending a bar here would print a restriction the write path does not apply.
+      rejectionReason:
+        outcome === "rejected" || outcome === "voided" ? (options.rejectionReason ?? null) : null,
       resubmissionAllowed: outcome === "rejected" ? (options.resubmissionAllowed ?? null) : null,
       grossAmount: facts.grossAmount,
       currency: facts.currency,

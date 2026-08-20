@@ -160,9 +160,11 @@ export type PaymentProofSubmittedPayload = {
 // What became of the money, told to EVERY member of the payment group (R13). A team pays once and
 // a verdict on that payment decides whether the whole team is still entered.
 //
-// `expired` is the outcome with no human behind it. Its copy must not read as an organiser
-// decision — nobody rejected anyone, a deadline passed — which is the same reasoning that put
-// "secara otomatis" in the candidate panel's expired notice.
+// FOUR OUTCOMES, THREE DIFFERENT ACTORS, and the copy has to name the right one each time.
+// `verified` and `rejected` are the organiser's decisions. `expired` has NO human behind it — a
+// deadline passed — which is why its copy says "secara otomatis" and denies the organiser outright.
+// `voided` is LOMBAKITA's decision, not the organiser's: attributing an operator's action to the
+// organiser sends the payer to argue with someone who did not take it.
 export type PaymentOutcomePayload = {
   paymentId: string;
   registrationId: string;
@@ -175,7 +177,7 @@ export type PaymentOutcomePayload = {
   // be dropped, which silently re-collapses the two verdict identities.
   attempt: number;
   competitionTitle: string;
-  outcome: "verified" | "rejected" | "expired";
+  outcome: "verified" | "rejected" | "expired" | "voided";
   // Present only for `rejected`, and only when the organiser gave one.
   rejectionReason: string | null;
   // Present only for `rejected`: whether the candidate may send new evidence.

@@ -249,6 +249,8 @@ export const sendCompetitionCancelledEmail = async (options: {
   recipientId: string;
   competitionTitle: string;
   cancellationReason?: string;
+  /** Set only for a recipient who holds a priced payment — see the worker's payer scoping. */
+  transferRefundNotice?: boolean;
   publicCompetition?: {
     institutionSlug: string;
     competitionSlug: string;
@@ -275,6 +277,14 @@ export const sendCompetitionCancelledEmail = async (options: {
     text: [
       `Kompetisi "${options.competitionTitle}" yang kamu daftarkan telah dibatalkan oleh penyelenggara.`,
       ...(options.cancellationReason ? ["", `Alasan: ${options.cancellationReason}`] : []),
+      // DEC-0130: the transfer went to the organiser's account and Lombakita never held it, so the
+      // only honest thing this notice can do is say who has the money.
+      ...(options.transferRefundNotice
+        ? [
+            "",
+            "Jika kamu sudah melakukan transfer, dana tersebut ada pada rekening penyelenggara — hubungi penyelenggara secara langsung untuk pengembaliannya. Lombakita tidak menampung dana peserta sehingga tidak dapat memprosesnya.",
+          ]
+        : []),
       "",
       publicCompetitionUrl
         ? `Lihat status kompetisi di ${publicCompetitionUrl}.`
@@ -487,6 +497,71 @@ export const sendPaymentProofSubmittedEmail = async (options: {
   }
 };
 
+type PaymentOutcomeKind = "verified" | "rejected" | "expired" | "voided";
+
+/** One line per outcome. Separate from the body so the four arms are read once, not twice. */
+const paymentOutcomeSubject = (outcome: PaymentOutcomeKind, competitionTitle: string): string => {
+  if (outcome === "verified") return `Pembayaran diverifikasi untuk ${competitionTitle}`;
+  if (outcome === "rejected") return `Bukti transfer ditolak untuk ${competitionTitle}`;
+  if (outcome === "voided") return `Bukti transfer dibatalkan untuk ${competitionTitle}`;
+  return `Pendaftaran dibatalkan otomatis untuk ${competitionTitle}`;
+};
+
+/**
+ * The body lines for one outcome.
+ *
+ * Early returns rather than a ternary chain: four outcomes with three different actors is the point
+ * at which a nested conditional stops showing which sentence belongs to which decision, and WHICH
+ * ACTOR EACH ARM NAMES is the property that has to stay legible here.
+ */
+const paymentOutcomeBody = (options: {
+  competitionTitle: string;
+  outcome: PaymentOutcomeKind;
+  rejectionReason: string | null;
+  resubmissionAllowed: boolean | null;
+  amount: string;
+}): string[] => {
+  const reasonLines = options.rejectionReason ? ["", `Alasan: ${options.rejectionReason}`] : [];
+
+  if (options.outcome === "verified") {
+    return [
+      `Penyelenggara telah memverifikasi pembayaran sebesar ${options.amount} untuk ${options.competitionTitle}.`,
+      "",
+      "Pendaftaran Anda aktif. Tidak ada tindakan lain yang diperlukan.",
+    ];
+  }
+
+  if (options.outcome === "rejected") {
+    return [
+      `Bukti transfer Anda untuk ${options.competitionTitle} ditolak oleh penyelenggara.`,
+      ...reasonLines,
+      "",
+      options.resubmissionAllowed === false
+        ? "Anda tidak dapat mengirim bukti baru. Hubungi penyelenggara sebelum batas waktu — jika terlewat, pendaftaran dibatalkan secara otomatis."
+        : "Unggah bukti transfer yang baru sebelum batas waktu pembayaran.",
+    ];
+  }
+
+  if (options.outcome === "voided") {
+    // Lombakita is named as the actor and the organiser is explicitly excluded. Resubmission is
+    // stated unconditionally because the voided arm of the reopen CAS bypasses the organiser's bar.
+    return [
+      `Tim Lombakita membatalkan bukti transfer Anda untuk ${options.competitionTitle}. Pembatalan ini bukan keputusan penyelenggara.`,
+      ...reasonLines,
+      "",
+      "Anda dapat mengirim bukti transfer baru sebelum batas waktu pembayaran.",
+    ];
+  }
+
+  // No actor. The sentence names the deadline as the cause and says outright that nobody decided
+  // this, so the recipient does not go looking for someone to appeal to.
+  return [
+    `Batas waktu pembayaran untuk ${options.competitionTitle} telah lewat, sehingga pendaftaran Anda dibatalkan secara otomatis.`,
+    "",
+    "Pembatalan ini tidak dilakukan oleh penyelenggara dan bukan atas permintaan Anda. Jika Anda sudah melakukan transfer, hubungi penyelenggara.",
+  ];
+};
+
 /**
  * What became of the money, to a member of the payment group.
  *
@@ -498,7 +573,7 @@ export const sendPaymentOutcomeEmail = async (options: {
   toEmail: string;
   recipientId: string;
   competitionTitle: string;
-  outcome: "verified" | "rejected" | "expired";
+  outcome: PaymentOutcomeKind;
   rejectionReason: string | null;
   resubmissionAllowed: boolean | null;
   amount: string;
@@ -511,36 +586,8 @@ export const sendPaymentOutcomeEmail = async (options: {
 
   const { apiKey, from } = delivery;
 
-  const subject =
-    options.outcome === "verified"
-      ? `Pembayaran diverifikasi untuk ${options.competitionTitle}`
-      : options.outcome === "rejected"
-        ? `Bukti transfer ditolak untuk ${options.competitionTitle}`
-        : `Pendaftaran dibatalkan otomatis untuk ${options.competitionTitle}`;
-
-  const body =
-    options.outcome === "verified"
-      ? [
-          `Penyelenggara telah memverifikasi pembayaran sebesar ${options.amount} untuk ${options.competitionTitle}.`,
-          "",
-          "Pendaftaran Anda aktif. Tidak ada tindakan lain yang diperlukan.",
-        ]
-      : options.outcome === "rejected"
-        ? [
-            `Bukti transfer Anda untuk ${options.competitionTitle} ditolak oleh penyelenggara.`,
-            ...(options.rejectionReason ? ["", `Alasan: ${options.rejectionReason}`] : []),
-            "",
-            options.resubmissionAllowed === false
-              ? "Anda tidak dapat mengirim bukti baru. Hubungi penyelenggara sebelum batas waktu — jika terlewat, pendaftaran dibatalkan secara otomatis."
-              : "Unggah bukti transfer yang baru sebelum batas waktu pembayaran.",
-          ]
-        : [
-            // No actor. The sentence names the deadline as the cause and says outright that nobody
-            // decided this, so the recipient does not go looking for someone to appeal to.
-            `Batas waktu pembayaran untuk ${options.competitionTitle} telah lewat, sehingga pendaftaran Anda dibatalkan secara otomatis.`,
-            "",
-            "Pembatalan ini tidak dilakukan oleh penyelenggara dan bukan atas permintaan Anda. Jika Anda sudah melakukan transfer, hubungi penyelenggara.",
-          ];
+  const subject = paymentOutcomeSubject(options.outcome, options.competitionTitle);
+  const body = paymentOutcomeBody(options);
 
   const resend = new Resend(apiKey);
   const { error } = await resend.emails.send({

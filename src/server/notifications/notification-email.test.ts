@@ -24,6 +24,7 @@ vi.mock("resend", () => ({
 }));
 
 import {
+  sendCompetitionCancelledEmail,
   sendRegistrationConfirmedEmail,
   sendRegistrationCancelledEmail,
   sendSubmissionFinalizedEmail,
@@ -235,7 +236,7 @@ describe("sendPaymentOutcomeEmail", () => {
   });
 
   const send = (
-    outcome: "verified" | "rejected" | "expired",
+    outcome: "verified" | "rejected" | "expired" | "voided",
     extra: { rejectionReason?: string | null; resubmissionAllowed?: boolean | null } = {},
   ) =>
     sendPaymentOutcomeEmail({
@@ -278,6 +279,17 @@ describe("sendPaymentOutcomeEmail", () => {
     expect(call.text).not.toContain("Unggah bukti transfer yang baru");
   });
 
+  it("attributes a void to Lombakita, and offers the resend unconditionally", async () => {
+    await send("voided", { rejectionReason: "Bukti milik peserta lain" });
+
+    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
+    expect(call.subject).toBe("Bukti transfer dibatalkan untuk Seed Coding League");
+    expect(call.text).toContain("Tim Lombakita membatalkan");
+    expect(call.text).toContain("bukan keputusan penyelenggara");
+    expect(call.text).toContain("Alasan: Bukti milik peserta lain");
+    expect(call.text).toContain("Anda dapat mengirim bukti transfer baru");
+  });
+
   it("blames the deadline for an expiry, and nobody else", async () => {
     await send("expired");
 
@@ -287,5 +299,43 @@ describe("sendPaymentOutcomeEmail", () => {
     expect(call.text).toContain("tidak dilakukan oleh penyelenggara");
     // No amount either: an expiry is not a statement about money that moved.
     expect(call.text).not.toContain("ditolak");
+  });
+});
+
+describe("sendCompetitionCancelledEmail — the refund sentence", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sendEmailMock.mockResolvedValue({ data: { id: "email_1" }, error: null });
+  });
+
+  it("tells a payer where their money actually is", async () => {
+    await sendCompetitionCancelledEmail({
+      toEmail: "payer@example.com",
+      recipientId: "user_1",
+      competitionTitle: "Seed Coding League",
+      transferRefundNotice: true,
+    });
+
+    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
+    // DEC-0130: the funds are in the organiser's account and always were. Naming the holder is the
+    // only useful thing this notice can do.
+    expect(call.text).toContain("rekening penyelenggara");
+    expect(call.text).toContain("Lombakita tidak menampung dana peserta");
+    // And no promise the platform cannot keep.
+    expect(call.text).not.toContain("akan kami kembalikan");
+    expect(call.text).not.toContain("pengembalian dana otomatis");
+  });
+
+  it("says nothing about refunds to somebody who never paid", async () => {
+    // Paired with the case above. A free registrant told to chase a refund is being invented a
+    // transfer they never made.
+    await sendCompetitionCancelledEmail({
+      toEmail: "free@example.com",
+      recipientId: "user_2",
+      competitionTitle: "Seed Coding League",
+    });
+
+    const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
+    expect(call.text).not.toContain("rekening penyelenggara");
   });
 });

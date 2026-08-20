@@ -46,6 +46,23 @@ const inboxCopy = (
     };
   }
 
+  if (outcome === "voided") {
+    // LOMBAKITA IS THE ACTOR HERE, and saying so is the whole job of this arm. An operator voided
+    // the proof; the organiser did not reject it. Naming the organiser would send the payer to
+    // argue a decision that was never theirs.
+    //
+    // Resubmission is stated UNCONDITIONALLY because the write path allows it unconditionally: the
+    // voided arm of `reopenManualPaymentProof` bypasses the organiser's bar (R9/R20). Hedging the
+    // sentence would reintroduce in copy the restriction the code deliberately drops.
+    return {
+      title: `Bukti transfer dibatalkan untuk ${competitionTitle}`,
+      body:
+        `Tim Lombakita membatalkan bukti transfer Anda, bukan penyelenggara.` +
+        (rejectionReason ? ` Alasan: ${rejectionReason}.` : "") +
+        " Anda dapat mengirim bukti transfer baru sebelum batas waktu pembayaran.",
+    };
+  }
+
   // NO ACTOR. "secara otomatis" and the explicit denial are both load-bearing: a cancellation with
   // no named cause reads as the organiser rejecting them, and this candidate would then appeal to
   // someone who made no decision.

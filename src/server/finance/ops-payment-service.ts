@@ -18,6 +18,7 @@ import {
   ManualProofError,
   voidManualPaymentProof,
 } from "@/server/finance/manual-payment-proof-service";
+import { notifyPaymentOutcome } from "@/server/finance/payment-notifications";
 
 // THE DEC-0132 ESCAPE HATCH. One operational surface, two actions, both platform_ops only.
 //
@@ -216,7 +217,7 @@ export const voidPaymentProofAsOps = async (
 ): Promise<FinanceManualPaymentProofRecord> => {
   const auditReason = requireReason(reason);
 
-  return db.transaction(async (tx) => {
+  const voided = await db.transaction(async (tx) => {
     const proof = await voidManualPaymentProof(actorUserId, proofId, auditReason, tx, now);
 
     const [competition] = await tx
@@ -238,11 +239,20 @@ export const voidPaymentProofAsOps = async (
         proofId: proof.id,
         paymentId: proof.paymentId,
         competitionId: proof.competitionId,
+        attempt: proof.resubmissionCount,
       },
     });
 
     return proof;
   });
+
+  // AFTER the commit, like every other dispatch in this lane. The payer has to be told: their proof
+  // has left `pending_review` without a verdict, and nothing else on their panel explains why. The
+  // reason travels because an unexplained void is indistinguishable from the platform losing their
+  // evidence.
+  await notifyPaymentOutcome(voided.paymentId, "voided", { rejectionReason: auditReason }, db);
+
+  return voided;
 };
 
 export { ManualProofError };
