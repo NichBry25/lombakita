@@ -432,6 +432,30 @@ export const CASES = [
     absent: ["Bayar sekarang", "Jatuh tempo", "Tagih sekarang"],
     why: "a statement showing today's rate against a historical accrual is wrong toward a dispute",
   },
+  {
+    id: "fee-statement-withheld-from-a-recruiter-of-another-institution",
+    // MANUAL-D6's second tenant. `rec-min` owns D and P and administers nothing at A, so this is a
+    // real outsider rather than the same person wearing another hat — `rec-elev` administers both A
+    // and B and could not express the violation at all.
+    as: "recMin",
+    path: `/institution/${INST.a.slug}/fees`,
+    present: [],
+    // A's OWN FIGURES, not the page heading: the heading also appears on this user's legitimate
+    // statement below, so asserting its absence would confuse "refused" with "rendered elsewhere".
+    // These two amounts exist nowhere but institution A's accruals.
+    absent: ["Rp\u00a03.750", "Rp\u00a07.500", "Persetujuan tarif"],
+    why: "a receivable is the most private figure an institution has, and the slug is guessable",
+  },
+  {
+    id: "fee-statement-own-tenant-renders-for-the-same-user",
+    // The pairing that makes the assertion above mean something. Without it the outsider case would
+    // pass just as well against a page that renders nothing for anybody.
+    as: "recMin",
+    path: `/institution/${INST.d.slug}/fees`,
+    present: ["Tagihan biaya layanan", "Belum ada biaya layanan", "Persetujuan tarif"],
+    absent: ["Rp\u00a03.750", "Rp\u00a07.500"],
+    why: "proves the refusal above is about the tenant boundary and not about a blank page",
+  },
 ];
 
 const filter = process.argv[2] ? new RegExp(process.argv[2]) : null;
