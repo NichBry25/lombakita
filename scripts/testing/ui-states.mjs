@@ -218,6 +218,43 @@ export const CASES = [
     why: "proves the two absences are the tenant boundary, not a page that renders nothing",
   },
 
+  // ── Surface 7: an institution that cannot charge (DEC-0170) ───────────────────────────────────
+  {
+    id: "charging-blocked-organiser-panel",
+    as: "recElev",
+    path: "/institution/seed-ventures",
+    present: [
+      "Pendaftaran berbayar belum dapat diaktifkan",
+      // The line that keeps the panel from reading as a takedown. Verification gates CHARGING.
+      "tetap tayang dan tidak diturunkan",
+      "Institusi ini belum terverifikasi",
+      "Informasi pembayaran belum diisi",
+      "Tarif layanan Lombakita belum dikonfigurasi",
+    ],
+    absent: [],
+    why: "the organiser is owed every blocker and what to do about each, at the point they can act",
+  },
+  {
+    id: "charging-ready-no-panel",
+    as: "recElev",
+    path: "/institution/seed-academy",
+    // THE PAIRING. A verified institution with an account and a fee rule must show nothing — without
+    // this, the panel could render unconditionally and the case above would still pass.
+    present: [],
+    absent: ["Pendaftaran berbayar belum dapat diaktifkan"],
+    why: "a panel that always renders is not a diagnosis",
+  },
+  {
+    id: "charging-blocked-candidate",
+    as: "candA",
+    path: "/competitions/seed-ventures/seed-b-unpayable/registration",
+    present: ["penyelenggaranya belum dapat menerima pembayaran"],
+    // The register control is WITHHELD, and the candidate is told nothing about WHY the organiser
+    // cannot charge — verification status is not theirs to see.
+    absent: ["Daftar sebagai individu", "Daftarkan tim", "belum terverifikasi", "Tarif layanan"],
+    why: "explained before the click rather than discovered by it, in the candidate's terms only",
+  },
+
   // ── Surface 5: the DEC-0131 cancel affordance ─────────────────────────────────────────────────
   {
     id: "cancel-offered-nothing-sent",

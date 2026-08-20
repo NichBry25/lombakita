@@ -29,6 +29,10 @@ type Props = {
   // registration's payment group in ANY status. When true the cancel control is WITHHELD — not
   // rendered disabled, and not rendered and then refused.
   cancellationClosedByPaymentProof: boolean;
+  // DEC-0170: the organiser cannot take payment, so there is nothing for a new entrant to do here.
+  // The register control is WITHHELD rather than disabled — a disabled "Daftar" invites a candidate
+  // to look for the permission that would enable it, and no permission of theirs would.
+  registrationWithheld: boolean;
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -43,7 +47,14 @@ const ERROR_MESSAGES: Record<string, string> = {
   registration_wrong_status: "Pendaftaran ini sudah dibatalkan.",
   cancellation_reason_required: "Alasan pembatalan wajib diisi.",
   cancellation_reason_too_long: "Alasan pembatalan terlalu panjang (maksimal 500 karakter).",
-  cancellation_not_supported_for_paid: "Pendaftaran berbayar belum dapat dibatalkan.",
+  // The organiser cannot take payment right now — unverified, no published account, or no fee rule
+  // in force. All three collapse to one code server-side so none of them leaks, and none of them is
+  // the candidate's to fix. The generic "coba lagi" fallback was worse than nothing here: it
+  // describes a transient fault and invites a candidate to retry something that will never succeed.
+  registration_payment_unavailable:
+    "Penyelenggara kompetisi ini belum dapat menerima pembayaran, jadi pendaftaran berbayar belum bisa diproses. Hubungi penyelenggara.",
+  cancellation_not_supported_for_paid:
+    "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim.",
   cancellation_disabled_by_institution:
     "Penyelenggara tidak mengizinkan pembatalan untuk kompetisi ini.",
   cancellation_window_closed: "Batas waktu pembatalan telah terlewat.",
@@ -101,6 +112,7 @@ export function IndividualRegistrationSection({
   expectedUserId,
   modeLabel,
   cancellationClosedByPaymentProof,
+  registrationWithheld,
 }: Props) {
   const router = useRouter();
   const { openModal, closeModal } = useModal();
@@ -209,7 +221,7 @@ export function IndividualRegistrationSection({
           </span>
           <p className="form-help">Pendaftaran ulang belum tersedia.</p>
         </div>
-      ) : (
+      ) : registrationWithheld ? null : (
         <Button
           onClick={handleRegister}
           loading={loading}

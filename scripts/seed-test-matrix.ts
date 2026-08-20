@@ -503,6 +503,21 @@ const main = async (): Promise<void> => {
         featured: false, featuredOrder: null, publishedAt: d(-5),
       },
       {
+        // DEC-0170's runtime state, seeded as the state itself rather than as the path into it: a
+        // competition priced and published while its institution was verified, whose institution is
+        // no longer able to charge. The charging gate correctly refuses to CREATE this, which is
+        // exactly why it has to be seeded — the state is reachable by revocation, not by the form.
+        id: "seed-comp-b-unpayable", inst: "seed-inst-b", createdBy: "seed-user-rec-elev",
+        slug: "seed-b-unpayable", title: "Seed Ventures Growth Sprint",
+        description: "Kompetisi berbayar milik institusi yang kini tidak dapat menerima pembayaran.",
+        // `both` so BOTH registration paths are exercised against the withholding, and so the
+        // individual CTA carries a label distinguishable from the page heading.
+        status: "published", category: "marketing", mode: "both", minTeam: 2, maxTeam: 4,
+        rs: d(-3), re: d(20), es: d(25), ee: d(26), ra: d(33),
+        allowCancel: false, cutoffDays: null, eligibilityNote: null,
+        featured: false, featuredOrder: null, publishedAt: d(-3),
+      },
+      {
         id: "seed-comp-b-draft", inst: "seed-inst-b", createdBy: "seed-user-rec-elev",
         slug: "seed-b-draft", title: "Seed Ventures Fintech Days",
         description: "Draf lengkap di bawah Seed Ventures — target IDOR lintas-tenant dan alur publish.",
@@ -884,6 +899,14 @@ const main = async (): Promise<void> => {
       UPDATE competitions
       SET fee_amount = 150000, fee_currency = 'IDR', payment_window_days = 3, updated_at = now()
       WHERE id = 'seed-comp-paid'
+    `;
+
+    // Priced, published, and owned by an institution with none of the three charging conditions
+    // met. Written directly because the service layer would refuse — that refusal is the feature.
+    await sql`
+      UPDATE competitions
+      SET fee_amount = 75000, fee_currency = 'IDR', payment_window_days = 3, updated_at = now()
+      WHERE id = 'seed-comp-b-unpayable'
     `;
 
     // SCOPED TO seed-inst-a, deliberately NOT a platform default (institution_id NULL).

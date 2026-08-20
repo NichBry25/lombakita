@@ -5,6 +5,8 @@ import { ButtonLink, Icon, PageHeader } from "@/components/ui";
 import { InstitutionPublicView } from "@/components/institution/institution-public-view";
 import { isInstitutionAdminBySlug } from "@/server/institution-members/member-service";
 import { getCurrentSession } from "@/server/auth/session";
+import { resolveChargingReadiness } from "@/server/finance/charging-readiness";
+import { ChargingReadinessPanel } from "@/components/institution/charging-readiness-panel";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
 import { getPublicInstitution } from "@/server/institution-workspace/institution-public-service";
@@ -68,6 +70,12 @@ export default async function InstitutionHubPage({
   const verificationSummary = await loadInstitutionVerificationSummaryBySlug(institutionSlug);
   const isPersonal = isPersonalInstitutionType(verificationSummary?.institutionType ?? null);
   const isVerified = verificationSummary?.verificationStatus === "verified";
+
+  // DEC-0170: a defined runtime state, surfaced where the organiser can act on it rather than left
+  // for a candidate to discover by failing to register.
+  const chargingReadiness = verificationSummary
+    ? await resolveChargingReadiness(verificationSummary.institutionId)
+    : null;
 
   const links = [
     {
@@ -136,6 +144,13 @@ export default async function InstitutionHubPage({
           )
         }
       />
+      {chargingReadiness && !chargingReadiness.ready ? (
+        <ChargingReadinessPanel
+          blockers={chargingReadiness.blockers}
+          institutionSlug={institutionSlug}
+        />
+      ) : null}
+
       <nav aria-label="Fitur institusi">
         <ul className="hub-grid institution-hub-grid">
           {links.map(({ href, label, description, icon }) => (

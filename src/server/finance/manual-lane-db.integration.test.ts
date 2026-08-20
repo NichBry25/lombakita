@@ -4467,3 +4467,162 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
     });
   });
 });
+
+describe.skipIf(skipWithoutDatabase)("what an unverified institution is told (real database)", () => {
+  // DEC-0170. A paid competition owned by an institution that cannot charge is a DEFINED RUNTIME
+  // STATE — verification is revocable, and a competition priced while verified stays published
+  // afterwards. The platform's answer is to stop NEW charging, never to take anything down.
+  //
+  // Both audiences are asserted here because they are owed different things: the organiser is owed
+  // every blocker and what to do about each, the candidate is owed only that payment is
+  // unavailable. A candidate is not owed the institution's verification status.
+
+  const readiness = async (tx: Tx, institutionId: string) => {
+    const { resolveChargingReadiness } = await import("@/server/finance/charging-readiness");
+    return resolveChargingReadiness(institutionId, NOW, tx as never);
+  };
+
+  const publishInstructions = async (tx: Tx, institutionId: string) => {
+    await tx.insert(institutionPaymentInstructions).values({
+      institutionId,
+      bankName: "Bank Mandiri",
+      accountNumber: "1370012345678",
+      accountHolderName: "Yayasan Uji",
+    });
+  };
+
+  it("reports READY for a verified institution with instructions and a fee rule", async () => {
+    await inRollback(async (tx) => {
+      // The fixture's primary institution is verified and already publishes instructions.
+      const fixture = await seedFixture(tx);
+
+      expect(await readiness(tx, fixture.institutionId)).toEqual({ ready: true, blockers: [] });
+    });
+  });
+
+  it("names EVERY blocker at once, not just the first", async () => {
+    // The panel's whole job is to tell an organiser what to fix. Short-circuiting on the first
+    // failure turns one task into three round trips through a verification queue.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await tx.delete(financeFeeRules).where(eq(financeFeeRules.id, fixture.feeRuleId));
+
+      const result = await readiness(tx, fixture.unverifiedInstitutionId);
+
+      expect(result.ready).toBe(false);
+      expect([...result.blockers].sort()).toEqual([
+        "fee_rule_not_in_force",
+        "institution_unverified",
+        "payment_instructions_missing",
+      ]);
+    });
+  });
+
+  it("reports the unverified institution as blocked even with instructions published", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await publishInstructions(tx, fixture.unverifiedInstitutionId);
+
+      const result = await readiness(tx, fixture.unverifiedInstitutionId);
+
+      expect(result.ready).toBe(false);
+      expect(result.blockers).toEqual(["institution_unverified"]);
+    });
+  });
+
+  it("agrees with the write path: not-ready means the registration is actually refused", async () => {
+    // THE AGREEMENT ASSERTION, and the reason the resolver reuses the gates' own readers rather
+    // than re-deriving them. A panel that says "you cannot charge" while the write path happily
+    // creates a payment — or the reverse — is worse than no panel.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await tx
+        .update(competitions)
+        .set({
+          feeAmount: 100_000,
+          feeCurrency: "IDR",
+          status: "published",
+          mode: "individual",
+          registrationStartAt: new Date(Date.now() - 86_400_000),
+          registrationEndAt: new Date(Date.now() + 30 * 86_400_000),
+        })
+        .where(eq(competitions.id, fixture.competitionId));
+
+      // Withdraw the published account, which is the revocable half an organiser controls.
+      await tx
+        .delete(institutionPaymentInstructions)
+        .where(eq(institutionPaymentInstructions.institutionId, fixture.institutionId));
+
+      expect((await readiness(tx, fixture.institutionId)).ready).toBe(false);
+
+      const id = uniqueSuffix();
+      const [newcomer] = await tx
+        .insert(users)
+        .values({
+          email: `newcomer_${id}@example.test`,
+          username: `newcomer_${id}`,
+          candidateVerifiedAt: NOW,
+        })
+        .returning({ id: users.id });
+
+      const { createIndividualRegistration } = await import(
+        "@/server/registrations/registration-service"
+      );
+      await expect(
+        createIndividualRegistration(newcomer!.id, fixture.competitionId, tx as never),
+      ).rejects.toMatchObject({ code: "registration_payment_unavailable" });
+
+      // And nothing was left behind: the registration rolls back with the payment it could not
+      // create, so the candidate is not stranded holding a row they cannot pay for.
+      const rows = await tx
+        .select({ id: competitionRegistrations.id })
+        .from(competitionRegistrations)
+        .where(
+          and(
+            eq(competitionRegistrations.competitionId, fixture.competitionId),
+            eq(competitionRegistrations.studentId, newcomer!.id),
+          ),
+        );
+      expect(rows).toEqual([]);
+    });
+  });
+
+  it("does NOT unpublish or hide the competition — charging is gated, publication is not", async () => {
+    // DEC-0118's scope, preserved exactly. An organiser whose verification lapses keeps everything
+    // already published; only new charging stops. `rejected` rather than "revoked": the enum has no
+    // revoked value, and the readiness check keys off "not verified" so every non-verified status
+    // behaves identically here.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      await tx
+        .update(competitions)
+        .set({ feeAmount: 100_000, feeCurrency: "IDR", status: "published" })
+        .where(eq(competitions.id, fixture.competitionId));
+      await tx
+        .update(institutions)
+        .set({ verificationStatus: "rejected" })
+        .where(eq(institutions.id, fixture.institutionId));
+
+      expect((await readiness(tx, fixture.institutionId)).ready).toBe(false);
+
+      const [row] = await tx
+        .select({ status: competitions.status })
+        .from(competitions)
+        .where(eq(competitions.id, fixture.competitionId))
+        .limit(1);
+      expect(row!.status).toBe("published");
+    });
+  });
+
+  it("reports an unknown slug as not-ready with NO blockers", async () => {
+    await inRollback(async (tx) => {
+      const { resolveChargingReadinessBySlug } = await import(
+        "@/server/finance/charging-readiness"
+      );
+      expect(await resolveChargingReadinessBySlug("tidak-ada-institusi", NOW, tx as never)).toEqual({
+        ready: false,
+        blockers: [],
+      });
+    });
+  });
+});

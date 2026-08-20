@@ -36,6 +36,7 @@ export const PAGES = [
   // ---------------------------------------------------------------- candidate
   { id: "30-candidate-dashboard", as: "candA", path: "/candidate-dashboard", label: "Candidate dashboard" },
   { id: "31-candidate-profile", as: "candA", path: "/candidate-dashboard/profile", label: "Candidate onboarding profile" },
+  { id: "26-registration-unpayable", as: "candA", path: "/competitions/seed-ventures/seed-b-unpayable/registration", label: "Registration subpage — paid, organiser cannot take payment" },
   { id: "32-registration-detail-docreq", as: "candA", path: "/candidate-dashboard/registrations/seed-reg-a-inprog", label: "Registration detail — open document request" },
   { id: "33-registration-detail-finalized", as: "candA", path: "/candidate-dashboard/registrations/seed-reg-a-done", label: "Registration detail — finalized submission" },
   // The manual payment lane in each of the three states a candidate can be in. Three pages rather
@@ -69,6 +70,9 @@ export const PAGES = [
   // ---------------------------------------------------------------- recruiter
   { id: "50-recruiter-dashboard-elev", as: "recElev", path: "/recruiter-dashboard", label: "Recruiter dashboard — Trusted (elevated)" },
   { id: "51-institution-board", as: "recElev", path: "/institution/seed-academy", label: "Institution management board" },
+  // DEC-0170's organiser panel. Paired with 51 above, which is the verified institution and must
+  // NOT show it.
+  { id: "51b-institution-board-unpayable", as: "recElev", path: "/institution/seed-ventures", label: "Institution board — cannot charge (all three blockers)" },
   { id: "52-institution-public-preview", as: "recElev", path: "/institution/seed-academy?tampilan=publik", label: "Owner previewing the public page" },
   { id: "53-institution-competitions", as: "recElev", path: "/institution/seed-academy/competitions", label: "Institution competition list (phase filters)" },
   { id: "54-competition-new", as: "recElev", path: "/institution/seed-academy/competitions/new", label: "Create competition form" },

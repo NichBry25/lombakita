@@ -49,6 +49,9 @@ type Props = {
   // transfer exists on the team's payment group in ANY status. When true the team cancel control is
   // WITHHELD. A team pays once, so this is a fact about the team, not about the captain.
   cancellationClosedByPaymentProof: boolean;
+  // DEC-0170, same rule as the individual path: with the organiser unable to take payment there is
+  // nothing a new team can usefully do, so the controls are WITHHELD rather than left to be refused.
+  registrationWithheld: boolean;
 };
 
 type ApiError = { code: string; message: string; details?: Record<string, unknown> };
@@ -206,7 +209,14 @@ function TeamCancelReasonForm({
 const TEAM_CANCEL_MESSAGE: Record<string, string> = {
   cancellation_reason_required: "Alasan pembatalan wajib diisi.",
   cancellation_reason_too_long: "Alasan pembatalan terlalu panjang (maksimal 500 karakter).",
-  cancellation_not_supported_for_paid: "Pendaftaran berbayar belum dapat dibatalkan.",
+  // The organiser cannot take payment right now — unverified, no published account, or no fee rule
+  // in force. All three collapse to one code server-side so none of them leaks, and none of them is
+  // the candidate's to fix. The generic "coba lagi" fallback was worse than nothing here: it
+  // describes a transient fault and invites a candidate to retry something that will never succeed.
+  registration_payment_unavailable:
+    "Penyelenggara kompetisi ini belum dapat menerima pembayaran, jadi pendaftaran berbayar belum bisa diproses. Hubungi penyelenggara.",
+  cancellation_not_supported_for_paid:
+    "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim.",
   cancellation_disabled_by_institution:
     "Penyelenggara tidak mengizinkan pembatalan untuk kompetisi ini.",
   cancellation_window_closed: "Batas waktu pembatalan telah terlewat.",
@@ -561,7 +571,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
       {isCaptain && (
         <div className="team-primary-actions">
-          {status === "forming" && (
+          {status === "forming" && !props.registrationWithheld && (
             <Button
               onClick={onSubmitTeam}
               loading={pendingAction === "submit-team"}

@@ -33,6 +33,7 @@ const renderIndividual = (cancellationClosedByPaymentProof: boolean) =>
         initialRegistration={{ id: "reg-1", status: "confirmed" }}
         expectedUserId="user-1"
         modeLabel="Daftar"
+        registrationWithheld={false}
         cancellationClosedByPaymentProof={cancellationClosedByPaymentProof}
       />
     </UIPrimitivesProvider>,
@@ -71,6 +72,7 @@ const renderTeam = (
           },
         ]}
         initialPendingInvitations={[]}
+        registrationWithheld={false}
         cancellationClosedByPaymentProof={cancellationClosedByPaymentProof}
       />
     </UIPrimitivesProvider>,
