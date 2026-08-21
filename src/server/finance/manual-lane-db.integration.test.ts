@@ -6404,6 +6404,96 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
     });
   });
 
+  it("puts a barred payer on the operator's second list, and takes them off once released", async () => {
+    // THE WIRING, not the query. The row is driven into the barred state through the organiser's
+    // own rejection and out of it through the operator's own void, so the list is proven against
+    // the states the product actually produces rather than against a hand-set column.
+    //
+    // A barred proof is invisible to the blocked-competition list by construction — it holds no
+    // competition open — so this assertion is the only thing standing between the operator and a
+    // capability reachable only by knowing a proof id.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { loadOpsBarredProofs, loadOpsBlockedCompetitions } = await import(
+        "@/server/finance/ops-payment-review"
+      );
+      const { rejectManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      const { voidPaymentProofAsOps } = await import("@/server/finance/ops-payment-service");
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+
+      await rejectManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proof.id,
+        "Bukan transfer ke rekening kami",
+        false,
+        tx as never,
+        NOW,
+      );
+
+      const barred = await loadOpsBarredProofs(tx as never);
+      const entry = barred.find((row) => row.proofId === proof.id);
+
+      expect(entry).toBeDefined();
+      expect(entry!.rejectionReason).toBe("Bukan transfer ke rekening kami");
+      expect(entry!.competitionTitle).toBeTruthy();
+
+      // And absent from the other list, which is why it needs one of its own.
+      const blocked = await loadOpsBlockedCompetitions(tx as never);
+      expect(
+        blocked.some((row) => row.proofs.some((entry) => entry.proofId === proof.id)),
+      ).toBe(false);
+
+      await voidPaymentProofAsOps(
+        fixture.other.userId,
+        proof.id,
+        "Peserta menghubungi dukungan",
+        tx as never,
+        NOW,
+      );
+
+      const afterRelease = await loadOpsBarredProofs(tx as never);
+      expect(afterRelease.some((row) => row.proofId === proof.id)).toBe(false);
+    });
+  });
+
+  it("leaves a barred payer off the list once the sweep has cancelled their registration", async () => {
+    // A control that resolves nothing is worse than none. Once the lane is shut a resubmission
+    // would be refused anyway, so offering the void here would send the operator to take an action
+    // that leaves the payer exactly where they were.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { loadOpsBarredProofs } = await import("@/server/finance/ops-payment-review");
+      const { rejectManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+
+      await rejectManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proof.id,
+        "Bukan transfer ke rekening kami",
+        false,
+        tx as never,
+        NOW,
+      );
+
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "cancelled" })
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+
+      const barred = await loadOpsBarredProofs(tx as never);
+      expect(barred.some((row) => row.proofId === proof.id)).toBe(false);
+    });
+  });
   it("holds the organiser's bar against a REJECTED proof, which the candidate alone cannot lift", async () => {
     // WHERE THE BAR STOPS AND WHO CAN LIFT IT. `resubmission_allowed = false` is written by exactly
     // one function — the organiser's rejection — and the reopen's rejected arm REQUIRES the bar to
