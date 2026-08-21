@@ -11,7 +11,7 @@ import { formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-displ
 type Props = { params: Promise<{ institutionSlug: string }> };
 
 export const metadata = {
-  title: "Tagihan biaya layanan",
+  title: "Biaya layanan tercatat",
   description: "Rincian biaya layanan Lombakita yang tercatat atas lembaga Anda.",
 };
 
@@ -56,7 +56,7 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
   return (
     <main className="page-shell app-page">
       <PageHeader
-        title="Tagihan biaya layanan"
+        title="Biaya layanan tercatat"
         description="Biaya layanan Lombakita yang tercatat atas setiap pembayaran peserta yang Anda verifikasi."
         backHref={`/institution/${institutionSlug}`}
       />
