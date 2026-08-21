@@ -37,9 +37,20 @@ import { assertLocalDatabase, createChecker, databaseUrl, finish } from "../lib/
 
 // Children before parents. Every finance foreign key is ON DELETE NO ACTION, so any other order is
 // refused by the database — the same durability that makes the ledger hard to erase from the app.
+//
+// EVERY NEW FINANCE TABLE BELONGS HERE, ABOVE ITS PARENT. An omission does not degrade quietly: the
+// parent's delete fails on the constraint and the whole cleanup aborts, which is how a local
+// database becomes unresettable. The attempts table is a child of the proofs table, which is itself
+// a child of payments, so the order within the manual-lane block matters as much as the block's
+// position above `finance_payments`.
 const FINANCE_TABLES_CHILD_FIRST = [
+  "finance_manual_payment_proof_attempts",
+  "finance_manual_payment_proofs",
+  "finance_payment_instruction_snapshots",
+  "finance_fee_accruals",
   "finance_payment_events",
   "finance_payments",
+  "finance_fee_disclosure_acknowledgements",
   "finance_fee_rules",
 ];
 

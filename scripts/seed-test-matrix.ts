@@ -1201,6 +1201,17 @@ const main = async (): Promise<void> => {
     // Candidate A's panel must start EMPTY so the upload flow has somewhere to run; an automated
     // pass that uploaded a receipt would leave A in "awaiting_review" and every later run would
     // find no upload control. Only rows the automation creates are removed.
+    // THE ATTEMPT ROWS GO FIRST, because their foreign key is ON DELETE NO ACTION — deliberately,
+    // since an attempt history that vanishes with the row it describes is not a history. Without
+    // this delete the whole pipeline becomes one-shot the moment any pass DECIDES a proof: the
+    // proof delete below fails on the constraint and the seed cannot reset anything after it.
+    await sql`
+      DELETE FROM finance_manual_payment_proof_attempts
+      WHERE proof_id IN (
+        SELECT id FROM finance_manual_payment_proofs
+        WHERE payment_id LIKE 'seed-pay-%' AND id NOT LIKE 'seed-proof-%'
+      )
+    `;
     await sql`
       DELETE FROM finance_manual_payment_proofs
       WHERE payment_id LIKE 'seed-pay-%' AND id NOT LIKE 'seed-proof-%'
