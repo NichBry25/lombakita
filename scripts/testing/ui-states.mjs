@@ -81,7 +81,6 @@ export const CASES = [
     // RESUMED. A rejection puts the candidate back on a running clock, so the suspension sentence
     // must be gone — this is the half of the pairing that catches a suspension that never lifts.
     absent: ["Tidak berlaku selama bukti transfer Anda ditinjau"],
-    absent: [],
     why: "the organiser's reason is the instruction the candidate works from, so it must be page content that survives a reload",
   },
 
