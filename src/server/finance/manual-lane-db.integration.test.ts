@@ -24,6 +24,8 @@ import {
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { TransactionRollbackError, and, eq, sql } from "drizzle-orm";
 import postgres from "postgres";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { Database } from "@/server/db/client";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import { PaymentInstructionsError } from "@/server/institutions/payment-instructions-service";
@@ -1124,7 +1126,177 @@ describe.skipIf(skipWithoutDatabase)("the accrual write is single-shot (real dat
       expect(await sumOutstandingFeeAccruals(fixture.institutionId, tx as never)).toBe(0);
     });
   });
+
+  /**
+   * THE SEEDED REVERSAL AND THE SERVICE WRITE THE SAME SHAPE.
+   *
+   * `scripts/seed-test-matrix.ts` writes `seed-accrual-d-reversed` as raw SQL, because that file
+   * imports no application module at all and the house style is worth keeping. The cost is that the
+   * fee statement's only browser coverage of a reversal renders a HAND-BUILT row: change
+   * `recordFeeAccrualReversal` and the fixture stays behind while the ui-states case goes on
+   * passing over a shape the service no longer produces. This is the page where that matters most —
+   * the reversal is the only arithmetic on it that can overstate a receivable, and it has already
+   * been wrong once in exactly that direction.
+   *
+   * Held equal by DESCRIPTOR rather than by value, because the two rows walk back different
+   * payments. What has to agree is how each column is DERIVED from the accrual: the exact negation,
+   * the copied rate snapshot, the mandatory reason. Comparing values would be unmaintainable and
+   * would also fail in CI, which migrates but never seeds.
+   */
+  it("writes the reversal the seeded fixture claims it writes", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { recordFeeAccrual, recordFeeAccrualReversal } = await import(
+        "@/server/finance/fee-accrual-service"
+      );
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      await recordFeeAccrual(paymentId, tx as never);
+      await recordFeeAccrualReversal(paymentId, "dana ditarik kembali oleh bank", tx as never);
+
+      // Read back through SQL rather than from the service's return value, so both sides of the
+      // comparison are snake_case database rows and neither is a drizzle projection of one.
+      const result = await tx.execute(
+        sql`select * from finance_fee_accruals where payment_id = ${paymentId}`,
+      );
+      const live = [...result] as Record<string, unknown>[];
+      const liveAccrued = live.find((row) => row.entry_type === "accrued");
+      const liveReversed = live.find((row) => row.entry_type === "reversed");
+      expect(liveAccrued, "the service wrote no accrued row").toBeDefined();
+      expect(liveReversed, "the service wrote no reversed row").toBeDefined();
+
+      const seeded = describeReversal(
+        seedAccrualInsert(SEED_ACCRUED_ID),
+        seedAccrualInsert(SEED_REVERSED_ID),
+      );
+
+      expect(seeded).toEqual(describeReversal(liveAccrued!, liveReversed!));
+    });
+  });
 });
+
+const SEED_SCRIPT = "scripts/seed-test-matrix.ts";
+const SEED_ACCRUED_ID = "seed-accrual-d-settled";
+const SEED_REVERSED_ID = "seed-accrual-d-reversed";
+
+/** The text inside the parenthesised group opening at `open`, respecting nesting and quoting. */
+const parenGroup = (source: string, open: number): string => {
+  let depth = 0;
+  let quoted = false;
+
+  for (let i = open; i < source.length; i += 1) {
+    const character = source[i];
+    if (character === "'") quoted = !quoted;
+    if (quoted) continue;
+    if (character === "(") depth += 1;
+    if (character !== ")") continue;
+
+    depth -= 1;
+    if (depth === 0) return source.slice(open + 1, i);
+  }
+
+  throw new Error(`unterminated parenthesis at ${open} in ${SEED_SCRIPT}`);
+};
+
+/** Top-level comma split, so a quoted reason containing a comma stays one item. */
+const splitSqlList = (text: string): string[] => {
+  const items: string[] = [];
+  let current = "";
+  let depth = 0;
+  let quoted = false;
+
+  for (const character of text) {
+    if (character === "'") quoted = !quoted;
+
+    if (!quoted) {
+      if (character === "(") depth += 1;
+      if (character === ")") depth -= 1;
+      if (character === "," && depth === 0) {
+        items.push(current.trim());
+        current = "";
+        continue;
+      }
+    }
+
+    current += character;
+  }
+
+  items.push(current.trim());
+  return items;
+};
+
+/**
+ * One `finance_fee_accruals` INSERT from the seed script, as a column-to-literal map.
+ *
+ * Parsed from the FILE rather than read from the database, because CI migrates but never seeds. A
+ * check that reads the seeded row would pass locally and quietly measure nothing where it runs.
+ */
+const seedAccrualInsert = (rowId: string): Record<string, string> => {
+  const source = readFileSync(resolve(process.cwd(), SEED_SCRIPT), "utf8");
+
+  const idAt = source.indexOf(`'${rowId}'`);
+  if (idAt === -1) throw new Error(`${rowId} is not in ${SEED_SCRIPT}`);
+
+  const start = source.lastIndexOf("INSERT INTO finance_fee_accruals", idAt);
+  if (start === -1) throw new Error(`${rowId} is not inside a finance_fee_accruals INSERT`);
+
+  const columns = splitSqlList(parenGroup(source, source.indexOf("(", start)));
+  const valuesAt = source.indexOf("VALUES", start);
+  const values = splitSqlList(parenGroup(source, source.indexOf("(", valuesAt)));
+
+  if (columns.length !== values.length) {
+    throw new Error(`${rowId} lists ${columns.length} columns against ${values.length} values`);
+  }
+
+  return Object.fromEntries(
+    columns.map((column, index) => [column, values[index]!.replace(/^'|'$/g, "")]),
+  );
+};
+
+/** Generated by the database. Neither side is expected to agree with the other on these. */
+const GENERATED_ACCRUAL_COLUMNS = new Set(["id", "created_at"]);
+
+/**
+ * How a `reversed` row is derived from the `accrued` row it walks back, column by column.
+ *
+ * Keyed off the REVERSED row's own columns, so a service that starts writing a new one produces a
+ * descriptor key the seed's row cannot match — which is the drift that leaves a fixture silently
+ * incomplete rather than silently wrong.
+ */
+const describeReversal = (
+  accrued: Record<string, unknown>,
+  reversed: Record<string, unknown>,
+): Record<string, string> => {
+  const descriptor: Record<string, string> = {};
+
+  for (const column of Object.keys(reversed).sort()) {
+    if (GENERATED_ACCRUAL_COLUMNS.has(column)) continue;
+
+    const mine = String(reversed[column]);
+    const theirs = String(accrued[column]);
+
+    if (column === "entry_type") {
+      descriptor[column] = mine;
+      continue;
+    }
+
+    if (column === "amount") {
+      descriptor[column] =
+        Number(mine) === -Number(theirs) ? "exact negation" : `NOT a negation: ${mine} of ${theirs}`;
+      continue;
+    }
+
+    if (column === "reason") {
+      descriptor[column] = mine.trim().length > 0 ? "stated" : "MISSING";
+      continue;
+    }
+
+    descriptor[column] =
+      mine === theirs ? "copied from the accrual" : `diverges: ${mine} against ${theirs}`;
+  }
+
+  return descriptor;
+};
 
 /** A pending proof, filed under the object prefix the service will hold a resubmission to. */
 const seedProof = async (
