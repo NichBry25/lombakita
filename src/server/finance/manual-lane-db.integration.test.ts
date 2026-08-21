@@ -1199,6 +1199,168 @@ describe.skipIf(skipWithoutDatabase)("the accrual write is single-shot (real dat
 
 });
 
+describe.skipIf(skipWithoutDatabase)("the attempt history's own guarantees", () => {
+  /** A closed attempt, built field by field so each CHECK can be violated one at a time. */
+  const attemptValues = (
+    fixture: Fixture,
+    proofId: string,
+    paymentId: string,
+    overrides: Record<string, unknown> = {},
+  ) => ({
+    proofId,
+    paymentId,
+    competitionId: fixture.competitionId,
+    attemptNumber: 0,
+    submittedByUserId: fixture.userId,
+    r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
+    originalFileName: "bukti.jpg",
+    fileSizeBytes: 2048,
+    contentType: "image/jpeg",
+    submittedAt: NOW,
+    verdict: "rejected" as const,
+    verdictReason: "nominal tidak sesuai",
+    reviewerUserId: fixture.userId,
+    reviewedAt: NOW,
+    ...overrides,
+  });
+
+  const seedClosedAttempt = async (tx: Tx, fixture: Fixture) => {
+    const paymentId = await seedManualPayment(tx, fixture);
+    const proofId = await seedProof(tx, fixture, paymentId);
+    return { paymentId, proofId };
+  };
+
+  /**
+   * ONE VERDICT PER ATTEMPT. This is the stated replay guard and nothing exercised it: the CAS out
+   * of `pending_review` serialises closes in practice, so the index only ever fires if that CAS is
+   * weakened — which is exactly when a silent second history row would be written over a dispute.
+   */
+  it("refuses a second verdict filed against the same attempt number", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { paymentId, proofId } = await seedClosedAttempt(tx, fixture);
+
+      await tx
+        .insert(financeManualPaymentProofAttempts)
+        .values(attemptValues(fixture, proofId, paymentId));
+
+      const refusal = await expectRejection(tx, (nested) =>
+        nested
+          .insert(financeManualPaymentProofAttempts)
+          .values(attemptValues(fixture, proofId, paymentId, { verdict: "verified" })),
+      );
+
+      expect(refusal.code).toBe("23505");
+      expect(refusal.constraint).toBe("finance_manual_payment_proof_attempts_attempt_unique_idx");
+    });
+  });
+
+  it("refuses pending_review as a verdict — an attempt that has not closed has no history", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { paymentId, proofId } = await seedClosedAttempt(tx, fixture);
+
+      const refusal = await expectRejection(tx, (nested) =>
+        nested
+          .insert(financeManualPaymentProofAttempts)
+          .values(attemptValues(fixture, proofId, paymentId, { verdict: "pending_review" })),
+      );
+
+      expect(refusal.code).toBe("23514");
+      expect(refusal.constraint).toBe("finance_manual_payment_proof_attempts_verdict_chk");
+    });
+  });
+
+  it("refuses a refusal with no reason — an unreviewable decision", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { paymentId, proofId } = await seedClosedAttempt(tx, fixture);
+
+      const refusal = await expectRejection(tx, (nested) =>
+        nested
+          .insert(financeManualPaymentProofAttempts)
+          .values(attemptValues(fixture, proofId, paymentId, { verdictReason: null })),
+      );
+
+      expect(refusal.code).toBe("23514");
+      expect(refusal.constraint).toBe("finance_manual_payment_proof_attempts_reason_chk");
+    });
+  });
+
+  it("refuses zero-byte evidence and a negative attempt number", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { paymentId, proofId } = await seedClosedAttempt(tx, fixture);
+
+      const emptyFile = await expectRejection(tx, (nested) =>
+        nested
+          .insert(financeManualPaymentProofAttempts)
+          .values(attemptValues(fixture, proofId, paymentId, { fileSizeBytes: 0 })),
+      );
+      expect(emptyFile.constraint).toBe("finance_manual_payment_proof_attempts_file_size_chk");
+
+      const negativeAttempt = await expectRejection(tx, (nested) =>
+        nested
+          .insert(financeManualPaymentProofAttempts)
+          .values(attemptValues(fixture, proofId, paymentId, { attemptNumber: -1 })),
+      );
+      expect(negativeAttempt.constraint).toBe(
+        "finance_manual_payment_proof_attempts_attempt_number_chk",
+      );
+    });
+  });
+
+  /**
+   * THE HISTORY ROW AND THE VERDICT ARE ONE UNIT — Rule 32 on the ordering, not on the presence.
+   *
+   * `recordProofAttempt` is documented as belonging inside the verdict's transaction, and nothing
+   * failed if it were moved out. Moved out, a rolled-back verdict leaves a history row for a
+   * decision that never happened, or a committed verdict leaves none at all — and the dispute view
+   * then shows a past that did not occur.
+   *
+   * Forced here by pre-inserting the exact row the verdict will try to write, so the attempt insert
+   * raises 23505 partway through. If the two share a transaction the verdict is rolled back with it
+   * and the proof is still awaiting review; if they do not, the proof is `verified` and the money
+   * has moved with no history behind it.
+   */
+  it("rolls the verdict back when its history row cannot be written", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { verifyManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      const { paymentId, proofId } = await seedClosedAttempt(tx, fixture);
+
+      // Occupies (proof_id, attempt_number) = (proof, 0), which is what the verdict will file.
+      await tx
+        .insert(financeManualPaymentProofAttempts)
+        .values(attemptValues(fixture, proofId, paymentId));
+
+      await expect(
+        verifyManualPaymentProof(fixture.institutionId, fixture.userId, proofId, tx as never, NOW),
+      ).rejects.toThrow();
+
+      const [proof] = await tx
+        .select({ status: financeManualPaymentProofs.status })
+        .from(financeManualPaymentProofs)
+        .where(eq(financeManualPaymentProofs.id, proofId));
+      expect(proof!.status).toBe("pending_review");
+
+      const events = await tx
+        .select({ eventType: financePaymentEvents.eventType })
+        .from(financePaymentEvents)
+        .where(eq(financePaymentEvents.paymentId, paymentId));
+      expect(events.map((event) => event.eventType)).not.toContain("succeeded");
+
+      const accruals = await tx
+        .select({ id: financeFeeAccruals.id })
+        .from(financeFeeAccruals)
+        .where(eq(financeFeeAccruals.paymentId, paymentId));
+      expect(accruals).toHaveLength(0);
+    });
+  });
+});
+
 describe.skipIf(skipWithoutDatabase)("what the row records about the uploaded file", () => {
   const submit = async (tx: Tx, fixture: Fixture, paymentId: string, fileName: string) => {
     const { submitManualPaymentProof } = await import(
