@@ -10,19 +10,16 @@
 // pre-validation with localized copy — so a reader who knows one knows the other. They share no
 // data, because their answers differ.
 
-export type PaymentProofFileFamily = "application/pdf" | "image/jpeg" | "image/png" | "image/webp";
-
 type PaymentProofFormat = {
   mimeType: string;
-  family: PaymentProofFileFamily;
 };
 
 const FORMAT_BY_EXTENSION: Record<string, PaymentProofFormat> = {
-  pdf: { mimeType: "application/pdf", family: "application/pdf" },
-  jpg: { mimeType: "image/jpeg", family: "image/jpeg" },
-  jpeg: { mimeType: "image/jpeg", family: "image/jpeg" },
-  png: { mimeType: "image/png", family: "image/png" },
-  webp: { mimeType: "image/webp", family: "image/webp" },
+  pdf: { mimeType: "application/pdf" },
+  jpg: { mimeType: "image/jpeg" },
+  jpeg: { mimeType: "image/jpeg" },
+  png: { mimeType: "image/png" },
+  webp: { mimeType: "image/webp" },
 };
 
 export const PAYMENT_PROOF_ALLOWED_EXTENSIONS = Object.keys(FORMAT_BY_EXTENSION);
@@ -68,12 +65,6 @@ const formatForFileName = (fileName: string): PaymentProofFormat | null =>
  */
 export const paymentProofMimeTypeForFileName = (fileName: string): string | null =>
   formatForFileName(fileName)?.mimeType ?? null;
-
-/** True when the filename's extension belongs to the signature family the bytes were detected as. */
-export const paymentProofFamilyMatchesFileName = (
-  fileName: string,
-  family: PaymentProofFileFamily,
-): boolean => formatForFileName(fileName)?.family === family;
 
 const formatMegabytes = (bytes: number): string => {
   const mb = bytes / (1024 * 1024);
