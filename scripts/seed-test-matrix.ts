@@ -1130,6 +1130,22 @@ const main = async (): Promise<void> => {
       ON CONFLICT (id) DO NOTHING
     `;
 
+    // A REVERSED ACCRUAL, because without one the fee statement's browser check measures a state
+    // that does not exist. The signed-amount handling is the only arithmetic on this page that can
+    // be wrong in the direction that overstates a receivable, and every fixture here was an
+    // `accrued` row, so the check passed over a code path it had never rendered. Columns mirror
+    // `recordFeeAccrualReversal` exactly — the exact negation, and the accrual's OWN rate snapshot
+    // rather than the rule's current one. Verification itself is not walked back: reversing the fee
+    // and unwinding the proof are separate acts, and only the first has a primitive today.
+    await sql`
+      INSERT INTO finance_fee_accruals (id, payment_id, owing_institution_id, entry_type, currency,
+        amount, fee_rule_id, fee_basis_points, fee_flat_amount, gross_amount, reason)
+      VALUES ('seed-accrual-d-reversed', 'seed-pay-d-settled', 'seed-inst-a', 'reversed', 'IDR',
+        -3750, 'seed-feerule-default', 250, 0, 150000,
+        'Dana ditarik kembali oleh bank setelah verifikasi')
+      ON CONFLICT (id) DO NOTHING
+    `;
+
     // R2's record: the rate this institution was shown and accepted before it charged anybody. The
     // snapshot is what makes the receivable defensible, so the statement has to be able to show it.
     await sql`

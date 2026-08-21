@@ -430,6 +430,17 @@ export const CASES = [
       "bukan saldo yang kami simpan",
       // R2: what was agreed, and when.
       "Persetujuan tarif",
+      // THE REVERSAL, which until now no fixture anywhere produced — so this case ran green over a
+      // code path it had never rendered, and a double negation that overstated the receivable was
+      // invisible to it. Each needle pins one consequence of getting the sign wrong:
+      //   the correction shows at all, and shows as a subtraction ...
+      "KOREKSI\n\u2212Rp\u00a03.750",
+      //   ... the receivable is 7.500 and not the 15.000 a re-negated reversal produces ...
+      "BELUM DITAGIHKAN\nRp\u00a07.500",
+      //   ... the line itself renders, carrying the reason a reversal may not be written without ...
+      "(koreksi) \u00b7 Dana ditarik kembali oleh bank setelah verifikasi",
+      //   ... and its amount prints ONE minus, against a row that is already stored negative.
+      "2,5%\t\u2212Rp\u00a03.750",
     ],
     // R8: it records, it does not bill. Anything that reads as a demand for payment has left scope.
     absent: ["Bayar sekarang", "Jatuh tempo", "Tagih sekarang"],
