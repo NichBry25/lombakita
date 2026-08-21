@@ -1127,19 +1127,3 @@ export const loadManualPaymentProof = async (
 
   return proof ?? null;
 };
-
-/**
- * Every bukti transfer on one competition, newest first.
- *
- * The competition scope is IN THE QUERY rather than applied by the caller afterwards, so a proof id
- * belonging to another organiser's competition collapses to "not in this list" instead of leaking.
- */
-export const listManualPaymentProofsForCompetition = async (
-  competitionId: string,
-  db: Database = getDb(),
-): Promise<FinanceManualPaymentProofRecord[]> =>
-  db
-    .select()
-    .from(financeManualPaymentProofs)
-    .where(eq(financeManualPaymentProofs.competitionId, competitionId))
-    .orderBy(sql`${financeManualPaymentProofs.submittedAt} DESC`);
