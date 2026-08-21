@@ -51,6 +51,12 @@ type Props = {
   cancellationClosedByPaymentProof: boolean;
   // DEC-0170, same rule as the individual path: with the organiser unable to take payment there is
   // nothing a new team can usefully do, so the controls are WITHHELD rather than left to be refused.
+  //
+  // THAT INCLUDES CREATING THE TEAM AT ALL, not only registering it. This flag reached the roster's
+  // register action and stopped there, so a candidate could still form a team, become its captain
+  // and invite people into it for a competition that cannot accept a registration — the individual
+  // path withheld its one control while the team path withheld its last one. Individual and team
+  // are siblings on every condition in this lane, entry paths included.
   registrationWithheld: boolean;
 };
 
@@ -93,16 +99,20 @@ export function CompetitionTeamSection(props: Props) {
         <div>
           <h2>Tim</h2>
           <p>
-            {props.competitionMode === "both"
-              ? "Anda dapat mendaftar sebagai tim atau secara individu (di tombol Daftar di atas)."
-              : "Kompetisi ini wajib didaftarkan sebagai tim."}
+            {props.competitionMode !== "both"
+              ? "Kompetisi ini wajib didaftarkan sebagai tim."
+              : props.registrationWithheld
+                ? // The individual "Daftar" control is withheld in this state, so pointing at it
+                  // would send the candidate looking for a button that is deliberately absent.
+                  "Kompetisi ini menerima pendaftaran tim maupun individu."
+                : "Anda dapat mendaftar sebagai tim atau secara individu (di tombol Daftar di atas)."}
           </p>
         </div>
       </div>
 
       {props.initialTeam ? (
         <TeamRoster {...props} team={props.initialTeam} />
-      ) : (
+      ) : props.registrationWithheld ? null : (
         <CreateTeamForm {...props} />
       )}
     </section>

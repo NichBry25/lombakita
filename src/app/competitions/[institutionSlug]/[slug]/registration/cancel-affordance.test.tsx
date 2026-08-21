@@ -133,3 +133,87 @@ describe("the team cancel affordance", () => {
     expect(screen.queryByText(WITHHELD_COPY)).toBeNull();
   });
 });
+
+// DEC-0170'S REFUSAL, ON BOTH ENTRY PATHS.
+//
+// The individual path withheld its one control and the team path withheld only its LAST one, so a
+// candidate could still form a team, become its captain and invite people into a competition whose
+// organiser cannot accept a registration. That is the sibling asymmetry M1 was, moved from a write
+// path to an entry path: two ways in, one enforcing less than the other.
+//
+// Asserted in both directions on both paths, because a test that only checks the withheld state
+// passes against a section that renders nothing at all.
+
+const renderTeamEntry = (registrationWithheld: boolean) =>
+  render(
+    <UIPrimitivesProvider>
+      <CompetitionTeamSection
+        competitionId="comp-1"
+        competitionMode="both"
+        minTeamSize={2}
+        maxTeamSize={4}
+        registrationOpen={!registrationWithheld}
+        expectedUserId={CAPTAIN}
+        initialTeam={null}
+        initialMembers={[]}
+        initialPendingInvitations={[]}
+        registrationWithheld={registrationWithheld}
+        cancellationClosedByPaymentProof={false}
+      />
+    </UIPrimitivesProvider>,
+  );
+
+const renderIndividualEntry = (registrationWithheld: boolean) =>
+  render(
+    <UIPrimitivesProvider>
+      <IndividualRegistrationSection
+        competitionId="comp-1"
+        ctaState="open"
+        initialRegistration={null}
+        expectedUserId="user-1"
+        modeLabel="Daftar"
+        registrationWithheld={registrationWithheld}
+        cancellationClosedByPaymentProof={false}
+      />
+    </UIPrimitivesProvider>,
+  );
+
+describe("the way in, when the organiser cannot take payment", () => {
+  it("OFFERS team creation while the organiser can still be paid", () => {
+    renderTeamEntry(false);
+
+    expect(screen.getByRole("button", { name: "Buat tim" })).toBeTruthy();
+  });
+
+  it("WITHHOLDS team creation entirely — not just the register action", () => {
+    renderTeamEntry(true);
+
+    expect(screen.queryByRole("button", { name: "Buat tim" })).toBeNull();
+    expect(screen.queryByPlaceholderText("Nama tim")).toBeNull();
+  });
+
+  it("stops pointing at an individual Daftar button that is itself withheld", () => {
+    // The copy named a control the sibling path correctly does not render in this state.
+    renderTeamEntry(true);
+
+    expect(screen.queryByText(/di tombol Daftar di atas/)).toBeNull();
+  });
+
+  it("still points at it when that button is really there", () => {
+    renderTeamEntry(false);
+
+    expect(screen.getByText(/di tombol Daftar di atas/)).toBeTruthy();
+  });
+
+  it("OFFERS individual registration while the organiser can still be paid", () => {
+    renderIndividualEntry(false);
+
+    expect(screen.getByRole("button", { name: "Daftar" })).toBeTruthy();
+  });
+
+  it("WITHHOLDS individual registration — the sibling that was already correct", () => {
+    renderIndividualEntry(true);
+
+    expect(screen.queryByRole("button", { name: "Daftar" })).toBeNull();
+  });
+});

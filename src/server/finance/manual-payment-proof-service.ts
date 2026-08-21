@@ -199,6 +199,13 @@ const confirmUploadedProofObject = async (
 //
 // Anything added below this line states its row here, or the lane is back to three paths enforcing
 // three different rule sets.
+//
+// THE SAME CHECK APPLIES TO ENTRY PATHS, NOT ONLY WRITE PATHS. Two surfaces have now shipped the
+// identical defect — one sibling enforcing less than the other. Resubmission checked none of the
+// conditions submission checked, and on the registration page the individual path withheld its
+// control under DEC-0170 while the team path let a candidate form a team and invite members into a
+// competition that cannot accept one. Wherever individual and team, or submit and resubmit, are
+// siblings, they answer to the same condition set or one of them is a hole.
 
 /** The payment a write may proceed against, and the registration row the lock is held on. */
 type OpenManualLane = { paymentId: string; registrationId: string };
