@@ -166,7 +166,6 @@ export const toInstructionSnapshotValues = (instructions: InstitutionPaymentInst
     instructionsNote: instructions.instructionsNote,
   }) satisfies Record<InstructionEvidenceField, string | null>;
 
-export type InstructionSnapshotValues = ReturnType<typeof toInstructionSnapshotValues>;
 
 /**
  * Whether this institution can be paid on the manual lane at all.

@@ -2303,8 +2303,9 @@ export const financeManualPaymentProofAttempts = pgTable(
       .primaryKey()
       .default(sql`gen_random_uuid()::text`),
     proofId: text("proof_id").notNull(),
-    // Denormalised so the dispute view can reach an attempt from the payment without joining
-    // through the live proof row, whose own scope columns may have moved on.
+    // The attempt's OWN record of the scope it closed in, so the history stays readable without the
+    // live proof row — the same reason `r2_key` is kept here. No reader filters on either column
+    // today: both the dispute view and the organiser queue reach attempts by `proof_id`.
     paymentId: text("payment_id").notNull(),
     competitionId: text("competition_id").notNull(),
     // The value `resubmission_count` held while this attempt was open. Attempt 0 is the first
@@ -2358,6 +2359,8 @@ export const financeManualPaymentProofAttempts = pgTable(
       table.proofId,
       table.attemptNumber,
     ),
+    // Anticipates a filter on `payment_id` that no reader performs yet; both readers go by
+    // `proof_id`, which the unique index above already covers.
     index("finance_manual_payment_proof_attempts_payment_id_idx").on(table.paymentId),
     check(
       "finance_manual_payment_proof_attempts_verdict_chk",
@@ -2458,12 +2461,6 @@ export type FinancePaymentRecord = typeof financePayments.$inferSelect;
 export type FinancePaymentEventRecord = typeof financePaymentEvents.$inferSelect;
 export type FinanceFeeAccrualRecord = typeof financeFeeAccruals.$inferSelect;
 export type FinanceManualPaymentProofRecord = typeof financeManualPaymentProofs.$inferSelect;
-export type FinancePaymentInstructionSnapshotRecord =
-  typeof financePaymentInstructionSnapshots.$inferSelect;
-export type FinanceManualPaymentProofAttemptRecord =
-  typeof financeManualPaymentProofAttempts.$inferSelect;
-export type FinanceFeeDisclosureAcknowledgementRecord =
-  typeof financeFeeDisclosureAcknowledgements.$inferSelect;
 export type InstitutionPaymentInstructionsRecord =
   typeof institutionPaymentInstructions.$inferSelect;
 
