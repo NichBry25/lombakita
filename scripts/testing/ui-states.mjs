@@ -253,7 +253,19 @@ export const CASES = [
     present: ["penyelenggaranya belum dapat menerima pembayaran"],
     // The register control is WITHHELD, and the candidate is told nothing about WHY the organiser
     // cannot charge — verification status is not theirs to see.
-    absent: ["Daftar sebagai individu", "Daftarkan tim", "belum terverifikasi", "Tarif layanan"],
+    //
+    // "Buat tim" IS THE ENTRY PATH, not a second register button, and it is listed because the
+    // register controls alone could all be absent while the form that creates the team still
+    // rendered — which is what happened. This competition is mode `both`, so it is the one seeded
+    // surface where individual and team can be checked as siblings on the same condition.
+    absent: [
+      "Daftar sebagai individu",
+      "Daftarkan tim",
+      "Buat tim",
+      "Nama tim",
+      "belum terverifikasi",
+      "Tarif layanan",
+    ],
     why: "explained before the click rather than discovered by it, in the candidate's terms only",
   },
 
