@@ -503,6 +503,13 @@ const warmRoute = async (page, path) => {
 };
 
 const assertAppReachable = async () => {
+  // WARM FIRST, MEASURE SECOND — the same treatment `warmRoute` gives every case route, for the
+  // same reason. `/api/health` is a route like any other and cold-compiles on a dev server:
+  // measured at 37.5s under load against 0.5s warm, while answering `{"status":"ok"}` both times.
+  // A 10-second budget against the cold number reports a healthy app as dead, which is the exact
+  // failure this gate exists to stop someone else making.
+  await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(90_000) }).catch(() => {});
+
   try {
     const response = await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(10_000) });
     // Any answer proves something is serving. `degraded` is fine — these assertions read pages,
