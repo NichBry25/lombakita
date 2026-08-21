@@ -25,10 +25,23 @@
 // caught differently — both operations commit and the assertion on the surviving state goes red.
 // Both directions are exercised deliberately; neither is inferred.
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+
+// THE ONE SEAM IN THIS FILE, and it is drawn at object storage rather than at anything this file
+// exists to measure. The proof writers confirm the uploaded object before recording it, and there
+// is no R2 here — so without this the racers would fail on a missing bucket long before they
+// reached the row they are supposed to contend over, and a lock proof would turn into a
+// configuration error wearing the same red.
+//
+// The lock behaviour itself is untouched: only the two calls that reach the network are replaced.
+vi.mock("@/server/storage/r2.client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/storage/r2.client")>()),
+  headObject: vi.fn(async () => ({ sizeBytes: 2048, contentType: "image/jpeg" })),
+  deleteObject: vi.fn(async () => undefined),
+}));
 import * as schema from "@/server/db/schema";
 
 // Every row this file creates carries this marker in a slug, a username or an email.
@@ -462,8 +475,6 @@ describe.skipIf(skipWithoutDatabase)("the deadline boundary, under real contenti
         submittedByUserId: fixture.userId,
         r2Key: `payment-proofs/${fixture.competitionId}/${fixture.paymentId}/bukti.jpg`,
         originalFileName: "bukti.jpg",
-        fileSizeBytes: 2048,
-        contentType: "image/jpeg",
       },
       connection.db as never,
     );
@@ -612,8 +623,6 @@ describe.skipIf(skipWithoutDatabase)("reopening a closed bukti transfer, under r
         submittedByUserId: fixture.userId,
         r2Key: `payment-proofs/${fixture.competitionId}/${fixture.paymentId}/bukti-2.jpg`,
         originalFileName: "bukti-2.jpg",
-        fileSizeBytes: 4096,
-        contentType: "image/jpeg",
       },
       connection.db as never,
     );

@@ -68,9 +68,32 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => ({
   enqueuePaymentOutcome: mockEnqueuePaymentOutcome,
 }));
 
+// THE SECOND SEAM, drawn at object storage for the same reason the first is drawn at the queue:
+// this suite runs against a real database and no R2, and the proof writers now confirm the uploaded
+// object before recording it. Only the two calls that reach the network are replaced; everything
+// else in the module is the real thing.
+//
+// The default answer is a valid head, so every existing test describes an upload that completed.
+// The refusals — an object that is not there, and one that is too large — are driven by tests that
+// set this deliberately, so the guard is exercised rather than merely configured around.
+const { mockHeadObject, mockDeleteObject } = vi.hoisted(() => ({
+  mockHeadObject: vi.fn(),
+  mockDeleteObject: vi.fn(),
+}));
+
+vi.mock("@/server/storage/r2.client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/storage/r2.client")>()),
+  headObject: mockHeadObject,
+  deleteObject: mockDeleteObject,
+}));
+
 beforeEach(() => {
   mockEnqueuePaymentProofSubmitted.mockReset();
   mockEnqueuePaymentOutcome.mockReset();
+  mockHeadObject.mockReset();
+  mockHeadObject.mockResolvedValue({ sizeBytes: 2048, contentType: "image/jpeg" });
+  mockDeleteObject.mockReset();
+  mockDeleteObject.mockResolvedValue(undefined);
 });
 
 const DATABASE_URL = TEST_DATABASE_URL;
@@ -1176,6 +1199,116 @@ describe.skipIf(skipWithoutDatabase)("the accrual write is single-shot (real dat
 
 });
 
+describe.skipIf(skipWithoutDatabase)("what the row records about the uploaded file", () => {
+  const submit = async (tx: Tx, fixture: Fixture, paymentId: string, fileName: string) => {
+    const { submitManualPaymentProof } = await import(
+      "@/server/finance/manual-payment-proof-service"
+    );
+    return submitManualPaymentProof(
+      {
+        paymentId,
+        submittedByUserId: fixture.userId,
+        r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/${fileName}`,
+        originalFileName: fileName,
+      },
+      tx as never,
+    );
+  };
+
+  /**
+   * THE CONTENT TYPE IS DERIVED FROM THE NAME, and storage does not get a vote either.
+   *
+   * The stored value is handed to R2 as `ResponseContentType` on an inline presigned GET, so
+   * whoever controls it chooses what the reviewing organiser's browser renders. It used to come
+   * from the request body. Here the object in storage claims `text/html` — the value an attacker
+   * would have set at upload time — and the row must still record the PDF the file name resolves
+   * to through the accepted-extension list.
+   */
+  it("derives the content type from the file name, not from what storage reports", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      mockHeadObject.mockResolvedValue({ sizeBytes: 4096, contentType: "text/html" });
+
+      const proof = await submit(tx, fixture, paymentId, "bukti.pdf");
+
+      expect(proof.contentType).toBe("application/pdf");
+    });
+  });
+
+  it("refuses a file name whose extension the lane does not accept", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      await expect(submit(tx, fixture, paymentId, "bukti.html")).rejects.toMatchObject({
+        code: "manual_proof_object_key_invalid",
+      });
+
+      // The refusal happens before storage is consulted at all — an unacceptable name is not worth
+      // a network round trip.
+      expect(mockHeadObject).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * A KEY THAT NAMES NOTHING. The prefix check passes for any string under this payment's folder,
+   * so a payer could file an attempt for an object they never uploaded — and every later "view"
+   * would write an audit row recording a read that never happened.
+   */
+  it("refuses a key with no object behind it, and records no attempt", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      mockHeadObject.mockResolvedValue(null);
+
+      await expect(submit(tx, fixture, paymentId, "bukti.jpg")).rejects.toMatchObject({
+        code: "manual_proof_object_missing",
+      });
+
+      const proofs = await tx
+        .select({ id: financeManualPaymentProofs.id })
+        .from(financeManualPaymentProofs)
+        .where(eq(financeManualPaymentProofs.paymentId, paymentId));
+      expect(proofs).toHaveLength(0);
+    });
+  });
+
+  /**
+   * THE SIZE COMES FROM THE OBJECT. The request used to declare it, which bounded what the row
+   * claimed and nothing about what had actually been written to the bucket.
+   */
+  it("refuses an object larger than the limit and removes it", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      mockHeadObject.mockResolvedValue({ sizeBytes: 99_000_000, contentType: "image/jpeg" });
+
+      await expect(submit(tx, fixture, paymentId, "bukti.jpg")).rejects.toMatchObject({
+        code: "manual_proof_object_key_invalid",
+      });
+
+      // Nothing sweeps this prefix — the retention job is excluded from it — so an object refused
+      // here would otherwise sit in the bucket forever, unreferenced.
+      expect(mockDeleteObject).toHaveBeenCalledWith(
+        `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
+      );
+    });
+  });
+
+  it("records the size storage reports, not one the caller chose", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const paymentId = await seedManualPayment(tx, fixture);
+      mockHeadObject.mockResolvedValue({ sizeBytes: 31_337, contentType: "image/jpeg" });
+
+      const proof = await submit(tx, fixture, paymentId, "bukti.jpg");
+
+      expect(proof.fileSizeBytes).toBe(31_337);
+    });
+  });
+});
+
 describe.skipIf(skipWithoutDatabase)("the lane's write precondition", () => {
   /**
    * THE DEFECT THIS PINS, end to end and through real services.
@@ -1209,8 +1342,6 @@ describe.skipIf(skipWithoutDatabase)("the lane's write precondition", () => {
           submittedByUserId: fixture.userId,
           r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
           originalFileName: "bukti.jpg",
-          fileSizeBytes: 2048,
-          contentType: "image/jpeg",
         },
         tx as never,
       );
@@ -1248,8 +1379,6 @@ describe.skipIf(skipWithoutDatabase)("the lane's write precondition", () => {
             submittedByUserId: fixture.userId,
             r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/second.jpg`,
             originalFileName: "bukti2.jpg",
-            fileSizeBytes: 4096,
-            contentType: "image/jpeg",
           },
           tx as never,
           NOW,
@@ -1565,8 +1694,6 @@ describe.skipIf(skipWithoutDatabase)("the proof review loop is CAS-guarded (real
             submittedByUserId: fixture.userId,
             r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/second.jpg`,
             originalFileName: "bukti2.jpg",
-            fileSizeBytes: 4096,
-            contentType: "image/jpeg",
           },
           tx as never,
           NOW,
@@ -1601,8 +1728,6 @@ describe.skipIf(skipWithoutDatabase)("the proof review loop is CAS-guarded (real
           submittedByUserId: fixture.userId,
           r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/second.jpg`,
           originalFileName: "bukti2.jpg",
-          fileSizeBytes: 4096,
-          contentType: "image/jpeg",
         },
         tx as never,
         NOW,
@@ -1784,8 +1909,6 @@ describe.skipIf(skipWithoutDatabase)("proof access is tenant-scoped (real databa
             submittedByUserId: fixture.other.userId,
             r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
             originalFileName: "bukti.jpg",
-            fileSizeBytes: 2048,
-            contentType: "image/jpeg",
           },
           tx as never,
         ),
@@ -1818,8 +1941,6 @@ describe.skipIf(skipWithoutDatabase)("proof access is tenant-scoped (real databa
             submittedByUserId: fixture.other.userId,
             r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/second.jpg`,
             originalFileName: "bukti2.jpg",
-            fileSizeBytes: 4096,
-            contentType: "image/jpeg",
           },
           tx as never,
           NOW,
@@ -1853,8 +1974,6 @@ describe.skipIf(skipWithoutDatabase)("proof access is tenant-scoped (real databa
             submittedByUserId: fixture.userId,
             r2Key: `payment-proofs/${fixture.other.competitionId}/someone-else/bukti.jpg`,
             originalFileName: "bukti2.jpg",
-            fileSizeBytes: 4096,
-            contentType: "image/jpeg",
           },
           tx as never,
           NOW,
@@ -1878,8 +1997,6 @@ describe.skipIf(skipWithoutDatabase)("the object key is held to its own payment'
         submittedByUserId: fixture.userId,
         r2Key,
         originalFileName: "bukti.jpg",
-        fileSizeBytes: 2048,
-        contentType: "image/jpeg",
       },
       tx as never,
     );
@@ -2002,8 +2119,6 @@ describe.skipIf(skipWithoutDatabase)("the object key is held to its own payment'
             submittedByUserId: fixture.userId,
             r2Key: traversal,
             originalFileName: "bukti2.jpg",
-            fileSizeBytes: 4096,
-            contentType: "image/jpeg",
           },
           tx as never,
           NOW,
@@ -4303,8 +4418,6 @@ describe.skipIf(skipWithoutDatabase)("the cancel affordance the page offers (rea
         submittedByUserId: fixture.userId,
         r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
         originalFileName: "bukti.jpg",
-        fileSizeBytes: 2048,
-        contentType: "image/jpeg",
       },
       tx as never,
     );
@@ -4543,8 +4656,6 @@ describe.skipIf(skipWithoutDatabase)("the cancel guards refuse BEFORE they write
         submittedByUserId: fixture.userId,
         r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
         originalFileName: "bukti.jpg",
-        fileSizeBytes: 2048,
-        contentType: "image/jpeg",
       },
       tx as never,
     );
@@ -4680,8 +4791,6 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
         submittedByUserId: fixture.userId,
         r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
         originalFileName: "bukti.jpg",
-        fileSizeBytes: 2048,
-        contentType: "image/jpeg",
       },
       tx as never,
     );
@@ -5044,8 +5153,6 @@ describe.skipIf(skipWithoutDatabase)("every A2 guard in the expiry worker (real 
         submittedByUserId: fixture.userId,
         r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
         originalFileName: "bukti.jpg",
-        fileSizeBytes: 2048,
-        contentType: "image/jpeg",
       },
       tx as never,
     );
@@ -5151,8 +5258,6 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
         submittedByUserId: fixture.userId,
         r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
         originalFileName: "bukti.jpg",
-        fileSizeBytes: 2048,
-        contentType: "image/jpeg",
       },
       tx as never,
     );
@@ -5238,8 +5343,6 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
           submittedByUserId: fixture.userId,
           r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti2.jpg`,
           originalFileName: "bukti2.jpg",
-          fileSizeBytes: 4096,
-          contentType: "image/jpeg",
         },
         tx as never,
         NOW,
@@ -5280,8 +5383,6 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
           submittedByUserId: fixture.userId,
           r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti2.jpg`,
           originalFileName: "bukti2.jpg",
-          fileSizeBytes: 4096,
-          contentType: "image/jpeg",
         },
         tx as never,
         NOW,
@@ -5677,8 +5778,6 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
         submittedByUserId: fixture.userId,
         r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
         originalFileName: "bukti.jpg",
-        fileSizeBytes: 2048,
-        contentType: "image/jpeg",
       },
       tx as never,
     );
@@ -5826,8 +5925,6 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
           submittedByUserId: fixture.userId,
           r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti2.jpg`,
           originalFileName: "bukti2.jpg",
-          fileSizeBytes: 4096,
-          contentType: "image/jpeg",
         },
         tx as never,
         NOW,
@@ -5870,8 +5967,6 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
           submittedByUserId: fixture.userId,
           r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti2.jpg`,
           originalFileName: "bukti2.jpg",
-          fileSizeBytes: 4096,
-          contentType: "image/jpeg",
         },
         tx as never,
         NOW,
@@ -5918,8 +6013,6 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
             submittedByUserId: fixture.userId,
             r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti2.jpg`,
             originalFileName: "bukti2.jpg",
-            fileSizeBytes: 4096,
-            contentType: "image/jpeg",
           },
           tx as never,
           NOW,
@@ -6203,8 +6296,6 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
         submittedByUserId: fixture.userId,
         r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
         originalFileName: "bukti.jpg",
-        fileSizeBytes: 2048,
-        contentType: "image/jpeg",
       },
       tx as never,
     );
@@ -6237,8 +6328,6 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
           submittedByUserId: fixture.userId,
           r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti2.jpg`,
           originalFileName: "bukti2.jpg",
-          fileSizeBytes: 4096,
-          contentType: "image/jpeg",
         },
         tx as never,
         NOW,
@@ -6288,8 +6377,6 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
             submittedByUserId: fixture.userId,
             r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti${index + 2}.jpg`,
             originalFileName: `bukti${index + 2}.jpg`,
-            fileSizeBytes: 4096,
-            contentType: "image/jpeg",
           },
           tx as never,
           NOW,
@@ -6343,8 +6430,6 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
           submittedByUserId: fixture.other.userId,
           r2Key: `payment-proofs/${fixture.other.competitionId}/${rivalPayment!.id}/bukti.jpg`,
           originalFileName: "bukti.jpg",
-          fileSizeBytes: 2048,
-          contentType: "image/jpeg",
         },
         tx as never,
       );

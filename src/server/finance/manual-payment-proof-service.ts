@@ -20,12 +20,15 @@ import { foldPaymentEvents } from "@/lib/finance/payment-state";
 import { recordFeeAccrual, recordFeeAccrualReversal } from "@/server/finance/fee-accrual-service";
 import { mintManualPaymentEventKey } from "@/server/finance/idempotency-key";
 import {
+  deleteObject,
   generatePresignedGetUrl,
   generatePresignedPutUrl,
+  headObject,
   isR2Available,
 } from "@/server/storage/r2.client";
 import {
   PAYMENT_PROOF_FORMAT_HINT,
+  PAYMENT_PROOF_MAX_BYTES,
   paymentProofMimeTypeForFileName,
 } from "@/lib/finance/payment-proof-file";
 import {
@@ -76,6 +79,8 @@ export type ManualProofErrorCode =
   | "manual_proof_invariant_violation"
   // The lane is shut because the money already settled one way or the other. Distinct from
   // `manual_proof_registration_cancelled`, which is shut because the participation is gone.
+  // A key that named no object. The upload never completed, or never happened.
+  | "manual_proof_object_missing"
   | "manual_proof_lane_closed"
   | "manual_proof_concurrently_modified";
 
@@ -105,6 +110,69 @@ export class ManualProofError extends Error {
  */
 export const buildManualProofObjectPrefix = (competitionId: string, paymentId: string): string =>
   `payment-proofs/${competitionId}/${paymentId}/`;
+
+/** What the row records about the file, derived from the name and confirmed against storage. */
+type ConfirmedProofObject = { contentType: string; fileSizeBytes: number };
+
+/**
+ * WHAT WAS ACTUALLY UPLOADED — never what the request said was uploaded.
+ *
+ * Both facts used to arrive in the request body and were written to the row unexamined, which cost
+ * two things.
+ *
+ * THE CONTENT TYPE went on to be handed to R2 as `ResponseContentType` on an `inline` presigned GET.
+ * A payer could declare `text/html` over an image upload and have storage serve executable markup
+ * to the organiser reviewing their receipt, or to the finance operator opening it during a dispute —
+ * the two highest-privilege humans who touch this lane. It is derived here from the file NAME
+ * against the accepted-extension list, and storage's own reported type is not trusted either: that
+ * value was set by whoever performed the upload. The bucket is a separate origin today, which is
+ * what keeps this out of the app's cookie scope; that changes the day R2 is fronted by a custom
+ * domain under the app's own domain, and this function is why that change stays survivable.
+ *
+ * THE SIZE, and the object's existence, were never checked at all. A key under the right prefix was
+ * accepted whether or not anything had been uploaded to it — so a payer could file an attempt with
+ * no file behind it, and every later "view" would write an audit row for a read that never happened.
+ * Resubmitting one key under two different names and sizes let the payer author their own evidence
+ * log, in the table a dispute is adjudicated from.
+ *
+ * This is the confirmation half of the pipeline the submissions and document lanes already run. The
+ * manual lane adopted the upload half and left this out.
+ */
+const confirmUploadedProofObject = async (
+  r2Key: string,
+  originalFileName: string,
+): Promise<ConfirmedProofObject> => {
+  const contentType = paymentProofMimeTypeForFileName(originalFileName);
+
+  if (!contentType) {
+    throw new ManualProofError(
+      "manual_proof_object_key_invalid",
+      `Format berkas bukti transfer tidak didukung — ${PAYMENT_PROOF_FORMAT_HINT}`,
+    );
+  }
+
+  const head = await headObject(r2Key);
+
+  if (!head) {
+    throw new ManualProofError(
+      "manual_proof_object_missing",
+      "Berkas bukti transfer belum selesai diunggah — silakan unggah ulang",
+      404,
+    );
+  }
+
+  if (head.sizeBytes <= 0 || head.sizeBytes > PAYMENT_PROOF_MAX_BYTES) {
+    // Removed rather than left behind: it is unreferenced from this moment on, and nothing sweeps
+    // this prefix — the retention job is deliberately excluded from it.
+    await deleteObject(r2Key);
+    throw new ManualProofError(
+      "manual_proof_object_key_invalid",
+      "Ukuran berkas bukti transfer tidak valid",
+    );
+  }
+
+  return { contentType, fileSizeBytes: head.sizeBytes };
+};
 
 // EVERY WRITE PATH IN THIS LANE, AND WHAT EACH ONE REQUIRES OF THE LANE.
 //
@@ -480,9 +548,8 @@ export type SubmitManualProofInput = {
   paymentId: string;
   submittedByUserId: string;
   r2Key: string;
+  // The NAME only. Size and type are read back from storage — see `confirmUploadedProofObject`.
   originalFileName: string;
-  fileSizeBytes: number;
-  contentType: string;
 };
 
 /**
@@ -533,6 +600,8 @@ export const submitManualPaymentProof = async (
 
   assertObjectKeyBelongsToPayment(input.r2Key, competitionId, payment.id);
 
+  const object = await confirmUploadedProofObject(input.r2Key, input.originalFileName);
+
   const created = await db.transaction(async (tx) => {
     const scoped = tx as unknown as Database;
 
@@ -549,8 +618,8 @@ export const submitManualPaymentProof = async (
         status: "pending_review",
         r2Key: input.r2Key,
         originalFileName: input.originalFileName,
-        fileSizeBytes: input.fileSizeBytes,
-        contentType: input.contentType,
+        fileSizeBytes: object.fileSizeBytes,
+        contentType: object.contentType,
       })
       .onConflictDoNothing({ target: financeManualPaymentProofs.paymentId })
       .returning();
@@ -826,9 +895,8 @@ export type ReopenManualProofInput = {
   // The payer refiling their own evidence. Scoped on in the query, never assumed by the caller.
   submittedByUserId: string;
   r2Key: string;
+  // The NAME only. Size and type are read back from storage — see `confirmUploadedProofObject`.
   originalFileName: string;
-  fileSizeBytes: number;
-  contentType: string;
 };
 
 /**
@@ -894,6 +962,8 @@ export const reopenManualPaymentProof = async (
 
   assertObjectKeyBelongsToPayment(input.r2Key, existing.competitionId, existing.paymentId);
 
+  const object = await confirmUploadedProofObject(input.r2Key, input.originalFileName);
+
   const proof = await db.transaction(async (tx) => {
     const scoped = tx as unknown as Database;
 
@@ -907,18 +977,18 @@ export const reopenManualPaymentProof = async (
     const [reopened] = await scoped
       .update(financeManualPaymentProofs)
       .set({
-      status: "pending_review",
-      r2Key: input.r2Key,
-      originalFileName: input.originalFileName,
-      fileSizeBytes: input.fileSizeBytes,
-      contentType: input.contentType,
-      resubmissionCount: sql`${financeManualPaymentProofs.resubmissionCount} + 1`,
-      reviewerUserId: null,
-      reviewedAt: null,
-      rejectionReason: null,
-      submittedAt: now,
-      updatedAt: now,
-    })
+        status: "pending_review",
+        r2Key: input.r2Key,
+        originalFileName: input.originalFileName,
+        fileSizeBytes: object.fileSizeBytes,
+        contentType: object.contentType,
+        resubmissionCount: sql`${financeManualPaymentProofs.resubmissionCount} + 1`,
+        reviewerUserId: null,
+        reviewedAt: null,
+        rejectionReason: null,
+        submittedAt: now,
+        updatedAt: now,
+      })
       .where(
         and(
           eq(financeManualPaymentProofs.id, input.proofId),

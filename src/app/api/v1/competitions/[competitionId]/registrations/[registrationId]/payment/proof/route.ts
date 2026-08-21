@@ -10,7 +10,6 @@ import {
   reopenManualPaymentProof,
   submitManualPaymentProof,
 } from "@/server/finance/manual-payment-proof-service";
-import { PAYMENT_PROOF_MAX_BYTES } from "@/lib/finance/payment-proof-file";
 
 type RouteContext = {
   params: Promise<{ competitionId: string; registrationId: string }>;
@@ -19,8 +18,6 @@ type RouteContext = {
 type ProofBody = {
   r2Key: string;
   originalFileName: string;
-  fileSizeBytes: number;
-  contentType: string;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -43,29 +40,22 @@ const readProofBody = async (request: Request): Promise<ProofBody> => {
   const body = isRecord(payload) ? payload : {};
   const r2Key = typeof body.r2Key === "string" ? body.r2Key : "";
   const originalFileName = typeof body.originalFileName === "string" ? body.originalFileName : "";
-  const fileSizeBytes = typeof body.fileSizeBytes === "number" ? body.fileSizeBytes : 0;
-  const contentType = typeof body.contentType === "string" ? body.contentType : "";
 
-  // The size is re-checked here even though the presign already ran, because the two are separate
-  // requests: nothing stops a caller presigning a small file and then declaring a large one. The
-  // authoritative limit on the OBJECT is R2's own; this bounds what the row may claim.
-  if (fileSizeBytes <= 0 || fileSizeBytes > PAYMENT_PROOF_MAX_BYTES) {
+  // ONLY THESE TWO ARE READ. The size and the content type used to be taken from the request too,
+  // and both are now read back from storage instead — a declared size bounded nothing, and a
+  // declared content type was handed to R2 as the response type on an inline view, which let a
+  // payer choose what the reviewer's browser would render. The request spreads into the service
+  // input, so a field parsed here is a field accepted; the way not to accept them is not to parse
+  // them.
+  if (originalFileName.trim().length === 0) {
     throw new ManualProofError(
       "manual_proof_object_key_invalid",
-      "Ukuran berkas bukti transfer tidak valid",
+      "Nama berkas bukti transfer wajib diisi",
       400,
     );
   }
 
-  if (originalFileName.trim().length === 0 || contentType.trim().length === 0) {
-    throw new ManualProofError(
-      "manual_proof_object_key_invalid",
-      "Nama dan tipe berkas bukti transfer wajib diisi",
-      400,
-    );
-  }
-
-  return { r2Key, originalFileName, fileSizeBytes, contentType };
+  return { r2Key, originalFileName };
 }
 
 /** The caller's payment, or the same non-committal 404 for every reason they cannot see one. */
