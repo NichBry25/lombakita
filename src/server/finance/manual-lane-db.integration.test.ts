@@ -4238,6 +4238,66 @@ describe.skipIf(skipWithoutDatabase)("organiser payment review across tenants (r
         expect(row!.payer.displayName).toContain("manual_");
       });
     });
+
+    it("counts the attempts BEFORE the card's own, on a decided card as well as a pending one", async () => {
+      // THE COUNT IS RIGHT ON ONE CARD AND WRONG ON THE OTHER, which is why every earlier test
+      // passed against it: they all looked at a proof awaiting review, where every attempt row on
+      // file genuinely is a prior one. The moment a verdict lands, the card's own attempt joins the
+      // table and a first-ever receipt starts announcing "1 bukti sebelumnya".
+      //
+      // One proof, walked through both states in the order an organiser meets them.
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { rejectManualPaymentProof, reopenManualPaymentProof } = await import(
+          "@/server/finance/manual-payment-proof-service"
+        );
+        const { loadOrganiserPaymentQueue } = await import(
+          "@/server/finance/organiser-payment-review"
+        );
+
+        const paymentId = await seedManualPayment(tx, fixture);
+        const proofId = await seedProof(tx, fixture, paymentId);
+
+        const priorAttemptsOnCard = async (): Promise<number> => {
+          const [row] = await loadOrganiserPaymentQueue(
+            fixture.institutionId,
+            fixture.competitionId,
+            tx as unknown as Database,
+          );
+          return row!.priorAttempts;
+        };
+
+        expect(await priorAttemptsOnCard()).toBe(0);
+
+        await rejectManualPaymentProof(
+          fixture.institutionId,
+          fixture.userId,
+          proofId,
+          "nominal transfer tidak sesuai",
+          true,
+          tx as never,
+          NOW,
+        );
+
+        // DECIDED, and still the only receipt anyone has sent. This is the assertion the defect
+        // fails: the rejection filed attempt 0, and counting it makes the card cite itself.
+        expect(await priorAttemptsOnCard()).toBe(0);
+
+        await reopenManualPaymentProof(
+          {
+            proofId,
+            submittedByUserId: fixture.userId,
+            r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/second.jpg`,
+            originalFileName: "bukti2.jpg",
+          },
+          tx as never,
+          NOW,
+        );
+
+        // PENDING again, and now there really is one attempt behind the one on screen.
+        expect(await priorAttemptsOnCard()).toBe(1);
+      });
+    });
   });
 
   describe("verifyManualPaymentProof", () => {

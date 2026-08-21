@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/finance/organiser-payment-review");
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   candidateProfiles,
@@ -136,12 +136,18 @@ export const loadOrganiserPaymentQueue = async (
 };
 
 /**
- * How many CLOSED attempts each proof already has.
+ * How many attempts each proof closed BEFORE the one on screen.
  *
  * Surfaced because it changes what a reviewer is looking at: a third receipt for one payment is a
  * different situation from a first, and the live row alone cannot say so — `resubmission_count` is
  * the same number but reads as an implementation detail, while "2 percobaan sebelumnya" is the fact
  * the reviewer needs.
+ *
+ * BOUNDED BY `resubmission_count`, WHICH IS THE INDEX OF THE ATTEMPT ON SCREEN. Counting every
+ * attempt row instead counted the card's own verdict the moment one was filed, so a first-ever
+ * proof announced "1 bukti sebelumnya" as soon as it was rejected — right on a pending card, wrong
+ * on every decided one, which is why it read as correct for as long as nobody looked at a card
+ * after ruling on it.
  */
 const countPriorAttempts = async (
   proofIds: string[],
@@ -150,7 +156,19 @@ const countPriorAttempts = async (
   const rows = await db
     .select({ proofId: financeManualPaymentProofAttempts.proofId })
     .from(financeManualPaymentProofAttempts)
-    .where(inArray(financeManualPaymentProofAttempts.proofId, proofIds));
+    .innerJoin(
+      financeManualPaymentProofs,
+      eq(financeManualPaymentProofs.id, financeManualPaymentProofAttempts.proofId),
+    )
+    .where(
+      and(
+        inArray(financeManualPaymentProofAttempts.proofId, proofIds),
+        lt(
+          financeManualPaymentProofAttempts.attemptNumber,
+          financeManualPaymentProofs.resubmissionCount,
+        ),
+      ),
+    );
 
   const counts = new Map<string, number>();
   for (const row of rows) {
