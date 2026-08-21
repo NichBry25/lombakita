@@ -200,13 +200,18 @@ export const cancelCompetitionAsOps = async (
 };
 
 /**
- * Voids a bukti transfer that is awaiting review, past the point an organiser can act on it.
+ * Voids a bukti transfer that no organiser will act on again — one awaiting review, or one they
+ * rejected and barred from resubmission.
+ *
+ * TWO POPULATIONS, ONE ACTION. Voiding a pending proof releases the DEC-0132 unpublish block that is
+ * holding a competition open. Voiding a rejected-and-barred one releases a PERSON: the payer has no
+ * resubmission, no cancel affordance and no organiser control left, and this is the only route back.
+ * A verified proof stays out of reach in both cases — the service's CAS refuses it.
  *
  * NO FINANCE EVENT IS WRITTEN, and this is the property that makes the action safe to expose.
  * Nothing was confirmed received, so there is nothing to record as succeeded, failed or refunded;
  * writing any event would put a claim about a payer's money into an append-only ledger that nobody
- * is in a position to make. The proof simply stops being in flight, which releases the DEC-0132
- * unpublish block.
+ * is in a position to make.
  */
 export const voidPaymentProofAsOps = async (
   actorUserId: string,

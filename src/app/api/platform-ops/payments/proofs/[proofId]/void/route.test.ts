@@ -115,13 +115,13 @@ describe("POST /api/platform-ops/payments/proofs/[proofId]/void", () => {
   it("passes a proof-domain refusal through with its own code and status", async () => {
     // The service throws two error families and the route must not flatten one into a 500.
     voidPaymentProofAsOps.mockRejectedValue(
-      new ManualProofError("manual_proof_not_pending", "already reviewed", 409),
+      new ManualProofError("manual_proof_not_voidable", "already verified", 409),
     );
 
     const response = await POST(postBody({ reason: "x" }), { params });
     const data = (await response.json()) as { error: { code: string } };
 
     expect(response.status).toBe(409);
-    expect(data.error.code).toBe("manual_proof_not_pending");
+    expect(data.error.code).toBe("manual_proof_not_voidable");
   });
 });

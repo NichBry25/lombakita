@@ -2,17 +2,21 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/finance/ops-payment-review");
 
-import { and, desc, eq, gt, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, ne } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   candidateProfiles,
+  competitionRegistrations,
   competitions,
   financeManualPaymentProofs,
   financePayments,
   institutions,
   users,
 } from "@/server/db/schema";
-import { IN_FLIGHT_PROOF_STATUSES, type ManualPaymentProofStatus } from "@/lib/finance/payment-model";
+import {
+  IN_FLIGHT_PROOF_STATUSES,
+  type ManualPaymentProofStatus,
+} from "@/lib/finance/payment-model";
 
 // WHAT THE ESCAPE HATCH CAN SEE.
 //
@@ -28,6 +32,11 @@ import { IN_FLIGHT_PROOF_STATUSES, type ManualPaymentProofStatus } from "@/lib/f
 //
 // Cross-tenant by design and NOT a leak: platform_ops is the one role whose whole job spans
 // institutions, and every page under /admin is gated on it plus the operational MFA challenge.
+//
+// TWO LISTS, TWO DIFFERENT QUESTIONS. The blocked list answers "which competitions cannot be
+// withdrawn"; `loadOpsBarredProofs` answers "which payers cannot move". They are read separately
+// because a barred proof blocks nothing — it is decided — and folding it into the in-flight
+// constant would change the unpublish guard while pretending to change a page.
 
 export type OpsInFlightProof = {
   proofId: string;
@@ -43,12 +52,28 @@ export type OpsInFlightProof = {
   /**
    * Whether THIS proof can be voided.
    *
-   * Void CASes on `pending_review`, so a verified proof cannot be voided — the ledger already
-   * carries a `succeeded` event and reversing it is a different action this surface does not own.
-   * Resolved here rather than in the component so the control is WITHHELD on the rows that would
-   * be refused, instead of rendered and then refused (DEC-0131's presentation rule).
+   * A verified proof cannot: the ledger already carries a `succeeded` event and reversing it is a
+   * different action this surface does not own. Every other row in this list is pending, so the
+   * flag is only ever false on the verified ones. Resolved here rather than in the component so the
+   * control is WITHHELD on the rows that would be refused, instead of rendered and then refused.
    */
   voidable: boolean;
+};
+
+/** A payer the organiser barred, whom only a void can release. */
+export type OpsBarredProof = {
+  proofId: string;
+  paymentId: string;
+  submittedAt: Date;
+  attempt: number;
+  /** The organiser's stated reason for the refusal, shown so the operator rules on the same facts. */
+  rejectionReason: string | null;
+  grossAmount: number;
+  currency: string;
+  dueAt: Date | null;
+  payerDisplayName: string;
+  competitionTitle: string;
+  institutionSlug: string;
 };
 
 export type OpsBlockedCompetition = {
@@ -143,4 +168,71 @@ export const loadOpsBlockedCompetitions = async (
   }
 
   return [...byCompetition.values()];
+};
+
+/**
+ * Payers the organiser barred from trying again — the population the void's second arm exists for.
+ *
+ * A SEPARATE READ FROM THE BLOCKED LIST, on purpose. `IN_FLIGHT_PROOF_STATUSES` answers "what is
+ * holding this competition open", and a barred proof holds nothing open: it is decided, the
+ * organiser can unpublish freely, and widening that constant to include it would silently change
+ * the DEC-0132 unpublish guard as a side effect of adding a list to a page.
+ *
+ * These two lists exist for opposite reasons. The first is a competition that cannot be withdrawn;
+ * this one is a person who cannot move. Without it the operator's only route to a barred proof is
+ * to know its id, which is the hatch-only-its-author-can-open problem this page was built to solve.
+ *
+ * Scoped to registrations that are still live. Once the sweep has cancelled the registration the
+ * lane is shut, a resubmission would be refused anyway, and offering the void there would be a
+ * control that resolves nothing.
+ */
+export const loadOpsBarredProofs = async (db: Database = getDb()): Promise<OpsBarredProof[]> => {
+  const rows = await db
+    .select({
+      proofId: financeManualPaymentProofs.id,
+      paymentId: financeManualPaymentProofs.paymentId,
+      submittedAt: financeManualPaymentProofs.submittedAt,
+      attempt: financeManualPaymentProofs.resubmissionCount,
+      rejectionReason: financeManualPaymentProofs.rejectionReason,
+      grossAmount: financePayments.grossAmount,
+      currency: financePayments.currency,
+      dueAt: financePayments.dueAt,
+      username: users.username,
+      fullName: candidateProfiles.fullName,
+      competitionTitle: competitions.title,
+      institutionSlug: institutions.slug,
+    })
+    .from(financeManualPaymentProofs)
+    .innerJoin(financePayments, eq(financePayments.id, financeManualPaymentProofs.paymentId))
+    .innerJoin(
+      competitionRegistrations,
+      eq(competitionRegistrations.id, financePayments.competitionRegistrationId),
+    )
+    .innerJoin(competitions, eq(competitions.id, financeManualPaymentProofs.competitionId))
+    .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
+    .innerJoin(users, eq(users.id, financePayments.payerUserId))
+    .leftJoin(candidateProfiles, eq(candidateProfiles.userId, financePayments.payerUserId))
+    .where(
+      and(
+        eq(financeManualPaymentProofs.status, "rejected"),
+        eq(financeManualPaymentProofs.resubmissionAllowed, false),
+        ne(competitionRegistrations.status, "cancelled"),
+        gt(financePayments.grossAmount, 0),
+      ),
+    )
+    .orderBy(desc(financeManualPaymentProofs.submittedAt));
+
+  return rows.map((row) => ({
+    proofId: row.proofId,
+    paymentId: row.paymentId,
+    submittedAt: row.submittedAt,
+    attempt: row.attempt,
+    rejectionReason: row.rejectionReason,
+    grossAmount: row.grossAmount,
+    currency: row.currency,
+    dueAt: row.dueAt,
+    payerDisplayName: row.fullName ?? row.username,
+    competitionTitle: row.competitionTitle,
+    institutionSlug: row.institutionSlug,
+  }));
 };

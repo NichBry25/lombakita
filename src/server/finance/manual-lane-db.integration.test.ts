@@ -1940,6 +1940,172 @@ describe.skipIf(skipWithoutDatabase)("the proof review loop is CAS-guarded (real
       expect(events).toHaveLength(0);
     });
   });
+
+  // THE POPULATION THE SECOND ARM EXISTS FOR, and the one move that must stay refused.
+  //
+  // An organiser who rejects with the bar set leaves the payer with nothing: no resubmission, no
+  // cancel affordance, no organiser control to appeal to. The void is the only release, so the CAS
+  // accepts `rejected` as well as `pending_review` — and `verified` is what it must still refuse,
+  // because a voided row standing over a `succeeded` ledger event is a claim about somebody's money
+  // that no reachable path can withdraw.
+  describe("voiding a proof the organiser barred", () => {
+    it("REFUSES a verified proof, leaving the succeeded event and the accrual standing", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { verifyManualPaymentProof, voidManualPaymentProof } = await import(
+          "@/server/finance/manual-payment-proof-service"
+        );
+        const { financePaymentEvents } = await import("@/server/db/schema");
+
+        const paymentId = await seedManualPayment(tx, fixture);
+        const proofId = await seedProof(tx, fixture, paymentId);
+
+        await verifyManualPaymentProof(
+          fixture.institutionId,
+          fixture.userId,
+          proofId,
+          tx as never,
+          NOW,
+        );
+
+        await expect(
+          voidManualPaymentProof(fixture.userId, proofId, "permintaan dukungan", tx as never, NOW),
+        ).rejects.toMatchObject({ code: "manual_proof_not_voidable" });
+
+        const [after] = await tx
+          .select({
+            status: financeManualPaymentProofs.status,
+            attempt: financeManualPaymentProofs.resubmissionCount,
+          })
+          .from(financeManualPaymentProofs)
+          .where(eq(financeManualPaymentProofs.id, proofId));
+
+        expect(after!.status).toBe("verified");
+        expect(after!.attempt).toBe(0);
+
+        // The two rows the harmful move would have orphaned.
+        const events = await tx
+          .select({ eventType: financePaymentEvents.eventType })
+          .from(financePaymentEvents)
+          .where(eq(financePaymentEvents.paymentId, paymentId));
+        expect(events.map((event) => event.eventType)).toContain("succeeded");
+
+        const accruals = await tx
+          .select({ id: financeFeeAccruals.id })
+          .from(financeFeeAccruals)
+          .where(eq(financeFeeAccruals.paymentId, paymentId));
+        expect(accruals).toHaveLength(1);
+      });
+    });
+
+    it("voids a rejected-and-barred proof, files the void at the NEXT attempt index, and releases the payer", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { rejectManualPaymentProof, reopenManualPaymentProof, voidManualPaymentProof } =
+          await import("@/server/finance/manual-payment-proof-service");
+        const { financePaymentEvents } = await import("@/server/db/schema");
+
+        const paymentId = await seedManualPayment(tx, fixture);
+        const proofId = await seedProof(tx, fixture, paymentId);
+
+        await rejectManualPaymentProof(
+          fixture.institutionId,
+          fixture.userId,
+          proofId,
+          "bukti tidak terbaca",
+          false,
+          tx as never,
+          NOW,
+        );
+
+        const voided = await voidManualPaymentProof(
+          fixture.userId,
+          proofId,
+          "peserta mengirim bukti sah ke dukungan",
+          tx as never,
+          NOW,
+        );
+
+        expect(voided.status).toBe("voided");
+        // BUMPED, because attempt 0 is already occupied by the rejection. Reusing it would violate
+        // (proof_id, attempt_number) and fail on exactly the population this arm rescues.
+        expect(voided.resubmissionCount).toBe(1);
+
+        const attempts = await tx
+          .select({
+            attemptNumber: financeManualPaymentProofAttempts.attemptNumber,
+            verdict: financeManualPaymentProofAttempts.verdict,
+          })
+          .from(financeManualPaymentProofAttempts)
+          .where(eq(financeManualPaymentProofAttempts.proofId, proofId))
+          .orderBy(financeManualPaymentProofAttempts.attemptNumber);
+
+        // Contiguous from zero, so the history reads "Percobaan ke-1" then "Percobaan ke-2".
+        expect(attempts.map((attempt) => [attempt.attemptNumber, attempt.verdict])).toEqual([
+          [0, "rejected"],
+          [1, "voided"],
+        ]);
+
+        // No verdict about the money was reached, so the ledger still says nothing.
+        const events = await tx
+          .select({ id: financePaymentEvents.id })
+          .from(financePaymentEvents)
+          .where(eq(financePaymentEvents.paymentId, paymentId));
+        expect(events).toHaveLength(0);
+
+        // THE POINT OF THE WHOLE ARM: the payer can move again, even though the organiser's bar is
+        // still recorded as false.
+        const reopened = await reopenManualPaymentProof(
+          {
+            proofId,
+            submittedByUserId: fixture.userId,
+            r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/third.jpg`,
+            originalFileName: "bukti3.jpg",
+          },
+          tx as never,
+          NOW,
+        );
+
+        expect(reopened.status).toBe("pending_review");
+        expect(reopened.resubmissionCount).toBe(2);
+        expect(reopened.resubmissionAllowed).toBe(false);
+      });
+    });
+
+    it("does NOT bump the attempt when the proof was still pending, so the first attempt is numbered zero", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { voidManualPaymentProof } = await import(
+          "@/server/finance/manual-payment-proof-service"
+        );
+
+        const paymentId = await seedManualPayment(tx, fixture);
+        const proofId = await seedProof(tx, fixture, paymentId);
+
+        const voided = await voidManualPaymentProof(
+          fixture.userId,
+          proofId,
+          "diunggah ke pendaftaran yang keliru",
+          tx as never,
+          NOW,
+        );
+
+        // Nothing is filed at index 0 yet on a pending proof, so the void takes it. Bumping here
+        // would leave attempt 0 empty and print the very first entry as "Percobaan ke-2".
+        expect(voided.resubmissionCount).toBe(0);
+
+        const attempts = await tx
+          .select({
+            attemptNumber: financeManualPaymentProofAttempts.attemptNumber,
+            verdict: financeManualPaymentProofAttempts.verdict,
+          })
+          .from(financeManualPaymentProofAttempts)
+          .where(eq(financeManualPaymentProofAttempts.proofId, proofId));
+
+        expect(attempts).toEqual([{ attemptNumber: 0, verdict: "voided" }]);
+      });
+    });
+  });
 });
 
 describe.skipIf(skipWithoutDatabase)("proof access is tenant-scoped (real database)", () => {
@@ -6238,17 +6404,17 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
     });
   });
 
-  it("holds the organiser's bar against a REJECTED proof, which is the only row that can carry one", async () => {
-    // THE VOIDED ARM'S BAR-BYPASS IS UNREACHABLE, and this test is where that is shown rather than
-    // asserted. `resubmission_allowed = false` is written by exactly one function — the organiser's
-    // rejection — which leaves the row `rejected`. Void CASes on `pending_review`. The only path
-    // from `rejected` back to `pending_review` is the reopen, whose rejected arm REQUIRES the bar
-    // to be true. So a barred row can never become a voided row, and `status = 'voided'` ignoring
-    // the bar is defensive rather than load-bearing today.
+  it("holds the organiser's bar against a REJECTED proof, which the candidate alone cannot lift", async () => {
+    // WHERE THE BAR STOPS AND WHO CAN LIFT IT. `resubmission_allowed = false` is written by exactly
+    // one function — the organiser's rejection — and the reopen's rejected arm REQUIRES the bar to
+    // be true, so the candidate has no move from here. That is the whole intent of the checkbox and
+    // this test pins it.
     //
-    // It is kept, not deleted: the arm costs nothing and the day a second writer of the bar appears
-    // — a platform_ops bar, an automated one — the state becomes reachable and the bypass is
-    // already correct. What must not happen is a UI reintroducing the bar on the voided path.
+    // THE VOIDED ARM'S BAR-BYPASS IS THE RELEASE, and it is load-bearing rather than defensive: the
+    // void CAS accepts `rejected`, so platform_ops can carry a barred row to `voided`, from which
+    // the reopen lets the payer through regardless of the organiser's setting. The sibling test in
+    // "voiding a proof the organiser barred" walks that path. What must not happen is a UI
+    // reintroducing the bar on the voided path, which would re-strand the person it exists to save.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const { rejectManualPaymentProof, reopenManualPaymentProof } = await import(

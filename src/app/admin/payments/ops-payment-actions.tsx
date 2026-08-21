@@ -2,9 +2,17 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, Feedback, FormField, FormLabel, FormTextarea } from "@/components/ui";
+import {
+  Button,
+  Card,
+  EmptyState,
+  Feedback,
+  FormField,
+  FormLabel,
+  FormTextarea,
+} from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
-import { formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
+import { asSentence, formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
 import { capitalizeWord } from "@/lib/text/capitalize";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
@@ -31,6 +39,19 @@ export type OpsCompetitionView = {
   proofs: OpsProofView[];
 };
 
+export type OpsBarredProofView = {
+  proofId: string;
+  submittedAt: string;
+  attempt: number;
+  rejectionReason: string | null;
+  grossAmount: number;
+  currency: string;
+  dueAt: string | null;
+  payerDisplayName: string;
+  competitionTitle: string;
+  institutionSlug: string;
+};
+
 /**
  * The DEC-0132 escape hatch, as an operator uses it.
  *
@@ -44,7 +65,13 @@ export type OpsCompetitionView = {
  * does not make the product safer — it deletes the escape hatch and strands the organiser the block
  * was protecting the candidate from.
  */
-export function OpsPaymentActions({ competitions }: { competitions: OpsCompetitionView[] }) {
+export function OpsPaymentActions({
+  competitions,
+  barredProofs,
+}: {
+  competitions: OpsCompetitionView[];
+  barredProofs: OpsBarredProofView[];
+}) {
   const router = useRouter();
   const { addToast } = useToast();
   const { openModal, closeModal } = useModal();
@@ -109,6 +136,32 @@ export function OpsPaymentActions({ competitions }: { competitions: OpsCompetiti
     });
   };
 
+  // The same dialog and the same endpoint as a pending void — only the warning differs, because
+  // what this one releases is a person rather than a competition.
+  const openBarredVoid = (proof: OpsBarredProofView) => {
+    openModal({
+      title: "Batalkan bukti transfer",
+      body: (
+        <ReasonForm
+          intro={`${proof.payerDisplayName} · ${formatRupiah(proof.grossAmount, proof.currency)} · ${proof.competitionTitle}`}
+          warning="Penyelenggara menolak bukti ini dan melarang pengiriman ulang, sehingga peserta tidak dapat berbuat apa pun. Membatalkannya membuka kembali kesempatan mengirim bukti baru sebelum batas waktu. Tidak ada catatan keuangan yang ditulis dan tidak ada keputusan atas dananya."
+          placeholder="Contoh: peserta menghubungi dukungan dengan bukti transfer yang sah."
+          submitLabel="Batalkan bukti transfer"
+          onSubmit={(reason) =>
+            post(
+              `void:${proof.proofId}`,
+              `/api/platform-ops/payments/proofs/${proof.proofId}/void`,
+              reason,
+              "Bukti transfer dibatalkan.",
+            )
+          }
+          onDone={closeModal}
+        />
+      ),
+      actions: [],
+    });
+  };
+
   const openCancel = (competition: OpsCompetitionView) => {
     openModal({
       title: "Batalkan kompetisi",
@@ -137,109 +190,199 @@ export function OpsPaymentActions({ competitions }: { competitions: OpsCompetiti
   };
 
   return (
-    <ul className="record-list">
-      {competitions.map((competition) => (
-        <li key={competition.competitionId}>
-          <Card variant="surface" className="stack-md">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">{competition.institutionSlug}</p>
-                <h2>{competition.title}</h2>
-              </div>
-              {/* Both values must be tones the stylesheet defines; `warning` and `neutral` are not
-                  among them, and a badge carrying an undefined tone renders as an uncoloured pill
-                  with no dot rather than failing anywhere a reviewer would see it. */}
-              <span
-                className="status-badge"
-                data-status={competition.cancellable ? "open" : "closed"}
-              >
-                {competition.cancellable ? "Terbit" : "Tidak terbit"}
-              </span>
-            </div>
-
-            <ul className="record-list">
-              {competition.proofs.map((proof) => (
-                <li key={proof.proofId}>
-                  <div className="inset-panel stack-sm">
-                    <div className="section-heading">
-                      <div>
-                        <h3>{proof.payerDisplayName}</h3>
-                        <p className="muted-copy">
-                          {formatRupiah(proof.grossAmount, proof.currency)}
-                          {proof.attempt > 0 ? ` · percobaan ke-${proof.attempt + 1}` : ""}
-                        </p>
-                      </div>
-                      <span className="status-badge" data-status={PROOF_STATUS_TONES[proof.status]}>
-                        {PROOF_STATUS_LABELS[proof.status]}
-                      </span>
+    <>
+      <section className="content-section">
+        <h2>Kompetisi tertahan</h2>
+        {competitions.length === 0 ? (
+          <EmptyState
+            icon="check"
+            title="Tidak ada pembayaran yang tertahan"
+            description="Setiap kompetisi berbayar dapat ditarik penyelenggaranya sendiri saat ini."
+          />
+        ) : (
+          <ul className="record-list">
+            {competitions.map((competition) => (
+              <li key={competition.competitionId}>
+                <Card variant="surface" className="stack-md">
+                  <div className="section-heading">
+                    <div>
+                      <p className="eyebrow">{competition.institutionSlug}</p>
+                      <h3>{competition.title}</h3>
                     </div>
+                    {/* Both values must be tones the stylesheet defines; `warning` and `neutral` are not
+                      among them, and a badge carrying an undefined tone renders as an uncoloured pill
+                      with no dot rather than failing anywhere a reviewer would see it. */}
+                    <span
+                      className="status-badge"
+                      data-status={competition.cancellable ? "open" : "closed"}
+                    >
+                      {competition.cancellable ? "Terbit" : "Tidak terbit"}
+                    </span>
+                  </div>
 
-                    <dl className="detail-grid">
+                  <ul className="record-list">
+                    {competition.proofs.map((proof) => (
+                      <li key={proof.proofId}>
+                        <div className="inset-panel stack-sm">
+                          <div className="section-heading">
+                            <div>
+                              <h4>{proof.payerDisplayName}</h4>
+                              <p className="muted-copy">
+                                {formatRupiah(proof.grossAmount, proof.currency)}
+                                {proof.attempt > 0 ? ` · percobaan ke-${proof.attempt + 1}` : ""}
+                              </p>
+                            </div>
+                            <span
+                              className="status-badge"
+                              data-status={PROOF_STATUS_TONES[proof.status]}
+                            >
+                              {PROOF_STATUS_LABELS[proof.status]}
+                            </span>
+                          </div>
+
+                          <dl className="detail-grid">
+                            <div>
+                              <dt>Dikirim</dt>
+                              <dd>
+                                <time dateTime={proof.submittedAt}>
+                                  {formatFinanceDateTime(proof.submittedAt)}
+                                </time>
+                              </dd>
+                            </div>
+                            {proof.dueAt ? (
+                              <div>
+                                <dt>Batas waktu</dt>
+                                <dd>
+                                  <time dateTime={proof.dueAt}>
+                                    {formatFinanceDateTime(proof.dueAt)}
+                                  </time>
+                                </dd>
+                              </div>
+                            ) : null}
+                          </dl>
+
+                          {/* WITHHELD, not disabled, on a verified proof. The void CAS accepts only
+                            `pending_review`; a disabled button would advertise an action this surface
+                            cannot perform and send the operator looking for the permission to enable
+                            it. The sentence below says what would have to happen instead. */}
+                          {proof.voidable ? (
+                            <div className="record-actions">
+                              <Button
+                                type="button"
+                                variant="danger"
+                                size="sm"
+                                loading={pending === `void:${proof.proofId}`}
+                                onClick={() => openVoid(competition, proof)}
+                              >
+                                Batalkan bukti transfer
+                              </Button>
+                            </div>
+                          ) : (
+                            <p className="muted-copy">
+                              Sudah diverifikasi penyelenggara — pembatalan bukti tidak berlaku
+                              lagi. Koreksi pembayaran yang sudah diverifikasi ditangani terpisah.
+                            </p>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {competition.cancellable ? (
+                    <div className="record-actions">
+                      <Button
+                        type="button"
+                        variant="danger"
+                        loading={pending === `cancel:${competition.competitionId}`}
+                        onClick={() => openCancel(competition)}
+                      >
+                        Batalkan kompetisi
+                      </Button>
+                    </div>
+                  ) : (
+                    <Feedback tone="info">
+                      {`Kompetisi ini berstatus ${capitalizeWord(competition.status)}, bukan Terbit, sehingga tidak ada penarikan yang perlu diambil alih.`}
+                    </Feedback>
+                  )}
+                </Card>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* THE SECOND LIST, AND THE ONLY ROUTE TO IT. These proofs hold no competition open, so they
+          never appear above — but their payers cannot resubmit, cannot cancel, and have no
+          organiser control left to appeal to. Without this section an operator could release them
+          only by knowing a proof id. */}
+      {barredProofs.length > 0 && (
+        <section className="content-section">
+          <h2>Peserta yang tidak dapat mengirim ulang</h2>
+          <p className="muted-copy">
+            Penyelenggara menolak bukti transfer ini dan melarang pengiriman ulang. Hanya tim
+            Lombakita yang dapat membuka kembali kesempatan itu sebelum batas waktu terlewat.
+          </p>
+          <ul className="record-list">
+            {barredProofs.map((proof) => (
+              <li key={proof.proofId}>
+                <Card variant="surface" className="stack-sm">
+                  <div className="section-heading">
+                    <div>
+                      <p className="eyebrow">{proof.institutionSlug}</p>
+                      <h3>{proof.payerDisplayName}</h3>
+                      <p className="muted-copy">
+                        {`${formatRupiah(proof.grossAmount, proof.currency)} · ${proof.competitionTitle}`}
+                        {proof.attempt > 0 ? ` · percobaan ke-${proof.attempt + 1}` : ""}
+                      </p>
+                    </div>
+                    <span className="status-badge" data-status="cancelled">
+                      Dilarang mengirim ulang
+                    </span>
+                  </div>
+
+                  <dl className="detail-grid">
+                    <div>
+                      <dt>Dikirim</dt>
+                      <dd>
+                        <time dateTime={proof.submittedAt}>
+                          {formatFinanceDateTime(proof.submittedAt)}
+                        </time>
+                      </dd>
+                    </div>
+                    {proof.dueAt ? (
                       <div>
-                        <dt>Dikirim</dt>
+                        <dt>Batas waktu</dt>
                         <dd>
-                          <time dateTime={proof.submittedAt}>
-                            {formatFinanceDateTime(proof.submittedAt)}
-                          </time>
+                          <time dateTime={proof.dueAt}>{formatFinanceDateTime(proof.dueAt)}</time>
                         </dd>
                       </div>
-                      {proof.dueAt ? (
-                        <div>
-                          <dt>Batas waktu</dt>
-                          <dd>
-                            <time dateTime={proof.dueAt}>{formatFinanceDateTime(proof.dueAt)}</time>
-                          </dd>
-                        </div>
-                      ) : null}
-                    </dl>
+                    ) : null}
+                  </dl>
 
-                    {/* WITHHELD, not disabled, on a verified proof. The void CAS accepts only
-                        `pending_review`; a disabled button would advertise an action this surface
-                        cannot perform and send the operator looking for the permission to enable
-                        it. The sentence below says what would have to happen instead. */}
-                    {proof.voidable ? (
-                      <div className="record-actions">
-                        <Button
-                          type="button"
-                          variant="danger"
-                          size="sm"
-                          loading={pending === `void:${proof.proofId}`}
-                          onClick={() => openVoid(competition, proof)}
-                        >
-                          Batalkan bukti transfer
-                        </Button>
-                      </div>
-                    ) : (
-                      <p className="muted-copy">
-                        Sudah diverifikasi penyelenggara — pembatalan bukti tidak berlaku lagi.
-                        Koreksi pembayaran yang sudah diverifikasi ditangani terpisah.
-                      </p>
-                    )}
+                  {proof.rejectionReason ? (
+                    <Feedback tone="info">
+                      {`Alasan penyelenggara: ${asSentence(proof.rejectionReason)}`}
+                    </Feedback>
+                  ) : null}
+
+                  <div className="record-actions">
+                    <Button
+                      type="button"
+                      variant="danger"
+                      size="sm"
+                      loading={pending === `void:${proof.proofId}`}
+                      onClick={() => openBarredVoid(proof)}
+                    >
+                      Batalkan bukti transfer
+                    </Button>
                   </div>
-                </li>
-              ))}
-            </ul>
-
-            {competition.cancellable ? (
-              <div className="record-actions">
-                <Button
-                  type="button"
-                  variant="danger"
-                  loading={pending === `cancel:${competition.competitionId}`}
-                  onClick={() => openCancel(competition)}
-                >
-                  Batalkan kompetisi
-                </Button>
-              </div>
-            ) : (
-              <Feedback tone="info">
-                {`Kompetisi ini berstatus ${capitalizeWord(competition.status)}, bukan Terbit, sehingga tidak ada penarikan yang perlu diambil alih.`}
-              </Feedback>
-            )}
-          </Card>
-        </li>
-      ))}
-    </ul>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </>
   );
 }
 

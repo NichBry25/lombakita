@@ -66,6 +66,10 @@ export type ManualProofErrorCode =
   | "manual_proof_already_submitted"
   | "manual_proof_registration_cancelled"
   | "manual_proof_not_pending"
+  // The void found a proof it may not close: verified, or already voided. Deliberately NOT
+  // `manual_proof_not_pending`, which would now be a false statement about the row — a rejected
+  // proof is not pending and is voidable precisely so a barred payer can be released.
+  | "manual_proof_not_voidable"
   | "manual_proof_resubmission_barred"
   | "manual_proof_not_rejected"
   | "manual_proof_reason_required"
@@ -1033,8 +1037,24 @@ export const reopenManualPaymentProof = async (
 };
 
 /**
- * Closes out a pending bukti transfer without ruling on the money — the DEC-0132 escape hatch, for
- * `platform_ops` only.
+ * Closes out an unsettled bukti transfer without ruling on the money — the DEC-0132 escape hatch,
+ * for `platform_ops` only.
+ *
+ * ACCEPTS A REJECTED PROOF AS WELL AS A PENDING ONE, AND THAT IS THE WHOLE POINT OF THE SECOND ARM.
+ * A rejection carrying `resubmission_allowed = false` was otherwise terminal: the payer cannot
+ * resubmit, cannot cancel (a proof exists, so that affordance is withheld), the organiser's queue
+ * withholds every control on a decided proof, and this function refused because the row was no
+ * longer pending. The registration then expired and nothing in the product could prevent it, while
+ * the copy told the payer to contact an organiser who had no control to help them with.
+ *
+ * `reopenManualPaymentProof` already accepts `voided` and already bypasses the organiser's bar, so
+ * once a rejected proof can be voided the documented path works end to end with no new concept.
+ * Before this, that bar-bypass arm was unreachable for every proof that had a bar: by the time one
+ * existed the proof was `rejected`, and `rejected` could not be voided.
+ *
+ * WHAT MAKES THE ORGANISER'S BAR SAFE TO OFFER. An organiser may refuse a resubmission because
+ * somebody can still undo it. Without this arm the checkbox hands a permanent sentence to a
+ * reviewer who is only trying to stop a fourth blurred photograph.
  *
  * NO FINANCE EVENT IS WRITTEN, and that is the defining property. Nothing was confirmed received,
  * so there is nothing to record as having succeeded, failed or been refunded; writing any event
@@ -1069,20 +1089,33 @@ export const voidManualPaymentProof = async (
         reviewerUserId: actorUserId,
         rejectionReason: trimmedReason,
         reviewedAt: now,
+        // THE ATTEMPT INDEX THIS VOID WILL OCCUPY, decided from the state it is closing.
+        //
+        // On a pending proof nothing has been filed at the current index yet, so the void takes it
+        // and the numbering stays contiguous. On a REJECTED one the rejection already filed there,
+        // and reusing the index violates the attempts table's (proof_id, attempt_number) unique
+        // index — the void would fail on exactly the population it exists to rescue.
+        //
+        // The right-hand side reads the PRE-UPDATE row, which is what lets one statement decide
+        // this without a second read to race against.
+        resubmissionCount: sql`case when ${financeManualPaymentProofs.status} = 'rejected' then ${financeManualPaymentProofs.resubmissionCount} + 1 else ${financeManualPaymentProofs.resubmissionCount} end`,
         updatedAt: now,
       })
       .where(
         and(
           eq(financeManualPaymentProofs.id, proofId),
-          eq(financeManualPaymentProofs.status, "pending_review"),
+          // BOTH STATES A VOID MAY CLOSE, and `verified` is deliberately absent from the list.
+          // Voiding a verified proof would leave a `succeeded` ledger event standing against a
+          // voided row, and no reachable path in the product reverses that event.
+          inArray(financeManualPaymentProofs.status, ["pending_review", "rejected"]),
         ),
       )
       .returning();
 
     if (!proof) {
       throw new ManualProofError(
-        "manual_proof_not_pending",
-        "Hanya bukti transfer yang masih menunggu tinjauan yang dapat dibatalkan",
+        "manual_proof_not_voidable",
+        "Hanya bukti transfer yang belum diverifikasi yang dapat dibatalkan",
         409,
       );
     }
