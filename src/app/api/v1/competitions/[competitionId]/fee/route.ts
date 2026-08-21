@@ -76,12 +76,15 @@ const refuse = (error: unknown): Response => {
 // error. Every price change in the system goes through `setCompetitionFee`, which is what lets its
 // six gates be complete rather than merely present — a second write path would defeat all of them.
 //
-// STAFF-CAPABLE (`assertCompetitionAccess` admin), unlike the payment-instructions surface, which
-// is owner-only. The distinction is deliberate: owner-only there prevents one role from both
-// redirecting funds and confirming their receipt. Setting a PRICE cannot divert anything — the
-// destination account stays owner-controlled — so the same restriction here would block routine
-// competition work without closing a diversion path. What staff can do is incur a platform fee,
-// and the disclosure acknowledgement records exactly who did.
+// OWNER-ONLY, like the payment-instructions surface. `assertCompetitionAccess(..., "admin")` admits
+// `institution_owner` alone — note that this is NOT the same set as `requireAdminInstitutionBySlug`,
+// which is owner-or-staff. The two spellings of "admin" mean different things one call apart.
+//
+// Owner-only is right here for what enabling a price DOES rather than for what it looks like:
+// it binds the institution to a receivable owed to the platform, and the acknowledgement this
+// endpoint records is a consent artifact. Consent belongs with the party that can be bound. The
+// destination account is already owner-controlled, so this keeps the owner in the loop before any
+// charging is possible at all, rather than leaving the two halves on different roles.
 
 // GET — the current price plus what the platform would charge against it.
 //

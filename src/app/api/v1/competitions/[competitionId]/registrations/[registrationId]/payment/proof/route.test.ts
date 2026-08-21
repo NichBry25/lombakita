@@ -53,11 +53,13 @@ const context = {
   params: Promise.resolve({ competitionId: "comp_1", registrationId: "reg_1" }),
 };
 
+// The size and the content type are NOT here, and a client that sends them anyway is covered by
+// the pass-through test below. They are read back from storage by the service now, because a
+// declared size bounded nothing and a declared content type chose what the reviewer's browser
+// would render.
 const VALID_BODY = {
   r2Key: "payment-proofs/comp_1/pay_1/abc",
   originalFileName: "bukti.jpg",
-  fileSizeBytes: 2048,
-  contentType: "image/jpeg",
 };
 
 const proofRequest = (method: "POST" | "PUT", body: Record<string, unknown> = VALID_BODY): Request =>
@@ -138,27 +140,36 @@ describe("POST …/payment/proof — the first bukti transfer", () => {
     expect(submitManualPaymentProof).not.toHaveBeenCalled();
   });
 
-  it("refuses a declared size the presign never agreed to, and writes nothing", async () => {
-    // Presign and record are two requests. Nothing stops a caller presigning a small receipt and
-    // then declaring a 400MB one on the row.
+  it("does not forward a size or a content type the caller supplied", async () => {
+    // The parsed body is SPREAD into the service input, so a field the route reads is a field the
+    // service receives. The route therefore reads neither — and this is the assertion that keeps it
+    // that way, because adding one back here would be silent and the service would trust it.
     requireSessionRole.mockResolvedValue(CANDIDATE);
     loadCandidatePaymentView.mockResolvedValue(viewWith());
 
-    const response = await POST(
-      proofRequest("POST", { ...VALID_BODY, fileSizeBytes: 400 * 1024 * 1024 }),
+    await POST(
+      proofRequest("POST", {
+        ...VALID_BODY,
+        fileSizeBytes: 400 * 1024 * 1024,
+        contentType: "text/html",
+      }),
       context,
     );
 
-    expect(response.status).toBe(400);
-    expect(submitManualPaymentProof).not.toHaveBeenCalled();
+    expect(submitManualPaymentProof).toHaveBeenCalledWith({
+      paymentId: "pay_1",
+      submittedByUserId: CANDIDATE.user.id,
+      r2Key: VALID_BODY.r2Key,
+      originalFileName: VALID_BODY.originalFileName,
+    });
   });
 
-  it("refuses a zero-byte file, which is an upload that did not happen", async () => {
+  it("refuses a blank file name, which leaves nothing to derive the type from", async () => {
     requireSessionRole.mockResolvedValue(CANDIDATE);
     loadCandidatePaymentView.mockResolvedValue(viewWith());
 
     expect(
-      (await POST(proofRequest("POST", { ...VALID_BODY, fileSizeBytes: 0 }), context)).status,
+      (await POST(proofRequest("POST", { ...VALID_BODY, originalFileName: "  " }), context)).status,
     ).toBe(400);
     expect(submitManualPaymentProof).not.toHaveBeenCalled();
   });

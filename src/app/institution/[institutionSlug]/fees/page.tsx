@@ -28,9 +28,9 @@ export const metadata = {
  * has accrued, and nothing in the product settles it yet. Saying so plainly is better than a
  * surface that looks like a bill and cannot be paid.
  *
- * Gated for owners AND staff — the same admin pair every other institution finance surface uses.
- * Narrowing it to owners would leave the staff member who set the price unable to see its
- * consequence.
+ * Gated for owners AND staff, via `requireAdminInstitutionBySlug` — owner-or-staff, and a wider set
+ * than the owner-only gate on SETTING a price. Reading what the institution owes is ordinary finance
+ * work for the people who run its competitions; agreeing to owe it is not.
  */
 export default async function InstitutionFeeStatementPage({ params }: Props) {
   const { institutionSlug } = await params;

@@ -2354,6 +2354,46 @@ describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against 
     });
   };
 
+  /**
+   * OWNER-ONLY, ASSERTED IN BOTH DIRECTIONS.
+   *
+   * `assertCompetitionAccess(..., "admin")` admits `institution_owner` alone, while the
+   * similarly-named `requireAdminInstitutionBySlug` admits owner OR staff. Every other fee test
+   * grants ownership, so the narrower set was never the thing being measured and three comments in
+   * this lane came to describe a staff capability that does not exist. The staff case is asserted
+   * here so the code and the claim cannot drift apart again.
+   */
+  it("refuses a staff member setting a price, and admits the owner", async () => {
+    await inRollback(async (tx) => {
+      const tenant = await seedFixture(tx);
+
+      await tx.insert(institutionMemberships).values({
+        institutionId: tenant.institutionId,
+        userId: tenant.userId,
+        membershipRole: "institution_staff",
+        status: "active",
+      });
+
+      await expect(priceIt(tx, tenant)).rejects.toMatchObject({ code: "forbidden" });
+      expect((await readFee(tx, tenant.competitionId)).feeAmount).toBeNull();
+
+      // The paired positive, so the refusal above cannot be passing for an unrelated reason. The
+      // seeded registration is withdrawn first: pricing a competition that already took free
+      // entrants is refused on its own grounds, and that refusal would mask the role result.
+      await tx
+        .update(competitionRegistrations)
+        .set({ status: "cancelled", cancellationReason: "withdrew" })
+        .where(eq(competitionRegistrations.id, tenant.registrationId));
+      await tx
+        .update(institutionMemberships)
+        .set({ membershipRole: "institution_owner" })
+        .where(eq(institutionMemberships.userId, tenant.userId));
+
+      await priceIt(tx, tenant);
+      expect((await readFee(tx, tenant.competitionId)).feeAmount).toBe(75_000);
+    });
+  });
+
   const readFee = async (tx: Tx, competitionId: string) => {
     const [row] = await tx
       .select({ feeAmount: competitions.feeAmount, feeCurrency: competitions.feeCurrency })

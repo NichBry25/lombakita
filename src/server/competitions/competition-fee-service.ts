@@ -38,7 +38,9 @@ import { enqueueCompetitionEdited } from "@/server/async/enqueue";
 // first, and so nothing about the platform's pricing configuration leaks to someone who is not
 // allowed to charge at all:
 //
-//   1. Ownership     — assertCompetitionAccess admin.
+//   1. Ownership     — assertCompetitionAccess "admin", which is institution_owner ALONE. Setting
+//                      a price binds the institution to a receivable, so it sits with the party
+//                      that can be bound.
 //   2. Edit matrix   — classifyCompetitionEdit. Carries BOTH the payment-in-flight block and the
 //                      free-entrants block; see the note below on why they are not restated here.
 //   3. Charging      — assertInstitutionVerified. Only for a NON-ZERO fee; setting a competition
