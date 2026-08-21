@@ -106,6 +106,32 @@ export class ManualProofError extends Error {
 export const buildManualProofObjectPrefix = (competitionId: string, paymentId: string): string =>
   `payment-proofs/${competitionId}/${paymentId}/`;
 
+// EVERY WRITE PATH IN THIS LANE, AND WHAT EACH ONE REQUIRES OF THE LANE.
+//
+// The rule, and it is the reason the table exists rather than a list of fixes: A WRITE THAT CAN
+// CREATE MONEY REQUIRES THE LANE TO BE OPEN; A WRITE THAT ONLY CLOSES AN ATTEMPT DOES NOT. The
+// second half matters as much as the first — gating the closing verdicts would strand a pending
+// proof on a cancelled registration forever, and would disarm the escape hatch at exactly the
+// moment it is needed.
+//
+//   generateManualProofUploadUrl  all four, ENFORCED AT THE ROUTE via canSubmitProof /
+//                                 canResubmitProof. The only condition-checking point outside this
+//                                 module, and the asymmetry is deliberate: minting a URL writes no
+//                                 row, so the check belongs where the request is shaped.
+//   submitManualPaymentProof      all four, via requireOpenManualLane.
+//   reopenManualPaymentProof      all four, via requireOpenManualLane. A resubmission is a
+//                                 submission — the row it writes is indistinguishable from a first
+//                                 attempt once written, so the same conditions must hold.
+//   verifyManualPaymentProof      all four, via requireOpenManualLane. This is the write that turns
+//                                 evidence into money: it appends `succeeded` and accrues a fee.
+//   rejectManualPaymentProof      none, deliberately. Refusing evidence creates no money and closes
+//                                 an attempt that would otherwise sit open forever.
+//   voidManualPaymentProof        none, deliberately. Same reasoning, and it is the operator hatch —
+//                                 it has to work when the rest of the lane does not.
+//
+// Anything added below this line states its row here, or the lane is back to three paths enforcing
+// three different rule sets.
+
 /** The payment a write may proceed against, and the registration row the lock is held on. */
 type OpenManualLane = { paymentId: string; registrationId: string };
 
