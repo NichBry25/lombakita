@@ -4393,7 +4393,7 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
   it("R6: expiry cancels with its OWN reason, separable from a withdrawal", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
-      const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
+      await seedManualPayment(tx, fixture, { dueAt: DUE });
 
       const { sweepExpiredPayments, PAYMENT_EXPIRY_CANCELLATION_REASON } = await import(
         "@/server/finance/payment-expiry-service"
