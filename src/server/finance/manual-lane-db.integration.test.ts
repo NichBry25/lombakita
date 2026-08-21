@@ -6301,6 +6301,33 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
     );
   };
 
+  /**
+   * THE DISPUTE WITH NO PROOF IN IT, which is the one finance hears most often: the payer says the
+   * transfer went out, the organiser says nothing ever arrived, and there is no receipt on file.
+   *
+   * The competition used to be joined through the PROOF's competition id, on a proof that had been
+   * LEFT-joined — so when there was no proof the inner join eliminated the row and the whole read
+   * returned null. The page 404'd, and every branch written for the no-proof case was unreachable.
+   */
+  it("opens a payment nobody ever submitted evidence for", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { loadDisputePaymentDetail } = await import("@/server/finance/dispute-view");
+
+      const paymentId = await seedManualPayment(tx, fixture);
+
+      const detail = await loadDisputePaymentDetail(paymentId, tx as never);
+
+      expect(detail).not.toBeNull();
+      expect(detail!.proofId).toBeNull();
+      expect(detail!.history).toEqual([]);
+      // The context finance needs to work the dispute is present even with no receipt to look at.
+      expect(detail!.competitionTitle).toBeTruthy();
+      expect(detail!.institutionSlug).toBeTruthy();
+      expect(detail!.grossAmount).toBeGreaterThan(0);
+    });
+  });
+
   it("shows the attempt a resubmission overwrote — the whole reason the history table exists", async () => {
     // The live row carries attempt two's file, reason and verdict. Attempt one survives ONLY in
     // finance_manual_payment_proof_attempts, and attempt one is what the dispute is about.

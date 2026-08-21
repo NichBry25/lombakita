@@ -6,6 +6,7 @@ import { asc, desc, eq } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   candidateProfiles,
+  competitionRegistrations,
   competitions,
   financeManualPaymentProofAttempts,
   financeManualPaymentProofs,
@@ -156,10 +157,17 @@ export const loadDisputePaymentDetail = async (
     )
     .innerJoin(users, eq(users.id, financePayments.payerUserId))
     .leftJoin(candidateProfiles, eq(candidateProfiles.userId, financePayments.payerUserId))
+    // REACHED THROUGH THE PAYMENT'S REGISTRATION, not through the proof. Joining the competition
+    // on `financeManualPaymentProofs.competitionId` made this an inner join on a LEFT-joined column:
+    // with no proof row that column is null, the row is eliminated, and the whole query returns
+    // nothing. A payment nobody ever submitted evidence for therefore 404'd — and "I paid, they say
+    // they never received anything" is one of the commonest disputes there is, which is precisely
+    // the case this read-only view exists to let finance look at.
     .innerJoin(
-      competitions,
-      eq(competitions.id, financeManualPaymentProofs.competitionId),
+      competitionRegistrations,
+      eq(competitionRegistrations.id, financePayments.competitionRegistrationId),
     )
+    .innerJoin(competitions, eq(competitions.id, competitionRegistrations.competitionId))
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
     .where(eq(financePayments.id, paymentId))
     .limit(1);
