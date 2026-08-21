@@ -2816,6 +2816,21 @@ describe.skipIf(skipWithoutDatabase)("code deployed ahead of migration 0059", ()
               { cause: error },
             );
           }
+          // BLOCKED, NOT BROKEN. The suite and the running app share one database, and this is the
+          // only probe that takes ACCESS EXCLUSIVE on a table a live page reads
+          // (`loadCandidatePaymentView` reads it, and three ui-states cases drive that page). A
+          // browser session holding a read when the DROP is requested makes this wait out its
+          // `lock_timeout` and fail 55P03 — a real failure, but of the harness, not of the product.
+          // Named here so it never again reads as an unexplained error code on a payments step.
+          if (sqlStateOf(error) === "55P03") {
+            throw new Error(
+              "This probe timed out taking ACCESS EXCLUSIVE on " +
+                "finance_payment_instruction_snapshots (55P03): a concurrent reader held the " +
+                "table. Do not drive the app in a browser while this suite runs. Nothing is " +
+                "wrong with the code under test — rerun with no browser session open.",
+              { cause: error },
+            );
+          }
           throw error;
         }
 
