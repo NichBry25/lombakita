@@ -176,9 +176,13 @@ describe("the fee-setting write path enforces the edit matrix THROUGH the classi
 
     // A second, lighter verification check written locally is how one path ends up permitting what
     // the shared guard refuses.
-    expect(source).toContain("assertInstitutionVerified(competition.institutionId, db)");
-    expect(source).toContain("requireFeeRuleInForce(competition.institutionId, now, db)");
-    expect(source).toContain("requirePaymentInstructions(competition.institutionId, db)");
+    //
+    // The handle is `tx`, not `db`: these gates run inside the transaction that holds the
+    // participation lock, so they see the same snapshot the classification above them saw. Passing
+    // `db` here would read outside the lock and reintroduce the race the transaction closes.
+    expect(source).toContain("assertInstitutionVerified(competition.institutionId, tx)");
+    expect(source).toContain("requireFeeRuleInForce(competition.institutionId, now, tx)");
+    expect(source).toContain("requirePaymentInstructions(competition.institutionId, tx)");
   });
 });
 

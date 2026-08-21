@@ -216,6 +216,58 @@ const withRowHeld = async <T>(
   }
 };
 
+/**
+ * Holds the competition participation advisory lock on the barrier connection.
+ *
+ * `withRowHeld` cannot serve here: an advisory lock has no row to take FOR UPDATE, and the whole
+ * point of Rule 25's second clause is that the contended rows do not exist yet — a registration
+ * that has not been inserted cannot be locked, which is exactly why a compare-and-set has nothing
+ * to serialize on and an advisory lock is the only thing that does.
+ *
+ * The key is rebuilt here rather than imported so the test states the string it expects the service
+ * to take. A namespace change on one side and not the other has to show up as a test that stops
+ * blocking, not as two constants silently agreeing to differ.
+ */
+const withParticipationLockHeld = async <T>(
+  competitionId: string,
+  body: (track: TrackRacer) => Promise<T>,
+): Promise<T> => {
+  const lockKey = `competition_participation:${competitionId}`;
+
+  let markAcquired!: () => void;
+  const acquired = new Promise<void>((resolve) => (markAcquired = resolve));
+  let allowRelease!: () => void;
+  const released = new Promise<void>((resolve) => (allowRelease = resolve));
+
+  const holding = barrier.sql.begin(async (tx) => {
+    await tx.unsafe("select pg_advisory_xact_lock(hashtext($1))", [lockKey]);
+    markAcquired();
+    await released;
+  });
+
+  await Promise.race([
+    acquired,
+    holding.then(() => {
+      throw new Error("the barrier transaction ended before it took the participation lock");
+    }),
+  ]);
+
+  const inFlight: Promise<unknown>[] = [];
+  const track: TrackRacer = (work) => {
+    const settled = settle(work);
+    inFlight.push(settled);
+    return settled;
+  };
+
+  try {
+    return await body(track);
+  } finally {
+    allowRelease();
+    await holding.catch(() => undefined);
+    await Promise.all(inFlight);
+  }
+};
+
 const errorCodeOf = (error: unknown): string | undefined =>
   (error as { code?: string } | undefined)?.code;
 
@@ -253,6 +305,13 @@ const seedCommittedFixture = async (): Promise<RaceFixture> => {
     insert into competitions (institution_id, slug, title)
     values (${institution!.id}, ${`${MARKER}-comp-${id}`}, ${`Race ${id}`})
     returning id`;
+
+  // The institution's owner. Pricing is owner-only, so without this the fee racer would be refused
+  // by the access gate before it ever reached the lock, and the contention test would measure the
+  // refusal instead of the block.
+  await control.sql`
+    insert into institution_memberships (institution_id, user_id, membership_role, status)
+    values (${institution!.id}, ${user!.id}, 'institution_owner', 'active')`;
 
   const [registration] = await control.sql<{ id: string }[]>`
     insert into competition_registrations (competition_id, student_id, registration_type)
@@ -370,6 +429,9 @@ const purgeMarkedRows = async (): Promise<void> => {
       (select id from institutions where slug like ${slug})`;
   await control.sql`
     delete from institution_payment_instructions where institution_id in
+      (select id from institutions where slug like ${slug})`;
+  await control.sql`
+    delete from institution_memberships where institution_id in
       (select id from institutions where slug like ${slug})`;
   await control.sql`delete from institutions where slug like ${slug}`;
   await control.sql`delete from users where username like ${username}`;
@@ -745,5 +807,59 @@ describe.skipIf(skipWithoutDatabase)("reopening a closed bukti transfer, under r
     const [proof] = await proofRowsFor(fixture.paymentId);
     expect(proof!.status).toBe("pending_review");
     expect(Number(proof!.resubmission_count)).toBe(0);
+  });
+});
+
+
+describe.skipIf(skipWithoutDatabase)("pricing a competition serializes with its participation set", () => {
+  /**
+   * THE THIRD RACE, and the one a compare-and-set structurally cannot close.
+   *
+   * Setting a price is refused when the competition already has active FREE registrants — pricing
+   * one retroactively attaches a fee to people who agreed to none. That decision COUNTS ROWS, and
+   * the rows it counts do not exist yet: the registration it must not miss is still in flight. There
+   * is no shared row for a CAS to compare against, so the only thing that can serialize the count
+   * with the registration is the advisory lock every other participation path already takes.
+   *
+   * Read outside the lock, the classifier sees zero free registrants, the registration commits, and
+   * the price lands on a competition that took a free entrant a moment earlier.
+   *
+   * What this measures is the BLOCK, not the outcome: with the lock held elsewhere the fee write
+   * must wait rather than proceed on a stale count. Deleting the lock from the service makes this
+   * fail — it stops waiting.
+   */
+  it("waits for the participation lock instead of pricing against a stale count", async () => {
+    const fixture = await seedCommittedFixture();
+    const { setCompetitionFee } = await import("@/server/competitions/competition-fee-service");
+
+    const [barrierPid, racerPid] = await Promise.all([
+      backendPidOf(barrier),
+      backendPidOf(racerOne),
+    ]);
+
+    // Returned INSIDE an array, exactly as the reopen racers are. `withParticipationLockHeld` does
+    // `await body(track)`, so handing back the bare promise would await the racer while the barrier
+    // still holds the lock — the harness would deadlock against itself and report a timeout that
+    // looks like a missing lock. An array is not unwrapped by await; the finally releases first and
+    // `Promise.all(inFlight)` collects the racer afterwards.
+    const [settled] = await withParticipationLockHeld(fixture.competitionId, async (track) => {
+      const run = track(
+        setCompetitionFee(
+          fixture.userId,
+          fixture.competitionId,
+          { feeAmount: null, feeCurrency: null },
+          racerOne.db as never,
+        ),
+      );
+
+      // THE ASSERTION. If the service takes the lock, this racer is parked behind the barrier; if
+      // it does not, it runs straight through and this throws with the file's guard-removal notice.
+      await awaitBlockedBy(racerPid, barrierPid, "the fee write");
+
+      return [run] as const;
+    });
+
+    const outcome = await settled;
+    expect(outcome.ok).toBe(true);
   });
 });
