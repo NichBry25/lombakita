@@ -6210,10 +6210,9 @@ describe.skipIf(skipWithoutDatabase)("the institution fee statement (real databa
       const statement = await loadInstitutionFeeStatement(fixture.institutionId, tx as never);
       const reversal = statement.lines.find((line) => line.entryType === "reversed");
 
-      expect(reversal!.signedAmount).toBe(-25_000);
       expect(reversal!.amount).toBe(-25_000);
       expect(reversal!.reason).toBe("koreksi");
-      expect(statement.lines.reduce((total, line) => total + line.signedAmount, 0)).toBe(0);
+      expect(statement.lines.reduce((total, line) => total + line.amount, 0)).toBe(0);
     });
   });
 

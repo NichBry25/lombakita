@@ -40,7 +40,6 @@ export type FeeStatementLine = {
    * gives the outstanding receivable directly — do NOT negate a `reversed` row again on the way
    * past, which double-counts it in the direction that overstates what the institution owes.
    */
-  signedAmount: number;
   amount: number;
   currency: string;
   /** The registration fee this fee was computed FROM — the accrual's own snapshot of it. */
@@ -66,9 +65,10 @@ export type FeeStatementAcknowledgement = {
 export type InstitutionFeeStatement = {
   lines: FeeStatementLine[];
   /**
-   * The signed sum of every line, in minor units — the same arithmetic
-   * `sumOutstandingFeeAccruals` performs, so the figure on this page and the figure any other
-   * caller reads cannot drift. The receivable, not a balance.
+   * The signed sum of every line, in minor units. The same arithmetic `sumOutstandingFeeAccruals`
+   * performs on the same rows, restated here rather than delegated because that function takes no
+   * projection — so the two are held equal by an assertion in the integration suite, not by
+   * construction. The receivable, not a balance.
    */
   outstandingAmount: number;
   /** The `accrued` arm alone, positive. */
@@ -123,7 +123,6 @@ export const loadInstitutionFeeStatement = async (
   const lines: FeeStatementLine[] = rows.map((row) => ({
     accrualId: row.accrualId,
     entryType: row.entryType,
-    signedAmount: row.amount,
     amount: row.amount,
     currency: row.currency,
     grossAmount: row.grossAmount,
@@ -147,7 +146,7 @@ export const loadInstitutionFeeStatement = async (
     // Netted from the rows rather than stored anywhere: the accrual table is append-only, so a
     // correction is a new `reversed` row and any cached total would be a second copy of a fact the
     // rows already carry.
-    outstandingAmount: lines.reduce((total, line) => total + line.signedAmount, 0),
+    outstandingAmount: lines.reduce((total, line) => total + line.amount, 0),
     currency: lines[0]?.currency ?? null,
     acknowledgements: await loadAcknowledgements(institutionId, db),
   };
