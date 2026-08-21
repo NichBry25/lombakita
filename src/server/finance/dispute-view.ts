@@ -245,6 +245,7 @@ type AuditableProof = {
   competitionId: string;
   attempt: number;
   payerUserId: string;
+  receivingInstitutionId: string;
 };
 
 /**
@@ -266,9 +267,14 @@ export const recordDisputeProofAccess = async (
 ): Promise<void> => {
   await db.insert(platformOpsAuditLogs).values({
     actorUserId,
-    // The PAYER is the target. It is their bank details on the receipt, and "who looked at this
-    // person's evidence" is the question this row has to answer.
+    // The PAYER is the primary target. It is their bank details on the receipt, and "who looked at
+    // this person's evidence" is the question this row has to answer.
     targetUserId: proof.payerUserId,
+    // AND THE TENANT, because the other question the row has to answer is the institution's:
+    // "which of our candidates' receipts has platform staff opened". That query is what
+    // `target_institution_id` is indexed for, and leaving it null returned nothing for every
+    // finance read — the competition id was recorded, but only inside unindexed metadata.
+    targetInstitutionId: proof.receivingInstitutionId,
     eventType: FILE_ACCESSED_EVENT,
     reason: "Penanganan sengketa pembayaran",
     metadata: {
@@ -306,6 +312,7 @@ export const generateDisputeProofViewUrl = async (
       contentType: financeManualPaymentProofs.contentType,
       attempt: financeManualPaymentProofs.resubmissionCount,
       payerUserId: financePayments.payerUserId,
+      receivingInstitutionId: financePayments.receivingInstitutionId,
     })
     .from(financeManualPaymentProofs)
     .innerJoin(financePayments, eq(financePayments.id, financeManualPaymentProofs.paymentId))

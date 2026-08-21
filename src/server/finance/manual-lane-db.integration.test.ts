@@ -6559,6 +6559,7 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
           competitionId: fixture.competitionId,
           attempt: proof.resubmissionCount,
           payerUserId: fixture.userId,
+          receivingInstitutionId: fixture.institutionId,
         },
         tx as never,
       );
@@ -6581,7 +6582,9 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
       expect(audit!.eventType).toBe(FILE_ACCESSED_EVENT);
       expect(audit!.eventType).not.toBe("payment_proof.file_accessed");
       expect(audit!.targetUserId).toBe(fixture.userId);
-      expect(audit!.targetInstitutionId).toBeNull();
+      // AND the tenant, so the institution's own question — "whose receipts has platform staff
+      // opened" — is answerable from the indexed column rather than by scanning metadata.
+      expect(audit!.targetInstitutionId).toBe(fixture.institutionId);
       expect(audit!.reason).toBe("Penanganan sengketa pembayaran");
       expect(audit!.metadata).toMatchObject({ proofId: proof.id, paymentId, attempt: 0 });
     });
