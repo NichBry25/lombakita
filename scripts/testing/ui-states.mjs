@@ -92,9 +92,12 @@ export const CASES = [
     path: `/institution/${INST.a.slug}/competitions/${COMP.paid.slug}/payments`,
     present: [
       "Verifikasi pembayaran",
-      "Verifikasi",
-      "Tolak",
-      "Lihat bukti",
+      // THE VERDICT ROW AS ONE STRING, because these needles are substrings and a short one can be
+      // satisfied by furniture elsewhere on the page. `"Verifikasi"` alone was satisfied by the
+      // heading above it, so deleting the Verifikasi button left this case green — measured, not
+      // reasoned. The row's own innerText is the needle that nothing else on the page produces.
+      // It subsumes a standalone `"Lihat bukti"`, which is why that one is not also listed.
+      "Lihat bukti\nVerifikasi\nTolak",
       // DEC-0130 in the reviewer's own words. Verification asserts money arrived in the
       // institution's account, which only their bank statement can establish.
       "rekening lembaga Anda",
