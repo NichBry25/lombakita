@@ -55,6 +55,27 @@ const HARNESS_FILES = [
 ] as const;
 
 /**
+ * Files exempted for NAMED TABLES ONLY, rather than wholesale.
+ *
+ * A whole-file entry above buys silence on every finance table at once, and the seed script is the
+ * last file that should have it: it is the most plausible place a "just fix this one row" ledger
+ * edit gets written, precisely because it is already allowed to write finance rows.
+ *
+ *   scripts/seed-test-matrix.ts, finance_manual_payment_proof_attempts — the scratch reset. The
+ *     seed deletes the proofs the AUTOMATED PASS created, and their attempt rows hold a foreign key
+ *     to them, so the parent delete fails on the constraint and the whole reset aborts. Without
+ *     this the local pipeline goes one-shot the moment any pass reaches a verdict. It removes only
+ *     rows the automation itself created, on a scratch database, and touches no attempt belonging
+ *     to a seeded proof.
+ *
+ * The attempts table stays OUT of `MUTABLE_FINANCE_TABLES`: it is append-only everywhere in the
+ * application, and nothing under `src/` may delete from it.
+ */
+const SCOPED_TABLE_EXCEPTIONS: Readonly<Record<string, readonly string[]>> = {
+  "scripts/seed-test-matrix.ts": ["finance_manual_payment_proof_attempts"],
+};
+
+/**
  * How a finance table can be named in raw SQL: bare, schema-qualified, quoted either way, and with
  * ONLY in front of it. Each spelling reaches the same rows, and a scan that knows one of them
  * reports the other three as clean.
@@ -185,7 +206,11 @@ describe("finance write surface", () => {
     for (const file of allScannedFiles()) {
       const path = relative(file);
       if (HARNESS_FILES.includes(path as (typeof HARNESS_FILES)[number])) continue;
-      if (findForbiddenMutations(readFileSync(file, "utf8")).length > 0) {
+      const allowedHere = SCOPED_TABLE_EXCEPTIONS[path] ?? [];
+      const hits = findForbiddenMutations(readFileSync(file, "utf8")).filter(
+        (hit) => !allowedHere.some((table) => hit.includes(table)),
+      );
+      if (hits.length > 0) {
         offending.push(path);
       }
     }
@@ -206,6 +231,32 @@ describe("finance write surface", () => {
     for (const path of HARNESS_FILES) {
       expect(allScannedFiles().map(relative), path).toContain(path);
     }
+  });
+
+  it("pins the scoped exceptions, and proves each one is narrower than the file it names", () => {
+    expect(SCOPED_TABLE_EXCEPTIONS).toEqual({
+      "scripts/seed-test-matrix.ts": ["finance_manual_payment_proof_attempts"],
+    });
+
+    for (const path of Object.keys(SCOPED_TABLE_EXCEPTIONS)) {
+      expect(allScannedFiles().map(relative), path).toContain(path);
+    }
+
+    // THE POINT OF SCOPING IT. A whole-file exemption would let a ledger mutation into the same
+    // file unnoticed; this asserts the exempted file is still scanned for everything else, by
+    // running the real filter over a source that mutates a ledger table AND the excepted one.
+    const allowedHere = SCOPED_TABLE_EXCEPTIONS["scripts/seed-test-matrix.ts"]!;
+    const mixed = [
+      "await sql`DELETE FROM finance_manual_payment_proof_attempts WHERE proof_id = $1`;",
+      "await sql`DELETE FROM finance_payment_events WHERE payment_id = $1`;",
+    ].join("\n");
+
+    const survivors = findForbiddenMutations(mixed).filter(
+      (hit) => !allowedHere.some((table) => hit.includes(table)),
+    );
+
+    expect(survivors).toHaveLength(1);
+    expect(survivors[0]).toContain("finance_payment_events");
   });
 
   it("still catches a ledger mutation despite the exception list — the scan can fail", () => {
