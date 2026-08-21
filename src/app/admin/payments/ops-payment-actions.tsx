@@ -146,7 +146,13 @@ export function OpsPaymentActions({ competitions }: { competitions: OpsCompetiti
                 <p className="eyebrow">{competition.institutionSlug}</p>
                 <h2>{competition.title}</h2>
               </div>
-              <span className="status-badge" data-status={competition.cancellable ? "warning" : "neutral"}>
+              {/* Both values must be tones the stylesheet defines; `warning` and `neutral` are not
+                  among them, and a badge carrying an undefined tone renders as an uncoloured pill
+                  with no dot rather than failing anywhere a reviewer would see it. */}
+              <span
+                className="status-badge"
+                data-status={competition.cancellable ? "open" : "closed"}
+              >
                 {competition.cancellable ? "Terbit" : "Tidak terbit"}
               </span>
             </div>
