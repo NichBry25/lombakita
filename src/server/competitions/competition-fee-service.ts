@@ -3,6 +3,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 assertServerOnly("server/competitions/competition-fee-service");
 
 import { and, eq, sql } from "drizzle-orm";
+import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 import { getDb, type Database } from "@/server/db/client";
 import { competitions } from "@/server/db/schema";
 import {
@@ -117,71 +118,84 @@ export const setCompetitionFee = async (
   // block, the free→paid block, and the notify classification. `paymentWindowDays` is threaded in
   // as the value that will actually be written, so an unchanged window classifies as unchanged
   // rather than as an edit nobody made.
-  const pricing = await loadCompetitionPricing(competitionId, db);
-  const nextPricing: CompetitionPricing = {
-    feeAmount,
-    feeCurrency: feeAmount > 0 ? input.feeCurrency : null,
-    paymentWindowDays: input.paymentWindowDays ?? pricing.paymentWindowDays,
-  };
+  // ONE TRANSACTION, UNDER THE PARTICIPATION LOCK, from the classification to the write.
+  //
+  // The blocks this decision rests on COUNT ROWS — "are there active free registrants", "is a
+  // bukti transfer in flight" — and the rows they count do not exist yet, so a compare-and-set has
+  // nothing to serialize on (Rule 25). Read outside a lock, the classifier can see zero free
+  // registrants while a registration transaction is mid-flight, and the price lands on a
+  // competition that took a free entrant a moment later: a fee retroactively attached to someone
+  // who agreed to none, which is precisely what the free→paid block exists to prevent.
+  //
+  // The advisory lock is the same one every other path that reasons about the participation set
+  // takes — registration, team registration, participation changes, results, unpublish, and the
+  // ops cancellation hatch. This was the one that did not.
+  const notify = await db.transaction(async (tx) => {
+    await acquireCompetitionParticipationLock(tx, competitionId);
 
-  const snapshot = await loadEditClassificationSnapshot(competitionId, db);
-  const classification = classifyCompetitionEdit(
-    toClassifiable(competition, pricing),
-    toClassifiable(competition, nextPricing),
-    snapshot,
-  );
+    const pricing = await loadCompetitionPricing(competitionId, tx);
+    const nextPricing: CompetitionPricing = {
+      feeAmount,
+      feeCurrency: feeAmount > 0 ? input.feeCurrency : null,
+      paymentWindowDays: input.paymentWindowDays ?? pricing.paymentWindowDays,
+    };
 
-  if (classification.blocked.length > 0) {
-    throw toBlockedFeeEditError(classification.blocked, snapshot);
-  }
-
-  const isCharging = feeAmount > 0;
-
-  if (!isCharging) {
-    // Clearing a fee needs none of the gates below. They exist to stop money being taken; none of
-    // them has anything to say about stopping.
-    await writeFee(competitionId, null, null, input.paymentWindowDays, db);
-    await notifyFeeEdit(competitionId, competition.status, classification.notify);
-    return;
-  }
-
-  const currency = input.feeCurrency;
-
-  if (currency === null || !isSupportedCurrency(currency)) {
-    throw new CompetitionError(
-      "competition_invalid_value",
-      400,
-      "Mata uang wajib diisi dan harus didukung ketika biaya pendaftaran lebih dari nol",
-      { fields: ["feeCurrency"] },
+    const snapshot = await loadEditClassificationSnapshot(competitionId, tx);
+    const classification = classifyCompetitionEdit(
+      toClassifiable(competition, pricing),
+      toClassifiable(competition, nextPricing),
+      snapshot,
     );
-  }
 
-  await assertInstitutionVerified(competition.institutionId, db);
+    if (classification.blocked.length > 0) {
+      throw toBlockedFeeEditError(classification.blocked, snapshot);
+    }
 
-  // NOWHERE TO SEND THE MONEY IS NOT A CHARGEABLE STATE. The payer transfers directly into the
-  // institution's own account, so an institution that has published none leaves a candidate owing
-  // a debt with no way to discharge it and no party able to tell them where to send it.
-  await requirePaymentInstructions(competition.institutionId, db);
+    const isCharging = feeAmount > 0;
 
-  // FAIL-CLOSED FEE RESOLUTION. `resolveFeeRule` returning null is a real state — no commercial
-  // rate is seeded — and treating it as zero here would let an organiser switch pricing on, take
-  // real money, and accrue nothing, with every downstream assertion passing. A refusal is
-  // recoverable by configuring a rule; a ledger of silently free transactions is not.
-  const rule = await requireFeeRuleInForce(competition.institutionId, now, db);
+    if (!isCharging) {
+      // Clearing a fee needs none of the gates below. They exist to stop money being taken; none
+      // of them has anything to say about stopping.
+      await writeFee(competitionId, null, null, input.paymentWindowDays, tx);
+      return classification.notify;
+    }
 
-  if (input.feeDisclosureAcknowledged !== true) {
-    throw new CompetitionError(
-      "competition_fee_disclosure_required",
-      422,
-      "Setujui rincian biaya layanan Lombakita sebelum mengaktifkan pendaftaran berbayar",
-      { fields: ["feeDisclosureAcknowledged"] },
-    );
-  }
+    const currency = input.feeCurrency;
 
-  // The acknowledgement and the price land together or not at all. An acknowledgement recorded
-  // against a fee that was never written would evidence consent to a bill nobody incurred, and a
-  // price written without one is the evidence gap this whole gate exists to close.
-  await db.transaction(async (tx) => {
+    if (currency === null || !isSupportedCurrency(currency)) {
+      throw new CompetitionError(
+        "competition_invalid_value",
+        400,
+        "Mata uang wajib diisi dan harus didukung ketika biaya pendaftaran lebih dari nol",
+        { fields: ["feeCurrency"] },
+      );
+    }
+
+    await assertInstitutionVerified(competition.institutionId, tx);
+
+    // NOWHERE TO SEND THE MONEY IS NOT A CHARGEABLE STATE. The payer transfers directly into the
+    // institution's own account, so an institution that has published none leaves a candidate owing
+    // a debt with no way to discharge it and no party able to tell them where to send it.
+    await requirePaymentInstructions(competition.institutionId, tx);
+
+    // FAIL-CLOSED FEE RESOLUTION. `resolveFeeRule` returning null is a real state — no commercial
+    // rate is seeded — and treating it as zero here would let an organiser switch pricing on, take
+    // real money, and accrue nothing, with every downstream assertion passing. A refusal is
+    // recoverable by configuring a rule; a ledger of silently free transactions is not.
+    const rule = await requireFeeRuleInForce(competition.institutionId, now, tx);
+
+    if (input.feeDisclosureAcknowledged !== true) {
+      throw new CompetitionError(
+        "competition_fee_disclosure_required",
+        422,
+        "Setujui rincian biaya layanan Lombakita sebelum mengaktifkan pendaftaran berbayar",
+        { fields: ["feeDisclosureAcknowledged"] },
+      );
+    }
+
+    // The acknowledgement and the price land together or not at all. An acknowledgement recorded
+    // against a fee that was never written would evidence consent to a bill nobody incurred, and a
+    // price written without one is the evidence gap this whole gate exists to close.
     await tx.insert(financeFeeDisclosureAcknowledgements).values({
       competitionId,
       institutionId: competition.institutionId,
@@ -194,9 +208,13 @@ export const setCompetitionFee = async (
     });
 
     await writeFee(competitionId, feeAmount, currency, input.paymentWindowDays, tx);
+
+    return classification.notify;
   });
 
-  await notifyFeeEdit(competitionId, competition.status, classification.notify);
+  // AFTER COMMIT, matching every other path in this lane: a notification for a price change that
+  // was rolled back is a message about something that did not happen.
+  await notifyFeeEdit(competitionId, competition.status, notify);
 };
 
 /**
