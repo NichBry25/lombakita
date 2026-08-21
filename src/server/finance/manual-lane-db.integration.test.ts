@@ -6461,6 +6461,34 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
     });
   });
 
+  it("leaves an ORDINARY rejection off the list, because that payer can still answer it", async () => {
+    // The bar is what puts a row here, not the rejection. A payer who can upload again needs no
+    // operator, and listing them would bury the ones who do behind rows nobody has to act on.
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { loadOpsBarredProofs } = await import("@/server/finance/ops-payment-review");
+      const { rejectManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proof = await submitProof(tx, fixture, paymentId);
+
+      await rejectManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proof.id,
+        "Nominal tidak sesuai",
+        true,
+        tx as never,
+        NOW,
+      );
+
+      const barred = await loadOpsBarredProofs(tx as never);
+      expect(barred.some((row) => row.proofId === proof.id)).toBe(false);
+    });
+  });
+
   it("leaves a barred payer off the list once the sweep has cancelled their registration", async () => {
     // A control that resolves nothing is worse than none. Once the lane is shut a resubmission
     // would be refused anyway, so offering the void here would send the operator to take an action
