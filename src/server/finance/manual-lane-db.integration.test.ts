@@ -1173,6 +1173,189 @@ describe.skipIf(skipWithoutDatabase)("the accrual write is single-shot (real dat
       expect(seeded).toEqual(describeReversal(liveAccrued!, liveReversed!));
     });
   });
+
+});
+
+describe.skipIf(skipWithoutDatabase)("the lane's write precondition", () => {
+  /**
+   * THE DEFECT THIS PINS, end to end and through real services.
+   *
+   * `reopenManualPaymentProof`'s CAS carried the proof id, the submitter and the status disjunction
+   * and nothing else — no registration status, no ledger state, no row lock — while the first
+   * submission took the anchor row lock and the presign checked all four `laneOpen` conditions.
+   * So a rejected proof could be refiled onto a registration the platform's own expiry sweep had
+   * already cancelled, verified by an organiser who saw it reappear in their queue, folded to
+   * `succeeded`, and accrued a platform fee. Append-only under DEC-0133, and the only writer to the
+   * `reversed` arm has no caller — so the bill could not be walked back by anything in the product.
+   *
+   * Every step here runs the real service. The cancellation comes from `sweepExpiredPayments`, not
+   * from an UPDATE this test wrote: a hand-cancelled registration would prove the function and not
+   * the wiring, and the wiring is what was broken.
+   */
+  it("refuses a resubmission onto a registration the expiry sweep cancelled", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { submitManualPaymentProof, rejectManualPaymentProof, reopenManualPaymentProof } =
+        await import("@/server/finance/manual-payment-proof-service");
+      const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
+
+      const paymentId = await seedManualPayment(tx, fixture, {
+        dueAt: new Date("2026-08-01T00:00:00.000Z"),
+      });
+
+      await submitManualPaymentProof(
+        {
+          paymentId,
+          submittedByUserId: fixture.userId,
+          r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
+          originalFileName: "bukti.jpg",
+          fileSizeBytes: 2048,
+          contentType: "image/jpeg",
+        },
+        tx as never,
+      );
+
+      const [submitted] = await tx
+        .select({ id: financeManualPaymentProofs.id })
+        .from(financeManualPaymentProofs)
+        .where(eq(financeManualPaymentProofs.paymentId, paymentId));
+      const proofId = submitted!.id;
+
+      await rejectManualPaymentProof(
+        fixture.institutionId,
+        fixture.userId,
+        proofId,
+        "nominal tidak sesuai",
+        true,
+        tx as never,
+        NOW,
+      );
+
+      await sweepExpiredPayments(NOW, tx as never);
+
+      // The precondition of the assertion below, asserted rather than assumed: if the sweep stopped
+      // cancelling, the refusal would still pass and would be measuring nothing.
+      const [afterSweep] = await tx
+        .select({ status: competitionRegistrations.status })
+        .from(competitionRegistrations)
+        .where(eq(competitionRegistrations.id, fixture.registrationId));
+      expect(afterSweep!.status).toBe("cancelled");
+
+      await expect(
+        reopenManualPaymentProof(
+          {
+            proofId,
+            submittedByUserId: fixture.userId,
+            r2Key: `payment-proofs/${fixture.competitionId}/${paymentId}/second.jpg`,
+            originalFileName: "bukti2.jpg",
+            fileSizeBytes: 4096,
+            contentType: "image/jpeg",
+          },
+          tx as never,
+          NOW,
+        ),
+      ).rejects.toMatchObject({ code: "manual_proof_registration_cancelled" });
+
+      // POST-STATE, because the refusal alone would also be produced by a guard sitting after the
+      // write in a transaction that then rolled back. These are the three artifacts the defect
+      // actually created, and none of them may exist.
+      const [proofAfter] = await tx
+        .select({ status: financeManualPaymentProofs.status })
+        .from(financeManualPaymentProofs)
+        .where(eq(financeManualPaymentProofs.id, proofId));
+      expect(proofAfter!.status).toBe("rejected");
+
+      const events = await tx
+        .select({ eventType: financePaymentEvents.eventType })
+        .from(financePaymentEvents)
+        .where(eq(financePaymentEvents.paymentId, paymentId));
+      expect(events.map((event) => event.eventType)).not.toContain("succeeded");
+
+      const accruals = await tx
+        .select({ id: financeFeeAccruals.id })
+        .from(financeFeeAccruals)
+        .where(eq(financeFeeAccruals.paymentId, paymentId));
+      expect(accruals).toHaveLength(0);
+    });
+  });
+
+  /**
+   * A CANCELLED REGISTRATION CANNOT BECOME PAID — the second hole, independent of the first.
+   *
+   * The DEC-0132 hatch cancels every registration and DELIBERATELY leaves proofs in flight, so a
+   * pending proof against a cancelled registration is a state the product reaches on purpose. The
+   * verdict on that proof is the write that turns it into money, and it was ungated.
+   */
+  it("refuses a verdict on a registration the ops hatch cancelled", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx);
+      const { verifyManualPaymentProof } = await import(
+        "@/server/finance/manual-payment-proof-service"
+      );
+      const { cancelCompetitionAsOps } = await import("@/server/finance/ops-payment-service");
+
+      await tx.insert(institutionMemberships).values({
+        institutionId: fixture.institutionId,
+        userId: fixture.userId,
+        membershipRole: "institution_owner",
+        status: "active",
+      });
+      await tx
+        .update(competitions)
+        .set({ status: "published", feeAmount: 75_000, feeCurrency: "IDR" })
+        .where(eq(competitions.id, fixture.competitionId));
+
+      const paymentId = await seedManualPayment(tx, fixture);
+      const proofId = await seedProof(tx, fixture, paymentId);
+      const operatorSuffix = uniqueSuffix();
+      const [operator] = await tx
+        .insert(users)
+        .values({
+          email: `ops_${operatorSuffix}@example.test`,
+          username: `ops_${operatorSuffix}`,
+          candidateVerifiedAt: NOW,
+        })
+        .returning({ id: users.id });
+      const operatorId = operator!.id;
+
+      await cancelCompetitionAsOps(
+        operatorId,
+        fixture.competitionId,
+        "organiser cannot run the event",
+        tx as never,
+        NOW,
+      );
+
+      // The hatch leaves the proof in flight on purpose — that is what makes the verdict reachable.
+      const [stillPending] = await tx
+        .select({ status: financeManualPaymentProofs.status })
+        .from(financeManualPaymentProofs)
+        .where(eq(financeManualPaymentProofs.id, proofId));
+      expect(stillPending!.status).toBe("pending_review");
+
+      await expect(
+        verifyManualPaymentProof(
+          fixture.institutionId,
+          fixture.userId,
+          proofId,
+          tx as never,
+          NOW,
+        ),
+      ).rejects.toMatchObject({ code: "manual_proof_registration_cancelled" });
+
+      const events = await tx
+        .select({ eventType: financePaymentEvents.eventType })
+        .from(financePaymentEvents)
+        .where(eq(financePaymentEvents.paymentId, paymentId));
+      expect(events.map((event) => event.eventType)).not.toContain("succeeded");
+
+      const accruals = await tx
+        .select({ id: financeFeeAccruals.id })
+        .from(financeFeeAccruals)
+        .where(eq(financeFeeAccruals.paymentId, paymentId));
+      expect(accruals).toHaveLength(0);
+    });
+  });
 });
 
 const SEED_SCRIPT = "scripts/seed-test-matrix.ts";

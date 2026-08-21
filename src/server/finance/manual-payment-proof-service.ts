@@ -10,11 +10,13 @@ import {
   competitions,
   financeManualPaymentProofAttempts,
   financeManualPaymentProofs,
+  financePaymentEvents,
   financePayments,
   institutionAuditLogs,
   type FinanceManualPaymentProofRecord,
 } from "@/server/db/schema";
 import { appendPaymentEvent } from "@/server/finance/payment-service";
+import { foldPaymentEvents } from "@/lib/finance/payment-state";
 import { recordFeeAccrual, recordFeeAccrualReversal } from "@/server/finance/fee-accrual-service";
 import { mintManualPaymentEventKey } from "@/server/finance/idempotency-key";
 import {
@@ -72,6 +74,9 @@ export type ManualProofErrorCode =
   | "manual_proof_upload_unavailable"
   // Not a refusal. Raised only by an internal invariant assertion; see `recordProofAttempt`.
   | "manual_proof_invariant_violation"
+  // The lane is shut because the money already settled one way or the other. Distinct from
+  // `manual_proof_registration_cancelled`, which is shut because the participation is gone.
+  | "manual_proof_lane_closed"
   | "manual_proof_concurrently_modified";
 
 export class ManualProofError extends Error {
@@ -100,6 +105,89 @@ export class ManualProofError extends Error {
  */
 export const buildManualProofObjectPrefix = (competitionId: string, paymentId: string): string =>
   `payment-proofs/${competitionId}/${paymentId}/`;
+
+/** The payment a write may proceed against, and the registration row the lock is held on. */
+type OpenManualLane = { paymentId: string; registrationId: string };
+
+/**
+ * THE MANUAL LANE'S WRITE PRECONDITION — the four conditions `laneOpen` is made of, enforced.
+ *
+ * `laneOpen` is computed for the candidate's panel to decide which controls to OFFER. Offering is
+ * presentation; this is the enforcement, and the two must not be confused. Every write into the
+ * lane calls this, because a precondition one sibling checks and another does not is not a
+ * precondition — it is a hole with a comment above it. The proof of that: the presign checked all
+ * four, submission checked one, resubmission checked none, and a resubmission after an expiry
+ * cancellation could carry a registration the platform had already destroyed all the way to a
+ * verified payment and a platform fee that nothing in the product can reverse.
+ *
+ * THE ROW LOCK IS THE POINT. Submitting evidence and expiring the payment it belongs to must never
+ * interleave, and the anchor registration row is the only object both paths touch — so it is where
+ * they serialize. Whichever arrives first wins cleanly: the sweep cancels and the write is refused
+ * here, or the write lands and the sweep re-reads under the lock and declines.
+ *
+ * RETURNS THE PAYMENT IT VALIDATED, and callers must feed that value into the write they then
+ * perform. That is deliberate: it makes calling this AFTER the write a compile error rather than a
+ * reordering a reviewer has to notice. There is no harmful move to detect because the ordering is
+ * not expressible.
+ */
+const requireOpenManualLane = async (
+  tx: Database,
+  paymentId: string,
+): Promise<OpenManualLane> => {
+  const [payment] = await tx
+    .select({ registrationId: financePayments.competitionRegistrationId })
+    .from(financePayments)
+    .where(eq(financePayments.id, paymentId))
+    .limit(1);
+
+  if (!payment?.registrationId) {
+    throw new ManualProofError(
+      "manual_proof_payment_not_found",
+      "Pembayaran ini tidak lagi terhubung ke pendaftaran mana pun",
+      404,
+    );
+  }
+
+  const registrationRows = await tx.execute(
+    sql`select status from competition_registrations
+        where id = ${payment.registrationId} for update`,
+  );
+  const [registration] = [...registrationRows] as { status: string }[];
+
+  if (!registration) {
+    throw new ManualProofError(
+      "manual_proof_payment_not_found",
+      "Pembayaran ini tidak lagi terhubung ke pendaftaran mana pun",
+      404,
+    );
+  }
+
+  if (registration.status === "cancelled") {
+    throw new ManualProofError(
+      "manual_proof_registration_cancelled",
+      "Pendaftaran ini sudah dibatalkan, sehingga bukti transfer tidak dapat diproses",
+      409,
+    );
+  }
+
+  // FOLDED, never read from a column, because there is no status column to read (DEC-0133). A
+  // payment with an `initiated` and a later `failed` has rows in the ledger and has not settled.
+  const events = await tx
+    .select()
+    .from(financePaymentEvents)
+    .where(eq(financePaymentEvents.paymentId, paymentId));
+  const settled = foldPaymentEvents(events).status;
+
+  if (settled === "succeeded" || settled === "refunded" || settled === "expired") {
+    throw new ManualProofError(
+      "manual_proof_lane_closed",
+      "Pembayaran ini sudah selesai, sehingga bukti transfer tidak dapat diproses",
+      409,
+    );
+  }
+
+  return { paymentId, registrationId: payment.registrationId };
+};
 
 /**
  * Refuses an object key that is not this payment's own.
@@ -422,43 +510,14 @@ export const submitManualPaymentProof = async (
   const created = await db.transaction(async (tx) => {
     const scoped = tx as unknown as Database;
 
-    // THE SAME ROW LOCK THE EXPIRY SWEEP TAKES, and taken here for that reason alone.
-    //
-    // Submitting a bukti transfer and expiring the payment it belongs to are the two writes that
-    // must never interleave: a candidate uploading their evidence in the same instant the deadline
-    // sweep runs would otherwise end up with a `pending_review` proof against a cancelled
-    // registration, having transferred real money. The anchor registration row is the only object
-    // both paths touch, so it is where they serialize.
-    //
-    // Whichever arrives first wins cleanly: the sweep cancels and this submission is refused below,
-    // or this submission lands and the sweep re-reads the proof table under the lock and declines.
-    const registrationRows = await scoped.execute(
-      sql`select status from competition_registrations
-          where id = ${payment.registrationId} for update`,
-    );
-
-    const [registration] = [...registrationRows] as { status: string }[];
-
-    if (!registration) {
-      throw new ManualProofError(
-        "manual_proof_payment_not_found",
-        "Pembayaran ini tidak lagi terhubung ke pendaftaran mana pun",
-        404,
-      );
-    }
-
-    if (registration.status === "cancelled") {
-      throw new ManualProofError(
-        "manual_proof_registration_cancelled",
-        "Pendaftaran ini sudah dibatalkan, sehingga bukti transfer tidak dapat dikirim",
-        409,
-      );
-    }
+    const lane = await requireOpenManualLane(scoped, payment.id);
 
     const [created] = await scoped
       .insert(financeManualPaymentProofs)
       .values({
-        paymentId: payment.id,
+        // From the precondition, not from `payment`, so an insert placed above the check is a
+        // compile error rather than an ordering a reviewer has to catch.
+        paymentId: lane.paymentId,
         competitionId,
         submittedByUserId: input.submittedByUserId,
         status: "pending_review",
@@ -538,6 +597,42 @@ export const verifyManualPaymentProof = async (
   now: Date = new Date(),
 ): Promise<FinanceManualPaymentProofRecord> => {
   const verified = await db.transaction(async (tx) => {
+    // A CANCELLED REGISTRATION CANNOT BECOME PAID. Resolved and locked BEFORE the CAS, because the
+    // verdict is the write that turns a proof into money: it appends `succeeded` and accrues a
+    // platform fee, and under DEC-0133 both are append-only. There is no participation for that
+    // money to attach to, and no product path that can walk the accrual back — so it has to be
+    // refused here rather than corrected afterwards.
+    //
+    // Reached through the proof's own payment rather than a caller-supplied id, so a verdict cannot
+    // be checked against one payment's lane while landing on another payment's proof.
+    const [target] = await tx
+      .select({
+        paymentId: financeManualPaymentProofs.paymentId,
+        status: financeManualPaymentProofs.status,
+      })
+      .from(financeManualPaymentProofs)
+      .where(eq(financeManualPaymentProofs.id, proofId))
+      .limit(1);
+
+    if (!target) {
+      throw new ManualProofError("manual_proof_not_found", "Bukti transfer tidak ditemukan", 404);
+    }
+
+    // ANSWERED BEFORE THE LANE CHECK, and the order is the whole point. A second verify closes the
+    // lane by its own success — the first one appended `succeeded` — so asking the lane first would
+    // tell an organiser who clicked twice that the payment had settled, when what they need to know
+    // is that their own earlier verdict is already recorded. This is a nicety of wording, not a
+    // guard: the CAS below still refuses the concurrent case, which is the one that races.
+    if (target.status !== "pending_review") {
+      throw new ManualProofError(
+        "manual_proof_not_pending",
+        "Bukti transfer ini tidak sedang menunggu tinjauan — mungkin sudah ditinjau",
+        409,
+      );
+    }
+
+    const lane = await requireOpenManualLane(tx as unknown as Database, target.paymentId);
+
     const [proof] = await tx
       .update(financeManualPaymentProofs)
       .set({
@@ -553,6 +648,9 @@ export const verifyManualPaymentProof = async (
       .where(
         and(
           eq(financeManualPaymentProofs.id, proofId),
+          // From the precondition, so the CAS cannot be lifted above it — `lane` is not in scope
+          // up there. The ordering is a compile error, not a convention.
+          eq(financeManualPaymentProofs.paymentId, lane.paymentId),
           eq(financeManualPaymentProofs.status, "pending_review"),
           inArray(
             financeManualPaymentProofs.competitionId,
@@ -770,9 +868,19 @@ export const reopenManualPaymentProof = async (
 
   assertObjectKeyBelongsToPayment(input.r2Key, existing.competitionId, existing.paymentId);
 
-  const [proof] = await db
-    .update(financeManualPaymentProofs)
-    .set({
+  const proof = await db.transaction(async (tx) => {
+    const scoped = tx as unknown as Database;
+
+    // THE SAME PRECONDITION THE FIRST SUBMISSION TAKES. A resubmission is a submission — the row it
+    // writes is indistinguishable from a first attempt once written, so a condition that refuses one
+    // must refuse the other. Without it a rejected proof could be refiled onto a registration the
+    // expiry sweep had already cancelled, then verified, appending `succeeded` and accruing a
+    // platform fee against a participation that no longer exists.
+    const lane = await requireOpenManualLane(scoped, existing.paymentId);
+
+    const [reopened] = await scoped
+      .update(financeManualPaymentProofs)
+      .set({
       status: "pending_review",
       r2Key: input.r2Key,
       originalFileName: input.originalFileName,
@@ -785,28 +893,34 @@ export const reopenManualPaymentProof = async (
       submittedAt: now,
       updatedAt: now,
     })
-    .where(
-      and(
-        eq(financeManualPaymentProofs.id, input.proofId),
-        eq(financeManualPaymentProofs.submittedByUserId, input.submittedByUserId),
-        or(
-          and(
-            eq(financeManualPaymentProofs.status, "rejected"),
-            eq(financeManualPaymentProofs.resubmissionAllowed, true),
+      .where(
+        and(
+          eq(financeManualPaymentProofs.id, input.proofId),
+          // Pinned to the payment the precondition validated, so the CAS cannot be reordered above
+          // it: `lane` does not exist yet up there.
+          eq(financeManualPaymentProofs.paymentId, lane.paymentId),
+          eq(financeManualPaymentProofs.submittedByUserId, input.submittedByUserId),
+          or(
+            and(
+              eq(financeManualPaymentProofs.status, "rejected"),
+              eq(financeManualPaymentProofs.resubmissionAllowed, true),
+            ),
+            eq(financeManualPaymentProofs.status, "voided"),
           ),
-          eq(financeManualPaymentProofs.status, "voided"),
         ),
-      ),
-    )
-    .returning();
+      )
+      .returning();
 
-  if (!proof) {
-    throw new ManualProofError(
-      "manual_proof_resubmission_barred",
-      "Bukti transfer ini tidak dapat dikirim ulang",
-      409,
-    );
-  }
+    if (!reopened) {
+      throw new ManualProofError(
+        "manual_proof_resubmission_barred",
+        "Bukti transfer ini tidak dapat dikirim ulang",
+        409,
+      );
+    }
+
+    return reopened;
+  });
 
   // A replacement transfer is a new thing for the organiser to look at, and nothing else tells
   // them: the row they already rejected simply reappears in the queue.
