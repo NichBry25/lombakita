@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, EmptyState, Feedback, FormField, FormLabel, FormTextarea } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
-import { formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
+import { asSentence, formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import { formatFileSize } from "@/lib/text/format-file-size";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
@@ -210,7 +210,7 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
 
               {proof.status === "rejected" && proof.rejectionReason ? (
                 <Feedback tone="info">
-                  {`Ditolak dengan alasan: ${proof.rejectionReason}`}
+                  {`Ditolak dengan alasan: ${asSentence(proof.rejectionReason)}`}
                   {proof.resubmissionAllowed
                     ? " Peserta masih dapat mengirim bukti baru."
                     : " Peserta tidak dapat mengirim ulang."}

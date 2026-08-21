@@ -108,6 +108,25 @@ export const formatRupiah = (amount: number, currency: string): string =>
   }).format(amount);
 
 /**
+ * A free-text reason terminated exactly once, so the sentence printed after it reads as a sentence.
+ *
+ * THE ONLY PLACE A REASON'S PUNCTUATION IS DECIDED. Every surface that shows a rejection or a void
+ * follows the reason with a further sentence, and the reason itself is typed by an organiser who
+ * may or may not end it with a stop. Left to each call site the two mistakes are opposite, and both
+ * shipped: the organiser's queue appended nothing and ran two sentences together, while the
+ * candidate's panel appended a stop unconditionally and printed "Bukti tidak terbaca..".
+ *
+ * Neither was visible in any fixture, because every seeded reason ends in exactly one period.
+ */
+export const asSentence = (text: string): string => {
+  const trimmed = text.trim();
+
+  if (trimmed === "") return trimmed;
+
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+};
+
+/**
  * A finance timestamp spelled out in full — a deadline, but also an accrual date or the moment a
  * rate was acknowledged. Never a relative "3 hari lagi": a transfer needs a real date, and on the
  * fee statement there is no deadline for a relative phrase to be relative TO.

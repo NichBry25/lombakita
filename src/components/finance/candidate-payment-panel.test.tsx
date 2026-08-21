@@ -26,7 +26,11 @@ type ProofOverride = {
   resubmissionAllowed?: boolean;
 };
 
-const renderPanel = (proof: ProofOverride | null, deadlineSuspended: boolean) =>
+const renderPanel = (
+  proof: ProofOverride | null,
+  deadlineSuspended: boolean,
+  overrides: { reason?: string; status?: "pending" | "succeeded" | "refunded" } = {},
+) =>
   render(
     <UIPrimitivesProvider>
       <CandidatePaymentPanel
@@ -38,7 +42,7 @@ const renderPanel = (proof: ProofOverride | null, deadlineSuspended: boolean) =>
           grossAmount: 150_000,
           dueAt: DUE,
           deadlineSuspended,
-          status: "pending",
+          status: overrides.status ?? "pending",
           instructions: {
             bankName: "Bank Mandiri",
             accountNumber: "1370012345678",
@@ -53,7 +57,7 @@ const renderPanel = (proof: ProofOverride | null, deadlineSuspended: boolean) =>
                   status: proof.status,
                   submittedAt: new Date().toISOString(),
                   originalFileName: "bukti.jpg",
-                  rejectionReason: "Nominal tidak sesuai",
+                  rejectionReason: overrides.reason ?? "Nominal tidak sesuai",
                   resubmissionAllowed: proof.resubmissionAllowed ?? true,
                 },
           isPayer: true,
@@ -91,5 +95,50 @@ describe("the rejection notice and the clock", () => {
 
     expect(screen.getAllByText(SUSPENDED).length).toBeGreaterThan(0);
     expect(screen.queryByText(AUTO_CANCEL)).toBeNull();
+  });
+});
+
+// THE ORGANISER'S REASON IS FREE TEXT, AND BOTH ENDINGS REACH THE SCREEN.
+//
+// Every seeded reason ends in exactly one period, which is why neither of these was visible in any
+// fixture: the panel appended a stop unconditionally, so a reason that already had one printed
+// "terbaca..", and the organiser's queue appended nothing, so a reason without one ran into the
+// sentence after it. One helper decides it now; these two pin both endings against it.
+describe("a reason the organiser typed, however they punctuated it", () => {
+  it("does not double the stop when the reason already ends in one", () => {
+    renderPanel({ status: "rejected", resubmissionAllowed: false }, false, {
+      reason: "Bukti tidak terbaca.",
+    });
+
+    expect(screen.getByText(/Bukti tidak terbaca\. Hubungi penyelenggara/)).toBeTruthy();
+    expect(screen.queryByText(/\.\./)).toBeNull();
+  });
+
+  it("adds the stop when the reason has none, instead of running two sentences together", () => {
+    renderPanel({ status: "rejected", resubmissionAllowed: true }, false, {
+      reason: "Nominal transfer tidak sesuai",
+    });
+
+    expect(screen.getByText(/tidak sesuai\. Unggah bukti yang baru/)).toBeTruthy();
+  });
+});
+
+// A SETTLED PAYMENT IS NOT RACING ANYTHING.
+//
+// `succeeded` and `refunded` outrank every other deadline state for the same reason `suspended`
+// does: expiry cannot reach this payment, so a countdown next to "sudah diverifikasi" describes an
+// obligation that no longer exists.
+describe("the clock after the money is settled", () => {
+  it("stops counting down once the payment has succeeded", () => {
+    renderPanel({ status: "verified" }, false, { status: "succeeded" });
+
+    expect(screen.queryByText(/hari lagi/)).toBeNull();
+    expect(screen.getAllByText(/Tidak berlaku lagi/i).length).toBeGreaterThan(0);
+  });
+
+  it("stops counting down on a refund too", () => {
+    renderPanel({ status: "verified" }, false, { status: "refunded" });
+
+    expect(screen.queryByText(/hari lagi/)).toBeNull();
   });
 });

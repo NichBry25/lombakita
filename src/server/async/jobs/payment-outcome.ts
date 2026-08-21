@@ -12,7 +12,7 @@ import { resolvePaymentGroupMemberUserIds } from "@/server/finance/paid-registra
 import { sendPaymentOutcomeEmail } from "@/server/notifications/notification-email";
 import { writeInboxNotificationSafely } from "@/server/notifications/inbox-write";
 import { NOTIFICATION_TYPES } from "@/server/notifications/notification-types";
-import { formatRupiah } from "@/lib/finance/payment-display";
+import { asSentence, formatRupiah } from "@/lib/finance/payment-display";
 
 export type PaymentOutcomeJob = Job<
   PaymentOutcomePayload,
@@ -39,7 +39,7 @@ const inboxCopy = (
       title: `Bukti transfer ditolak untuk ${competitionTitle}`,
       body:
         `Penyelenggara menolak bukti transfer Anda.` +
-        (rejectionReason ? ` Alasan: ${rejectionReason}.` : "") +
+        (rejectionReason ? ` Alasan: ${asSentence(rejectionReason)}` : "") +
         (resubmissionAllowed === false
           ? " Anda tidak dapat mengirim bukti baru — hubungi penyelenggara sebelum batas waktu."
           : " Unggah bukti transfer yang baru sebelum batas waktu pembayaran."),
@@ -58,7 +58,7 @@ const inboxCopy = (
       title: `Bukti transfer dibatalkan untuk ${competitionTitle}`,
       body:
         `Tim Lombakita membatalkan bukti transfer Anda, bukan penyelenggara.` +
-        (rejectionReason ? ` Alasan: ${rejectionReason}.` : "") +
+        (rejectionReason ? ` Alasan: ${asSentence(rejectionReason)}` : "") +
         " Anda dapat mengirim bukti transfer baru sebelum batas waktu pembayaran.",
     };
   }

@@ -14,6 +14,7 @@ import {
 import {
   PAYMENT_STATUS_LABELS,
   PAYMENT_STATUS_TONES,
+  asSentence,
   derivePaymentDisplayStatus,
   formatFinanceDateTime,
   formatRupiah,
@@ -189,7 +190,13 @@ export function CandidatePaymentPanel({
           <dt>Jumlah</dt>
           <dd className="data-text">{formatRupiah(payment.grossAmount, payment.currency)}</dd>
         </div>
-        <PaymentDeadline dueAt={payment.dueAt} suspended={payment.deadlineSuspended} />
+        <PaymentDeadline
+        dueAt={payment.dueAt}
+        suspended={payment.deadlineSuspended}
+        // Read from the LEDGER, not from the proof: the proof can read `verified` for a moment
+        // before the event folds, and a deadline is about the money rather than about the evidence.
+        settled={payment.status === "succeeded" || payment.status === "refunded"}
+      />
       </dl>
 
       <PaymentInstructions instructions={payment.instructions} id={instructionsId} />
@@ -331,8 +338,16 @@ function PaymentInstructions({
  * competition's window, so an organiser shortening that window does not move a deadline already
  * promised to someone mid-transfer.
  */
-function PaymentDeadline({ dueAt, suspended }: { dueAt: string | null; suspended: boolean }) {
-  const state = describePaymentDeadline(dueAt, { suspended });
+function PaymentDeadline({
+  dueAt,
+  suspended,
+  settled,
+}: {
+  dueAt: string | null;
+  suspended: boolean;
+  settled: boolean;
+}) {
+  const state = describePaymentDeadline(dueAt, { suspended, settled });
 
   if (state.kind === "none") return null;
 
@@ -343,7 +358,11 @@ function PaymentDeadline({ dueAt, suspended }: { dueAt: string | null; suspended
         <time dateTime={state.dueAt} className="data-text">
           {formatFinanceDateTime(state.dueAt)}
         </time>
-        {state.kind === "suspended" ? (
+        {state.kind === "settled" ? (
+          <span className="form-help">
+            Tidak berlaku lagi — pembayaran ini sudah selesai.
+          </span>
+        ) : state.kind === "suspended" ? (
           <span className="form-help">
             Tidak berlaku selama bukti transfer Anda ditinjau — pendaftaran Anda tidak akan
             dibatalkan karena batas waktu ini.
@@ -416,8 +435,8 @@ function PaymentStateNotice({ payment }: { payment: CandidatePaymentPanelProps["
     return (
       <Feedback tone={payment.proof.resubmissionAllowed ? "warning" : "error"}>
         {payment.proof.resubmissionAllowed
-          ? `Bukti transfer ditolak. Alasan: ${payment.proof.rejectionReason ?? "—"}. Unggah bukti yang baru sebelum batas waktu.`
-          : `Bukti transfer ditolak dan tidak dapat dikirim ulang. Alasan: ${payment.proof.rejectionReason ?? "—"}. Hubungi penyelenggara sebelum batas waktu di atas — jika terlewat, pendaftaran ini dibatalkan secara otomatis.`}
+          ? `Bukti transfer ditolak. Alasan: ${asSentence(payment.proof.rejectionReason ?? "—")} Unggah bukti yang baru sebelum batas waktu.`
+          : `Bukti transfer ditolak dan tidak dapat dikirim ulang. Alasan: ${asSentence(payment.proof.rejectionReason ?? "—")} Hubungi penyelenggara sebelum batas waktu di atas — jika terlewat, pendaftaran ini dibatalkan secara otomatis.`}
       </Feedback>
     );
   }

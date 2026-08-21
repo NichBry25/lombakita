@@ -3,6 +3,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 assertServerOnly("server/notifications/notification-email");
 
 import { Resend } from "resend";
+import { asSentence } from "@/lib/finance/payment-display";
 import { publicEnv } from "@/config/env";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
@@ -521,7 +522,9 @@ const paymentOutcomeBody = (options: {
   resubmissionAllowed: boolean | null;
   amount: string;
 }): string[] => {
-  const reasonLines = options.rejectionReason ? ["", `Alasan: ${options.rejectionReason}`] : [];
+  const reasonLines = options.rejectionReason
+    ? ["", `Alasan: ${asSentence(options.rejectionReason)}`]
+    : [];
 
   if (options.outcome === "verified") {
     return [

@@ -30,6 +30,12 @@ export type PaymentDeadlineState =
    * whether they met it.
    */
   | { kind: "suspended"; dueAt: string }
+  /**
+   * The money is settled — succeeded or refunded — so the deadline has no power left over this
+   * registration. Carries the instant for the same reason `suspended` does: it is still the date
+   * that was met, and the record of it is worth keeping once the countdown is gone.
+   */
+  | { kind: "settled"; dueAt: string }
   /** The deadline has passed. Separate from the payment being expired, which is the worker's act. */
   | { kind: "passed"; dueAt: string }
   | { kind: "remaining"; dueAt: string; remainingMs: number; urgent: boolean };
@@ -40,12 +46,18 @@ export type PaymentDeadlineState =
  * `suspended` outranks everything except a missing deadline, INCLUDING a deadline that has already
  * gone by: a candidate who submitted in time and is waiting on a slow organiser must not be shown
  * "telah lewat" on a deadline that no longer has any power over them.
+ *
+ * `settled` outranks even that, and for the stronger form of the same reason. A suspension can be
+ * lifted and the clock resume; a settled payment is finished, so a countdown beside "pembayaran
+ * sudah diverifikasi" states an obligation that does not exist. Both arms exist because a deadline
+ * is only ever information about what can still happen to this registration.
  */
 export const describePaymentDeadline = (
   dueAt: string | null,
-  options: { suspended: boolean; now?: Date },
+  options: { suspended: boolean; settled?: boolean; now?: Date },
 ): PaymentDeadlineState => {
   if (dueAt === null) return { kind: "none" };
+  if (options.settled) return { kind: "settled", dueAt };
   if (options.suspended) return { kind: "suspended", dueAt };
 
   const remainingMs = new Date(dueAt).getTime() - (options.now ?? new Date()).getTime();
