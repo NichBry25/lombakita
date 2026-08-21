@@ -6,7 +6,7 @@ import { getDb } from "@/server/db/client";
 import { Card, EmptyState, Feedback, PageHeader } from "@/components/ui";
 import { loadInstitutionFeeStatement } from "@/server/finance/fee-statement";
 import { formatBasisPoints } from "@/lib/finance/fee-display";
-import { formatPaymentDeadline, formatRupiah } from "@/lib/finance/payment-display";
+import { formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
 
 type Props = { params: Promise<{ institutionSlug: string }> };
 
@@ -115,7 +115,7 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
                   <tr key={line.accrualId}>
                     <td>
                       <time dateTime={line.recordedAt.toISOString()}>
-                        {formatPaymentDeadline(line.recordedAt.toISOString())}
+                        {formatFinanceDateTime(line.recordedAt.toISOString())}
                       </time>
                     </td>
                     <td>
@@ -180,7 +180,7 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
                       <dt>Disetujui</dt>
                       <dd>
                         <time dateTime={ack.acknowledgedAt.toISOString()}>
-                          {formatPaymentDeadline(ack.acknowledgedAt.toISOString())}
+                          {formatFinanceDateTime(ack.acknowledgedAt.toISOString())}
                         </time>
                       </dd>
                     </div>

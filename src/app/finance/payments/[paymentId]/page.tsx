@@ -4,7 +4,7 @@ import {
   loadDisputeLedgerState,
   loadDisputePaymentDetail,
 } from "@/server/finance/dispute-view";
-import { formatPaymentDeadline, formatRupiah } from "@/lib/finance/payment-display";
+import { formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import { formatFileSize } from "@/lib/text/format-file-size";
 import { capitalizeWord } from "@/lib/text/capitalize";
@@ -78,7 +78,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
               <dt>Batas waktu</dt>
               <dd>
                 <time dateTime={detail.dueAt.toISOString()}>
-                  {formatPaymentDeadline(detail.dueAt.toISOString())}
+                  {formatFinanceDateTime(detail.dueAt.toISOString())}
                 </time>
               </dd>
             </div>
@@ -142,7 +142,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
                       <dt>Dikirim</dt>
                       <dd>
                         <time dateTime={attempt.submittedAt.toISOString()}>
-                          {formatPaymentDeadline(attempt.submittedAt.toISOString())}
+                          {formatFinanceDateTime(attempt.submittedAt.toISOString())}
                         </time>
                       </dd>
                     </div>
@@ -150,7 +150,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
                       <dt>Diputus</dt>
                       <dd>
                         <time dateTime={attempt.reviewedAt.toISOString()}>
-                          {formatPaymentDeadline(attempt.reviewedAt.toISOString())}
+                          {formatFinanceDateTime(attempt.reviewedAt.toISOString())}
                         </time>
                       </dd>
                     </div>

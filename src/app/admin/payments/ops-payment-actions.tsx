@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, Feedback, FormField, FormLabel, FormTextarea } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
-import { formatPaymentDeadline, formatRupiah } from "@/lib/finance/payment-display";
+import { formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
 import { capitalizeWord } from "@/lib/text/capitalize";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
@@ -173,7 +173,7 @@ export function OpsPaymentActions({ competitions }: { competitions: OpsCompetiti
                         <dt>Dikirim</dt>
                         <dd>
                           <time dateTime={proof.submittedAt}>
-                            {formatPaymentDeadline(proof.submittedAt)}
+                            {formatFinanceDateTime(proof.submittedAt)}
                           </time>
                         </dd>
                       </div>
@@ -181,7 +181,7 @@ export function OpsPaymentActions({ competitions }: { competitions: OpsCompetiti
                         <div>
                           <dt>Batas waktu</dt>
                           <dd>
-                            <time dateTime={proof.dueAt}>{formatPaymentDeadline(proof.dueAt)}</time>
+                            <time dateTime={proof.dueAt}>{formatFinanceDateTime(proof.dueAt)}</time>
                           </dd>
                         </div>
                       ) : null}

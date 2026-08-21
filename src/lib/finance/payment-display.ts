@@ -107,8 +107,12 @@ export const formatRupiah = (amount: number, currency: string): string =>
     maximumFractionDigits: 0,
   }).format(amount);
 
-/** The deadline, spelled out. Never a relative "3 hari lagi" — a transfer needs a real date. */
-export const formatPaymentDeadline = (isoDate: string): string =>
+/**
+ * A finance timestamp spelled out in full — a deadline, but also an accrual date or the moment a
+ * rate was acknowledged. Never a relative "3 hari lagi": a transfer needs a real date, and on the
+ * fee statement there is no deadline for a relative phrase to be relative TO.
+ */
+export const formatFinanceDateTime = (isoDate: string): string =>
   new Date(isoDate).toLocaleString("id-ID", {
     day: "numeric",
     month: "long",

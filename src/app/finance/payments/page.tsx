@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { EmptyState, Feedback, PageHeader } from "@/components/ui";
 import { loadDisputePayments } from "@/server/finance/dispute-view";
-import { formatPaymentDeadline, formatRupiah } from "@/lib/finance/payment-display";
+import { formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 
 export const metadata = {
@@ -85,7 +85,7 @@ export default async function FinanceDisputePaymentsPage() {
                   <td>
                     {payment.submittedAt ? (
                       <time dateTime={payment.submittedAt.toISOString()}>
-                        {formatPaymentDeadline(payment.submittedAt.toISOString())}
+                        {formatFinanceDateTime(payment.submittedAt.toISOString())}
                       </time>
                     ) : (
                       "—"

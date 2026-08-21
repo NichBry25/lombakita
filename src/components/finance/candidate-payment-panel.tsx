@@ -15,7 +15,7 @@ import {
   PAYMENT_STATUS_LABELS,
   PAYMENT_STATUS_TONES,
   derivePaymentDisplayStatus,
-  formatPaymentDeadline,
+  formatFinanceDateTime,
   formatRupiah,
 } from "@/lib/finance/payment-display";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
@@ -341,7 +341,7 @@ function PaymentDeadline({ dueAt, suspended }: { dueAt: string | null; suspended
       <dt>Batas waktu</dt>
       <dd className="stack-xs">
         <time dateTime={state.dueAt} className="data-text">
-          {formatPaymentDeadline(state.dueAt)}
+          {formatFinanceDateTime(state.dueAt)}
         </time>
         {state.kind === "suspended" ? (
           <span className="form-help">
