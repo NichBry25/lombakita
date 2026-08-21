@@ -2359,9 +2359,6 @@ export const financeManualPaymentProofAttempts = pgTable(
       table.proofId,
       table.attemptNumber,
     ),
-    // Anticipates a filter on `payment_id` that no reader performs yet; both readers go by
-    // `proof_id`, which the unique index above already covers.
-    index("finance_manual_payment_proof_attempts_payment_id_idx").on(table.paymentId),
     check(
       "finance_manual_payment_proof_attempts_verdict_chk",
       sql`${table.verdict} IN ('verified', 'rejected', 'voided')`,

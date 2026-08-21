@@ -62,5 +62,4 @@ ALTER TABLE "finance_payment_instruction_snapshots" ADD CONSTRAINT "finance_paym
 CREATE INDEX "finance_fee_disclosure_acknowledgements_competition_id_idx" ON "finance_fee_disclosure_acknowledgements" USING btree ("competition_id");--> statement-breakpoint
 CREATE INDEX "finance_fee_disclosure_acknowledgements_institution_id_idx" ON "finance_fee_disclosure_acknowledgements" USING btree ("institution_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "finance_manual_payment_proof_attempts_attempt_unique_idx" ON "finance_manual_payment_proof_attempts" USING btree ("proof_id","attempt_number");--> statement-breakpoint
-CREATE INDEX "finance_manual_payment_proof_attempts_payment_id_idx" ON "finance_manual_payment_proof_attempts" USING btree ("payment_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "finance_payment_instruction_snapshots_payment_unique_idx" ON "finance_payment_instruction_snapshots" USING btree ("payment_id");

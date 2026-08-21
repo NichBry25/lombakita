@@ -2438,21 +2438,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "finance_manual_payment_proof_attempts_payment_id_idx": {
-          "name": "finance_manual_payment_proof_attempts_payment_id_idx",
-          "columns": [
-            {
-              "expression": "payment_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
