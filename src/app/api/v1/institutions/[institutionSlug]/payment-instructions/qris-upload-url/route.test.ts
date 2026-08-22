@@ -1,6 +1,6 @@
 // @vitest-environment node
 //
-// The upload grant. Class C again — the gate precedes a service that opens no transaction — so
+// The upload grant. Class C again (the gate precedes a service that opens no transaction) so
 // "the grant was never minted" is a sufficient detector for both removal and move.
 //
 // The claim that matters beyond access: the caller supplies a FILE NAME and nothing else. There is
@@ -139,7 +139,7 @@ describe("POST …/payment-instructions/qris-upload-url", () => {
     generateQrisUploadUrl.mockRejectedValue(
       new PaymentInstructionsError(
         "payment_instructions_upload_unavailable",
-        "Penyimpanan berkas belum dikonfigurasi — unggahan QRIS sementara tidak tersedia",
+        "Penyimpanan berkas belum dikonfigurasi sehingga unggahan QRIS sementara tidak tersedia",
         503,
       ),
     );

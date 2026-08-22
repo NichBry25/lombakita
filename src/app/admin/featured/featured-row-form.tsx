@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/ui";
+import { Button, CheckboxField } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 
 type FeaturedRowFormProps = {
@@ -57,14 +57,9 @@ export function FeaturedRowForm({
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="featured-row-form">
-      <label className="checkbox-field">
-        <input
-          type="checkbox"
-          checked={isFeatured}
-          onChange={(e) => setIsFeatured(e.target.checked)}
-        />
+      <CheckboxField checked={isFeatured} onChange={(e) => setIsFeatured(e.target.checked)}>
         Unggulan
-      </label>
+      </CheckboxField>
       <input
         type="number"
         value={featuredOrder}

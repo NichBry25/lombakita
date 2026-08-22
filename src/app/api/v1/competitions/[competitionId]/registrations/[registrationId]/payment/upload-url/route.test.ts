@@ -3,7 +3,7 @@
 // Every assertion here that reads `not.toHaveBeenCalled()` is a MOVE test, not a redundancy.
 //
 // A removal test alone cannot tell a guard that runs from a guard that runs too late: delete the
-// guard and the call succeeds, but MOVE it below the effect it protects and the call still throws —
+// guard and the call succeeds, but MOVE it below the effect it protects and the call still throws,
 // after the effect has already happened. Asserting that the protected call was never reached is the
 // only thing at this layer that separates those two, which is what Rule 32 asks for in both
 // directions.
@@ -97,8 +97,8 @@ describe("POST …/payment/upload-url", () => {
     expect(response.status).toBe(200);
     expect(requireSessionRole).toHaveBeenCalledWith(["candidate"]);
     expect(assertSessionMatchesExpectedUser).toHaveBeenCalled();
-    // The PAYMENT is resolved from the registration and the SESSION, never taken from the body —
-    // a caller-supplied payment id is the whole cross-payer attack this route would otherwise carry.
+    // The PAYMENT is resolved from the registration and the SESSION, never taken from the body.
+    // A caller-supplied payment id is the whole cross-payer attack this route would otherwise carry.
     expect(generateManualProofUploadUrl).toHaveBeenCalledWith("pay_1", "cand_1", {
       fileName: "bukti.jpg",
     });
@@ -115,7 +115,7 @@ describe("POST …/payment/upload-url", () => {
   it("refuses on a cross-session mismatch BEFORE resolving any payment", async () => {
     // The downstream mocks are deliberately made to SUCCEED. If they were left unset the route
     // would fail on a null view first, and this test would report a 404 that proves nothing about
-    // where the guard sits — the move probe would be detected by the wrong assertion.
+    // where the guard sits, and the move probe would be detected by the wrong assertion.
     requireSessionRole.mockResolvedValue(CANDIDATE);
     loadCandidatePaymentView.mockResolvedValue(payableView());
     generateManualProofUploadUrl.mockResolvedValue(grant);
@@ -142,7 +142,7 @@ describe("POST …/payment/upload-url", () => {
 
   it("refuses when the affordance is withheld, because a hidden control is not enforcement", async () => {
     // The UI does not render an upload control in this state. This asserts the endpoint refuses it
-    // anyway — presentation decides what is offered, never what is permitted.
+    // anyway. Presentation decides what is offered, never what is permitted.
     requireSessionRole.mockResolvedValue(CANDIDATE);
     loadCandidatePaymentView.mockResolvedValue(
       payableView({ canSubmitProof: false, canResubmitProof: false }),

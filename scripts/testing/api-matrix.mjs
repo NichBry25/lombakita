@@ -32,7 +32,7 @@ const main = async () => {
 
     // OPERATIONAL SESSIONS MUST BE ELEVATED, or every operator case measures the MFA gate instead
     // of the thing it names. A minted platform_ops session is `challenge_required`, and
-    // `requireSessionRole` answers 403 with `mfa_challenge_required` — the SAME status a role
+    // `requireSessionRole` answers 403 with `mfa_challenge_required`, the SAME status a role
     // refusal produces, so a negative case reads as passing while a positive case reads as a
     // product defect. `lib-browser` has elevated its contexts since Step 7.1; this harness never
     // did, which is why every OPS/MOD/VERIF/FEAT operator case has been red or falsely green since.
@@ -552,7 +552,7 @@ const main = async () => {
   const finViewOther = await apiFetch("/api/finance-ops/payment-proofs/seed-proof-d/view", {
     method: "POST", cookie: sessions.finOps,
   });
-  // A DIFFERENT INSTITUTION's proof (seed-inst-d's competition). Reachable ON PURPOSE — this is the
+  // A DIFFERENT INSTITUTION's proof (seed-inst-d's competition). Reachable ON PURPOSE. This is the
   // cross-tenant positive, and a 403 here would mean disputes could only be handled by guessing
   // which tenant they came from.
   record("FIN-02", "finance_ops reads across tenants by design", "200 (or 503 without R2)", `${finViewOther.status}`, finViewOther.status === 200 || finViewOther.status === 503);
@@ -564,7 +564,7 @@ const main = async () => {
     // ASSERTED ON THE CODE, NOT THE STATUS, and that distinction is load-bearing: an unelevated
     // operational session is also refused 403, with `mfa_challenge_required`. A status-only check
     // here would report a role boundary that was never reached. platform_ops is refused too, and
-    // deliberately — the two operator roles keep separate audit trails, and letting either mint the
+    // deliberately: the two operator roles keep separate audit trails, and letting either mint the
     // other's makes "who looked at this receipt" a question the log can no longer answer.
     const refusalCode = refused.body?.error?.code ?? "";
     record(`FIN-03-${label}`, `Dispute file access refused for ${label} (role, not MFA)`, "403 forbidden", `${refused.status} ${refusalCode}`, refused.status === 403 && refusalCode !== "mfa_challenge_required");

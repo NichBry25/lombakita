@@ -8,7 +8,7 @@ export type RegistrationPaymentErrorCode = "registration_payment_unavailable";
 /**
  * A priced competition that cannot be charged against right now.
  *
- * ONE CODE FOR THREE CAUSES — the institution is unverified, it has published no bank account, or
+ * ONE CODE FOR THREE CAUSES: the institution is unverified, it has published no bank account, or
  * no platform fee rule is in force. They are the same event from the candidate's side: the
  * organiser is not ready to take money, and nothing the candidate does changes it.
  *

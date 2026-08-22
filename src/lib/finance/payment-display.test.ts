@@ -21,7 +21,7 @@ describe("derivePaymentDisplayStatus", () => {
 
   it("separates a rejection the organiser left open from one they barred", () => {
     // The whole reason this function exists. Both are ledger-`pending` and both have a `rejected`
-    // proof, but one is a candidate who can act and one is a candidate who cannot — and telling
+    // proof, but one is a candidate who can act and one is a candidate who cannot, and telling
     // the second to "unggah bukti yang baru" would send them somewhere the server refuses.
     expect(derivePaymentDisplayStatus(withProof("rejected", true))).toBe("rejected_resubmittable");
     expect(derivePaymentDisplayStatus(withProof("rejected", false))).toBe("rejected_final");
@@ -73,7 +73,7 @@ describe("derivePaymentDisplayStatus", () => {
 describe("formatRupiah", () => {
   it("renders whole rupiah with the separator Indonesian banking apps use", () => {
     // Pinned because the candidate RETYPES this number into a banking app. `Intl` defaults to two
-    // fraction digits, which would render Rp150.000,00 — a figure that does not exist in IDR and
+    // fraction digits, which would render Rp150.000,00, a figure that does not exist in IDR and
     // that a payer could reasonably enter as 15000000.
     expect(formatRupiah(150_000, "IDR")).toBe("Rp 150.000");
   });

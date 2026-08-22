@@ -332,7 +332,7 @@ describe("classifyCompetitionEdit — buckets in isolation", () => {
   });
 });
 
-describe("classifyCompetitionEdit — fee fields while money is in flight", () => {
+describe("classifyCompetitionEdit: fee fields while money is in flight", () => {
   it("BLOCKS a fee change whenever a payment is in flight, in either direction", () => {
     // Someone has transferred real rupiah against the price they were shown. Moving that price
     // underneath them is the one fee edit no after-the-fact notification can make safe.
@@ -414,7 +414,7 @@ describe("classifyCompetitionEdit — fee fields while money is in flight", () =
   });
 });
 
-describe("classifyCompetitionEdit — registrationEndAt under an in-flight payment", () => {
+describe("classifyCompetitionEdit: registrationEndAt under an in-flight payment", () => {
   it("BLOCKS moving the registration deadline while a transfer is outstanding", () => {
     // Each payment's own deadline is clamped to this date at creation and never recomputed. Moving
     // the date leaves an outstanding payment carrying a deadline derived from a date that no longer

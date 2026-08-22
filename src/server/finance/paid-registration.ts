@@ -16,17 +16,17 @@ import { foldPaymentEvents } from "@/lib/finance/payment-state";
 // THE THREE PAID PREDICATES. They are different questions with different answers, and they are
 // kept apart here because the rules they drive are kept apart:
 //
-//   CONFIRMED PAID     — money is known to have arrived. Drives the non-refundable-on-candidate-
+//   CONFIRMED PAID:      money is known to have arrived. Drives the non-refundable-on-candidate-
 //                        initiative rule. Answering yes commits the platform to the position that a
 //                        candidate has parted with money.
-//   PAYMENT IN FLIGHT  — someone has claimed to have sent money and nobody has said otherwise.
+//   PAYMENT IN FLIGHT:   someone has claimed to have sent money and nobody has said otherwise.
 //                        Drives the unpublish block. Fires EARLIER than confirmed-paid, on purpose:
 //                        the window where a candidate has transferred real rupiah but the organiser
 //                        has not verified it yet is exactly the window in which unpublishing would
 //                        strand them.
-//   PROOF SUBMITTED    — the candidate has asserted they sent money, whatever came of it. Drives
+//   PROOF SUBMITTED:     the candidate has asserted they sent money, whatever came of it. Drives
 //                        whether the cancel affordance is OFFERED. Fires earliest of the three and,
-//                        unlike the other two, NEVER GOES BACK TO FALSE — a rejected or voided proof
+//                        unlike the other two, NEVER GOES BACK TO FALSE. A rejected or voided proof
 //                        still counts, because the platform cannot establish that no money moved.
 //
 // Collapsing any pair into one "is this paid" helper would pick one of those moments and get the
@@ -34,7 +34,7 @@ import { foldPaymentEvents } from "@/lib/finance/payment-state";
 // in flight is what a rejected proof is.
 //
 // ROW EXISTENCE IS NOT THE PREDICATE. `finance_payments` accepts `gross_amount = 0`, so a FREE
-// registration can legitimately carry a payment row, and there is no status column to read — FOLDED
+// registration can legitimately carry a payment row, and there is no status column to read. FOLDED
 // from the event stream (DEC-0133). "A finance_payments row exists" is therefore true of free
 // competitions and of failed attempts alike, and any predicate written that way reports paid for
 // both.
@@ -45,7 +45,7 @@ import { foldPaymentEvents } from "@/lib/finance/payment-state";
  *
  * A team registration is ONE ROW PER MEMBER (submitTeamRegistration maps memberUserIds into N
  * inserts) but a team PAYS ONCE, anchored on the captain's row. So "has this person paid" cannot be
- * asked of their own row alone — three of the four members would answer no about a competition
+ * asked of their own row alone. Three of the four members would answer no about a competition
  * their team has fully paid for.
  *
  * The branch here is on `team_id` being null, which is the definition of the group restated. It is
@@ -77,7 +77,7 @@ export const resolvePaymentGroupRegistrationIds = async (
 /**
  * A registration id belonging to this team, or null when the team holds none.
  *
- * ANY member's row identifies the group — `hasSubmittedPaymentProof` resolves the whole payment
+ * ANY member's row identifies the group. `hasSubmittedPaymentProof` resolves the whole payment
  * group from whichever row it is handed, so singling out the captain's would add a way to get the
  * wrong answer for no benefit. The caller needs an anchor, not a particular person's row.
  *
@@ -98,7 +98,7 @@ export const findTeamPaymentGroupAnchor = async (
 };
 
 /**
- * Everyone who holds a priced manual-lane payment on this competition — the people who may have
+ * Everyone who holds a priced manual-lane payment on this competition: the people who may have
  * transferred real money to the organiser.
  *
  * The set a cancellation notice needs in order to say anything about refunds. Scoped to the PAYER
@@ -132,7 +132,7 @@ export const loadCompetitionPayerUserIds = async (
 };
 
 /**
- * Every candidate whose registration shares this payment — the whole team, or the single payer.
+ * Every candidate whose registration shares this payment: the whole team, or the single payer.
  *
  * R13's verdict rule in one place: a team pays ONCE, anchored on the captain's row, but a verdict
  * on that payment ends or confirms the participation of every member. Notifying the captain alone
@@ -182,7 +182,7 @@ const loadChargeablePaymentIds = async (
 };
 
 /**
- * CONFIRMED PAID — a priced payment on this registration's payment group has FOLDED to `succeeded`.
+ * CONFIRMED PAID: a priced payment on this registration's payment group has FOLDED to `succeeded`.
  *
  * The fold is what makes this trustworthy: a payment with an `initiated` event and a later `failed`
  * one has rows in the ledger and has not been paid, and a payment that succeeded and was then
@@ -212,7 +212,7 @@ export const isRegistrationConfirmedPaid = async (
 };
 
 /**
- * PAYMENT IN FLIGHT — a bukti transfer has been submitted on this registration's payment group and
+ * PAYMENT IN FLIGHT: a bukti transfer has been submitted on this registration's payment group and
  * has not been rejected or voided.
  *
  * `verified` counts as in flight. It is not a contradiction: a verified proof means the organiser
@@ -242,7 +242,7 @@ export const isRegistrationPaymentInFlight = async (
 };
 
 /**
- * HAS THE CANDIDATE ASSERTED THEY SENT MONEY — a proof row exists on this registration's payment
+ * HAS THE CANDIDATE ASSERTED THEY SENT MONEY: a proof row exists on this registration's payment
  * group in ANY status, including `rejected` and `voided`.
  *
  * THE THIRD CONDITION, and deliberately neither of the two above. Confirmed-paid asks whether money
@@ -250,14 +250,15 @@ export const isRegistrationPaymentInFlight = async (
  * asks a question neither of them can: has the candidate ever put their hand up and said they paid.
  * Once they have, the answer here never goes back to false.
  *
- * It governs whether the CANCEL AFFORDANCE IS OFFERED AT ALL. Not whether a cancellation is refused
- * — offered. A control that appears and then refuses teaches a candidate that the platform is
- * broken; a control that is absent, next to a sentence explaining why, teaches them the rule.
+ * It governs whether the CANCEL AFFORDANCE IS OFFERED AT ALL. Not whether a cancellation is
+ * refused, whether it is offered. A control that appears and then refuses teaches a candidate that
+ * the platform is broken; a control that is absent, next to a sentence explaining why, teaches
+ * them the rule.
  *
  * WHY A REJECTED OR VOIDED PROOF STILL COUNTS, which is the part that looks wrong and is not: the
  * platform never touches this money. It has no bank feed, no gateway record, no independent way to
  * establish whether a transfer happened. A rejected proof means the ORGANISER was not satisfied by
- * the evidence — it does not mean no money moved, and the platform is in no position to rule that
+ * the evidence. It does not mean no money moved, and the platform is in no position to rule that
  * it did not. Withholding the affordance on a rejected proof is the conservative side of a mistake
  * the platform cannot detect, let alone correct: cancelling a registration whose payer really did
  * transfer would destroy the only record connecting them to it.
@@ -282,7 +283,7 @@ export const hasSubmittedPaymentProof = async (
 };
 
 /**
- * Whether ANY payment is in flight anywhere on this competition — the DEC-0132 unpublish question.
+ * Whether ANY payment is in flight anywhere on this competition: the DEC-0132 unpublish question.
  *
  * Scoped by `competition_id` on the proof row rather than by walking registrations, so it is one
  * indexed read regardless of how many people have registered, and so a registration row cancelled

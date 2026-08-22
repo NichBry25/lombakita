@@ -1,7 +1,7 @@
 import type { HTMLAttributes } from "react";
 import { joinClassNames } from "./class-names";
 
-export type FeedbackTone = "success" | "warning" | "error" | "info";
+export type FeedbackTone = "success" | "warning" | "error" | "info" | "neutral";
 
 type FeedbackProps = HTMLAttributes<HTMLDivElement> & {
   tone?: FeedbackTone;

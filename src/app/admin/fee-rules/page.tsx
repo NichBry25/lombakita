@@ -3,7 +3,7 @@ import { listFeeRules } from "@/server/finance/fee-rule-service";
 import { FeeRuleForm } from "./fee-rule-form";
 import { formatBasisPoints, formatEffectiveDate, formatMinorUnits } from "./fee-rule-display";
 
-// Protected by /admin/layout.tsx — platform_ops only, and requireRolePage applies the operational
+// Protected by /admin/layout.tsx (platform_ops only), and requireRolePage applies the operational
 // MFA challenge, so this surface is gated on the same choke point as every other /admin page.
 export default async function AdminFeeRulesPage() {
   const rules = await listFeeRules();
@@ -12,7 +12,7 @@ export default async function AdminFeeRulesPage() {
     <main className="page-shell app-page admin-page">
       <PageHeader
         title="Aturan biaya platform"
-        description="Tarif komisi platform, berlaku per tanggal. Aturan tidak diubah — tarif baru dibuat sebagai aturan baru yang menggantikan sejak tanggal berlakunya."
+        description="Tarif komisi platform, berlaku per tanggal. Aturan tidak pernah diubah. Tarif baru dicatat sebagai aturan baru yang menggantikan aturan lama sejak tanggal berlakunya."
         actions={<span className="status-badge data-text">{rules.length} aturan</span>}
       />
 
@@ -64,21 +64,21 @@ export default async function AdminFeeRulesPage() {
                     <td className="data-text">{formatMinorUnits(rule.flatAmount, rule.currency)}</td>
                     <td className="data-text">
                       {rule.minimumFeeAmount === null ? (
-                        <em>–</em>
+                        "—"
                       ) : (
                         formatMinorUnits(rule.minimumFeeAmount, rule.currency)
                       )}
                     </td>
                     <td className="data-text">
                       {rule.maximumFeeAmount === null ? (
-                        <em>–</em>
+                        "—"
                       ) : (
                         formatMinorUnits(rule.maximumFeeAmount, rule.currency)
                       )}
                     </td>
                     <td className="data-text">{formatEffectiveDate(rule.effectiveFrom)}</td>
                     <td className="data-text">
-                      {rule.effectiveTo === null ? <em>–</em> : formatEffectiveDate(rule.effectiveTo)}
+                      {rule.effectiveTo === null ? "—" : formatEffectiveDate(rule.effectiveTo)}
                     </td>
                   </tr>
                 ))}

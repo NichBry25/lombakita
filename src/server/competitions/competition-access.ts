@@ -231,10 +231,10 @@ export const assertActorIsTrustedRecruiter = async (
 // already sent real money is not stranded. Suspension is the takedown axis, enforced separately by
 // assertInstitutionNotSuspended.
 //
-// THIS IS THE ONLY VERIFICATION CHECK for charging. Every caller — the fee-setting write path, the
-// publish gate for an already-priced competition, and payment creation as the fail-closed backstop
-// — routes through this one function. A second, lighter check written elsewhere would be a second
-// answer to the same question, and the two would drift.
+// THIS IS THE ONLY VERIFICATION CHECK for charging. Every caller routes through this one function:
+// the fee-setting write path, the publish gate for an already-priced competition, and payment
+// creation as the fail-closed backstop. A second, lighter check written elsewhere would be a
+// second answer to the same question, and the two would drift.
 //
 // Throws CompetitionError 422 competition_institution_not_verified.
 /**

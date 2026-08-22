@@ -24,9 +24,9 @@ import { notifyPaymentOutcome } from "@/server/finance/payment-notifications";
 //
 // DEC-0132 blocks an ORGANISER from unpublishing while a bukti transfer is in flight, because doing
 // so cancels every registration and would strand a candidate who has already transferred real
-// rupiah. That block has to have a way out — an organiser with a genuine reason to cancel must not
-// simply be stuck — and this is it: the same decision, made by someone who can also see the money
-// and is accountable for the call.
+// rupiah. That block has to have a way out, because an organiser with a genuine reason to cancel
+// must not simply be stuck, and this is it: the same decision, made by someone who can also see
+// the money and is accountable for the call.
 //
 // Both actions are AUDITED and both REQUIRE A REASON, because the whole justification for their
 // existing is that a human took responsibility for overriding a participant protection.
@@ -83,7 +83,7 @@ export type OpsCancelCompetitionResult = {
  *
  * Holds the participation lock and CASes on `status = 'published'` for the same reason the sibling
  * paths do: a concurrent participation decision or organiser transition must not interleave with a
- * cascade that cancels every registration. Irreversible — cancelled registrations are terminal
+ * cascade that cancels every registration. Irreversible: cancelled registrations are terminal
  * (DEC-0070) and nothing here can put them back.
  *
  * Deliberately does NOT clear the in-flight proofs. Voiding a proof is a separate, separately
@@ -124,7 +124,7 @@ export const cancelCompetitionAsOps = async (
     if (competition.status !== "published") {
       throw new OpsPaymentError(
         "ops_competition_not_published",
-        `Cannot cancel a competition in '${competition.status}' status — this hatch exists for the withdrawal an organiser is blocked from`,
+        `Cannot cancel a competition in '${competition.status}' status. This hatch exists for the withdrawal an organiser is blocked from`,
       );
     }
 
@@ -137,7 +137,7 @@ export const cancelCompetitionAsOps = async (
     if (!statusRow) {
       throw new OpsPaymentError(
         "ops_competition_concurrently_modified",
-        "Status kompetisi berubah bersamaan — muat ulang lalu coba batalkan lagi",
+        "Status kompetisi berubah bersamaan, muat ulang lalu coba batalkan lagi",
         409,
       );
     }
@@ -200,13 +200,13 @@ export const cancelCompetitionAsOps = async (
 };
 
 /**
- * Voids a bukti transfer that no organiser will act on again — one awaiting review, or one they
+ * Voids a bukti transfer that no organiser will act on again: one awaiting review, or one they
  * rejected and barred from resubmission.
  *
  * TWO POPULATIONS, ONE ACTION. Voiding a pending proof releases the DEC-0132 unpublish block that is
  * holding a competition open. Voiding a rejected-and-barred one releases a PERSON: the payer has no
  * resubmission, no cancel affordance and no organiser control left, and this is the only route back.
- * A verified proof stays out of reach in both cases — the service's CAS refuses it.
+ * A verified proof stays out of reach in both cases, because the service's CAS refuses it.
  *
  * NO FINANCE EVENT IS WRITTEN, and this is the property that makes the action safe to expose.
  * Nothing was confirmed received, so there is nothing to record as succeeded, failed or refunded;

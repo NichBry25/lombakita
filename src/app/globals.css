@@ -1035,6 +1035,17 @@ svg {
   color: var(--color-info-text);
 }
 
+/* The neutral ground the status badges already use for `awaiting`. It exists because `info` shares
+   its hue with `success` (both sit at 120deg, apart only in saturation), so a withheld control or a
+   refused action written as `info` renders in the same green as a verified payment. Nothing here is
+   a new colour: the inset ground, the soft ink and the hairline are the app's standard neutral
+   surface. */
+.feedback[data-tone="neutral"] {
+  border-color: var(--color-line);
+  background: var(--color-inset);
+  color: var(--color-ink-soft);
+}
+
 .status-badge {
   display: inline-flex;
   min-height: var(--control-height-sm);
@@ -1100,7 +1111,7 @@ svg {
 
 /* Payment-lane badges. Same construction as the lifecycle phases above: existing semantic families
    only, no new colour, each with its own dot. They exist because the lifecycle vocabulary cannot
-   express a payment — a paid, expired or refunded transfer has no equivalent among open/closing/
+   express a payment: a paid, expired or refunded transfer has no equivalent among open/closing/
    upcoming/ongoing, and reusing one of those would put a competition's word on a payment's state. */
 .status-badge[data-status="paid"] {
   background: var(--color-success-surface);
@@ -4052,6 +4063,10 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   width: var(--touch-target);
   min-width: var(--touch-target);
   min-height: var(--touch-target);
+  /* The 44px target overhangs the header instead of setting its height. A title line is about
+     28px, so letting the button define the row adds blank space above the body that reads as a
+     gap between the dialog's title and what it says. */
+  margin-block: calc(-1 * var(--space-2));
   place-items: center;
   border: 0;
   border-radius: var(--radius-circle);
@@ -5082,18 +5097,16 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 /*
- * The compact sibling of .checkbox-field: smaller, muted type for secondary toggles inside the
- * profile editor. It carries the same 44px minimum target — the label is what gets tapped, and a
- * checkbox is a 16px box whichever pattern draws it.
+ * The compact modifier of .checkbox-field: smaller, muted type for secondary toggles inside the
+ * profile editor. A modifier rather than a sibling class, so it overrides the base row it sits on
+ * instead of racing it on source order. Everything the base already supplies, including the 44px
+ * minimum target, is inherited.
  */
-.pf-editor-check {
+.checkbox-field.pf-editor-check {
   display: inline-flex;
-  min-height: var(--touch-target);
-  align-items: center;
   gap: var(--space-2);
   font-size: var(--text-body-sm);
   color: var(--color-ink-soft);
-  cursor: pointer;
 }
 
 .pf-editor-actions {
@@ -5340,9 +5353,12 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   overflow-wrap: anywhere;
 }
 
+/* A key and its value share one line here, so a row is a line of text rather than a block. 8px
+   between lines of a three-item list reads as three separate statements; 4px reads as one list.
+   Every detail list in the app uses this, so the rhythm stays the same everywhere. */
 .detail-grid {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-1);
   margin: var(--space-0);
 }
 
@@ -5391,11 +5407,11 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   cursor: pointer;
 }
 
-/* Both checkbox patterns draw the same box; .pf-editor-check differs only in typography. */
-.checkbox-field input,
-.pf-editor-check input {
+/* One box for every checkbox in the app. .pf-editor-check differs only in typography. */
+.checkbox-field input {
   width: var(--space-4);
   height: var(--space-4);
+  flex-shrink: 0;
   accent-color: var(--brand-palm);
 }
 
@@ -5603,7 +5619,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
 /* Grid items default to `min-width: auto`, which resolves to the item's min-content size and
    refuses to shrink below it. A `datetime-local` input reports a ~208px intrinsic width, wider than
-   a column at 390px, and that automatic minimum outranks both `width: 100%` and `max-width` — so
+   a column at 390px, and that automatic minimum outranks both `width: 100%` and `max-width`, so
    the input has to be told explicitly that it may shrink. Applied at both levels because
    `.form-field` is itself a grid: releasing only the outer item leaves the input pushing past it. */
 .fee-rule-form-grid > *,
@@ -6059,6 +6075,16 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .record-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  /* A heading whose trailing element is a single status pill keeps it on the same line. Stacking
+     it puts a second short line directly under the title, where it reads as a subheading rather
+     than as the state of the thing named above it. Wrapping still applies when the two do not
+     fit. */
+  .section-heading:has(> .status-badge) {
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
   }
 
   .page-heading-actions,

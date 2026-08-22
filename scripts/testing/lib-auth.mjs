@@ -80,7 +80,7 @@ const TOTP_STEP_MS = 30_000;
 /**
  * Runs the challenge, waiting out the TOTP step if the code has already been spent.
  *
- * A VERIFIED CODE IS SINGLE USE — the factor records `lastUsedStep` and refuses the same step
+ * A VERIFIED CODE IS SINGLE USE. The factor records `lastUsedStep` and refuses the same step
  * twice, which is correct replay protection and not something to work around. But two audit cases
  * for the same operator inside one 30-second window generate the SAME code, so the second is
  * refused and the failure arrives looking exactly like a broken page. Waiting for the next step and
@@ -110,7 +110,7 @@ async function challengeWithFreshCode(jar) {
       // audit, which is what the bare message would otherwise imply.
       throw new Error(
         `MFA challenge refused a FRESH code after waiting out the TOTP step (${res.status}). ` +
-          `This is no longer replay protection — re-seed (npx tsx scripts/seed-test-matrix.ts) or ` +
+          `This is no longer replay protection. Re-seed (npx tsx scripts/seed-test-matrix.ts) or ` +
           `check clock drift. Detail: ${detail.slice(0, 160)}`,
       );
     }

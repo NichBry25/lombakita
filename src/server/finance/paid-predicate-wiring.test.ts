@@ -4,7 +4,7 @@
 //
 // The two predicates answer different questions and fire at different moments (see
 // paid-registration.ts). Because both are booleans about "has this been paid", swapping them
-// compiles, type-checks, and passes every test that does not specifically look — while moving the
+// compiles, type-checks, and passes every test that does not specifically look, while moving the
 // DEC-0132 unpublish block later than the moment it exists to cover, or making DEC-0131's
 // non-refundable rule bind before any money has arrived.
 //
@@ -22,7 +22,7 @@ const read = (relative: string): string =>
  * The same source with comments stripped.
  *
  * Required for the negative assertions specifically. These modules EXPLAIN why they do not branch
- * on `registration_type` and why row existence is not the predicate — so a prose-inclusive scan
+ * on `registration_type` and why row existence is not the predicate, so a prose-inclusive scan
  * matches the explanation and reports the defect it was written to rule out. Stripping comments is
  * what makes "this identifier does not appear" a statement about the code.
  */
@@ -79,7 +79,7 @@ describe("paid predicates are defined once, distinctly", () => {
     expect(source).not.toContain("registration_type");
   });
 
-  it("filters on a positive gross amount — row existence is not the predicate", () => {
+  it("filters on a positive gross amount, because row existence is not the predicate", () => {
     // `finance_payments` accepts gross = 0, so a FREE registration can carry a payment row. A
     // predicate that only checks for a row reports every free registration as paid.
     const source = read(PREDICATES);
@@ -104,7 +104,7 @@ describe("paid predicates are defined once, distinctly", () => {
     expect(source).toContain('status === "succeeded"');
   });
 
-  it("keeps each predicate's own mechanism in its own body — a swap is visible here", () => {
+  it("keeps each predicate's own mechanism in its own body, so a swap is visible here", () => {
     // Both are booleans about "has this been paid", so exchanging their bodies compiles, type-checks
     // and leaves every whole-file substring check green. These assertions are per function, which is
     // what makes that swap fail.
@@ -124,7 +124,7 @@ describe("paid predicates are defined once, distinctly", () => {
 describe("the DEC-0132 unpublish block uses PAYMENT IN FLIGHT", () => {
   it("calls hasCompetitionPaymentInFlight, not the confirmed-paid predicate", () => {
     // In flight fires EARLIER than confirmed-paid. The dangerous window is precisely the one where
-    // a candidate has transferred real rupiah and the organiser has not verified it yet — the
+    // a candidate has transferred real rupiah and the organiser has not verified it yet, and the
     // narrower predicate would let exactly that case through.
     const source = readCode(COMPETITION_SERVICE);
 
@@ -151,7 +151,7 @@ describe("the fee-setting write path enforces the edit matrix THROUGH the classi
   // next to the copies in `classifyCompetitionEdit`. These assertions pinned the DUPLICATES, so
   // they passed precisely because the duplication existed and would have gone on passing while the
   // two copies drifted apart. What matters now is that there is ONE statement of the matrix and
-  // that this path reaches it — the refusals themselves are proven behaviourally against a real
+  // that this path reaches it. The refusals themselves are proven behaviourally against a real
   // database in manual-lane-db.integration.test.ts, which is where a rule that stopped firing
   // would actually be caught.
   it("routes through classifyCompetitionEdit rather than restating the matrix", () => {

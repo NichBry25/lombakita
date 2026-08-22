@@ -54,7 +54,7 @@ type Props = {
   //
   // THAT INCLUDES CREATING THE TEAM AT ALL, not only registering it. This flag reached the roster's
   // register action and stopped there, so a candidate could still form a team, become its captain
-  // and invite people into it for a competition that cannot accept a registration — the individual
+  // and invite people into it for a competition that cannot accept a registration. The individual
   // path withheld its one control while the team path withheld its last one. Individual and team
   // are siblings on every condition in this lane, entry paths included.
   registrationWithheld: boolean;
@@ -112,7 +112,14 @@ export function CompetitionTeamSection(props: Props) {
 
       {props.initialTeam ? (
         <TeamRoster {...props} team={props.initialTeam} />
-      ) : props.registrationWithheld ? null : (
+      ) : props.registrationWithheld ? (
+        /* Stands where the create-team form would have been, for the same reason the individual
+           card carries its own sentence: a card with its form removed and nothing in its place
+           says only that something is missing. */
+        <Feedback tone="neutral">
+          Pembuatan tim belum dapat dibuka selama penyelenggara belum bisa menerima pembayaran.
+        </Feedback>
+      ) : (
         <CreateTeamForm {...props} />
       )}
     </section>
@@ -219,7 +226,7 @@ function TeamCancelReasonForm({
 const TEAM_CANCEL_MESSAGE: Record<string, string> = {
   cancellation_reason_required: "Alasan pembatalan wajib diisi.",
   cancellation_reason_too_long: "Alasan pembatalan terlalu panjang (maksimal 500 karakter).",
-  // The organiser cannot take payment right now — unverified, no published account, or no fee rule
+  // The organiser cannot take payment right now: unverified, no published account, or no fee rule
   // in force. All three collapse to one code server-side so none of them leaks, and none of them is
   // the candidate's to fix. The generic "coba lagi" fallback was worse than nothing here: it
   // describes a transient fault and invites a candidate to retry something that will never succeed.
@@ -618,10 +625,10 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
         </div>
       )}
 
-      {/* Stands where the cancel control would have been, and only for the captain — a member who
+      {/* Stands where the cancel control would have been, and only for the captain. A member who
           never had the control needs no explanation of its absence. */}
       {isCaptain && status === "submitted" && props.cancellationClosedByPaymentProof && (
-        <Feedback tone="info">
+        <Feedback tone="neutral">
           Pendaftaran tim tidak dapat dibatalkan sendiri setelah bukti transfer dikirim. Hubungi
           penyelenggara jika ada kekeliruan.
         </Feedback>

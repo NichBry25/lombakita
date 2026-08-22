@@ -222,8 +222,8 @@ describe("sendPaymentProofSubmittedEmail", () => {
     });
 
     const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
-    // The platform cannot confirm this transfer arrived — only the organiser's own bank statement
-    // can — so the instruction to check it travels with every notice that invites a verdict.
+    // The platform cannot confirm this transfer arrived. Only the organiser's own bank statement
+    // can, so the instruction to check it travels with every notice that invites a verdict.
     expect(call.text).toContain("mutasi rekening");
     expect(call.text).toContain("bukan ke Lombakita");
   });
@@ -302,7 +302,7 @@ describe("sendPaymentOutcomeEmail", () => {
   });
 });
 
-describe("sendCompetitionCancelledEmail — the refund sentence", () => {
+describe("sendCompetitionCancelledEmail: the refund sentence", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sendEmailMock.mockResolvedValue({ data: { id: "email_1" }, error: null });

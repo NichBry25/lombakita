@@ -94,7 +94,7 @@ const REJECTED_PROOF = {
   resubmissionCount: 0,
 };
 
-describe("POST …/payment/proof — the first bukti transfer", () => {
+describe("POST …/payment/proof: the first bukti transfer", () => {
   afterEach(() => vi.resetAllMocks());
 
   it("records the proof against the caller's own payment and answers 201", async () => {
@@ -142,7 +142,7 @@ describe("POST …/payment/proof — the first bukti transfer", () => {
 
   it("does not forward a size or a content type the caller supplied", async () => {
     // The parsed body is SPREAD into the service input, so a field the route reads is a field the
-    // service receives. The route therefore reads neither — and this is the assertion that keeps it
+    // service receives. The route therefore reads neither, and this is the assertion that keeps it
     // that way, because adding one back here would be silent and the service would trust it.
     requireSessionRole.mockResolvedValue(CANDIDATE);
     loadCandidatePaymentView.mockResolvedValue(viewWith());
@@ -191,7 +191,7 @@ describe("POST …/payment/proof — the first bukti transfer", () => {
     submitManualPaymentProof.mockRejectedValue(
       new ManualProofError(
         "manual_proof_already_submitted",
-        "Pembayaran ini sudah memiliki bukti transfer — kirim ulang melalui alur revisi",
+        "Pembayaran ini sudah memiliki bukti transfer, kirim ulang melalui alur revisi",
         409,
       ),
     );
@@ -205,7 +205,7 @@ describe("POST …/payment/proof — the first bukti transfer", () => {
   });
 });
 
-describe("PUT …/payment/proof — a replacement after a rejection or a void", () => {
+describe("PUT …/payment/proof: a replacement after a rejection or a void", () => {
   afterEach(() => vi.resetAllMocks());
 
   it("reopens the caller's own proof, resolving its id server-side", async () => {
@@ -252,7 +252,7 @@ describe("PUT …/payment/proof — a replacement after a rejection or a void", 
   it("REOPENS A VOIDED PROOF THROUGH PUT even though the organiser barred resubmission", async () => {
     // Ruling R20, proven at the ROUTE and not only in the service. The voided arm is the reason
     // option B was chosen over stranding the payer, and a service that permits it is worth nothing
-    // if the route in front of it refuses first — a `resubmissionAllowed: false` check added here
+    // if the route in front of it refuses first. A `resubmissionAllowed: false` check added here
     // for tidiness would silently re-close the escape hatch and every service test would stay green.
     requireSessionRole.mockResolvedValue(CANDIDATE);
     loadCandidatePaymentView.mockResolvedValue(
@@ -285,7 +285,7 @@ describe("PUT …/payment/proof — a replacement after a rejection or a void", 
     // The distinguishing input, in the sense probe 10 taught: a REJECTED proof with the bar set.
     // The route must still call the service and let the CAS decide. If a route-level bar were
     // added, the voided test above would keep passing (its view says canResubmitProof) while this
-    // one would go red — which is the only pair that separates "the route defers" from "the route
+    // one would go red, which is the only pair that separates "the route defers" from "the route
     // happens to agree".
     requireSessionRole.mockResolvedValue(CANDIDATE);
     loadCandidatePaymentView.mockResolvedValue(

@@ -26,12 +26,13 @@ type Props = {
   expectedUserId: string;
   modeLabel: string;
   // DEC-0131's third predicate, resolved server-side: a bukti transfer exists on this
-  // registration's payment group in ANY status. When true the cancel control is WITHHELD — not
+  // registration's payment group in ANY status. When true the cancel control is WITHHELD, not
   // rendered disabled, and not rendered and then refused.
   cancellationClosedByPaymentProof: boolean;
-  // DEC-0170: the organiser cannot take payment, so there is nothing for a new entrant to do here.
-  // The register control is WITHHELD rather than disabled — a disabled "Daftar" invites a candidate
-  // to look for the permission that would enable it, and no permission of theirs would.
+  // The organiser cannot take payment, so a new entrant has nothing to do here. The register
+  // control is WITHHELD rather than disabled, and the sentence explaining its absence takes its
+  // place. A disabled "Daftar" invites a candidate to look for the permission that would enable it,
+  // and no permission of theirs would.
   registrationWithheld: boolean;
 };
 
@@ -47,7 +48,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   registration_wrong_status: "Pendaftaran ini sudah dibatalkan.",
   cancellation_reason_required: "Alasan pembatalan wajib diisi.",
   cancellation_reason_too_long: "Alasan pembatalan terlalu panjang (maksimal 500 karakter).",
-  // The organiser cannot take payment right now — unverified, no published account, or no fee rule
+  // The organiser cannot take payment right now: unverified, no published account, or no fee rule
   // in force. All three collapse to one code server-side so none of them leaks, and none of them is
   // the candidate's to fix. The generic "coba lagi" fallback was worse than nothing here: it
   // describes a transient fault and invites a candidate to retry something that will never succeed.
@@ -201,7 +202,7 @@ export function IndividualRegistrationSection({
               believes they have paid for reads as a permission they might be able to obtain; the
               rule is that the decision has left their hands, and the sentence says so. */}
           {cancellationClosedByPaymentProof ? (
-            <Feedback tone="info">
+            <Feedback tone="neutral">
               Pendaftaran tidak dapat dibatalkan sendiri setelah bukti transfer dikirim. Hubungi
               penyelenggara jika ada kekeliruan.
             </Feedback>
@@ -221,7 +222,15 @@ export function IndividualRegistrationSection({
           </span>
           <p className="form-help">Pendaftaran ulang belum tersedia.</p>
         </div>
-      ) : registrationWithheld ? null : (
+      ) : registrationWithheld ? (
+        /* Stands where the register control would have been. An empty card is the same failure the
+           withholding exists to avoid: it removes the control and leaves the candidate to work out
+           why on their own. */
+        <Feedback tone="neutral">
+          Pendaftaran individu belum dapat dibuka selama penyelenggara belum bisa menerima
+          pembayaran.
+        </Feedback>
+      ) : (
         <Button
           onClick={handleRegister}
           loading={loading}

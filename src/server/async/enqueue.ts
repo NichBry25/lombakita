@@ -337,8 +337,8 @@ export const enqueueRegistrationDocumentReviewed = async (input: {
 /**
  * A bukti transfer needs review. Organiser-only (R13).
  *
- * Idempotent on the proof AND ITS ATTEMPT. A resubmission does not create a new proof row — it
- * reuses the existing one and bumps `resubmission_count` — so keying on the proof alone would make
+ * Idempotent on the proof AND ITS ATTEMPT. A resubmission does not create a new proof row. It
+ * reuses the existing one and bumps `resubmission_count`, so keying on the proof alone would make
  * every later attempt a duplicate of the first and the organiser would never hear that a
  * replacement transfer arrived. A retry of one attempt is still a duplicate, which is the point.
  */

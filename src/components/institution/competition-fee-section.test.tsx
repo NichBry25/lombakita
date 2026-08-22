@@ -16,7 +16,13 @@ import { CompetitionFeeSection } from "./competition-fee-section";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
 
-const RULE = { basisPoints: 250, flatAmount: 0, currency: "IDR", minimumFeeAmount: null, maximumFeeAmount: null };
+const RULE = {
+  basisPoints: 250,
+  flatAmount: 0,
+  currency: "IDR",
+  minimumFeeAmount: null,
+  maximumFeeAmount: null,
+};
 
 const mountWith = async (body: unknown) => {
   vi.stubGlobal(
@@ -47,7 +53,7 @@ describe("CompetitionFeeSection", () => {
 
     // Read straight off the elements rather than through a text matcher. `formatRupiah` emits a
     // NON-BREAKING space (codepoint 160), and Testing Library normalizes an element's text while
-    // comparing it against the matcher string as given — so a matcher with an ordinary space and
+    // comparing it against the matcher string as given, so a matcher with an ordinary space and
     // one with the NBSP both miss, for opposite reasons. The figures are this test's subject; the
     // matcher's normalization rules are not.
     const amounts = [...document.querySelectorAll("dd.data-text")].map((el) =>

@@ -6,7 +6,7 @@
  * depend on an environment it does not need. Nothing here has a side effect.
  */
 
-// `new URL(...).hostname` returns an IPv6 literal WITH its brackets — "[::1]", not "::1". Comparing
+// `new URL(...).hostname` returns an IPv6 literal WITH its brackets: "[::1]", not "::1". Comparing
 // against the bare form alone silently never matches, which fails closed (a local IPv6 database is
 // refused as remote) and is therefore invisible until someone runs one.
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);

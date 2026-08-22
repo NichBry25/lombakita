@@ -5,8 +5,8 @@
 // What a mocked database cannot reach here: `platform_ops_audit_logs_target_present_chk`. A GLOBAL
 // fee rule names no institution, so the audit row it writes has a NULL target_institution_id, and
 // whether that row is accepted depends on a CHECK constraint the unit suite does not evaluate. A
-// mocked `tx.insert` accepts any object, so a fee-rule surface that silently failed to audit — or
-// that wrote an audit row the database refuses — would look identical to a correct one.
+// mocked `tx.insert` accepts any object, so a fee-rule surface that silently failed to audit, or
+// that wrote an audit row the database refuses, would look identical to a correct one.
 //
 // Every test runs inside a transaction that is ALWAYS rolled back. Skipped when no DATABASE_URL is
 // reachable, so a developer without a local Postgres is not blocked.
@@ -204,7 +204,7 @@ describe.skipIf(skipWithoutDatabase)("fee-rule admin writes (real database)", ()
       const institutionId = await seedInstitution(tx);
 
       // The fail-closed path against a real, genuinely empty table rather than a mocked empty
-      // result — this is the state a fresh environment is in before anyone configures pricing.
+      // result. This is the state a fresh environment is in before anyone configures pricing.
       await expect(
         requireFeeRuleInForce(institutionId, new Date("2026-09-02T00:00:00.000Z"), tx as unknown as Database),
       ).rejects.toThrow(/no platform fee rule is in force/i);

@@ -4,7 +4,7 @@
 //
 // Every rule asserted here is enforced by a CHECK, a partial unique index or a NOT NULL, which
 // means the mocked unit suite structurally cannot test them: removing a constraint from schema.ts
-// leaves every mocked test green. Each test is written so that DELETING ITS GUARD makes it fail —
+// leaves every mocked test green. Each test is written so that DELETING ITS GUARD makes it fail:
 // an insert that should be refused would simply succeed.
 //
 // Also covered here, because they are equally invisible to a mocked database:
@@ -52,7 +52,7 @@ import {
 
 // THE ONLY SEAM IN THIS FILE, and it is drawn at the queue rather than at the service.
 //
-// Everything below it runs for real — the service, its transaction, its reads. What is replaced is
+// Everything below it runs for real, the service, its transaction, its reads. What is replaced is
 // the BullMQ write, because observing "what would be announced" is the assertion and a real queue
 // would also drag Redis into a database test. `importOriginal` is spread first so the fourteen
 // other enqueue helpers this file's services reach are the real ones; replacing the module wholesale
@@ -74,7 +74,7 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => ({
 // else in the module is the real thing.
 //
 // The default answer is a valid head, so every existing test describes an upload that completed.
-// The refusals — an object that is not there, and one that is too large — are driven by tests that
+// The refusals (an object that is not there, and one that is too large) are driven by tests that
 // set this deliberately, so the guard is exercised rather than merely configured around.
 const { mockHeadObject, mockDeleteObject } = vi.hoisted(() => ({
   mockHeadObject: vi.fn(),
@@ -257,7 +257,7 @@ const seedFixture = async (tx: Tx): Promise<Fixture> => {
   // The primary tenant can be paid. `createPayment` refuses a PRICED manual payment for an
   // institution that has published no account, so without this every fixture built here would be
   // an institution charging money it has given nobody a way to send. The unverified tenant is left
-  // without instructions deliberately — it is the one the charging-gate tests expect to be refused,
+  // without instructions deliberately: it is the one the charging-gate tests expect to be refused,
   // and giving it an account would let a broken verification gate pass on the instructions gate's
   // refusal instead.
   await tx.insert(institutionPaymentInstructions).values({
@@ -323,7 +323,7 @@ const accrualValues = (
 });
 
 describe.skipIf(skipWithoutDatabase)("finance_payments origin + manual lane (real database)", () => {
-  it("refuses a manual payment that records a platform fee — nothing splits on this lane", async () => {
+  it("refuses a manual payment that records a platform fee, because nothing splits here", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
 
@@ -340,7 +340,7 @@ describe.skipIf(skipWithoutDatabase)("finance_payments origin + manual lane (rea
     });
   });
 
-  it("refuses a manual payment with no due date — it would never lapse", async () => {
+  it("refuses a manual payment with no due date, which would never lapse", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
 
@@ -374,7 +374,7 @@ describe.skipIf(skipWithoutDatabase)("finance_payments origin + manual lane (rea
     });
   });
 
-  it("requires origin — there is no default to fall back on", async () => {
+  it("requires origin, because there is no default to fall back on", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const values = manualPaymentValues(fixture) as Record<string, unknown>;
@@ -410,7 +410,7 @@ describe.skipIf(skipWithoutDatabase)("finance_fee_accruals (real database)", () 
 
   it("caps a payment at one accrual and one reversal, so its signed total is the fee or zero", async () => {
     // Both arms are capped, and that is what makes the total bounded below. This test previously
-    // asserted the opposite — that compensating rows were unconstrained — which is exactly the shape
+    // asserted the opposite (that compensating rows were unconstrained) which is exactly the shape
     // that lets repeated reversals drive an institution's outstanding fee NEGATIVE. A negative total
     // says the platform owes the institution money, the custody direction DEC-0130 forbids.
     await inRollback(async (tx) => {
@@ -477,7 +477,7 @@ describe.skipIf(skipWithoutDatabase)("finance_fee_accruals (real database)", () 
     });
   });
 
-  it("refuses to orphan an accrual — the payment foreign key has no cascade", async () => {
+  it("refuses to orphan an accrual, because the payment foreign key has no cascade", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const paymentId = await seedManualPayment(tx, fixture);
@@ -526,7 +526,7 @@ describe.skipIf(skipWithoutDatabase)("finance_manual_payment_proofs (real databa
     });
   });
 
-  it("refuses a rejected proof with no reason — the candidate would not know what to fix", async () => {
+  it("refuses a rejected proof with no reason, because the candidate would not know what to fix", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const paymentId = await seedManualPayment(tx, fixture);
@@ -587,7 +587,7 @@ describe.skipIf(skipWithoutDatabase)("institution_payment_instructions (real dat
     });
   });
 
-  it("refuses a partial bank account — all three parts are needed to be payable", async () => {
+  it("refuses a partial bank account, because all three parts are needed to be payable", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
 
@@ -607,8 +607,8 @@ describe.skipIf(skipWithoutDatabase)("institution_payment_instructions (real dat
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       // The tenant with no instructions of its own, so the FIRST insert below is the one that
-      // succeeds. Pointing this at the primary tenant — which the fixture already gives an account
-      // — would make the first insert the refused one and the test would pass while proving
+      // succeeds. Pointing this at the primary tenant, which the fixture already gives an account,
+      // would make the first insert the refused one and the test would pass while proving
       // nothing about the second.
       const values = {
         institutionId: fixture.unverifiedInstitutionId,
@@ -745,7 +745,7 @@ describe.skipIf(skipWithoutDatabase)("the charging gate at payment creation (rea
         .from(financePayments)
         .where(eq(financePayments.receivingInstitutionId, fixture.unverifiedInstitutionId));
 
-      // Not merely refused — nothing was written.
+      // Not merely refused: nothing was written.
       expect(rows).toHaveLength(0);
     });
   });
@@ -797,7 +797,7 @@ describe.skipIf(skipWithoutDatabase)("the charging gate at payment creation (rea
 describe.skipIf(skipWithoutDatabase)("the two paid predicates (real database)", () => {
   const loadPredicates = () => import("@/server/finance/paid-registration");
 
-  it("does NOT report a zero-gross payment as confirmed paid — row existence is not the predicate", async () => {
+  it("does NOT report a zero-gross payment as confirmed paid, because row existence is not the predicate", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const { isRegistrationConfirmedPaid } = await loadPredicates();
@@ -1014,7 +1014,7 @@ describe.skipIf(skipWithoutDatabase)("the payment group across a team (real data
         tx as never,
       );
 
-      // Every member reads as paid — through the same predicate, with no registration_type branch.
+      // Every member reads as paid, through the same predicate, with no registration_type branch.
       for (const registrationId of [fixture.registrationId, ...memberIds]) {
         expect(await isRegistrationConfirmedPaid(registrationId, tx as never)).toBe(true);
       }
@@ -1047,7 +1047,7 @@ describe.skipIf(skipWithoutDatabase)("the accrual write is single-shot (real dat
 
       // Converges rather than throwing. Throwing here rolls back the proof transition this runs
       // inside, so the organiser's next click hits the identical failure and the payment is wedged
-      // for good — over a condition that is already exactly what the invariant demands.
+      // for good, over a condition that is already exactly what the invariant demands.
       const second = await recordFeeAccrual(paymentId, tx as never);
       expect(second.id).toBe(first.id);
 
@@ -1115,7 +1115,7 @@ describe.skipIf(skipWithoutDatabase)("the accrual write is single-shot (real dat
     });
   });
 
-  it("refuses to accrue against a gateway payment — its fee already split", async () => {
+  it("refuses to accrue against a gateway payment, because its fee already split", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const { recordFeeAccrual } = await import("@/server/finance/fee-accrual-service");
@@ -1157,7 +1157,7 @@ describe.skipIf(skipWithoutDatabase)("the accrual write is single-shot (real dat
    * imports no application module at all and the house style is worth keeping. The cost is that the
    * fee statement's only browser coverage of a reversal renders a HAND-BUILT row: change
    * `recordFeeAccrualReversal` and the fixture stays behind while the ui-states case goes on
-   * passing over a shape the service no longer produces. This is the page where that matters most —
+   * passing over a shape the service no longer produces. This is the page where that matters most:
    * the reversal is the only arithmetic on it that can overstate a receivable, and it has already
    * been wrong once in exactly that direction.
    *
@@ -1233,7 +1233,7 @@ describe.skipIf(skipWithoutDatabase)("the attempt history's own guarantees", () 
   /**
    * ONE VERDICT PER ATTEMPT. This is the stated replay guard and nothing exercised it: the CAS out
    * of `pending_review` serialises closes in practice, so the index only ever fires if that CAS is
-   * weakened — which is exactly when a silent second history row would be written over a dispute.
+   * weakened, which is exactly when a silent second history row would be written over a dispute.
    */
   it("refuses a second verdict filed against the same attempt number", async () => {
     await inRollback(async (tx) => {
@@ -1255,7 +1255,7 @@ describe.skipIf(skipWithoutDatabase)("the attempt history's own guarantees", () 
     });
   });
 
-  it("refuses pending_review as a verdict — an attempt that has not closed has no history", async () => {
+  it("refuses pending_review as a verdict, because an attempt that has not closed has no history", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const { paymentId, proofId } = await seedClosedAttempt(tx, fixture);
@@ -1271,7 +1271,7 @@ describe.skipIf(skipWithoutDatabase)("the attempt history's own guarantees", () 
     });
   });
 
-  it("refuses a refusal with no reason — an unreviewable decision", async () => {
+  it("refuses a refusal with no reason, which is an unreviewable decision", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const { paymentId, proofId } = await seedClosedAttempt(tx, fixture);
@@ -1311,11 +1311,11 @@ describe.skipIf(skipWithoutDatabase)("the attempt history's own guarantees", () 
   });
 
   /**
-   * THE HISTORY ROW AND THE VERDICT ARE ONE UNIT — Rule 32 on the ordering, not on the presence.
+   * THE HISTORY ROW AND THE VERDICT ARE ONE UNIT. Rule 32 on the ordering, not on the presence.
    *
    * `recordProofAttempt` is documented as belonging inside the verdict's transaction, and nothing
    * failed if it were moved out. Moved out, a rolled-back verdict leaves a history row for a
-   * decision that never happened, or a committed verdict leaves none at all — and the dispute view
+   * decision that never happened, or a committed verdict leaves none at all, and the dispute view
    * then shows a past that did not occur.
    *
    * Forced here by pre-inserting the exact row the verdict will try to write, so the attempt insert
@@ -1382,8 +1382,8 @@ describe.skipIf(skipWithoutDatabase)("what the row records about the uploaded fi
    *
    * The stored value is handed to R2 as `ResponseContentType` on an inline presigned GET, so
    * whoever controls it chooses what the reviewing organiser's browser renders. It used to come
-   * from the request body. Here the object in storage claims `text/html` — the value an attacker
-   * would have set at upload time — and the row must still record the PDF the file name resolves
+   * from the request body. Here the object in storage claims `text/html`, the value an attacker
+   * would have set at upload time, and the row must still record the PDF the file name resolves
    * to through the accepted-extension list.
    */
   it("derives the content type from the file name, not from what storage reports", async () => {
@@ -1407,7 +1407,7 @@ describe.skipIf(skipWithoutDatabase)("what the row records about the uploaded fi
         code: "manual_proof_object_key_invalid",
       });
 
-      // The refusal happens before storage is consulted at all — an unacceptable name is not worth
+      // The refusal happens before storage is consulted at all, an unacceptable name is not worth
       // a network round trip.
       expect(mockHeadObject).not.toHaveBeenCalled();
     });
@@ -1415,7 +1415,7 @@ describe.skipIf(skipWithoutDatabase)("what the row records about the uploaded fi
 
   /**
    * A KEY THAT NAMES NOTHING. The prefix check passes for any string under this payment's folder,
-   * so a payer could file an attempt for an object they never uploaded — and every later "view"
+   * so a payer could file an attempt for an object they never uploaded, and every later "view"
    * would write an audit row recording a read that never happened.
    */
   it("refuses a key with no object behind it, and records no attempt", async () => {
@@ -1450,7 +1450,7 @@ describe.skipIf(skipWithoutDatabase)("what the row records about the uploaded fi
         code: "manual_proof_object_key_invalid",
       });
 
-      // Nothing sweeps this prefix — the retention job is excluded from it — so an object refused
+      // Nothing sweeps this prefix (the retention job is excluded from it) so an object refused
       // here would otherwise sit in the bucket forever, unreferenced.
       expect(mockDeleteObject).toHaveBeenCalledWith(
         `payment-proofs/${fixture.competitionId}/${paymentId}/bukti.jpg`,
@@ -1476,12 +1476,12 @@ describe.skipIf(skipWithoutDatabase)("the lane's write precondition", () => {
    * THE DEFECT THIS PINS, end to end and through real services.
    *
    * `reopenManualPaymentProof`'s CAS carried the proof id, the submitter and the status disjunction
-   * and nothing else — no registration status, no ledger state, no row lock — while the first
+   * and nothing else (no registration status, no ledger state, no row lock) while the first
    * submission took the anchor row lock and the presign checked all four `laneOpen` conditions.
    * So a rejected proof could be refiled onto a registration the platform's own expiry sweep had
    * already cancelled, verified by an organiser who saw it reappear in their queue, folded to
    * `succeeded`, and accrued a platform fee. Append-only under DEC-0133, and the only writer to the
-   * `reversed` arm has no caller — so the bill could not be walked back by anything in the product.
+   * `reversed` arm has no caller, so the bill could not be walked back by anything in the product.
    *
    * Every step here runs the real service. The cancellation comes from `sweepExpiredPayments`, not
    * from an UPDATE this test wrote: a hand-cancelled registration would prove the function and not
@@ -1571,7 +1571,7 @@ describe.skipIf(skipWithoutDatabase)("the lane's write precondition", () => {
   });
 
   /**
-   * A CANCELLED REGISTRATION CANNOT BECOME PAID — the second hole, independent of the first.
+   * A CANCELLED REGISTRATION CANNOT BECOME PAID. The second hole, independent of the first.
    *
    * The DEC-0132 hatch cancels every registration and DELIBERATELY leaves proofs in flight, so a
    * pending proof against a cancelled registration is a state the product reaches on purpose. The
@@ -1617,7 +1617,7 @@ describe.skipIf(skipWithoutDatabase)("the lane's write precondition", () => {
         NOW,
       );
 
-      // The hatch leaves the proof in flight on purpose — that is what makes the verdict reachable.
+      // The hatch leaves the proof in flight on purpose, which is what makes the verdict reachable.
       const [stillPending] = await tx
         .select({ status: financeManualPaymentProofs.status })
         .from(financeManualPaymentProofs)
@@ -1734,7 +1734,7 @@ const GENERATED_ACCRUAL_COLUMNS = new Set(["id", "created_at"]);
  * How a `reversed` row is derived from the `accrued` row it walks back, column by column.
  *
  * Keyed off the REVERSED row's own columns, so a service that starts writing a new one produces a
- * descriptor key the seed's row cannot match — which is the drift that leaves a fixture silently
+ * descriptor key the seed's row cannot match, which is the drift that leaves a fixture silently
  * incomplete rather than silently wrong.
  */
 const describeReversal = (
@@ -1902,7 +1902,7 @@ describe.skipIf(skipWithoutDatabase)("the proof review loop is CAS-guarded (real
       // would show the reviewer of attempt two a refusal of a file they are not looking at.
       expect(reopened.rejectionReason).toBeNull();
 
-      // And PRESERVED where it now belongs, against the attempt it actually judged — together with
+      // And PRESERVED where it now belongs, against the attempt it actually judged, together with
       // the file that attempt uploaded, which the live row has since overwritten.
       const attempts = await tx
         .select()
@@ -1945,7 +1945,7 @@ describe.skipIf(skipWithoutDatabase)("the proof review loop is CAS-guarded (real
   //
   // An organiser who rejects with the bar set leaves the payer with nothing: no resubmission, no
   // cancel affordance, no organiser control to appeal to. The void is the only release, so the CAS
-  // accepts `rejected` as well as `pending_review` — and `verified` is what it must still refuse,
+  // accepts `rejected` as well as `pending_review`, and `verified` is what it must still refuse,
   // because a voided row standing over a `succeeded` ledger event is a claim about somebody's money
   // that no reachable path can withdraw.
   describe("voiding a proof the organiser barred", () => {
@@ -2455,7 +2455,7 @@ describe.skipIf(skipWithoutDatabase)("the object key is held to its own payment'
     });
   });
 
-  it("REFUSES a key equal to the prefix — a folder is not evidence", async () => {
+  it("REFUSES a key equal to the prefix, because a folder is not evidence", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const paymentId = await seedManualPayment(tx, fixture);
@@ -2615,8 +2615,8 @@ describe.skipIf(skipWithoutDatabase)("hasActiveFreeRegistrations (real database)
 });
 
 describe.skipIf(skipWithoutDatabase)("payment instructions are only readable when payable", () => {
-  // The fixture's primary institution already publishes instructions — a priced manual payment
-  // cannot be created without them — so these tests assert that the COMPETITION's state is what
+  // The fixture's primary institution already publishes instructions, a priced manual payment
+  // cannot be created without them, so these tests assert that the COMPETITION's state is what
   // withholds them, with the instructions themselves known to exist.
   it("returns nothing for a DRAFT competition", async () => {
     // Real bank account details. A draft takes no registrations and therefore no money, so there is
@@ -2671,7 +2671,7 @@ describe.skipIf(skipWithoutDatabase)("payment instructions are only readable whe
   });
 });
 
-describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against a real database", () => {
+describe.skipIf(skipWithoutDatabase)("setCompetitionFee: every gate, against a real database", () => {
   /** Makes the fixture's user the owning admin of a competition, which the fee path requires. */
   const grantOwnership = async (tx: Tx, tenant: Tenant): Promise<void> => {
     await tx.insert(institutionMemberships).values({
@@ -2787,7 +2787,7 @@ describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against 
     });
   });
 
-  // R12 — PAYMENT INSTRUCTIONS ARE A PRECONDITION. This is where surface 3's work becomes
+  // R12: PAYMENT INSTRUCTIONS ARE A PRECONDITION. This is where surface 3's work becomes
   // load-bearing: enabling a price for an institution that has published nowhere to send the money
   // produces a candidate owing a debt they cannot discharge and nobody able to tell them where.
   it("REFUSES to price an institution that has published no payment instructions, and writes nothing", async () => {
@@ -2804,8 +2804,8 @@ describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against 
         .where(eq(institutionPaymentInstructions.institutionId, fixture.institutionId));
 
       // PaymentInstructionsError, not CompetitionError. Worth asserting the exact family: the
-      // route converts three of them, and it originally converted one — sending this refusal, the
-      // most likely legitimate one on the surface, out as an English HTTP 500.
+      // route converts three of them, and it originally converted one, so this refusal, the most
+      // likely legitimate one on the surface, went out as an English HTTP 500.
       await expect(priceIt(tx, fixture)).rejects.toBeInstanceOf(PaymentInstructionsError);
 
       expect(await readFee(tx, fixture.competitionId)).toEqual({
@@ -2815,7 +2815,7 @@ describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against 
     });
   });
 
-  it("prices the SAME institution once instructions exist — the precondition's control", async () => {
+  it("prices the SAME institution once instructions exist, which is the control", async () => {
     // Without this the refusal above could be caused by anything the fixture happens to lack.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
@@ -2860,7 +2860,7 @@ describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against 
     });
   });
 
-  // R2 — THE DISCLOSURE IS RECORDED, not displayed. A rate the organiser was shown and a rate they
+  // R2: THE DISCLOSURE IS RECORDED, not displayed. A rate the organiser was shown and a rate they
   // are billed at are the same fact only if the platform kept the evidence.
   it("REFUSES to price without an acknowledgement, and writes nothing", async () => {
     await inRollback(async (tx) => {
@@ -2957,7 +2957,7 @@ describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against 
         code: "competition_fee_blocked_free_registrations",
       });
 
-      // Refused AND nothing written — the assertion that makes this order-sensitive rather than
+      // Refused AND nothing written, the assertion that makes this order-sensitive rather than
       // merely present. Moving the guard below the write would leave the refusal intact and this
       // expectation failing.
       expect(await readFee(tx, fixture.competitionId)).toEqual({
@@ -3059,13 +3059,13 @@ describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against 
     // THE UNPROTECTED DIRECTION, and the one place the classifier's POSITION is load-bearing rather
     // than merely correct.
     //
-    // The matrix blocks a feeAmount change whenever money is in flight, whatever the direction —
+    // The matrix blocks a feeAmount change whenever money is in flight, whatever the direction,
     // so paid→free is blocked too. But the clear path writes OUTSIDE any transaction, unlike the
     // priced path. Move the classifier below the write there and the fee is genuinely gone, with no
     // rollback to undo it: a candidate has transferred real rupiah against a price the competition
     // no longer has, and the organiser has no record of what they were charged.
     //
-    // Class B, so post-state is the correct detector here — which is exactly why the priced path
+    // Class B, so post-state is the correct detector here, which is exactly why the priced path
     // needed a different one. Same guard, two call paths, two classes.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
@@ -3096,7 +3096,7 @@ describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against 
     //
     // The transaction makes a moved WRITE harmless. It does not make the moved REFUSAL harmless.
     // The gate order exists, in the service's own words, "so nothing about the platform's pricing
-    // configuration leaks to someone who is not allowed to charge at all" — move the classifier
+    // configuration leaks to someone who is not allowed to charge at all". Move the classifier
     // below the write and gates 3 through 6 run first, so an organiser who is blocked outright
     // learns whether Lombakita has a fee rule configured, whether their institution is verified for
     // charging, and whether their instructions are published. None of that is answerable to someone
@@ -3116,7 +3116,7 @@ describe.skipIf(skipWithoutDatabase)("setCompetitionFee — every gate, against 
       await seedProof(tx, fixture, paymentId);
 
       // AND unpriceable: the only fee rule is retired out of force. Retired rather than deleted
-      // because `finance_payments.fee_rule_id` references it — the payment that blocks the matrix
+      // because `finance_payments.fee_rule_id` references it, the payment that blocks the matrix
       // is itself what makes the row undeletable.
       await tx
         .update(financeFeeRules)
@@ -3267,7 +3267,7 @@ describe.skipIf(skipWithoutDatabase)("the charging gate at PUBLISH (real databas
   });
 });
 
-describe.skipIf(skipWithoutDatabase)("cancelCompetitionAsOps — the DEC-0132 escape hatch", () => {
+describe.skipIf(skipWithoutDatabase)("cancelCompetitionAsOps: the DEC-0132 escape hatch", () => {
   const seedOperator = async (tx: Tx): Promise<string> => {
     const id = uniqueSuffix();
     const [operator] = await tx
@@ -3309,7 +3309,7 @@ describe.skipIf(skipWithoutDatabase)("cancelCompetitionAsOps — the DEC-0132 es
 
   it("takes the competition down, not just its registrations", async () => {
     // The defect this replaces: only competition_registrations was written, so every entrant was
-    // cancelled while the competition stayed published and publicly registerable — a candidate
+    // cancelled while the competition stayed published and publicly registerable, a candidate
     // could join minutes after it had been cancelled out from under its own entrants.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
@@ -3396,7 +3396,7 @@ describe.skipIf(skipWithoutDatabase)("cancelCompetitionAsOps — the DEC-0132 es
     });
   });
 
-  it("leaves the outstanding proof alone — voiding it is its own audited decision", async () => {
+  it("leaves the outstanding proof alone, because voiding it is its own audited decision", async () => {
     // Bundling the two would let one click both cancel a competition and silently discard the
     // evidence that somebody paid for it.
     await inRollback(async (tx) => {
@@ -3435,7 +3435,7 @@ describe.skipIf(skipWithoutDatabase)("cancelCompetitionAsOps — the DEC-0132 es
 // money, and it would look like ordinary data rather than a fault.
 //
 // Asserted here rather than reasoned about, because "the insert is inside the transaction so it
-// must roll back" stays true right up until someone moves the insert — which is the one change
+// must roll back" stays true right up until someone moves the insert, which is the one change
 // this file has to notice.
 //
 // Runs on the OWNER connection. The application role cannot drop a table (42501), which is a real
@@ -3455,7 +3455,7 @@ describe.skipIf(skipWithoutDatabase)("code deployed ahead of migration 0059", ()
    *
    * Rule 35: this probe removes a table, so it owes a post-condition at least as strong as the
    * guard it tests. Postgres DDL is transactional, so the rollback restores the table whether the
-   * body passes, fails or throws — there is no teardown step that could itself be skipped, which
+   * body passes, fails or throws, there is no teardown step that could itself be skipped, which
    * is the failure mode a `finally` block still has. `lock_timeout` covers the one thing rollback
    * cannot: a conflicting lock held by a parallel test file fails this in seconds, never hangs.
    */
@@ -3469,14 +3469,14 @@ describe.skipIf(skipWithoutDatabase)("code deployed ahead of migration 0059", ()
           await tx.execute(sql`DROP TABLE finance_payment_instruction_snapshots`);
         } catch (error) {
           // NEVER A SKIP. `TEST_DDL_DATABASE_URL` falls back to `DATABASE_URL`, and locally that is
-          // the application role, which does not own the finance tables — so the single likeliest
+          // the application role, which does not own the finance tables, so the single likeliest
           // misconfiguration of this probe is one where it cannot remove anything. Skipping there
           // would leave a probe that reports success while doing nothing, against exactly the
           // failure it exists to catch. It fails, and it names the fix.
           if (sqlStateOf(error) === "42501") {
             throw new Error(
               "This probe must run as the owner of finance_payment_instruction_snapshots and is " +
-                "connected as a role that cannot drop it (42501). Set MIGRATION_DATABASE_URL — " +
+                "connected as a role that cannot drop it (42501). Set MIGRATION_DATABASE_URL. " +
                 "TEST_DDL_DATABASE_URL falls back to DATABASE_URL, which locally is the " +
                 "application role. Do NOT relax this into a skip.",
               { cause: error },
@@ -3486,14 +3486,14 @@ describe.skipIf(skipWithoutDatabase)("code deployed ahead of migration 0059", ()
           // only probe that takes ACCESS EXCLUSIVE on a table a live page reads
           // (`loadCandidatePaymentView` reads it, and three ui-states cases drive that page). A
           // browser session holding a read when the DROP is requested makes this wait out its
-          // `lock_timeout` and fail 55P03 — a real failure, but of the harness, not of the product.
+          // `lock_timeout` and fail 55P03, a real failure, but of the harness, not of the product.
           // Named here so it never again reads as an unexplained error code on a payments step.
           if (sqlStateOf(error) === "55P03") {
             throw new Error(
               "This probe timed out taking ACCESS EXCLUSIVE on " +
                 "finance_payment_instruction_snapshots (55P03): a concurrent reader held the " +
                 "table. Do not drive the app in a browser while this suite runs. Nothing is " +
-                "wrong with the code under test — rerun with no browser session open.",
+                "wrong with the code under test. Rerun with no browser session open.",
               { cause: error },
             );
           }
@@ -3515,7 +3515,7 @@ describe.skipIf(skipWithoutDatabase)("code deployed ahead of migration 0059", ()
     }
   };
 
-  it("refuses a PRICED payment atomically — no orphan payment row survives", async () => {
+  it("refuses a PRICED payment atomically, so no orphan payment row survives", async () => {
     await withoutSnapshotTable(async (tx) => {
       const fixture = await seedFixture(tx);
       const { createPayment } = await import("@/server/finance/payment-service");
@@ -3546,7 +3546,7 @@ describe.skipIf(skipWithoutDatabase)("code deployed ahead of migration 0059", ()
       // What it proves incidentally, and what actually catches the regression that matters: that
       // the refusal left this transaction USABLE. Move the snapshot insert outside
       // `createPayment`'s transaction and the payment insert releases its savepoint before the
-      // failure escapes, poisoning the enclosing transaction — and this SELECT is what goes red,
+      // failure escapes, poisoning the enclosing transaction, and this SELECT is what goes red,
       // with 25P02 rather than a row count.
       //
       // Verified by performing that move and watching this test fail. Stated explicitly because a
@@ -3565,7 +3565,7 @@ describe.skipIf(skipWithoutDatabase)("code deployed ahead of migration 0059", ()
   it("leaves the FREE registration path untouched", async () => {
     // A zero-gross payment takes no snapshot, so the absent table is not on its path at all. This
     // is what bounds the accepted gap: an environment behind on 0059 loses paid registration, and
-    // free registration — the overwhelming majority of the product — is unaffected.
+    // free registration (the overwhelming majority of the product) is unaffected.
     await withoutSnapshotTable(async (tx) => {
       const fixture = await seedFixture(tx);
       const { createPayment } = await import("@/server/finance/payment-service");
@@ -3609,13 +3609,13 @@ describe.skipIf(skipWithoutDatabase)("code deployed ahead of migration 0059", ()
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // THE CHARGING GATE, REACHED THROUGH THE REAL REGISTRATION PATH.
 //
-// `createPayment` carries two guards — the institution must be verified, and it must have published
+// `createPayment` carries two guards: the institution must be verified, and it must have published
 // an account to be paid into. Both were already unit-tested against `createPayment` called
 // directly. That proves the FUNCTION and not the WIRING, and the wiring is where this project's
 // worst defect lived: six passing tests over a block that had never once executed because the
 // caller never populated the fields it read.
 //
-// So every test here starts at `createIndividualRegistration` — the function the route calls — and
+// So every test here starts at `createIndividualRegistration` (the function the route calls) and
 // never constructs a payment input by hand.
 //
 // Each refusal also asserts NO REGISTRATION ROW SURVIVES, which is the guard-MOVE detector: move
@@ -3663,7 +3663,7 @@ describe.skipIf(skipWithoutDatabase)("registering for a priced competition", () 
       })
       .where(eq(competitions.id, tenant.competitionId));
 
-    // A candidate with no registration of their own — the fixture's own user already holds one.
+    // A candidate with no registration of their own, since the fixture's own user already holds one.
     const [candidate] = await tx
       .insert(users)
       .values({
@@ -3724,7 +3724,7 @@ describe.skipIf(skipWithoutDatabase)("registering for a priced competition", () 
       expect(snapshot, "the payer was given no record of where to send the money").toBeDefined();
       expect(snapshot!.accountNumber).toBe("1234567890");
       // Same transaction, so both rows read one clock. Equality of instants is not by itself proof
-      // of atomicity — that is asserted separately, by removing the snapshot table.
+      // of atomicity. That is asserted separately, by removing the snapshot table.
       expect(snapshot!.capturedAt.toISOString()).toBe(payment!.createdAt.toISOString());
     });
   });
@@ -3788,7 +3788,7 @@ describe.skipIf(skipWithoutDatabase)("registering for a priced competition", () 
 
   it("lets a FREE competition register with no payment row and neither guard applied", async () => {
     // Verification gates the right to CHARGE, never the right to run a competition. This fixture
-    // fails BOTH guards — unverified, no account — and must still register, because a free
+    // fails BOTH guards (unverified, no account) and must still register, because a free
     // competition asks nobody for money.
     await inRollback(async (tx) => {
       const fixture = await seedRegisterable(tx, {
@@ -3814,7 +3814,7 @@ describe.skipIf(skipWithoutDatabase)("registering for a priced competition", () 
         .from(financePayments)
         .where(eq(financePayments.competitionRegistrationId, registration.id));
 
-      // Not a zero-gross row — none at all. A free registration has no debt to record.
+      // Not a zero-gross row, none at all. A free registration has no debt to record.
       expect(payments, "a free registration recorded a payment").toHaveLength(0);
     });
   });
@@ -3824,7 +3824,7 @@ describe.skipIf(skipWithoutDatabase)("registering for a priced competition", () 
 // THE PAYMENT DEADLINE LAPSING.
 //
 // The sweep ends registrations nobody paid for. What it must NOT do is end one belonging to a
-// candidate who transferred real money — so most of these tests are about when it declines.
+// candidate who transferred real money, so most of these tests are about when it declines.
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 describe.skipIf(skipWithoutDatabase)("the payment expiry sweep", () => {
   // DUE is 2026-08-13; sweeping from here is a day past it.
@@ -3877,7 +3877,7 @@ describe.skipIf(skipWithoutDatabase)("the payment expiry sweep", () => {
 
   it("SUSPENDS expiry while a bukti transfer is awaiting review", async () => {
     // The rule that matters most here. The deadline governs SUBMISSION, never the organiser's
-    // verdict — a candidate who transferred and uploaded in time must never be cancelled because
+    // verdict, a candidate who transferred and uploaded in time must never be cancelled because
     // the organiser was slow. Delete the pending-proof re-check and this test fails.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
@@ -4116,7 +4116,7 @@ describe.skipIf(skipWithoutDatabase)("what a candidate is told about money they 
     // The scope is asked of the payment GROUP, not of the registration that was named, and this is
     // the only test that can tell the two apart: a member passing their OWN id is matched by either
     // version. Narrow the WHERE to `id = registrationId` and this goes red while every other test
-    // here stays green — which is exactly how the weaker scope would have shipped.
+    // here stays green, which is exactly how the weaker scope would have shipped.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       await seedManualPayment(tx, fixture);
@@ -4214,7 +4214,7 @@ describe.skipIf(skipWithoutDatabase)("what a candidate is told about money they 
   it("offers resubmission after a VOID even though the organiser barred it", async () => {
     // The void arm ignores the bar deliberately: the bar was set against the organiser's own
     // rejection, and a void is platform_ops correcting something else. Without this the payer is
-    // stranded — nothing in flight, no way to refile, and the deadline still running.
+    // stranded, nothing in flight, no way to refile, and the deadline still running.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const paymentId = await seedManualPayment(tx, fixture);
@@ -4536,7 +4536,7 @@ describe.skipIf(skipWithoutDatabase)("organiser payment review across tenants (r
 
     it("writes NO ledger event and NO fee accrual for the payment when the verify is refused", async () => {
       // The consequence that makes this boundary worth guarding: verifying is not a status change,
-      // it is a declaration that money arrived — a `succeeded` event and a platform fee accrual,
+      // it is a declaration that money arrived, a `succeeded` event and a platform fee accrual,
       // both in an append-only ledger with no delete.
       //
       // Scoped to the PAYMENT, not to the outsider's institution. A first version asked whether an
@@ -4578,7 +4578,7 @@ describe.skipIf(skipWithoutDatabase)("organiser payment review across tenants (r
       // THE MOVE DETECTOR, and the reason it takes this shape rather than an assertion about the
       // row: the service does its work inside a transaction, so a tenant check moved BELOW the
       // write still rolls the write back, and every post-state assertion above stays green. What a
-      // move cannot preserve is this — with the scope inside the CAS's WHERE, a foreign proof
+      // move cannot preserve is this: with the scope inside the CAS's WHERE, a foreign proof
       // matches no row whatever state it is in, so both cases return the identical "not pending"
       // refusal. Move the scope to a check after the update and the pending one now reaches that
       // check and answers differently from the settled one, which both fails this test and hands an
@@ -4677,7 +4677,7 @@ describe.skipIf(skipWithoutDatabase)("organiser payment review across tenants (r
         ).catch(() => undefined);
 
         expect(await accessRowsFor(tx, fixture.other.institutionId)).toEqual([]);
-        // Nor against the owning institution — a refused outsider must leave no trace anywhere,
+        // Nor against the owning institution: a refused outsider must leave no trace anywhere,
         // least of all one that reads as the owner having opened their own file.
         expect(await accessRowsFor(tx, fixture.institutionId)).toEqual([]);
       });
@@ -4742,7 +4742,7 @@ describe.skipIf(skipWithoutDatabase)("organiser payment review across tenants (r
       // Same reasoning as the verify case: the service works inside a transaction, so a check that
       // throws after the update rolls the update back and every post-state assertion still passes.
       // What a move cannot preserve is the refusal being identical whatever state the foreign proof
-      // is in — the moved check answers the pending one differently, which fails here and hands an
+      // is in. The moved check answers the pending one differently, which fails here and hands an
       // outsider an oracle for whether a proof exists and awaits review.
       await inRollback(async (tx) => {
         const fixture = await seedFixture(tx);
@@ -4812,7 +4812,7 @@ describe.skipIf(skipWithoutDatabase)("the cancel affordance the page offers (rea
   // DEC-0131's third predicate, asked the way the REGISTRATION PAGE asks it.
   //
   // The two cancel services are proven elsewhere. What is proven here is that the surface deciding
-  // whether to OFFER the control reaches the same answer — a page that derived this independently
+  // whether to OFFER the control reaches the same answer. A page that derived this independently
   // would eventually render a control the server refuses, and the refusal would be the candidate's
   // first news of the rule.
   //
@@ -4916,8 +4916,8 @@ describe.skipIf(skipWithoutDatabase)("the cancel affordance the page offers (rea
 
   it("STILL withholds after the organiser REJECTS the proof", async () => {
     // The part of DEC-0131 that looks wrong and is not. A rejection means the organiser was not
-    // satisfied by the evidence; it does not establish that no money moved, and the platform — which
-    // never touches this money — is in no position to rule that it did not. This is the assertion
+    // satisfied by the evidence; it does not establish that no money moved, and the platform, which
+    // never touches this money, is in no position to rule that it did not. This is the assertion
     // that separates the third predicate from payment-in-flight, which would hand the right to
     // cancel BACK at this exact moment.
     await inRollback(async (tx) => {
@@ -4963,7 +4963,7 @@ describe.skipIf(skipWithoutDatabase)("the cancel affordance the page offers (rea
     });
   });
 
-  it("does NOT cross the two answers — an individual proof leaves the team control offered", async () => {
+  it("does NOT cross the two answers, so an individual proof leaves the team control offered", async () => {
     // THE SWAP DETECTOR. Both fields are booleans of the same type computed side by side, so a
     // crossed assignment type-checks and every single-mode test above stays green. This is the only
     // assertion that fails on it, and it needs a candidate holding BOTH an individual registration
@@ -5052,11 +5052,11 @@ describe.skipIf(skipWithoutDatabase)("the cancel guards refuse BEFORE they write
   // CLASS B, and it needed a real database to be Class B at all.
   //
   // Both cancel guards sit before their write and outside its transaction, so the natural way to
-  // get them wrong — running them after the transaction commits — is detectable by post-state: the
+  // get them wrong (running them after the transaction commits) is detectable by post-state: the
   // registration is already cancelled when the refusal is thrown. That is the assertion here.
   //
   // The existing service tests cannot make it. They run against a queued fake, so moving the guard
-  // past the transaction fails them with `team_state_conflict` — a fake's response ordering, not
+  // past the transaction fails them with `team_state_conflict`, a fake's response ordering, not
   // the guard's position. A probe that goes red for the wrong reason is the same defect as one that
   // stays green: neither is measuring the guard.
 
@@ -5118,7 +5118,7 @@ describe.skipIf(skipWithoutDatabase)("the cancel guards refuse BEFORE they write
         code: "cancellation_not_supported_for_paid",
         // The message too, not just the code. It is what the candidate reads, it is the standing
         // Indonesian-copy condition, and pinning it is what makes the refusal comparable between
-        // orderings — moving this guard INSIDE the transaction is undetectable precisely because
+        // orderings. Moving this guard INSIDE the transaction is undetectable precisely because
         // the refusal is byte-identical, and that claim is only meaningful if the bytes are pinned.
         message: "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
       });
@@ -5184,7 +5184,7 @@ describe.skipIf(skipWithoutDatabase)("the cancel guards refuse BEFORE they write
         message: "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
       });
 
-      // Both rows, because the team write cancels the whole group in one statement — checking only
+      // Both rows, because the team write cancels the whole group in one statement, checking only
       // the captain's would miss a guard that ran after it.
       expect(await statusOf(tx, fixture.registrationId)).toBe("confirmed");
       expect(await statusOf(tx, mateRegistration!.id)).toBe("confirmed");
@@ -5196,7 +5196,7 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
   // R5 AND R6, asked the way the CANDIDATE'S PAGE asks them.
   //
   // The sweep itself is covered elsewhere. What is covered here is that the surface telling a
-  // candidate about the deadline reads the same rule the worker acts on — the suspension in
+  // candidate about the deadline reads the same rule the worker acts on, the suspension in
   // particular, because a countdown rendered next to evidence already submitted tells someone who
   // paid on time that they are late, and that is how a person transfers twice.
 
@@ -5323,7 +5323,7 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
       expect(row!.reason).not.toBe("withdrew");
 
       // R6 has no capacity dimension: nothing is freed, and the copy must not suggest a seat was.
-      // What actually holds is the opposite — the cancelled row still blocks re-registration.
+      // What actually holds is the opposite: the cancelled row still blocks re-registration.
       // Registration is opened first so the refusal below is the DUPLICATE guard rather than the
       // window guard, which fires earlier and would make this assertion pass for the wrong reason.
       await tx
@@ -5347,7 +5347,7 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
 
   it("stays coherent with the cancel affordance: an expired registration offers neither control", async () => {
     // The surface 5 interaction. Expiry sets the row to `cancelled`, and the affordance resolver
-    // asks its question only for a `confirmed` row — so an expired candidate sees no cancel button
+    // asks its question only for a `confirmed` row, so an expired candidate sees no cancel button
     // AND no explanation of a withheld one, which would be a notice about a control that is gone.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
@@ -5372,7 +5372,7 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
         NOW,
       );
 
-      // Before expiry: a rejected proof still WITHHOLDS cancel — the one state where a candidate
+      // Before expiry: a rejected proof still WITHHOLDS cancel, the one state where a candidate
       // cannot leave and can still be cancelled by the clock. That is what makes surfacing the
       // deadline on the rejection notice a fairness requirement rather than a nicety.
       const { resolveCancelAffordanceState } = await import("@/server/finance/cancel-affordance");
@@ -5402,7 +5402,7 @@ describe.skipIf(skipWithoutDatabase)("what the deadline means to the payer (real
 
 describe.skipIf(skipWithoutDatabase)("what an unverified institution is told (real database)", () => {
   // DEC-0170. A paid competition owned by an institution that cannot charge is a DEFINED RUNTIME
-  // STATE — verification is revocable, and a competition priced while verified stays published
+  // STATE: verification is revocable, and a competition priced while verified stays published
   // afterwards. The platform's answer is to stop NEW charging, never to take anything down.
   //
   // Both audiences are asserted here because they are owed different things: the organiser is owed
@@ -5465,7 +5465,7 @@ describe.skipIf(skipWithoutDatabase)("what an unverified institution is told (re
   it("agrees with the write path: not-ready means the registration is actually refused", async () => {
     // THE AGREEMENT ASSERTION, and the reason the resolver reuses the gates' own readers rather
     // than re-deriving them. A panel that says "you cannot charge" while the write path happily
-    // creates a payment — or the reverse — is worse than no panel.
+    // creates a payment (or the reverse) is worse than no panel.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       await tx
@@ -5519,7 +5519,7 @@ describe.skipIf(skipWithoutDatabase)("what an unverified institution is told (re
     });
   });
 
-  it("does NOT unpublish or hide the competition — charging is gated, publication is not", async () => {
+  it("does NOT unpublish or hide the competition, because charging is gated and publication is not", async () => {
     // DEC-0118's scope, preserved exactly. An organiser whose verification lapses keeps everything
     // already published; only new charging stops. `rejected` rather than "revoked": the enum has no
     // revoked value, and the readiness check keys off "not verified" so every non-verified status
@@ -5563,7 +5563,7 @@ describe.skipIf(skipWithoutDatabase)("every A2 guard in the expiry worker (real 
   // FIVE RETURNING GUARDS INSIDE ONE TRANSACTION, and a returning guard is not protected by the
   // rollback a throwing one gets: `return null` ends the callback normally, so the transaction
   // COMMITS whatever was written before it. Moved below the cancellation write, any of these
-  // commits a wrong cancellation while reporting the payment as "skipped" — a silent wrong
+  // commits a wrong cancellation while reporting the payment as "skipped", a silent wrong
   // cancellation on a lane where the platform cannot reverse the transfer, in a background worker
   // whose output nobody reads.
   //
@@ -5600,7 +5600,7 @@ describe.skipIf(skipWithoutDatabase)("every A2 guard in the expiry worker (real 
     return row!.status;
   };
 
-  it("GUARD 3 — a SUCCEEDED payment is not cancelled by a later sweep", async () => {
+  it("GUARD 3: a SUCCEEDED payment is not cancelled by a later sweep", async () => {
     // The worst of the five. This candidate transferred real money, the organiser verified it, and
     // a moved guard cancels their registration and reports the payment skipped.
     await inRollback(async (tx) => {
@@ -5626,7 +5626,7 @@ describe.skipIf(skipWithoutDatabase)("every A2 guard in the expiry worker (real 
     });
   });
 
-  it("GUARD 4 — a second sweep does not re-cancel an already expired payment", async () => {
+  it("GUARD 4: a second sweep does not re-cancel an already expired payment", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const paymentId = await seedManualPayment(tx, fixture, { dueAt: DUE });
@@ -5650,14 +5650,14 @@ describe.skipIf(skipWithoutDatabase)("every A2 guard in the expiry worker (real 
     });
   });
 
-  // GUARD 2 — `if ([...locked].length === 0) return null;` — is likewise unreachable and gets no
+  // GUARD 2 (`if ([...locked].length === 0) return null;`) is likewise unreachable and gets no
   // fixture. The id being locked comes from `finance_payments.competition_registration_id`, which
   // carries a foreign key to `competition_registrations` with no ON DELETE action, and no code path
   // in this repository hard-deletes a registration row (cancellation is a status change; the row is
   // retained as a historical artefact). So `SELECT ... FOR UPDATE` on that id always finds a row.
   // Reaching it needs a referential-integrity violation, which the constraint prevents.
 
-  it("GUARD 1 is UNREACHABLE — a payment cannot exist without a registration", async () => {
+  it("GUARD 1 is UNREACHABLE because a payment cannot exist without a registration", async () => {
     // Shown, not asserted. `finance_payments_subject_xor_chk` requires the registration key to be
     // non-null for the only subject type that exists, so `!payment?.registrationId` is defensive
     // against a subject arm nobody has added yet. It gets no post-state detector because no fixture
@@ -5672,7 +5672,7 @@ describe.skipIf(skipWithoutDatabase)("every A2 guard in the expiry worker (real 
 });
 
 describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real database)", () => {
-  // Rule 33: every assertion below reaches the queue through the real service — the real
+  // Rule 33: every assertion below reaches the queue through the real service, the real
   // transaction, the real `loadPaymentFacts` join, the real recipient resolvers. A hand-built
   // payload would prove the notification module and leave the four call sites unproven, which is
   // exactly the shape of this step's worst prior defect.
@@ -5822,7 +5822,7 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
       );
 
       // Two refusals, two announcements, distinguishable by attempt. The second is the one that
-      // matters most — it lands with less of the deadline left than the first.
+      // matters most: it lands with less of the deadline left than the first.
       expect(outcomes).toHaveLength(2);
       expect(outcomes[0]).toMatchObject({ outcome: "rejected", attempt: 0 });
       expect(outcomes[1]).toMatchObject({
@@ -6025,7 +6025,7 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
     // A proof in `pending_review` SUSPENDS expiry indefinitely (R5). The sweep still examines the
     // payment and still declines it, so the dispatch has to sit inside the expired branch: moved
     // out of it, every skipped payment is told its registration was cancelled while the
-    // registration is untouched — a false cancellation notice, which is worse than a missing one.
+    // registration is untouched, a false cancellation notice, which is worse than a missing one.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const { sweepExpiredPayments } = await import("@/server/finance/payment-expiry-service");
@@ -6122,7 +6122,7 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
   });
 
   it("keeps the verification when the queue is down", async () => {
-    // CLASS B — the guard is the try/catch wrapping dispatch, it sits AFTER the write, and removing
+    // CLASS B: the guard is the try/catch wrapping dispatch, it sits AFTER the write, and removing
     // it lets a queue outage propagate out of a service whose transaction has already committed.
     // The detector is post-state: the row is verified and the caller did not throw.
     await inRollback(async (tx) => {
@@ -6159,7 +6159,7 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
 
   it("announces nothing for a verification that rolled back", async () => {
     // THE MOVE DETECTOR for the dispatch position. Moving `notifyPaymentOutcome` inside the
-    // transaction — anywhere above `recordFeeAccrual` — makes this test fail: the accrual throws,
+    // transaction (anywhere above `recordFeeAccrual`) makes this test fail: the accrual throws,
     // the transaction unwinds, the proof is still pending_review, and the queue has been told the
     // payment succeeded. A refusal-identity detector cannot see that; only the pairing of the
     // surviving row with the absent enqueue can.
@@ -6172,8 +6172,8 @@ describe.skipIf(skipWithoutDatabase)("what the manual lane announces (real datab
       const paymentId = await seedManualPayment(tx, fixture);
       const proof = await submitProof(tx, fixture, paymentId);
 
-      // The lever: a payment that is no longer manual-lane. `recordFeeAccrual` refuses it —
-      // a gateway payment's fee split at transaction time and accruing it again bills twice — and
+      // The lever: a payment that is no longer manual-lane. `recordFeeAccrual` refuses it, because
+      // a gateway payment's fee split at transaction time and accruing it again bills twice, and
       // that refusal is raised after the CAS has already written `verified`.
       await tx
         .update(financePayments)
@@ -6409,8 +6409,8 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
     // own rejection and out of it through the operator's own void, so the list is proven against
     // the states the product actually produces rather than against a hand-set column.
     //
-    // A barred proof is invisible to the blocked-competition list by construction — it holds no
-    // competition open — so this assertion is the only thing standing between the operator and a
+    // A barred proof is invisible to the blocked-competition list by construction. It holds no
+    // competition open, so this assertion is the only thing standing between the operator and a
     // capability reachable only by knowing a proof id.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
@@ -6524,7 +6524,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
   });
   it("holds the organiser's bar against a REJECTED proof, which the candidate alone cannot lift", async () => {
     // WHERE THE BAR STOPS AND WHO CAN LIFT IT. `resubmission_allowed = false` is written by exactly
-    // one function — the organiser's rejection — and the reopen's rejected arm REQUIRES the bar to
+    // one function (the organiser's rejection) and the reopen's rejected arm REQUIRES the bar to
     // be true, so the candidate has no move from here. That is the whole intent of the checkbox and
     // this test pins it.
     //
@@ -6565,7 +6565,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
         ),
       ).rejects.toMatchObject({ code: "manual_proof_resubmission_barred" });
 
-      // And the row is still barred and still rejected — so there is no state from here that a
+      // And the row is still barred and still rejected, so there is no state from here that a
       // void could act on.
       const [row] = await tx
         .select({
@@ -6580,7 +6580,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
 
   it("refuses both operator actions without a reason, and writes nothing", async () => {
     // WHICH MOVE WAS MEASURED, because for this guard the obvious one proves nothing. Relocating
-    // `requireReason` INSIDE the transaction leaves this test green — the throw rolls the callback
+    // `requireReason` INSIDE the transaction leaves this test green, because the throw rolls the callback
     // back, so post-state is restored either way and the two positions are equivalent. The move
     // that is harmful is across the COMMIT boundary: below `db.transaction`, the cancellation lands
     // with an empty audit reason and only then refuses the caller, which the status assertion below
@@ -6852,7 +6852,7 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
    * transfer went out, the organiser says nothing ever arrived, and there is no receipt on file.
    *
    * The competition used to be joined through the PROOF's competition id, on a proof that had been
-   * LEFT-joined — so when there was no proof the inner join eliminated the row and the whole read
+   * LEFT-joined, so when there was no proof the inner join eliminated the row and the whole read
    * returned null. The page 404'd, and every branch written for the no-proof case was unreachable.
    */
   it("opens a payment nobody ever submitted evidence for", async () => {
@@ -6874,7 +6874,7 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
     });
   });
 
-  it("shows the attempt a resubmission overwrote — the whole reason the history table exists", async () => {
+  it("shows the attempt a resubmission overwrote, which is why the history table exists", async () => {
     // The live row carries attempt two's file, reason and verdict. Attempt one survives ONLY in
     // finance_manual_payment_proof_attempts, and attempt one is what the dispute is about.
     await inRollback(async (tx) => {
@@ -7037,7 +7037,7 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
       );
 
       const state = await loadDisputeLedgerState(paymentId, tx as never);
-      // What the append-only stream SAYS moved — the figure a billing dispute actually turns on.
+      // What the append-only stream SAYS moved, the figure a billing dispute actually turns on.
       expect(state.status).toBe("succeeded");
       expect(state.netRecordedAmount).toBe(1_000_000);
     });
@@ -7056,7 +7056,7 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
       // The audit writer directly, NOT through the presigning path. Object storage is unconfigured
       // in this environment, so routing this assertion through `generateDisputeProofViewUrl` would
       // take the storage-unavailable branch every time and leave every expectation below
-      // unexecuted — a green reporting an audit trail nobody measured.
+      // unexecuted, a green reporting an audit trail nobody measured.
       await recordDisputeProofAccess(
         fixture.other.userId,
         {
@@ -7083,13 +7083,13 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
 
       // A DISTINCT event type from the organiser's `payment_proof.file_accessed`, and targeted at
       // the payer rather than an institution. Reusing the organiser's path would file a
-      // platform-wide read under one tenant's own trail and make the two indistinguishable — which
+      // platform-wide read under one tenant's own trail and make the two indistinguishable, which
       // is exactly the question an access dispute has to answer.
       expect(audit!.eventType).toBe(FILE_ACCESSED_EVENT);
       expect(audit!.eventType).not.toBe("payment_proof.file_accessed");
       expect(audit!.targetUserId).toBe(fixture.userId);
-      // AND the tenant, so the institution's own question — "whose receipts has platform staff
-      // opened" — is answerable from the indexed column rather than by scanning metadata.
+      // AND the tenant, so the institution's own question, "whose receipts has platform staff
+      // opened", is answerable from the indexed column rather than by scanning metadata.
       expect(audit!.targetInstitutionId).toBe(fixture.institutionId);
       expect(audit!.reason).toBe("Penanganan sengketa pembayaran");
       expect(audit!.metadata).toMatchObject({ proofId: proof.id, paymentId, attempt: 0 });
@@ -7150,13 +7150,13 @@ describe.skipIf(skipWithoutDatabase)("the institution fee statement (real databa
   // A READ-ONLY surface, so the detector is the CONTENT OF THE RESULT rather than a post-state:
   // there is nothing this function writes whose absence could stand in for a refusal.
   //
-  // Every accrual under test is written by `verifyManualPaymentProof` — the production verdict path
-  // — not by an insert built here. A hand-constructed accrual row would prove the query and nothing
+  // Every accrual under test is written by `verifyManualPaymentProof`, the production verdict path,
+  // not by an insert built here. A hand-constructed accrual row would prove the query and nothing
   // about whether the figures the organiser is billed on ever reach this page.
 
   it("renders the rate the line was PRICED under after the platform rate moves", async () => {
     // DEC-0171. The rule is versioned and a later one supersedes it, so a statement that joined
-    // `finance_fee_rules` would show a rate this institution was never charged — wrong in exactly
+    // `finance_fee_rules` would show a rate this institution was never charged, wrong in exactly
     // the direction that starts a billing dispute.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
@@ -7269,7 +7269,7 @@ describe.skipIf(skipWithoutDatabase)("the institution fee statement (real databa
       );
 
       // The rival needs its own published account before it may charge anyone, exactly as the
-      // primary does — `seedFixture` deliberately leaves it without one.
+      // primary does, and `seedFixture` deliberately leaves it without one.
       await tx.insert(institutionPaymentInstructions).values({
         institutionId: fixture.other.institutionId,
         bankName: "Bank Saingan",
@@ -7355,8 +7355,8 @@ describe.skipIf(skipWithoutDatabase)("the institution fee statement (real databa
         // THE ROW THAT MAKES THE SECOND CONDITION LOAD-BEARING. Its `institution_id` is mine, so
         // the first condition admits it; only the competition-ownership check excludes it. Without
         // this row the join condition could be deleted outright and this test would stay green,
-        // which is presence rather than enforcement. The shape is insertable — the two foreign keys
-        // are independent and nothing pairs them — so it is drift the query has to survive.
+        // which is presence rather than enforcement. The shape is insertable, the two foreign keys
+        // are independent and nothing pairs them, so it is drift the query has to survive.
         {
           competitionId: fixture.other.competitionId,
           institutionId: fixture.institutionId,
@@ -7386,7 +7386,7 @@ describe.skipIf(skipWithoutDatabase)("the institution fee statement (real databa
     // delete through to the registration is refused while a payment still points at it.
     //
     // Written as a pair of refusals because that is what keeps the LEFT join honest. If either of
-    // these ever loosens — a SET NULL added to the FK, the XOR relaxed — this test fails, and the
+    // these ever loosens (a SET NULL added to the FK, the XOR relaxed) this test fails, and the
     // statement's null branch becomes live code that has to render.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);

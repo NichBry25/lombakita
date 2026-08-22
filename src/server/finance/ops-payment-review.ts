@@ -27,7 +27,7 @@ import {
 // THE LIST IS BUILT FROM `IN_FLIGHT_PROOF_STATUSES`, the same exported constant
 // `hasCompetitionPaymentInFlight` uses to raise the block. Re-deriving "in flight" here with a
 // second status list is how a surface ends up showing a set that is narrower than the set it is
-// supposed to unblock — and the competition missing from the list is precisely the one nobody can
+// supposed to unblock, and the competition missing from the list is precisely the one nobody can
 // rescue. One fact, one place.
 //
 // Cross-tenant by design and NOT a leak: platform_ops is the one role whose whole job spans
@@ -35,7 +35,7 @@ import {
 //
 // TWO LISTS, TWO DIFFERENT QUESTIONS. The blocked list answers "which competitions cannot be
 // withdrawn"; `loadOpsBarredProofs` answers "which payers cannot move". They are read separately
-// because a barred proof blocks nothing — it is decided — and folding it into the in-flight
+// because a barred proof blocks nothing (it is decided) and folding it into the in-flight
 // constant would change the unpublish guard while pretending to change a page.
 
 export type OpsInFlightProof = {
@@ -92,7 +92,7 @@ export type OpsBlockedCompetition = {
  *
  * Grouped by competition because the surface's two actions live at different levels: voiding is per
  * proof, cancelling is per competition, and an operator deciding between them needs to see all the
- * outstanding transfers on one competition together — cancelling with three unresolved proofs is a
+ * outstanding transfers on one competition together. Cancelling with three unresolved proofs is a
  * different decision from cancelling with one.
  */
 export const loadOpsBlockedCompetitions = async (
@@ -171,7 +171,7 @@ export const loadOpsBlockedCompetitions = async (
 };
 
 /**
- * Payers the organiser barred from trying again — the population the void's second arm exists for.
+ * Payers the organiser barred from trying again, the population the void's second arm exists for.
  *
  * A SEPARATE READ FROM THE BLOCKED LIST, on purpose. `IN_FLIGHT_PROOF_STATUSES` answers "what is
  * holding this competition open", and a barred proof holds nothing open: it is decided, the

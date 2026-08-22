@@ -250,7 +250,7 @@ export const sendCompetitionCancelledEmail = async (options: {
   recipientId: string;
   competitionTitle: string;
   cancellationReason?: string;
-  /** Set only for a recipient who holds a priced payment — see the worker's payer scoping. */
+  /** Set only for a recipient who holds a priced payment (see the worker's payer scoping). */
   transferRefundNotice?: boolean;
   publicCompetition?: {
     institutionSlug: string;
@@ -283,7 +283,7 @@ export const sendCompetitionCancelledEmail = async (options: {
       ...(options.transferRefundNotice
         ? [
             "",
-            "Jika kamu sudah melakukan transfer, dana tersebut ada pada rekening penyelenggara — hubungi penyelenggara secara langsung untuk pengembaliannya. Lombakita tidak menampung dana peserta sehingga tidak dapat memprosesnya.",
+            "Jika kamu sudah melakukan transfer, dana tersebut ada pada rekening penyelenggara. Hubungi penyelenggara secara langsung untuk pengembaliannya. Lombakita tidak menampung dana peserta sehingga tidak dapat memprosesnya.",
           ]
         : []),
       "",
@@ -454,9 +454,9 @@ export const sendRegistrationDocumentReviewedEmail = async (options: {
 /**
  * The organiser's copy of "someone says they paid".
  *
- * Deliberately does not assert that money arrived — the platform never sees it (DEC-0130). It says
- * what the candidate CLAIMS and asks for a decision, because the organiser's bank statement is the
- * only record that can settle it.
+ * Deliberately does not assert that money arrived, because the platform never sees it (DEC-0130).
+ * It says what the candidate CLAIMS and asks for a decision, because the organiser's bank
+ * statement is the only record that can settle it.
  */
 export const sendPaymentProofSubmittedEmail = async (options: {
   toEmail: string;
@@ -487,7 +487,7 @@ export const sendPaymentProofSubmittedEmail = async (options: {
     text: [
       `${options.payerDisplayName} mengirim bukti transfer sebesar ${options.amount} untuk ${options.competitionTitle}.`,
       "",
-      "Cocokkan dengan mutasi rekening lembaga Anda sebelum memberi keputusan — dana peserta masuk langsung ke rekening Anda, bukan ke Lombakita.",
+      "Cocokkan dengan mutasi rekening lembaga Anda sebelum memberi keputusan. Dana peserta masuk langsung ke rekening Anda, bukan ke Lombakita.",
       "",
       `Tinjau di ${reviewQueueUrl}.`,
     ].join("\n"),
@@ -540,7 +540,7 @@ const paymentOutcomeBody = (options: {
       ...reasonLines,
       "",
       options.resubmissionAllowed === false
-        ? "Anda tidak dapat mengirim bukti baru. Hubungi penyelenggara sebelum batas waktu — jika terlewat, pendaftaran dibatalkan secara otomatis."
+        ? "Anda tidak dapat mengirim bukti baru. Hubungi penyelenggara sebelum batas waktu. Jika terlewat, pendaftaran dibatalkan secara otomatis."
         : "Unggah bukti transfer yang baru sebelum batas waktu pembayaran.",
     ];
   }

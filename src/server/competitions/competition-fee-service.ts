@@ -28,7 +28,7 @@ import {
 } from "@/server/competitions/competition-service";
 import { enqueueCompetitionEdited } from "@/server/async/enqueue";
 
-// THE FEE-SETTING WRITE PATH — the one place a competition's price is written.
+// THE FEE-SETTING WRITE PATH. The one place a competition's price is written.
 //
 // `feeAmount` and `feeCurrency` are both in competition-core's SILENT_STRIP_FIELDS, so the create
 // and patch endpoints drop them without error and no other service writes either column. Every
@@ -39,20 +39,20 @@ import { enqueueCompetitionEdited } from "@/server/async/enqueue";
 // first, and so nothing about the platform's pricing configuration leaks to someone who is not
 // allowed to charge at all:
 //
-//   1. Ownership     — assertCompetitionAccess "admin", which is institution_owner ALONE. Setting
+//   1. Ownership:      assertCompetitionAccess "admin", which is institution_owner ALONE. Setting
 //                      a price binds the institution to a receivable, so it sits with the party
 //                      that can be bound.
-//   2. Edit matrix   — classifyCompetitionEdit. Carries BOTH the payment-in-flight block and the
+//   2. Edit matrix:    classifyCompetitionEdit. Carries BOTH the payment-in-flight block and the
 //                      free-entrants block; see the note below on why they are not restated here.
-//   3. Charging      — assertInstitutionVerified. Only for a NON-ZERO fee; setting a competition
+//   3. Charging:       assertInstitutionVerified. Only for a NON-ZERO fee; setting a competition
 //                      back to free is always allowed, including for an institution whose
 //                      verification was just revoked. Revocation must not trap an organiser into
 //                      keeping a price it can no longer honour.
-//   4. Payable       — the institution must have published payment instructions. Only for a
+//   4. Payable:        the institution must have published payment instructions. Only for a
 //                      NON-ZERO fee. Enabling a price with nowhere to send the money produces a
 //                      candidate who owes a debt they cannot discharge.
-//   5. Priceable     — requireFeeRuleInForce (fail-closed). Only for a NON-ZERO fee.
-//   6. Disclosed     — the organiser must have acknowledged the platform's rate, and the
+//   5. Priceable:      requireFeeRuleInForce (fail-closed). Only for a NON-ZERO fee.
+//   6. Disclosed:      the organiser must have acknowledged the platform's rate, and the
 //                      acknowledgement is RECORDED. Only for a NON-ZERO fee.
 //
 // THE EDIT MATRIX IS NOT RE-IMPLEMENTED HERE. The in-flight and free-entrants rules were previously
@@ -70,7 +70,7 @@ export type SetCompetitionFeeInput = {
   // Optional. Left unchanged when omitted.
   paymentWindowDays?: number;
   // The organiser confirming they have been shown what the platform charges. REQUIRED to enable a
-  // price and refused when absent — a disclosure the organiser can skip is not a disclosure, and
+  // price and refused when absent. A disclosure the organiser can skip is not a disclosure, and
   // the recorded acknowledgement is the platform's only evidence when a bill is later disputed.
   feeDisclosureAcknowledged?: boolean;
 };
@@ -80,7 +80,7 @@ export type SetCompetitionFeeInput = {
  *
  * `pricedAt` is `now` by design: the question this gate asks is whether a rule is in force AT THE
  * MOMENT THE ORGANISER TURNS PRICING ON, which is when they need to be told that no rate is
- * configured. A payment resolves its own rule again at its own instant — the two are separate
+ * configured. A payment resolves its own rule again at its own instant. The two are separate
  * questions and this one must not pre-empt the other.
  */
 export const setCompetitionFee = async (
@@ -120,15 +120,15 @@ export const setCompetitionFee = async (
   // rather than as an edit nobody made.
   // ONE TRANSACTION, UNDER THE PARTICIPATION LOCK, from the classification to the write.
   //
-  // The blocks this decision rests on COUNT ROWS — "are there active free registrants", "is a
-  // bukti transfer in flight" — and the rows they count do not exist yet, so a compare-and-set has
+  // The blocks this decision rests on COUNT ROWS ("are there active free registrants", "is a
+  // bukti transfer in flight") and the rows they count do not exist yet, so a compare-and-set has
   // nothing to serialize on (Rule 25). Read outside a lock, the classifier can see zero free
   // registrants while a registration transaction is mid-flight, and the price lands on a
   // competition that took a free entrant a moment later: a fee retroactively attached to someone
   // who agreed to none, which is precisely what the free→paid block exists to prevent.
   //
   // The advisory lock is the same one every other path that reasons about the participation set
-  // takes — registration, team registration, participation changes, results, unpublish, and the
+  // takes: registration, team registration, participation changes, results, unpublish, and the
   // ops cancellation hatch. This was the one that did not.
   const notify = await db.transaction(async (tx) => {
     await acquireCompetitionParticipationLock(tx, competitionId);
@@ -178,8 +178,8 @@ export const setCompetitionFee = async (
     // a debt with no way to discharge it and no party able to tell them where to send it.
     await requirePaymentInstructions(competition.institutionId, tx);
 
-    // FAIL-CLOSED FEE RESOLUTION. `resolveFeeRule` returning null is a real state — no commercial
-    // rate is seeded — and treating it as zero here would let an organiser switch pricing on, take
+    // FAIL-CLOSED FEE RESOLUTION. `resolveFeeRule` returning null is a real state (no commercial
+    // rate is seeded) and treating it as zero here would let an organiser switch pricing on, take
     // real money, and accrue nothing, with every downstream assertion passing. A refusal is
     // recoverable by configuring a rule; a ledger of silently free transactions is not.
     const rule = await requireFeeRuleInForce(competition.institutionId, now, tx);
@@ -222,7 +222,7 @@ export const setCompetitionFee = async (
  *
  * The classifier reports WHICH fields are blocked but not why, because it is pure and the reason
  * lives in the snapshot it was handed. Both causes block the same fields, so the snapshot is what
- * separates them — and telling an organiser "someone is mid-payment" when the real cause is "you
+ * separates them, and telling an organiser "someone is mid-payment" when the real cause is "you
  * already have free registrants" sends them to wait for something that will never resolve.
  */
 const toBlockedFeeEditError = (

@@ -4,7 +4,7 @@
 // statement renders the rate that was snapshotted onto each accrual, and importing a helper across
 // route segments couples two features that have no reason to know about each other.
 
-// 250 basis points reads as "2,5%" — Indonesian decimal comma, and no trailing ",0" on a whole
+// 250 basis points reads as "2,5%": Indonesian decimal comma, and no trailing ",0" on a whole
 // percent. The stored unit is basis points; this is the only place it becomes a percentage.
 export const formatBasisPoints = (basisPoints: number): string => {
   const percent = basisPoints / 100;

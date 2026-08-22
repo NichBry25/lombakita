@@ -205,7 +205,7 @@ const main = async (): Promise<void> => {
   /**
    * Post-condition: the fixtures this run seeded are actually gone.
    *
-   * A probe that creates financial rows owes the same guarantee as one that drops a constraint —
+   * A probe that creates financial rows owes the same guarantee as one that drops a constraint.
    * "I ran the DELETE statements" is not evidence, for the same reason "I ran the CREATE INDEX" was
    * not. This counts what survived and fails the run if anything did, which is how the 21 payments
    * and 21 fee rules left on the local database would have announced themselves at the time instead
@@ -239,7 +239,7 @@ const main = async (): Promise<void> => {
       "every fixture row this run seeded is removed on exit" +
         (total === 0
           ? ""
-          : ` — ${total} survived (payments ${survivors?.payments}, events ${survivors?.events}, ` +
+          : `: ${total} survived (payments ${survivors?.payments}, events ${survivors?.events}, ` +
             `fee rules ${survivors?.fee_rules}, users ${survivors?.users}, ` +
             `institutions ${survivors?.institutions})`),
     );
@@ -250,7 +250,7 @@ const main = async (): Promise<void> => {
   // SIGKILL still cannot be, which is the residual the host restriction covers.
   const handleSignal = (signal: NodeJS.Signals, exitCode: number): void => {
     process.once(signal, () => {
-      console.log(`\n${signal} received — removing fixtures before exit`);
+      console.log(`\n${signal} received, removing fixtures before exit`);
       void removeFixtures()
         .catch((error) => console.error("cleanup after signal failed:", error))
         .finally(() => {
@@ -740,7 +740,7 @@ const main = async (): Promise<void> => {
     }
   } finally {
     // The guard assertion USED to be the first statement in this block, ahead of every DELETE. It
-    // issues a query, so a broken pool made it throw and took the whole cleanup down with it — the
+    // issues a query, so a broken pool made it throw and took the whole cleanup down with it. The
     // fixtures then survived the run with nothing saying so. Removal is attempted first now, and the
     // guard assertion runs after, where its own failure can no longer suppress it.
     try {

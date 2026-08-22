@@ -21,12 +21,12 @@ import type { FeeRuleErrorCode } from "@/server/finance/fee-rule-service";
 import { formatBasisPoints, formatMinorUnits } from "./fee-rule-display";
 
 // A representative sale used only to show the operator what their terms would charge. Nothing is
-// stored from it and no payment uses it — it exists so a rate is legible as money before it is
+// stored from it and no payment uses it. It exists so a rate is legible as money before it is
 // saved, rather than as an abstract basis-point figure.
 const PREVIEW_GROSS_AMOUNT = 100_000;
 
 const SCOPE_OPTIONS = [
-  { value: "global", label: "Global — semua institusi" },
+  { value: "global", label: "Global (semua institusi)" },
   { value: "institution", label: "Institusi tertentu" },
 ];
 

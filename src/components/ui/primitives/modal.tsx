@@ -121,7 +121,7 @@ export function Modal() {
           </h2>
           {closeable && (
             <button type="button" className="modal-close" aria-label="Tutup" onClick={closeModal}>
-              <Icon name="close" size="md" />
+              <Icon name="close" size="sm" />
             </button>
           )}
         </div>

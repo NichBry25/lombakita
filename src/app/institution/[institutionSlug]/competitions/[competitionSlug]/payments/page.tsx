@@ -24,7 +24,7 @@ export const metadata = {
  *
  * THREE SEPARATE GATES, in this order, and none of them is redundant. `requireRolePage` establishes
  * that a recruiter is signed in. `requireAdminInstitutionBySlug` establishes that this recruiter
- * administers THIS institution — a recruiter elsewhere is not one here. The tenant scope inside
+ * administers THIS institution. A recruiter elsewhere is not one here. The tenant scope inside
  * `loadOrganiserPaymentQueue` then establishes that the competition belongs to that institution,
  * which the first two cannot answer: an owner of institution D asking for institution A's
  * competition passes both of them.
@@ -85,17 +85,14 @@ export default async function CompetitionPaymentsPage({ params }: Props) {
         Cocokkan setiap bukti transfer dengan mutasi rekening Anda sebelum memberi keputusan.
       </p>
 
-      {/* Lombakita never holds this money — the transfer lands in the institution's own account, so
-          the platform cannot confirm it arrived and the organiser's bank statement is the only
-          record that can. Saying so here is what keeps a reviewer from reading a verification
-          control as the platform vouching for the payment. */}
-      <Feedback tone="info">
-        Dana peserta masuk langsung ke rekening lembaga Anda, bukan ke Lombakita. Verifikasi hanya
-        setelah dana benar-benar terlihat pada mutasi rekening.
-      </Feedback>
-
+      {/* The banner slot now carries the one thing that changes: how much work is waiting. The
+          custody disclosure it replaced said nothing an organiser could act on, and it sat above
+          the queue on every visit. What that disclosure was protecting, a reviewer treating
+          verification as the platform vouching for the money, is stated on the control itself. */}
       {awaitingCount > 0 ? (
-        <p className="muted-copy">{`${awaitingCount} bukti transfer menunggu keputusan Anda.`}</p>
+        <Feedback tone="info">
+          {`${awaitingCount} bukti transfer menunggu keputusan Anda.`}
+        </Feedback>
       ) : null}
 
       <OrganiserPaymentQueue

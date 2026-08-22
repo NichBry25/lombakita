@@ -17,12 +17,12 @@ type RouteContext = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-// POST — presign a PUT for one bukti transfer file. Body: { fileName }.
+// POST presigns a PUT for one bukti transfer file. Body: { fileName }.
 // Returns { uploadUrl, r2Key, contentType, expiresAt }; the PUT must send that exact content type
 // or R2 rejects the signature.
 //
 // The PAYMENT is resolved from the registration rather than accepted from the caller, and the
-// object key is built by the service rather than supplied — a caller-chosen key would be refused at
+// object key is built by the service rather than supplied. A caller-chosen key would be refused at
 // submission, but only after the presign had already granted write access to it.
 //
 // A declared MIME type is deliberately not accepted: the type is derived from the filename, and the

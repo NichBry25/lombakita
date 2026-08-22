@@ -57,7 +57,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     const session = await requireAuthenticatedSession();
     // Rule 16. A settings form rendered for one owner and submitted after the browser's session
     // flipped to another would otherwise write this account number onto the second owner's
-    // institution — which on this endpoint means redirecting somebody else's incoming payments.
+    // institution, which on this endpoint means redirecting somebody else's incoming payments.
     assertSessionMatchesExpectedUser(request, session);
 
     const { institutionSlug } = await context.params;

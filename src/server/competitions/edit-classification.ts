@@ -28,7 +28,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 //
 // EVERY FIELD IS REQUIRED, including the three pricing fields, and that is load-bearing rather than
 // tidy. While they were optional a caller could omit them and every fee rule below silently
-// classified nothing — no error, no failing test, a whole branch of this module unreachable. Making
+// classified nothing: no error, no failing test, a whole branch of this module unreachable. Making
 // them required turns that omission into a compile error at the caller.
 export type ClassifiableCompetition = {
   title: string;
@@ -59,7 +59,7 @@ export type EditClassificationSnapshot = {
   hasActiveTeam: boolean;
   activeTeamSizes: number[];
   hasActiveFree: boolean;
-  // Whether a bukti transfer is submitted and unresolved anywhere on this competition — the
+  // Whether a bukti transfer is submitted and unresolved anywhere on this competition. This is the
   // PAYMENT IN FLIGHT predicate (server/finance/paid-registration.ts), passed in rather than
   // queried because this module is pure.
   hasPaymentInFlight: boolean;
@@ -129,7 +129,7 @@ export const classifyCompetitionEdit = (
     }
   }
 
-  // feeAmount — BLOCKED whenever money is in flight on this competition, whatever the change is.
+  // feeAmount: BLOCKED whenever money is in flight on this competition, whatever the change is.
   // Someone has transferred real rupiah against the price they were shown, and moving that price
   // underneath them while the organiser has not yet verified the transfer is the one fee edit that
   // cannot be made safe by notifying anybody afterwards.
@@ -149,7 +149,7 @@ export const classifyCompetitionEdit = (
     }
   }
 
-  // feeCurrency — the same rule, because it is half of the same fact. An amount without its
+  // feeCurrency: the same rule, because it is half of the same fact. An amount without its
   // currency is not a price (@/lib/finance/money), so changing IDR to anything else while a
   // transfer is in flight restates what the payer owes exactly as surely as changing the number.
   // This field was absent from the classifier entirely, which meant a currency change was
@@ -162,7 +162,7 @@ export const classifyCompetitionEdit = (
     }
   }
 
-  // paymentWindowDays — NOTIFY, never blocked. Shortening the window cannot harm anyone already
+  // paymentWindowDays: NOTIFY, never blocked. Shortening the window cannot harm anyone already
   // paying: a deadline is snapshotted onto each payment at creation and never recomputed, so an
   // existing pending payment keeps the deadline it was given. It is participant-relevant for
   // everyone who registers AFTER the change, which is what notify is for.
@@ -205,10 +205,10 @@ export const classifyCompetitionEdit = (
   if (timeOf(oldRow.registrationStartAt) !== timeOf(newRow.registrationStartAt))
     notify.push("registrationStartAt");
 
-  // registrationEndAt — BLOCKED while money is in flight, notify otherwise. Each payment's deadline
+  // registrationEndAt: BLOCKED while money is in flight, notify otherwise. Each payment's deadline
   // is clamped to this date once, at creation, and is never recomputed afterwards (see
-  // @/lib/finance/payment-window). That is the right design — a deadline someone was given must not
-  // move underneath them — but it means an outstanding payment goes on carrying a deadline derived
+  // @/lib/finance/payment-window). That is the right design, since a deadline someone was given
+  // must not move underneath them, but an outstanding payment then carries a deadline derived
   // from a date that no longer exists, and nothing anywhere reconciles the two. Blocking the edit
   // rather than recomputing the deadline is what keeps both facts true at once.
   if (timeOf(oldRow.registrationEndAt) !== timeOf(newRow.registrationEndAt)) {

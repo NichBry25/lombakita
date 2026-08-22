@@ -57,12 +57,12 @@ export type OpsBarredProofView = {
  *
  * TWO ACTIONS AT TWO LEVELS, deliberately kept apart. Voiding one bukti transfer says nothing about
  * the competition; cancelling the competition says nothing about the transfers, and the service
- * refuses to bundle them for the same reason — one click must not both cancel a competition and
+ * refuses to bundle them for the same reason: one click must not both cancel a competition and
  * discard the evidence that somebody paid for it.
  *
  * NEITHER ACTION IS GUARDED HERE BEYOND WHAT THE SERVICE ENFORCES. This surface is the only way a
  * paid competition can be withdrawn at all, so a gate here that is tighter than platform_ops itself
- * does not make the product safer — it deletes the escape hatch and strands the organiser the block
+ * does not make the product safer. It deletes the escape hatch and strands the organiser the block
  * was protecting the candidate from.
  */
 export function OpsPaymentActions({
@@ -136,7 +136,7 @@ export function OpsPaymentActions({
     });
   };
 
-  // The same dialog and the same endpoint as a pending void — only the warning differs, because
+  // The same dialog and the same endpoint as a pending void. Only the warning differs, because
   // what this one releases is a person rather than a competition.
   const openBarredVoid = (proof: OpsBarredProofView) => {
     openModal({
@@ -171,7 +171,7 @@ export function OpsPaymentActions({
           // R8 in one sentence, and it is stated because no part of this flow can undo it: the fee
           // already accrued to the institution stays accrued, and cancelled registrations are
           // terminal.
-          warning="Kompetisi akan turun ke draf dan SELURUH pendaftaran dibatalkan secara permanen. Biaya layanan yang sudah tercatat tidak dibatalkan. Peserta yang sudah transfer akan diberi tahu untuk menghubungi penyelenggara — Lombakita tidak menampung dana peserta dan tidak dapat mengembalikannya."
+          warning="Kompetisi akan turun ke draf dan SELURUH pendaftaran dibatalkan secara permanen. Biaya layanan yang sudah tercatat tidak dibatalkan. Peserta yang sudah transfer akan diberi tahu untuk menghubungi penyelenggara, karena Lombakita tidak menampung dana peserta dan tidak dapat mengembalikannya."
           placeholder="Contoh: penyelenggara membatalkan acara dan meminta penarikan lewat dukungan."
           submitLabel="Batalkan kompetisi"
           onSubmit={(reason) =>
@@ -223,13 +223,13 @@ export function OpsPaymentActions({
                   <ul className="record-list">
                     {competition.proofs.map((proof) => (
                       <li key={proof.proofId}>
-                        <div className="inset-panel stack-sm">
+                        <Card variant="inset" className="stack-sm">
                           <div className="section-heading">
                             <div>
                               <h4>{proof.payerDisplayName}</h4>
                               <p className="muted-copy">
                                 {formatRupiah(proof.grossAmount, proof.currency)}
-                                {proof.attempt > 0 ? ` · percobaan ke-${proof.attempt + 1}` : ""}
+                                {proof.attempt > 0 ? ` · Percobaan ke-${proof.attempt + 1}` : ""}
                               </p>
                             </div>
                             <span
@@ -279,11 +279,11 @@ export function OpsPaymentActions({
                             </div>
                           ) : (
                             <p className="muted-copy">
-                              Sudah diverifikasi penyelenggara — pembatalan bukti tidak berlaku
-                              lagi. Koreksi pembayaran yang sudah diverifikasi ditangani terpisah.
+                              Sudah diverifikasi penyelenggara. Pembatalan bukti tidak berlaku lagi.
+                              Koreksi pembayaran yang sudah diverifikasi ditangani terpisah.
                             </p>
                           )}
-                        </div>
+                        </Card>
                       </li>
                     ))}
                   </ul>
@@ -300,7 +300,7 @@ export function OpsPaymentActions({
                       </Button>
                     </div>
                   ) : (
-                    <Feedback tone="info">
+                    <Feedback tone="neutral">
                       {`Kompetisi ini berstatus ${capitalizeWord(competition.status)}, bukan Terbit, sehingga tidak ada penarikan yang perlu diambil alih.`}
                     </Feedback>
                   )}
@@ -312,7 +312,7 @@ export function OpsPaymentActions({
       </section>
 
       {/* THE SECOND LIST, AND THE ONLY ROUTE TO IT. These proofs hold no competition open, so they
-          never appear above — but their payers cannot resubmit, cannot cancel, and have no
+          never appear above, but their payers cannot resubmit, cannot cancel, and have no
           organiser control left to appeal to. Without this section an operator could release them
           only by knowing a proof id. */}
       {barredProofs.length > 0 && (
@@ -332,7 +332,7 @@ export function OpsPaymentActions({
                       <h3>{proof.payerDisplayName}</h3>
                       <p className="muted-copy">
                         {`${formatRupiah(proof.grossAmount, proof.currency)} · ${proof.competitionTitle}`}
-                        {proof.attempt > 0 ? ` · percobaan ke-${proof.attempt + 1}` : ""}
+                        {proof.attempt > 0 ? ` · Percobaan ke-${proof.attempt + 1}` : ""}
                       </p>
                     </div>
                     <span className="status-badge" data-status="cancelled">
@@ -360,7 +360,7 @@ export function OpsPaymentActions({
                   </dl>
 
                   {proof.rejectionReason ? (
-                    <Feedback tone="info">
+                    <Feedback tone="error">
                       {`Alasan penyelenggara: ${asSentence(proof.rejectionReason)}`}
                     </Feedback>
                   ) : null}

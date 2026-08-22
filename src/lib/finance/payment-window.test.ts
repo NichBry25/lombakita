@@ -17,7 +17,7 @@ describe("isValidPaymentWindowDays", () => {
     expect(isValidPaymentWindowDays(DEFAULT_PAYMENT_WINDOW_DAYS)).toBe(true);
   });
 
-  it("refuses a window below the floor — it would expire a payer who did nothing wrong", () => {
+  it("refuses a window below the floor, which would expire a payer who did nothing wrong", () => {
     expect(isValidPaymentWindowDays(0)).toBe(false);
     expect(isValidPaymentWindowDays(-1)).toBe(false);
   });
@@ -60,7 +60,7 @@ describe("resolvePaymentDueAt", () => {
     expect(due.getTime()).toBeLessThan(START.getTime());
   });
 
-  it("is a pure function of its inputs — the same call twice gives the same instant", () => {
+  it("is a pure function of its inputs, so the same call twice gives the same instant", () => {
     const end = new Date(START.getTime() + 10 * DAY_MS);
     expect(resolvePaymentDueAt(START, 3, end).getTime()).toBe(
       resolvePaymentDueAt(START, 3, end).getTime(),

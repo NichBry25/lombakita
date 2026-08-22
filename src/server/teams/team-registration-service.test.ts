@@ -18,7 +18,7 @@ vi.mock("@/lib/logger", () => ({
 // The predicate deciding whether a priced team registration may still be reverted. Mocked for the
 // same reason the individual path mocks it: this file tests cancelTeamRegistration's gate ORDER
 // against a queued fake with no proof tables. That a team's proof resolves across the whole payment
-// group — one payment anchored on the captain's row, every member's row in the same group — is
+// group (one payment anchored on the captain's row, every member's row in the same group) is
 // proven against a live Postgres in the manual-lane integration suite.
 const { hasSubmittedPaymentProof, findTeamPaymentGroupAnchor } = vi.hoisted(() => ({
   hasSubmittedPaymentProof: vi.fn().mockResolvedValue(false),

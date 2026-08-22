@@ -26,7 +26,7 @@ import {
 //
 // These are the INSTITUTION'S OWN account details, shown to a payer so they can transfer directly.
 // The platform never holds the funds, which is exactly why it has to publish somebody else's
-// account number — and why the accuracy of this row is the only thing standing between a candidate
+// account number, and why the accuracy of this row is the only thing standing between a candidate
 // and money sent to an account nobody is watching.
 
 /** One institution's payment instructions, or null when it has not set any. */
@@ -53,10 +53,10 @@ export const loadPaymentInstructionsForInstitution = async (
  *
  * Answers only for a competition somebody can actually be paying for: PUBLISHED and not soft-
  * deleted. These are an institution's real bank account details, and a draft or withdrawn
- * competition takes no registrations and therefore no money — publishing account details against
+ * competition takes no registrations and therefore no money, so publishing account details against
  * one hands them out with no transaction to justify it.
  *
- * Null means either that, or that the institution has configured no instructions — a real state a
+ * Null means either that, or that the institution has configured no instructions, a real state a
  * paid competition must not be allowed to reach, and one the checkout surface is responsible for
  * refusing on rather than rendering blank.
  */
@@ -120,7 +120,7 @@ export const buildQrisObjectPrefix = (institutionId: string): string =>
  *
  * The same boundary a bukti transfer's key is held to, and here for the same reason: the key is
  * caller-supplied, so without this an institution could point its instructions at any object in the
- * bucket — including another institution's QRIS, which its candidates would then be told to scan.
+ * bucket, including another institution's QRIS, which its candidates would then be told to scan.
  */
 export const assertQrisKeyBelongsToInstitution = (r2Key: string, institutionId: string): void => {
   const prefix = buildQrisObjectPrefix(institutionId);
@@ -143,7 +143,7 @@ export const assertQrisKeyBelongsToInstitution = (r2Key: string, institutionId: 
  * failure this type exists to make impossible: it would break no test, it would just quietly stop
  * being evidence.
  *
- * The exclusions are the row's own bookkeeping — identity, tenancy and timestamps — none of which
+ * The exclusions are the row's own bookkeeping (identity, tenancy and timestamps), none of which
  * is something a payer was shown.
  */
 type InstructionEvidenceField = Exclude<
@@ -172,7 +172,7 @@ export const toInstructionSnapshotValues = (instructions: InstitutionPaymentInst
  *
  * ABSENCE IS THE INCOMPLETE STATE. A database CHECK refuses a row naming neither a bank account nor
  * a QRIS, so any row that exists is payable by construction and there is no half-filled state to
- * interpret — which is why this asks whether a row exists rather than counting populated columns.
+ * interpret, which is why this asks whether a row exists rather than counting populated columns.
  *
  * This is the precondition on enabling a registration fee. Charging without it produces a candidate
  * who owes money and has nowhere to send it: the transfer goes directly to the institution, so if
@@ -187,7 +187,7 @@ export const hasPaymentInstructions = async (
  * The instructions an institution must have before money can be taken in its name, or a refusal.
  *
  * Returns the row rather than a boolean because every caller needing the check also needs the
- * values — to snapshot them, or to show them to the payer. Splitting the two would mean reading the
+ * values, to snapshot them or to show them to the payer. Splitting the two would mean reading the
  * row twice and leaving a window in which the second read finds it gone.
  */
 export const requirePaymentInstructions = async (
@@ -220,8 +220,8 @@ export type SavePaymentInstructionsInput = {
  *
  * UPSERT on the institution, because these are current contact details rather than a ledger: there
  * is one right answer to "where do we send money today", and keeping superseded account numbers
- * here would invite a reader to pick the wrong one. The history that does matter — what each
- * individual payer was told — is snapshotted onto their payment instead.
+ * here would invite a reader to pick the wrong one. The history that does matter, what each
+ * individual payer was told, is snapshotted onto their payment instead.
  */
 export const savePaymentInstructions = async (
   institutionId: string,
@@ -246,7 +246,7 @@ export const savePaymentInstructions = async (
   if (qrisR2Key === null && !namesBankAccount) {
     throw new PaymentInstructionsError(
       "payment_instructions_incomplete",
-      "Isi nama bank, nomor rekening, dan nama pemilik rekening — atau unggah QRIS",
+      "Isi nama bank, nomor rekening, dan nama pemilik rekening, atau unggah QRIS",
     );
   }
 
@@ -295,7 +295,7 @@ export type QrisUploadGrant = {
  * THE KEY IS BUILT HERE AND NEVER ACCEPTED FROM THE CALLER. `assertQrisKeyBelongsToInstitution`
  * exists because `savePaymentInstructions` does take a key from a request body; this path removes
  * the question entirely by minting the only key the upload can write to. The two guards are not
- * redundant — a caller can still POST a key straight to save without ever asking for a grant.
+ * redundant: a caller can still POST a key straight to save without ever asking for a grant.
  *
  * A FRESH KEY EVERY TIME, never a stable per-institution path. Snapshots taken for earlier payers
  * point at the object they were actually shown, so overwriting one key would rewrite what a payer
@@ -318,7 +318,7 @@ export const generateQrisUploadUrl = async (
   if (!isR2Available()) {
     throw new PaymentInstructionsError(
       "payment_instructions_upload_unavailable",
-      "Penyimpanan berkas belum dikonfigurasi — unggahan QRIS sementara tidak tersedia",
+      "Penyimpanan berkas belum dikonfigurasi sehingga unggahan QRIS sementara tidak tersedia",
       503,
     );
   }

@@ -1,9 +1,6 @@
 import { notFound } from "next/navigation";
 import { Card, Feedback, PageHeader } from "@/components/ui";
-import {
-  loadDisputeLedgerState,
-  loadDisputePaymentDetail,
-} from "@/server/finance/dispute-view";
+import { loadDisputeLedgerState, loadDisputePaymentDetail } from "@/server/finance/dispute-view";
 import { formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import { formatFileSize } from "@/lib/text/format-file-size";
@@ -21,7 +18,7 @@ export const metadata = {
  * One payment, read forwards: every attempt in the order it happened, then what the ledger says.
  *
  * THE ATTEMPT HISTORY IS THE REASON THIS PAGE EXISTS. A live proof row shows only the attempt
- * currently standing — a resubmission overwrites the file, the reason and the verdict in place — and
+ * currently standing (a resubmission overwrites the file, the reason and the verdict in place), and
  * a dispute is almost always ABOUT an earlier attempt. Showing the live row alone would answer every
  * disagreement with the state that came after it.
  *
@@ -62,7 +59,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
           </div>
           <div>
             <dt>Status buku besar</dt>
-            {/* FOLDED from the append-only event stream, never read from a column — there is no
+            {/* FOLDED from the append-only event stream, never read from a column. There is no
                 status column to read (DEC-0133). This is what the ledger actually says happened,
                 which is the figure a billing dispute turns on. */}
             <dd className="data-text">{capitalizeWord(ledger.status)}</dd>
@@ -108,7 +105,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
           </div>
 
           {detail.rejectionReason ? (
-            <Feedback tone="info">{`Alasan tercatat: ${detail.rejectionReason}`}</Feedback>
+            <Feedback tone="error">{`Alasan tercatat: ${detail.rejectionReason}`}</Feedback>
           ) : null}
 
           <DisputeProofFileButton proofId={detail.proofId} />
@@ -119,13 +116,13 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
         <h2>Riwayat percobaan</h2>
         {detail.history.length === 0 ? (
           <p className="muted-copy">
-            Belum ada percobaan yang ditutup — bukti transfer di atas masih percobaan pertama.
+            Belum ada percobaan yang ditutup. Bukti transfer di atas masih percobaan pertama.
           </p>
         ) : (
           <ol className="record-list">
             {detail.history.map((attempt) => (
               <li key={attempt.attemptNumber}>
-                <div className="inset-panel stack-sm">
+                <Card variant="inset" className="stack-sm">
                   <div className="section-heading">
                     <div>
                       <h3>{`Percobaan ke-${attempt.attemptNumber + 1}`}</h3>
@@ -133,7 +130,10 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
                         {attempt.originalFileName} · {formatFileSize(attempt.fileSizeBytes)}
                       </p>
                     </div>
-                    <span className="status-badge" data-status={PROOF_STATUS_TONES[attempt.verdict]}>
+                    <span
+                      className="status-badge"
+                      data-status={PROOF_STATUS_TONES[attempt.verdict]}
+                    >
                       {PROOF_STATUS_LABELS[attempt.verdict]}
                     </span>
                   </div>
@@ -158,7 +158,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
                   {attempt.verdictReason ? (
                     <p className="muted-copy">{`Alasan: ${attempt.verdictReason}`}</p>
                   ) : null}
-                </div>
+                </Card>
               </li>
             ))}
           </ol>

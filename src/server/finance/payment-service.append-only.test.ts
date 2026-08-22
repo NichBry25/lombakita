@@ -23,12 +23,12 @@ const SCRIPTS_DIR = resolve(process.cwd(), "scripts");
 /**
  * Finance-domain tables that are deliberately MUTABLE, and why each one is.
  *
- * DEC-0133 makes the LEDGER append-only — `finance_payments`, `finance_payment_events`,
+ * DEC-0133 makes the LEDGER append-only: `finance_payments`, `finance_payment_events`,
  * `finance_fee_accruals`. Those record what happened to money and must never move. It does not
  * make every table that happens to live in the finance domain immutable, and conflating the two
  * would force a real requirement to be dodged by giving a table a misleading name.
  *
- *   finance_manual_payment_proofs — a REVIEW ARTIFACT, not a money fact. Its status transitions
+ *   finance_manual_payment_proofs: a REVIEW ARTIFACT, not a money fact. Its status transitions
  *     (pending_review → verified / rejected → pending_review …) are the DEC-0115 revision loop, and
  *     each transition is an optimistic CAS. The money facts about the same payment live in the
  *     ledger tables and do not move when this row does.
@@ -61,7 +61,7 @@ const HARNESS_FILES = [
  * last file that should have it: it is the most plausible place a "just fix this one row" ledger
  * edit gets written, precisely because it is already allowed to write finance rows.
  *
- *   scripts/seed-test-matrix.ts, finance_manual_payment_proof_attempts — the scratch reset. The
+ *   scripts/seed-test-matrix.ts, finance_manual_payment_proof_attempts: the scratch reset. The
  *     seed deletes the proofs the AUTOMATED PASS created, and their attempt rows hold a foreign key
  *     to them, so the parent delete fails on the constraint and the whole reset aborts. Without
  *     this the local pipeline goes one-shot the moment any pass reaches a verdict. It removes only
@@ -97,7 +97,7 @@ const MUTATION_PATTERNS = [
  * Every forbidden finance mutation in one source string.
  *
  * Extracted from the directory walk so it can be exercised against synthetic sources that DO
- * mutate the ledger — otherwise the exception list could silently neutralise the scan and every
+ * mutate the ledger. Otherwise the exception list could silently neutralise the scan and every
  * test in this file would keep reporting green.
  */
 const findForbiddenMutations = (source: string): string[] => {
@@ -138,7 +138,7 @@ const relative = (path: string): string => path.replace(`${process.cwd()}/`, "")
 /**
  * Everything the scan covers: `src/` plus `scripts/`.
  *
- * `scripts/` was outside the scan entirely, which is the wrong side of the line to leave open — an
+ * `scripts/` was outside the scan entirely, which is the wrong side of the line to leave open. An
  * operational script pointed at a real database is the most plausible place a "just fix this one
  * row" ledger mutation actually gets written, and it would have passed silently.
  */
@@ -167,7 +167,7 @@ describe("finance write surface", () => {
     // This list may grow with READS and with INSERTS; it may never grow with an update or a delete.
     //
     // `createFeeRule` belongs here on that reading. Fee rules are effective-dated, so a rate change
-    // is a NEW ROW that takes over from a date — there is deliberately no edit-in-place, because
+    // is a NEW ROW that takes over from a date, and there is deliberately no edit-in-place, because
     // rewriting a rule's terms would leave already-recorded payments naming an authority whose
     // figures no longer match what they were priced under.
     expect(exported).toEqual([
@@ -259,7 +259,7 @@ describe("finance write surface", () => {
     expect(survivors[0]).toContain("finance_payment_events");
   });
 
-  it("still catches a ledger mutation despite the exception list — the scan can fail", () => {
+  it("still catches a ledger mutation despite the exception list, so the scan can fail", () => {
     // The exception list is subtracted from the scan's hits, so it is the one change that could
     // quietly turn this whole file into a test that passes forever. These synthetic sources prove
     // the matcher still fires on the tables that matter, and that it fires on the excepted spelling
@@ -304,7 +304,7 @@ describe("finance write surface", () => {
   it("pins the mutable-finance-table exception list so it cannot grow quietly", () => {
     // The exception list is the one place the append-only guarantee can be weakened, so it is
     // asserted exactly. Adding an entry is a deliberate act that fails this test first and has to
-    // be argued for in review — which is the whole point of having the list rather than a naming
+    // be argued for in review, which is the whole point of having the list rather than a naming
     // convention that a future table could accidentally satisfy.
     expect(MUTABLE_FINANCE_TABLES).toEqual([
       "financeManualPaymentProofs",

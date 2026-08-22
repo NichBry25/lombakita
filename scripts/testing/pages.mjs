@@ -55,7 +55,7 @@ export const PAGES = [
   { id: "41-registration-team-mode", as: "candA", path: "/competitions/seed-academy/seed-closing/registration", label: "Registration subpage — team mode" },
   // The cancel affordance in all three states DEC-0131 distinguishes. Registered here rather than
   // folded into 40/41 because the withheld state only exists on a PRICED competition and only once
-  // a bukti transfer has been filed — neither of which the free fixtures can produce.
+  // a bukti transfer has been filed, neither of which the free fixtures can produce.
   { id: "42a-registration-paid-cancellable", as: "candA", path: "/competitions/seed-academy/seed-paid/registration", label: "Registration subpage — paid, cancel still offered" },
   { id: "42b-registration-paid-withheld", as: "candB", path: "/competitions/seed-academy/seed-paid/registration", label: "Registration subpage — cancel withheld, proof under review" },
   { id: "42c-registration-paid-withheld-rejected", as: "candC", path: "/competitions/seed-academy/seed-paid/registration", label: "Registration subpage — cancel withheld, proof rejected" },
@@ -79,15 +79,15 @@ export const PAGES = [
   { id: "55-competition-detail-mgmt", as: "recElev", path: "/institution/seed-academy/competitions/seed-open", label: "Competition management detail" },
   { id: "56-competition-edit", as: "recElev", path: "/institution/seed-academy/competitions/seed-open/edit", label: "Competition editor (published — immutable fields)" },
   { id: "57-competition-edit-draft", as: "recElev", path: "/institution/seed-academy/competitions/seed-draft/edit", label: "Competition editor (draft — all fields open)" },
-  // Registered separately from 56/57 because only a PAID competition renders the fee disclosure —
+  // Registered separately from 56/57 because only a PAID competition renders the fee disclosure:
   // three figures and an acknowledgement that exist on no other editor.
   { id: "57b-competition-edit-paid", as: "recElev", path: "/institution/seed-academy/competitions/seed-paid/edit", label: "Competition editor — paid, with fee disclosure" },
   { id: "58-participants", as: "recElev", path: "/institution/seed-academy/competitions/seed-open/participants", label: "Participants console" },
   { id: "59-participants-done", as: "recElev", path: "/institution/seed-academy/competitions/seed-done/participants", label: "Participants console — finished competition" },
   { id: "60-participant-review", as: "recElev", path: "/institution/seed-academy/competitions/seed-done/participants/seed-reg-a-done", label: "Participant review + result + documents" },
   { id: "61-participation-decision", as: "recElev", path: "/institution/seed-academy/competitions/seed-closed/participants", label: "Minimum-entry decision surface" },
-  // The organiser's verdict queue. Registered as ONE page carrying all three proof states at once —
-  // pending, verified and rejected — because the tones for the settled two render nowhere else, and
+  // The organiser's verdict queue. Registered as ONE page carrying all three proof states at once
+  // (pending, verified and rejected) because the tones for the settled two render nowhere else, and
   // an unmeasured tone is how a badge that styles nothing survives a full audit.
   { id: "61b-payment-verification", as: "recElev", path: "/institution/seed-academy/competitions/seed-paid/payments", label: "Bukti transfer verification queue" },
   { id: "61c-payment-verification-empty", as: "recElev", path: "/institution/seed-academy/competitions/seed-open/payments", label: "Bukti transfer queue — nothing submitted yet" },

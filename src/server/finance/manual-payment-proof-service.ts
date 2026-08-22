@@ -36,24 +36,24 @@ import {
   notifyPaymentProofSubmitted,
 } from "@/server/finance/payment-notifications";
 
-// THE BUKTI TRANSFER REVIEW LOOP. Services only — there is no upload route and no verification
-// route yet; the surfaces that call these are not built.
+// THE BUKTI TRANSFER REVIEW LOOP. Services only. The upload, verdict, view and void routes are thin
+// wrappers that read a request body and call in here.
 //
 // EVERY TRANSITION IS AN OPTIMISTIC CAS on the proof's status, and that is the concurrency guard the
 // whole manual lane rests on (Rule 25: CAS for a single-row transition). It is NOT the idempotency
 // key. The key cannot serve here: `appendPaymentEvent`'s platform arm mints a fresh UUID per call by
-// design, so two organisers clicking "verify" at once would write two `succeeded` events — which the
-// fold tolerates — and two fee accruals, which is money billed twice. The CAS means exactly one of
+// design, so two organisers clicking "verify" at once would write two `succeeded` events (which the
+// fold tolerates) and two fee accruals, which is money billed twice. The CAS means exactly one of
 // those calls transitions the row and therefore exactly one reaches the accrual write.
 //
 // EVERY FUNCTION HERE IS SCOPED IN ITS OWN QUERY, and the scope sits in the same WHERE as the CAS
 // rather than in a check the caller is trusted to have run first. Two scopes, because there are two
 // kinds of actor:
 //
-//   ORGANISER SIDE  (verify / reject / read) — scoped to the institution that owns the proof's
+//   ORGANISER SIDE  (verify / reject / read): scoped to the institution that owns the proof's
 //                   competition. A proof id from another organiser's competition matches no row and
 //                   is indistinguishable from one that does not exist.
-//   CANDIDATE SIDE  (submit / reopen)        — scoped to the person whose money it is. A payer may
+//   CANDIDATE SIDE  (submit / reopen):        scoped to the person whose money it is. A payer may
 //                   only file and refile evidence against their own payment.
 //
 // `voidManualPaymentProof` is deliberately unscoped: it is platform_ops-only, and operating across
@@ -67,7 +67,7 @@ export type ManualProofErrorCode =
   | "manual_proof_registration_cancelled"
   | "manual_proof_not_pending"
   // The void found a proof it may not close: verified, or already voided. Deliberately NOT
-  // `manual_proof_not_pending`, which would now be a false statement about the row — a rejected
+  // `manual_proof_not_pending`, which would now be a false statement about the row. A rejected
   // proof is not pending and is voidable precisely so a barred payer can be released.
   | "manual_proof_not_voidable"
   | "manual_proof_resubmission_barred"
@@ -75,7 +75,7 @@ export type ManualProofErrorCode =
   | "manual_proof_reason_required"
   | "manual_proof_object_key_invalid"
   // The request named an action the verdict route does not implement. A malformed request, not a
-  // judgement about the proof — which is why it does not borrow `manual_proof_not_pending`, a code
+  // judgement about the proof, which is why it does not borrow `manual_proof_not_pending`, a code
   // that asserts something specific and false about the row's state.
   | "manual_proof_action_unrecognised"
   | "manual_proof_upload_unavailable"
@@ -107,7 +107,7 @@ export class ManualProofError extends Error {
  *
  * The second reason does NOT carry over, and the difference matters. For registration documents the
  * competition prefix exists so retention can delete the whole subtree once the competition is over.
- * A BUKTI TRANSFER IS NEVER PURGED, AT ANY AGE — it is financial evidence, and the competition
+ * A BUKTI TRANSFER IS NEVER PURGED, AT ANY AGE. It is financial evidence, and the competition
  * ending is not a reason to destroy the record of who paid for it. Nothing may ever list this prefix
  * for deletion; see finance-retention-exclusion.test.ts, which fails if the retention sweep's purge
  * surface grows a path to it.
@@ -119,14 +119,14 @@ export const buildManualProofObjectPrefix = (competitionId: string, paymentId: s
 type ConfirmedProofObject = { contentType: string; fileSizeBytes: number };
 
 /**
- * WHAT WAS ACTUALLY UPLOADED — never what the request said was uploaded.
+ * WHAT WAS ACTUALLY UPLOADED, never what the request said was uploaded.
  *
  * Both facts used to arrive in the request body and were written to the row unexamined, which cost
  * two things.
  *
  * THE CONTENT TYPE went on to be handed to R2 as `ResponseContentType` on an `inline` presigned GET.
  * A payer could declare `text/html` over an image upload and have storage serve executable markup
- * to the organiser reviewing their receipt, or to the finance operator opening it during a dispute —
+ * to the organiser reviewing their receipt, or to the finance operator opening it during a dispute,
  * the two highest-privilege humans who touch this lane. It is derived here from the file NAME
  * against the accepted-extension list, and storage's own reported type is not trusted either: that
  * value was set by whoever performed the upload. The bucket is a separate origin today, which is
@@ -134,7 +134,7 @@ type ConfirmedProofObject = { contentType: string; fileSizeBytes: number };
  * domain under the app's own domain, and this function is why that change stays survivable.
  *
  * THE SIZE, and the object's existence, were never checked at all. A key under the right prefix was
- * accepted whether or not anything had been uploaded to it — so a payer could file an attempt with
+ * accepted whether or not anything had been uploaded to it, so a payer could file an attempt with
  * no file behind it, and every later "view" would write an audit row for a read that never happened.
  * Resubmitting one key under two different names and sizes let the payer author their own evidence
  * log, in the table a dispute is adjudicated from.
@@ -151,7 +151,7 @@ const confirmUploadedProofObject = async (
   if (!contentType) {
     throw new ManualProofError(
       "manual_proof_object_key_invalid",
-      `Format berkas bukti transfer tidak didukung — ${PAYMENT_PROOF_FORMAT_HINT}`,
+      `Format berkas bukti transfer tidak didukung. ${PAYMENT_PROOF_FORMAT_HINT}`,
     );
   }
 
@@ -160,14 +160,14 @@ const confirmUploadedProofObject = async (
   if (!head) {
     throw new ManualProofError(
       "manual_proof_object_missing",
-      "Berkas bukti transfer belum selesai diunggah — silakan unggah ulang",
+      "Berkas bukti transfer belum selesai diunggah, silakan unggah ulang",
       404,
     );
   }
 
   if (head.sizeBytes <= 0 || head.sizeBytes > PAYMENT_PROOF_MAX_BYTES) {
     // Removed rather than left behind: it is unreferenced from this moment on, and nothing sweeps
-    // this prefix — the retention job is deliberately excluded from it.
+    // this prefix, because the retention job is deliberately excluded from it.
     await deleteObject(r2Key);
     throw new ManualProofError(
       "manual_proof_object_key_invalid",
@@ -182,7 +182,7 @@ const confirmUploadedProofObject = async (
 //
 // The rule, and it is the reason the table exists rather than a list of fixes: A WRITE THAT CAN
 // CREATE MONEY REQUIRES THE LANE TO BE OPEN; A WRITE THAT ONLY CLOSES AN ATTEMPT DOES NOT. The
-// second half matters as much as the first — gating the closing verdicts would strand a pending
+// second half matters as much as the first. Gating the closing verdicts would strand a pending
 // proof on a cancelled registration forever, and would disarm the escape hatch at exactly the
 // moment it is needed.
 //
@@ -192,20 +192,20 @@ const confirmUploadedProofObject = async (
 //                                 row, so the check belongs where the request is shaped.
 //   submitManualPaymentProof      all four, via requireOpenManualLane.
 //   reopenManualPaymentProof      all four, via requireOpenManualLane. A resubmission is a
-//                                 submission — the row it writes is indistinguishable from a first
+//                                 submission. The row it writes is indistinguishable from a first
 //                                 attempt once written, so the same conditions must hold.
 //   verifyManualPaymentProof      all four, via requireOpenManualLane. This is the write that turns
 //                                 evidence into money: it appends `succeeded` and accrues a fee.
 //   rejectManualPaymentProof      none, deliberately. Refusing evidence creates no money and closes
 //                                 an attempt that would otherwise sit open forever.
-//   voidManualPaymentProof        none, deliberately. Same reasoning, and it is the operator hatch —
+//   voidManualPaymentProof        none, deliberately. Same reasoning, and it is the operator hatch:
 //                                 it has to work when the rest of the lane does not.
 //
 // Anything added below this line states its row here, or the lane is back to three paths enforcing
 // three different rule sets.
 //
 // THE SAME CHECK APPLIES TO ENTRY PATHS, NOT ONLY WRITE PATHS. Two surfaces have now shipped the
-// identical defect — one sibling enforcing less than the other. Resubmission checked none of the
+// identical defect, one sibling enforcing less than the other. Resubmission checked none of the
 // conditions submission checked, and on the registration page the individual path withheld its
 // control under DEC-0170 while the team path let a candidate form a team and invite members into a
 // competition that cannot accept one. Wherever individual and team, or submit and resubmit, are
@@ -215,18 +215,18 @@ const confirmUploadedProofObject = async (
 type OpenManualLane = { paymentId: string; registrationId: string };
 
 /**
- * THE MANUAL LANE'S WRITE PRECONDITION — the four conditions `laneOpen` is made of, enforced.
+ * THE MANUAL LANE'S WRITE PRECONDITION. The four conditions `laneOpen` is made of, enforced.
  *
  * `laneOpen` is computed for the candidate's panel to decide which controls to OFFER. Offering is
  * presentation; this is the enforcement, and the two must not be confused. Every write into the
  * lane calls this, because a precondition one sibling checks and another does not is not a
- * precondition — it is a hole with a comment above it. The proof of that: the presign checked all
+ * precondition. It is a hole with a comment above it. The proof of that: the presign checked all
  * four, submission checked one, resubmission checked none, and a resubmission after an expiry
  * cancellation could carry a registration the platform had already destroyed all the way to a
  * verified payment and a platform fee that nothing in the product can reverse.
  *
  * THE ROW LOCK IS THE POINT. Submitting evidence and expiring the payment it belongs to must never
- * interleave, and the anchor registration row is the only object both paths touch — so it is where
+ * interleave, and the anchor registration row is the only object both paths touch, so it is where
  * they serialize. Whichever arrives first wins cleanly: the sweep cancels and the write is refused
  * here, or the write lands and the sweep re-reads under the lock and declines.
  *
@@ -305,10 +305,10 @@ const requireOpenManualLane = async (
  * Three rules, and the second is the one that is easy to argue away:
  *
  *   1. The key sits under this competition and payment's prefix. The trailing slash is doing real
- *      work — without it a competition whose id is a string prefix of another's would match.
+ *      work, because without it a competition whose id is a string prefix of another's would match.
  *   2. No path segment is `..`. Object keys are literal strings in R2 and `..` resolves to nothing
  *      there, so this is not exploitable against today's storage. It is refused anyway because that
- *      is a property of the CURRENT STORAGE LAYER rather than of the key, and keys travel — a local
+ *      is a property of the CURRENT STORAGE LAYER rather than of the key, and keys travel: a local
  *      cache, a presigner that canonicalises, or a CDN that collapses segments each turn the same
  *      string into a traversal.
  *   3. Something follows the prefix. A key equal to the prefix names a folder, not evidence.
@@ -345,7 +345,7 @@ type ProofVerdict = Extract<
  *
  * Every value comes from the CAS's own `RETURNING` rather than a prior read. A second read could
  * observe a row that has since been reopened, and would then file attempt two's file under attempt
- * one's verdict — the exact confusion this table exists to prevent.
+ * one's verdict, the exact confusion this table exists to prevent.
  *
  * Must be called inside the verdict's transaction. The unique index on (proof, attempt) is what
  * makes a replayed verdict a refusal rather than a duplicated history entry.
@@ -357,14 +357,14 @@ const recordProofAttempt = async (
   verdictReason: string | null,
 ): Promise<void> => {
   if (proof.reviewerUserId === null || proof.reviewedAt === null) {
-    // INVARIANT ASSERTION, NOT A REFUSAL — and the three markers below are what say so, because a
+    // INVARIANT ASSERTION, NOT A REFUSAL, and the three markers below are what say so, because a
     // reader who cannot tell those apart will translate this message on the next Indonesian sweep
     // and destroy the only signal it carries.
     //
     //   1. The `INVARIANT:` prefix. Deliberately English: this text is read in Sentry by a
     //      developer, never by a candidate, and an Indonesian sentence here would look like every
     //      other refusal in this file.
-    //   2. Its OWN code. Reusing `manual_proof_not_pending` — which it did — made an alert on that
+    //   2. Its OWN code. Reusing `manual_proof_not_pending`, which it did, made an alert on that
     //      code unable to separate "an organiser double-clicked verify" from "this row is corrupt".
     //   3. HTTP 500. No user action can produce this; it is unreachable through any verdict path,
     //      since each sets reviewer and reviewedAt in the same statement as the status.
@@ -428,7 +428,7 @@ const MANUAL_PROOF_VIEW_EXPIRY_SECONDS = 5 * 60;
  *
  * THE KEY IS BUILT HERE, NEVER ACCEPTED FROM THE CLIENT. `submitManualPaymentProof` and
  * `reopenManualPaymentProof` both hold whatever key they are handed to this payment's own prefix,
- * so a caller-supplied key can only ever be refused — but a presign that signed one would have
+ * so a caller-supplied key can only ever be refused, but a presign that signed one would have
  * already granted write access to that object before the refusal. Deriving it from the payment the
  * payer actually owns is what makes the prefix rule a boundary rather than a late check.
  *
@@ -479,7 +479,7 @@ export const generateManualProofUploadUrl = async (
   if (!isR2Available()) {
     throw new ManualProofError(
       "manual_proof_upload_unavailable",
-      "Penyimpanan berkas belum dikonfigurasi — unggahan sementara tidak tersedia",
+      "Penyimpanan berkas belum dikonfigurasi sehingga unggahan sementara tidak tersedia",
       503,
     );
   }
@@ -505,7 +505,7 @@ export const generateManualProofUploadUrl = async (
  *
  * AUDITED, matching how every other organiser access to a candidate's uploaded file is treated
  * (`submission.file_accessed`, `document_request.file_accessed`). A transfer receipt carries the
- * payer's bank details and account name — reading it is an act on their data, and an institution
+ * payer's bank details and account name, so reading it is an act on their data, and an institution
  * that later disputes what it saw needs a record that it looked.
  *
  * Scoped through `loadManualPaymentProof`, so a proof id from another organiser's competition
@@ -530,7 +530,7 @@ export const generateManualProofViewUrl = async (
   if (!isR2Available()) {
     throw new ManualProofError(
       "manual_proof_upload_unavailable",
-      "Penyimpanan berkas belum dikonfigurasi — bukti transfer tidak dapat dibuka",
+      "Penyimpanan berkas belum dikonfigurasi sehingga bukti transfer tidak dapat dibuka",
       503,
     );
   }
@@ -559,7 +559,7 @@ export type SubmitManualProofInput = {
   paymentId: string;
   submittedByUserId: string;
   r2Key: string;
-  // The NAME only. Size and type are read back from storage — see `confirmUploadedProofObject`.
+  // The NAME only. Size and type are read back from storage (see `confirmUploadedProofObject`).
   originalFileName: string;
 };
 
@@ -568,7 +568,7 @@ export type SubmitManualProofInput = {
  *
  * One proof per payment, enforced by a unique index. A second submission is a RESUBMISSION and goes
  * through `reopenManualPaymentProof`, which is the only path that respects the organiser's
- * resubmission bar — inserting a fresh row here instead would walk straight around it.
+ * resubmission bar. Inserting a fresh row here instead would walk straight around it.
  *
  * The payment lookup is filtered on the PAYER, so a candidate can only file evidence against their
  * own payment. Someone else's payment id reads as no payment at all.
@@ -638,7 +638,7 @@ export const submitManualPaymentProof = async (
     if (!created) {
       throw new ManualProofError(
         "manual_proof_already_submitted",
-        "Pembayaran ini sudah memiliki bukti transfer — kirim ulang melalui alur revisi",
+        "Pembayaran ini sudah memiliki bukti transfer, kirim ulang melalui alur revisi",
         409,
       );
     }
@@ -688,7 +688,7 @@ const loadCompetitionIdForPayment = async (paymentId: string, db: Database): Pro
  *
  * Three writes, one transaction, in an order that is not arbitrary:
  *
- *   1. CAS the proof `pending_review` → `verified`. Losing the CAS ends the call — this is what
+ *   1. CAS the proof `pending_review` → `verified`. Losing the CAS ends the call, which is what
  *      makes steps 2 and 3 single-shot.
  *   2. Append the `succeeded` event. The payment's state is FOLDED from events, so this is what
  *      actually makes it paid.
@@ -706,7 +706,7 @@ export const verifyManualPaymentProof = async (
     // A CANCELLED REGISTRATION CANNOT BECOME PAID. Resolved and locked BEFORE the CAS, because the
     // verdict is the write that turns a proof into money: it appends `succeeded` and accrues a
     // platform fee, and under DEC-0133 both are append-only. There is no participation for that
-    // money to attach to, and no product path that can walk the accrual back — so it has to be
+    // money to attach to, and no product path that can walk the accrual back, so it has to be
     // refused here rather than corrected afterwards.
     //
     // Reached through the proof's own payment rather than a caller-supplied id, so a verdict cannot
@@ -725,14 +725,14 @@ export const verifyManualPaymentProof = async (
     }
 
     // ANSWERED BEFORE THE LANE CHECK, and the order is the whole point. A second verify closes the
-    // lane by its own success — the first one appended `succeeded` — so asking the lane first would
+    // lane by its own success (the first one appended `succeeded`) so asking the lane first would
     // tell an organiser who clicked twice that the payment had settled, when what they need to know
     // is that their own earlier verdict is already recorded. This is a nicety of wording, not a
     // guard: the CAS below still refuses the concurrent case, which is the one that races.
     if (target.status !== "pending_review") {
       throw new ManualProofError(
         "manual_proof_not_pending",
-        "Bukti transfer ini tidak sedang menunggu tinjauan — mungkin sudah ditinjau",
+        "Bukti transfer ini tidak sedang menunggu tinjauan, mungkin sudah ditinjau",
         409,
       );
     }
@@ -749,12 +749,12 @@ export const verifyManualPaymentProof = async (
       })
       // The CAS. `status = 'pending_review'` in the WHERE is the whole guard: a concurrent verify
       // that already moved the row matches nothing and returns no row. The tenant scope rides in the
-      // same WHERE, so accepting another organiser's transfer — and accruing a fee against their
-      // institution — matches nothing either.
+      // same WHERE, so accepting another organiser's transfer, and accruing a fee against their
+      // institution, matches nothing either.
       .where(
         and(
           eq(financeManualPaymentProofs.id, proofId),
-          // From the precondition, so the CAS cannot be lifted above it — `lane` is not in scope
+          // From the precondition, so the CAS cannot be lifted above it: `lane` is not in scope
           // up there. The ordering is a compile error, not a convention.
           eq(financeManualPaymentProofs.paymentId, lane.paymentId),
           eq(financeManualPaymentProofs.status, "pending_review"),
@@ -769,7 +769,7 @@ export const verifyManualPaymentProof = async (
     if (!proof) {
       throw new ManualProofError(
         "manual_proof_not_pending",
-        "Bukti transfer ini tidak sedang menunggu tinjauan — mungkin sudah ditinjau",
+        "Bukti transfer ini tidak sedang menunggu tinjauan, mungkin sudah ditinjau",
         409,
       );
     }
@@ -791,7 +791,7 @@ export const verifyManualPaymentProof = async (
     await recordProofAttempt(tx as unknown as Database, proof, "verified", null);
 
     await appendPaymentEvent(
-      // A named human accepted this transfer, so the actor is that human. Positional by design —
+      // A named human accepted this transfer, so the actor is that human. Positional by design,
       // see the type's docblock; it must never come from a request body.
       { type: "user", userId: reviewerUserId },
       {
@@ -825,7 +825,7 @@ export const verifyManualPaymentProof = async (
  *
  * `resubmissionAllowed` is the ORGANISER'S decision and is taken here rather than defaulted,
  * because barring resubmission is a real verdict ("this is not a transfer to us at all") and not
- * merely a UI state. The bar is enforced in `reopenManualPaymentProof`'s CAS — hiding a button
+ * merely a UI state. The bar is enforced in `reopenManualPaymentProof`'s CAS, since hiding a button
  * would leave the endpoint open.
  *
  * No finance event is written. A rejected proof means nothing has been established about the money
@@ -879,7 +879,7 @@ export const rejectManualPaymentProof = async (
     if (!proof) {
       throw new ManualProofError(
         "manual_proof_not_pending",
-        "Bukti transfer ini tidak sedang menunggu tinjauan — mungkin sudah ditinjau",
+        "Bukti transfer ini tidak sedang menunggu tinjauan, mungkin sudah ditinjau",
         409,
       );
     }
@@ -906,12 +906,12 @@ export type ReopenManualProofInput = {
   // The payer refiling their own evidence. Scoped on in the query, never assumed by the caller.
   submittedByUserId: string;
   r2Key: string;
-  // The NAME only. Size and type are read back from storage — see `confirmUploadedProofObject`.
+  // The NAME only. Size and type are read back from storage (see `confirmUploadedProofObject`).
   originalFileName: string;
 };
 
 /**
- * Reopens a closed bukti transfer with a replacement file — the candidate-initiated revision loop.
+ * Reopens a closed bukti transfer with a replacement file. The candidate-initiated revision loop.
  *
  * TWO ARMS IN ONE CAS, and only one of them is gated:
  *
@@ -919,7 +919,7 @@ export type ReopenManualProofInput = {
  *                               evidence and set a bar; this is that bar.
  *   voided   → pending_review   IGNORES the bar, deliberately. A void is platform_ops correcting a
  *                               platform-side or dispute-side mistake, not the organiser ruling on
- *                               the money — and the organiser's bar was set against their own
+ *                               the money, and the organiser's bar was set against their own
  *                               rejection, which is a different decision about a different thing.
  *
  * The voided arm exists because without it a void permanently strands the payer: the live row is no
@@ -978,7 +978,7 @@ export const reopenManualPaymentProof = async (
   const proof = await db.transaction(async (tx) => {
     const scoped = tx as unknown as Database;
 
-    // THE SAME PRECONDITION THE FIRST SUBMISSION TAKES. A resubmission is a submission — the row it
+    // THE SAME PRECONDITION THE FIRST SUBMISSION TAKES. A resubmission is a submission. The row it
     // writes is indistinguishable from a first attempt once written, so a condition that refuses one
     // must refuse the other. Without it a rejected proof could be refiled onto a registration the
     // expiry sweep had already cancelled, then verified, appending `succeeded` and accruing a
@@ -1037,7 +1037,7 @@ export const reopenManualPaymentProof = async (
 };
 
 /**
- * Closes out an unsettled bukti transfer without ruling on the money — the DEC-0132 escape hatch,
+ * Closes out an unsettled bukti transfer without ruling on the money. The DEC-0132 escape hatch,
  * for `platform_ops` only.
  *
  * ACCEPTS A REJECTED PROOF AS WELL AS A PENDING ONE, AND THAT IS THE WHOLE POINT OF THE SECOND ARM.
@@ -1061,7 +1061,7 @@ export const reopenManualPaymentProof = async (
  * here would put a claim in an append-only ledger that no one is in a position to make. The proof
  * simply stops being in flight, which unblocks the DEC-0132 unpublish guard.
  *
- * `reason` is mandatory and the caller is responsible for the audit row — this function writes the
+ * `reason` is mandatory and the caller is responsible for the audit row. This function writes the
  * finance-domain state, the ops route writes `platform_ops_audit_logs`, matching how every other
  * operational action in this codebase splits those two jobs.
  */
@@ -1094,7 +1094,7 @@ export const voidManualPaymentProof = async (
         // On a pending proof nothing has been filed at the current index yet, so the void takes it
         // and the numbering stays contiguous. On a REJECTED one the rejection already filed there,
         // and reusing the index violates the attempts table's (proof_id, attempt_number) unique
-        // index — the void would fail on exactly the population it exists to rescue.
+        // index, and the void would fail on exactly the population it exists to rescue.
         //
         // The right-hand side reads the PRE-UPDATE row, which is what lets one statement decide
         // this without a second read to race against.

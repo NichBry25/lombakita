@@ -41,7 +41,7 @@ const inboxCopy = (
         `Penyelenggara menolak bukti transfer Anda.` +
         (rejectionReason ? ` Alasan: ${asSentence(rejectionReason)}` : "") +
         (resubmissionAllowed === false
-          ? " Anda tidak dapat mengirim bukti baru — hubungi penyelenggara sebelum batas waktu."
+          ? " Anda tidak dapat mengirim bukti baru. Hubungi penyelenggara sebelum batas waktu."
           : " Unggah bukti transfer yang baru sebelum batas waktu pembayaran."),
     };
   }
@@ -80,7 +80,7 @@ const inboxCopy = (
  * from the competition page that they are no longer registered.
  *
  * Recipients are resolved at delivery from the registration group rather than carried on the
- * payload, through the same helper the expiry sweep cancels by — so the set that is told and the
+ * payload, through the same helper the expiry sweep cancels by, so the set that is told and the
  * set that is affected are the same set.
  */
 export const processPaymentOutcomeJob = async (job: PaymentOutcomeJob): Promise<void> => {

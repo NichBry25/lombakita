@@ -39,7 +39,7 @@ export function ChargingReadinessPanel({
     },
     fee_rule_not_in_force: {
       what: "Tarif layanan Lombakita belum dikonfigurasi.",
-      action: <span className="muted-copy">Hubungi tim Lombakita — ini bukan pengaturan Anda.</span>,
+      action: <span className="muted-copy">Hubungi tim Lombakita. Ini bukan pengaturan Anda.</span>,
     },
   };
 
@@ -48,7 +48,7 @@ export function ChargingReadinessPanel({
       <div className="stack-sm">
         <p>
           <strong>Pendaftaran berbayar belum dapat diaktifkan.</strong> Kompetisi yang sudah terbit
-          tetap tayang dan tidak diturunkan — yang tertahan hanya kemampuan memungut biaya
+          tetap tayang dan tidak diturunkan. Yang tertahan hanya kemampuan memungut biaya
           pendaftaran baru.
         </p>
         <ul className="stack-xs">

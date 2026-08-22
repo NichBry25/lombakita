@@ -1,4 +1,4 @@
-// Whether a competition charges for registration — THE one definition, for every caller.
+// Whether a competition charges for registration. THE one definition, for every caller.
 //
 // This replaces two byte-identical private copies (registration-service.ts and
 // team-registration-service.ts) that each parsed the old `numeric` column with

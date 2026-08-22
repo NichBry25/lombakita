@@ -85,7 +85,7 @@ export const resolveFeeRule = async (
 /**
  * The fee rule in force for `institutionId` at `at`, or a refusal when there is none.
  *
- * `resolveFeeRule` returning null is a real state — no commercial rate is seeded — and a caller that
+ * `resolveFeeRule` returning null is a real state (no commercial rate is seeded) and a caller that
  * is about to PRICE something cannot proceed through it. The failure mode this exists to prevent is
  * quiet rather than loud: treating "no rule" as zero would compute a valid-looking payment carrying
  * a zero platform fee, record it as a completed split, and accrue nothing, with every downstream
@@ -93,7 +93,7 @@ export const resolveFeeRule = async (
  * transactions is not.
  *
  * Any path that turns money on uses this. `resolveFeeRule` stays available for paths that can
- * legitimately observe the absence — a read-only preview asking "is a rate configured yet".
+ * legitimately observe the absence, such as a read-only preview asking "is a rate configured yet".
  */
 export const requireFeeRuleInForce = async (
   institutionId: string,
@@ -105,7 +105,7 @@ export const requireFeeRuleInForce = async (
   if (!rule) {
     throw new FeeRuleError(
       "fee_rule_not_in_force",
-      "No platform fee rule is in force — paid registration cannot be enabled until one is configured",
+      "No platform fee rule is in force. Paid registration cannot be enabled until one is configured",
     );
   }
 
@@ -191,12 +191,12 @@ const assertStorableTerms = (input: CreateFeeRuleInput): FeeRuleTerms => {
  *
  * THERE IS NO EDIT. Rules are effective-dated, so a rate change is a NEW rule taking over from a
  * date; editing one in place would rewrite the terms that already-recorded payments were priced
- * under. Payments snapshot their own figures, so an edit would not corrupt them — it would do
+ * under. Payments snapshot their own figures, so an edit would not corrupt them. It would do
  * something worse, and leave the ledger disagreeing with the rule it names as its authority.
  *
  * A GLOBAL rule names no institution, but `platform_ops_audit_logs_target_present_chk` requires a
  * user or an institution on every row. `targetUserId` is therefore set to the ACTOR, following
- * `appendMfaAuditEvent`, with the rule id carried in metadata — the audit's subject is the operator
+ * `appendMfaAuditEvent`, with the rule id carried in metadata. The audit's subject is the operator
  * who changed platform pricing, which is the fact worth attributing.
  */
 export const createFeeRule = async (

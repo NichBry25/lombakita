@@ -24,7 +24,7 @@ import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
 //
 // The competition is joined and filtered on `institution_id` in the same statement that selects the
 // proofs. A competition belonging to another organiser matches no row, so the queue is EMPTY rather
-// than forbidden — the caller learns nothing about whether that competition exists.
+// than forbidden, and the caller learns nothing about whether that competition exists.
 
 export type OrganiserProofRow = {
   proofId: string;
@@ -39,7 +39,7 @@ export type OrganiserProofRow = {
   resubmissionAllowed: boolean;
   rejectionReason: string | null;
   reviewedAt: Date | null;
-  /** What the payer owes, from the payment the proof is filed against — never re-derived. */
+  /** What the payer owes, from the payment the proof is filed against, never re-derived. */
   grossAmount: number;
   currency: string;
   dueAt: Date | null;
@@ -55,7 +55,7 @@ export type OrganiserProofRow = {
 /**
  * Every bukti transfer on one competition, newest first, for the institution that owns it.
  *
- * Returns an empty list — never throws — when the competition is not this institution's. A refusal
+ * Returns an empty list, never throws, when the competition is not this institution's. A refusal
  * would confirm the competition exists; an empty queue is indistinguishable from a competition with
  * no proofs, which is what an organiser with no business here should observe.
  */
@@ -139,13 +139,13 @@ export const loadOrganiserPaymentQueue = async (
  * How many attempts each proof closed BEFORE the one on screen.
  *
  * Surfaced because it changes what a reviewer is looking at: a third receipt for one payment is a
- * different situation from a first, and the live row alone cannot say so — `resubmission_count` is
+ * different situation from a first, and the live row alone cannot say so. `resubmission_count` is
  * the same number but reads as an implementation detail, while "2 percobaan sebelumnya" is the fact
  * the reviewer needs.
  *
  * BOUNDED BY `resubmission_count`, WHICH IS THE INDEX OF THE ATTEMPT ON SCREEN. Counting every
  * attempt row instead counted the card's own verdict the moment one was filed, so a first-ever
- * proof announced "1 bukti sebelumnya" as soon as it was rejected — right on a pending card, wrong
+ * proof announced "1 bukti sebelumnya" as soon as it was rejected: right on a pending card, wrong
  * on every decided one, which is why it read as correct for as long as nobody looked at a card
  * after ruling on it.
  */

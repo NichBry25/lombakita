@@ -218,7 +218,7 @@ describe("the manual lane's idempotency identities", () => {
 
     const adds = queue.add.mock.calls as unknown as unknown[][];
 
-    // The proof id is IDENTICAL across attempts — the row is reused — so the attempt is the only
+    // The proof id is IDENTICAL across attempts (the row is reused) so the attempt is the only
     // thing separating these two jobs. Without it the second is dropped as a duplicate.
     expect(adds[0]![2]).toEqual({ jobId: "payment.proof.submitted__proof_1__0" });
     expect(adds[1]![2]).toEqual({ jobId: "payment.proof.submitted__proof_1__1" });

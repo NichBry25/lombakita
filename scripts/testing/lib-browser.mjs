@@ -71,7 +71,7 @@ export async function setTheme(page, theme) {
  *
  * THE FIXED SLEEP WAS A SILENT FALSE NEGATIVE. Both audits used `domcontentloaded` plus ~1.5s, and
  * client sections that fetch their own data render after that on a cold dev server. A control that
- * had not appeared yet was measured as absent and the page was reported CLEAN — the same page
+ * had not appeared yet was measured as absent and the page was reported CLEAN. The same page
  * returned clean, then dirty, then dirty across three consecutive runs with no code change.
  *
  * A contrast or target-size audit that reports success for a control it never saw is worse than no

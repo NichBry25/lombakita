@@ -21,7 +21,11 @@ import {
 } from "@/lib/finance/payment-display";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
 import type { PaymentDerivedStatus } from "@/lib/finance/payment-state";
-import { describePaymentDeadline, formatTimeRemaining } from "@/lib/finance/payment-deadline";
+import {
+  describePaymentDeadline,
+  formatTimeRemaining,
+  type PaymentDeadlineState,
+} from "@/lib/finance/payment-deadline";
 
 export type CandidatePaymentPanelProps = {
   expectedUserId: string;
@@ -60,7 +64,7 @@ export type CandidatePaymentPanelProps = {
  * of the three with a deadline that ENDS the registration when it passes, so it leads.
  *
  * The upload control is WITHHELD rather than rendered and refused wherever the candidate cannot
- * act — a teammate who is not the payer, a settled payment, a rejection the organiser barred. The
+ * act: a teammate who is not the payer, a settled payment, a rejection the organiser barred. The
  * server refuses those cases too; this decides only what is offered. Both `canSubmitProof` and
  * `canResubmitProof` are computed server-side so this component never re-derives a permission.
  */
@@ -124,7 +128,10 @@ export function CandidatePaymentPanel({
       });
 
       if (!presign.ok) {
-        addToast({ type: "error", message: await refusalMessage(presign, "Gagal menyiapkan unggahan. Coba lagi.") });
+        addToast({
+          type: "error",
+          message: await refusalMessage(presign, "Gagal menyiapkan unggahan. Coba lagi."),
+        });
         return;
       }
 
@@ -156,11 +163,17 @@ export function CandidatePaymentPanel({
       });
 
       if (!record.ok) {
-        addToast({ type: "error", message: await refusalMessage(record, "Bukti transfer ditolak. Coba lagi.") });
+        addToast({
+          type: "error",
+          message: await refusalMessage(record, "Bukti transfer ditolak. Coba lagi."),
+        });
         return;
       }
 
-      addToast({ type: "success", message: "Bukti transfer terkirim. Menunggu verifikasi penyelenggara." });
+      addToast({
+        type: "success",
+        message: "Bukti transfer terkirim. Menunggu verifikasi penyelenggara.",
+      });
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       router.refresh();
@@ -171,18 +184,37 @@ export function CandidatePaymentPanel({
     }
   };
 
+  // Resolved once, read twice: the pill above and the row below have to agree, and computing it in
+  // two places is how they stop agreeing.
+  //
+  // `settled` comes from the LEDGER, not from the proof. The proof can read `verified` for a moment
+  // before the event folds, and a deadline is about the money rather than about the evidence.
+  const deadline = describePaymentDeadline(payment.dueAt, {
+    suspended: payment.deadlineSuspended,
+    settled: payment.status === "succeeded" || payment.status === "refunded",
+  });
+
   return (
     <section className="content-section" aria-labelledby={headingId}>
       <div className="section-heading">
         <h2 id={headingId}>Pembayaran</h2>
-        <span className="status-badge" data-status={PAYMENT_STATUS_TONES[displayStatus]}>
-          {PAYMENT_STATUS_LABELS[displayStatus]}
-        </span>
+        {/* THE PILL IS ABOUT TIME WHENEVER TIME IS RUNNING. A countdown is the one fact on this
+            panel that changes on its own, and it belongs where the reader already looks for the
+            state of the thing. When the clock is stopped there is nothing to count, so the pill
+            falls back to the status it always showed. */}
+        {deadline.kind === "remaining" ? (
+          <span className="status-badge" data-status={deadline.urgent ? "closing" : "open"}>
+            {formatTimeRemaining(deadline.remainingMs)}
+          </span>
+        ) : (
+          <span className="status-badge" data-status={PAYMENT_STATUS_TONES[displayStatus]}>
+            {PAYMENT_STATUS_LABELS[displayStatus]}
+          </span>
+        )}
       </div>
 
       <p className="muted-copy">
         Transfer langsung ke rekening penyelenggara, lalu unggah bukti transfernya di sini.
-        Lombakita tidak menerima atau menyimpan dana Anda.
       </p>
 
       <dl className="detail-grid">
@@ -190,13 +222,7 @@ export function CandidatePaymentPanel({
           <dt>Jumlah</dt>
           <dd className="data-text">{formatRupiah(payment.grossAmount, payment.currency)}</dd>
         </div>
-        <PaymentDeadline
-        dueAt={payment.dueAt}
-        suspended={payment.deadlineSuspended}
-        // Read from the LEDGER, not from the proof: the proof can read `verified` for a moment
-        // before the event folds, and a deadline is about the money rather than about the evidence.
-        settled={payment.status === "succeeded" || payment.status === "refunded"}
-      />
+        <PaymentDeadline deadline={deadline} />
       </dl>
 
       <PaymentInstructions instructions={payment.instructions} id={instructionsId} />
@@ -285,7 +311,7 @@ function PaymentInstructions({
     instructions.accountHolderName !== null;
 
   return (
-    <Card variant="inset" id={id}>
+    <Card variant="inset" id={id} className="stack-sm">
       <h3 className="section-title">Tujuan transfer</h3>
 
       {hasBankDetails ? (
@@ -329,7 +355,7 @@ function PaymentInstructions({
  * The deadline, and what it currently means.
  *
  * A bare timestamp is not enough on this surface. It cannot say whether the date is tomorrow or
- * next month, and — the case the ruling is about — it cannot say that the deadline has stopped
+ * next month, and (the case the ruling is about) it cannot say that the deadline has stopped
  * applying because the candidate's evidence is with the organiser. Rendered as a countdown next to
  * a pending proof, a date tells someone who already paid that they are late, which is how a person
  * transfers twice.
@@ -338,52 +364,46 @@ function PaymentInstructions({
  * competition's window, so an organiser shortening that window does not move a deadline already
  * promised to someone mid-transfer.
  */
-function PaymentDeadline({
-  dueAt,
-  suspended,
-  settled,
-}: {
-  dueAt: string | null;
-  suspended: boolean;
-  settled: boolean;
-}) {
-  const state = describePaymentDeadline(dueAt, { suspended, settled });
+function PaymentDeadline({ deadline }: { deadline: PaymentDeadlineState }) {
+  if (deadline.kind === "none") return null;
 
-  if (state.kind === "none") return null;
+  // A NAMED ROW, not a loose line. The note used to hang under the date with nothing to attach it
+  // to, so it read as a stray sentence in the middle of a list of labelled values. `Keterangan` is
+  // the same dt/dd shape as every other row here, which is what puts it back in the table.
+  const note =
+    deadline.kind === "settled"
+      ? "Tidak berlaku lagi, pembayaran ini sudah selesai."
+      : deadline.kind === "suspended"
+        ? "Tidak berlaku selama bukti transfer Anda ditinjau. Pendaftaran Anda tidak akan dibatalkan karena batas waktu ini."
+        : deadline.kind === "passed"
+          ? "Batas waktu sudah lewat."
+          : null;
 
   return (
-    <div>
-      <dt>Batas waktu</dt>
-      <dd className="stack-xs">
-        <time dateTime={state.dueAt} className="data-text">
-          {formatFinanceDateTime(state.dueAt)}
-        </time>
-        {state.kind === "settled" ? (
-          <span className="form-help">
-            Tidak berlaku lagi — pembayaran ini sudah selesai.
-          </span>
-        ) : state.kind === "suspended" ? (
-          <span className="form-help">
-            Tidak berlaku selama bukti transfer Anda ditinjau — pendaftaran Anda tidak akan
-            dibatalkan karena batas waktu ini.
-          </span>
-        ) : state.kind === "passed" ? (
-          <span className="form-help">Batas waktu sudah lewat.</span>
-        ) : (
-          <span className={state.urgent ? "status-badge" : "form-help"} data-status={state.urgent ? "closing" : undefined}>
-            {formatTimeRemaining(state.remainingMs)}
-          </span>
-        )}
-      </dd>
-    </div>
+    <>
+      <div>
+        <dt>Batas waktu</dt>
+        <dd>
+          <time dateTime={deadline.dueAt} className="data-text">
+            {formatFinanceDateTime(deadline.dueAt)}
+          </time>
+        </dd>
+      </div>
+      {note ? (
+        <div>
+          <dt>Keterangan</dt>
+          <dd>{note}</dd>
+        </div>
+      ) : null}
+    </>
   );
 }
 
 /**
  * What the candidate needs to know about the current state, as page content rather than a toast.
  *
- * A rejection reason is the instruction the candidate works from, so it has to survive a reload —
- * that is precisely the case a toast cannot serve.
+ * A rejection reason is the instruction the candidate works from, so it has to survive a reload.
+ * That is precisely the case a toast cannot serve.
  */
 function PaymentStateNotice({ payment }: { payment: CandidatePaymentPanelProps["payment"] }) {
   if (!payment.isPayer) {
@@ -397,14 +417,14 @@ function PaymentStateNotice({ payment }: { payment: CandidatePaymentPanelProps["
   // "secara otomatis" is load-bearing: nobody decided this. The organiser did not reject the
   // candidate and the candidate did not withdraw, and a cancellation with no visible author reads
   // as one of those two. The re-registration line states what `createIndividualRegistration`
-  // actually does — it refuses on ANY existing row, cancelled included — because the previous copy
+  // actually does (it refuses on ANY existing row, cancelled included), because the previous copy
   // promised a way back that the service does not provide.
   if (payment.status === "expired") {
     return (
       <Feedback tone="error">
         Batas waktu pembayaran telah lewat, sehingga pendaftaran ini dibatalkan secara otomatis.
-        Pendaftaran ulang untuk kompetisi ini belum tersedia — hubungi penyelenggara jika Anda
-        sudah melakukan transfer.
+        Pendaftaran ulang untuk kompetisi ini belum tersedia. Hubungi penyelenggara jika Anda sudah
+        melakukan transfer.
       </Feedback>
     );
   }
@@ -426,7 +446,7 @@ function PaymentStateNotice({ payment }: { payment: CandidatePaymentPanelProps["
   if (payment.proof.status === "rejected") {
     // BOTH BRANCHES NAME THE DEADLINE, and the barred one needs it more.
     //
-    // A rejection resumes the clock — only `pending_review` suspends it — so a candidate here is
+    // A rejection resumes the clock, because only `pending_review` suspends it. A candidate here is
     // running out of time in either branch. In the barred branch they also cannot cancel (a proof
     // exists, so that affordance is withheld) and cannot resubmit, which leaves contacting the
     // organiser as the only action they have and the deadline as the only thing still moving.
@@ -436,7 +456,7 @@ function PaymentStateNotice({ payment }: { payment: CandidatePaymentPanelProps["
       <Feedback tone={payment.proof.resubmissionAllowed ? "warning" : "error"}>
         {payment.proof.resubmissionAllowed
           ? `Bukti transfer ditolak. Alasan: ${asSentence(payment.proof.rejectionReason ?? "—")} Unggah bukti yang baru sebelum batas waktu.`
-          : `Bukti transfer ditolak dan tidak dapat dikirim ulang. Alasan: ${asSentence(payment.proof.rejectionReason ?? "—")} Hubungi penyelenggara sebelum batas waktu di atas — jika terlewat, pendaftaran ini dibatalkan secara otomatis.`}
+          : `Bukti transfer ditolak dan tidak dapat dikirim ulang. Alasan: ${asSentence(payment.proof.rejectionReason ?? "—")} Hubungi penyelenggara sebelum batas waktu di atas. Jika terlewat, pendaftaran ini dibatalkan secara otomatis.`}
       </Feedback>
     );
   }

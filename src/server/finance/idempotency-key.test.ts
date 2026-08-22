@@ -118,7 +118,7 @@ describe("mintPlatformPaymentEventKey", () => {
     expect(key.startsWith("pf:corrected:pay_9:")).toBe(true);
   });
 
-  it("stays impossible from the OTHER side — the verification arm cannot emit `once`", () => {
+  it("stays impossible from the OTHER side: the verification arm cannot emit `once`", () => {
     // The collision test above fails if `once` changes. THIS one fails if `attempt` validation is
     // relaxed, which is the same invariant broken from the file that does not mention the expiry
     // minter in its code. Without this, someone widening `attempt` to accept a string would see
@@ -128,7 +128,7 @@ describe("mintPlatformPaymentEventKey", () => {
         action: "expired",
         proofId: "pay_1",
         // The exact value that would produce a byte-identical expiry key. Cast because the type
-        // already forbids it — the cast is what lets the test assert the RUNTIME check exists, so
+        // already forbids it, and the cast is what lets the test assert the RUNTIME check exists, so
         // the guarantee does not rest on a compile-time signature a caller can widen.
         attempt: "once" as unknown as number,
       }),
@@ -182,7 +182,7 @@ describe("isPaymentEventIdempotencyKey", () => {
 });
 
 describe("mintManualPaymentEventKey", () => {
-  it("is DETERMINISTIC for one attempt at one proof — a repeated verify collapses", () => {
+  it("is DETERMINISTIC for one attempt at one proof, so a repeated verify collapses", () => {
     // The opposite of the platform arm, and correctly so. A proof leaves pending_review exactly
     // once per revision (the CAS enforces it), so a repeated verification of the same attempt IS
     // the same event and must not record a second `succeeded`.
@@ -245,7 +245,7 @@ describe("mintManualPaymentEventKey", () => {
 
 describe("mintManualExpiryEventKey", () => {
   it("is DETERMINISTIC, so a re-visited overdue payment collapses onto one expired event", () => {
-    // The sweep is scheduled, so the same payment can be reached twice — by a retry, an overlapping
+    // The sweep is scheduled, so the same payment can be reached twice: by a retry, an overlapping
     // run, or a redeploy re-registering the schedule. A second visit must land on the first event
     // rather than append a second `expired` to a ledger with no delete path.
     const first = mintManualExpiryEventKey({ paymentId: "pay_1" });
@@ -264,7 +264,7 @@ describe("mintManualExpiryEventKey", () => {
   it("CANNOT collide with a verification key, even when every other segment is made equal", () => {
     // The adversarial case, constructed rather than assumed: same `mn:` prefix, same `expired`
     // action, and the same id in the third slot. Only the last segment differs, and that is the
-    // entire guarantee — see the minter's docblock. `attempt` is validated as an integer, so no
+    // entire guarantee (see the minter's docblock). `attempt` is validated as an integer, so no
     // verification key can ever end in `once`.
     const sharedId = "expired";
 
@@ -286,7 +286,7 @@ describe("mintManualExpiryEventKey", () => {
     );
   });
 
-  it("adds no fourth arm — the key validates through the existing manual prefix", () => {
+  it("adds no fourth arm, so the key validates through the existing manual prefix", () => {
     // A FOURTH MINTING FUNCTION, NOT A FOURTH ARM. If this ever needed its own branch in
     // `isPaymentEventIdempotencyKey`, the convention would have grown a prefix and the DEC-0151 /
     // DEC-0172 shape would no longer be three.

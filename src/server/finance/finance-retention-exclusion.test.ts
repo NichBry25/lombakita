@@ -8,7 +8,7 @@
 // sweep does purge, whose whole retention argument is that holding someone's identity document
 // after it stops being evidence is a liability.
 //
-// The risk this file exists to catch is a QUIET one. Nothing today deletes a proof — so a test that
+// The risk this file exists to catch is a QUIET one. Nothing today deletes a proof, so a test that
 // merely called the sweep and checked a proof survived would pass whether or not the exclusion was
 // real, and would keep passing right up until someone adds a third sweep arm. What is asserted here
 // instead is the SHAPE of the purge surface: which modules the retention job can reach, and that
@@ -84,7 +84,7 @@ describe("retention sweep excludes financial evidence", () => {
 
     expect(
       offending,
-      "the retention sweep can reach a finance table — a bukti transfer is never purged",
+      "the retention sweep can reach a finance table, and a bukti transfer is never purged",
     ).toEqual([]);
   });
 
@@ -96,7 +96,7 @@ describe("retention sweep excludes financial evidence", () => {
     // organiser's published means of being paid: the payer scans it, transfers against it, and the
     // instruction snapshot on their payment records that it was what they were shown. Purging it
     // destroys the counterparty half of every transfer made against it, which is the same class of
-    // loss as deleting the receipt — and unlike a bukti transfer, nothing about the word "QRIS"
+    // loss as deleting the receipt, and unlike a bukti transfer, nothing about the word "QRIS"
     // announces that it is financial evidence.
     const surface = collectPurgeSurface(RETENTION_JOB);
 
@@ -116,7 +116,7 @@ describe("retention sweep excludes financial evidence", () => {
     ).toEqual([]);
   });
 
-  it("still reaches the two things it IS supposed to purge — the scan is not vacuous", () => {
+  it("still reaches the two things it IS supposed to purge, so the scan is not vacuous", () => {
     // Without this, a refactor that made the retention job import nothing at all would turn both
     // assertions above into tests that pass by reaching nowhere.
     const surface = [...collectPurgeSurface(RETENTION_JOB)].map((file) =>
@@ -129,7 +129,7 @@ describe("retention sweep excludes financial evidence", () => {
 
   it("finds every scanned marker somewhere in the source, so no scan targets a dead string", () => {
     // Guards against a prefix being renamed while the scan above keeps looking for the old one and
-    // matching nothing forever — a scan for a string that no longer exists reports clean on every
+    // matching nothing forever. A scan for a string that no longer exists reports clean on every
     // file in the graph, which is the exact shape of a check that has quietly stopped checking.
     //
     // Asserted per MARKER rather than per file, so adding a third evidence prefix to the list above
@@ -140,7 +140,7 @@ describe("retention sweep excludes financial evidence", () => {
     ].join("\n");
 
     for (const marker of EVIDENCE_PREFIX_MARKERS) {
-      expect(sources, `nothing defines "${marker}" — the scan for it can never match`).toContain(
+      expect(sources, `nothing defines "${marker}", so the scan for it can never match`).toContain(
         marker,
       );
     }

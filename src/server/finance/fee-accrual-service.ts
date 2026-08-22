@@ -17,7 +17,7 @@ import { toFeeRuleTerms } from "@/server/finance/fee-rule-service";
 //
 // On the gateway lane the platform fee splits at transaction time and `finance_payments` records
 // the split directly. On the manual lane the payer transfers the whole amount to the institution's
-// own account — nothing splits, the payment row truthfully records fee 0 / net = gross, and the
+// own account. Nothing splits, the payment row truthfully records fee 0 / net = gross, and the
 // platform's fee becomes a DEBT the institution owes separately. This module records that debt.
 //
 // NOT A BALANCE TABLE (see the table's own docblock). It records money owed TO the platform, which
@@ -57,7 +57,7 @@ const violatesUniqueIndex = (error: unknown, indexName: string): boolean => {
   for (let depth = 0; current && depth < 5; depth += 1) {
     const candidate = current as {
       code?: string;
-      // postgres-js reports a violated UNIQUE INDEX under `constraint_name`, not `constraint` —
+      // postgres-js reports a violated UNIQUE INDEX under `constraint_name`, not `constraint`, so
       // reading only the latter matches nothing, and the duplicate branch silently never fires.
       constraint_name?: string;
       constraint?: string;
@@ -120,7 +120,7 @@ export const recordFeeAccrual = async (
     // payment row. Accruing it again would bill the institution twice for one fee.
     throw new FeeAccrualError(
       "fee_accrual_not_manual_lane",
-      "Only a manual-transfer payment accrues a fee — a gateway payment's fee split at transaction time",
+      "Only a manual-transfer payment accrues a fee. A gateway payment's fee split at transaction time",
     );
   }
 
@@ -164,7 +164,7 @@ export const recordFeeAccrual = async (
     return created;
   } catch (error) {
     // Reached only when a concurrent caller inserted between the read above and this write. The
-    // index is what makes that safe, and it is the guarantee of record — the read is an
+    // index is what makes that safe, and it is the guarantee of record. The read is an
     // optimisation, not the constraint.
     if (violatesUniqueIndex(error, ACCRUED_UNIQUE_INDEX)) {
       throw new FeeAccrualError(
@@ -199,7 +199,7 @@ const loadAccruedRow = async (
  * AT MOST ONE PER PAYMENT, enforced by a partial unique index on the `reversed` arm. The amount is
  * the exact negation of the accrual, so with both arms capped the signed sum of a payment's rows is
  * either the fee or zero and can never go below it. An unbounded reversal count would let the total
- * run negative, and a negative total says the platform owes the institution — the custody direction
+ * run negative, and a negative total says the platform owes the institution, the custody direction
  * DEC-0130 forbids the platform to be in at all.
  *
  * The reason is mandatory here and at the database, because a fee removed without a stated why is
@@ -264,7 +264,7 @@ export const recordFeeAccrualReversal = async (
  * What one institution currently owes: the signed SUM of its accrual rows.
  *
  * DERIVED, never stored. A stored total is a second copy of a fact these rows already carry, and
- * the two disagree the first time a write half-fails — which in a financial system is the moment
+ * the two disagree the first time a write half-fails, which in a financial system is the moment
  * the copy is trusted most. This is the same argument that keeps a status column off
  * `finance_payments`, and it is why summing here does not make this a balance table: there is
  * nothing to reconcile against.

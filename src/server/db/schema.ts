@@ -857,7 +857,7 @@ export const competitions = pgTable(
     // (enforced by competitions_cancellation_policy_chk below).
     allowCancellation: boolean("allow_cancellation").notNull().default(false),
     cancellationCutoffDays: integer("cancellation_cutoff_days"),
-    // INTEGER SMALLEST UNIT, paired with fee_currency — the convention lives in
+    // INTEGER SMALLEST UNIT, paired with fee_currency. The convention lives in
     // @/lib/finance/money and nowhere else. IDR is exponent 0, so 50000 means Rp 50.000. This was
     // a `numeric(12,2)` read as a string and coerced with Number.parseFloat, which is exactly the
     // shape money.ts exists to forbid: a decimal column invites a float parse, and a float cannot
@@ -1163,7 +1163,7 @@ export const competitionRegistrations = pgTable(
       sql`(${table.registrationType} = 'team' AND ${table.teamId} IS NOT NULL) OR (${table.registrationType} = 'individual' AND ${table.teamId} IS NULL)`,
     ),
     // A registration's team must belong to the SAME competition the registration does. The two
-    // single-column foreign keys above each hold on their own while the pair is nonsense — a row
+    // single-column foreign keys above each hold on their own while the pair is nonsense: a row
     // pointing at this competition and at a team from a different one satisfies both. That pairing
     // is what the payment group is derived from, so a mismatched pair puts one competition's
     // registrations into another competition's payment.
@@ -1364,7 +1364,7 @@ export const teams = pgTable(
     uniqueIndex("teams_competition_id_name_unique_idx").on(table.competitionId, table.name),
     index("teams_competition_id_idx").on(table.competitionId),
     index("teams_captain_id_idx").on(table.captainId),
-    // Redundant on its own — `id` is already the primary key — and required by Postgres so that
+    // Redundant on its own, since `id` is already the primary key, and required by Postgres so that
     // competition_registrations can carry a composite foreign key on (competition_id, team_id). A
     // referenced column list must be backed by a unique constraint, so the pair needs its own.
     uniqueIndex("teams_competition_id_id_unique_idx").on(table.competitionId, table.id),
@@ -1853,7 +1853,7 @@ export const financePayments = pgTable(
     platformFeeAmount: bigint("platform_fee_amount", { mode: "number" }).notNull(),
     institutionNetAmount: bigint("institution_net_amount", { mode: "number" }).notNull(),
     // THE DEADLINE THIS PAYMENT WAS GIVEN, snapshotted at creation from the competition's window
-    // and never recomputed. Editing the window does not reach back — that is the entire reason
+    // and never recomputed. Editing the window does not reach back, which is the entire reason
     // this is a column rather than a join. Required on the manual lane (CHECK below) and null on
     // the gateway lane, where the provider owns expiry.
     dueAt: timestamp("due_at", { mode: "date", withTimezone: true }),
@@ -1933,7 +1933,7 @@ export const financePayments = pgTable(
 // correction is a compensating `reversed` row, never an edit.
 //
 // THIS IS NOT A BALANCE TABLE AND MUST NOT BECOME ONE. DEC-0130 forbids the platform recording
-// what it HOLDS on someone else's behalf — money owed TO an institution, custodied by us. This
+// what it HOLDS on someone else's behalf: money owed TO an institution, custodied by us. This
 // table records the OPPOSITE DIRECTION: a fee the institution owes US, on money it already
 // received directly and that never touched a platform-controlled account. The two are not
 // symmetric and collapsing them would be wrong in both directions.
@@ -1961,7 +1961,7 @@ export const financeFeeAccruals = pgTable(
     owingInstitutionId: text("owing_institution_id").notNull(),
     entryType: financeFeeAccrualEntryEnum("entry_type").notNull(),
     currency: text("currency").notNull(),
-    // Signed. Positive on `accrued`, non-positive on `reversed` — a compensating row has no other
+    // Signed. Positive on `accrued`, non-positive on `reversed`. A compensating row has no other
     // way to express itself in a table with no update path.
     amount: bigint("amount", { mode: "number" }).notNull(),
     // --- the rule snapshot, mirroring finance_payments and never recomputed ---
@@ -2002,7 +2002,7 @@ export const financeFeeAccruals = pgTable(
     // A reversal negates the accrued amount exactly, so with both arms capped at one row the signed
     // SUM of a payment's rows can only be the fee or zero. Leaving this arm unbounded lets repeated
     // reversals drive that sum NEGATIVE, and a negative total reads as the platform owing the
-    // institution money — the custody direction DEC-0130 forbids the platform to be in at all.
+    // institution money, which is the custody direction DEC-0130 forbids the platform to be in.
     //
     // The cost is real and accepted: a fee is now charge-once, reverse-once, terminal. Correcting a
     // reversal is not expressible and would need a decision about what a second correction means
@@ -2038,7 +2038,7 @@ export const financeFeeAccruals = pgTable(
 // mutation in the finance domain, made through an optimistic CAS on the status column.
 //
 // RETENTION: a bukti transfer is FINANCIAL EVIDENCE AND IS NEVER PURGED, at any age. The
-// competition-scoped retention sweep must never reach it — see the assertion in
+// competition-scoped retention sweep must never reach it. See the assertion in
 // finance-retention-exclusion.test.ts, which fails if the sweep's purge surface ever names this
 // table or its object prefix.
 export const financeManualPaymentProofs = pgTable(
@@ -2062,7 +2062,7 @@ export const financeManualPaymentProofs = pgTable(
     // Retained across a reopen, never cleared on resubmission.
     rejectionReason: text("rejection_reason"),
     // Whether the candidate may resubmit after a rejection. ORGANISER-CONTROLLED, default allowed,
-    // and enforced in the reopen CAS rather than by hiding a control — a bar that only exists in
+    // and enforced in the reopen CAS rather than by hiding a control. A bar that only exists in
     // the UI is not a bar.
     resubmissionAllowed: boolean("resubmission_allowed").notNull().default(true),
     resubmissionCount: integer("resubmission_count").notNull().default(0),
@@ -2118,7 +2118,7 @@ export const financeManualPaymentProofs = pgTable(
 );
 
 // Where an institution wants to be paid on the manual lane. INSTITUTION-LEVEL and reused across
-// every competition it runs — there is deliberately no per-competition override, because an
+// every competition it runs. There is deliberately no per-competition override, because an
 // organiser maintaining N copies of one bank account is how a stale account number ends up
 // collecting nobody's money.
 //
@@ -2144,7 +2144,7 @@ export const institutionPaymentInstructions = pgTable(
   (table) => [
     // Named explicitly for the same reason the finance foreign keys are: Drizzle's generated name
     // concatenates both table names and lands at 66 characters here, which Postgres truncates
-    // silently at 63 — leaving the live constraint name permanently different from the one this
+    // silently at 63, leaving the live constraint name permanently different from the one this
     // file appears to declare.
     foreignKey({
       columns: [table.institutionId],
@@ -2153,7 +2153,7 @@ export const institutionPaymentInstructions = pgTable(
     }).onDelete("cascade"),
     uniqueIndex("institution_payment_instructions_institution_unique_idx").on(table.institutionId),
     // A row that names neither a bank account nor a QRIS tells a payer nothing, so it must not
-    // exist — an institution with no instructions has no row, which is a state the reader already
+    // exist: an institution with no instructions has no row, which is a state the reader already
     // handles. A bank account needs all three parts to be usable.
     check(
       "institution_payment_instructions_payable_chk",
@@ -2237,7 +2237,7 @@ export const financePaymentEvents = pgTable(
 // it. A join would answer with today's account number and quietly rewrite history.
 //
 // A SEPARATE TABLE rather than columns on `finance_payments`, for two reasons. The value is
-// compound — five fields — and the ledger table is append-only, so a snapshot that had to be
+// compound (five fields) and the ledger table is append-only, so a snapshot that had to be
 // written alongside a payment would either widen that table by five nullable columns or require a
 // backfill for rows that predate it. An empty side table needs neither.
 //
@@ -2270,7 +2270,7 @@ export const financePaymentInstructionSnapshots = pgTable(
     uniqueIndex("finance_payment_instruction_snapshots_payment_unique_idx").on(table.paymentId),
     // THE SAME DISJUNCTION the source row is held to, restated rather than referenced. An
     // institution may publish a QRIS and no bank account at all, so the bank columns cannot be
-    // NOT NULL — but a snapshot naming neither channel tells a payer nothing, which is the state
+    // NOT NULL, but a snapshot naming neither channel tells a payer nothing, which is the state
     // this refuses. Copying the constraint is what stops the snapshot being weaker than the row it
     // was taken from.
     check(
@@ -2282,7 +2282,7 @@ export const financePaymentInstructionSnapshots = pgTable(
 
 // EVERY VERDICT EVER RENDERED on a bukti transfer, one row per closed attempt.
 //
-// The live proof row holds ONE attempt — the current one — and a resubmission overwrites its
+// The live proof row holds ONE attempt, the current one, and a resubmission overwrites its
 // `r2_key`, file name, size, content type and `submitted_at` in place. Without this table, the
 // first thing a dispute reader sees after a single resubmission is attempt two and no indication
 // that attempt one existed. Since the uploaded file is the platform's only artifact that money
@@ -2304,7 +2304,7 @@ export const financeManualPaymentProofAttempts = pgTable(
       .default(sql`gen_random_uuid()::text`),
     proofId: text("proof_id").notNull(),
     // The attempt's OWN record of the scope it closed in, so the history stays readable without the
-    // live proof row — the same reason `r2_key` is kept here. No reader filters on either column
+    // live proof row, the same reason `r2_key` is kept here. No reader filters on either column
     // today: both the dispute view and the organiser queue reach attempts by `proof_id`.
     paymentId: text("payment_id").notNull(),
     competitionId: text("competition_id").notNull(),
@@ -2317,7 +2317,7 @@ export const financeManualPaymentProofAttempts = pgTable(
     fileSizeBytes: bigint("file_size_bytes", { mode: "number" }).notNull(),
     contentType: text("content_type").notNull(),
     submittedAt: timestamp("submitted_at", { mode: "date", withTimezone: true }).notNull(),
-    // Reuses the proof status enum rather than declaring a second one — a verdict IS the status the
+    // Reuses the proof status enum rather than declaring a second one: a verdict IS the status the
     // attempt closed in. Constrained below to the three closing values, so `pending_review` (an
     // attempt that has not closed and therefore has no row here) cannot be written.
     verdict: financeManualProofStatusEnum("verdict").notNull(),
@@ -2371,7 +2371,7 @@ export const financeManualPaymentProofAttempts = pgTable(
       "finance_manual_payment_proof_attempts_file_size_chk",
       sql`${table.fileSizeBytes} > 0`,
     ),
-    // A refusal with no stated reason is not reviewable after the fact. Verification needs none —
+    // A refusal with no stated reason is not reviewable after the fact. Verification needs none:
     // accepting a transfer says everything it has to say.
     check(
       "finance_manual_payment_proof_attempts_reason_chk",
@@ -2389,7 +2389,7 @@ export const financeManualPaymentProofAttempts = pgTable(
 // a bill is disputing the rate in force when the fee they are being billed for was switched on.
 //
 // The resolved terms are copied in rather than joined to the rule, for the same reason the payment
-// snapshots its own fee terms — a rule edited afterwards would otherwise rewrite what the organiser
+// snapshots its own fee terms. A rule edited afterwards would otherwise rewrite what the organiser
 // is recorded as having agreed to.
 export const financeFeeDisclosureAcknowledgements = pgTable(
   "finance_fee_disclosure_acknowledgements",
@@ -2434,8 +2434,8 @@ export const financeFeeDisclosureAcknowledgements = pgTable(
       foreignColumns: [financeFeeRules.id],
       name: "finance_fee_disclosure_acknowledgements_fee_rule_id_fk",
     }),
-    // NO unique index, deliberately. Repeated acknowledgements are the expected shape — one per act
-    // of enabling a price — and collapsing them to the latest is exactly the loss this table exists
+    // NO unique index, deliberately. Repeated acknowledgements are the expected shape, one per act
+    // of enabling a price, and collapsing them to the latest is exactly the loss this table exists
     // to prevent.
     index("finance_fee_disclosure_acknowledgements_competition_id_idx").on(table.competitionId),
     index("finance_fee_disclosure_acknowledgements_institution_id_idx").on(table.institutionId),

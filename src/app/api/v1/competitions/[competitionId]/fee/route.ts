@@ -24,8 +24,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 // `setCompetitionFee`'s six gates draw on three services, so a handler that converts only its own
 // module's error type sends the other two to `toAccessDeniedResponse`, which answers anything it
 // does not recognise with HTTP 500 "Unexpected access-guard failure". That is what the R12
-// precondition — by far the most likely legitimate refusal here, an organiser who has not yet
-// published their bank details — produced before this function existed: an English internal error
+// precondition, by far the most likely legitimate refusal here, an organiser who has not yet
+// published their bank details, produced before this function existed: an English internal error
 // for an ordinary, recoverable, self-service state.
 //
 // The two non-Competition families also carry English messages, because until this surface they had
@@ -74,10 +74,10 @@ const refuse = (error: unknown): Response => {
 // A SUB-RESOURCE rather than fields on the competition PATCH, and not by preference: `feeAmount`
 // and `feeCurrency` are in competition-core's SILENT_STRIP_FIELDS, so the PATCH drops them without
 // error. Every price change in the system goes through `setCompetitionFee`, which is what lets its
-// six gates be complete rather than merely present — a second write path would defeat all of them.
+// six gates be complete rather than merely present. A second write path would defeat all of them.
 //
 // OWNER-ONLY, like the payment-instructions surface. `assertCompetitionAccess(..., "admin")` admits
-// `institution_owner` alone — note that this is NOT the same set as `requireAdminInstitutionBySlug`,
+// `institution_owner` alone. Note that this is NOT the same set as `requireAdminInstitutionBySlug`,
 // which is owner-or-staff. The two spellings of "admin" mean different things one call apart.
 //
 // Owner-only is right here for what enabling a price DOES rather than for what it looks like:
@@ -86,7 +86,7 @@ const refuse = (error: unknown): Response => {
 // destination account is already owner-controlled, so this keeps the owner in the loop before any
 // charging is possible at all, rather than leaving the two halves on different roles.
 
-// GET — the current price plus what the platform would charge against it.
+// GET returns the current price plus what the platform would charge against it.
 //
 // The rate is returned so the form can DISCLOSE it before asking for consent. It is read here with
 // `resolveFeeRule` rather than `requireFeeRuleInForce`, because a missing rule is a state this
@@ -132,7 +132,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
   }
 }
 
-// PUT — set or clear the price. Every gate lives in the service; this route reads the body and
+// PUT sets or clears the price. Every gate lives in the service; this route reads the body and
 // nothing else, so there is no second place for the rules to drift to.
 export async function PUT(request: Request, context: RouteContext): Promise<Response> {
   try {

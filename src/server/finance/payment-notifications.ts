@@ -18,7 +18,7 @@ import { enqueuePaymentOutcome, enqueuePaymentProofSubmitted } from "@/server/as
 
 // EVERYTHING THE MANUAL LANE ANNOUNCES, assembled in one place.
 //
-// The three services that trigger these — submit, verdict, expiry — each hold a different slice of
+// The three services that trigger these (submit, verdict, expiry) each hold a different slice of
 // the facts a notification needs, and none holds all of them. Assembling the payload at each call
 // site would mean three partial versions of the same query and three chances for one of them to
 // name the competition differently from the others.
@@ -90,7 +90,7 @@ const loadPaymentFacts = async (
     competitionSlug: row.competitionSlug,
     institutionId: row.institutionId,
     institutionSlug: row.institutionSlug,
-    // Their profile name where they have one, falling back to the handle. Never the email — an
+    // Their profile name where they have one, falling back to the handle. Never the email, since an
     // organiser reviewing a transfer needs to know whose it is, not how to reach them off-platform.
     payerDisplayName: row.fullName ?? row.username,
     grossAmount: row.grossAmount,
@@ -141,7 +141,7 @@ export const notifyPaymentProofSubmitted = async (
  * Tells every member of the payment group what became of the money. Per R13, the whole group.
  *
  * `expired` carries no reason and no resubmission flag because there is no organiser decision to
- * describe — the copy downstream says so outright.
+ * describe, and the copy downstream says so outright.
  */
 export const notifyPaymentOutcome = async (
   paymentId: string,

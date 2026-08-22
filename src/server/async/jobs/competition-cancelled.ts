@@ -29,12 +29,12 @@ export type CompetitionCancelledJob = Job<
  *
  * DEC-0130 is the whole of it: the transfer went to the ORGANISER'S bank account and Lombakita
  * never held a rupiah of it, so the platform cannot refund what it never received. Saying who to
- * ask is the only useful thing this notice can do — and promising a platform-mediated refund would
+ * ask is the only useful thing this notice can do, and promising a platform-mediated refund would
  * be a promise no part of this system can keep.
  */
 const TRANSFER_REFUND_NOTICE =
-  "Jika Anda sudah melakukan transfer, dana tersebut ada pada rekening penyelenggara — " +
-  "hubungi penyelenggara secara langsung untuk pengembaliannya. Lombakita tidak menampung dana " +
+  "Jika Anda sudah melakukan transfer, dana tersebut ada pada rekening penyelenggara. " +
+  "Hubungi penyelenggara secara langsung untuk pengembaliannya. Lombakita tidak menampung dana " +
   "peserta sehingga tidak dapat memprosesnya.";
 
 export const buildCompetitionCancellationRecipientsCondition = (

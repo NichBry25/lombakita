@@ -81,7 +81,7 @@ const readEnvValue = (name: string): string | undefined => {
  *
  * The ordinary `DATABASE_URL` role deliberately cannot: locally it is `lombakita_app` and the
  * tables are owned by `lombakita_migrate`, so a `DROP TABLE` is refused with SQLSTATE 42501. That
- * separation is a real protection — the application can never drop a finance table — and it is not
+ * separation is a real protection (the application can never drop a finance table) and it is not
  * something to work around at runtime. It does mean a probe asking "what does the code do when this
  * table is absent" has to borrow the owner's connection, which is what this is for.
  *

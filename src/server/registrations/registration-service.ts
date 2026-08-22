@@ -246,8 +246,8 @@ export const createIndividualRegistration = async (
       if (!row) return row;
 
       // IN THE SAME TRANSACTION as the registration it prices, so a paid registration without its
-      // payment cannot exist. A refusal here — unverified institution, no published account, no fee
-      // rule — rolls the registration back with it.
+      // payment cannot exist. A refusal here (unverified institution, no published account, no fee
+      // rule) rolls the registration back with it.
       const pricing = await loadRegistrationPricing(competitionId, tx);
 
       if (pricing) {
@@ -380,7 +380,7 @@ export const cancelRegistration = async (
   //
   // This was a blanket refusal on every priced competition. It is now conditional, because the
   // blanket version stripped the right to leave from a candidate who had registered, paid nothing,
-  // and simply changed their mind — while the platform holds no money of theirs and has nothing to
+  // and simply changed their mind, while the platform holds no money of theirs and has nothing to
   // refund. The line falls at the moment a bukti transfer is submitted: before it, cancelling
   // costs nobody anything; after it, the candidate has asserted a transfer the platform cannot
   // independently verify or reverse.
@@ -388,7 +388,7 @@ export const cancelRegistration = async (
   // Deliberately the proof-submitted predicate and not either of the other two. Confirmed-paid
   // would leave a candidate whose proof is still awaiting review able to cancel out from under an
   // organiser mid-review, and payment-in-flight would hand the right to cancel BACK the moment a
-  // proof was rejected — after the transfer it evidences may well have happened.
+  // proof was rejected, even though the transfer it evidences may well have happened.
   if (isPaidCompetition(competition.feeAmount)) {
     if (await hasSubmittedPaymentProof(registration.id, db)) {
       throw new RegistrationError(

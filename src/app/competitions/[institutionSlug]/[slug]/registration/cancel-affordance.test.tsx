@@ -3,11 +3,11 @@
 // DEC-0131's cancel affordance is WITHHELD, and this is the only place that can prove it.
 //
 // `ui-states` reads rendered text and the browser audits measure geometry, so neither can tell a
-// withheld control from a disabled one — a disabled "Batalkan pendaftaran" still renders those
+// withheld control from a disabled one. A disabled "Batalkan pendaftaran" still renders those
 // words. The distinction is the whole ruling: a control that appears and then refuses teaches a
 // candidate the platform is broken, a control that is absent next to a sentence teaches them the
 // rule. So each case is asserted in BOTH directions: the control is present when the predicate is
-// false, and ABSENT — not merely disabled — when it is true.
+// false, and ABSENT, not merely disabled, when it is true.
 //
 // The predicate itself is a database question and is proven against a real Postgres in the
 // manual-lane integration suite. What is proven here is that the answer reaches the screen.
@@ -95,7 +95,7 @@ describe("the individual cancel affordance", () => {
     expect(screen.getAllByText(WITHHELD_COPY).length).toBeGreaterThan(0);
   });
 
-  it("keeps the registration itself visible — withholding cancel is not hiding the record", () => {
+  it("keeps the registration itself visible: withholding cancel is not hiding the record", () => {
     renderIndividual(true);
 
     expect(screen.getByText("✓ Terdaftar")).toBeTruthy();
@@ -185,7 +185,7 @@ describe("the way in, when the organiser cannot take payment", () => {
     expect(screen.getByRole("button", { name: "Buat tim" })).toBeTruthy();
   });
 
-  it("WITHHOLDS team creation entirely — not just the register action", () => {
+  it("WITHHOLDS team creation entirely, not just the register action", () => {
     renderTeamEntry(true);
 
     expect(screen.queryByRole("button", { name: "Buat tim" })).toBeNull();
@@ -211,9 +211,41 @@ describe("the way in, when the organiser cannot take payment", () => {
     expect(screen.getByRole("button", { name: "Daftar" })).toBeTruthy();
   });
 
-  it("WITHHOLDS individual registration — the sibling that was already correct", () => {
+  it("WITHHOLDS individual registration, the sibling that was already correct", () => {
     renderIndividualEntry(true);
 
     expect(screen.queryByRole("button", { name: "Daftar" })).toBeNull();
+  });
+});
+
+// WHAT THE CARD SAYS ONCE ITS CONTROL IS GONE.
+//
+// The block above asserts only that the controls disappear, and a card that renders its heading and
+// then nothing at all satisfies every one of those nulls. That is what both cards did: the refusal
+// was stated once in a page banner, and the two cards under it were empty shells. Each direction is
+// asserted on each path, so a sentence that renders unconditionally fails here too.
+describe("what the withheld cards say instead", () => {
+  it("explains the missing individual control in the card that lost it", () => {
+    renderIndividualEntry(true);
+
+    expect(screen.getByText(/Pendaftaran individu belum dapat dibuka/)).toBeTruthy();
+  });
+
+  it("says nothing of the sort while the control is really there", () => {
+    renderIndividualEntry(false);
+
+    expect(screen.queryByText(/Pendaftaran individu belum dapat dibuka/)).toBeNull();
+  });
+
+  it("explains the missing team form in the card that lost it", () => {
+    renderTeamEntry(true);
+
+    expect(screen.getByText(/Pembuatan tim belum dapat dibuka/)).toBeTruthy();
+  });
+
+  it("says nothing of the sort while the form is really there", () => {
+    renderTeamEntry(false);
+
+    expect(screen.queryByText(/Pembuatan tim belum dapat dibuka/)).toBeNull();
   });
 });

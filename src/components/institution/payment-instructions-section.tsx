@@ -33,7 +33,7 @@ const EMPTY: Instructions = {
  * The one thing this surface has to communicate, and the reason its copy leads with it: the money
  * never touches Lombakita. These are the institution's own account details, republished verbatim to
  * every payer, and a digit wrong here sends real transfers to an account nobody is watching. The
- * platform cannot detect that — it never sees the money — so the accuracy of this form is the only
+ * platform cannot detect that, because it never sees the money, so the accuracy of this form is the
  * check there is.
  */
 export function PaymentInstructionsSection({
@@ -120,7 +120,11 @@ export function PaymentInstructionsSection({
         return;
       }
 
-      const grant = (await grantResponse.json()) as { uploadUrl: string; r2Key: string; contentType: string };
+      const grant = (await grantResponse.json()) as {
+        uploadUrl: string;
+        r2Key: string;
+        contentType: string;
+      };
 
       const put = await fetch(grant.uploadUrl, {
         method: "PUT",
@@ -134,7 +138,7 @@ export function PaymentInstructionsSection({
       }
 
       // Held in form state, not saved yet. The key becomes this institution's published QRIS only
-      // when the organiser saves — so an upload they change their mind about is simply never used.
+      // when the organiser saves, so an upload they change their mind about is simply never used.
       setForm((prev) => ({ ...prev, qrisR2Key: grant.r2Key }));
       addToast({ type: "success", message: "QRIS terunggah. Simpan untuk menerapkannya." });
     } catch {
@@ -196,7 +200,7 @@ export function PaymentInstructionsSection({
       </div>
 
       <Feedback tone="warning">
-        Dana peserta masuk langsung ke rekening lembaga Anda — Lombakita tidak menampung dana.
+        Dana peserta masuk langsung ke rekening lembaga Anda. Lombakita tidak menampung dana.
         Periksa setiap digit: nomor rekening yang keliru mengirim transfer peserta ke rekening yang
         salah, dan platform tidak dapat menariknya kembali.
       </Feedback>
@@ -256,23 +260,38 @@ export function PaymentInstructionsSection({
           </p>
         </div>
 
+        {/* The same upload row every other file field in the app uses: a button that opens the
+            picker, the current selection beside it, and the native input kept out of sight. A bare
+            `<input type="file">` wearing `.form-input` renders the browser's own control, which is
+            the one thing no other control on this page does. */}
         <div className="form-field">
-          <span className="form-label">QRIS</span>
-          {form.qrisR2Key ? (
-            <p className="muted-copy">
-              <Icon name="check" size="sm" aria-hidden="true" /> QRIS tersimpan. Unggah berkas baru
-              untuk menggantinya.
-            </p>
-          ) : (
-            <p className="muted-copy">Belum ada QRIS.</p>
-          )}
+          <span className="form-label" id="pi-qris-label">
+            QRIS
+          </span>
+          <div className="pf-media-actions">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              loading={isUploading}
+              onClick={() => fileInputRef.current?.click()}
+              leadingIcon={<Icon name="upload" size="sm" aria-hidden="true" />}
+            >
+              Pilih berkas
+            </Button>
+            <span className="form-help">
+              {form.qrisR2Key
+                ? "QRIS tersimpan. Pilih berkas baru untuk menggantinya."
+                : "Belum ada QRIS."}
+            </span>
+          </div>
           <input
             ref={fileInputRef}
             id="pi-qris"
-            className="form-input"
+            className="sr-only"
             type="file"
             accept="image/png,image/jpeg,image/webp"
-            aria-label="Unggah berkas QRIS"
+            aria-labelledby="pi-qris-label"
             disabled={isUploading}
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -280,9 +299,8 @@ export function PaymentInstructionsSection({
             }}
           />
           <p className="form-help">
-            {`${QRIS_FORMAT_HINT} · maks ${formatFileSize(QRIS_MAX_BYTES)}. Unggah gambar utuh — QRIS yang terpotong tidak dapat dipindai.`}
+            {`${QRIS_FORMAT_HINT}, maks ${formatFileSize(QRIS_MAX_BYTES)}. Unggah gambar utuh, karena QRIS yang terpotong tidak dapat dipindai.`}
           </p>
-          {isUploading ? <p className="form-help">Mengunggah QRIS…</p> : null}
         </div>
 
         <div className="form-field">

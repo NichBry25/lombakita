@@ -44,8 +44,8 @@ vi.mock("@/server/competitions/competition-participation-lock", () => ({
 
 // The DEC-0132 in-flight guard, which unpublishCompetition and the edit classifier both consult.
 // Defaulted to "nothing in flight" so the pre-existing lifecycle assertions keep testing what they
-// were written to test; the guard's own behaviour — that it blocks, and that the classifier blocks
-// a fee edit behind it — is proven separately against a live Postgres.
+// were written to test; the guard's own behaviour, that it blocks and that the classifier blocks
+// a fee edit behind it, is proven separately against a live Postgres.
 vi.mock("@/server/finance/paid-registration", () => ({
   hasCompetitionPaymentInFlight: hasCompetitionPaymentInFlightMock,
   hasActiveFreeRegistrations: hasActiveFreeRegistrationsMock,

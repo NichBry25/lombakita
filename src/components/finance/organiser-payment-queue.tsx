@@ -2,7 +2,16 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, EmptyState, Feedback, FormField, FormLabel, FormTextarea } from "@/components/ui";
+import {
+  Button,
+  Card,
+  CheckboxField,
+  EmptyState,
+  Feedback,
+  FormField,
+  FormLabel,
+  FormTextarea,
+} from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { asSentence, formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
@@ -34,8 +43,8 @@ type Props = {
  * The organiser's bukti transfer review queue.
  *
  * VERDICT CONTROLS ARE WITHHELD on anything not awaiting review. A verified payment cannot be
- * un-verified here — reversing it writes a compensating ledger event, which is a platform_ops
- * correction — and a rejected one is reopened by the candidate submitting again, not by the
+ * un-verified here, because reversing it writes a compensating ledger event, which is a
+ * platform_ops correction. A rejected one is reopened by the candidate submitting again, not by the
  * organiser. Rendering either control disabled would advertise an action this surface does not own
  * and send the reviewer looking for the permission that would enable it.
  */
@@ -112,13 +121,18 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
     // Confirmed rather than immediate: verifying writes a `succeeded` ledger event and a fee
     // accrual, and the ledger is append-only, so there is no undo on this surface. The dialog names
     // the amount because that figure is what the organiser is asserting they received.
+    //
+    // The middle sentence is the operational instruction that used to sit in a banner above the
+    // whole queue. It is here instead, at the moment it applies, because the transfer lands in the
+    // institution's own account and their bank statement is the only record that can confirm it.
     openModal({
       title: "Verifikasi bukti transfer?",
       body: (
         <p>
           {`Anda menyatakan telah menerima ${formatRupiah(proof.grossAmount, proof.currency)} dari ` +
-            `${proof.payerDisplayName}. Keputusan ini tidak dapat Anda batalkan sendiri — koreksi ` +
-            `hanya dapat dilakukan oleh tim Lombakita.`}
+            `${proof.payerDisplayName}. Pastikan dana sudah terlihat pada mutasi rekening lembaga ` +
+            `Anda, karena Lombakita tidak dapat memeriksanya. Keputusan ini tidak dapat Anda ` +
+            `batalkan sendiri, koreksi hanya dapat dilakukan oleh tim Lombakita.`}
         </p>
       ),
       actions: [
@@ -126,7 +140,8 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
         {
           label: "Verifikasi",
           variant: "primary",
-          onClick: () => void sendVerdict(proof.proofId, { action: "verify" }, "Pembayaran diverifikasi."),
+          onClick: () =>
+            void sendVerdict(proof.proofId, { action: "verify" }, "Pembayaran diverifikasi."),
         },
       ],
     });
@@ -134,7 +149,7 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
 
   const openRejectForm = (proof: OrganiserProofView) => {
     // No modal `actions` here. The reject decision carries a reason and a resubmission choice that
-    // live in form state, and a modal action closes over the config captured at open time — it
+    // live in form state, and a modal action closes over the config captured at open time, so it
     // would submit the empty reason the form started with.
     openModal({
       title: "Tolak bukti transfer",
@@ -203,13 +218,13 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
               </dl>
 
               {proof.priorAttempts > 0 ? (
-                <Feedback tone="warning">
+                <Feedback tone="neutral">
                   {`${proof.priorAttempts} bukti sebelumnya sudah ditinjau untuk pembayaran ini.`}
                 </Feedback>
               ) : null}
 
               {proof.status === "rejected" && proof.rejectionReason ? (
-                <Feedback tone="info">
+                <Feedback tone="error">
                   {`Ditolak dengan alasan: ${asSentence(proof.rejectionReason)}`}
                   {proof.resubmissionAllowed
                     ? " Peserta masih dapat mengirim bukti baru."
@@ -230,7 +245,12 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
 
                 {reviewable ? (
                   <>
-                    <Button type="button" size="sm" loading={deciding} onClick={() => confirmVerify(proof)}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      loading={deciding}
+                      onClick={() => confirmVerify(proof)}
+                    >
                       Verifikasi
                     </Button>
                     <Button
@@ -303,15 +323,13 @@ function RejectForm({
         />
       </FormField>
 
-      <label className="checkbox-field" htmlFor={barredId}>
-        <input
-          id={barredId}
-          type="checkbox"
-          checked={barred}
-          onChange={(event) => setBarred(event.target.checked)}
-        />{" "}
+      <CheckboxField
+        id={barredId}
+        checked={barred}
+        onChange={(event) => setBarred(event.target.checked)}
+      >
         Peserta tidak boleh mengirim bukti baru
-      </label>
+      </CheckboxField>
 
       <div className="record-actions">
         <Button type="button" variant="outline" size="sm" onClick={onDone}>

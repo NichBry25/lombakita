@@ -9,8 +9,8 @@
  *
  * Two kinds of assertion, and the second is the reason this file is worth its weight:
  *
- *   present  — the surface renders this text. Catches a panel that vanished.
- *   absent   — the surface does NOT render this control. Catches a withheld affordance that came
+ *   present:   the surface renders this text. Catches a panel that vanished.
+ *   absent:    the surface does NOT render this control. Catches a withheld affordance that came
  *              back, which is the failure that cannot be seen in a screenshot of the state where
  *              it is CORRECTLY absent.
  *
@@ -60,11 +60,11 @@ export const CASES = [
       "Menunggu verifikasi",
       "sedang ditinjau penyelenggara",
       // R5 ON THE PAGE. Evidence is with the organiser, so the deadline cannot end this
-      // registration — and the candidate must be able to see that, not infer it.
+      // registration, and the candidate must be able to see that, not infer it.
       "Tidak berlaku selama bukti transfer Anda ditinjau",
     ],
     // THE WITHHELD AFFORDANCE. Paired with the case above, which proves the control renders when it
-    // should — without that pairing this assertion would pass on an empty page.
+    // should. Without that pairing this assertion would pass on an empty page.
     absent: ["Kirim bukti transfer"],
     why: "evidence is with the organiser; offering another upload invites a duplicate that the server refuses",
   },
@@ -73,13 +73,16 @@ export const CASES = [
     as: "candC",
     path: "/candidate-dashboard/registrations/seed-reg-c-paid",
     present: [
-      "Perlu bukti baru",
+      // The state, in the notice rather than in the pill. The pill carries the countdown while
+      // the clock is running, so the status label is not page text in this state; that the pill
+      // switches between the two is asserted in `candidate-payment-panel.test.tsx`.
+      "Bukti transfer ditolak",
       "Nominal transfer tidak sesuai",
       "Unggah bukti transfer baru",
       "BATAS WAKTU",
     ],
     // RESUMED. A rejection puts the candidate back on a running clock, so the suspension sentence
-    // must be gone — this is the half of the pairing that catches a suspension that never lifts.
+    // must be gone. This is the half of the pairing that catches a suspension that never lifts.
     absent: ["Tidak berlaku selama bukti transfer Anda ditinjau"],
     why: "the organiser's reason is the instruction the candidate works from, so it must be page content that survives a reload",
   },
@@ -93,13 +96,13 @@ export const CASES = [
       "Verifikasi pembayaran",
       // THE VERDICT ROW AS ONE STRING, because these needles are substrings and a short one can be
       // satisfied by furniture elsewhere on the page. `"Verifikasi"` alone was satisfied by the
-      // heading above it, so deleting the Verifikasi button left this case green — measured, not
+      // heading above it, so deleting the Verifikasi button left this case green. Measured, not
       // reasoned. The row's own innerText is the needle that nothing else on the page produces.
       // It subsumes a standalone `"Lihat bukti"`, which is why that one is not also listed.
       "Lihat bukti\nVerifikasi\nTolak",
-      // DEC-0130 in the reviewer's own words. Verification asserts money arrived in the
-      // institution's account, which only their bank statement can establish.
-      "rekening lembaga Anda",
+      // The custody instruction is NOT asserted here any more. It moved out of a standing banner
+      // and into the verify confirmation, where the decision is actually made, so no page-text
+      // harness can reach it. `organiser-payment-queue.test.tsx` opens that dialog and asserts it.
     ],
     absent: [],
     why: "the reviewer must be able to act, and must be told the platform is not holding this money",
@@ -109,12 +112,12 @@ export const CASES = [
     as: "recElev",
     path: `/institution/${INST.a.slug}/competitions/${COMP.paid.slug}/payments`,
     // All three settled/unsettled states on one page, which is also the only place the `paid` badge
-    // tone renders — the gap that let a wrong tone value ship unnoticed through a full audit pass.
+    // tone renders, the gap that let a wrong tone value ship unnoticed through a full audit pass.
     present: ["Perlu ditinjau", "Diverifikasi", "Ditolak", "Dewi Anggraini"],
     // Nothing to assert as absent on a MIXED queue: a settled proof and a pending one share the
     // page, so "Verifikasi" is legitimately present for the pending row. The withholding is proven
     // instead in `src/components/finance/organiser-payment-queue.test.tsx`, which renders a queue
-    // of settled proofs only — a state no seeded competition is in.
+    // of settled proofs only, a state no seeded competition is in.
     absent: [],
     why: "the reviewer must be able to tell the three verdict states apart at a glance",
   },
@@ -151,7 +154,7 @@ export const CASES = [
   {
     id: "organiser-queue-outsider-recmin-into-a",
     // OUTSIDER TWO, the other direction: owner of D and P, reaching for institution A's
-    // competition. Not the same assertion as above — this one is an OWNER rather than staff, and
+    // competition. Not the same assertion as above: this one is an OWNER rather than staff, and
     // the institution they do administer has a paid competition of its own, so a scope keyed to
     // "has any paid competition" would let them through.
     as: "recMin",
@@ -201,7 +204,7 @@ export const CASES = [
   },
   {
     id: "payment-instructions-withheld-from-other-owner",
-    // OUTSIDER TWO, the other direction: an owner — of D and P — at institution A. Not the same
+    // OUTSIDER TWO, the other direction: an owner of D and P, at institution A. Not the same
     // assertion as above, because this one is an OWNER and would pass any check that asked only
     // whether the caller owns something.
     as: "recMin",
@@ -240,7 +243,7 @@ export const CASES = [
     id: "charging-ready-no-panel",
     as: "recElev",
     path: "/institution/seed-academy",
-    // THE PAIRING. A verified institution with an account and a fee rule must show nothing — without
+    // THE PAIRING. A verified institution with an account and a fee rule must show nothing. Without
     // this, the panel could render unconditionally and the case above would still pass.
     present: [],
     absent: ["Pendaftaran berbayar belum dapat diaktifkan"],
@@ -250,13 +253,19 @@ export const CASES = [
     id: "charging-blocked-candidate",
     as: "candA",
     path: "/competitions/seed-ventures/seed-b-unpayable/registration",
-    present: ["penyelenggaranya belum dapat menerima pembayaran"],
+    present: [
+      "penyelenggaranya belum dapat menerima pembayaran",
+      // Each card states its own absence. The banner above them was already asserted by the line
+      // before this one, and it passed throughout the weeks both cards rendered as empty shells.
+      "Pendaftaran individu belum dapat dibuka",
+      "Pembuatan tim belum dapat dibuka",
+    ],
     // The register control is WITHHELD, and the candidate is told nothing about WHY the organiser
-    // cannot charge — verification status is not theirs to see.
+    // cannot charge, because verification status is not theirs to see.
     //
     // "Buat tim" IS THE ENTRY PATH, not a second register button, and it is listed because the
     // register controls alone could all be absent while the form that creates the team still
-    // rendered — which is what happened. This competition is mode `both`, so it is the one seeded
+    // rendered, which is what happened. This competition is mode `both`, so it is the one seeded
     // surface where individual and team can be checked as siblings on the same condition.
     absent: [
       "Daftar sebagai individu",
@@ -307,12 +316,12 @@ export const CASES = [
       "Biaya pendaftaran",
       "Rincian per pendaftaran",
       // UPPERCASE because `.detail-grid dt` sets text-transform and innerText returns RENDERED
-      // text. Written from the source string these three silently missed — the same shape as the
+      // text. Written from the source string these three silently missed, the same shape as the
       // non-breaking space in `Rp\u00a0150.000`: the expectation was wrong, not the render.
       "DIBAYAR PESERTA",
       "BIAYA LAYANAN LOMBAKITA",
       "DITERIMA LEMBAGA ANDA",
-      // The FIGURES, not just the labels. 250 bps on Rp 150.000 is Rp 3.750, leaving Rp 146.250 —
+      // The FIGURES, not just the labels. 250 bps on Rp 150.000 is Rp 3.750, leaving Rp 146.250,
       // asserting the arithmetic reached the screen, since a disclosure showing the wrong number
       // is worse than one showing none.
       "Rp\u00a0150.000",
@@ -329,7 +338,7 @@ export const CASES = [
     path: `/institution/${INST.a.slug}/competitions/${COMP.open.slug}/edit`,
     present: ["Biaya pendaftaran", "Pendaftaran gratis"],
     // Paired with the case above. A free competition has no amount, so there is nothing to
-    // disclose and nothing to consent to — the acknowledgement must not be reachable.
+    // disclose and nothing to consent to, so the acknowledgement must not be reachable.
     absent: ["Rincian per pendaftaran", "Saya menyetujui rincian biaya layanan di atas."],
     why: "an acknowledgement offered against a blank disclosure records consent to nothing",
   },
@@ -357,7 +366,7 @@ export const CASES = [
       "Tinjau dan beri keputusan.",
     ],
     // Paired with the case above: the organiser is told a proof arrived, and is NOT told the
-    // payer's email — the review queue needs to know whose transfer it is, not how to reach them
+    // payer's email. The review queue needs to know whose transfer it is, not how to reach them
     // off-platform.
     absent: ["seed.cand.a@seed.lombakita.local"],
     why: "a bukti transfer nobody is told about waits until the deadline cancels the payer",
@@ -375,7 +384,7 @@ export const CASES = [
     // A closed proof is not in flight and never blocked anything, so it must not appear here as
     // though an operator had something to resolve. `seed-proof-c` is the rejected one.
     absent: ["bukti-transfer-cindy.jpg"],
-    why: "DEC-0132 makes this the only way to withdraw a paid competition — unreachable means the hatch does not exist",
+    why: "DEC-0132 makes this the only way to withdraw a paid competition, so unreachable means the hatch does not exist",
   },
   {
     id: "ops-hatch-withholds-void-on-a-verified-proof",
@@ -383,7 +392,7 @@ export const CASES = [
     path: "/admin/payments",
     // Paired with the case above: the void control is present on the page (asserted there) and the
     // verified row carries the sentence explaining why it has none, rather than a disabled button.
-    present: ["Sudah diverifikasi penyelenggara — pembatalan bukti tidak berlaku lagi."],
+    present: ["Sudah diverifikasi penyelenggara. Pembatalan bukti tidak berlaku lagi."],
     absent: [],
     why: "a void offered on a verified proof would be refused by the CAS after the operator committed to it",
   },
@@ -393,16 +402,16 @@ export const CASES = [
     path: "/finance/payments/seed-pay-b",
     present: [
       "Riwayat percobaan",
-      // Attempt one. The live row was overwritten by the resubmission and carries none of this —
+      // Attempt one. The live row was overwritten by the resubmission and carries none of this.
       // migration 0059's history table is the only place it survives, and the dispute is ABOUT it.
       "Percobaan ke-1",
       "bukti-transfer-bela.jpg",
       "Tanggal transfer tidak terbaca pada bukti.",
       // UPPERCASE: `.detail-grid dt` sets text-transform and innerText returns RENDERED text. Third
-      // time this trap has fired in this step — the expectation is wrong, never the render.
+      // time this trap has fired here: the expectation is wrong, never the render.
       "STATUS BUKU BESAR",
     ],
-    // DEC-0162: no verdict power. The controls are ABSENT, not disabled — a disabled Verifikasi
+    // DEC-0162: no verdict power. The controls are ABSENT, not disabled. A disabled Verifikasi
     // still tells the operator they are the person who decides.
     absent: ["Verifikasi", "Tolak", "Batalkan bukti transfer"],
     why: "a dispute is almost always about the attempt the live row overwrote",
@@ -415,7 +424,7 @@ export const CASES = [
       "Sengketa pembayaran",
       "Halaman ini tidak dapat memverifikasi, menolak, atau membatalkan",
       // Two institutions in one list. finance_ops is platform-scoped, so seeing across tenants is
-      // the requirement here, not the leak — the boundary that exists is role, not tenancy.
+      // the requirement here, not the leak. The boundary that exists is role, not tenancy.
       "seed-academy",
       "seed-kolektif",
     ],
@@ -430,7 +439,7 @@ export const CASES = [
       "Biaya layanan tercatat",
       // BOTH RATES, on one page. The live rule is 2,5%; the older line was priced at 5% under a
       // rule that has since been retired. A statement that joined the rule table instead of reading
-      // each accrual's own snapshot would render 2,5% twice — wrong, and wrong in the direction of
+      // each accrual's own snapshot would render 2,5% twice: wrong, and wrong in the direction of
       // a billing dispute (DEC-0171).
       "2,5%",
       "5%",
@@ -441,7 +450,7 @@ export const CASES = [
       "bukan saldo yang kami simpan",
       // R2: what was agreed, and when.
       "Persetujuan tarif",
-      // THE REVERSAL, which until now no fixture anywhere produced — so this case ran green over a
+      // THE REVERSAL, which until now no fixture anywhere produced, so this case ran green over a
       // code path it had never rendered, and a double negation that overstated the receivable was
       // invisible to it. Each needle pins one consequence of getting the sign wrong:
       //   the correction shows at all, and shows as a subtraction ...
@@ -460,7 +469,7 @@ export const CASES = [
   {
     id: "fee-statement-withheld-from-a-recruiter-of-another-institution",
     // MANUAL-D6's second tenant. `rec-min` owns D and P and administers nothing at A, so this is a
-    // real outsider rather than the same person wearing another hat — `rec-elev` administers both A
+    // real outsider rather than the same person wearing another hat. `rec-elev` administers both A
     // and B and could not express the violation at all.
     as: "recMin",
     path: `/institution/${INST.a.slug}/fees`,
@@ -495,7 +504,7 @@ if (targets.length === 0) {
  * Refuses to run at all when the app is not up.
  *
  * Without this the first `contextFor` throws while minting a session and the run dies with a
- * stack trace about credentials — which reads as "the seed accounts are broken", not "nothing is
+ * stack trace about credentials, which reads as "the seed accounts are broken", not "nothing is
  * listening on 3000". The likeliest misconfiguration by far is a forgotten dev server, so it gets
  * the one message that names itself.
  */
@@ -514,7 +523,7 @@ const warmRoute = async (page, path) => {
 };
 
 const assertAppReachable = async () => {
-  // WARM FIRST, MEASURE SECOND — the same treatment `warmRoute` gives every case route, for the
+  // WARM FIRST, MEASURE SECOND, the same treatment `warmRoute` gives every case route, for the
   // same reason. `/api/health` is a route like any other and cold-compiles on a dev server:
   // measured at 37.5s under load against 0.5s warm, while answering `{"status":"ok"}` both times.
   // A 10-second budget against the cold number reports a healthy app as dead, which is the exact
@@ -523,7 +532,7 @@ const assertAppReachable = async () => {
 
   try {
     const response = await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(10_000) });
-    // Any answer proves something is serving. `degraded` is fine — these assertions read pages,
+    // Any answer proves something is serving. `degraded` is fine: these assertions read pages,
     // not connectors.
     if (response.status !== 200 && response.status !== 503) {
       throw new Error(`unexpected status ${response.status}`);
@@ -557,7 +566,7 @@ for (const testCase of targets) {
 
     // WARM THE ROUTE FIRST. On a dev server the first request to a route it has not compiled can
     // exceed the navigation budget on its own, and that failure arrives looking exactly like a
-    // surface that did not render — which is how a real signal gets dismissed as "just flaky".
+    // surface that did not render, which is how a real signal gets dismissed as "just flaky".
     // The warm-up is unmeasured; only the second navigation is asserted against.
     await warmRoute(page, testCase.path);
 
@@ -566,20 +575,20 @@ for (const testCase of targets) {
 
     for (const needle of testCase.present) {
       if (!text.includes(needle)) {
-        misses.push(`${testCase.id}: MISSING "${needle}" — ${testCase.why}`);
+        misses.push(`${testCase.id}: MISSING "${needle}". ${testCase.why}`);
       }
     }
     for (const needle of testCase.absent) {
       if (text.includes(needle)) {
-        misses.push(`${testCase.id}: OFFERED "${needle}" but it must be WITHHELD — ${testCase.why}`);
+        misses.push(`${testCase.id}: OFFERED "${needle}" but it must be WITHHELD. ${testCase.why}`);
       }
     }
   } catch (error) {
     const detail = String(error).slice(0, 160);
     // A timeout that survives the warm-up is still more likely to be compilation than a defect, so
     // the message says so rather than leaving the reader to choose between two explanations.
-    const hint = /Timeout/.test(detail) ? " — COLD COMPILE SUSPECTED, RE-RUN before treating this as a product defect" : "";
-    misses.push(`${testCase.id}: could not be checked — ${detail}${hint}`);
+    const hint = /Timeout/.test(detail) ? " (COLD COMPILE SUSPECTED, RE-RUN before treating this as a product defect)" : "";
+    misses.push(`${testCase.id}: could not be checked: ${detail}${hint}`);
   } finally {
     await context?.close();
   }

@@ -16,15 +16,15 @@ export type PaymentExpirySweepJob = Job<
 /**
  * Ends the registrations whose bukti transfer deadline has passed with nothing submitted.
  *
- * A THIN WRAPPER ON PURPOSE. Every decision — which payments are overdue, whether a pending proof
- * suspends expiry, the row lock that serialises against a candidate uploading at the boundary —
+ * A THIN WRAPPER ON PURPOSE. Every decision (which payments are overdue, whether a pending proof
+ * suspends expiry, the row lock that serialises against a candidate uploading at the boundary)
  * lives in `sweepExpiredPayments`, where it is testable against a real database without a queue.
  * A job handler that carried any of that logic could only be tested through BullMQ.
  *
  * The sweep isolates per-payment failures itself and reports them in its result, so this does not
  * rethrow: letting the error propagate would ask BullMQ to retry the whole sweep, re-walking every
  * payment that already expired successfully. The next scheduled run is the retry, and it costs
- * nothing — a deadline does not move, so an overdue payment stays selectable until it is either
+ * nothing, because a deadline does not move, so an overdue payment stays selectable until it is
  * expired or paid.
  */
 export const processPaymentExpirySweepJob = async (job: PaymentExpirySweepJob): Promise<void> => {

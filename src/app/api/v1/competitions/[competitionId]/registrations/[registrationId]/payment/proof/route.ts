@@ -42,7 +42,7 @@ const readProofBody = async (request: Request): Promise<ProofBody> => {
   const originalFileName = typeof body.originalFileName === "string" ? body.originalFileName : "";
 
   // ONLY THESE TWO ARE READ. The size and the content type used to be taken from the request too,
-  // and both are now read back from storage instead — a declared size bounded nothing, and a
+  // and both are now read back from storage instead. A declared size bounded nothing, and a
   // declared content type was handed to R2 as the response type on an inline view, which let a
   // payer choose what the reviewer's browser would render. The request spreads into the service
   // input, so a field parsed here is a field accepted; the way not to accept them is not to parse
@@ -77,7 +77,7 @@ const toErrorResponse = (error: unknown): Response => {
   return toAccessDeniedResponse(error);
 };
 
-// POST — the FIRST bukti transfer for this registration's payment.
+// POST records the FIRST bukti transfer for this registration's payment.
 //
 // Split from PUT deliberately rather than collapsed into one upsert. A resubmission must pass
 // through the organiser's resubmission bar, and an endpoint that decided between "insert" and
@@ -104,7 +104,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   }
 }
 
-// PUT — a REPLACEMENT bukti transfer after a rejection the organiser left open, or after a void.
+// PUT records a REPLACEMENT bukti transfer after a rejection the organiser left open, or a void.
 //
 // The proof id is resolved from the caller's own payment rather than accepted from the body: a
 // candidate has exactly one proof per payment, so there is nothing for them to choose, and

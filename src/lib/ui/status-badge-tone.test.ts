@@ -13,7 +13,7 @@ const CSS = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
  * Two exclusions, and each was proven necessary by a probe rather than reasoned about:
  *
  * Selector-scoped, because a plain search for `data-status="eligible"` matches in this stylesheet
- * and would pass the value as valid — that match belongs to `.eligibility-status-card`.
+ * and would pass the value as valid, but that match belongs to `.eligibility-status-card`.
  *
  * Pseudo-element-excluded, because `.status-badge[data-status="paid"]::before` also matches a
  * class-anchored pattern. A first version of this helper accepted it, and deleting the colour rule
@@ -57,7 +57,7 @@ describe("the .status-badge tone vocabulary", () => {
   });
 
   it("gives every tone but `featured` the leading dot its siblings have", () => {
-    // `featured` is deliberately outside the dot group — it is a promotional marker rather than a
+    // `featured` is deliberately outside the dot group. It is a promotional marker rather than a
     // lifecycle state. Everything else must be in it, or one badge in a row renders visibly
     // lighter than the others for no reason a reader can see.
     const dotted = tonesWithDot();
@@ -78,7 +78,7 @@ describe("payment lane tone maps", () => {
   };
 
   it("renders every payment display status with a tone the badge actually styles", () => {
-    // This replaces a `toBeTruthy()` assertion that passed for any non-empty string — including the
+    // This replaces a `toBeTruthy()` assertion that passed for any non-empty string, including the
     // three wrong values it was standing over.
     assertEveryToneIsReal(PAYMENT_STATUS_TONES, "PAYMENT_STATUS_TONES");
   });

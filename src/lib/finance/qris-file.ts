@@ -5,7 +5,7 @@
 //
 // NARROWER THAN THE TWO NEIGHBOURING RULES ON PURPOSE, which is why this is not a reuse of either.
 // `payment-proof-file.ts` and `recruiter-verification/verification-document.ts` both accept PDF,
-// correctly — a receipt or a legal document is something a human opens and reads. A QRIS is
+// correctly, because a receipt or a legal document is something a human opens and reads. A QRIS is
 // something a phone camera points at, rendered inline in an <img>, and a PDF cannot be. Accepting
 // one here would produce a payment page showing a broken image where the payment method should be,
 // and the institution would have no way to tell from the upload that anything was wrong.

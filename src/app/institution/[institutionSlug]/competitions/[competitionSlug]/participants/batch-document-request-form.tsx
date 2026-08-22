@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui";
+import { Button, CheckboxField } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 
 export type BatchTarget = {
@@ -217,19 +217,17 @@ export function BatchDocumentRequestForm({
             <ul className="record-list">
               {targets.map((target) => (
                 <li className="record-row" key={target.registrationId}>
-                  <label className="form-label" htmlFor={`batch-${target.registrationId}`}>
-                    <input
-                      id={`batch-${target.registrationId}`}
-                      type="checkbox"
-                      checked={selected.has(target.registrationId)}
-                      disabled={target.hasOpenRequest}
-                      onChange={() => toggle(target.registrationId)}
-                    />{" "}
+                  <CheckboxField
+                    id={`batch-${target.registrationId}`}
+                    checked={selected.has(target.registrationId)}
+                    disabled={target.hasOpenRequest}
+                    onChange={() => toggle(target.registrationId)}
+                  >
                     {target.label}
                     {target.hasOpenRequest ? (
                       <span className="record-meta"> (sudah ada permintaan berjalan)</span>
                     ) : null}
-                  </label>
+                  </CheckboxField>
                 </li>
               ))}
             </ul>

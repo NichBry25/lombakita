@@ -4,7 +4,7 @@
 //
 // The routes that use it mock it, so those tests prove the WIRING and nothing about the guard. This
 // file is the other half: the guard's own behaviour, on real membership rows, with the separation
-// it exists to enforce stated as its own case — a STAFF member of the right institution is refused,
+// it exists to enforce stated as its own case: a STAFF member of the right institution is refused,
 // which is the only thing this resolver does that requireAdminInstitutionBySlug does not.
 //
 // Every test runs inside a transaction that is always rolled back.
@@ -78,9 +78,9 @@ const seedMembership = async (
 // THE OWNER-OR-STAFF GATE ITSELF, which 43 call sites depend on and which nothing tested.
 //
 // Found by probing the generalisation that introduced `requireMembershipBySlug`: widening this
-// resolver to admit `institution_member` — handing every ordinary member the organiser powers of an
+// resolver to admit `institution_member`, handing every ordinary member the organiser powers of an
 // owner across the participants console, competition editing, member management, invitations, the
-// audit log and this step's payment verdicts — left all 2596 tests green. Narrowing it to refuse
+// audit log and the payment verdicts, left all 2596 tests green. Narrowing it to refuse
 // every staff member left 2589 green, caught only by a pairing control written for a different
 // test on the same day.
 //
@@ -122,7 +122,7 @@ describe.skipIf(skipWithoutDatabase)("requireAdminInstitutionBySlug (real databa
     });
   });
 
-  it("REFUSES an institution_member — the privilege-escalation direction", async () => {
+  it("REFUSES an institution_member, the privilege-escalation direction", async () => {
     // The one that matters. `institution_member` is the ordinary membership an invitation grants;
     // admitting it here would silently promote every member of every institution to organiser.
     await inRollback(async (tx) => {
@@ -176,7 +176,7 @@ describe.skipIf(skipWithoutDatabase)("requireAdminInstitutionBySlug (real databa
 // THE BOOLEAN SIBLINGS, which page guards use to REDIRECT rather than throw.
 //
 // Covered separately because they are a SECOND private core with their own role list, not a
-// wrapper over the throwing resolver — closing that one leaves these open. Widening
+// wrapper over the throwing resolver, so closing that one leaves these open. Widening
 // isInstitutionOwnerBySlug to admit every member was caught only incidentally, by three
 // charging-gate publish tests asserting something else entirely; nothing stated the role set.
 describe.skipIf(skipWithoutDatabase)("isInstitutionOwnerBySlug / isInstitutionAdminBySlug (real database)", () => {
@@ -201,13 +201,13 @@ describe.skipIf(skipWithoutDatabase)("isInstitutionOwnerBySlug / isInstitutionAd
     });
   });
 
-  it("a STAFF member is admin but NOT owner — the settings boundary", async () => {
+  it("a STAFF member is admin but NOT owner, which is the settings boundary", async () => {
     await inRollback(async (tx) => {
       expect(await withMembership(tx, "institution_staff")).toEqual({ isOwner: false, isAdmin: true });
     });
   });
 
-  it("an institution_member is NEITHER — the privilege-escalation direction", async () => {
+  it("an institution_member is NEITHER, the privilege-escalation direction", async () => {
     await inRollback(async (tx) => {
       expect(await withMembership(tx, "institution_member")).toEqual({ isOwner: false, isAdmin: false });
     });
@@ -257,7 +257,7 @@ describe.skipIf(skipWithoutDatabase)("requireOwnerInstitutionBySlug (real databa
     // confirm it as received.
     //
     // Paired directly with the case below, which shows the SAME user resolving through the
-    // owner-or-staff resolver — so this is a refusal about the ROLE, not a broken fixture.
+    // owner-or-staff resolver, so this is a refusal about the ROLE, not a broken fixture.
     await inRollback(async (tx) => {
       const staff = await seedUser(tx, "staff");
       const institution = await seedInstitution(tx, "own");
@@ -302,7 +302,7 @@ describe.skipIf(skipWithoutDatabase)("requireOwnerInstitutionBySlug (real databa
 
       const { requireOwnerInstitutionBySlug } = await import("./member-service");
 
-      // Both directions, with two different outsiders — not one standing in for both.
+      // Both directions, with two different outsiders, not one standing in for both.
       await expect(
         requireOwnerInstitutionBySlug(ownerD, instA.slug, tx as unknown as Database),
       ).rejects.toBeInstanceOf(AccessError);

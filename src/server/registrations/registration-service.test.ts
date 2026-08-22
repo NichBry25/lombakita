@@ -203,8 +203,8 @@ describe("createIndividualRegistration enforcement chain", () => {
   // only SELECTs on the happy path are the competition load, duplicate-registration check, the
   // locked deadline re-check, and the pricing read that decides whether a payment is owed. If a
   // future change reintroduces an age/eligibility lookup, either registration stops succeeding or
-  // another SELECT appears here — both fail this test.
-  it("allows a candidate over 32 to register (no age/eligibility gate — DEC-0106)", async () => {
+  // another SELECT appears here, and both fail this test.
+  it("allows a candidate over 32 to register (no age/eligibility gate, DEC-0106)", async () => {
     const inserted = baseRegistration({ studentId: "candidate_over_32" });
     const { db, spies } = makeQueuedDb(
       [

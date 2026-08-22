@@ -1,7 +1,7 @@
 // @vitest-environment node
 //
-// The QRIS key boundary, exercised through savePaymentInstructions — the function a request body
-// actually reaches — rather than by calling assertQrisKeyBelongsToInstitution directly.
+// The QRIS key boundary, exercised through savePaymentInstructions (the function a request body
+// actually reaches) rather than by calling assertQrisKeyBelongsToInstitution directly.
 //
 // Rule 33's point: a test that hands the assertion a string proves the assertion. It cannot prove
 // the assertion is WIRED, and an unwired one leaves an institution able to publish another
@@ -43,7 +43,7 @@ const BANK = {
   instructionsNote: null,
 };
 
-describe("savePaymentInstructions — the QRIS key boundary", () => {
+describe("savePaymentInstructions: the QRIS key boundary", () => {
   it("accepts a key under this institution's own prefix", async () => {
     // The positive. Every refusal below is worthless without it: they would all pass against a
     // function that refused every key it was given.
@@ -113,7 +113,7 @@ describe("savePaymentInstructions — the QRIS key boundary", () => {
   });
 });
 
-describe("savePaymentInstructions — what makes a row payable", () => {
+describe("savePaymentInstructions: what makes a row payable", () => {
   it("refuses a row naming neither a usable bank account nor a QRIS", async () => {
     // Mirrors the database CHECK. Checked here too so the organiser reads a sentence naming what is
     // missing rather than a constraint violation surfaced as a generic write failure.

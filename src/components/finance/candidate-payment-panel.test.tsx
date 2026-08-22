@@ -2,7 +2,7 @@
 //
 // THE DEADLINE IS NAMED IN EVERY STATE THAT IS STILL RUNNING AGAINST ONE.
 //
-// A rejection resumes the clock — only `pending_review` suspends it — so both rejection branches
+// A rejection resumes the clock (only `pending_review` suspends it) so both rejection branches
 // are racing a deadline. The barred branch is the harshest state on the lane: the candidate cannot
 // cancel (a proof exists, so surface 5 withholds it), cannot resubmit (the organiser barred it),
 // and will be cancelled automatically when the clock runs out. That combination only became
@@ -140,5 +140,36 @@ describe("the clock after the money is settled", () => {
     renderPanel({ status: "verified" }, false, { status: "refunded" });
 
     expect(screen.queryByText(/hari lagi/)).toBeNull();
+  });
+});
+
+// THE HEADER PILL, IN BOTH OF ITS TWO MODES.
+//
+// The pill carries the countdown whenever a deadline is running and falls back to the status label
+// when it is not. Only the fallback was asserted anywhere, and a component that never rendered a
+// countdown at all would have satisfied every one of those `queryByText(/hari lagi/)` nulls. The
+// positive is what makes them mean something.
+describe("what the header pill says", () => {
+  const pill = () => document.querySelector(".section-heading .status-badge")?.textContent ?? "";
+
+  it("counts down while the clock is running, instead of naming the status", () => {
+    renderPanel({ status: "rejected", resubmissionAllowed: true }, false);
+
+    expect(pill()).toMatch(/hari lagi/);
+    expect(pill()).not.toMatch(/Perlu bukti baru/);
+  });
+
+  it("names the status once the clock is suspended", () => {
+    // Evidence is with the organiser, so there is no time left to count. The reader still needs to
+    // be told which state they are in.
+    renderPanel({ status: "pending_review" }, true);
+
+    expect(pill()).toBe("Menunggu verifikasi");
+  });
+
+  it("names the status once the payment has settled", () => {
+    renderPanel({ status: "verified" }, false, { status: "succeeded" });
+
+    expect(pill()).toBe("Lunas");
   });
 });

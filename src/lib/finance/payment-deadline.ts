@@ -2,13 +2,13 @@
 //
 // The instant itself is already on the payment row (DEC-0169: snapshotted at creation, never
 // recomputed from the competition's window). What this module adds is the part a bare timestamp
-// cannot carry — whether the deadline is still counting, how much time is left, and whether it
+// cannot carry: whether the deadline is still counting, how much time is left, and whether it
 // applies to this candidate at all right now.
 //
 // THE SUSPENSION IS THE REASON THIS EXISTS. A proof sitting in `pending_review` suspends expiry
 // indefinitely: the worker re-reads that under a row lock and declines to expire. A candidate in
 // that state is NOT at risk, and a deadline rendered as a live countdown next to their pending
-// evidence tells them they are — which is both false and the exact thing that makes someone
+// evidence tells them they are, which is both false and the exact thing that makes someone
 // re-transfer money they have already sent.
 //
 // Client-safe: pure, no server-only imports, no I/O. `now` is a parameter so the same function
@@ -31,7 +31,7 @@ export type PaymentDeadlineState =
    */
   | { kind: "suspended"; dueAt: string }
   /**
-   * The money is settled — succeeded or refunded — so the deadline has no power left over this
+   * The money is settled (succeeded or refunded), so the deadline has no power left over this
    * registration. Carries the instant for the same reason `suspended` does: it is still the date
    * that was met, and the record of it is worth keeping once the countdown is gone.
    */

@@ -14,18 +14,18 @@ import { RegistrationPaymentError } from "@/server/registrations/registration-pa
 //
 // One implementation, called by BOTH the individual and the team registration paths. Two copies of
 // "work out what this costs and record it" is how one mode ends up charging and the other silently
-// not — and the mode that silently does not charge produces registrations the organiser believes
+// not, and the mode that silently does not charge produces registrations the organiser believes
 // are paid for.
 //
 // CALLED INSIDE THE REGISTRATION'S OWN TRANSACTION, always. A paid registration without its payment
 // is unreachable because the two are written together or neither is: the registration insert and
 // this call share one transaction, so a refusal here takes the registration down with it. That is
-// the intended behaviour and not a rough edge — a candidate holding a registration for a
+// the intended behaviour and not a rough edge. A candidate holding a registration for a
 // competition that could not price them is worse than a candidate who was told to try later.
 //
 // A TEAM PAYS ONCE. The caller passes the captain's registration id and nothing else; the payment
 // anchors there, and the payment-group predicates resolve the other members' rows back to it. This
-// function has no notion of team versus individual, deliberately — that distinction lives in which
+// function has no notion of team versus individual, deliberately. That distinction lives in which
 // registration id the caller hands it.
 
 /** Everything the pricing decision needs, read from the competition being registered for. */
@@ -68,7 +68,7 @@ export const loadRegistrationPricing = async (
 /**
  * Records the payment a new registration owes, or does nothing when the competition is free.
  *
- * FREE COMPETITIONS GET NO PAYMENT ROW AT ALL. Not a zero-gross row — none. A free registration has
+ * FREE COMPETITIONS GET NO PAYMENT ROW AT ALL. Not a zero-gross row, none. A free registration has
  * no debt, no deadline and no instructions to snapshot, and recording one would put a row in the
  * ledger that every "has this been paid" question then has to learn to ignore.
  *
@@ -76,8 +76,8 @@ export const loadRegistrationPricing = async (
  * It is snapshotted onto the payment and never recomputed, so an organiser who later shortens the
  * window does not move a deadline this candidate was already given.
  *
- * Every refusal `createPayment` can raise — the institution is unverified, it has published no
- * account, no fee rule is in force — collapses to ONE candidate-facing code. All three mean the
+ * Every refusal `createPayment` can raise (the institution is unverified, it has published no
+ * account, no fee rule is in force) collapses to ONE candidate-facing code. All three mean the
  * same thing to the person registering: this organiser cannot take payment right now, and none of
  * it is the candidate's to fix. Distinguishing them here would leak the organiser's verification
  * state and its billing configuration to anyone who clicks register.

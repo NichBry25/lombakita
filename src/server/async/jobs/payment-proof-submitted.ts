@@ -25,8 +25,8 @@ export type PaymentProofSubmittedJob = Job<
  *
  * ORGANISER-ONLY (R13). The payer just pressed the button; telling them they pressed it is noise,
  * and the panel already shows "Menunggu verifikasi". The people who need to know are the ones who
- * can act, which is why recipients come from `listInstitutionAdminUserIds` — the same set the
- * review gate admits — rather than from a list carried on the payload. Resolving at delivery also
+ * can act, which is why recipients come from `listInstitutionAdminUserIds`, the same set the
+ * review gate admits, rather than from a list carried on the payload. Resolving at delivery also
  * means a staff member added between submission and dispatch is included.
  */
 export const processPaymentProofSubmittedJob = async (

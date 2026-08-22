@@ -26,7 +26,7 @@ import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
 // DEC-0162: under the manual origin the money lands in the ORGANISER'S own bank account and never
 // touches platform infrastructure, so finance_ops has no independent record that a transfer
 // happened and no way to confirm one. Only the organiser can look at their own statement. This
-// module therefore reads and never writes a verdict — there is no reject, no verify, no void here,
+// module therefore reads and never writes a verdict: there is no reject, no verify, no void here,
 // and the surface withholds those controls entirely rather than rendering them refused.
 //
 // PLATFORM-SCOPED, NOT TENANT-SCOPED, and that inverts the usual test. Every other reader in this
@@ -65,7 +65,7 @@ export type DisputePaymentDetail = DisputePaymentSummary & {
   payerUserId: string;
   originalFileName: string | null;
   fileSizeBytes: number | null;
-  /** The live row's own reason — the verdict currently standing. */
+  /** The live row's own reason, the verdict currently standing. */
   rejectionReason: string | null;
   resubmissionAllowed: boolean;
   /** Every CLOSED attempt, oldest first. Migration 0059's table is the only record of these. */
@@ -75,7 +75,7 @@ export type DisputePaymentDetail = DisputePaymentSummary & {
 /**
  * Every manual-lane payment that has ever carried a bukti transfer, newest submission first.
  *
- * Cross-institution ON PURPOSE — see the module note. A dispute arrives naming a person and a
+ * Cross-institution ON PURPOSE (see the module note). A dispute arrives naming a person and a
  * competition, not an institution, so a tenant-scoped list would require the operator to already
  * know the answer to the question they are asking.
  */
@@ -123,7 +123,7 @@ export const loadDisputePayments = async (
  *
  * THE HISTORY IS THE POINT. A live proof row shows only the attempt currently standing: a
  * resubmission overwrites the file, the reason and the verdict in place. A dispute is almost always
- * ABOUT an earlier attempt — "they rejected my first receipt and I sent another" — and
+ * ABOUT an earlier attempt, "they rejected my first receipt and I sent another", and
  * `finance_manual_payment_proof_attempts` is the only record of it. A view that showed the live row
  * alone would answer every dispute with the state after the disagreement.
  */
@@ -160,7 +160,7 @@ export const loadDisputePaymentDetail = async (
     // REACHED THROUGH THE PAYMENT'S REGISTRATION, not through the proof. Joining the competition
     // on `financeManualPaymentProofs.competitionId` made this an inner join on a LEFT-joined column:
     // with no proof row that column is null, the row is eliminated, and the whole query returns
-    // nothing. A payment nobody ever submitted evidence for therefore 404'd — and "I paid, they say
+    // nothing. A payment nobody ever submitted evidence for therefore 404'd, and "I paid, they say
     // they never received anything" is one of the commonest disputes there is, which is precisely
     // the case this read-only view exists to let finance look at.
     .innerJoin(
@@ -196,7 +196,7 @@ export const loadDisputePaymentDetail = async (
   };
 };
 
-/** Closed attempts for one proof, OLDEST FIRST — a dispute is read forwards, as it happened. */
+/** Closed attempts for one proof, OLDEST FIRST. A dispute is read forwards, as it happened. */
 const loadAttemptHistory = async (
   proofId: string,
   db: Database,
@@ -219,12 +219,12 @@ const loadAttemptHistory = async (
 };
 
 /**
- * The folded ledger for one payment — what the append-only events actually say happened.
+ * The folded ledger for one payment: what the append-only events actually say happened.
  *
  * FOLDED, never read from a column, because there is no column: DEC-0133 makes the event stream the
  * only record and `finance_payments` carries no status of its own. Folded on the DETAIL page only
  * and not per row of the list, since one fold per listed payment is a query per row for a figure
- * the list does not need — the proof's own status is what an operator scans by.
+ * the list does not need. The proof's own status is what an operator scans by.
  */
 export const loadDisputeLedgerState = async (
   paymentId: string,
@@ -253,7 +253,7 @@ type AuditableProof = {
  *
  * Separate from the URL minting so it can be measured on its own: object storage is not configured
  * in the test environment, and an assertion about this row folded into the presigning path would
- * only ever run the branch where storage is DOWN — reporting the audit trail as proven while every
+ * only ever run the branch where storage is DOWN, reporting the audit trail as proven while every
  * assertion about its shape sat unexecuted.
  *
  * Called BETWEEN the availability check and the presigner, and both sides of that matter. Below the
@@ -273,7 +273,7 @@ export const recordDisputeProofAccess = async (
     // AND THE TENANT, because the other question the row has to answer is the institution's:
     // "which of our candidates' receipts has platform staff opened". That query is what
     // `target_institution_id` is indexed for, and leaving it null returned nothing for every
-    // finance read — the competition id was recorded, but only inside unindexed metadata.
+    // finance read. The competition id was recorded, but only inside unindexed metadata.
     targetInstitutionId: proof.receivingInstitutionId,
     eventType: FILE_ACCESSED_EVENT,
     reason: "Penanganan sengketa pembayaran",
@@ -294,7 +294,7 @@ export const recordDisputeProofAccess = async (
  * what its own staff saw needs that record. A finance_ops read crosses every tenant and is recorded
  * against the PAYER, in the platform operator log, under its own event type. Reusing the
  * organiser's function would file a platform read under an institution's own trail and make the two
- * indistinguishable afterwards — which is the question an access dispute exists to answer.
+ * indistinguishable afterwards, which is the question an access dispute exists to answer.
  *
  * Reading is all it does. There is no finance_ops path in this module that writes a verdict.
  */
@@ -326,7 +326,7 @@ export const generateDisputeProofViewUrl = async (
   if (!isR2Available()) {
     throw new ManualProofError(
       "manual_proof_upload_unavailable",
-      "Penyimpanan berkas belum dikonfigurasi — bukti transfer tidak dapat dibuka",
+      "Penyimpanan berkas belum dikonfigurasi sehingga bukti transfer tidak dapat dibuka",
       503,
     );
   }

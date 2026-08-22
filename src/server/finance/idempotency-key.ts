@@ -78,7 +78,7 @@ export type PlatformPaymentAction = Extract<PaymentEventType, "refunded" | "corr
  *
  * `succeeded` is on THIS arm rather than the gateway one, and that is not a technicality: on the
  * manual lane nobody's API observed the money. An organiser looked at a transfer receipt and said
- * yes, so there is no provider event id to derive a key from — but the event still needs to
+ * yes, so there is no provider event id to derive a key from, but the event still needs to
  * collapse on replay, which the platform arm's random UUID cannot do.
  */
 export type ManualPaymentAction = Extract<PaymentEventType, "succeeded" | "expired">;
@@ -185,7 +185,7 @@ export const mintPlatformPaymentEventKey = (params: {
  * reason it is spelled out here rather than left as ordinary input validation.
  * `mintManualExpiryEventKey` shares this arm's `mn:` prefix and its four-segment shape, and the ONLY
  * thing separating the two is that its last segment is the literal `once` while this one's is a
- * decimal integer. Relax this check to accept a string and the two functions can emit the same key —
+ * decimal integer. Relax this check to accept a string and the two functions can emit the same key,
  * from an edit made in this function, with nothing at the expiry minter's own site to warn anyone.
  * See that function's docblock; `CANNOT collide with a verification key` in `idempotency-key.test.ts`
  * fails in BOTH directions.
@@ -210,12 +210,12 @@ export const mintManualPaymentEventKey = (params: {
  *
  * Separate from `mintManualPaymentEventKey` because the two events have different IDENTITIES, and
  * collapsing them into one function would force a lie into the proof slot. A verification is
- * identified by (proof, attempt) — it can legitimately happen again after a resubmission. AN
+ * identified by (proof, attempt), so it can legitimately happen again after a resubmission. AN
  * EXPIRY IS IDENTIFIED BY THE PAYMENT ALONE and can happen at most once ever: a payment has one
  * deadline, snapshotted at creation and never recomputed.
  *
  * Deterministic, which is the point. The sweep is a scheduled job, so the same overdue payment can
- * be visited twice — by a retry, by an overlapping run, or by a redeploy re-registering the
+ * be visited twice: by a retry, by an overlapping run, or by a redeploy re-registering the
  * schedule. A second visit must collapse onto the first event rather than append a second
  * `expired` to a ledger with no delete path.
  *
@@ -225,12 +225,12 @@ export const mintManualPaymentEventKey = (params: {
  *   verification  mn:<succeeded|expired>:<proofId>:<attempt>
  *   expiry        mn:expired:<paymentId>:once
  *
- * `isPaymentEventIdempotencyKey` does NOT tell these apart — its `mn:` branch checks four segments
+ * `isPaymentEventIdempotencyKey` does NOT tell these apart. Its `mn:` branch checks four segments
  * and an alphabet, which both satisfy. Nor does any earlier segment separate them: `expired` is a
  * legal verification action, and a proof id and a payment id are both `gen_random_uuid()::text` from
  * different tables, so nothing structurally forbids them being equal. The guarantee lives entirely
  * in the LAST segment, and it holds because `mintManualPaymentEventKey` validates `attempt` with
- * `Number.isInteger` — no non-negative integer stringifies to `once`.
+ * `Number.isInteger`, and no non-negative integer stringifies to `once`.
  *
  * So changing `once` to `0` would not tidy anything; it would replace an impossible collision with
  * an improbable one, and the colliding case is a real expiry silently swallowed as a replay of a

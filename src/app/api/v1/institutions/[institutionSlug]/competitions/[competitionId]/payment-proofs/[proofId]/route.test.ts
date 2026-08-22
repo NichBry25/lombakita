@@ -5,7 +5,7 @@
 // not about the happy path: they are that the institution resolved from the slug is the one handed
 // to the service, and that nothing is written when that resolution fails.
 //
-// The tenant scope itself is enforced INSIDE the service, in the same WHERE as the CAS — a proof
+// The tenant scope itself is enforced INSIDE the service, in the same WHERE as the CAS, so a proof
 // from another organiser's competition matches no row. What this file proves is the wiring: that the
 // route passes the resolved institution rather than a caller-supplied one, and never calls the
 // service at all when the boundary check throws.
@@ -152,7 +152,7 @@ describe("PATCH …/payment-proofs/[proofId]", () => {
 
     expect(response.status).toBe(400);
     // Asserted by CODE, not only by status. The route previously answered this with
-    // `manual_proof_not_pending` — a code that says the row has already been reviewed, which is a
+    // `manual_proof_not_pending`, a code that says the row has already been reviewed, which is a
     // claim about a proof nobody looked at. A status-only assertion could not see the difference.
     expect(body.error.code).toBe("manual_proof_action_unrecognised");
     expect(verifyManualPaymentProof).not.toHaveBeenCalled();

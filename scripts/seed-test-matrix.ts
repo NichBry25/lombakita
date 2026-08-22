@@ -43,7 +43,7 @@ if (!databaseUrl) throw new Error("DATABASE_URL is not set");
  *
  * `isLocalDatabaseHost` is IMPORTED rather than reimplemented, and that matters more than it looks:
  * a second copy of this predicate is a second place to get IPv6 wrong. `new URL().hostname` returns
- * "[::1]" with brackets, and a hand-rolled set listing the bare "::1" never matches — which fails
+ * "[::1]" with brackets, and a hand-rolled set listing the bare "::1" never matches, which fails
  * closed, refuses a legitimate local IPv6 database, and is therefore invisible until someone runs
  * one. The shared module has that case and a test for it.
  *
@@ -54,7 +54,7 @@ if (!databaseUrl) throw new Error("DATABASE_URL is not set");
  *      `seed-%` rows; a seeded ledger row is permanent in whatever database receives it.
  *   2. Migration 0058 REFUSES to run against a non-empty `finance_payments` (DEC-0165 forbids
  *      backfilling `origin`). An environment receiving seeded payments before 0058 lands there can
- *      never have 0058 applied — and 0058 has not reached preview or production.
+ *      never have 0058 applied, and 0058 has not reached preview or production.
  *   3. The emptiness of `finance_payments` in every deployed environment is a PREMISE the
  *      migration-ordering analysis rests on. This script is the writer that analysis assumed did
  *      not exist.
@@ -67,7 +67,7 @@ if (!isLocalDatabaseHost(databaseUrl)) {
   throw new Error(
     `Refusing to seed: DATABASE_URL points at "${parseDatabaseHost(databaseUrl) ?? "<unparseable>"}", ` +
       `which is not a local database.\n` +
-      `This script writes finance_payments rows, and DEC-0133 makes those APPEND-ONLY — there is ` +
+      `This script writes finance_payments rows, and DEC-0133 makes those APPEND-ONLY. There is ` +
       `no path to remove them afterwards from any environment that receives them. Seeded payments ` +
       `also make migration 0058 permanently unapplicable there (it refuses a non-empty ` +
       `finance_payments, per DEC-0165).\n` +
@@ -138,7 +138,7 @@ const main = async (): Promise<void> => {
       // reachable once the harness elevates its session; these two sit permanently in the gate.
       { id: "seed-user-ops-enrol", name: "Ops Belum Enrol", email: EMAIL("seed.ops.enrol"), emailVerified: d(-100), role: "platform_ops", username: "seed_ops_enrol", candAt: d(-100), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
       { id: "seed-user-ops-chal", name: "Ops Perlu Tantangan", email: EMAIL("seed.ops.chal"), emailVerified: d(-100), role: "platform_ops", username: "seed_ops_chal", candAt: d(-100), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
-      // finance_ops: the dispute reader. Distinct from platform_ops on purpose — the two roles
+      // finance_ops: the dispute reader. Distinct from platform_ops on purpose. The two roles
       // reach different shells and neither may reach the other's, which is what the audits assert.
       { id: "seed-user-fin", name: "Fina Operasional", email: EMAIL("seed.fin"), emailVerified: d(-100), role: "finance_ops", username: "seed_fin", candAt: d(-100), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
       { id: "seed-user-susp", name: "Sari Utami", email: EMAIL("seed.susp"), emailVerified: d(-40), role: "candidate", username: "seed_susp", candAt: d(-40), recAt: null, tier: "unverified", suspendedAt: d(-1), suspensionReason: "Pelanggaran ketentuan (data uji)" },
@@ -258,12 +258,12 @@ const main = async (): Promise<void> => {
         // THE SECOND VERIFIED TENANT, and it exists for one reason: a single-institution fixture is
         // structurally incapable of catching a missing tenant scope, because every id it holds
         // belongs to the same tenant and an unscoped query looks correct against all of them
-        // (MANUAL-D6). Institution B cannot serve — it is pending_verification and so cannot host a
+        // (MANUAL-D6). Institution B cannot serve: it is pending_verification and so cannot host a
         // paid competition at all. This one is verified, priced, and deliberately owned by someone
         // who administers NOTHING at seed-inst-a.
         id: "seed-inst-d", displayName: "Seed Kolektif", slug: "seed-kolektif", type: "foundation",
         verification: "verified", verifiedAt: d(-35), suspendedAt: null, suspensionReason: null,
-        description: "Tenant kedua data uji — panggung uji batas antar-institusi.",
+        description: "Tenant kedua data uji, panggung uji batas antar-institusi.",
         about: null, contactName: null, contactEmail: null, contactPhone: null, websiteUrl: null,
       },
       {
@@ -393,7 +393,7 @@ const main = async (): Promise<void> => {
       },
       {
         // THE MANUAL PAYMENT LANE'S STAGE. Priced, registration open, individual mode, and owned by
-        // a VERIFIED institution that has published bank details — all three are required before
+        // a VERIFIED institution that has published bank details. All three are required before
         // `createPayment` will accept a priced manual payment, so a competition missing any one of
         // them cannot host this lane at all.
         id: "seed-comp-paid", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
@@ -405,12 +405,12 @@ const main = async (): Promise<void> => {
         featured: false, featuredOrder: null, publishedAt: d(-6),
       },
       {
-        // Institution D's priced competition — the other side of the tenant boundary. Same shape as
+        // Institution D's priced competition, the other side of the tenant boundary. Same shape as
         // seed-comp-paid so a verdict route that leaked would succeed rather than fail for an
         // unrelated reason.
         id: "seed-comp-d-paid", inst: "seed-inst-d", createdBy: "seed-user-rec-min",
         slug: "seed-kolektif-paid", title: "Seed Festival Kolektif",
-        description: "Kompetisi berbayar milik tenant kedua — dipakai untuk menguji batas antar-institusi.",
+        description: "Kompetisi berbayar milik tenant kedua, dipakai untuk menguji batas antar-institusi.",
         status: "published", category: "design", mode: "individual", minTeam: null, maxTeam: null,
         rs: d(-6), re: d(28), es: d(34), ee: d(35), ra: d(42),
         allowCancel: true, cutoffDays: 3, eligibilityNote: null,
@@ -509,7 +509,7 @@ const main = async (): Promise<void> => {
         // DEC-0170's runtime state, seeded as the state itself rather than as the path into it: a
         // competition priced and published while its institution was verified, whose institution is
         // no longer able to charge. The charging gate correctly refuses to CREATE this, which is
-        // exactly why it has to be seeded — the state is reachable by revocation, not by the form.
+        // exactly why it has to be seeded: the state is reachable by revocation, not by the form.
         id: "seed-comp-b-unpayable", inst: "seed-inst-b", createdBy: "seed-user-rec-elev",
         slug: "seed-b-unpayable", title: "Seed Ventures Growth Sprint",
         description: "Kompetisi berbayar milik institusi yang kini tidak dapat menerima pembayaran.",
@@ -783,7 +783,7 @@ const main = async (): Promise<void> => {
       // The two manual-lane rows. Seeded READ deliberately: CAND-03 pins candA's unread count at 3,
       // and a seed that renders a surface must not silently move another surface's assertion.
       // The expired one is here rather than the verified one because its copy is the one that can
-      // do harm — a cancellation with no named cause reads as the organiser rejecting the payer.
+      // do harm: a cancellation with no named cause reads as the organiser rejecting the payer.
       { id: "seed-notif-a4", user: "seed-user-cand-a", type: "payment_outcome", title: "Pendaftaran dibatalkan otomatis untuk Seed Coding League", body: "Batas waktu pembayaran telah lewat, sehingga pendaftaran Anda dibatalkan secara otomatis. Ini bukan keputusan penyelenggara. Jika Anda sudah melakukan transfer, hubungi penyelenggara.", readAt: h(-2), createdAt: h(-3) },
       { id: "seed-notif-r1", user: "seed-user-rec-elev", type: "payment_proof_submitted", title: "Bukti transfer baru untuk Seed Coding League", body: "Seed Candidate A mengirim bukti transfer sebesar Rp 150.000. Tinjau dan beri keputusan.", readAt: h(-2), createdAt: h(-3) },
     ];
@@ -911,7 +911,7 @@ const main = async (): Promise<void> => {
     `;
 
     // Priced, published, and owned by an institution with none of the three charging conditions
-    // met. Written directly because the service layer would refuse — that refusal is the feature.
+    // met. Written directly because the service layer would refuse, and that refusal is the point.
     await sql`
       UPDATE competitions
       SET fee_amount = 75000, fee_currency = 'IDR', payment_window_days = 3, updated_at = now()
@@ -920,7 +920,7 @@ const main = async (): Promise<void> => {
 
     // SCOPED TO seed-inst-a, deliberately NOT a platform default (institution_id NULL).
     //
-    // A platform-wide rule is a global fallback — it resolves for every institution in the
+    // A platform-wide rule is a global fallback. It resolves for every institution in the
     // database, including fixtures built by other suites. Seeding one made "no fee rule is in
     // force" unreachable and broke two real-database tests that assert the charging gate fails
     // closed without one. Scoping it here keeps the seed institution priceable without changing
@@ -952,7 +952,7 @@ const main = async (): Promise<void> => {
     `;
 
     // One payment per registration, each carrying its own deadline snapshot and its own copy of the
-    // account details — never a reference to the institution's live row, so an organiser changing
+    // account details, never a reference to the institution's live row, so an organiser changing
     // banks cannot repoint a payer who is mid-transfer.
     type PaySeed = { id: string; reg: string; payer: string; dueAt: Date };
     const payments: PaySeed[] = [
@@ -1040,9 +1040,9 @@ const main = async (): Promise<void> => {
         resubmission_allowed = true, resubmission_count = 0, updated_at = now()
     `;
 
-    // Candidate A: nothing sent — the "awaiting_transfer" state, so A's panel shows the upload form.
-    // Candidate B: evidence with the organiser — "awaiting_review".
-    // Candidate C: refused with the door left open — "rejected_resubmittable".
+    // Candidate A: nothing sent, the "awaiting_transfer" state, so A's panel shows the upload form.
+    // Candidate B: evidence with the organiser, "awaiting_review".
+    // Candidate C: refused with the door left open, "rejected_resubmittable".
     // Together they also give the organiser's review queue one row in each state.
     await sql`
       INSERT INTO finance_manual_payment_proofs (id, payment_id, competition_id,
@@ -1063,7 +1063,7 @@ const main = async (): Promise<void> => {
       VALUES ('seed-proof-c', 'seed-pay-c', 'seed-comp-paid', 'seed-user-cand-c', 'rejected',
         'payment-proofs/seed-comp-paid/seed-pay-c/seed-bukti-c', 'bukti-transfer-cindy.jpg',
         96256, 'image/jpeg', ${h(-30)}, 'seed-user-rec-elev', ${h(-20)},
-        'Nominal transfer tidak sesuai — tertera Rp100.000, seharusnya Rp150.000.', true)
+        'Nominal transfer tidak sesuai, tertera Rp100.000, seharusnya Rp150.000.', true)
       ON CONFLICT (payment_id) DO UPDATE SET
         status = EXCLUDED.status, reviewer_user_id = EXCLUDED.reviewer_user_id,
         reviewed_at = EXCLUDED.reviewed_at, rejection_reason = EXCLUDED.rejection_reason,
@@ -1092,7 +1092,7 @@ const main = async (): Promise<void> => {
     `;
     // The money facts a real verification writes alongside the proof. Without them the ledger says
     // `pending` while the proof says `verified`, and the candidate view would correctly report the
-    // weaker "menunggu verifikasi" — leaving `paid` unreachable, which is the whole point of this
+    // weaker "menunggu verifikasi", leaving `paid` unreachable, which is the whole point of this
     // row. ON CONFLICT DO NOTHING because these are append-only and the reset does not remove them.
     await sql`
       INSERT INTO finance_payment_events (id, payment_id, event_type, occurred_at, amount,
@@ -1110,8 +1110,8 @@ const main = async (): Promise<void> => {
     `;
 
     // A SECOND ACCRUAL PRICED UNDER A SUPERSEDED RULE. Without it the fee statement renders one
-    // line at one rate, and "shows today's rate against a historical accrual" — the failure DEC-0171
-    // exists to prevent, and the one that starts a billing dispute — cannot be observed at all. The
+    // line at one rate, and "shows today's rate against a historical accrual" (the failure DEC-0171
+    // exists to prevent, and the one that starts a billing dispute) cannot be observed at all. The
     // rule it names is retired (effective_to in the past), so a statement that joined the rule table
     // instead of reading the accrual's own snapshot would show 2,5% here and be wrong.
     await sql`
@@ -1134,7 +1134,7 @@ const main = async (): Promise<void> => {
     // that does not exist. The signed-amount handling is the only arithmetic on this page that can
     // be wrong in the direction that overstates a receivable, and every fixture here was an
     // `accrued` row, so the check passed over a code path it had never rendered. Columns mirror
-    // `recordFeeAccrualReversal` exactly — the exact negation, and the accrual's OWN rate snapshot
+    // `recordFeeAccrualReversal` exactly: the exact negation, and the accrual's OWN rate snapshot
     // rather than the rule's current one. Verification itself is not walked back: reversing the fee
     // and unwinding the proof are separate acts, and only the first has a primitive today.
     await sql`
@@ -1165,14 +1165,14 @@ const main = async (): Promise<void> => {
       VALUES ('seed-proofatt-c-0', 'seed-proof-c', 'seed-pay-c', 'seed-comp-paid', 0,
         'seed-user-cand-c', 'payment-proofs/seed-comp-paid/seed-pay-c/seed-bukti-c',
         'bukti-transfer-cindy.jpg', 96256, 'image/jpeg', ${h(-30)}, 'rejected',
-        'Nominal transfer tidak sesuai — tertera Rp100.000, seharusnya Rp150.000.',
+        'Nominal transfer tidak sesuai, tertera Rp100.000, seharusnya Rp150.000.',
         'seed-user-rec-elev', ${h(-20)})
       ON CONFLICT (proof_id, attempt_number) DO NOTHING
     `;
 
     // A RESUBMITTED proof, and the closed attempt behind it. This is the state the finance_ops
-    // dispute view exists for: the live row shows attempt two, and attempt one — the rejection the
-    // candidate is actually disputing — survives only in the history table (migration 0059). A seed
+    // dispute view exists for: the live row shows attempt two, and attempt one (the rejection the
+    // candidate is actually disputing) survives only in the history table (migration 0059). A seed
     // with no resubmission anywhere would let that view ship without ever rendering a history row.
     await sql`
       UPDATE finance_manual_payment_proofs
@@ -1201,7 +1201,7 @@ const main = async (): Promise<void> => {
     // Candidate A's panel must start EMPTY so the upload flow has somewhere to run; an automated
     // pass that uploaded a receipt would leave A in "awaiting_review" and every later run would
     // find no upload control. Only rows the automation creates are removed.
-    // THE ATTEMPT ROWS GO FIRST, because their foreign key is ON DELETE NO ACTION — deliberately,
+    // THE ATTEMPT ROWS GO FIRST, because their foreign key is ON DELETE NO ACTION, deliberately,
     // since an attempt history that vanishes with the row it describes is not a history. Without
     // this delete the whole pipeline becomes one-shot the moment any pass DECIDES a proof: the
     // proof delete below fails on the constraint and the seed cannot reset anything after it.

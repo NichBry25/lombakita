@@ -89,7 +89,7 @@ export default async function CompetitionRegistrationPage({
 
   // DEC-0170, on the candidate's side of the same state. Verification can be revoked after a
   // competition was priced and published, so a paid competition whose organiser cannot currently
-  // take payment is a state a candidate can genuinely arrive at — and the server WILL refuse the
+  // take payment is a state a candidate can genuinely arrive at, and the server WILL refuse the
   // registration. Asked here so the refusal is explained before the click rather than discovered by
   // it. The candidate is told only that payment is unavailable; which of the three conditions
   // failed is the organiser's business and is not surfaced.
@@ -125,7 +125,7 @@ export default async function CompetitionRegistrationPage({
       {paidRegistrationUnavailable && (
         <div role="alert" className="feedback" data-tone="warning">
           Kompetisi ini berbayar, tetapi penyelenggaranya belum dapat menerima pembayaran. Anda
-          belum dapat mendaftar sekarang — hubungi penyelenggara atau periksa kembali nanti.
+          belum dapat mendaftar sekarang. Hubungi penyelenggara atau periksa kembali nanti.
         </div>
       )}
 

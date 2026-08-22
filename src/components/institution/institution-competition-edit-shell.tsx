@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Button,
   ButtonLink,
+  CheckboxField,
   EmptyState,
   FormActionBar,
   Icon,
@@ -916,14 +917,12 @@ export const InstitutionCompetitionEditShell = ({
                 <h2>Kebijakan pembatalan peserta</h2>
               </div>
             </div>
-            <label className="checkbox-field">
-              <input
-                type="checkbox"
-                checked={allowCancellation}
-                onChange={(e) => setAllowCancellation(e.target.checked)}
-              />
-              <span>Izinkan peserta membatalkan pendaftaran sendiri</span>
-            </label>
+            <CheckboxField
+              checked={allowCancellation}
+              onChange={(e) => setAllowCancellation(e.target.checked)}
+            >
+              Izinkan peserta membatalkan pendaftaran sendiri
+            </CheckboxField>
             <label className="form-field">
               <span className="form-label">Batas pembatalan (hari sebelum acara mulai)</span>
               <input

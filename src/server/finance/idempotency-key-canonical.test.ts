@@ -6,8 +6,8 @@
 // three times in one call: to validate the shape, to attempt the insert, and to read back the row a
 // suppressed insert collided with. If those three do not see the SAME STRING, the mechanism inverts.
 //
-// The failure is specific. Store a key with its surrounding whitespace and the retry — which mints
-// the canonical form — no longer matches it, so the unique index does not fire and the same event is
+// The failure is specific. Store a key with its surrounding whitespace and the retry (which mints
+// the canonical form) no longer matches it, so the unique index does not fire and the same event is
 // recorded twice. On the manual arm that is a second `succeeded` on a payment; on the gateway arm it
 // is a webhook retry storm recorded once per delivery. Both are money the ledger does not describe.
 //

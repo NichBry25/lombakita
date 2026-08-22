@@ -2,7 +2,7 @@
 //
 // CLASS C in the guard taxonomy: the tenant gate runs at the route, before a service that takes the
 // resolved institution as a parameter and opens no transaction of its own. So the detector for both
-// a removal and a MOVE is the same and it is sufficient — the service must not have been called.
+// a removal and a MOVE is the same and it is sufficient: the service must not have been called.
 // There is no rollback here to hide a write that already happened.
 //
 // The gate is OWNER-ONLY rather than owner-or-staff, which is the substantive access decision on
@@ -139,7 +139,7 @@ describe("PUT …/payment-instructions", () => {
     savePaymentInstructions.mockRejectedValue(
       new PaymentInstructionsError(
         "payment_instructions_incomplete",
-        "Isi nama bank, nomor rekening, dan nama pemilik rekening — atau unggah QRIS",
+        "Isi nama bank, nomor rekening, dan nama pemilik rekening, atau unggah QRIS",
       ),
     );
 

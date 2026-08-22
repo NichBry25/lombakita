@@ -134,10 +134,10 @@ describe("computePlatformFee", () => {
   });
 });
 
-describe("findFeeRuleRejection — what an operator may not configure", () => {
+describe("findFeeRuleRejection: what an operator may not configure", () => {
   it("refuses a 100% rate, which computes cleanly and leaves the institution nothing", () => {
-    // The point of the check. This does NOT throw in computePlatformFee — the clamp handles it and
-    // returns a coherent result — so without a refusal at configuration time it reaches production
+    // The point of the check. This does NOT throw in computePlatformFee (the clamp handles it and
+    // returns a coherent result) so without a refusal at configuration time it reaches production
     // as a working rule that takes every rupiah of someone else's sale.
     const full = terms({ basisPoints: FULL_TAKE_BASIS_POINTS });
 

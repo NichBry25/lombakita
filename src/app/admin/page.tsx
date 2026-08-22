@@ -37,7 +37,7 @@ const ADMIN_LINKS = [
     label: "Pembayaran tertahan",
     description: "Batalkan bukti transfer atau kompetisi yang tertahan pembayaran berjalan.",
     // No money glyph exists in the canonical set and inventing one is a defect, so the icon says
-    // what the queue IS — an exception state waiting on an operator — rather than what it is about.
+    // what the queue is (an exception state waiting on an operator) instead of what it is about.
     icon: "alert-triangle" as const,
   },
   {

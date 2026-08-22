@@ -18,7 +18,7 @@ assertServerOnly("server/institution-members/member-service");
 const ADMIN_ROLES = ["institution_owner", "institution_staff"] as const;
 
 /**
- * Everyone who administers this institution — the exact set the review gate admits.
+ * Everyone who administers this institution, the exact set the review gate admits.
  *
  * Built on ADMIN_ROLES rather than on its own list so the people NOTIFIED about a bukti transfer
  * and the people PERMITTED to rule on it cannot drift apart. Notifying someone who cannot act, or

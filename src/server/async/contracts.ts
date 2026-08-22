@@ -144,7 +144,7 @@ export type PaymentProofSubmittedPayload = {
   proofId: string;
   // WHICH attempt this is. A resubmission REUSES the proof row and bumps `resubmission_count`, so
   // the proof id alone is the same identity for every attempt and a second bukti transfer would be
-  // swallowed as a replay of the first — leaving the organiser never told it arrived.
+  // swallowed as a replay of the first, leaving the organiser never told it arrived.
   attempt: number;
   competitionTitle: string;
   // Both slugs, so the email can link to the review queue itself. An organiser who administers
@@ -161,8 +161,8 @@ export type PaymentProofSubmittedPayload = {
 // a verdict on that payment decides whether the whole team is still entered.
 //
 // FOUR OUTCOMES, THREE DIFFERENT ACTORS, and the copy has to name the right one each time.
-// `verified` and `rejected` are the organiser's decisions. `expired` has NO human behind it — a
-// deadline passed — which is why its copy says "secara otomatis" and denies the organiser outright.
+// `verified` and `rejected` are the organiser's decisions. `expired` has NO human behind it, only
+// a deadline passing, which is why its copy says "secara otomatis" and denies the organiser.
 // `voided` is LOMBAKITA's decision, not the organiser's: attributing an operator's action to the
 // organiser sends the payer to argue with someone who did not take it.
 export type PaymentOutcomePayload = {
@@ -171,7 +171,7 @@ export type PaymentOutcomePayload = {
   // Same reason as the submission payload: reject → resubmit → reject is two distinct verdicts on
   // one payment, and without the attempt the second one is deduplicated away.
   //
-  // LOAD-BEARING for `verified` and `rejected`, INERT for `expired` — a payment expires once, so
+  // LOAD-BEARING for `verified` and `rejected`, INERT for `expired`. A payment expires once, so
   // that arm always carries whatever the live proof happens to hold (0 when none was ever filed).
   // Stated because the next reader sees a constant on the expiry path and concludes the field can
   // be dropped, which silently re-collapses the two verdict identities.
@@ -208,7 +208,7 @@ export type RetentionPurgePayload = {
 
 // The second job in the system that no request triggers. A payment deadline lapsing is a fact about
 // the calendar, not an action anyone takes, and the candidate who needs telling is precisely the one
-// not looking at the page — so it cannot be derived lazily at read time. The payload carries the
+// not looking at the page, so it cannot be derived lazily at read time. The payload carries the
 // fire time only for log correlation; the sweep reads the overdue list itself.
 export type PaymentExpirySweepPayload = {
   scheduledFor: string;
@@ -255,7 +255,7 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   // participant-facing, so it stays off the notification queue whose backlog users feel. The
   // notifications it causes are enqueued separately, as ordinary participant events.
   [ASYNC_JOB_NAMES.paymentExpirySweep]: ASYNC_QUEUE_NAMES.infrastructure,
-  // Participant-facing, so both sit on the notifications queue — including the one the expiry
+  // Participant-facing, so both sit on the notifications queue, including the one the expiry
   // sweep causes, which is exactly what the note above means by "enqueued separately".
   [ASYNC_JOB_NAMES.paymentProofSubmitted]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.paymentOutcome]: ASYNC_QUEUE_NAMES.notifications,

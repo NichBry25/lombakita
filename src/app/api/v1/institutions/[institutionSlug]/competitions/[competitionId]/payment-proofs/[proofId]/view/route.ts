@@ -12,7 +12,7 @@ type RouteContext = {
   params: Promise<{ institutionSlug: string; competitionId: string; proofId: string }>;
 };
 
-// POST — mint a short-lived URL for the reviewing organiser to look at one bukti transfer.
+// POST mints a short-lived URL for the reviewing organiser to look at one bukti transfer.
 //
 // POST rather than GET, deliberately. This is not a read: it writes an audit row recording that
 // this organiser looked at this candidate's receipt. A GET that mutates is a GET a browser, a

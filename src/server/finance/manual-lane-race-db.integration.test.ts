@@ -8,13 +8,13 @@
 // rows, so there is nothing for it to contend over; and one connection cannot block on itself, so
 // `FOR UPDATE` never waits and a deleted lock looks identical to a working one.
 //
-// So this file COMMITS. Everything it writes is real, and everything it writes is deleted again —
-// see the teardown contract below, which is the price of running here at all.
+// So this file COMMITS. Everything it writes is real, and everything it writes is deleted again.
+// See the teardown contract below, which is the price of running here at all.
 //
 // BARRIERED, NOT SLEEP-TIMED. A race reproduced by starting two operations and hoping they overlap
 // proves nothing on the run where they did not, and the failure is invisible: the test passes. Here
 // a third connection takes the contended row first, both racers are then launched and each is
-// confirmed PARKED on that row's lock by polling `pg_blocking_pids` — an observation of the
+// confirmed PARKED on that row's lock by polling `pg_blocking_pids`, an observation of the
 // database's own wait graph, with a deadline, not a timer. Only once both are provably queued is the
 // barrier released. The queue order is what the racer launch order sets, so each ordering is run
 // deliberately rather than sampled.
@@ -22,7 +22,7 @@
 // WHAT MAKES THESE REAL TESTS RATHER THAN DESCRIPTIONS OF A DESIGN: deleting the lock does not make
 // them flaky, it makes them fail. The operation never reaches the barrier, the poll runs out, and
 // the failure names the missing lock. Moving the lock below the check it is supposed to protect is
-// caught differently — both operations commit and the assertion on the surviving state goes red.
+// caught differently: both operations commit and the assertion on the surviving state goes red.
 // Both directions are exercised deliberately; neither is inferred.
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -32,7 +32,7 @@ import postgres from "postgres";
 
 // THE ONE SEAM IN THIS FILE, and it is drawn at object storage rather than at anything this file
 // exists to measure. The proof writers confirm the uploaded object before recording it, and there
-// is no R2 here — so without this the racers would fail on a missing bucket long before they
+// is no R2 here, so without this the racers would fail on a missing bucket long before they
 // reached the row they are supposed to contend over, and a lock proof would turn into a
 // configuration error wearing the same red.
 //
@@ -47,7 +47,7 @@ import * as schema from "@/server/db/schema";
 // Every row this file creates carries this marker in a slug, a username or an email.
 //
 // It is the recovery mechanism for the case a signal handler cannot cover. A handler runs on
-// SIGINT; nothing runs on SIGKILL, on a killed container, or on a laptop closing mid-run — and a
+// SIGINT; nothing runs on SIGKILL, on a killed container, or on a laptop closing mid-run, and a
 // harness that commits real rows has to survive being killed, not just being cancelled. So the
 // marker sweep at `beforeAll` removes anything a PREVIOUS run left behind before this one starts,
 // and the same sweep runs again at the end. Together they mean the worst outcome of a hard kill is
@@ -56,7 +56,7 @@ const MARKER = "racefx";
 
 // The deadline sits in 2020 so this harness's payment is the only one the sweep can select.
 //
-// `sweepExpiredPayments` is global by construction — it walks every overdue manual payment in the
+// `sweepExpiredPayments` is global by construction. It walks every overdue manual payment in the
 // database, which against a committed dev database means it could reach rows this file did not
 // create. Dating the fixture into the past and sweeping from just after it makes the blast radius a
 // property of the clock rather than a hope, and `assertOnlyOverduePayment` below verifies it every
@@ -103,7 +103,7 @@ const backendPidOf = async (connection: Connection): Promise<number> => {
  * TRANSITIVE, and that is not gold-plating. Postgres does not point every waiter for one row at the
  * row's holder: the first waiter takes the tuple lock and waits on the holder's transaction, and the
  * SECOND waiter then queues on the tuple lock held by the FIRST. So `pg_blocking_pids` reports the
- * second racer as blocked by the first racer, not by the barrier — a direct-membership check reads
+ * second racer as blocked by the first racer, not by the barrier. A direct-membership check reads
  * a correctly formed queue as no queue at all, which is how a lock proof ends up passing for the
  * wrong reason or, as here, failing for one.
  */
@@ -124,7 +124,7 @@ const transitiveBlockersOf = async (waiterPid: number): Promise<number[]> => {
  *
  * THIS IS THE BARRIER, and its failure message is written for the person who deleted a lock. It
  * polls a CONDITION with a deadline rather than sleeping a fixed interval, so a block observed in
- * one millisecond costs one millisecond — the deadline exists only to turn a hang into a named
+ * one millisecond costs one millisecond, and the deadline exists only to turn a hang into a named
  * failure.
  */
 const awaitBlockedBy = async (waiterPid: number, holderPid: number, what: string): Promise<void> => {
@@ -144,7 +144,7 @@ const awaitBlockedBy = async (waiterPid: number, holderPid: number, what: string
       `${waiterPid} were last [${lastSeen.join(", ")}] and never included the holder ${holderPid}.\n` +
       `THIS IS THE GUARD-REMOVAL SIGNAL, NOT A FLAKE. The operation is expected to take that row ` +
       `FOR UPDATE and queue behind whoever holds it. If this started failing after a change to a ` +
-      `lock, the lock is what broke. Do NOT raise BARRIER_TIMEOUT_MS to make it pass — a longer ` +
+      `lock, the lock is what broke. Do NOT raise BARRIER_TIMEOUT_MS to make it pass. A longer ` +
       `wait for a block that is never going to happen is still no block.`,
   );
 };
@@ -164,7 +164,7 @@ type TrackRacer = <T>(work: Promise<T>) => Promise<Settled<T>>;
 /**
  * Holds an exclusive lock on one row for the duration of `body`, and ALWAYS gives it back.
  *
- * The `finally` here is not defensive tidiness — it is the only reason this suite can report a
+ * The `finally` here is not defensive tidiness. It is the only reason this suite can report a
  * failure at all. A barrier left holding a registration row makes the teardown's DELETE wait on it
  * forever, so an assertion failing inside the body would surface as a hung run with no message
  * rather than as a failing test. That is the exact shape of the defect this project keeps finding:
@@ -220,7 +220,7 @@ const withRowHeld = async <T>(
  * Holds the competition participation advisory lock on the barrier connection.
  *
  * `withRowHeld` cannot serve here: an advisory lock has no row to take FOR UPDATE, and the whole
- * point of Rule 25's second clause is that the contended rows do not exist yet — a registration
+ * point of Rule 25's second clause is that the contended rows do not exist yet. A registration
  * that has not been inserted cannot be locked, which is exactly why a compare-and-set has nothing
  * to serialize on and an advisory lock is the only thing that does.
  *
@@ -472,14 +472,14 @@ beforeAll(async () => {
   racerTwo = openConnection("racer-two");
 
   // The teardown runs on this connection, and a teardown that WAITS on a stray lock is worse than
-  // one that fails: the run hangs with no message and the real failure — whatever left the lock
-  // held — is never reported. A bounded wait turns that into a named error. The racers deliberately
+  // one that fails: the run hangs with no message and the real failure, whatever left the lock
+  // held, is never reported. A bounded wait turns that into a named error. The racers deliberately
   // have no such timeout; waiting on the barrier is their whole job.
   await control.sql.unsafe("set lock_timeout = '10s'");
 
   // A previous run that was killed rather than cancelled left rows behind. Remove them before
   // seeding, or `assertOnlyOverduePayment` fails on data this run did not create and the real
-  // finding — a leak — is reported as an unrelated test failure.
+  // finding (a leak) is reported as an unrelated test failure.
   await purgeMarkedRows();
 
   process.on("SIGINT", purgeOnSignal);
@@ -631,7 +631,7 @@ describe.skipIf(skipWithoutDatabase)("the deadline boundary, under real contenti
     expect(await proofRowsFor(fixture.paymentId)).toHaveLength(1);
   });
 
-  it("without contention the same upload succeeds — the refusal above is the race, not a blanket bar", async () => {
+  it("without contention the same upload succeeds, so the refusal above is the race, not a blanket bar", async () => {
     // The negative control. Without it, a `submitManualPaymentProof` that refused unconditionally
     // would pass the worker-first test, and the race would be proving nothing at all.
     const fixture = await seedCommittedFixture();
@@ -741,7 +741,7 @@ describe.skipIf(skipWithoutDatabase)("reopening a closed bukti transfer, under r
 
   it("VOIDED arm: two refiles of a proof barred from resubmission contend, exactly one wins", async () => {
     // `resubmission_allowed = false` is the point. The voided arm ignores the organiser's bar
-    // deliberately — the bar was set against the organiser's own rejection, and a void is
+    // deliberately: the bar was set against the organiser's own rejection, and a void is
     // platform_ops correcting something else entirely. That arm is the newer of the two and bypasses
     // a gate, so it gets its own contention proof rather than inheriting the rejected arm's.
     const fixture = await seedCommittedFixture();
@@ -765,7 +765,7 @@ describe.skipIf(skipWithoutDatabase)("reopening a closed bukti transfer, under r
     // The negative control for both arms at once, and it makes a sharper claim than the two tests
     // above rather than a weaker one.
     //
-    // A reopen of a `pending_review` proof does not merely lose the race — IT NEVER ENTERS IT. The
+    // A reopen of a `pending_review` proof does not merely lose the race. IT NEVER ENTERS IT. The
     // CAS's WHERE excludes the row at scan time, so Postgres has nothing to lock and the statement
     // returns while this test is still holding an exclusive lock on that very row. Both refusals
     // therefore arrive BEFORE the barrier is released, which is why this one cannot use
@@ -815,7 +815,7 @@ describe.skipIf(skipWithoutDatabase)("pricing a competition serializes with its 
   /**
    * THE THIRD RACE, and the one a compare-and-set structurally cannot close.
    *
-   * Setting a price is refused when the competition already has active FREE registrants — pricing
+   * Setting a price is refused when the competition already has active FREE registrants, because
    * one retroactively attaches a fee to people who agreed to none. That decision COUNTS ROWS, and
    * the rows it counts do not exist yet: the registration it must not miss is still in flight. There
    * is no shared row for a CAS to compare against, so the only thing that can serialize the count
@@ -826,7 +826,7 @@ describe.skipIf(skipWithoutDatabase)("pricing a competition serializes with its 
    *
    * What this measures is the BLOCK, not the outcome: with the lock held elsewhere the fee write
    * must wait rather than proceed on a stale count. Deleting the lock from the service makes this
-   * fail — it stops waiting.
+   * fail, because it stops waiting.
    */
   it("waits for the participation lock instead of pricing against a stale count", async () => {
     const fixture = await seedCommittedFixture();
@@ -839,7 +839,7 @@ describe.skipIf(skipWithoutDatabase)("pricing a competition serializes with its 
 
     // Returned INSIDE an array, exactly as the reopen racers are. `withParticipationLockHeld` does
     // `await body(track)`, so handing back the bare promise would await the racer while the barrier
-    // still holds the lock — the harness would deadlock against itself and report a timeout that
+    // still holds the lock, and the harness would deadlock against itself and report a timeout that
     // looks like a missing lock. An array is not unwrapped by await; the finally releases first and
     // `Promise.all(inFlight)` collects the racer afterwards.
     const [settled] = await withParticipationLockHeld(fixture.competitionId, async (track) => {

@@ -15,7 +15,7 @@ type RouteParams = { params: Promise<{ proofId: string }> };
 // PAYER in the platform operator log. Widening either route to accept both roles would collapse
 // two access questions that a dispute has to be able to tell apart.
 //
-// POST rather than GET because it WRITES — the audit row is the point, and a GET that mutates would
+// POST rather than GET because it WRITES: the audit row is the point, and a GET that mutates would
 // be replayed by any prefetch.
 export async function POST(_request: Request, { params }: RouteParams): Promise<Response> {
   try {

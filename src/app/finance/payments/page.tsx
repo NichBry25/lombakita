@@ -10,13 +10,13 @@ export const metadata = {
 };
 
 /**
- * Every bukti transfer ever filed, across every institution — the finance_ops dispute view.
+ * Every bukti transfer ever filed, across every institution. This is the finance_ops dispute view.
  *
  * READ-ONLY BY CONSTRUCTION, and the absence of controls is the design (DEC-0162). Under the manual
  * origin the money reaches the organiser's own bank account and never touches platform
  * infrastructure, so finance_ops has no independent record that a transfer happened and no way to
  * confirm one. Only the organiser can look at their statement. There is therefore no verify, no
- * reject and no void anywhere on this surface — not disabled, ABSENT — because a control that
+ * reject and no void anywhere on this surface. Not disabled, ABSENT, because a control that
  * cannot be exercised still tells the operator they are the person who decides, and they are not.
  *
  * Cross-institution on purpose: a dispute arrives naming a person and a competition, not a tenant.

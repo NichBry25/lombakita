@@ -31,8 +31,8 @@ export default async function SubmissionPage({
     registrationId,
   );
 
-  // Null for a free competition, which is most of them. The panel is simply absent then — there is
-  // no payment to describe, and an empty "Pembayaran" section would invent an obligation.
+  // Null for a free competition, which is most of them. The panel is simply absent then, because
+  // there is no payment to describe and an empty "Pembayaran" section would invent an obligation.
   const payment = await loadCandidatePaymentView(registrationId, session.user.id);
 
   return (
@@ -45,7 +45,7 @@ export default async function SubmissionPage({
       />
 
       {/* PAYMENT LEADS. All three panels below are time-bound, but this is the only one whose
-          deadline ENDS the registration when it passes — a document request gates nothing and the
+          deadline ENDS the registration when it passes. A document request gates nothing and the
           submission window closes without cancelling anyone. */}
       {payment ? (
         <CandidatePaymentPanel

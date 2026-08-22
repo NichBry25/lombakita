@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, Feedback, Icon, Skeleton } from "@/components/ui";
+import { Button, Card, CheckboxField, Feedback, Icon, Skeleton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { sessionFetch } from "@/lib/session/session-fetch";
 import { computePlatformFee, type FeeRuleTerms } from "@/lib/finance/fee";
@@ -27,7 +27,7 @@ const CURRENCY = "IDR";
  *
  * The disclosure is not a link to a pricing page and not a percentage the organiser is left to
  * apply themselves. It states, for the exact amount typed into the field above it, what the
- * candidate pays, what Lombakita takes and what reaches the institution — recomputed as the number
+ * candidate pays, what Lombakita takes and what reaches the institution, recomputed as the number
  * changes, using the same `computePlatformFee` the ledger will use, so the figure shown and the
  * figure charged cannot drift.
  *
@@ -130,11 +130,16 @@ export function CompetitionFeeSection({
 
       addToast({
         type: "success",
-        message: isPaid ? "Pendaftaran berbayar diaktifkan." : "Pendaftaran dikembalikan ke gratis.",
+        message: isPaid
+          ? "Pendaftaran berbayar diaktifkan."
+          : "Pendaftaran dikembalikan ke gratis.",
       });
       await load();
     } catch {
-      addToast({ type: "error", message: "Biaya pendaftaran gagal disimpan karena gangguan koneksi." });
+      addToast({
+        type: "error",
+        message: "Biaya pendaftaran gagal disimpan karena gangguan koneksi.",
+      });
     } finally {
       setIsSaving(false);
     }
@@ -150,26 +155,19 @@ export function CompetitionFeeSection({
 
       <form className="stack-md" onSubmit={save}>
         <span className="form-label">Jenis pendaftaran</span>
-        {/* `.checkbox-field` rather than a bare label: it carries `min-height: var(--touch-target)`,
-            which is what makes the tap target 44px. A `.form-field` wrapper renders the same control
-            25px tall and fails the mobile audit. */}
-        <label className="checkbox-field" htmlFor="fee-paid">
-          <span>
-            <input
-              id="fee-paid"
-              type="checkbox"
-              checked={isPaid}
-              onChange={(event) => {
-                setIsPaid(event.target.checked);
-                // Consent does not survive a change to what is being consented to. Unticking and
-                // reticking "berbayar" must ask again, or an acknowledgement recorded for one
-                // price would carry over to another.
-                setAcknowledged(false);
-              }}
-            />{" "}
-            Pendaftaran berbayar
-          </span>
-        </label>
+        <CheckboxField
+          id="fee-paid"
+          checked={isPaid}
+          onChange={(event) => {
+            setIsPaid(event.target.checked);
+            // Consent does not survive a change to what is being consented to. Unticking and
+            // reticking "berbayar" has to ask again, or an acknowledgement recorded for one price
+            // would carry over to another.
+            setAcknowledged(false);
+          }}
+        >
+          Pendaftaran berbayar
+        </CheckboxField>
 
         {isPaid ? (
           <>
@@ -220,7 +218,7 @@ export function CompetitionFeeSection({
                 Masukkan biaya pendaftaran untuk melihat rincian potongan layanan.
               </Feedback>
             ) : (
-              <div className="inset-panel stack-sm">
+              <Card variant="inset" className="stack-sm">
                 <p className="form-label">Rincian per pendaftaran</p>
                 <dl className="detail-grid">
                   <div>
@@ -244,24 +242,20 @@ export function CompetitionFeeSection({
                   Dana peserta masuk langsung ke rekening lembaga Anda. Biaya layanan dicatat
                   sebagai tagihan Lombakita kepada lembaga, bukan dipotong dari transfer peserta.
                 </p>
-              </div>
+              </Card>
             )}
 
             {/* WITHHELD, not disabled, when there are no figures. A disabled checkbox under an
                 error the organiser cannot act on invites them to try to tick it; there is simply
                 nothing to agree to until the disclosure above renders. */}
             {preview !== null ? (
-              <label className="checkbox-field" htmlFor="fee-ack">
-                <span>
-                  <input
-                    id="fee-ack"
-                    type="checkbox"
-                    checked={acknowledged}
-                    onChange={(event) => setAcknowledged(event.target.checked)}
-                  />{" "}
-                  Saya menyetujui rincian biaya layanan di atas.
-                </span>
-              </label>
+              <CheckboxField
+                id="fee-ack"
+                checked={acknowledged}
+                onChange={(event) => setAcknowledged(event.target.checked)}
+              >
+                Saya menyetujui rincian biaya layanan di atas.
+              </CheckboxField>
             ) : null}
           </>
         ) : (

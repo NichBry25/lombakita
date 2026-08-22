@@ -54,7 +54,7 @@ describe("describePaymentDeadline", () => {
 
   it("SUSPENDS even when the deadline has already gone by", () => {
     // THE CASE THE RULING IS ABOUT. A candidate who submitted in time and is waiting on a slow
-    // organiser is not late — the worker will not expire them, and neither may the page say so.
+    // organiser is not late. The worker will not expire them, and neither may the page say so.
     expect(describePaymentDeadline(at(-5 * DAY), { suspended: true, now: NOW })).toMatchObject({
       kind: "suspended",
     });

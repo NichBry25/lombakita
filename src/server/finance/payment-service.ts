@@ -194,7 +194,7 @@ export const createPayment = async (
   if (input.origin === "manual_transfer" && dueAt === null) {
     throw new PaymentError(
       "payment_due_at_required",
-      "A manual-transfer payment must carry the deadline it was given — resolve it with resolvePaymentDueAt",
+      "A manual-transfer payment must carry the deadline it was given. Resolve it with resolvePaymentDueAt",
     );
   }
 
@@ -203,7 +203,7 @@ export const createPayment = async (
     // enforces, sitting next to the one that is actually binding.
     throw new PaymentError(
       "payment_due_at_not_applicable",
-      "Only a manual-transfer payment carries a due date — the gateway owns expiry on its lane",
+      "Only a manual-transfer payment carries a due date. The gateway owns expiry on its lane",
     );
   }
 
@@ -242,7 +242,7 @@ export const createPayment = async (
   // THE MANUAL LANE SPLITS NOTHING. The payer transferred the whole amount into the institution's
   // own account, so the truthful record is fee 0 / net = gross; the platform's fee on this payment
   // is a separate debt recorded in `finance_fee_accruals` once the transfer is verified. The
-  // computed `fee` above is still what prices that accrual — it is not discarded, it is just not
+  // computed `fee` above is still what prices that accrual, and it is not discarded, only not
   // what this row describes. A database CHECK enforces the same rule, so a future caller that
   // writes the split directly is refused rather than quietly recording a fee that never moved.
   const isManualLane = input.origin === "manual_transfer";
@@ -270,7 +270,7 @@ export const createPayment = async (
   try {
     // ONE TRANSACTION, so a manual payment and the snapshot of what its payer was shown cannot come
     // apart. A payment row without its snapshot would be a debt whose instructions can only be
-    // recovered by reading today's account details — which is exactly the substitution the snapshot
+    // recovered by reading today's account details, which is exactly the substitution the snapshot
     // exists to prevent, and it would look like ordinary data rather than a fault.
     //
     // Both timestamps default to now(), which inside one transaction is a single instant, so the

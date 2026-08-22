@@ -3,7 +3,7 @@
 // The window is a COMPETITION setting; the deadline it produces is a PER-PAYMENT SNAPSHOT. That
 // split is the whole design. An organiser who shortens the window next week must not move a
 // deadline already promised to someone who is mid-transfer, so the resolved instant is written
-// onto the payment row at creation and never recomputed from the competition again — the same
+// onto the payment row at creation and never recomputed from the competition again, the same
 // reasoning that makes the payment's fee snapshot structural rather than an optimisation.
 //
 // Client-safe: pure, no server-only imports, no I/O.
@@ -19,7 +19,7 @@ export const DEFAULT_PAYMENT_WINDOW_DAYS = 3;
 export const MIN_PAYMENT_WINDOW_DAYS = 1;
 
 // The upper bound on what an organiser may CONFIGURE. The binding ceiling in practice is
-// registration close (see resolvePaymentDueAt) — this only stops a nonsense value being stored on
+// registration close (see resolvePaymentDueAt). This only stops a nonsense value being stored on
 // a competition whose registration window is still open-ended.
 export const MAX_PAYMENT_WINDOW_DAYS = 30;
 
@@ -36,7 +36,7 @@ export const isValidPaymentWindowDays = (value: number): boolean =>
  * stopped accepting entries is a registration nobody can honour. `registrationEndAt` therefore
  * clamps the result whenever it lands first.
  *
- * A null `registrationEndAt` means no clamp — an open-ended registration window has nothing to
+ * A null `registrationEndAt` means no clamp: an open-ended registration window has nothing to
  * clamp against, and MAX_PAYMENT_WINDOW_DAYS is what bounds the configured value in that case.
  *
  * The clamp can produce a deadline in the PAST, or before `startedAt`, when registration has

@@ -6,7 +6,7 @@ import { requireRolePage } from "@/server/auth/page-guard";
 // the page it is wrapping. The admin hub is the honest choice: it is reachable from any /admin/*
 // deep link and is one click from each queue, whereas naming a specific queue here returns a
 // visitor to a page they never asked for. Returning to the EXACT requested page needs the guard to
-// move onto each page — the shape every other role-scoped surface already uses — which is the real
+// move onto each page, the shape every other role-scoped surface already uses. That is the real
 // close of this and is deliberately not done here.
 const PAGE_PATH = "/admin";
 

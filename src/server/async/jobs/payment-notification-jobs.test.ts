@@ -2,9 +2,9 @@
 //
 // What the two manual-lane workers SAY, and WHO they say it to.
 //
-// The wiring — that the four call sites reach the queue at all, with the right payload, through the
-// real service and a real database — is proven in `manual-lane-db.integration.test.ts`. What that
-// suite cannot see is the copy, because the copy is written inside the worker. This file measures
+// The wiring, meaning that the four call sites reach the queue at all with the right payload
+// through the real service and a real database, is proven in `manual-lane-db.integration.test.ts`.
+// What that suite cannot see is the copy, because the copy is written inside the worker. It measures
 // the strings and the fan-out, and mocks nothing below the two boundaries it needs: the recipient
 // resolvers (their own scoping is asserted against a real database elsewhere) and Resend.
 
@@ -53,7 +53,7 @@ import { processPaymentOutcomeJob, type PaymentOutcomeJob } from "./payment-outc
 import type { PaymentOutcomePayload } from "@/server/async/contracts";
 
 /**
- * Chain mock — each select() shifts the next canned result; thenable so a where-terminated read
+ * Chain mock: each select() shifts the next canned result; thenable so a where-terminated read
  * resolves.
  *
  * IT ALSO CAPTURES THE CONDITION, and that is not decoration. A mock that ignores `where` returns
@@ -145,7 +145,7 @@ describe("the bukti transfer submission notice", () => {
     expect(mockSendPaymentProofSubmittedEmail).toHaveBeenCalledTimes(2);
   });
 
-  it("says who paid, how much, and what to do — in Indonesian", async () => {
+  it("says who paid, how much, and what to do, in Indonesian", async () => {
     mockListInstitutionAdminUserIds.mockResolvedValue(["u_owner"]);
     mockGetDb.mockReturnValue(makeDb([[{ id: "u_owner", email: "owner@test.com" }]]));
 
@@ -159,7 +159,7 @@ describe("the bukti transfer submission notice", () => {
   });
 
   it("does nothing, and does not throw, when the institution has no administrator left", async () => {
-    // A real state — the last admin membership was revoked — and not one a retry can fix.
+    // A real state (the last admin membership was revoked) and not one a retry can fix.
     mockListInstitutionAdminUserIds.mockResolvedValue([]);
     mockGetDb.mockReturnValue(makeDb([]));
 
@@ -262,7 +262,7 @@ describe("the payment verdict notice", () => {
 
     const [, , , , body] = mockWriteNotification.mock.calls[0]!;
     expect(body).toContain("Anda tidak dapat mengirim bukti baru");
-    expect(body).toContain("hubungi penyelenggara");
+    expect(body).toContain("Hubungi penyelenggara");
     expect(body).not.toContain("Unggah bukti transfer yang baru");
   });
 

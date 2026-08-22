@@ -13,7 +13,7 @@ type RouteContext = { params: Promise<{ institutionSlug: string }> };
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-// POST — a short-lived URL for uploading this institution's QRIS image.
+// POST returns a short-lived URL for uploading this institution's QRIS image.
 //
 // The caller sends only a FILE NAME. The object key is derived server-side from the institution
 // resolved out of the slug, so there is no request field that can aim the upload at another

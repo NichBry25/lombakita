@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, IconButton } from "@/components/ui";
+import { Button, CheckboxField, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   SESSION_MISMATCH_CODE,
@@ -133,7 +133,8 @@ export const CompetitionPrizesEditor = ({
       <div className="stack-xs">
         <h2 className="section-title">Hadiah</h2>
         <p className="form-help">
-          Tambahkan hadiah kompetisi. Nominal tunai hanya ditampilkan, karena pembayaran belum aktif.
+          Tambahkan hadiah kompetisi. Nominal tunai hanya ditampilkan, karena pembayaran belum
+          aktif.
         </p>
       </div>
 
@@ -181,15 +182,13 @@ export const CompetitionPrizesEditor = ({
                 />
               </div>
               <div className="form-field">
-                <label className="form-label" htmlFor={`prize-cert-${index}`}>
-                  <input
-                    id={`prize-cert-${index}`}
-                    type="checkbox"
-                    checked={row.isCertificate}
-                    onChange={(event) => updateRow(index, { isCertificate: event.target.checked })}
-                  />{" "}
+                <CheckboxField
+                  id={`prize-cert-${index}`}
+                  checked={row.isCertificate}
+                  onChange={(event) => updateRow(index, { isCertificate: event.target.checked })}
+                >
                   Termasuk sertifikat
-                </label>
+                </CheckboxField>
               </div>
               <div className="form-field">
                 <label className="form-label" htmlFor={`prize-desc-${index}`}>

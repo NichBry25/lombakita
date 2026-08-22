@@ -539,10 +539,7 @@ export const InstitutionSettingsShell = ({
       {/* Its own endpoint and its own Save, so it sits outside the page's global Save. Rendered
           after the profile section because it is administrative rather than public-facing. */}
       {!isLoading ? (
-        <PaymentInstructionsSection
-          institutionSlug={activeSlug}
-          expectedUserId={expectedUserId}
-        />
+        <PaymentInstructionsSection institutionSlug={activeSlug} expectedUserId={expectedUserId} />
       ) : null}
 
       <FormActionBar>

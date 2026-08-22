@@ -3,8 +3,8 @@
 // DEC-0162 AT THE ROUTE: finance_ops may LOOK at a bukti transfer and may do nothing else to it.
 //
 // The ruling was enforced in code and asserted only by the browser and API harnesses, both of which
-// run locally and have never run in CI. So widening this gate — or pointing the finance shell at a
-// verdict service — turned nothing red in the suite that actually gates merges. These assertions
+// run locally and have never run in CI. So widening this gate, or pointing the finance shell at a
+// verdict service, turned nothing red in the suite that actually gates merges. These assertions
 // are the CI-enforced half.
 
 import { readFileSync } from "node:fs";
@@ -48,7 +48,7 @@ beforeEach(() => {
 });
 
 describe("POST /api/finance-ops/payment-proofs/[proofId]/view", () => {
-  it("admits finance_ops and NOBODY else — not even the other operator role", async () => {
+  it("admits finance_ops and NOBODY else, not even the other operator role", async () => {
     await POST(request(), { params });
 
     // Exact array. A widening to ["finance_ops", "platform_ops"] fails here, which is the whole
@@ -109,7 +109,7 @@ describe("the finance surface cannot reach a verdict", () => {
   it.each(FINANCE_MODULES)("%s names no verdict writer", (relative) => {
     const source = readFileSync(resolve(process.cwd(), relative), "utf8");
 
-    // The file is really there and really has content — an unreadable path would throw, and an
+    // The file is really there and really has content. An unreadable path would throw, and an
     // empty one would satisfy every assertion below for the wrong reason.
     expect(source.length).toBeGreaterThan(200);
 

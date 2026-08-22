@@ -1,13 +1,13 @@
 // @vitest-environment node
 //
 // The route reads a body and calls one service; every gate lives in that service and is proven
-// against a real database. What is proven here is the boundary — which is where this route already
+// against a real database. What is proven here is the boundary, which is where this route already
 // had a real defect.
 //
 // `setCompetitionFee` raises THREE error families across its six gates. A handler converting only
 // CompetitionError sends the other two to `toAccessDeniedResponse`, which answers anything it does
-// not recognise with HTTP 500 "Unexpected access-guard failure". The R12 refusal — an organiser who
-// has not yet published bank details, the most likely legitimate refusal on this surface — arrived
+// not recognise with HTTP 500 "Unexpected access-guard failure". The R12 refusal (an organiser who
+// has not yet published bank details, the most likely legitimate refusal on this surface) arrived
 // exactly that way until these tests were written.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -112,7 +112,7 @@ describe("PUT …/competitions/[competitionId]/fee", () => {
   it("surfaces the R12 precondition as a 422 in Indonesian, NOT a 500", async () => {
     // The defect these tests found. PaymentInstructionsError is not a CompetitionError, so before
     // the route converted it this refusal reached the organiser as
-    // HTTP 500 "Unexpected access-guard failure" — an English internal error for an ordinary,
+    // HTTP 500 "Unexpected access-guard failure": an English internal error for an ordinary,
     // recoverable, self-service state.
     requireAuthenticatedSession.mockResolvedValue(ORGANISER);
     setCompetitionFee.mockRejectedValue(

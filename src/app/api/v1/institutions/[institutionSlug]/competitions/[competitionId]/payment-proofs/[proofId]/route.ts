@@ -16,12 +16,12 @@ type RouteContext = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-// PATCH — the organiser's verdict on one bukti transfer. `action` selects between them:
+// PATCH records the organiser's verdict on one bukti transfer. `action` selects between them:
 //
 //   verify  the money arrived. Writes the `succeeded` event and the fee accrual.
-//   reject  it did not, or not correctly. Writes NO finance event — a rejection establishes
-//           nothing about the money either way — and carries `resubmissionAllowed`, which is a
-//           real verdict rather than a UI state.
+//   reject  it did not, or not correctly. Writes NO finance event, because a rejection
+//           establishes nothing about the money either way, and carries `resubmissionAllowed`,
+//           which is a real verdict rather than a UI state.
 //
 // The two share a route because they share a subject and a guard, matching how document-request
 // review is shaped.
@@ -30,7 +30,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 // inside the same WHERE as the CAS. A proof belonging to another organiser's competition matches no
 // row and is refused as not-found rather than as forbidden.
 //
-// Organiser tooling acting on a CANDIDATE'S row — Rule 16's cross-session guard is deliberately not
+// Organiser tooling acting on a CANDIDATE'S row. Rule 16's cross-session guard is deliberately not
 // applied, matching every other organiser endpoint. That guard protects a user acting on their own
 // data; this endpoint's authorization is the tenant boundary above.
 export async function PATCH(request: Request, context: RouteContext): Promise<Response> {

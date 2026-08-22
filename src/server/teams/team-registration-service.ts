@@ -445,7 +445,7 @@ export const cancelTeamRegistration = async (
 
   // The same conditional the individual cancel path applies, deliberately reached through the same
   // predicate rather than restated. A team pays ONCE, anchored on the captain's row, and the
-  // predicate resolves the whole payment group — so a captain cancelling a team whose payment is
+  // predicate resolves the whole payment group, so a captain cancelling a team whose payment is
   // evidenced is refused for exactly the reason an individual would be, and a team that has
   // transferred nothing keeps the right to disband.
   //

@@ -7,7 +7,7 @@ import { ASYNC_JOB_NAMES, ASYNC_QUEUE_NAMES } from "@/server/async/contracts";
 import { getAsyncQueue } from "@/server/async/queue";
 
 // Identity of the recurring schedule. BullMQ keys the schedule by this id, so re-registering with
-// the same id REPLACES the existing schedule rather than adding a second one — which is what makes
+// the same id REPLACES the existing schedule rather than adding a second one, which is what makes
 // it safe to call on every worker boot, and what stops a redeploy from doubling the run rate.
 export const PAYMENT_EXPIRY_SCHEDULER_ID = "payment-expiry-hourly";
 
@@ -17,8 +17,8 @@ export const PAYMENT_EXPIRY_SCHEDULER_ID = "payment-expiry-hourly";
 // re-registering and still holding the organiser's unpublish block open. An hour is close enough
 // that the state a candidate sees matches the deadline they were given.
 //
-// The sweep is idempotent — the expiry event's key is deterministic per payment and the
-// cancellation is a compare-and-set — so running it more often costs a query, never a duplicate.
+// The sweep is idempotent (the expiry event's key is deterministic per payment and the
+// cancellation is a compare-and-set) so running it more often costs a query, never a duplicate.
 export const PAYMENT_EXPIRY_CRON = "0 * * * *";
 export const PAYMENT_EXPIRY_TIMEZONE = "Asia/Jakarta";
 
@@ -30,7 +30,7 @@ export const PAYMENT_EXPIRY_TIMEZONE = "Asia/Jakarta";
  * process there whose startup means "the platform is up".
  *
  * Missed occurrences are deliberately NOT backfilled. A deadline does not move, so an overdue
- * payment stays selectable by the next run — after downtime the following sweep collects
+ * payment stays selectable by the next run. After downtime the following sweep collects
  * everything, and asking BullMQ to replay each missed hour would just re-walk the same rows.
  */
 export const registerPaymentExpirySchedule = async (): Promise<void> => {

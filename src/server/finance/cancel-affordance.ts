@@ -15,7 +15,7 @@ import { findTeamPaymentGroupAnchor, hasSubmittedPaymentProof } from "./paid-reg
 //
 // This resolves the DISPLAY question through the same predicate the two cancel SERVICES call. A
 // second, lighter derivation written at the page is how a control ends up offered on a registration
-// the server refuses to cancel — the failure this surface exists to prevent.
+// the server refuses to cancel, the failure this surface exists to prevent.
 
 export type CancelAffordanceInput = {
   /** The calling candidate's own individual registration, when they hold one. */

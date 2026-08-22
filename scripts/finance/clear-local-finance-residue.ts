@@ -9,14 +9,14 @@
  *
  * WHAT THIS IS NOT. It is not a delete path for the ledger, and nothing under `src/` gains one.
  * DEC-0133 makes the finance ledger append-only by forbidding any APPLICATION code path that updates
- * or deletes a ledger row — an invariant the append-only scan enforces across all of `src/**`. This
+ * or deletes a ledger row, an invariant the append-only scan enforces across all of `src/**`. This
  * file lives in `scripts/`, is not reachable from the app, and removes fixture rows left by other
  * scripts. If you are reading this while looking for a way to delete a payment from a running
  * system: there isn't one, and adding one here would not give you one.
  *
  * LOCAL DATABASES ONLY, checked rather than documented. The distinction between "fixture residue"
- * and "the ledger" is a fact about which database is connected, not about the rows themselves —
- * they are the same shape. A pasted connection string is all it would take, so the host is verified
+ * and "the ledger" is a fact about which database is connected, not about the rows themselves.
+ * They are the same shape. A pasted connection string is all it would take, so the host is verified
  * before anything is read, let alone deleted.
  *
  * FIXTURE ROWS ARE MATCHED BY THE PATTERN THE HARNESS MINTS THEM WITH, never by "everything that
@@ -24,7 +24,7 @@
  * `scripts/concurrency/finance-idempotency-races.ts`; nothing else in the app produces either shape.
  *
  * A user whose deletion a foreign key refuses is REPORTED AND LEFT. Those FKs are audit references
- * with no cascade (DEC-0112) — an audit trail that a cleanup script can dissolve is not an audit
+ * with no cascade (DEC-0112), and an audit trail that a cleanup script can dissolve is not an audit
  * trail, so the refusal is the design working and is not to be worked around here.
  *
  * Run:  node --import tsx scripts/finance/clear-local-finance-residue.ts          (reports only)
@@ -36,7 +36,7 @@
 import { assertLocalDatabase, createChecker, databaseUrl, finish } from "../lib/live-harness";
 
 // Children before parents. Every finance foreign key is ON DELETE NO ACTION, so any other order is
-// refused by the database — the same durability that makes the ledger hard to erase from the app.
+// refused by the database, the same durability that makes the ledger hard to erase from the app.
 //
 // EVERY NEW FINANCE TABLE BELONGS HERE, ABOVE ITS PARENT. An omission does not degrade quietly: the
 // parent's delete fails on the constraint and the whole cleanup aborts, which is how a local
@@ -149,7 +149,7 @@ const main = async (): Promise<void> => {
 
         retainedUserIds.push(user.id);
         console.log(
-          `  RETAINED  ${user.email} — referenced by an audit foreign key, left in place`,
+          `  RETAINED  ${user.email}: referenced by an audit foreign key, left in place`,
         );
       }
     }
@@ -198,7 +198,7 @@ const main = async (): Promise<void> => {
 
       if (retainedUserIds.length > 0) {
         console.log(
-          `\n${retainedUserIds.length} fixture user(s) left in place — an audit foreign key ` +
+          `\n${retainedUserIds.length} fixture user(s) left in place, an audit foreign key ` +
             "references them, and audit rows are not deleted to make a cleanup tidier.",
         );
       }

@@ -18,13 +18,13 @@ import type { FeeAccrualEntryType } from "@/lib/finance/payment-model";
 // DEC-0163 sets the direction, and it is the opposite of everything else in this lane: the accrual
 // is a RECEIVABLE the institution owes Lombakita, not money Lombakita is holding for them. Under
 // DEC-0130 the participant's transfer went straight into the institution's own bank account and the
-// platform never touched it — so the platform's service fee was never deducted from anything. It is
+// platform never touched it, so the platform's service fee was never deducted from anything. It is
 // billed afterwards. A statement that reads like a balance would invert that completely and invite
 // an organiser to wait for a payout that is never coming.
 //
 // EVERY RATE HERE COMES FROM THE ACCRUAL'S OWN SNAPSHOT (DEC-0171), never from the fee rule as it
 // stands today. The rule is versioned by effective date and a later one supersedes it, so rendering
-// the current rate against a historical line would show a figure that was never charged — and it
+// the current rate against a historical line would show a figure that was never charged, and it
 // would be wrong in exactly the direction that starts a billing dispute.
 //
 // READ-ONLY, AND NOT AN INVOICE (R8). There is no payment instruction, no due date and no reversal
@@ -37,12 +37,12 @@ export type FeeStatementLine = {
   /**
    * The amount AS STORED, which is already signed: positive on `accrued`, negative on `reversed`
    * (`recordFeeAccrualReversal` writes the exact negation). Summing this column over every line
-   * gives the outstanding receivable directly — do NOT negate a `reversed` row again on the way
+   * gives the outstanding receivable directly. Do NOT negate a `reversed` row again on the way
    * past, which double-counts it in the direction that overstates what the institution owes.
    */
   amount: number;
   currency: string;
-  /** The registration fee this fee was computed FROM — the accrual's own snapshot of it. */
+  /** The registration fee this fee was computed FROM, the accrual's own snapshot of it. */
   grossAmount: number;
   /** The rate as it stood when this line was priced. Never today's rate. */
   feeBasisPoints: number;
@@ -67,7 +67,7 @@ export type InstitutionFeeStatement = {
   /**
    * The signed sum of every line, in minor units. The same arithmetic `sumOutstandingFeeAccruals`
    * performs on the same rows, restated here rather than delegated because that function takes no
-   * projection — so the two are held equal by an assertion in the integration suite, not by
+   * projection, so the two are held equal by an assertion in the integration suite, not by
    * construction. The receivable, not a balance.
    */
   outstandingAmount: number;
@@ -107,11 +107,11 @@ export const loadInstitutionFeeStatement = async (
     })
     .from(financeFeeAccruals)
     .innerJoin(financePayments, eq(financePayments.id, financeFeeAccruals.paymentId))
-    // LEFT from here on. The null branch is currently UNREACHABLE — `subject_xor` forbids clearing
-    // the registration id, and the payment's FK to the registration is NO ACTION, so a competition
-    // delete cannot cascade past it — but the fee is owed on the PAYMENT, so an inner join would
-    // silently drop the line the day either of those loosens. Understating a receivable without
-    // saying so is worse than a row with a blank competition.
+    // LEFT from here on. The null branch is currently UNREACHABLE, because `subject_xor` forbids
+    // clearing the registration id and the payment's FK to the registration is NO ACTION, so a
+    // competition delete cannot cascade past it. But the fee is owed on the PAYMENT, so an inner
+    // join would silently drop the line the day either of those loosens. Understating a receivable
+    // without saying so is worse than a row with a blank competition.
     .leftJoin(
       competitionRegistrations,
       eq(competitionRegistrations.id, financePayments.competitionRegistrationId),
@@ -135,7 +135,7 @@ export const loadInstitutionFeeStatement = async (
 
   const accruedAmount = sumWhere(lines, "accrued");
   // Negated on the way out, because the stored row is ALREADY negative. This is the only place the
-  // sign is flipped, and it is flipped for presentation alone — the outstanding total below never
+  // sign is flipped, and it is flipped for presentation alone. The outstanding total below never
   // passes through it.
   const reversedAmount = -sumWhere(lines, "reversed");
 
@@ -159,7 +159,7 @@ const sumWhere = (lines: FeeStatementLine[], entryType: FeeAccrualEntryType): nu
     .reduce((total, line) => total + line.amount, 0);
 
 /**
- * What this institution agreed to, and when — R2's record, surfaced.
+ * What this institution agreed to, and when. The recorded acknowledgement, surfaced.
  *
  * The acknowledgement is what makes the receivable defensible: it is the moment an owner was shown
  * the exact split for a specific price and accepted it, snapshotted with the rate that was on

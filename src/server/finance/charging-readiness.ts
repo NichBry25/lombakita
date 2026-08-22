@@ -21,7 +21,7 @@ import { resolveFeeRule } from "@/server/finance/fee-rule-service";
 // payment" and the write path refusing to create one cannot disagree.
 //
 // VERIFICATION GATES CHARGING, NEVER PUBLISHING (DEC-0118 unchanged). Nothing here can unpublish a
-// competition or hide it, and the copy built on it must not suggest otherwise — an organiser whose
+// competition or hide it, and the copy built on it must not suggest otherwise. An organiser whose
 // verification lapses keeps every competition they have already published.
 
 export type ChargingBlocker =

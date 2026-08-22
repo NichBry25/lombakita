@@ -6,8 +6,8 @@
 // proof of payment, which an organiser cannot review and which is the shape a malicious upload
 // takes when the reviewer is a human opening files.
 //
-// The two modules share a structure on purpose — extension table, derived MIME, client-side
-// pre-validation with localized copy — so a reader who knows one knows the other. They share no
+// The two modules share a structure on purpose (extension table, derived MIME, client-side
+// pre-validation with localized copy) so a reader who knows one knows the other. They share no
 // data, because their answers differ.
 
 type PaymentProofFormat = {
@@ -29,12 +29,12 @@ export const PAYMENT_PROOF_ALLOWED_EXTENSIONS = Object.keys(FORMAT_BY_EXTENSION)
  *
  * A phone photograph of a bank receipt is one to four megabytes; a PDF statement is well under one.
  * Ten leaves room for a high-resolution capture without letting the bucket absorb a video someone
- * renamed to `.jpg` — the extension check would pass it, and only the size cap catches it before
+ * renamed to `.jpg`. The extension check would pass it, and only the size cap catches it before
  * the bytes are inspected.
  */
 export const PAYMENT_PROOF_MAX_BYTES = 10 * 1024 * 1024;
 
-// `accept` attribute for the file input. A convenience for the picker only — it filters the OS
+// `accept` attribute for the file input. A convenience for the picker only: it filters the OS
 // dialog and is trivially bypassed, so it is never the enforcement.
 export const PAYMENT_PROOF_ACCEPT_ATTRIBUTE = PAYMENT_PROOF_ALLOWED_EXTENSIONS.map(
   (extension) => `.${extension}`,
@@ -59,7 +59,7 @@ const formatForFileName = (fileName: string): PaymentProofFormat | null =>
 /**
  * The content type to declare at presign and store on the proof row.
  *
- * Derived from the FILENAME, never from the browser's own `file.type` — that is empty for several
+ * Derived from the FILENAME, never from the browser's own `file.type`, which is empty for several
  * formats and client-controlled in every case, and the presigned URL binds whatever is declared
  * here, so a client-chosen value would be a client-chosen signature.
  */
@@ -75,7 +75,7 @@ const formatMegabytes = (bytes: number): string => {
  * Client-side pre-validation of a chosen receipt.
  *
  * Returns a localized message when the file is not acceptable, or null when it passes. Advisory
- * only — the server re-derives the type from the filename at presign and the organiser sees the
+ * only: the server re-derives the type from the filename at presign and the organiser sees the
  * bytes. This exists to spare a candidate a failed upload, not to decide anything.
  */
 export const preValidatePaymentProofFile = (file: { name: string; size: number }): string | null => {

@@ -4,8 +4,8 @@ import { isLocalDatabaseHost, parseDatabaseHost } from "./local-database-host";
 describe("isLocalDatabaseHost", () => {
   it("matches an IPv6 loopback host written as a bracketed literal", () => {
     // The regression this file exists for. `new URL(...).hostname` yields "[::1]" WITH brackets, so
-    // a check comparing against the bare "::1" never matches. It failed closed — a local IPv6
-    // database was refused as remote — which is why it survived unnoticed rather than causing an
+    // a check comparing against the bare "::1" never matches. It failed closed (a local IPv6
+    // database was refused as remote) which is why it survived unnoticed rather than causing an
     // incident. An untested fix is how it returns.
     expect(parseDatabaseHost("postgresql://[::1]:5432/lombakita")).toBe("[::1]");
     expect(isLocalDatabaseHost("postgresql://[::1]:5432/lombakita")).toBe(true);

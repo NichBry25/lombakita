@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Feedback, Icon, IconButton } from "@/components/ui";
+import { Button, CheckboxField, Feedback, Icon, IconButton } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import {
   DOCUMENT_REQUEST_STATUS_LABELS,
@@ -475,15 +475,13 @@ function RejectForm({
       </div>
 
       <div className="form-field">
-        <label className="form-label" htmlFor={`reject-reupload-${request.id}`}>
-          <input
-            id={`reject-reupload-${request.id}`}
-            type="checkbox"
-            checked={allowReupload}
-            onChange={(event) => setAllowReupload(event.target.checked)}
-          />{" "}
+        <CheckboxField
+          id={`reject-reupload-${request.id}`}
+          checked={allowReupload}
+          onChange={(event) => setAllowReupload(event.target.checked)}
+        >
           Izinkan unggah ulang
-        </label>
+        </CheckboxField>
         <p className="form-help">
           Sebagian besar penolakan hanya soal foto yang tidak terbaca. Hilangkan centang ini bila
           permintaan harus ditutup permanen.

@@ -27,7 +27,7 @@ import { isExpirySuspendedByPendingProof } from "@/server/finance/payment-expiry
 // owes nothing. The group is resolved first and the view is returned to anyone in it.
 //
 // ONLY THE PAYER CAN ACT ON IT. `canSubmitProof` is computed here rather than at the page so the
-// affordance can be WITHHELD rather than rendered and refused — the same posture DEC-0131 sets for
+// affordance can be WITHHELD rather than rendered and refused, the same posture DEC-0131 sets for
 // the cancel control. A non-captain teammate sees what is owed and sees no upload control, which is
 // the truth: `submitManualPaymentProof` filters on the payer and would refuse them.
 
@@ -60,7 +60,7 @@ export type CandidatePaymentView = {
    *
    * Resolved through the SAME predicate the expiry worker consults before cancelling anything, so
    * the countdown this candidate sees and the decision the worker makes cannot disagree. The
-   * deadline governs SUBMISSION, never the organiser's verdict — a candidate waiting on a slow
+   * deadline governs SUBMISSION, never the organiser's verdict. A candidate waiting on a slow
    * review is not at risk, and the surface must not imply they are.
    */
   deadlineSuspended: boolean;
@@ -121,7 +121,7 @@ const loadGroupPayment = async (registrationId: string, db: Database) => {
 /**
  * Everything the candidate's payment page renders, or null when there is nothing to pay.
  *
- * Null covers three different situations on purpose — no such registration, a registration in
+ * Null covers three different situations on purpose: no such registration, a registration in
  * someone else's payment group, and a free competition. A candidate probing registration ids learns
  * the same thing about all three, which is nothing.
  */
@@ -179,7 +179,7 @@ export const loadCandidatePaymentView = async (
   const isPayer = payment.payerUserId === userId;
 
   // A settled payment and a cancelled registration both close the lane. Neither is a refusal the
-  // candidate has to discover by clicking — the control is simply not offered.
+  // candidate has to discover by clicking. The control is simply not offered.
   const laneOpen =
     membership.status !== "cancelled" &&
     status !== "succeeded" &&
@@ -217,7 +217,7 @@ export const loadCandidatePaymentView = async (
     isPayer,
     canSubmitProof: isPayer && laneOpen && proof === undefined,
     // The two reopenable arms, restated from the CAS they must agree with: a rejection the organiser
-    // left open, or a void. A void ignores the organiser's bar deliberately — it is platform_ops
+    // left open, or a void. A void ignores the organiser's bar deliberately. It is platform_ops
     // correcting something the organiser's rejection was not about.
     canResubmitProof:
       isPayer &&
