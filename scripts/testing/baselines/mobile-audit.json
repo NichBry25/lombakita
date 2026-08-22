@@ -1,0 +1,11 @@
+{
+  "audit": "mobile-audit",
+  "takenAt": "2026-08-22T17:37:06.072Z",
+  "note": "390px viewport, 105 pages",
+  "findings": [
+    {
+      "key": "62-institution-team|overflow",
+      "scrollWidth": 610
+    }
+  ]
+}
