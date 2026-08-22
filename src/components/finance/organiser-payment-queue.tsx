@@ -122,9 +122,10 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
     // accrual, and the ledger is append-only, so there is no undo on this surface. The dialog names
     // the amount because that figure is what the organiser is asserting they received.
     //
-    // The middle sentence is the operational instruction that used to sit in a banner above the
-    // whole queue. It is here instead, at the moment it applies, because the transfer lands in the
-    // institution's own account and their bank statement is the only record that can confirm it.
+    // The middle sentence is the operational instruction. The page states it once above the queue
+    // as context, and the dialog repeats it at the moment the reviewer commits, because the
+    // transfer lands in the institution's own account and their bank statement is the only record
+    // that can confirm it.
     openModal({
       title: "Verifikasi bukti transfer?",
       body: (

@@ -249,3 +249,32 @@ describe("what the withheld cards say instead", () => {
     expect(screen.queryByText(/Pembuatan tim belum dapat dibuka/)).toBeNull();
   });
 });
+
+// WHERE THE WITHHELD SENTENCE SITS, which is as load-bearing as whether it renders.
+//
+// The neutral tone paints the inset ground. `.registration-state` paints the same ground, so a
+// neutral note placed inside that panel is background on background and the candidate reads an
+// empty card, which is the state this whole pass exists to remove. Asserted structurally rather
+// than by colour, because jsdom applies no stylesheet and a colour assertion here would pass
+// against anything.
+describe("where the withheld cancel note is placed", () => {
+  it("keeps the note out of the inset panel it would vanish into", () => {
+    const { container } = renderIndividual(true);
+    const note = screen.getByText(WITHHELD_COPY).closest(".feedback");
+
+    expect(note).toBeTruthy();
+    expect(container.querySelector(".registration-state")).toBeTruthy();
+    expect(note?.closest(".registration-state")).toBeNull();
+  });
+
+  it("still keeps the cancel control inside that panel when it is offered", () => {
+    // The pair. Without it the test above passes against a component that stopped rendering the
+    // panel at all, which would be a different regression wearing the same green.
+    const { container } = renderIndividual(false);
+    const button = screen.getByRole("button", { name: CANCEL_LABEL });
+
+    expect(button.closest(".registration-state")).toBe(
+      container.querySelector(".registration-state"),
+    );
+  });
+});

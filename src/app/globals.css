@@ -5407,6 +5407,14 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   cursor: pointer;
 }
 
+/* A row whose input is disabled stops offering the pointer, and takes the same ink the disabled
+   form controls use. Without this the row is indistinguishable from its enabled siblings and
+   invites a click it will not honour. */
+.checkbox-field:has(input:disabled) {
+  color: var(--color-disabled-text);
+  cursor: default;
+}
+
 /* One box for every checkbox in the app. .pf-editor-check differs only in typography. */
 .checkbox-field input {
   width: var(--space-4);

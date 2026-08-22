@@ -194,27 +194,36 @@ export function IndividualRegistrationSection({
       </div>
 
       {registration && registration.status === "confirmed" ? (
-        <div className="registration-state stack-sm">
-          <span className="status-badge" data-status="open">
-            ✓ Terdaftar
-          </span>
+        <>
+          <div className="registration-state stack-sm">
+            <span className="status-badge" data-status="open">
+              ✓ Terdaftar
+            </span>
+            {cancellationClosedByPaymentProof ? null : (
+              <div className="stack-xs">
+                <Button onClick={handleCancel} loading={loading} variant="danger" size="sm">
+                  Batalkan pendaftaran
+                </Button>
+                <p className="form-help">Pembatalan tunduk pada kebijakan penyelenggara.</p>
+              </div>
+            )}
+          </div>
           {/* WITHHELD, not disabled. A disabled cancel button next to a registration the candidate
               believes they have paid for reads as a permission they might be able to obtain; the
-              rule is that the decision has left their hands, and the sentence says so. */}
+              rule is that the decision has left their hands, and the sentence says so.
+
+              It stands OUTSIDE the panel above, and has to. The neutral tone paints the inset
+              ground, which is exactly what `.registration-state` paints, so a neutral note placed
+              inside that panel renders background on background and the explanation disappears.
+              The team section's equivalent note sits in `.team-roster`, which sets no background,
+              so it needs no such placement. */}
           {cancellationClosedByPaymentProof ? (
             <Feedback tone="neutral">
               Pendaftaran tidak dapat dibatalkan sendiri setelah bukti transfer dikirim. Hubungi
               penyelenggara jika ada kekeliruan.
             </Feedback>
-          ) : (
-            <div className="stack-xs">
-              <Button onClick={handleCancel} loading={loading} variant="danger" size="sm">
-                Batalkan pendaftaran
-              </Button>
-              <p className="form-help">Pembatalan tunduk pada kebijakan penyelenggara.</p>
-            </div>
-          )}
-        </div>
+          ) : null}
+        </>
       ) : registration && registration.status === "cancelled" ? (
         <div className="registration-state stack-xs">
           <span className="status-badge" data-status="closed">
