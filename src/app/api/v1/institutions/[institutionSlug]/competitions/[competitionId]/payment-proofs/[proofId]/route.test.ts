@@ -109,7 +109,11 @@ describe("PATCH …/payment-proofs/[proofId]", () => {
     rejectManualPaymentProof.mockResolvedValue({ id: "proof_1" });
 
     await PATCH(
-      verdictRequest({ action: "reject", reason: "Bukan transfer ke kami", resubmissionAllowed: false }),
+      verdictRequest({
+        action: "reject",
+        reason: "Bukan transfer ke kami",
+        resubmissionAllowed: false,
+      }),
       context,
     );
 

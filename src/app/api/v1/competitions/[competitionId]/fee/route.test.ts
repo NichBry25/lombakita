@@ -16,17 +16,13 @@ import { CompetitionError } from "@/server/competitions/competition-core";
 import { FeeRuleError } from "@/server/finance/fee-rule-service";
 import { PaymentInstructionsError } from "@/server/institutions/payment-instructions-service";
 
-const {
-  requireAuthenticatedSession,
-  assertSessionMatchesExpectedUser,
-  setCompetitionFee,
-  getDb,
-} = vi.hoisted(() => ({
-  requireAuthenticatedSession: vi.fn(),
-  assertSessionMatchesExpectedUser: vi.fn(),
-  setCompetitionFee: vi.fn(),
-  getDb: vi.fn(() => ({}) as never),
-}));
+const { requireAuthenticatedSession, assertSessionMatchesExpectedUser, setCompetitionFee, getDb } =
+  vi.hoisted(() => ({
+    requireAuthenticatedSession: vi.fn(),
+    assertSessionMatchesExpectedUser: vi.fn(),
+    setCompetitionFee: vi.fn(),
+    getDb: vi.fn(() => ({}) as never),
+  }));
 
 vi.mock("@/server/auth/session", () => ({ requireAuthenticatedSession }));
 vi.mock("@/server/db/client", () => ({ getDb }));

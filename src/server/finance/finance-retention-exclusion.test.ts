@@ -110,10 +110,9 @@ describe("retention sweep excludes financial evidence", () => {
       }
     }
 
-    expect(
-      offending,
-      "the retention sweep can reach a financial evidence object prefix",
-    ).toEqual([]);
+    expect(offending, "the retention sweep can reach a financial evidence object prefix").toEqual(
+      [],
+    );
   });
 
   it("still reaches the two things it IS supposed to purge, so the scan is not vacuous", () => {

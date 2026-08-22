@@ -453,4 +453,3 @@ describe("classifyCompetitionEdit: registrationEndAt under an in-flight payment"
     expect(result.blocked).not.toContain("registrationEndAt");
   });
 });
-

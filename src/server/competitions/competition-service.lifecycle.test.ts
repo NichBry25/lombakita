@@ -58,10 +58,9 @@ vi.mock("@/server/finance/paid-registration", () => ({
 const { classifySpy } = vi.hoisted(() => ({ classifySpy: vi.fn() }));
 
 vi.mock("@/server/competitions/edit-classification", async () => {
-  const actual =
-    await vi.importActual<typeof import("@/server/competitions/edit-classification")>(
-      "@/server/competitions/edit-classification",
-    );
+  const actual = await vi.importActual<typeof import("@/server/competitions/edit-classification")>(
+    "@/server/competitions/edit-classification",
+  );
   return {
     ...actual,
     classifyCompetitionEdit: (
@@ -461,14 +460,18 @@ describe("the classifier's fee rules are reachable from the service", () => {
   it("notifies a payment-window change, on service-built input", async () => {
     const priced = await captureClassifierInput();
 
-    const result = classifyCompetitionEdit(priced, { ...priced, paymentWindowDays: 1 }, {
-      nonCancelledCount: 0,
-      hasActiveIndividual: false,
-      hasActiveTeam: false,
-      activeTeamSizes: [],
-      hasActiveFree: false,
-      hasPaymentInFlight: true,
-    });
+    const result = classifyCompetitionEdit(
+      priced,
+      { ...priced, paymentWindowDays: 1 },
+      {
+        nonCancelledCount: 0,
+        hasActiveIndividual: false,
+        hasActiveTeam: false,
+        activeTeamSizes: [],
+        hasActiveFree: false,
+        hasPaymentInFlight: true,
+      },
+    );
 
     expect(result.notify).toContain("paymentWindowDays");
     expect(result.blocked).not.toContain("paymentWindowDays");

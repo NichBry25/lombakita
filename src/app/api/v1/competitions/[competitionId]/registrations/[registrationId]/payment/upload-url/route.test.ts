@@ -27,8 +27,9 @@ const {
 vi.mock("@/server/auth/session", () => ({ requireSessionRole }));
 
 vi.mock("@/server/auth/access-core", async () => {
-  const actual =
-    await vi.importActual<typeof import("@/server/auth/access-core")>("@/server/auth/access-core");
+  const actual = await vi.importActual<typeof import("@/server/auth/access-core")>(
+    "@/server/auth/access-core",
+  );
   return { ...actual, assertSessionMatchesExpectedUser };
 });
 
@@ -53,11 +54,14 @@ const context = {
 };
 
 const uploadRequest = (body: Record<string, unknown> = { fileName: "bukti.jpg" }): Request =>
-  new Request("http://localhost/api/v1/competitions/comp_1/registrations/reg_1/payment/upload-url", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  new Request(
+    "http://localhost/api/v1/competitions/comp_1/registrations/reg_1/payment/upload-url",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
 
 const payableView = (overrides: Record<string, unknown> = {}) => ({
   paymentId: "pay_1",
@@ -173,7 +177,11 @@ describe("POST …/payment/upload-url", () => {
     requireSessionRole.mockResolvedValue(CANDIDATE);
     loadCandidatePaymentView.mockResolvedValue(payableView());
     generateManualProofUploadUrl.mockRejectedValue(
-      new ManualProofError("manual_proof_upload_unavailable", "Penyimpanan belum dikonfigurasi", 503),
+      new ManualProofError(
+        "manual_proof_upload_unavailable",
+        "Penyimpanan belum dikonfigurasi",
+        503,
+      ),
     );
 
     expect((await POST(uploadRequest(), context)).status).toBe(503);

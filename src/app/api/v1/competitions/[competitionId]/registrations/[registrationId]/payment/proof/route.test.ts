@@ -28,8 +28,9 @@ const {
 vi.mock("@/server/auth/session", () => ({ requireSessionRole }));
 
 vi.mock("@/server/auth/access-core", async () => {
-  const actual =
-    await vi.importActual<typeof import("@/server/auth/access-core")>("@/server/auth/access-core");
+  const actual = await vi.importActual<typeof import("@/server/auth/access-core")>(
+    "@/server/auth/access-core",
+  );
   return { ...actual, assertSessionMatchesExpectedUser };
 });
 
@@ -62,7 +63,10 @@ const VALID_BODY = {
   originalFileName: "bukti.jpg",
 };
 
-const proofRequest = (method: "POST" | "PUT", body: Record<string, unknown> = VALID_BODY): Request =>
+const proofRequest = (
+  method: "POST" | "PUT",
+  body: Record<string, unknown> = VALID_BODY,
+): Request =>
   new Request("http://localhost/api/v1/competitions/comp_1/registrations/reg_1/payment/proof", {
     method,
     headers: { "content-type": "application/json" },

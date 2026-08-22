@@ -56,7 +56,7 @@ const readProofBody = async (request: Request): Promise<ProofBody> => {
   }
 
   return { r2Key, originalFileName };
-}
+};
 
 /** The caller's payment, or the same non-committal 404 for every reason they cannot see one. */
 const requirePaymentView = async (registrationId: string, userId: string) => {

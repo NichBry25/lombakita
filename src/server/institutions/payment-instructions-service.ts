@@ -166,7 +166,6 @@ export const toInstructionSnapshotValues = (instructions: InstitutionPaymentInst
     instructionsNote: instructions.instructionsNote,
   }) satisfies Record<InstructionEvidenceField, string | null>;
 
-
 /**
  * Whether this institution can be paid on the manual lane at all.
  *
@@ -239,7 +238,8 @@ export const savePaymentInstructions = async (
     assertQrisKeyBelongsToInstitution(qrisR2Key, institutionId);
   }
 
-  const namesBankAccount = bankName !== null && accountNumber !== null && accountHolderName !== null;
+  const namesBankAccount =
+    bankName !== null && accountNumber !== null && accountHolderName !== null;
 
   // Checked here as well as by the database CHECK so the organiser reads a sentence naming what is
   // missing, rather than a constraint violation surfaced as a generic write failure.
@@ -262,7 +262,14 @@ export const savePaymentInstructions = async (
     })
     .onConflictDoUpdate({
       target: institutionPaymentInstructions.institutionId,
-      set: { bankName, accountNumber, accountHolderName, qrisR2Key, instructionsNote, updatedAt: now },
+      set: {
+        bankName,
+        accountNumber,
+        accountHolderName,
+        qrisR2Key,
+        instructionsNote,
+        updatedAt: now,
+      },
     })
     .returning();
 

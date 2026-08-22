@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/server/db/client";
-import { assertSessionMatchesExpectedUser, toAccessDeniedResponse } from "@/server/auth/access-core";
+import {
+  assertSessionMatchesExpectedUser,
+  toAccessDeniedResponse,
+} from "@/server/auth/access-core";
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import { requireOwnerInstitutionBySlug } from "@/server/institution-members/member-service";
 import {

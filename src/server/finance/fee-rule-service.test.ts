@@ -60,7 +60,9 @@ describe("requireFeeRuleInForce", () => {
     // The whole point. A helper that returned zero-rate terms here would price a payment at a 0%
     // platform fee, record a coherent split, accrue nothing, and pass every downstream assertion.
     // A silently free transaction is unrecoverable in an append-only ledger, a refusal is not.
-    await expect(requireFeeRuleInForce("inst-1", AT, dbReturning([]))).rejects.toThrow(FeeRuleError);
+    await expect(requireFeeRuleInForce("inst-1", AT, dbReturning([]))).rejects.toThrow(
+      FeeRuleError,
+    );
   });
 
   it("names the refusal fee_rule_not_in_force so a caller can surface it", async () => {

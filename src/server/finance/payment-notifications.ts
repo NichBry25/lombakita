@@ -48,10 +48,7 @@ type PaymentFacts = {
 };
 
 /** One read for every fact a manual-lane notification needs, or null if the payment is unusable. */
-const loadPaymentFacts = async (
-  paymentId: string,
-  db: Database,
-): Promise<PaymentFacts | null> => {
+const loadPaymentFacts = async (paymentId: string, db: Database): Promise<PaymentFacts | null> => {
   const [row] = await db
     .select({
       registrationId: financePayments.competitionRegistrationId,

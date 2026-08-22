@@ -65,7 +65,12 @@ export const describePaymentDeadline = (
   if (!Number.isFinite(remainingMs)) return { kind: "none" };
   if (remainingMs <= 0) return { kind: "passed", dueAt };
 
-  return { kind: "remaining", dueAt, remainingMs, urgent: remainingMs <= DEADLINE_URGENT_WITHIN_MS };
+  return {
+    kind: "remaining",
+    dueAt,
+    remainingMs,
+    urgent: remainingMs <= DEADLINE_URGENT_WITHIN_MS,
+  };
 };
 
 /**

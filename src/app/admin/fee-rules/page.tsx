@@ -57,24 +57,24 @@ export default async function AdminFeeRulesPage() {
                       {rule.institutionId === null ? (
                         <span className="status-badge">Global</span>
                       ) : (
-                        <span className="data-text">{rule.institutionSlug ?? rule.institutionId}</span>
+                        <span className="data-text">
+                          {rule.institutionSlug ?? rule.institutionId}
+                        </span>
                       )}
                     </td>
                     <td className="data-text">{formatBasisPoints(rule.basisPoints)}</td>
-                    <td className="data-text">{formatMinorUnits(rule.flatAmount, rule.currency)}</td>
                     <td className="data-text">
-                      {rule.minimumFeeAmount === null ? (
-                        "—"
-                      ) : (
-                        formatMinorUnits(rule.minimumFeeAmount, rule.currency)
-                      )}
+                      {formatMinorUnits(rule.flatAmount, rule.currency)}
                     </td>
                     <td className="data-text">
-                      {rule.maximumFeeAmount === null ? (
-                        "—"
-                      ) : (
-                        formatMinorUnits(rule.maximumFeeAmount, rule.currency)
-                      )}
+                      {rule.minimumFeeAmount === null
+                        ? "—"
+                        : formatMinorUnits(rule.minimumFeeAmount, rule.currency)}
+                    </td>
+                    <td className="data-text">
+                      {rule.maximumFeeAmount === null
+                        ? "—"
+                        : formatMinorUnits(rule.maximumFeeAmount, rule.currency)}
                     </td>
                     <td className="data-text">{formatEffectiveDate(rule.effectiveFrom)}</td>
                     <td className="data-text">

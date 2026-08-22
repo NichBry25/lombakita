@@ -181,7 +181,10 @@ const loadAcknowledgements = async (
       acknowledgedAt: financeFeeDisclosureAcknowledgements.acknowledgedAt,
     })
     .from(financeFeeDisclosureAcknowledgements)
-    .innerJoin(competitions, eq(competitions.id, financeFeeDisclosureAcknowledgements.competitionId))
+    .innerJoin(
+      competitions,
+      eq(competitions.id, financeFeeDisclosureAcknowledgements.competitionId),
+    )
     .where(
       and(
         eq(financeFeeDisclosureAcknowledgements.institutionId, institutionId),

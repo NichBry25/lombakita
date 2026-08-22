@@ -29,13 +29,15 @@ export default async function FinanceDisputePaymentsPage() {
       <PageHeader
         title="Sengketa pembayaran"
         description="Riwayat bukti transfer lintas lembaga. Hanya untuk dibaca."
-        actions={<span className="status-badge data-text">{`${payments.length} bukti transfer`}</span>}
+        actions={
+          <span className="status-badge data-text">{`${payments.length} bukti transfer`}</span>
+        }
       />
 
       <Feedback tone="info">
         Keputusan atas bukti transfer dibuat oleh penyelenggara, yang menerima dananya langsung di
-        rekening mereka. Halaman ini tidak dapat memverifikasi, menolak, atau membatalkan
-        pembayaran mana pun.
+        rekening mereka. Halaman ini tidak dapat memverifikasi, menolak, atau membatalkan pembayaran
+        mana pun.
       </Feedback>
 
       {payments.length === 0 ? (

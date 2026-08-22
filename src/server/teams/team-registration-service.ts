@@ -457,7 +457,10 @@ export const cancelTeamRegistration = async (
     // control cannot appear on a team this guard would refuse.
     const anchorRegistrationId = await findTeamPaymentGroupAnchor(teamId, db);
 
-    if (anchorRegistrationId !== null && (await hasSubmittedPaymentProof(anchorRegistrationId, db))) {
+    if (
+      anchorRegistrationId !== null &&
+      (await hasSubmittedPaymentProof(anchorRegistrationId, db))
+    ) {
       throw new TeamError(
         "cancellation_not_supported_for_paid",
         "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",

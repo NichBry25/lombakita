@@ -197,10 +197,7 @@ export const loadDisputePaymentDetail = async (
 };
 
 /** Closed attempts for one proof, OLDEST FIRST. A dispute is read forwards, as it happened. */
-const loadAttemptHistory = async (
-  proofId: string,
-  db: Database,
-): Promise<DisputeAttempt[]> => {
+const loadAttemptHistory = async (proofId: string, db: Database): Promise<DisputeAttempt[]> => {
   const rows = await db
     .select({
       attemptNumber: financeManualPaymentProofAttempts.attemptNumber,

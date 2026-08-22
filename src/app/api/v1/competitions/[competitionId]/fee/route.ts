@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/server/db/client";
-import { assertSessionMatchesExpectedUser, toAccessDeniedResponse } from "@/server/auth/access-core";
+import {
+  assertSessionMatchesExpectedUser,
+  toAccessDeniedResponse,
+} from "@/server/auth/access-core";
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import {
   CompetitionError,
@@ -61,7 +64,9 @@ const refuse = (error: unknown): Response => {
       {
         error: {
           code: error.code,
-          message: FEE_RULE_MESSAGES_ID[error.code] ?? "Tarif layanan Lombakita tidak dapat digunakan saat ini.",
+          message:
+            FEE_RULE_MESSAGES_ID[error.code] ??
+            "Tarif layanan Lombakita tidak dapat digunakan saat ini.",
         },
       },
       { status: error.status },

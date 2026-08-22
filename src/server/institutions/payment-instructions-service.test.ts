@@ -106,7 +106,11 @@ describe("savePaymentInstructions: the QRIS key boundary", () => {
     const { db, inserted } = recordingDb();
 
     await expect(
-      savePaymentInstructions("inst_a", { ...BANK, qrisR2Key: buildQrisObjectPrefix("inst_a") }, db),
+      savePaymentInstructions(
+        "inst_a",
+        { ...BANK, qrisR2Key: buildQrisObjectPrefix("inst_a") },
+        db,
+      ),
     ).rejects.toBeInstanceOf(PaymentInstructionsError);
 
     expect(inserted).toEqual([]);
@@ -140,11 +144,7 @@ describe("savePaymentInstructions: what makes a row payable", () => {
     const { db, inserted } = recordingDb();
 
     await expect(
-      savePaymentInstructions(
-        "inst_a",
-        { ...BANK, accountNumber: "   ", qrisR2Key: null },
-        db,
-      ),
+      savePaymentInstructions("inst_a", { ...BANK, accountNumber: "   ", qrisR2Key: null }, db),
     ).rejects.toBeInstanceOf(PaymentInstructionsError);
 
     expect(inserted).toEqual([]);

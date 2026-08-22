@@ -127,7 +127,11 @@ const transitiveBlockersOf = async (waiterPid: number): Promise<number[]> => {
  * one millisecond costs one millisecond, and the deadline exists only to turn a hang into a named
  * failure.
  */
-const awaitBlockedBy = async (waiterPid: number, holderPid: number, what: string): Promise<void> => {
+const awaitBlockedBy = async (
+  waiterPid: number,
+  holderPid: number,
+  what: string,
+): Promise<void> => {
   const deadline = Date.now() + BARRIER_TIMEOUT_MS;
   let lastSeen: number[] = [];
 
@@ -528,9 +532,8 @@ describe.skipIf(skipWithoutDatabase)("the deadline boundary, under real contenti
   };
 
   const runSubmit = async (connection: Connection, fixture: RaceFixture) => {
-    const { submitManualPaymentProof } = await import(
-      "@/server/finance/manual-payment-proof-service"
-    );
+    const { submitManualPaymentProof } =
+      await import("@/server/finance/manual-payment-proof-service");
     return submitManualPaymentProof(
       {
         paymentId: fixture.paymentId,
@@ -643,23 +646,25 @@ describe.skipIf(skipWithoutDatabase)("the deadline boundary, under real contenti
   });
 });
 
-describe.skipIf(skipWithoutDatabase)("reopening a closed bukti transfer, under real contention", () => {
-  /**
-   * A proof row in one of the three states a reopen can be attempted against.
-   *
-   * The review columns are filled for a closed status because the table insists on it: a `rejected`
-   * row without a reason and a closed row without a `reviewed_at` are both refused by CHECK. That
-   * refusal is the schema doing its job, so the fixture matches what a real verdict writes rather
-   * than the columns being worked around.
-   */
-  const seedProofInState = async (
-    fixture: RaceFixture,
-    status: "rejected" | "voided" | "pending_review",
-    resubmissionAllowed: boolean,
-  ): Promise<string> => {
-    const closed = status !== "pending_review";
+describe.skipIf(skipWithoutDatabase)(
+  "reopening a closed bukti transfer, under real contention",
+  () => {
+    /**
+     * A proof row in one of the three states a reopen can be attempted against.
+     *
+     * The review columns are filled for a closed status because the table insists on it: a `rejected`
+     * row without a reason and a closed row without a `reviewed_at` are both refused by CHECK. That
+     * refusal is the schema doing its job, so the fixture matches what a real verdict writes rather
+     * than the columns being worked around.
+     */
+    const seedProofInState = async (
+      fixture: RaceFixture,
+      status: "rejected" | "voided" | "pending_review",
+      resubmissionAllowed: boolean,
+    ): Promise<string> => {
+      const closed = status !== "pending_review";
 
-    const rows = await control.sql<{ id: string }[]>`
+      const rows = await control.sql<{ id: string }[]>`
       insert into finance_manual_payment_proofs (
         payment_id, competition_id, submitted_by_user_id, status, r2_key,
         original_file_name, file_size_bytes, content_type, resubmission_allowed,
@@ -672,194 +677,200 @@ describe.skipIf(skipWithoutDatabase)("reopening a closed bukti transfer, under r
         ${closed ? DEADLINE.toISOString() : null},
         ${status === "rejected" ? "Nominal tidak cocok" : null}
       ) returning id`;
-    return rows[0]!.id;
-  };
+      return rows[0]!.id;
+    };
 
-  const runReopen = async (connection: Connection, fixture: RaceFixture, proofId: string) => {
-    const { reopenManualPaymentProof } = await import(
-      "@/server/finance/manual-payment-proof-service"
-    );
-    return reopenManualPaymentProof(
-      {
+    const runReopen = async (connection: Connection, fixture: RaceFixture, proofId: string) => {
+      const { reopenManualPaymentProof } =
+        await import("@/server/finance/manual-payment-proof-service");
+      return reopenManualPaymentProof(
+        {
+          proofId,
+          submittedByUserId: fixture.userId,
+          r2Key: `payment-proofs/${fixture.competitionId}/${fixture.paymentId}/bukti-2.jpg`,
+          originalFileName: "bukti-2.jpg",
+        },
+        connection.db as never,
+      );
+    };
+
+    /** Both reopens released together, and what came back. */
+    const contendTwoReopens = async (fixture: RaceFixture, proofId: string) => {
+      const [barrierPid, firstPid, secondPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+        backendPidOf(racerTwo),
+      ]);
+
+      const [first, second] = await withRowHeld(
+        "finance_manual_payment_proofs",
         proofId,
-        submittedByUserId: fixture.userId,
-        r2Key: `payment-proofs/${fixture.competitionId}/${fixture.paymentId}/bukti-2.jpg`,
-        originalFileName: "bukti-2.jpg",
-      },
-      connection.db as never,
-    );
-  };
+        async (track) => {
+          const firstRun = track(runReopen(racerOne, fixture, proofId));
+          await awaitBlockedBy(firstPid, barrierPid, "the first reopen");
 
-  /** Both reopens released together, and what came back. */
-  const contendTwoReopens = async (fixture: RaceFixture, proofId: string) => {
-    const [barrierPid, firstPid, secondPid] = await Promise.all([
-      backendPidOf(barrier),
-      backendPidOf(racerOne),
-      backendPidOf(racerTwo),
-    ]);
+          const secondRun = track(runReopen(racerTwo, fixture, proofId));
+          await awaitBlockedBy(secondPid, barrierPid, "the second reopen");
 
-    const [first, second] = await withRowHeld(
-      "finance_manual_payment_proofs",
-      proofId,
-      async (track) => {
-        const firstRun = track(runReopen(racerOne, fixture, proofId));
-        await awaitBlockedBy(firstPid, barrierPid, "the first reopen");
-
-        const secondRun = track(runReopen(racerTwo, fixture, proofId));
-        await awaitBlockedBy(secondPid, barrierPid, "the second reopen");
-
-        return [firstRun, secondRun] as const;
-      },
-    );
-
-    return Promise.all([first, second]);
-  };
-
-  it("REJECTED arm: two refiles contend, exactly one wins and the counter moves once", async () => {
-    const fixture = await seedCommittedFixture();
-    const proofId = await seedProofInState(fixture, "rejected", true);
-
-    const outcomes = await contendTwoReopens(fixture, proofId);
-
-    // Both CAS statements were released at the same instant against the same row. The loser
-    // re-evaluated its WHERE against the winner's committed row, found `pending_review`, and matched
-    // neither arm. Delete the status disjunction from that WHERE and both succeed.
-    expect(outcomes.filter((outcome) => outcome.ok)).toHaveLength(1);
-
-    const loser = outcomes.find((outcome) => !outcome.ok);
-    expect(errorCodeOf(loser && !loser.ok ? loser.error : undefined)).toBe(
-      "manual_proof_resubmission_barred",
-    );
-
-    const [proof] = await proofRowsFor(fixture.paymentId);
-    expect(proof!.status).toBe("pending_review");
-    // ONE increment, not two. The counter is the attempt segment of the verification idempotency
-    // key, so a double increment would mint attempt two's key for an attempt that never opened and
-    // silently swallow the next real verification as a replay.
-    expect(Number(proof!.resubmission_count)).toBe(1);
-  });
-
-  it("VOIDED arm: two refiles of a proof barred from resubmission contend, exactly one wins", async () => {
-    // `resubmission_allowed = false` is the point. The voided arm ignores the organiser's bar
-    // deliberately: the bar was set against the organiser's own rejection, and a void is
-    // platform_ops correcting something else entirely. That arm is the newer of the two and bypasses
-    // a gate, so it gets its own contention proof rather than inheriting the rejected arm's.
-    const fixture = await seedCommittedFixture();
-    const proofId = await seedProofInState(fixture, "voided", false);
-
-    const outcomes = await contendTwoReopens(fixture, proofId);
-
-    expect(outcomes.filter((outcome) => outcome.ok)).toHaveLength(1);
-
-    const loser = outcomes.find((outcome) => !outcome.ok);
-    expect(errorCodeOf(loser && !loser.ok ? loser.error : undefined)).toBe(
-      "manual_proof_resubmission_barred",
-    );
-
-    const [proof] = await proofRowsFor(fixture.paymentId);
-    expect(proof!.status).toBe("pending_review");
-    expect(Number(proof!.resubmission_count)).toBe(1);
-  });
-
-  it("a proof still awaiting review is reopened by neither of two contending refiles", async () => {
-    // The negative control for both arms at once, and it makes a sharper claim than the two tests
-    // above rather than a weaker one.
-    //
-    // A reopen of a `pending_review` proof does not merely lose the race. IT NEVER ENTERS IT. The
-    // CAS's WHERE excludes the row at scan time, so Postgres has nothing to lock and the statement
-    // returns while this test is still holding an exclusive lock on that very row. Both refusals
-    // therefore arrive BEFORE the barrier is released, which is why this one cannot use
-    // `contendTwoReopens`: waiting for a block that correctly never happens would hang.
-    //
-    // Delete the status predicate from that WHERE and this is what changes: both statements would
-    // suddenly match, both would block on the barrier, and this test would fail on the deadline
-    // below naming exactly that.
-    const fixture = await seedCommittedFixture();
-    const proofId = await seedProofInState(fixture, "pending_review", true);
-
-    const outcomes = await withRowHeld("finance_manual_payment_proofs", proofId, async (track) => {
-      const both = Promise.all([
-        track(runReopen(racerOne, fixture, proofId)),
-        track(runReopen(racerTwo, fixture, proofId)),
-      ]);
-
-      return Promise.race([
-        both,
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () =>
-              reject(
-                new Error(
-                  "a reopen of a pending_review proof BLOCKED on the row this test holds. It " +
-                    "should not have reached the row at all: the CAS's status predicate is what " +
-                    "excludes it before any lock is taken. A reopen that waits here is a reopen " +
-                    "whose WHERE would have matched.",
-                ),
-              ),
-            BARRIER_TIMEOUT_MS,
-          ),
-        ),
-      ]);
-    });
-
-    expect(outcomes.filter((outcome) => outcome.ok)).toEqual([]);
-
-    const [proof] = await proofRowsFor(fixture.paymentId);
-    expect(proof!.status).toBe("pending_review");
-    expect(Number(proof!.resubmission_count)).toBe(0);
-  });
-});
-
-
-describe.skipIf(skipWithoutDatabase)("pricing a competition serializes with its participation set", () => {
-  /**
-   * THE THIRD RACE, and the one a compare-and-set structurally cannot close.
-   *
-   * Setting a price is refused when the competition already has active FREE registrants, because
-   * one retroactively attaches a fee to people who agreed to none. That decision COUNTS ROWS, and
-   * the rows it counts do not exist yet: the registration it must not miss is still in flight. There
-   * is no shared row for a CAS to compare against, so the only thing that can serialize the count
-   * with the registration is the advisory lock every other participation path already takes.
-   *
-   * Read outside the lock, the classifier sees zero free registrants, the registration commits, and
-   * the price lands on a competition that took a free entrant a moment earlier.
-   *
-   * What this measures is the BLOCK, not the outcome: with the lock held elsewhere the fee write
-   * must wait rather than proceed on a stale count. Deleting the lock from the service makes this
-   * fail, because it stops waiting.
-   */
-  it("waits for the participation lock instead of pricing against a stale count", async () => {
-    const fixture = await seedCommittedFixture();
-    const { setCompetitionFee } = await import("@/server/competitions/competition-fee-service");
-
-    const [barrierPid, racerPid] = await Promise.all([
-      backendPidOf(barrier),
-      backendPidOf(racerOne),
-    ]);
-
-    // Returned INSIDE an array, exactly as the reopen racers are. `withParticipationLockHeld` does
-    // `await body(track)`, so handing back the bare promise would await the racer while the barrier
-    // still holds the lock, and the harness would deadlock against itself and report a timeout that
-    // looks like a missing lock. An array is not unwrapped by await; the finally releases first and
-    // `Promise.all(inFlight)` collects the racer afterwards.
-    const [settled] = await withParticipationLockHeld(fixture.competitionId, async (track) => {
-      const run = track(
-        setCompetitionFee(
-          fixture.userId,
-          fixture.competitionId,
-          { feeAmount: null, feeCurrency: null },
-          racerOne.db as never,
-        ),
+          return [firstRun, secondRun] as const;
+        },
       );
 
-      // THE ASSERTION. If the service takes the lock, this racer is parked behind the barrier; if
-      // it does not, it runs straight through and this throws with the file's guard-removal notice.
-      await awaitBlockedBy(racerPid, barrierPid, "the fee write");
+      return Promise.all([first, second]);
+    };
 
-      return [run] as const;
+    it("REJECTED arm: two refiles contend, exactly one wins and the counter moves once", async () => {
+      const fixture = await seedCommittedFixture();
+      const proofId = await seedProofInState(fixture, "rejected", true);
+
+      const outcomes = await contendTwoReopens(fixture, proofId);
+
+      // Both CAS statements were released at the same instant against the same row. The loser
+      // re-evaluated its WHERE against the winner's committed row, found `pending_review`, and matched
+      // neither arm. Delete the status disjunction from that WHERE and both succeed.
+      expect(outcomes.filter((outcome) => outcome.ok)).toHaveLength(1);
+
+      const loser = outcomes.find((outcome) => !outcome.ok);
+      expect(errorCodeOf(loser && !loser.ok ? loser.error : undefined)).toBe(
+        "manual_proof_resubmission_barred",
+      );
+
+      const [proof] = await proofRowsFor(fixture.paymentId);
+      expect(proof!.status).toBe("pending_review");
+      // ONE increment, not two. The counter is the attempt segment of the verification idempotency
+      // key, so a double increment would mint attempt two's key for an attempt that never opened and
+      // silently swallow the next real verification as a replay.
+      expect(Number(proof!.resubmission_count)).toBe(1);
     });
 
-    const outcome = await settled;
-    expect(outcome.ok).toBe(true);
-  });
-});
+    it("VOIDED arm: two refiles of a proof barred from resubmission contend, exactly one wins", async () => {
+      // `resubmission_allowed = false` is the point. The voided arm ignores the organiser's bar
+      // deliberately: the bar was set against the organiser's own rejection, and a void is
+      // platform_ops correcting something else entirely. That arm is the newer of the two and bypasses
+      // a gate, so it gets its own contention proof rather than inheriting the rejected arm's.
+      const fixture = await seedCommittedFixture();
+      const proofId = await seedProofInState(fixture, "voided", false);
+
+      const outcomes = await contendTwoReopens(fixture, proofId);
+
+      expect(outcomes.filter((outcome) => outcome.ok)).toHaveLength(1);
+
+      const loser = outcomes.find((outcome) => !outcome.ok);
+      expect(errorCodeOf(loser && !loser.ok ? loser.error : undefined)).toBe(
+        "manual_proof_resubmission_barred",
+      );
+
+      const [proof] = await proofRowsFor(fixture.paymentId);
+      expect(proof!.status).toBe("pending_review");
+      expect(Number(proof!.resubmission_count)).toBe(1);
+    });
+
+    it("a proof still awaiting review is reopened by neither of two contending refiles", async () => {
+      // The negative control for both arms at once, and it makes a sharper claim than the two tests
+      // above rather than a weaker one.
+      //
+      // A reopen of a `pending_review` proof does not merely lose the race. IT NEVER ENTERS IT. The
+      // CAS's WHERE excludes the row at scan time, so Postgres has nothing to lock and the statement
+      // returns while this test is still holding an exclusive lock on that very row. Both refusals
+      // therefore arrive BEFORE the barrier is released, which is why this one cannot use
+      // `contendTwoReopens`: waiting for a block that correctly never happens would hang.
+      //
+      // Delete the status predicate from that WHERE and this is what changes: both statements would
+      // suddenly match, both would block on the barrier, and this test would fail on the deadline
+      // below naming exactly that.
+      const fixture = await seedCommittedFixture();
+      const proofId = await seedProofInState(fixture, "pending_review", true);
+
+      const outcomes = await withRowHeld(
+        "finance_manual_payment_proofs",
+        proofId,
+        async (track) => {
+          const both = Promise.all([
+            track(runReopen(racerOne, fixture, proofId)),
+            track(runReopen(racerTwo, fixture, proofId)),
+          ]);
+
+          return Promise.race([
+            both,
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      "a reopen of a pending_review proof BLOCKED on the row this test holds. It " +
+                        "should not have reached the row at all: the CAS's status predicate is what " +
+                        "excludes it before any lock is taken. A reopen that waits here is a reopen " +
+                        "whose WHERE would have matched.",
+                    ),
+                  ),
+                BARRIER_TIMEOUT_MS,
+              ),
+            ),
+          ]);
+        },
+      );
+
+      expect(outcomes.filter((outcome) => outcome.ok)).toEqual([]);
+
+      const [proof] = await proofRowsFor(fixture.paymentId);
+      expect(proof!.status).toBe("pending_review");
+      expect(Number(proof!.resubmission_count)).toBe(0);
+    });
+  },
+);
+
+describe.skipIf(skipWithoutDatabase)(
+  "pricing a competition serializes with its participation set",
+  () => {
+    /**
+     * THE THIRD RACE, and the one a compare-and-set structurally cannot close.
+     *
+     * Setting a price is refused when the competition already has active FREE registrants, because
+     * one retroactively attaches a fee to people who agreed to none. That decision COUNTS ROWS, and
+     * the rows it counts do not exist yet: the registration it must not miss is still in flight. There
+     * is no shared row for a CAS to compare against, so the only thing that can serialize the count
+     * with the registration is the advisory lock every other participation path already takes.
+     *
+     * Read outside the lock, the classifier sees zero free registrants, the registration commits, and
+     * the price lands on a competition that took a free entrant a moment earlier.
+     *
+     * What this measures is the BLOCK, not the outcome: with the lock held elsewhere the fee write
+     * must wait rather than proceed on a stale count. Deleting the lock from the service makes this
+     * fail, because it stops waiting.
+     */
+    it("waits for the participation lock instead of pricing against a stale count", async () => {
+      const fixture = await seedCommittedFixture();
+      const { setCompetitionFee } = await import("@/server/competitions/competition-fee-service");
+
+      const [barrierPid, racerPid] = await Promise.all([
+        backendPidOf(barrier),
+        backendPidOf(racerOne),
+      ]);
+
+      // Returned INSIDE an array, exactly as the reopen racers are. `withParticipationLockHeld` does
+      // `await body(track)`, so handing back the bare promise would await the racer while the barrier
+      // still holds the lock, and the harness would deadlock against itself and report a timeout that
+      // looks like a missing lock. An array is not unwrapped by await; the finally releases first and
+      // `Promise.all(inFlight)` collects the racer afterwards.
+      const [settled] = await withParticipationLockHeld(fixture.competitionId, async (track) => {
+        const run = track(
+          setCompetitionFee(
+            fixture.userId,
+            fixture.competitionId,
+            { feeAmount: null, feeCurrency: null },
+            racerOne.db as never,
+          ),
+        );
+
+        // THE ASSERTION. If the service takes the lock, this racer is parked behind the barrier; if
+        // it does not, it runs straight through and this throws with the file's guard-removal notice.
+        await awaitBlockedBy(racerPid, barrierPid, "the fee write");
+
+        return [run] as const;
+      });
+
+      const outcome = await settled;
+      expect(outcome.ok).toBe(true);
+    });
+  },
+);

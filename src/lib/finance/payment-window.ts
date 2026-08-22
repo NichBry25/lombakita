@@ -24,9 +24,7 @@ export const MIN_PAYMENT_WINDOW_DAYS = 1;
 export const MAX_PAYMENT_WINDOW_DAYS = 30;
 
 export const isValidPaymentWindowDays = (value: number): boolean =>
-  Number.isInteger(value) &&
-  value >= MIN_PAYMENT_WINDOW_DAYS &&
-  value <= MAX_PAYMENT_WINDOW_DAYS;
+  Number.isInteger(value) && value >= MIN_PAYMENT_WINDOW_DAYS && value <= MAX_PAYMENT_WINDOW_DAYS;
 
 /**
  * The instant a payment started at `startedAt` must be settled by.

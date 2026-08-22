@@ -78,7 +78,10 @@ const formatMegabytes = (bytes: number): string => {
  * only: the server re-derives the type from the filename at presign and the organiser sees the
  * bytes. This exists to spare a candidate a failed upload, not to decide anything.
  */
-export const preValidatePaymentProofFile = (file: { name: string; size: number }): string | null => {
+export const preValidatePaymentProofFile = (file: {
+  name: string;
+  size: number;
+}): string | null => {
   if (formatForFileName(file.name) === null) {
     return `Format tidak didukung. Unggah bukti transfer dalam format ${PAYMENT_PROOF_FORMAT_HINT}.`;
   }

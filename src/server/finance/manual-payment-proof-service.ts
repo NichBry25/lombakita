@@ -235,10 +235,7 @@ type OpenManualLane = { paymentId: string; registrationId: string };
  * reordering a reviewer has to notice. There is no harmful move to detect because the ordering is
  * not expressible.
  */
-const requireOpenManualLane = async (
-  tx: Database,
-  paymentId: string,
-): Promise<OpenManualLane> => {
+const requireOpenManualLane = async (tx: Database, paymentId: string): Promise<OpenManualLane> => {
   const [payment] = await tx
     .select({ registrationId: financePayments.competitionRegistrationId })
     .from(financePayments)
@@ -453,11 +450,7 @@ export const generateManualProofUploadUrl = async (
     .limit(1);
 
   if (!payment) {
-    throw new ManualProofError(
-      "manual_proof_payment_not_found",
-      "Pembayaran tidak ditemukan",
-      404,
-    );
+    throw new ManualProofError("manual_proof_payment_not_found", "Pembayaran tidak ditemukan", 404);
   }
 
   if (payment.origin !== "manual_transfer") {
@@ -785,7 +778,11 @@ export const verifyManualPaymentProof = async (
       .limit(1);
 
     if (!payment) {
-      throw new ManualProofError("manual_proof_payment_not_found", "Pembayaran tidak ditemukan", 404);
+      throw new ManualProofError(
+        "manual_proof_payment_not_found",
+        "Pembayaran tidak ditemukan",
+        404,
+      );
     }
 
     await recordProofAttempt(tx as unknown as Database, proof, "verified", null);

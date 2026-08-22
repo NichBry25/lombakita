@@ -72,8 +72,10 @@ describe("payment lane tone maps", () => {
     const inCss = tonesDefinedForStatusBadge();
 
     for (const [status, tone] of Object.entries(map)) {
-      expect(inCss.has(tone), `${name}.${status} = "${tone}", which .status-badge does not style`)
-        .toBe(true);
+      expect(
+        inCss.has(tone),
+        `${name}.${status} = "${tone}", which .status-badge does not style`,
+      ).toBe(true);
     }
   };
 

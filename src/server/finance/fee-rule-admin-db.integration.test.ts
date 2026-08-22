@@ -17,7 +17,11 @@ import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { TransactionRollbackError, and, eq } from "drizzle-orm";
 import postgres from "postgres";
 import { financeFeeRules, institutions, platformOpsAuditLogs, users } from "@/server/db/schema";
-import { createFeeRule, listFeeRules, requireFeeRuleInForce } from "@/server/finance/fee-rule-service";
+import {
+  createFeeRule,
+  listFeeRules,
+  requireFeeRuleInForce,
+} from "@/server/finance/fee-rule-service";
 import type { Database } from "@/server/db/client";
 
 const DATABASE_URL = TEST_DATABASE_URL;
@@ -206,7 +210,11 @@ describe.skipIf(skipWithoutDatabase)("fee-rule admin writes (real database)", ()
       // The fail-closed path against a real, genuinely empty table rather than a mocked empty
       // result. This is the state a fresh environment is in before anyone configures pricing.
       await expect(
-        requireFeeRuleInForce(institutionId, new Date("2026-09-02T00:00:00.000Z"), tx as unknown as Database),
+        requireFeeRuleInForce(
+          institutionId,
+          new Date("2026-09-02T00:00:00.000Z"),
+          tx as unknown as Database,
+        ),
       ).rejects.toThrow(/no platform fee rule is in force/i);
     });
   });

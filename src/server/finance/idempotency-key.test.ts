@@ -186,7 +186,11 @@ describe("mintManualPaymentEventKey", () => {
     // The opposite of the platform arm, and correctly so. A proof leaves pending_review exactly
     // once per revision (the CAS enforces it), so a repeated verification of the same attempt IS
     // the same event and must not record a second `succeeded`.
-    const first = mintManualPaymentEventKey({ action: "succeeded", proofId: "proof_1", attempt: 0 });
+    const first = mintManualPaymentEventKey({
+      action: "succeeded",
+      proofId: "proof_1",
+      attempt: 0,
+    });
     const second = mintManualPaymentEventKey({
       action: "succeeded",
       proofId: "proof_1",
@@ -201,7 +205,11 @@ describe("mintManualPaymentEventKey", () => {
     // Without the attempt segment, a proof that was rejected, resubmitted and then verified would
     // mint the key its first attempt already used, and the real verification would be swallowed as
     // a replay of a verification that never happened.
-    const first = mintManualPaymentEventKey({ action: "succeeded", proofId: "proof_1", attempt: 0 });
+    const first = mintManualPaymentEventKey({
+      action: "succeeded",
+      proofId: "proof_1",
+      attempt: 0,
+    });
     const second = mintManualPaymentEventKey({
       action: "succeeded",
       proofId: "proof_1",

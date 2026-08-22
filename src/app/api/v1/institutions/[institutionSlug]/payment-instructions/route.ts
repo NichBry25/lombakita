@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/server/db/client";
-import { assertSessionMatchesExpectedUser, toAccessDeniedResponse } from "@/server/auth/access-core";
+import {
+  assertSessionMatchesExpectedUser,
+  toAccessDeniedResponse,
+} from "@/server/auth/access-core";
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import { requireOwnerInstitutionBySlug } from "@/server/institution-members/member-service";
 import {
@@ -14,8 +17,7 @@ type RouteContext = { params: Promise<{ institutionSlug: string }> };
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const optionalText = (value: unknown): string | null =>
-  typeof value === "string" ? value : null;
+const optionalText = (value: unknown): string | null => (typeof value === "string" ? value : null);
 
 const refuse = (error: unknown): Response => {
   if (error instanceof PaymentInstructionsError) {

@@ -179,58 +179,78 @@ describe.skipIf(skipWithoutDatabase)("requireAdminInstitutionBySlug (real databa
 // wrapper over the throwing resolver, so closing that one leaves these open. Widening
 // isInstitutionOwnerBySlug to admit every member was caught only incidentally, by three
 // charging-gate publish tests asserting something else entirely; nothing stated the role set.
-describe.skipIf(skipWithoutDatabase)("isInstitutionOwnerBySlug / isInstitutionAdminBySlug (real database)", () => {
-  const withMembership = async (
-    tx: Tx,
-    role: "institution_owner" | "institution_staff" | "institution_member",
-    status: "invited" | "active" | "inactive" | "revoked" = "active",
-  ) => {
-    const user = await seedUser(tx, "bool");
-    const institution = await seedInstitution(tx, "bool");
-    await seedMembership(tx, institution.id, user, role, status);
-    const guards = await import("./member-service");
-    return {
-      isOwner: await guards.isInstitutionOwnerBySlug(user, institution.slug, tx as unknown as Database),
-      isAdmin: await guards.isInstitutionAdminBySlug(user, institution.slug, tx as unknown as Database),
+describe.skipIf(skipWithoutDatabase)(
+  "isInstitutionOwnerBySlug / isInstitutionAdminBySlug (real database)",
+  () => {
+    const withMembership = async (
+      tx: Tx,
+      role: "institution_owner" | "institution_staff" | "institution_member",
+      status: "invited" | "active" | "inactive" | "revoked" = "active",
+    ) => {
+      const user = await seedUser(tx, "bool");
+      const institution = await seedInstitution(tx, "bool");
+      await seedMembership(tx, institution.id, user, role, status);
+      const guards = await import("./member-service");
+      return {
+        isOwner: await guards.isInstitutionOwnerBySlug(
+          user,
+          institution.slug,
+          tx as unknown as Database,
+        ),
+        isAdmin: await guards.isInstitutionAdminBySlug(
+          user,
+          institution.slug,
+          tx as unknown as Database,
+        ),
+      };
     };
-  };
 
-  it("an OWNER is both owner and admin", async () => {
-    await inRollback(async (tx) => {
-      expect(await withMembership(tx, "institution_owner")).toEqual({ isOwner: true, isAdmin: true });
-    });
-  });
-
-  it("a STAFF member is admin but NOT owner, which is the settings boundary", async () => {
-    await inRollback(async (tx) => {
-      expect(await withMembership(tx, "institution_staff")).toEqual({ isOwner: false, isAdmin: true });
-    });
-  });
-
-  it("an institution_member is NEITHER, the privilege-escalation direction", async () => {
-    await inRollback(async (tx) => {
-      expect(await withMembership(tx, "institution_member")).toEqual({ isOwner: false, isAdmin: false });
-    });
-  });
-
-  it("a revoked OWNER is neither, however senior the role on the row", async () => {
-    await inRollback(async (tx) => {
-      expect(await withMembership(tx, "institution_owner", "revoked")).toEqual({
-        isOwner: false,
-        isAdmin: false,
+    it("an OWNER is both owner and admin", async () => {
+      await inRollback(async (tx) => {
+        expect(await withMembership(tx, "institution_owner")).toEqual({
+          isOwner: true,
+          isAdmin: true,
+        });
       });
     });
-  });
 
-  it("an INVITED owner is neither until the invitation is accepted", async () => {
-    await inRollback(async (tx) => {
-      expect(await withMembership(tx, "institution_owner", "invited")).toEqual({
-        isOwner: false,
-        isAdmin: false,
+    it("a STAFF member is admin but NOT owner, which is the settings boundary", async () => {
+      await inRollback(async (tx) => {
+        expect(await withMembership(tx, "institution_staff")).toEqual({
+          isOwner: false,
+          isAdmin: true,
+        });
       });
     });
-  });
-});
+
+    it("an institution_member is NEITHER, the privilege-escalation direction", async () => {
+      await inRollback(async (tx) => {
+        expect(await withMembership(tx, "institution_member")).toEqual({
+          isOwner: false,
+          isAdmin: false,
+        });
+      });
+    });
+
+    it("a revoked OWNER is neither, however senior the role on the row", async () => {
+      await inRollback(async (tx) => {
+        expect(await withMembership(tx, "institution_owner", "revoked")).toEqual({
+          isOwner: false,
+          isAdmin: false,
+        });
+      });
+    });
+
+    it("an INVITED owner is neither until the invitation is accepted", async () => {
+      await inRollback(async (tx) => {
+        expect(await withMembership(tx, "institution_owner", "invited")).toEqual({
+          isOwner: false,
+          isAdmin: false,
+        });
+      });
+    });
+  },
+);
 
 describe.skipIf(skipWithoutDatabase)("requireOwnerInstitutionBySlug (real database)", () => {
   it("resolves the institution for its OWNER", async () => {

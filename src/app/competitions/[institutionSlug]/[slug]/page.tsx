@@ -629,10 +629,7 @@ export default async function CompetitionDetailPage({
 
           <div className="stack-xs">
             <p className="eyebrow">Biaya pendaftaran</p>
-            <FeeDisplay
-              feeAmount={competition.feeAmount}
-              feeCurrency={competition.feeCurrency}
-            />
+            <FeeDisplay feeAmount={competition.feeAmount} feeCurrency={competition.feeCurrency} />
           </div>
           <div className="detail-rail-actions">
             <div className="detail-primary-actions">

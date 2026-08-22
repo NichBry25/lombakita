@@ -206,12 +206,7 @@ describe("the payment verdict notice", () => {
     expect(mockResolvePaymentGroupMemberUserIds).toHaveBeenCalledWith("reg_1", expect.anything());
     // The set the worker ASKED FOR, not the set the mock happened to answer with. Narrowing the
     // fan-out to the captain leaves this assertion holding one id.
-    expect(paramsOf(db.capturedConditions[0])).toEqual([
-      "u_captain",
-      "u_2",
-      "u_3",
-      "u_4",
-    ]);
+    expect(paramsOf(db.capturedConditions[0])).toEqual(["u_captain", "u_2", "u_3", "u_4"]);
     expect(mockWriteNotification).toHaveBeenCalledTimes(4);
     expect(mockSendPaymentOutcomeEmail).toHaveBeenCalledTimes(4);
   });
