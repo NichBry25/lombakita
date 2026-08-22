@@ -40,6 +40,12 @@ describe("ci.yml", () => {
     expect(runsCommand(command)).toBe(true);
   });
 
+  // A grep for the range form found 4 weak assertions; resolving the same file against its parsed
+  // syntax tree found 57. The gate is what stops the next one being written.
+  it("gates assertion strength", () => {
+    expect(runsCommand("npm run verify:assertion-strength")).toBe(true);
+  });
+
   it("seeds the matrix before building the search index", () => {
     const seedAt = workflow.indexOf("node --import tsx scripts/seed-test-matrix.ts");
     const indexAt = workflow.indexOf("node --import tsx scripts/setup-search-index.ts");

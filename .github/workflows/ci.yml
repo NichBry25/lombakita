@@ -91,6 +91,12 @@ jobs:
       - name: Test
         run: npm run test
 
+      # A static check over api-matrix's own assertions: none may pass for a reason other than the
+      # one its name gives. It found 57 that could, where the previous hand count — a grep for the
+      # explicit range form — had found 4.
+      - name: Assertion strength
+        run: npm run verify:assertion-strength
+
       # Build is intentionally NOT run here. `next build` requires runtime env
       # (DATABASE_URL / AUTH_SECRET, and a reachable DB for public-page
       # prerendering) that CI does not hold. The authoritative build gate is the

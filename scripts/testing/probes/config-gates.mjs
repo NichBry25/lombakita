@@ -116,6 +116,35 @@ const probes = [
     detect: async () => vitest("src/config/ci-gates.test.ts"),
   },
   {
+    name: "no api-matrix assertion may pass for a reason other than the one it names",
+    klass: "D",
+    harmfulMove: "reintroducing a status range, which accepts a payload rejection for a policy gate",
+    files: ["scripts/testing/api-matrix.mjs"],
+    appliedMarkers: ["publishWhileSuspended.status >= 400"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/api-matrix.mjs",
+        'refusedWith(publishWhileSuspended, 403, "institution_suspended")',
+        "publishWhileSuspended.status >= 400 && publishWhileSuspended.status < 500",
+      ),
+    compiles: () => execFileSync("node", ["--check", "scripts/testing/api-matrix.mjs"]),
+    detect: async () => fails("npm", ["run", "verify:assertion-strength"]),
+  },
+  {
+    name: "the assertion-strength gate runs in CI",
+    klass: "C",
+    harmfulMove: "removing the step, so the next range form is written unopposed",
+    files: [".github/workflows/ci.yml"],
+    appliedMarkers: ["# assertion strength removed by probe"],
+    mutate: () =>
+      substituteOnce(
+        ".github/workflows/ci.yml",
+        "      - name: Assertion strength\n        run: npm run verify:assertion-strength\n",
+        "      # assertion strength removed by probe\n",
+      ),
+    detect: async () => vitest("src/config/ci-gates.test.ts"),
+  },
+  {
     name: "an automated environment never delivers email",
     klass: "C",
     harmfulMove: "putting `test` back on the delivering side, so a seeded run mails every fixture address",
