@@ -25,7 +25,53 @@ node scripts/testing/flows.mjs                  # UI flows + a screenshot of eve
 node scripts/testing/gallery.mjs                # every page × light/dark × desktop/mobile
 node scripts/testing/mobile-audit.mjs           # every page at 390px: overflow, edge, touch targets
 node scripts/testing/contrast-audit.mjs         # every page x light/dark: WCAG AA text contrast
+node scripts/testing/ui-states.mjs              # what each surface must SAY and must NOT OFFER
 ```
+
+All three now run in CI on every PR (`.github/workflows/ci.yml`, job `browser audits`), against a
+production build of the branch and a freshly seeded matrix. Running them locally is still the way to
+see a failure quickly; it is no longer the only way they run.
+
+## Exit codes, shared by `contrast-audit` and `mobile-audit`
+
+| Code | Meaning |
+|---|---|
+| 0 | measured; nothing outside the baseline |
+| 1 | measured; findings this baseline does not carry |
+| 3 | REFUSED to measure — the stylesheet preflight |
+| 4 | at least one page could not be measured |
+
+**3 and 4 are refusals, not findings.** Exit 3 means the browser was not loading the stylesheet on
+disk, so nothing measured would have been about the working tree: the audit prints why and produces
+no report. Exit 4 means a page timed out or errored; that page is not a lower total, it is a run
+that cannot describe the app, and it can never be baselined away.
+
+## Baselines
+
+`scripts/testing/baselines/*.json` records the findings that were present when the baseline was
+taken. A run fails on findings NOT in its baseline and reports (without failing) the baselined ones
+that no longer reproduce, so the file gets pruned rather than trusted forever.
+
+Re-take a baseline deliberately, never as a reaction to a red run:
+
+```bash
+UPDATE_BASELINE=1 node scripts/testing/contrast-audit.mjs
+UPDATE_BASELINE=1 node scripts/testing/mobile-audit.mjs
+```
+
+## Proving the guards
+
+```bash
+npm run verify:contrast-selftest   # audits the contrast auditor against hand-computed pairings
+npm run verify:guard-probes        # Rule 36 probes for the config gates — no server needed
+BASE_URL=http://localhost:3100 npm run verify:audit-probes   # Rule 36 probes for the refusals
+```
+
+`verify:audit-probes` wants a PRODUCTION build (`npm run build && npx next start -p 3100`), because
+it edits a stylesheet on disk and asks whether the audit notices: against `next dev` that edit races
+a recompile, and the probe would be measuring the dev server rather than the guard. Both probe
+suites mutate committed files and restore them from git per file, asserting `git diff --quiet`
+afterwards; they refuse to start if anything they touch differs from HEAD.
 
 `contrast-audit.mjs` measures every visible run of text against the background actually painted
 behind it — compositing translucent layers, and treating a single-colour gradient (the lime marker)

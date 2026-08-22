@@ -15,8 +15,9 @@
  * Needs no dev server and no database — the fixture is set with page.setContent().
  * Exit code: 0 when every assertion holds; 1 otherwise.
  */
-import { launch } from "./lib-browser.mjs";
+import { launch, expandCollapsibles } from "./lib-browser.mjs";
 import { audit } from "./lib-contrast.mjs";
+import { MIN_TONE_SEPARATION, toneSeparationFindings } from "./lib-tone-separation.mjs";
 
 let failures = 0;
 const check = (condition, label) => {
@@ -29,6 +30,12 @@ const check = (condition, label) => {
 const EXPECTED_FAILURES = [
   { id: "normal-fail", ratio: 4.48, need: 4.5, note: "#777 on white, 16px — just under AA" },
   { id: "normal-fail-mid", ratio: 3.03, need: 4.5, note: "#949494 on white at body size" },
+  {
+    id: "reported-label-wrapping-enabled",
+    ratio: 3.03,
+    need: 4.5,
+    note: "label wrapping an ENABLED input — the exemption must not swallow a live control's text",
+  },
   {
     id: "composited",
     ratio: 3.98,
@@ -44,6 +51,10 @@ const EXPECTED_CLEAN = [
   { id: "excluded-disabled", note: "blatant fail inside [aria-disabled] — WCAG 1.4.3 exempt" },
   { id: "excluded-sronly", note: "blatant fail inside .sr-only — not visible to anyone" },
   { id: "excluded-skeleton", note: "blatant fail inside [aria-busy] — a shape, not content" },
+  {
+    id: "excluded-label-wrapping-disabled",
+    note: "label WRAPPING a disabled input — closest() walks ancestors and never reached it",
+  },
 ];
 
 const FIXTURE = `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -75,6 +86,17 @@ const FIXTURE = `<!doctype html><html><head><meta charset="utf-8"><style>
   </button>
   <p id="excluded-sronly" class="sr-only" style="color:#eeeeee">Kirim berkas</p>
   <div aria-busy="true"><p id="excluded-skeleton" style="color:#eeeeee">Kirim berkas</p></div>
+
+  <!-- The checkbox row, in both states. The text belongs to the LABEL, which WRAPS the control
+       rather than descending from it, so an ancestor walk from the text never meets the input. The
+       pair is the point: exempting by ancestry alone reports both, and exempting the label
+       unconditionally reports neither. -->
+  <label id="excluded-label-wrapping-disabled" style="color:#949494">
+    <input type="checkbox" disabled />Kirim berkas
+  </label>
+  <label id="reported-label-wrapping-enabled" style="color:#949494">
+    <input type="checkbox" />Kirim berkas
+  </label>
 </body></html>`;
 
 const browser = await launch();
@@ -83,7 +105,6 @@ const page = await context.newPage();
 await page.setContent(FIXTURE, { waitUntil: "domcontentloaded" });
 
 const found = await audit(page);
-await browser.close();
 
 // `audit` identifies findings by a CSS-ish path rather than by id, so match on the id appearing in
 // that path. The trailing boundary is required: a plain `includes("#normal-fail")` also matches
@@ -126,6 +147,127 @@ check(
     unexpected.length ? ` (got ${unexpected.map((f) => `${f.el} @ ${f.ratio}:1`).join("; ")})` : ""
   }`,
 );
+
+// ---------------------------------------------------------------- collapsibles
+//
+// A collapsed section is ABSENT from the DOM, not hidden, so everything inside one was measured as
+// clean without ever being looked at. The fixture holds a blatant failure inside each of the two
+// shapes the app uses, and neither is reachable until the section is opened.
+const COLLAPSIBLE_FIXTURE = `<!doctype html><html><head><meta charset="utf-8"><style>
+  body { margin: 0; background: #ffffff; font-family: sans-serif; }
+  p { margin: 0; font-size: 16px; }
+</style></head><body>
+  <details>
+    <summary>Rincian</summary>
+    <p id="inside-details" style="color:#eeeeee">Kirim berkas</p>
+  </details>
+  <button type="button" aria-expanded="false" onclick="
+    this.setAttribute('aria-expanded','true');
+    document.getElementById('slot').innerHTML =
+      '<p id=\\'inside-toggled\\' style=\\'color:#eeeeee\\'>Kirim berkas</p>';
+  ">Buka formulir</button>
+  <div id="slot"></div>
+</body></html>`;
+
+const collapsiblePage = await context.newPage();
+await collapsiblePage.setContent(COLLAPSIBLE_FIXTURE, { waitUntil: "domcontentloaded" });
+
+console.log(`\n[opens what is collapsed] the conditionally rendered section is the one that hides`);
+const beforeOpening = await audit(collapsiblePage);
+
+// THE LOAD-BEARING CASE. `{expanded ? <form/> : null}` renders nothing at all, so there is no
+// element to measure and the audit reported the page clean without having seen the form.
+check(
+  !beforeOpening.some((f) => idPattern("inside-toggled").test(f.el)),
+  "inside-toggled — nothing to measure while the section is not rendered",
+);
+
+// The other shape behaves differently, and the difference is worth pinning rather than assuming:
+// Chromium keeps a closed <details>'s contents laid out, so they were always measurable — which
+// means the audit has been reporting text in that position that no reader could see.
+check(
+  beforeOpening.some((f) => idPattern("inside-details").test(f.el)),
+  "inside-details — a CLOSED <details> still exposes its contents to measurement in Chromium",
+);
+
+await expandCollapsibles(collapsiblePage);
+const afterOpening = await audit(collapsiblePage);
+for (const id of ["inside-details", "inside-toggled"]) {
+  check(
+    afterOpening.some((f) => idPattern(id).test(f.el)),
+    `${id} — reported once the section is open`,
+  );
+}
+await collapsiblePage.close();
+
+// ---------------------------------------------------------------- tone separation
+//
+// The detector answers a question contrast cannot: whether two tones can be told apart FROM EACH
+// OTHER. Both fixtures below pass contrast on every pairing — the point is that passing contrast
+// says nothing about this.
+const toneFixture = (tones) => `<!doctype html><html><head><meta charset="utf-8"><style>
+  :root {
+${Object.entries(tones)
+  .map(([name, [surface, ink]]) =>
+    `    --color-${name}-surface: ${surface};\n    --color-${name}-text: ${ink};`,
+  )
+  .join("\n")}
+    --color-inset: #f4eee0;
+    --color-ink-soft: #3d5c56;
+  }
+</style></head><body></body></html>`;
+
+// Two tones one step apart in lightness, same hue: the shape of the info/success collision.
+const COLLIDING = {
+  success: ["#d9ead9", "#1c5f52"],
+  warning: ["#ffd3b0", "#8f3512"],
+  error: ["#ffe9da", "#9b3617"],
+  info: ["#dceadc", "#1e6154"],
+  disabled: ["#f0ebdd", "#5c7571"],
+};
+
+// The same set with `info` moved to a genuinely different colour.
+const SEPARATED = {
+  ...COLLIDING,
+  info: ["#d6e4f5", "#1f4b7a"],
+};
+
+const tonePage = await context.newPage();
+
+console.log(`\n[tone separation] catches a collision contrast cannot see`);
+await tonePage.setContent(toneFixture(COLLIDING), { waitUntil: "domcontentloaded" });
+const collided = await toneSeparationFindings(tonePage);
+const successInfo = collided.find(
+  (f) => f.theme === "light" && [f.a, f.b].includes("success") && [f.a, f.b].includes("info"),
+);
+check(
+  successInfo !== undefined,
+  `success vs info is reported${successInfo ? ` at ΔE ${successInfo.separation} (need ${MIN_TONE_SEPARATION})` : ""}`,
+);
+
+await tonePage.setContent(toneFixture(SEPARATED), { waitUntil: "domcontentloaded" });
+const separated = await toneSeparationFindings(tonePage);
+check(
+  !separated.some(
+    (f) => f.theme === "light" && [f.a, f.b].includes("success") && [f.a, f.b].includes("info"),
+  ),
+  "the same pair is NOT reported once info moves to a different colour",
+);
+// Every pair NOT involving `info` is identical between the two fixtures, so its verdict must be
+// identical too. Without this the first check passes on a detector that simply reports less.
+const withoutInfo = (findings) =>
+  findings
+    .filter((f) => f.a !== "info" && f.b !== "info")
+    .map((f) => `${f.theme}|${f.a}|${f.b}`)
+    .sort()
+    .join(",");
+check(
+  withoutInfo(separated) === withoutInfo(collided),
+  `the pairs that did not change are judged the same (${withoutInfo(collided) || "none"})`,
+);
+await tonePage.close();
+
+await browser.close();
 
 console.log(
   `\n${failures === 0 ? "ALL CONTRAST SELF-TEST CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`,

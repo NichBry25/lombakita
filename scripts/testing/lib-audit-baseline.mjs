@@ -65,7 +65,12 @@ export const updatingBaseline = process.env.UPDATE_BASELINE === "1";
  * established that the rest is fine, and reporting a finding count from it invites exactly the
  * reading that the count is complete.
  */
-export const finishAudit = ({ name, findings, unmeasurable, note }) => {
+export const finishAudit = ({ name, measure, unmeasurable, note }) => {
+  // THE REPORT IS PRODUCED HERE, not before the call. An audit that printed its findings and its
+  // total on the way to `finishAudit` has already published the number by the time the run is
+  // declared invalid, and the number is what gets quoted — which is the whole defect. A probe
+  // caught exactly that in the first version of this file: the run exited 4 and printed
+  // "N/M pages clean" on its way out.
   if (unmeasurable.length > 0) {
     console.error(`\n${unmeasurable.length} page(s) COULD NOT BE MEASURED:`);
     for (const entry of unmeasurable) {
@@ -78,6 +83,8 @@ export const finishAudit = ({ name, findings, unmeasurable, note }) => {
     );
     process.exit(EXIT_UNMEASURABLE);
   }
+
+  const findings = measure();
 
   if (updatingBaseline) {
     writeBaseline(name, findings, note);

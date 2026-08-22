@@ -98,48 +98,55 @@ await tonePage.close();
 
 await browser.close();
 
-const findings = [];
-for (const entry of report) {
-  console.log(`\n${entry.id} [${entry.theme}]  (${entry.path})`);
-  console.log(`  ${entry.found.length} pairing(s) under threshold`);
-  for (const f of entry.found.slice(0, 8)) {
-    const flag = f.approx ? " ~" : "  ";
-    console.log(
-      `${flag} ${String(f.ratio).padStart(5)}:1 (need ${f.need})  ${f.fg} on ${f.bg}  ` +
-        `${f.size}px  ${f.el}  "${f.sample}"`,
-    );
+/**
+ * Prints the report and returns its findings. Called by `finishAudit` only once the run has been
+ * established as one that measured everything it claims to describe.
+ */
+const measure = () => {
+  const findings = [];
+  for (const entry of report) {
+    console.log(`\n${entry.id} [${entry.theme}]  (${entry.path})`);
+    console.log(`  ${entry.found.length} pairing(s) under threshold`);
+    for (const f of entry.found.slice(0, 8)) {
+      const flag = f.approx ? " ~" : "  ";
+      console.log(
+        `${flag} ${String(f.ratio).padStart(5)}:1 (need ${f.need})  ${f.fg} on ${f.bg}  ` +
+          `${f.size}px  ${f.el}  "${f.sample}"`,
+      );
+    }
+    if (entry.found.length > 8) console.log(`   …and ${entry.found.length - 8} more`);
+    for (const f of entry.found) {
+      findings.push({
+        key: `${entry.id}|${entry.theme}|${f.el}|${f.fg}on${f.bg}`,
+        ratio: f.ratio,
+        need: f.need,
+        sample: f.sample,
+      });
+    }
   }
-  if (entry.found.length > 8) console.log(`   …and ${entry.found.length - 8} more`);
-  for (const f of entry.found) {
-    findings.push({
-      key: `${entry.id}|${entry.theme}|${f.el}|${f.fg}on${f.bg}`,
-      ratio: f.ratio,
-      need: f.need,
-      sample: f.sample,
-    });
-  }
-}
 
-if (toneFindings.length > 0) {
-  console.log(`\nTONE SEPARATION — ${toneFindings.length} pair(s) too close to tell apart`);
-  for (const f of toneFindings) {
-    console.log(
-      `  [${f.theme}] ${f.a} vs ${f.b}: separation ΔE ${f.separation} (need ${f.need}) — ` +
-        `ground ΔE ${f.groundDeltaE}, ink ΔE ${f.textDeltaE}. ${f.detail}`,
-    );
-    findings.push({ key: `tone|${f.theme}|${f.a}|${f.b}`, ...f });
+  if (toneFindings.length > 0) {
+    console.log(`\nTONE SEPARATION — ${toneFindings.length} pair(s) too close to tell apart`);
+    for (const f of toneFindings) {
+      console.log(
+        `  [${f.theme}] ${f.a} vs ${f.b}: separation ΔE ${f.separation} (need ${f.need}) — ` +
+          `ground ΔE ${f.groundDeltaE}, ink ΔE ${f.textDeltaE}. ${f.detail}`,
+      );
+      findings.push({ key: `tone|${f.theme}|${f.a}|${f.b}`, ...f });
+    }
   }
-}
 
-const dirtyPages = new Set(report.map((r) => r.id));
-console.log(
-  `\n${measuredPages.size - dirtyPages.size}/${measuredPages.size} pages clean in both themes. ` +
-    `~ = measured against a solid colour under a gradient or image; verify by eye.`,
-);
+  const dirtyPages = new Set(report.map((r) => r.id));
+  console.log(
+    `\n${measuredPages.size - dirtyPages.size}/${measuredPages.size} pages clean in both themes. ` +
+      `~ = measured against a solid colour under a gradient or image; verify by eye.`,
+  );
+  return findings;
+};
 
 finishAudit({
   name: "contrast-audit",
-  findings,
+  measure,
   unmeasurable,
   note: `${measuredPages.size} pages x light/dark at ${DESKTOP.width}px, plus tone separation`,
 });

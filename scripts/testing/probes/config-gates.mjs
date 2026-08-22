@@ -1,0 +1,174 @@
+/*
+ * Rule 36 probes for the gates Step 7.7-PRE added or repaired that need no browser.
+ *
+ * Each one breaks the guard's premise in the file where it lives, then runs the detector and
+ * requires it to go RED. A guard whose test still passes when the guard is gone is a guard nobody
+ * has observed working; six of the twelve defects this step exists to fix were exactly that.
+ *
+ * Usage: node scripts/testing/probes/config-gates.mjs
+ * Runs only over committed work — the harness refuses if any listed file differs from HEAD.
+ */
+import { execFileSync } from "node:child_process";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { runProbes, substituteOnce } from "../guard-probe.mjs";
+
+/** Runs a command and reports whether it FAILED. A detector going red is the result we want. */
+const fails = (command, args) => {
+  try {
+    execFileSync(command, args, { stdio: "pipe" });
+    return { refused: false, evidence: `${command} ${args.join(" ")} still passed` };
+  } catch (error) {
+    const output = `${error.stdout ?? ""}${error.stderr ?? ""}`;
+    const firstFailure =
+      output.split("\n").find((line) => /FAIL|✗|error TS|✘|AssertionError/.test(line)) ??
+      `exit ${error.status}`;
+    return { refused: true, evidence: `detector went red: ${firstFailure.trim().slice(0, 140)}` };
+  }
+};
+
+const vitest = (file) => fails("npx", ["vitest", "run", file]);
+
+const probes = [
+  {
+    name: "database-backed suites are required by default",
+    // The tripwire throws at module load. There is no position inside the module at which it would
+    // NOT throw before a consumer ran, so a move analogue does not exist here; the removal test is
+    // the whole test, and Rule 36 asks for that to be said rather than for a probe that measures
+    // nothing.
+    klass: "C",
+    harmfulMove: "restoring opt-in, so a worktree without .env.local silently skips 285 tests",
+    files: ["src/server/testing/database-url.ts"],
+    appliedMarkers: ['process.env.REQUIRE_DB_TESTS === "1"'],
+    mutate: () =>
+      substituteOnce(
+        "src/server/testing/database-url.ts",
+        'export const databaseTestsRequired = process.env.REQUIRE_DB_TESTS !== "0";',
+        'export const databaseTestsRequired = process.env.REQUIRE_DB_TESTS === "1";',
+      ),
+    detect: async () => vitest("src/server/testing/database-url.test.ts"),
+  },
+  {
+    name: "the typecheck gate ignores the dev server's generated types",
+    klass: "D",
+    harmfulMove: "compiling a directory a long-running process rewrites, so a torn write fails the gate",
+    files: ["tsconfig.json"],
+    appliedMarkers: ['".next/dev/types/**/*.ts"'],
+    mutate: () =>
+      substituteOnce(
+        "tsconfig.json",
+        '    ".next/types/**/*.ts"\n',
+        '    ".next/types/**/*.ts",\n    ".next/dev/types/**/*.ts"\n',
+      ),
+    compiles: () => JSON.parse(readFileSync("tsconfig.json", "utf8")),
+    // The FUNCTIONAL detector, not the assertion about the config: a real torn file is written into
+    // the directory under test and `npm run typecheck` is asked what it thinks. Teardown is in a
+    // `finally` so the file cannot outlive the probe (Rule 35).
+    detect: async () => {
+      mkdirSync(".next/dev/types", { recursive: true });
+      writeFileSync(".next/dev/types/torn-write-probe.ts", 'export const torn: number = "no";\n');
+      try {
+        return fails("npx", ["tsc", "--noEmit"]);
+      } finally {
+        rmSync(".next/dev/types/torn-write-probe.ts", { force: true });
+      }
+    },
+  },
+  {
+    name: "the format gate runs in CI",
+    klass: "C",
+    harmfulMove: "removing the step, so the standard goes back to being advisory",
+    files: [".github/workflows/ci.yml"],
+    appliedMarkers: ["# format gate removed by probe"],
+    mutate: () =>
+      substituteOnce(
+        ".github/workflows/ci.yml",
+        "      - name: Format\n        run: npm run format:check\n",
+        "      # format gate removed by probe\n",
+      ),
+    detect: async () => vitest("src/config/ci-gates.test.ts"),
+  },
+  {
+    name: "the contrast audit runs in CI",
+    klass: "C",
+    harmfulMove: "removing the step, so the only check that can see a dark-on-dark theme stops running",
+    files: [".github/workflows/ci.yml"],
+    appliedMarkers: ["# contrast audit removed by probe"],
+    mutate: () =>
+      substituteOnce(
+        ".github/workflows/ci.yml",
+        "      - name: Text contrast and tone separation audit\n        run: node scripts/testing/contrast-audit.mjs\n",
+        "      # contrast audit removed by probe\n",
+      ),
+    detect: async () => vitest("src/config/ci-gates.test.ts"),
+  },
+  {
+    name: "the ui-state assertions run in CI",
+    klass: "C",
+    harmfulMove: "removing the step, so withheld affordances are again checked only by hand",
+    files: [".github/workflows/ci.yml"],
+    appliedMarkers: ["# ui-states removed by probe"],
+    mutate: () =>
+      substituteOnce(
+        ".github/workflows/ci.yml",
+        "      - name: UI state assertions\n        run: node scripts/testing/ui-states.mjs\n",
+        "      # ui-states removed by probe\n",
+      ),
+    detect: async () => vitest("src/config/ci-gates.test.ts"),
+  },
+  {
+    name: "an automated environment never delivers email",
+    klass: "C",
+    harmfulMove: "putting `test` back on the delivering side, so a seeded run mails every fixture address",
+    files: ["src/config/env.server.ts"],
+    appliedMarkers: ['if (appEnv === "no-such-environment")'],
+    mutate: () =>
+      substituteOnce(
+        "src/config/env.server.ts",
+        '  if (appEnv === "test") {\n    return false;\n  }',
+        '  if (appEnv === "no-such-environment") {\n    return false;\n  }',
+      ),
+    detect: async () => vitest("src/config/env-email-delivery.test.ts"),
+  },
+  {
+    name: "the disabled exemption reaches a label wrapping its control — REMOVED",
+    klass: "D",
+    harmfulMove: "exempting by ancestry alone, which misses every checkbox row in the app",
+    files: ["scripts/testing/lib-contrast.mjs"],
+    appliedMarkers: ["if (el.closest(\":disabled, [aria-disabled='true']\")) continue;"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/lib-contrast.mjs",
+        "      if (isInactive(el)) continue;",
+        "      if (el.closest(\":disabled, [aria-disabled='true']\")) continue;",
+      ),
+    detect: async () => fails("node", ["scripts/testing/contrast-audit-selftest.mjs"]),
+  },
+  {
+    name: "the disabled exemption reaches a label wrapping its control — MOVED",
+    klass: "D",
+    // The move that matters: the exemption still runs, but AFTER the finding has been recorded.
+    // Every text of every inactive component is then reported, which is the state that buries the
+    // real findings — and a presence check on the guard's own line would not see it.
+    harmfulMove: "running the exemption after the finding is recorded, so it exempts nothing",
+    files: ["scripts/testing/lib-contrast.mjs"],
+    appliedMarkers: ["// probe: exemption moved below the record"],
+    mutate: () => {
+      substituteOnce(
+        "scripts/testing/lib-contrast.mjs",
+        "      if (isInactive(el)) continue;",
+        "      // probe: exemption moved below the record",
+      );
+      // After the `findings.set`, where a `continue` at the end of the loop body changes nothing
+      // and the exempt element has already been reported.
+      substituteOnce(
+        "scripts/testing/lib-contrast.mjs",
+        "          sample: text.slice(0, 40),\n        });\n      }\n    }",
+        "          sample: text.slice(0, 40),\n        });\n      }\n      if (isInactive(el)) continue;\n    }",
+      );
+    },
+    compiles: () => execFileSync("node", ["--check", "scripts/testing/lib-contrast.mjs"]),
+    detect: async () => fails("node", ["scripts/testing/contrast-audit-selftest.mjs"]),
+  },
+];
+
+await runProbes(probes);
