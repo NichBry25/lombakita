@@ -29,7 +29,12 @@ type ProofOverride = {
 const renderPanel = (
   proof: ProofOverride | null,
   deadlineSuspended: boolean,
-  overrides: { reason?: string; status?: "pending" | "succeeded" | "refunded" } = {},
+  overrides: {
+    reason?: string;
+    status?: "pending" | "succeeded" | "refunded";
+    canSubmitProof?: boolean;
+    canResubmitProof?: boolean;
+  } = {},
 ) =>
   render(
     <UIPrimitivesProvider>
@@ -61,8 +66,8 @@ const renderPanel = (
                   resubmissionAllowed: proof.resubmissionAllowed ?? true,
                 },
           isPayer: true,
-          canSubmitProof: false,
-          canResubmitProof: false,
+          canSubmitProof: overrides.canSubmitProof ?? false,
+          canResubmitProof: overrides.canResubmitProof ?? false,
         }}
       />
     </UIPrimitivesProvider>,
@@ -171,5 +176,43 @@ describe("what the header pill says", () => {
     renderPanel({ status: "verified" }, false, { status: "succeeded" });
 
     expect(pill()).toBe("Lunas");
+  });
+});
+
+// THE TRANSFER INSTRUCTION, AND THE STATES IT IS TRUE IN.
+//
+// It used to render unconditionally, so a settled payment told the candidate to transfer and
+// upload three lines above the Keterangan row saying the deadline no longer applies, on a panel
+// whose upload control had been withheld. Both directions are asserted: a present-assertion alone
+// would pass against a panel that never rendered the instruction at all, and an absent-assertion
+// alone would pass against one that never rendered it either.
+describe("when the transfer instruction is shown", () => {
+  const INSTRUCTION = /Transfer langsung ke rekening penyelenggara/;
+
+  it("shows it while the upload control is on the page", () => {
+    renderPanel(null, false, { canSubmitProof: true });
+    expect(screen.getByText(INSTRUCTION)).toBeTruthy();
+  });
+
+  it("shows it while a rejected payer may still send a replacement", () => {
+    renderPanel({ status: "rejected", resubmissionAllowed: true }, false, {
+      canResubmitProof: true,
+    });
+    expect(screen.getByText(INSTRUCTION)).toBeTruthy();
+  });
+
+  it("drops it once the payment has settled", () => {
+    renderPanel({ status: "verified" }, false, { status: "succeeded" });
+    expect(screen.queryByText(INSTRUCTION)).toBeNull();
+  });
+
+  it("drops it once the deadline has passed and the registration is gone", () => {
+    renderPanel(null, false, { status: "refunded" });
+    expect(screen.queryByText(INSTRUCTION)).toBeNull();
+  });
+
+  it("drops it while the proof is under review, when there is nothing to send", () => {
+    renderPanel({ status: "pending_review" }, true);
+    expect(screen.queryByText(INSTRUCTION)).toBeNull();
   });
 });

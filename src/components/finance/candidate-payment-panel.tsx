@@ -213,9 +213,15 @@ export function CandidatePaymentPanel({
         )}
       </div>
 
-      <p className="muted-copy">
-        Transfer langsung ke rekening penyelenggara, lalu unggah bukti transfernya di sini.
-      </p>
+      {/* The instruction is only true while the control it describes is on the page. On a settled
+          or expired payment it told the candidate to transfer and upload three lines above the
+          Keterangan row saying the deadline no longer applies, with no upload control between
+          them. Gated on `uploadable`, the same condition the control itself uses. */}
+      {uploadable ? (
+        <p className="muted-copy">
+          Transfer langsung ke rekening penyelenggara, lalu unggah bukti transfernya di sini.
+        </p>
+      ) : null}
 
       <dl className="detail-grid">
         <div>
