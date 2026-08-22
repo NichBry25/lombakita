@@ -1,11 +1,65 @@
 {
   "audit": "mobile-audit",
   "takenAt": "2026-08-22T17:37:06.072Z",
-  "note": "390px viewport, 105 pages",
+  "note": "390px viewport, 105 pages. Findings marked seenIn:ci reproduce on the CI runner and NOT on macOS \u2014 the three institution-public pages overflow by exactly 10px there (scrollWidth 400 against a 390 viewport) and the team page reads 621 rather than 610. The difference is real and measured; a local run reports them as no longer reproducing, which is how the divergence stays visible.",
   "findings": [
     {
       "key": "62-institution-team|overflow",
       "scrollWidth": 610
+    },
+    {
+      "key": "15-institution-public|overflow",
+      "occurrences": 1,
+      "scrollWidth": 400,
+      "seenIn": "ci"
+    },
+    {
+      "key": "15-institution-public|wide|article.pf-card",
+      "occurrences": 1,
+      "detail": "article.pf-card right=400",
+      "seenIn": "ci"
+    },
+    {
+      "key": "15-institution-public|wide|section.content-section",
+      "occurrences": 3,
+      "detail": "section.content-section right=400",
+      "seenIn": "ci"
+    },
+    {
+      "key": "43-institution-public-as-candidate|overflow",
+      "occurrences": 1,
+      "scrollWidth": 400,
+      "seenIn": "ci"
+    },
+    {
+      "key": "43-institution-public-as-candidate|wide|article.pf-card",
+      "occurrences": 1,
+      "detail": "article.pf-card right=400",
+      "seenIn": "ci"
+    },
+    {
+      "key": "43-institution-public-as-candidate|wide|section.content-section",
+      "occurrences": 3,
+      "detail": "section.content-section right=400",
+      "seenIn": "ci"
+    },
+    {
+      "key": "52-institution-public-preview|overflow",
+      "occurrences": 1,
+      "scrollWidth": 400,
+      "seenIn": "ci"
+    },
+    {
+      "key": "52-institution-public-preview|wide|article.pf-card",
+      "occurrences": 1,
+      "detail": "article.pf-card right=400",
+      "seenIn": "ci"
+    },
+    {
+      "key": "52-institution-public-preview|wide|section.content-section",
+      "occurrences": 3,
+      "detail": "section.content-section right=400",
+      "seenIn": "ci"
     }
   ]
 }

@@ -239,10 +239,14 @@ jobs:
       - name: UI state assertions
         run: node scripts/testing/ui-states.mjs
 
+      # `always()` on the two measuring audits, so ONE run reports everything it found rather than
+      # stopping at the first failure and leaving the next question unanswered until the fix lands.
       - name: Mobile layout audit
+        if: always()
         run: node scripts/testing/mobile-audit.mjs
 
       - name: Text contrast and tone separation audit
+        if: always()
         run: node scripts/testing/contrast-audit.mjs
 
       # A page that could not be measured exits the audit 4, and the reason is almost always in the

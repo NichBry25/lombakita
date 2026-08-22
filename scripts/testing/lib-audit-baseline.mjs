@@ -97,10 +97,13 @@ export const finishAudit = ({ name, measure, unmeasurable, note }) => {
 
   if (healed.length > 0) {
     console.log(
-      `\n${healed.length} baselined finding(s) no longer reproduce. Re-take the baseline ` +
-        `(UPDATE_BASELINE=1) so they cannot come back unnoticed:`,
+      `\n${healed.length} baselined finding(s) did not reproduce in this run. Either they were ` +
+        `fixed — re-take the baseline (UPDATE_BASELINE=1) so they cannot come back unnoticed — or ` +
+        `this environment renders differently from the one that recorded them, which the baseline ` +
+        `marks with seenIn:`,
     );
-    for (const key of healed.slice(0, 10)) console.log(`  FIXED  ${key}`);
+    for (const key of healed.slice(0, 10)) console.log(`  NOT SEEN  ${key}`);
+    if (healed.length > 10) console.log(`  NOT SEEN  …and ${healed.length - 10} more`);
   }
 
   if (fresh.length === 0) {

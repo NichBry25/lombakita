@@ -134,7 +134,16 @@ await browser.close();
  * established as one that measured everything it claims to describe.
  */
 const measure = () => {
-  const findings = [];
+  // Keyed findings, collapsed. Three sibling `section.content-section` elements past the edge
+  // produce the same descriptor, and three entries under one key would make the baseline unable to
+  // tell them apart — a "healed" report would fire on the wrong one. One key, with how many
+  // elements matched it.
+  const byKey = new Map();
+  const add = (key, detail) => {
+    const existing = byKey.get(key);
+    if (existing) existing.occurrences += 1;
+    else byKey.set(key, { key, occurrences: 1, ...detail });
+  };
   for (const page of measured) {
     const overflow = page.scrollWidth > page.viewport + 1;
     if (!overflow && page.wide.length === 0 && page.small.length === 0) continue;
@@ -142,7 +151,7 @@ const measure = () => {
     console.log(`\n${page.id}  (${page.path})`);
     if (overflow) {
       console.log(`  OVERFLOW  scrollWidth ${page.scrollWidth} > viewport ${page.viewport}`);
-      findings.push({ key: `${page.id}|overflow`, scrollWidth: page.scrollWidth });
+      add(`${page.id}|overflow`, { scrollWidth: page.scrollWidth });
     }
 
     // THE COUNT IS THE FINDING; the listing is a convenience. Printing six of eighteen and no total
@@ -158,15 +167,16 @@ const measure = () => {
     if (page.small.length > 6) console.log(`  TARGET    …and ${page.small.length - 6} more`);
 
     for (const w of page.wide) {
-      findings.push({ key: `${page.id}|wide|${w.split(" right=")[0]}`, detail: w });
+      add(`${page.id}|wide|${w.split(" right=")[0]}`, { detail: w });
     }
     for (const s of page.small) {
       // Keyed on the control, not on its measured size: a 40x40 that becomes 40x43 is the same
       // known finding, and a baseline that churns on a pixel is a baseline nobody re-takes.
-      findings.push({ key: `${page.id}|target|${s.replace(/ \d+x\d+$/, "")}`, detail: s });
+      add(`${page.id}|target|${s.replace(/ \d+x\d+$/, "")}`, { detail: s });
     }
   }
 
+  const findings = [...byKey.values()];
   const cleanPages = measured.length - new Set(findings.map((f) => f.key.split("|")[0])).size;
   console.log(`\n${cleanPages}/${measured.length} pages clean at ${MOBILE.width}px.`);
   return findings;
