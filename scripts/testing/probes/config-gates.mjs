@@ -52,12 +52,15 @@ const probes = [
     klass: "D",
     harmfulMove: "compiling a directory a long-running process rewrites, so a torn write fails the gate",
     files: ["tsconfig.json"],
-    appliedMarkers: ['".next/dev/types/**/*.ts"'],
+    appliedMarkers: ['"docs/lombakita-ui-guide"\n  ]'],
+    // The mutation REMOVES the exclusion, because that is the harmful move. `next build` puts the
+    // `include` entry back on its own — it did exactly that mid-step, and the pinning test caught
+    // it — so the exclusion is the only half a person controls.
     mutate: () =>
       substituteOnce(
         "tsconfig.json",
-        '    ".next/types/**/*.ts"\n',
-        '    ".next/types/**/*.ts",\n    ".next/dev/types/**/*.ts"\n',
+        '    "docs/lombakita-ui-guide",\n    ".next/dev"\n  ]',
+        '    "docs/lombakita-ui-guide"\n  ]',
       ),
     compiles: () => JSON.parse(readFileSync("tsconfig.json", "utf8")),
     // The FUNCTIONAL detector, not the assertion about the config: a real torn file is written into

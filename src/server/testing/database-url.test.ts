@@ -53,7 +53,10 @@ describe("database-url", () => {
   // to skip 285 tests and say nothing.
   it("refuses to load when no database can be found", async () => {
     await expect(
-      loadIn({ cwd: emptyWorktree(), env: { DATABASE_URL: undefined, REQUIRE_DB_TESTS: undefined } }),
+      loadIn({
+        cwd: emptyWorktree(),
+        env: { DATABASE_URL: undefined, REQUIRE_DB_TESTS: undefined },
+      }),
     ).rejects.toThrow(/No DATABASE_URL is set/);
   });
 
