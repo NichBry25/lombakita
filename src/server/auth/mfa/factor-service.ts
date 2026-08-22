@@ -6,7 +6,13 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { base32Encode } from "./base32";
 import { appendMfaAuditEvent } from "./mfa-audit";
 import { decryptMfaSecret, encryptMfaSecret } from "./mfa-encryption";
-import { MFA_EVENT, MFA_LOCKOUT_SECONDS, MFA_LOCKOUT_THRESHOLD, MfaError, TOTP_WINDOW_STEPS } from "./mfa-core";
+import {
+  MFA_EVENT,
+  MFA_LOCKOUT_SECONDS,
+  MFA_LOCKOUT_THRESHOLD,
+  MfaError,
+  TOTP_WINDOW_STEPS,
+} from "./mfa-core";
 import { consumeRecoveryCode, issueRecoveryCodesInTransaction } from "./recovery-service";
 import { verifyTotpCode } from "./totp";
 
@@ -169,7 +175,11 @@ export const startMfaEnrolment = async (
     const existing = await loadFactorForUser(tx, userId);
 
     if (existing?.verifiedAt) {
-      throw new MfaError("mfa_already_enrolled", 409, "This account already has a verified MFA factor");
+      throw new MfaError(
+        "mfa_already_enrolled",
+        409,
+        "This account already has a verified MFA factor",
+      );
     }
 
     const [account] = await tx
@@ -259,7 +269,11 @@ type MfaFailureOutcome = Exclude<MfaOutcome<never>, { kind: "success" }>;
 const throwForOutcome = (outcome: MfaFailureOutcome): never => {
   switch (outcome.kind) {
     case "enrolment_not_found":
-      throw new MfaError("mfa_enrolment_not_found", 404, "No pending MFA enrolment for this account");
+      throw new MfaError(
+        "mfa_enrolment_not_found",
+        404,
+        "No pending MFA enrolment for this account",
+      );
     case "not_enrolled":
       throw new MfaError("mfa_not_enrolled", 404, "No verified MFA factor for this account");
     case "locked_out":
@@ -270,7 +284,12 @@ const throwForOutcome = (outcome: MfaFailureOutcome): never => {
         outcome.retryAfterSeconds,
       );
     case "invalid_code":
-      throw new MfaError("mfa_invalid_code", 401, "Invalid verification code", outcome.retryAfterSeconds);
+      throw new MfaError(
+        "mfa_invalid_code",
+        401,
+        "Invalid verification code",
+        outcome.retryAfterSeconds,
+      );
     case "invalid_recovery_code":
       throw new MfaError(
         "mfa_invalid_recovery_code",
@@ -287,45 +306,47 @@ export const confirmMfaEnrolment = async (
   now: Date,
   db: Database = getDb(),
 ): Promise<MfaEnrolmentConfirmation> => {
-  const outcome = await db.transaction(async (tx): Promise<MfaOutcome<MfaEnrolmentConfirmation>> => {
-    const factor = await loadFactorForUser(tx, userId);
+  const outcome = await db.transaction(
+    async (tx): Promise<MfaOutcome<MfaEnrolmentConfirmation>> => {
+      const factor = await loadFactorForUser(tx, userId);
 
-    if (!factor || factor.verifiedAt) {
-      return { kind: "enrolment_not_found" };
-    }
+      if (!factor || factor.verifiedAt) {
+        return { kind: "enrolment_not_found" };
+      }
 
-    if (isFactorLocked(factor, now)) {
-      return { kind: "locked_out", retryAfterSeconds: remainingLockSeconds(factor, now) };
-    }
+      if (isFactorLocked(factor, now)) {
+        return { kind: "locked_out", retryAfterSeconds: remainingLockSeconds(factor, now) };
+      }
 
-    const secret = decryptFactorSecret(factor);
-    const verification = verifyTotpCode(secret, code, Math.floor(now.getTime() / 1000), {
-      windowSteps: TOTP_WINDOW_STEPS,
-      lastAcceptedStep: factor.lastUsedStep,
-    });
+      const secret = decryptFactorSecret(factor);
+      const verification = verifyTotpCode(secret, code, Math.floor(now.getTime() / 1000), {
+        windowSteps: TOTP_WINDOW_STEPS,
+        lastAcceptedStep: factor.lastUsedStep,
+      });
 
-    if (!verification.valid || verification.matchedStep === null) {
-      const retryAfterSeconds = await applyFailedAttempt(tx, factor, now);
-      return { kind: "invalid_code", retryAfterSeconds };
-    }
+      if (!verification.valid || verification.matchedStep === null) {
+        const retryAfterSeconds = await applyFailedAttempt(tx, factor, now);
+        return { kind: "invalid_code", retryAfterSeconds };
+      }
 
-    await tx
-      .update(mfaFactors)
-      .set({
-        verifiedAt: now,
-        lastUsedStep: verification.matchedStep,
-        failedAttemptCount: 0,
-        lockedUntil: null,
-        updatedAt: now,
-      })
-      .where(eq(mfaFactors.id, factor.id));
+      await tx
+        .update(mfaFactors)
+        .set({
+          verifiedAt: now,
+          lastUsedStep: verification.matchedStep,
+          failedAttemptCount: 0,
+          lockedUntil: null,
+          updatedAt: now,
+        })
+        .where(eq(mfaFactors.id, factor.id));
 
-    const recoveryCodes = await issueRecoveryCodesInTransaction(tx, userId, now);
+      const recoveryCodes = await issueRecoveryCodesInTransaction(tx, userId, now);
 
-    await appendMfaAuditEvent(userId, tx, { eventType: MFA_EVENT.enrolled });
+      await appendMfaAuditEvent(userId, tx, { eventType: MFA_EVENT.enrolled });
 
-    return { kind: "success", value: { recoveryCodes } };
-  });
+      return { kind: "success", value: { recoveryCodes } };
+    },
+  );
 
   if (outcome.kind === "success") {
     return outcome.value;
@@ -408,7 +429,10 @@ export const redeemMfaRecoveryCode = async (
     }
 
     await tx.delete(mfaFactors).where(eq(mfaFactors.id, factor.id));
-    await tx.update(users).set({ mfaInvalidatedAt: now, updatedAt: now }).where(eq(users.id, userId));
+    await tx
+      .update(users)
+      .set({ mfaInvalidatedAt: now, updatedAt: now })
+      .where(eq(users.id, userId));
 
     await appendMfaAuditEvent(userId, tx, { eventType: MFA_EVENT.recoveryCodeUsed });
     await appendMfaAuditEvent(userId, tx, {

@@ -115,6 +115,8 @@ export const verifyMfaEncryptionRoundTrip = (): void => {
   const decrypted = decryptMfaSecret(encrypted);
 
   if (!decrypted.equals(fixture)) {
-    throw new MfaEncryptionKeyError("MFA secret encryption round-trip did not return the original value");
+    throw new MfaEncryptionKeyError(
+      "MFA secret encryption round-trip did not return the original value",
+    );
   }
 };

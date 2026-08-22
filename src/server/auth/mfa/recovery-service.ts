@@ -18,7 +18,10 @@ assertServerOnly("server/auth/mfa/recovery-service");
 // Codes are displayed as five dash-grouped blocks for readability but STORED and COMPARED in their
 // canonical undashed uppercase form, so redemption input in either shape hashes identically.
 const normalizeRecoveryCode = (input: string): string => {
-  return input.trim().toUpperCase().replace(/[\s-]+/g, "");
+  return input
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "");
 };
 
 const hashRecoveryCode = (canonical: string): string => {

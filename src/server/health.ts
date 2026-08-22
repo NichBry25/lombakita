@@ -41,6 +41,9 @@ export const buildHealthPayload = async (options?: {
     },
     // Worker liveness is never included here: it enqueues a real job and waits for a worker to
     // consume it, which is not something a health payload may do per request.
-    connectors: await getConnectorStatusPayload({ includeLiveChecks, includeWorkerLiveness: false }),
+    connectors: await getConnectorStatusPayload({
+      includeLiveChecks,
+      includeWorkerLiveness: false,
+    }),
   };
 };

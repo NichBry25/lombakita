@@ -37,7 +37,10 @@ const hotp = (secret: Buffer, counter: number): string => {
   return code.toString(10).padStart(TOTP_DIGITS, "0");
 };
 
-export const totpStepForTime = (atSeconds: number, stepSeconds: number = TOTP_STEP_SECONDS): number => {
+export const totpStepForTime = (
+  atSeconds: number,
+  stepSeconds: number = TOTP_STEP_SECONDS,
+): number => {
   return Math.floor(atSeconds / stepSeconds);
 };
 

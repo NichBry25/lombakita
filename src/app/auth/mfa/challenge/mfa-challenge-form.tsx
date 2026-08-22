@@ -4,7 +4,11 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSession } from "next-auth/react";
 import { Button, usePageTransition } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import { describeMfaLockout, presentMfaError, readMfaErrorPayload } from "@/lib/mfa/mfa-error-response";
+import {
+  describeMfaLockout,
+  presentMfaError,
+  readMfaErrorPayload,
+} from "@/lib/mfa/mfa-error-response";
 import { sessionFetch } from "@/lib/session/session-fetch";
 
 type MfaChallengeFormProps = {
@@ -34,7 +38,11 @@ export function MfaChallengeForm({ callbackUrl }: MfaChallengeFormProps) {
     if (lastToastIdRef.current) {
       removeToast(lastToastIdRef.current);
     }
-    lastToastIdRef.current = addToast({ type: "error", message, ...(durationMs === undefined ? {} : { duration: durationMs }) });
+    lastToastIdRef.current = addToast({
+      type: "error",
+      message,
+      ...(durationMs === undefined ? {} : { duration: durationMs }),
+    });
   };
 
   // The lock clears itself at the moment the server would start accepting codes again, so the notice

@@ -86,26 +86,23 @@ describe("the product repo ignores the symlinked doc lane (DEC-0159)", () => {
     ).toBe(true);
   });
 
-  it.each(SYMLINKED_DOC_LANE_PATHS)(
-    "matches %s with a rule carrying no trailing slash",
-    (path) => {
-      const { pattern } = checkIgnore(path);
+  it.each(SYMLINKED_DOC_LANE_PATHS)("matches %s with a rule carrying no trailing slash", (path) => {
+    const { pattern } = checkIgnore(path);
 
-      // An unmatched path yields an empty pattern, and "" does not end in a slash — so without
-      // this the assertion below would PASS in exactly the situation it is named for. Proven by
-      // regression: with the trailing slash restored, this case went green while the behavioural
-      // assertion above went red.
-      expect(pattern, `No .gitignore rule matches ${path} at all.`).not.toBe("");
+    // An unmatched path yields an empty pattern, and "" does not end in a slash — so without
+    // this the assertion below would PASS in exactly the situation it is named for. Proven by
+    // regression: with the trailing slash restored, this case went green while the behavioural
+    // assertion above went red.
+    expect(pattern, `No .gitignore rule matches ${path} at all.`).not.toBe("");
 
-      expect(
-        pattern.endsWith("/"),
-        `The .gitignore rule matching ${path} is "${pattern}", which ends in a slash and ` +
-          `therefore matches a DIRECTORY only. ${path} is a symlink, which git treats as a ` +
-          `file, so this rule will stop applying and the path becomes committable in a public ` +
-          `repository. Drop the trailing slash.`,
-      ).toBe(false);
-    },
-  );
+    expect(
+      pattern.endsWith("/"),
+      `The .gitignore rule matching ${path} is "${pattern}", which ends in a slash and ` +
+        `therefore matches a DIRECTORY only. ${path} is a symlink, which git treats as a ` +
+        `file, so this rule will stop applying and the path becomes committable in a public ` +
+        `repository. Drop the trailing slash.`,
+    ).toBe(false);
+  });
 
   it("still ignores docs/, whose rule may legitimately keep its trailing slash", () => {
     // `docs/` is a real directory, not a symlink, so `/docs/` is correct there. Asserted so a

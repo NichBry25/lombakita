@@ -63,7 +63,12 @@ const expectRejection = async (
   } catch (error) {
     let current: unknown = error;
     for (let depth = 0; current && depth < 5; depth += 1) {
-      const e = current as { code?: string; constraint_name?: string; constraint?: string; cause?: unknown };
+      const e = current as {
+        code?: string;
+        constraint_name?: string;
+        constraint?: string;
+        cause?: unknown;
+      };
       if (typeof e.code === "string") {
         return { code: e.code, constraint: e.constraint_name ?? e.constraint ?? "" };
       }
@@ -128,7 +133,10 @@ describe.skipIf(skipWithoutDatabase)("hasVerifiedMfaFactorSql (real database)", 
       });
       expect(await readFlag(tx, userId)).toBe(false);
 
-      await tx.update(mfaFactors).set({ verifiedAt: new Date() }).where(eq(mfaFactors.userId, userId));
+      await tx
+        .update(mfaFactors)
+        .set({ verifiedAt: new Date() })
+        .where(eq(mfaFactors.userId, userId));
       expect(await readFlag(tx, userId)).toBe(true);
     });
   });
@@ -246,9 +254,8 @@ describe.skipIf(skipWithoutDatabase)("mfa_recovery_codes constraints (real datab
 describe.skipIf(skipWithoutDatabase)("MFA lifecycle end to end (real database)", () => {
   it("enrols, confirms, and challenges successfully, with an audit row for enrolment", async () => {
     await inRollback(async (tx) => {
-      const { startMfaEnrolment, confirmMfaEnrolment, challengeMfaFactor } = await import(
-        "@/server/auth/mfa/factor-service"
-      );
+      const { startMfaEnrolment, confirmMfaEnrolment, challengeMfaFactor } =
+        await import("@/server/auth/mfa/factor-service");
       const { generateTotpCode } = await import("@/server/auth/mfa/totp");
       const { base32Decode } = await import("@/server/auth/mfa/base32");
 
@@ -287,7 +294,8 @@ describe.skipIf(skipWithoutDatabase)("MFA lifecycle end to end (real database)",
   // register a brand-new authenticator and silently pass the gate on its own terms.
   it("refuses to start a new enrolment once the account already holds a verified factor", async () => {
     await inRollback(async (tx) => {
-      const { startMfaEnrolment, confirmMfaEnrolment } = await import("@/server/auth/mfa/factor-service");
+      const { startMfaEnrolment, confirmMfaEnrolment } =
+        await import("@/server/auth/mfa/factor-service");
       const { generateTotpCode } = await import("@/server/auth/mfa/totp");
       const { base32Decode } = await import("@/server/auth/mfa/base32");
 
@@ -319,9 +327,8 @@ describe.skipIf(skipWithoutDatabase)("MFA lifecycle end to end (real database)",
   // mocked test cannot give: a mock has no row to persist to.
   it("refuses the exact same code presented twice, persisted through real rows", async () => {
     await inRollback(async (tx) => {
-      const { startMfaEnrolment, confirmMfaEnrolment, challengeMfaFactor } = await import(
-        "@/server/auth/mfa/factor-service"
-      );
+      const { startMfaEnrolment, confirmMfaEnrolment, challengeMfaFactor } =
+        await import("@/server/auth/mfa/factor-service");
       const { generateTotpCode } = await import("@/server/auth/mfa/totp");
       const { base32Decode } = await import("@/server/auth/mfa/base32");
 
@@ -336,9 +343,9 @@ describe.skipIf(skipWithoutDatabase)("MFA lifecycle end to end (real database)",
       const sameCodeAgain = generateTotpCode(secret, Math.floor(now.getTime() / 1000));
       expect(sameCodeAgain).toBe(code);
 
-      await expect(challengeMfaFactor(userId, sameCodeAgain, now, tx as never)).rejects.toMatchObject(
-        { code: "mfa_invalid_code" },
-      );
+      await expect(
+        challengeMfaFactor(userId, sameCodeAgain, now, tx as never),
+      ).rejects.toMatchObject({ code: "mfa_invalid_code" });
 
       const [row] = await tx.select().from(mfaFactors).where(eq(mfaFactors.userId, userId));
       // The replay attempt is a failed attempt like any other, incrementing the shared counter.
@@ -351,9 +358,8 @@ describe.skipIf(skipWithoutDatabase)("MFA lifecycle end to end (real database)",
   // updated row Postgres actually holds.
   it("locks the factor out after five consecutive failed challenges, and refuses a sixth even with the correct code", async () => {
     await inRollback(async (tx) => {
-      const { startMfaEnrolment, confirmMfaEnrolment, challengeMfaFactor } = await import(
-        "@/server/auth/mfa/factor-service"
-      );
+      const { startMfaEnrolment, confirmMfaEnrolment, challengeMfaFactor } =
+        await import("@/server/auth/mfa/factor-service");
       const { generateTotpCode } = await import("@/server/auth/mfa/totp");
       const { base32Decode } = await import("@/server/auth/mfa/base32");
 
@@ -372,9 +378,7 @@ describe.skipIf(skipWithoutDatabase)("MFA lifecycle end to end (real database)",
       // `retryAfterSeconds`, so the operator learns about the lock from the attempt that caused it
       // rather than from the next one behaving differently.
       for (let attempt = 1; attempt <= 5; attempt += 1) {
-        await expect(
-          challengeMfaFactor(userId, "000000", now, tx as never),
-        ).rejects.toMatchObject({
+        await expect(challengeMfaFactor(userId, "000000", now, tx as never)).rejects.toMatchObject({
           code: "mfa_invalid_code",
           retryAfterSeconds: attempt === 5 ? MFA_LOCKOUT_SECONDS : null,
         });
@@ -406,9 +410,8 @@ describe.skipIf(skipWithoutDatabase)("MFA lifecycle end to end (real database)",
 
   it("redeeming a recovery code deletes the factor, stamps mfa_invalidated_at, and audits both events", async () => {
     await inRollback(async (tx) => {
-      const { startMfaEnrolment, confirmMfaEnrolment, redeemMfaRecoveryCode } = await import(
-        "@/server/auth/mfa/factor-service"
-      );
+      const { startMfaEnrolment, confirmMfaEnrolment, redeemMfaRecoveryCode } =
+        await import("@/server/auth/mfa/factor-service");
       const { generateTotpCode } = await import("@/server/auth/mfa/totp");
       const { base32Decode } = await import("@/server/auth/mfa/base32");
 
@@ -440,9 +443,8 @@ describe.skipIf(skipWithoutDatabase)("MFA lifecycle end to end (real database)",
 
   it("refuses to redeem the same recovery code twice", async () => {
     await inRollback(async (tx) => {
-      const { startMfaEnrolment, confirmMfaEnrolment, redeemMfaRecoveryCode } = await import(
-        "@/server/auth/mfa/factor-service"
-      );
+      const { startMfaEnrolment, confirmMfaEnrolment, redeemMfaRecoveryCode } =
+        await import("@/server/auth/mfa/factor-service");
       const { generateTotpCode } = await import("@/server/auth/mfa/totp");
       const { base32Decode } = await import("@/server/auth/mfa/base32");
 
@@ -466,11 +468,19 @@ describe.skipIf(skipWithoutDatabase)("MFA lifecycle end to end (real database)",
       const secondEnrolment = await startMfaEnrolment(userId, tx as never);
       const secondSecret = base32Decode(secondEnrolment.secretBase32);
       const secondConfirmAt = new Date(firstRedeemAt.getTime() + 1000);
-      const secondCode = generateTotpCode(secondSecret, Math.floor(secondConfirmAt.getTime() / 1000));
+      const secondCode = generateTotpCode(
+        secondSecret,
+        Math.floor(secondConfirmAt.getTime() / 1000),
+      );
       await confirmMfaEnrolment(userId, secondCode, secondConfirmAt, tx as never);
 
       await expect(
-        redeemMfaRecoveryCode(userId, usedCode, new Date(secondConfirmAt.getTime() + 1000), tx as never),
+        redeemMfaRecoveryCode(
+          userId,
+          usedCode,
+          new Date(secondConfirmAt.getTime() + 1000),
+          tx as never,
+        ),
       ).rejects.toMatchObject({ code: "mfa_invalid_recovery_code" });
     });
   });

@@ -340,16 +340,14 @@ describe.skipIf(skipWithoutDatabase)("finance_payment_events constraints (real d
       await tx.insert(financePaymentEvents).values(eventValues(paymentId, { idempotencyKey: key }));
 
       const rejection = await expectRejection(tx, (nested) =>
-        nested
-          .insert(financePaymentEvents)
-          .values(
-            eventValues(paymentId, {
-              idempotencyKey: key,
-              eventType: "failed",
-              amount: null,
-              currency: null,
-            }),
-          ),
+        nested.insert(financePaymentEvents).values(
+          eventValues(paymentId, {
+            idempotencyKey: key,
+            eventType: "failed",
+            amount: null,
+            currency: null,
+          }),
+        ),
       );
 
       expect(rejection.code).toBe("23505");

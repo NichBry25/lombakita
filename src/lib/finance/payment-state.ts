@@ -15,11 +15,7 @@ import type { PaymentEventType } from "@/lib/finance/payment-model";
 
 export type PaymentDerivedStatus =
   // No terminal event yet — including a payment with no events at all.
-  | "pending"
-  | "succeeded"
-  | "failed"
-  | "expired"
-  | "refunded";
+  "pending" | "succeeded" | "failed" | "expired" | "refunded";
 
 export type FoldablePaymentEvent = {
   id: string;

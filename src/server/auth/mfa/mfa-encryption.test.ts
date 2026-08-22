@@ -67,7 +67,9 @@ describe("mfa-encryption", () => {
     const tampered = {
       ...encrypted,
       authTag: Buffer.from(
-        Buffer.from(encrypted.authTag, "base64").map((byte, index) => (index === 0 ? byte ^ 0xff : byte)),
+        Buffer.from(encrypted.authTag, "base64").map((byte, index) =>
+          index === 0 ? byte ^ 0xff : byte,
+        ),
       ).toString("base64"),
     };
 
@@ -81,7 +83,9 @@ describe("mfa-encryption", () => {
     const tampered = {
       ...encrypted,
       ciphertext: Buffer.from(
-        Buffer.from(encrypted.ciphertext, "base64").map((byte, index) => (index === 0 ? byte ^ 0xff : byte)),
+        Buffer.from(encrypted.ciphertext, "base64").map((byte, index) =>
+          index === 0 ? byte ^ 0xff : byte,
+        ),
       ).toString("base64"),
     };
 

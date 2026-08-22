@@ -62,7 +62,10 @@ describe("POST …/payment-proofs/[proofId]/view", () => {
   it("mints a URL with the institution resolved from the slug", async () => {
     requireAuthenticatedSession.mockResolvedValue(ORGANISER);
     requireAdminInstitutionBySlug.mockResolvedValue({ institutionId: "inst_a" });
-    generateManualProofViewUrl.mockResolvedValue({ url: "https://r2.example/signed", expiresIn: 300 });
+    generateManualProofViewUrl.mockResolvedValue({
+      url: "https://r2.example/signed",
+      expiresIn: 300,
+    });
 
     const response = await POST(viewRequest(), context);
 

@@ -287,7 +287,9 @@ describe("appendPaymentEvent", () => {
     ({
       insert: vi.fn().mockReturnValue({
         values: () => ({
-          onConflictDoNothing: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),
+          onConflictDoNothing: vi
+            .fn()
+            .mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),
         }),
       }),
       select: vi.fn().mockReturnValue({
@@ -353,11 +355,7 @@ describe("appendPaymentEvent", () => {
     ).rejects.toMatchObject({ code: "payment_event_idempotency_key_conflict" });
 
     await expect(
-      appendPaymentEvent(
-        GATEWAY,
-        eventInput({ amount: 999 }),
-        makeConflictDb(capture),
-      ),
+      appendPaymentEvent(GATEWAY, eventInput({ amount: 999 }), makeConflictDb(capture)),
     ).rejects.toMatchObject({ code: "payment_event_idempotency_key_conflict" });
   });
 
@@ -375,7 +373,10 @@ describe("appendPaymentEvent", () => {
   // The driver error arrives wrapped by Drizzle; the SQLSTATE is on the cause, not on the throw.
   const wrapped = (constraint: string) =>
     Object.assign(new Error("Failed query: insert into finance_payment_events"), {
-      cause: Object.assign(new Error("fk violation"), { code: "23503", constraint_name: constraint }),
+      cause: Object.assign(new Error("fk violation"), {
+        code: "23503",
+        constraint_name: constraint,
+      }),
     });
 
   it("reports a missing payment rather than leaking the foreign-key violation", async () => {
@@ -405,7 +406,7 @@ describe("appendPaymentEvent", () => {
   // and an amount, so an unclassified failure must be restated rather than re-thrown.
   it("restates an unclassified database failure without the statement or its values", async () => {
     const leaky = Object.assign(
-      new Error('Failed query: insert into finance_payment_events\nparams: user_1,inst_1,150000'),
+      new Error("Failed query: insert into finance_payment_events\nparams: user_1,inst_1,150000"),
       { cause: Object.assign(new Error("deadlock"), { code: "40P01" }) },
     );
 
