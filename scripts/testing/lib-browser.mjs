@@ -102,3 +102,35 @@ export async function visit(page, path, { waitMs = 700 } = {}) {
 export async function shot(page, file) {
   await page.screenshot({ path: file, fullPage: true, animations: "disabled" });
 }
+
+/**
+ * Opens every collapsed section on the page so the audits can measure what is inside it.
+ *
+ * A collapsed section is not hidden — it is ABSENT. The batch document-request form renders as
+ * `{expanded ? <form/> : null}`, so its rows are not in the DOM at all when an audit arrives, and
+ * every control and every text pairing inside it was reported as measured-and-clean when it had
+ * never been looked at. That is the same defect class as a fixed sleep: a number produced about
+ * something the tool never saw.
+ *
+ * Only `<details>` and buttons that declare `aria-expanded="false"` are touched. A link or a submit
+ * button would navigate, which would end the measurement rather than widen it.
+ */
+export async function expandCollapsibles(page) {
+  const opened = await page
+    .evaluate(() => {
+      let count = 0;
+      for (const details of document.querySelectorAll("details:not([open])")) {
+        details.open = true;
+        count += 1;
+      }
+      for (const control of document.querySelectorAll('button[aria-expanded="false"]')) {
+        if (control.type === "submit" || control.disabled) continue;
+        control.click();
+        count += 1;
+      }
+      return count;
+    })
+    .catch(() => 0);
+  if (opened > 0) await settle(page);
+  return opened;
+}

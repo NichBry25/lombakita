@@ -21,6 +21,7 @@
  * Exits non-zero on any miss, so it can gate a change the way the other audits do.
  */
 import { launch, contextFor, DESKTOP } from "./lib-browser.mjs";
+import { preflightOrRefuse } from "./lib-css-fingerprint.mjs";
 import { BASE, COMP, INST, USERS } from "./seeds.mjs";
 
 /**
@@ -554,6 +555,7 @@ await assertAppReachable();
 
 const browser = await launch();
 const misses = [];
+let preflightDone = false;
 
 for (const testCase of targets) {
   let context;
@@ -571,6 +573,16 @@ for (const testCase of targets) {
     await warmRoute(page, testCase.path);
 
     await page.goto(`${BASE}${testCase.path}`, { waitUntil: "networkidle" });
+
+    // Once, on the first case that loads. `innerText` reports what is VISIBLE, so a control the
+    // stylesheet hides is a control this harness reports as withheld — and the whole value of the
+    // absent assertions is that they distinguish "withheld on purpose" from "gone by accident". A
+    // stale stylesheet turns that distinction into a coin toss.
+    if (!preflightDone) {
+      await preflightOrRefuse(page, "ui-states");
+      preflightDone = true;
+    }
+
     const text = await page.locator("main").innerText();
 
     for (const needle of testCase.present) {

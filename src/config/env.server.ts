@@ -100,7 +100,17 @@ const resolveAppBaseUrl = (env: NodeJS.ProcessEnv): string | undefined => {
 // exercised, but must not actually deliver: seed and test fixtures address non-routable domains
 // (.local, .example), and every send to those hard-bounces against the sending domain's
 // reputation. Deployed environments always deliver; local delivers only on explicit opt-in.
+//
+// `test` is not a deployed environment and never delivers, on any flag. The rule used to be
+// "anything that is not local delivers", which quietly put `test` on the delivering side — so an
+// automated job running the seeded matrix under APP_ENV=test with a Resend key present would have
+// mailed every `@seed.lombakita.local` address it touched, straight into a hard bounce. There is no
+// opt-in for it, because there is no reason an automated environment should ever want one.
 const resolveEmailDeliveryEnabled = (env: NodeJS.ProcessEnv, appEnv: AppEnvironment): boolean => {
+  if (appEnv === "test") {
+    return false;
+  }
+
   if (appEnv !== "local") {
     return true;
   }

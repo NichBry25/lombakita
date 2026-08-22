@@ -91,29 +91,45 @@ const readEnvValue = (name: string): string | undefined => {
 export const TEST_DDL_DATABASE_URL = readEnvValue("MIGRATION_DATABASE_URL") ?? TEST_DATABASE_URL;
 
 /**
- * Whether a database is MANDATORY for this run. Set by CI (see .github/workflows/ci.yml).
+ * Whether a database is MANDATORY for this run. DEFAULT: yes.
+ *
+ * Opt-in was not enough. The mechanism worked exactly as designed in CI and did nothing anywhere
+ * else, so a worktree without `.env.local` — a fresh clone, a bisect checkout, an isolated copy for
+ * one experiment — ran `npm test` and silently skipped 285 database-backed tests while reporting the
+ * same green tick and a lower total that nothing drew attention to. That is the sixth mechanism in
+ * this codebase for a check that never started, and the first that would corrupt a bisect rather
+ * than one result: the bad commit passes because the suite that would have caught it did not run.
+ *
+ * So the default inverts. `REQUIRE_DB_TESTS=0` is the deliberate opt-out for a developer who
+ * genuinely has no local Postgres and wants the rest of the suite; anything else — unset, "1", a
+ * typo — requires one. CI keeps setting "1" explicitly, which is now a restatement rather than the
+ * only thing standing between the suites and a silent skip.
  *
  * A separate variable rather than keying off `CI` itself, so that a workflow which deliberately has
- * no database — the contrast self-test job, for instance — is not forced to stand one up.
+ * no database — the contrast self-test job, for instance — can opt out without pretending not to
+ * be CI.
  */
-export const databaseTestsRequired = process.env.REQUIRE_DB_TESTS === "1";
+export const databaseTestsRequired = process.env.REQUIRE_DB_TESTS !== "0";
 
 if (databaseTestsRequired && !TEST_DATABASE_URL) {
   // Thrown at module load, so the importing suite fails loudly as a file-level error instead of
   // reporting zero tests and a green tick. This is the tripwire: it fires the moment CI is running
   // without the database it is supposed to have.
   throw new Error(
-    "REQUIRE_DB_TESTS=1 but no DATABASE_URL is set. This run is configured to REQUIRE a database, " +
-      "and a database-backed suite has nothing to run against. Either provision the Postgres " +
-      "service for this job or unset REQUIRE_DB_TESTS — do not let these suites silently skip.",
+    "No DATABASE_URL is set and no .env.local supplies one, so every database-backed suite in this " +
+      "run has nothing to execute against. They are REQUIRED by default: a silent skip reports the " +
+      "same green tick as a pass, with a lower total that nothing explains. Point DATABASE_URL at a " +
+      "local Postgres, or set REQUIRE_DB_TESTS=0 to run the rest of the suite deliberately and " +
+      "knowingly without them.",
   );
 }
 
 /**
  * The value for `describe.skipIf(...)`.
  *
- * Always false when a database is required, so a suite can never skip in CI. When the throw above
- * has already fired this is unreachable, and that redundancy is on purpose: the two mechanisms fail
- * independently, and the cheap one being wrong should not restore the silent skip.
+ * Always false when a database is required, which is now the default, so a suite skips only where
+ * someone has opted out in so many words. When the throw above has already fired this is
+ * unreachable, and that redundancy is on purpose: the two mechanisms fail independently, and the
+ * cheap one being wrong should not restore the silent skip.
  */
 export const skipWithoutDatabase = !databaseTestsRequired && !TEST_DATABASE_URL;

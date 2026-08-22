@@ -7,8 +7,15 @@
  *   target    — an interactive control smaller than the 44x44px minimum (ui-preferences §11)
  *
  * Taste still needs eyes; this finds the things eyes miss and proves the fixes landed.
+ *
+ * Three things it does before it will report anything, each of which it used to skip:
+ *   - refuses outright unless the browser is loading the stylesheet on disk (lib-css-fingerprint)
+ *   - opens collapsed sections, whose contents are ABSENT from the DOM rather than hidden
+ *   - fails the run on a page it could not measure, instead of counting it toward the total
  */
-import { launch, contextFor, MOBILE, settle } from "./lib-browser.mjs";
+import { launch, contextFor, MOBILE, settle, expandCollapsibles } from "./lib-browser.mjs";
+import { preflightOrRefuse } from "./lib-css-fingerprint.mjs";
+import { finishAudit } from "./lib-audit-baseline.mjs";
 import { PAGES } from "./pages.mjs";
 import { BASE, USERS } from "./seeds.mjs";
 
@@ -84,12 +91,15 @@ const audit = async (page) =>
       viewport: vw,
       wide: wide.map(({ el, r }) => `${describe(el)} right=${Math.round(r.right)}`),
       small: [...new Set(small)],
+      smallTotal: small.length,
     };
   });
 
 const browser = await launch();
 const contexts = new Map();
-const findings = [];
+const measured = [];
+const unmeasurable = [];
+let preflightDone = false;
 
 for (const spec of targets) {
   const key = spec.as ?? "anon";
@@ -100,33 +110,62 @@ for (const spec of targets) {
   await page.setViewportSize(MOBILE);
   try {
     await page.goto(`${BASE}${spec.path}`, { waitUntil: "domcontentloaded", timeout: 45000 });
-    // Heavy forms measure mid-layout at shorter waits and report phantom 25px-tall inputs. Always
-    // re-run a flagged page on its own before believing it; in dev a cold compile can also time a
-    // page out entirely.
+    // Heavy forms measure mid-layout at shorter waits and report phantom 25px-tall inputs.
     await settle(page);
-    const r = await audit(page);
-    const overflow = r.scrollWidth > r.viewport + 1;
-    if (overflow || r.wide.length || r.small.length) {
-      findings.push({ id: spec.id, path: spec.path, overflow, ...r });
+    // Once, on the first page that loads: everything after this depends on the browser seeing the
+    // stylesheet the working tree holds, and there is no point measuring 104 more pages against a
+    // stylesheet that is not the one under test.
+    if (!preflightDone) {
+      await preflightOrRefuse(page, "mobile-audit");
+      preflightDone = true;
     }
+    await expandCollapsibles(page);
+    measured.push({ id: spec.id, path: spec.path, ...(await audit(page)) });
   } catch (error) {
-    findings.push({ id: spec.id, path: spec.path, error: String(error).slice(0, 120) });
+    unmeasurable.push({ id: spec.id, reason: String(error).slice(0, 160) });
   }
   await page.close();
 }
 
 await browser.close();
 
-let clean = 0;
-for (const f of findings) {
-  if (f.error) {
-    console.log(`ERR   ${f.id.padEnd(34)} ${f.error}`);
-    continue;
+const findings = [];
+for (const page of measured) {
+  const overflow = page.scrollWidth > page.viewport + 1;
+  if (!overflow && page.wide.length === 0 && page.small.length === 0) continue;
+
+  console.log(`\n${page.id}  (${page.path})`);
+  if (overflow) {
+    console.log(`  OVERFLOW  scrollWidth ${page.scrollWidth} > viewport ${page.viewport}`);
+    findings.push({ key: `${page.id}|overflow`, scrollWidth: page.scrollWidth });
   }
-  console.log(`\n${f.id}  (${f.path})`);
-  if (f.overflow) console.log(`  OVERFLOW  scrollWidth ${f.scrollWidth} > viewport ${f.viewport}`);
-  for (const w of f.wide.slice(0, 6)) console.log(`  WIDE      ${w}`);
-  for (const s of f.small.slice(0, 6)) console.log(`  TARGET    ${s}`);
+
+  // THE COUNT IS THE FINDING; the listing is a convenience. Printing six of eighteen and no total
+  // let a reader fix six things and believe they were done — measured at 18 undersized controls on
+  // the competition editor, 16 unique, six printed, no number anywhere saying so.
+  console.log(`  ${page.wide.length} element(s) past the viewport edge, ${page.small.length} ` +
+    `undersized control(s) (${page.smallTotal} including repeats)`);
+  for (const w of page.wide.slice(0, 6)) console.log(`  WIDE      ${w}`);
+  if (page.wide.length > 6) console.log(`  WIDE      …and ${page.wide.length - 6} more`);
+  for (const s of page.small.slice(0, 6)) console.log(`  TARGET    ${s}`);
+  if (page.small.length > 6) console.log(`  TARGET    …and ${page.small.length - 6} more`);
+
+  for (const w of page.wide) {
+    findings.push({ key: `${page.id}|wide|${w.split(" right=")[0]}`, detail: w });
+  }
+  for (const s of page.small) {
+    // Keyed on the control, not on its measured size: a 40x40 that becomes 40x43 is the same
+    // known finding, and a baseline that churns on a pixel is a baseline nobody re-takes.
+    findings.push({ key: `${page.id}|target|${s.replace(/ \d+x\d+$/, "")}`, detail: s });
+  }
 }
-clean = targets.length - findings.length;
-console.log(`\n${clean}/${targets.length} pages clean at ${MOBILE.width}px.`);
+
+const cleanPages = measured.length - new Set(findings.map((f) => f.key.split("|")[0])).size;
+console.log(`\n${cleanPages}/${measured.length} pages clean at ${MOBILE.width}px.`);
+
+finishAudit({
+  name: "mobile-audit",
+  findings,
+  unmeasurable,
+  note: `${MOBILE.width}px viewport, ${measured.length} pages`,
+});

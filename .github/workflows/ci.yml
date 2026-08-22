@@ -66,6 +66,13 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # `npm run format` has been the repo standard since the beginning and nothing enforced it,
+      # which is why files drift: twenty-eight under `src` were unclean when this gate was added.
+      # Scope is the standard's own scope and is deliberately not widened to `scripts/`, where the
+      # runner scripts use tabular long lines that Prettier would reflow into noise.
+      - name: Format
+        run: npm run format:check
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -89,3 +96,156 @@ jobs:
       # prerendering) that CI does not hold. The authoritative build gate is the
       # `vercel build` step in deploy-preview (real preview env), which runs on
       # every PR and reports as a PR check.
+
+  browser-audits:
+    name: browser audits
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    # NO BROWSER AUDIT HAD EVER RUN HERE. `ui-states.mjs` is the only mechanism in the repo that
+    # verifies a withheld affordance stays withheld — eleven surfaces, three shipped anti-patterns
+    # caught — and it ran on one laptop, by hand, when someone remembered. `contrast-audit` is the
+    # only thing that can see a theme rendering dark-on-dark, and `mobile-audit` the only thing that
+    # measures a 44px target. All three now gate every PR.
+    #
+    # THE EMAIL HAZARD IS NOT THE ONE UAT2-D1 DESCRIBES, and this was checked rather than assumed.
+    # UAT2-D1 is about seeded fixtures against a PREVIEW deployment, where `APP_ENV=preview` makes
+    # Resend delivery real and every `@seed.lombakita.local` address hard-bounces. This job runs
+    # `APP_ENV=test` against a Postgres that exists only for this run. Two independent things stop a
+    # send: `test` never delivers (env.server.ts, and it cannot be flag-enabled), and no
+    # RESEND_API_KEY is set here at all, so the delivery boundary throws rather than sends. The
+    # audits are read-only navigations in any case.
+    #
+    # Every credential below is a literal, obviously-fake constant. Nothing here is a repository
+    # secret, so nothing real can reach a log, an artifact, or a failure message.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lombakita_audits
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      # Present so the listing runs its Meilisearch path rather than the DB fallback, which is what
+      # the local baseline was measured against. A page measured under a different search engine is
+      # a page whose findings cannot be compared with that baseline.
+      meilisearch:
+        image: getmeili/meilisearch:v1.11
+        env:
+          MEILI_MASTER_KEY: audits-only-master-key-not-a-real-key
+          MEILI_NO_ANALYTICS: "true"
+        ports:
+          - 7700:7700
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lombakita_audits
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lombakita_audits
+      APP_ENV: test
+      NEXT_PUBLIC_APP_ENV: test
+      APP_BASE_URL: http://localhost:3000
+      AUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:3000
+      AUTH_SECRET: audits-only-secret-not-used-for-signing-anything-real
+      AUTH_EMAIL_FROM: audits@localhost.invalid
+      REDIS_URL: redis://localhost:6379
+      MEILISEARCH_HOST: http://localhost:7700
+      MEILISEARCH_API_KEY: audits-only-master-key-not-a-real-key
+      # A fixed, deterministic 32-byte key, base64 of the ASCII above. The seeded MFA factors are
+      # encrypted with it so the harness can complete a real TOTP challenge. Never a real secret.
+      MFA_SECRET_ENCRYPTION_KEY: bG9tYmFraXRhLWNpLW1mYS1rZXktTk9ULUEtU0VDUkU=
+      # PLACEHOLDERS — presigning is a local signature computation over these values and reaches no
+      # network, which is what lets the payment-proof surfaces render. The URLs they produce point
+      # at a host that does not exist and are never fetched.
+      R2_ENDPOINT: https://placeholder.invalid
+      R2_REGION: auto
+      R2_BUCKET: placeholder
+      R2_ACCESS_KEY_ID: placeholder
+      R2_SECRET_ACCESS_KEY: placeholder
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Apply migrations
+        run: npm run db:migrate:guarded
+
+      # Every audit asserts against the seeded matrix by id. Without it the pages render empty and
+      # `ui-states` would report eleven surfaces missing text that was never seeded.
+      - name: Seed the test matrix
+        run: node --import tsx scripts/seed-test-matrix.ts
+
+      # AFTER the seed, not before: this script creates the index and backfills it from the
+      # database in one pass, so run against an unseeded database it would build an empty index and
+      # the search-filtered listing pages would measure a page with no results.
+      - name: Build the search index
+        run: node --import tsx scripts/setup-search-index.ts
+
+      - name: Build
+        run: npm run build
+
+      - name: Start the app
+        run: |
+          nohup npm run start > "${{ runner.temp }}/app.log" 2>&1 &
+          for i in $(seq 1 60); do
+            status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:3000/api/health || true)
+            if [ "$status" = "200" ] || [ "$status" = "503" ]; then
+              echo "app is serving (${status})"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "app never started serving; last 50 lines of its log:"
+          tail -50 "${{ runner.temp }}/app.log"
+          exit 1
+
+      # FIRST, because it is the cheapest and the one whose failure is unambiguous: a withheld
+      # control that came back is a product defect, not a measurement artifact.
+      - name: UI state assertions
+        run: node scripts/testing/ui-states.mjs
+
+      - name: Mobile layout audit
+        run: node scripts/testing/mobile-audit.mjs
+
+      - name: Text contrast and tone separation audit
+        run: node scripts/testing/contrast-audit.mjs
+
+      # A page that could not be measured exits the audit 4, and the reason is almost always in the
+      # server's own log rather than in the browser's error. Uploaded only on failure, and it
+      # carries no credential: every value in this job is a literal fake.
+      - name: Upload the server log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-audits-app-log
+          path: ${{ runner.temp }}/app.log
+          retention-days: 7

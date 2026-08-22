@@ -21,6 +21,19 @@ describe("emailDeliveryEnabled", () => {
     expect(buildServerEnv(env).emailDeliveryEnabled).toBe(true);
   });
 
+  // `test` is where the seeded matrix runs, and every seeded address is a non-routable
+  // `@seed.lombakita.local`. Delivering there is a hard bounce against the sending domain, so the
+  // answer is no — and unlike local, no flag can say otherwise.
+  it("is off in test", () => {
+    expect(buildServerEnv(baseEnv({ APP_ENV: "test" })).emailDeliveryEnabled).toBe(false);
+  });
+
+  it("stays off in test even with the opt-in flag set", () => {
+    const env = baseEnv({ APP_ENV: "test", EMAIL_DELIVERY_ENABLED: "true" });
+
+    expect(buildServerEnv(env).emailDeliveryEnabled).toBe(false);
+  });
+
   // Deployed environments must never depend on the flag being remembered.
   it.each(["preview", "staging", "production"])("is on in %s without the flag", (appEnv) => {
     expect(buildServerEnv(baseEnv({ APP_ENV: appEnv })).emailDeliveryEnabled).toBe(true);
