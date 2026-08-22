@@ -7,6 +7,7 @@ export { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./car
 export { Feedback } from "./feedback";
 export type { FeedbackTone } from "./feedback";
 export {
+  CheckboxField,
   FormField,
   FormHelp,
   FormInput,

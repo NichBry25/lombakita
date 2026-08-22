@@ -2,9 +2,13 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSession } from "next-auth/react";
-import { Button, Icon, IconButton, usePageTransition } from "@/components/ui";
+import { Button, CheckboxField, Icon, IconButton, usePageTransition } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import { describeMfaLockout, presentMfaError, readMfaErrorPayload } from "@/lib/mfa/mfa-error-response";
+import {
+  describeMfaLockout,
+  presentMfaError,
+  readMfaErrorPayload,
+} from "@/lib/mfa/mfa-error-response";
 import { sessionFetch } from "@/lib/session/session-fetch";
 
 type MfaEnrollFormProps = {
@@ -36,7 +40,7 @@ export function MfaEnrollForm({
 
   const expectedUserId = sessionData?.user?.id;
 
-  // One toast at a time — repeated failures replace the previous notice rather than stacking over
+  // One toast at a time, so repeated failures replace the previous notice instead of stacking over
   // the very controls the operator needs next.
   // `durationMs` is threaded through rather than left to the primitive's 5000ms default: a throttle
   // notice must outlive the wait it names, and a platform-degraded notice must not expire at all.
@@ -44,7 +48,11 @@ export function MfaEnrollForm({
     if (lastToastIdRef.current) {
       removeToast(lastToastIdRef.current);
     }
-    lastToastIdRef.current = addToast({ type: "error", message, ...(durationMs === undefined ? {} : { duration: durationMs }) });
+    lastToastIdRef.current = addToast({
+      type: "error",
+      message,
+      ...(durationMs === undefined ? {} : { duration: durationMs }),
+    });
   };
 
   // Clears itself when the server would start accepting codes again, so the notice never outlives
@@ -144,7 +152,7 @@ export function MfaEnrollForm({
     return (
       <div className="stack-md">
         {/* The QR is scanned and gone by this point, so the heading belongs to this stage rather
-            than the page — a page-level "Pindai kode QR" would sit above a screen asking the
+            than the page. A page-level "Pindai kode QR" would sit above a screen asking the
             operator to save ten recovery codes. */}
         <header className="auth-entry-header">
           <p className="eyebrow">Verifikasi dua langkah</p>
@@ -161,21 +169,20 @@ export function MfaEnrollForm({
             <div key={recoveryCode}>{recoveryCode}</div>
           ))}
         </pre>
-        <Button variant="outline" onClick={onCopyRecoveryCodes} leadingIcon={<Icon name="copy" size="sm" />}>
+        <Button
+          variant="outline"
+          onClick={onCopyRecoveryCodes}
+          leadingIcon={<Icon name="copy" size="sm" />}
+        >
           Salin
         </Button>
-        {/* `.checkbox-field` is the house checkbox row — a flex line that centres the box against
-            its text and holds the 44px target. `.form-label` is the wrong class here: it is a block
-            label, which leaves the box sitting proud of the sentence it belongs to. */}
-        <label className="checkbox-field" htmlFor="mfa-recovery-ack">
-          <input
-            id="mfa-recovery-ack"
-            type="checkbox"
-            checked={savedAcknowledged}
-            onChange={(event) => setSavedAcknowledged(event.target.checked)}
-          />
-          <span>Saya sudah menyimpan kode pemulihan ini di tempat yang aman.</span>
-        </label>
+        <CheckboxField
+          id="mfa-recovery-ack"
+          checked={savedAcknowledged}
+          onChange={(event) => setSavedAcknowledged(event.target.checked)}
+        >
+          Saya sudah menyimpan kode pemulihan ini di tempat yang aman.
+        </CheckboxField>
         <Button
           type="button"
           onClick={onContinue}
@@ -197,7 +204,7 @@ export function MfaEnrollForm({
       </header>
       <p>
         Buka aplikasi autentikator (Google Authenticator, Authy, 1Password, atau sejenisnya), lalu
-        daftarkan akun ini dengan salah satu cara di bawah — pilih yang mana saja, keduanya
+        daftarkan akun ini dengan salah satu cara di bawah, pilih yang mana saja, keduanya
         mendaftarkan kunci yang sama.
       </p>
 

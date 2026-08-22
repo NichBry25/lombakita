@@ -8,7 +8,7 @@
 // sweep does purge, whose whole retention argument is that holding someone's identity document
 // after it stops being evidence is a liability.
 //
-// The risk this file exists to catch is a QUIET one. Nothing today deletes a proof — so a test that
+// The risk this file exists to catch is a QUIET one. Nothing today deletes a proof, so a test that
 // merely called the sweep and checked a proof survived would pass whether or not the exclusion was
 // real, and would keep passing right up until someone adds a third sweep arm. What is asserted here
 // instead is the SHAPE of the purge surface: which modules the retention job can reach, and that
@@ -51,6 +51,22 @@ const collectPurgeSurface = (entry: string, seen = new Set<string>()): Set<strin
   return seen;
 };
 
+/**
+ * Object-storage prefixes holding FINANCIAL EVIDENCE, which retention may never reach at any age.
+ *
+ * Both the literal prefix and the function that builds it, because a module can name either one and
+ * a scan that knows only the literal misses `buildX()` used without ever spelling the string.
+ *
+ * A competition ending is not a reason to destroy the record of who paid for it, or of where they
+ * were told to send the money. Nothing here is purged, ever.
+ */
+const EVIDENCE_PREFIX_MARKERS = [
+  "payment-proofs/",
+  "buildManualProofObjectPrefix",
+  "payment-instructions/",
+  "buildQrisObjectPrefix",
+] as const;
+
 describe("retention sweep excludes financial evidence", () => {
   it("reaches no module that deletes from a finance table", () => {
     const surface = collectPurgeSurface(RETENTION_JOB);
@@ -68,30 +84,38 @@ describe("retention sweep excludes financial evidence", () => {
 
     expect(
       offending,
-      "the retention sweep can reach a finance table — a bukti transfer is never purged",
+      "the retention sweep can reach a finance table, and a bukti transfer is never purged",
     ).toEqual([]);
   });
 
-  it("reaches no module that lists the payment-proof object prefix for deletion", () => {
+  it("reaches no module that lists a FINANCIAL EVIDENCE object prefix for deletion", () => {
     // Object storage is the other half. A proof row surviving while its FILE is swept is the same
     // loss: the evidence is the image, not the row that points at it.
+    //
+    // TWO PREFIXES, not one, and the second is newer and easier to forget. A QRIS code is the
+    // organiser's published means of being paid: the payer scans it, transfers against it, and the
+    // instruction snapshot on their payment records that it was what they were shown. Purging it
+    // destroys the counterparty half of every transfer made against it, which is the same class of
+    // loss as deleting the receipt, and unlike a bukti transfer, nothing about the word "QRIS"
+    // announces that it is financial evidence.
     const surface = collectPurgeSurface(RETENTION_JOB);
 
     const offending: string[] = [];
     for (const file of surface) {
       const source = readFileSync(file, "utf8");
-      if (source.includes("payment-proofs/") || source.includes("buildManualProofObjectPrefix")) {
-        offending.push(file.replace(`${process.cwd()}/`, ""));
+      for (const marker of EVIDENCE_PREFIX_MARKERS) {
+        if (source.includes(marker)) {
+          offending.push(`${file.replace(`${process.cwd()}/`, "")} (${marker})`);
+        }
       }
     }
 
-    expect(
-      offending,
-      "the retention sweep can reach the bukti transfer object prefix",
-    ).toEqual([]);
+    expect(offending, "the retention sweep can reach a financial evidence object prefix").toEqual(
+      [],
+    );
   });
 
-  it("still reaches the two things it IS supposed to purge — the scan is not vacuous", () => {
+  it("still reaches the two things it IS supposed to purge, so the scan is not vacuous", () => {
     // Without this, a refactor that made the retention job import nothing at all would turn both
     // assertions above into tests that pass by reaching nowhere.
     const surface = [...collectPurgeSurface(RETENTION_JOB)].map((file) =>
@@ -102,15 +126,23 @@ describe("retention sweep excludes financial evidence", () => {
     expect(surface).toContain("src/server/registration-documents/registration-document-service.ts");
   });
 
-  it("names the payment-proof prefix somewhere, so the prefix scan targets a real string", () => {
-    // Guards against the prefix being renamed while the scan above keeps looking for the old one
-    // and matching nothing forever.
-    const proofService = readFileSync(
-      resolve(SRC_DIR, "server/finance/manual-payment-proof-service.ts"),
-      "utf8",
-    );
+  it("finds every scanned marker somewhere in the source, so no scan targets a dead string", () => {
+    // Guards against a prefix being renamed while the scan above keeps looking for the old one and
+    // matching nothing forever. A scan for a string that no longer exists reports clean on every
+    // file in the graph, which is the exact shape of a check that has quietly stopped checking.
+    //
+    // Asserted per MARKER rather than per file, so adding a third evidence prefix to the list above
+    // without implementing it fails here rather than silently widening a scan that finds nothing.
+    const sources = [
+      readFileSync(resolve(SRC_DIR, "server/finance/manual-payment-proof-service.ts"), "utf8"),
+      readFileSync(resolve(SRC_DIR, "server/institutions/payment-instructions-service.ts"), "utf8"),
+    ].join("\n");
 
-    expect(proofService).toContain("payment-proofs/");
+    for (const marker of EVIDENCE_PREFIX_MARKERS) {
+      expect(sources, `nothing defines "${marker}", so the scan for it can never match`).toContain(
+        marker,
+      );
+    }
   });
 });
 

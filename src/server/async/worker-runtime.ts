@@ -21,6 +21,7 @@ import {
 } from "@/server/async/observability";
 import { getQueueRegistrations, getRegisteredQueueNames } from "@/server/async/registry";
 import { registerRetentionPurgeSchedule } from "@/server/async/retention-scheduler";
+import { registerPaymentExpirySchedule } from "@/server/async/payment-expiry-scheduler";
 import { captureWorkerJobFailure } from "@/server/observability/worker-sentry";
 import { createBullmqRedisClient } from "@/server/redis/client";
 
@@ -209,6 +210,17 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
       await registerRetentionPurgeSchedule();
     } catch (error) {
       logger.error("Retention purge schedule registration failed", {
+        detail: toSafeErrorMessage(error),
+      });
+    }
+
+    // Registered in its own try, not alongside the retention sweep: one schedule failing to
+    // register must not silently take the other down with it. They are unrelated jobs and a
+    // combined block would report whichever failed first and skip the second entirely.
+    try {
+      await registerPaymentExpirySchedule();
+    } catch (error) {
+      logger.error("Payment expiry schedule registration failed", {
         detail: toSafeErrorMessage(error),
       });
     }

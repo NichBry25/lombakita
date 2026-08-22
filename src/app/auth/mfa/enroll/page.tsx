@@ -8,11 +8,13 @@ import { MfaEnrollForm } from "./mfa-enroll-form";
 
 const defaultDestination = (role: string): string => (role === "platform_ops" ? "/admin" : "/");
 
-// This page deliberately does NOT go through requireRolePage (page-guard.ts) — that guard is what
+// This page deliberately does NOT go through requireRolePage (page-guard.ts). That guard is what
 // SENDS an operational account here when mfaStatus is "enrolment_required", so routing it through
 // the same guard again would be a redirect loop. Its own bespoke checks below are the narrower
 // question: is this an authenticated operational account that genuinely still needs to enrol?
-export default async function MfaEnrollPage(props: { searchParams?: Promise<{ callbackUrl?: string }> }) {
+export default async function MfaEnrollPage(props: {
+  searchParams?: Promise<{ callbackUrl?: string }>;
+}) {
   const session = await getCurrentSession();
   if (!session?.user?.id) {
     redirect("/auth/login?callbackUrl=/auth/mfa/enroll");
@@ -32,7 +34,7 @@ export default async function MfaEnrollPage(props: { searchParams?: Promise<{ ca
     redirect(`/auth/mfa/challenge?callbackUrl=${encodeURIComponent(callbackUrl)}`);
   }
 
-  // A fresh secret is minted (or an abandoned one is overwritten) every time this page renders —
+  // A fresh secret is minted (or an abandoned one is overwritten) every time this page renders.
   // startMfaEnrolment is idempotent with respect to state (still unverified either way) and cheap;
   // the trade-off is that reloading this page mid-scan means re-scanning the QR, which is far safer
   // than trying to keep an in-progress secret alive across a stateless server render.
@@ -44,8 +46,8 @@ export default async function MfaEnrollPage(props: { searchParams?: Promise<{ ca
       title="Amankan akun operasional Anda."
       description="Akun platform_ops dan finance_ops wajib mengaktifkan verifikasi dua langkah sebelum dapat melanjutkan."
     >
-      {/* Heading and instructions live in the form, not here: enrolment is two screens — scan, then
-          save the recovery codes — and only the form knows which one is showing. */}
+      {/* Heading and instructions live in the form, not here: enrolment is two screens (scan, then
+          save the recovery codes) and only the form knows which one is showing. */}
       <MfaEnrollForm
         secretBase32={enrolment.secretBase32}
         otpauthUri={enrolment.otpauthUri}

@@ -16,6 +16,7 @@ import {
   InstitutionBannerUpload,
   InstitutionLogoUpload,
 } from "@/components/institution/institution-media-controls";
+import { PaymentInstructionsSection } from "@/components/institution/payment-instructions-section";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import {
   SESSION_MISMATCH_CODE,
@@ -533,6 +534,12 @@ export const InstitutionSettingsShell = ({
             </div>
           </form>
         </section>
+      ) : null}
+
+      {/* Its own endpoint and its own Save, so it sits outside the page's global Save. Rendered
+          after the profile section because it is administrative rather than public-facing. */}
+      {!isLoading ? (
+        <PaymentInstructionsSection institutionSlug={activeSlug} expectedUserId={expectedUserId} />
       ) : null}
 
       <FormActionBar>

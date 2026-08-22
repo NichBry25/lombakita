@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import { Button, IconButton } from "@/components/ui";
+import { Button, CheckboxField, IconButton } from "@/components/ui";
 import { FormField, FormInput, FormLabel, FormTextarea, SelectField } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { ownerFetch, uploadProfileFile } from "./profile-file-upload";
@@ -316,14 +316,13 @@ function ExperienceForm({
           onChange={(e) => set({ end: e.target.value })}
         />
       </FormField>
-      <label className="pf-editor-check">
-        <input
-          type="checkbox"
-          checked={d.isCurrent}
-          onChange={(e) => set({ isCurrent: e.target.checked })}
-        />
+      <CheckboxField
+        className="pf-editor-check"
+        checked={d.isCurrent}
+        onChange={(e) => set({ isCurrent: e.target.checked })}
+      >
         Masih berjalan
-      </label>
+      </CheckboxField>
       <FormField>
         <FormLabel htmlFor={`${uid}-desc`}>Deskripsi</FormLabel>
         <FormTextarea

@@ -26,6 +26,9 @@ export const ASYNC_JOB_NAMES = {
   registrationDocumentRequested: "registration.document.requested",
   registrationDocumentReviewed: "registration.document.reviewed",
   retentionPurge: "retention.purge",
+  paymentExpirySweep: "payment.expiry.sweep",
+  paymentProofSubmitted: "payment.proof.submitted",
+  paymentOutcome: "payment.outcome",
 } as const;
 
 export type AsyncJobName = (typeof ASYNC_JOB_NAMES)[keyof typeof ASYNC_JOB_NAMES];
@@ -132,6 +135,57 @@ export type RegistrationDocumentRequestedPayload = {
   epoch: number;
 };
 
+// A bukti transfer has arrived and needs a human to look at it. ORGANISER-ONLY (R13): the payer
+// already knows they submitted it, and telling them again the moment they press the button is
+// noise. Recipients are resolved at dispatch, not carried on the payload, so a staff member added
+// between submission and delivery is still told.
+export type PaymentProofSubmittedPayload = {
+  paymentId: string;
+  proofId: string;
+  // WHICH attempt this is. A resubmission REUSES the proof row and bumps `resubmission_count`, so
+  // the proof id alone is the same identity for every attempt and a second bukti transfer would be
+  // swallowed as a replay of the first, leaving the organiser never told it arrived.
+  attempt: number;
+  competitionTitle: string;
+  // Both slugs, so the email can link to the review queue itself. An organiser who administers
+  // more than one institution cannot act on a link to `/institution`.
+  institutionSlug: string;
+  competitionSlug: string;
+  institutionId: string;
+  payerDisplayName: string;
+  grossAmount: number;
+  currency: string;
+};
+
+// What became of the money, told to EVERY member of the payment group (R13). A team pays once and
+// a verdict on that payment decides whether the whole team is still entered.
+//
+// FOUR OUTCOMES, THREE DIFFERENT ACTORS, and the copy has to name the right one each time.
+// `verified` and `rejected` are the organiser's decisions. `expired` has NO human behind it, only
+// a deadline passing, which is why its copy says "secara otomatis" and denies the organiser.
+// `voided` is LOMBAKITA's decision, not the organiser's: attributing an operator's action to the
+// organiser sends the payer to argue with someone who did not take it.
+export type PaymentOutcomePayload = {
+  paymentId: string;
+  registrationId: string;
+  // Same reason as the submission payload: reject → resubmit → reject is two distinct verdicts on
+  // one payment, and without the attempt the second one is deduplicated away.
+  //
+  // LOAD-BEARING for `verified` and `rejected`, INERT for `expired`. A payment expires once, so
+  // that arm always carries whatever the live proof happens to hold (0 when none was ever filed).
+  // Stated because the next reader sees a constant on the expiry path and concludes the field can
+  // be dropped, which silently re-collapses the two verdict identities.
+  attempt: number;
+  competitionTitle: string;
+  outcome: "verified" | "rejected" | "expired" | "voided";
+  // Present only for `rejected`, and only when the organiser gave one.
+  rejectionReason: string | null;
+  // Present only for `rejected`: whether the candidate may send new evidence.
+  resubmissionAllowed: boolean | null;
+  grossAmount: number;
+  currency: string;
+};
+
 export type RegistrationDocumentReviewedPayload = {
   requestId: string;
   userId: string;
@@ -152,6 +206,14 @@ export type RetentionPurgePayload = {
   scheduledFor: string;
 };
 
+// The second job in the system that no request triggers. A payment deadline lapsing is a fact about
+// the calendar, not an action anyone takes, and the candidate who needs telling is precisely the one
+// not looking at the page, so it cannot be derived lazily at read time. The payload carries the
+// fire time only for log correlation; the sweep reads the overdue list itself.
+export type PaymentExpirySweepPayload = {
+  scheduledFor: string;
+};
+
 export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.probePing]: AsyncProbeJobPayload;
   [ASYNC_JOB_NAMES.competitionSearchSync]: CompetitionSearchSyncPayload;
@@ -167,6 +229,9 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.registrationDocumentRequested]: RegistrationDocumentRequestedPayload;
   [ASYNC_JOB_NAMES.registrationDocumentReviewed]: RegistrationDocumentReviewedPayload;
   [ASYNC_JOB_NAMES.retentionPurge]: RetentionPurgePayload;
+  [ASYNC_JOB_NAMES.paymentExpirySweep]: PaymentExpirySweepPayload;
+  [ASYNC_JOB_NAMES.paymentProofSubmitted]: PaymentProofSubmittedPayload;
+  [ASYNC_JOB_NAMES.paymentOutcome]: PaymentOutcomePayload;
 };
 
 export const ASYNC_JOB_QUEUE_BY_NAME = {
@@ -186,4 +251,12 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   // Platform maintenance, not a participant-facing event — so it sits on `infrastructure`, away
   // from the notification queue whose backlog matters to users.
   [ASYNC_JOB_NAMES.retentionPurge]: ASYNC_QUEUE_NAMES.infrastructure,
+  // Platform maintenance on the same reasoning as the retention sweep: the sweep itself is not
+  // participant-facing, so it stays off the notification queue whose backlog users feel. The
+  // notifications it causes are enqueued separately, as ordinary participant events.
+  [ASYNC_JOB_NAMES.paymentExpirySweep]: ASYNC_QUEUE_NAMES.infrastructure,
+  // Participant-facing, so both sit on the notifications queue, including the one the expiry
+  // sweep causes, which is exactly what the note above means by "enqueued separately".
+  [ASYNC_JOB_NAMES.paymentProofSubmitted]: ASYNC_QUEUE_NAMES.notifications,
+  [ASYNC_JOB_NAMES.paymentOutcome]: ASYNC_QUEUE_NAMES.notifications,
 } as const satisfies Record<AsyncJobName, AsyncQueueName>;

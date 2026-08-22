@@ -14,6 +14,8 @@ import {
   enqueueRegistrationCancelled,
   enqueueSubmissionFinalized,
   enqueueResultPublished,
+  enqueuePaymentProofSubmitted,
+  enqueuePaymentOutcome,
 } from "@/server/async/enqueue";
 
 const makeQueue = () => ({
@@ -176,5 +178,76 @@ describe("enqueueSubmissionFinalized", () => {
       { jobId: "submission.finalized__reg_1" },
     );
     expect(result.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
+  });
+});
+
+describe("the manual lane's idempotency identities", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const submitted = (attempt: number) => ({
+    paymentId: "pay_1",
+    proofId: "proof_1",
+    attempt,
+    competitionTitle: "Seed Coding League",
+    institutionSlug: "seed-academy",
+    competitionSlug: "seed-coding-league",
+    institutionId: "inst_1",
+    payerDisplayName: "Sari Melati",
+    grossAmount: 150_000,
+    currency: "IDR",
+  });
+
+  const outcome = (o: "verified" | "rejected" | "expired", attempt: number) => ({
+    paymentId: "pay_1",
+    registrationId: "reg_1",
+    attempt,
+    competitionTitle: "Seed Coding League",
+    outcome: o,
+    rejectionReason: null,
+    resubmissionAllowed: null,
+    grossAmount: 150_000,
+    currency: "IDR",
+  });
+
+  it("separates a resubmitted bukti transfer from the attempt it replaces", async () => {
+    const queue = makeQueue();
+    getAsyncQueue.mockReturnValue(queue);
+
+    await enqueuePaymentProofSubmitted(submitted(0));
+    await enqueuePaymentProofSubmitted(submitted(1));
+
+    const adds = queue.add.mock.calls as unknown as unknown[][];
+
+    // The proof id is IDENTICAL across attempts (the row is reused) so the attempt is the only
+    // thing separating these two jobs. Without it the second is dropped as a duplicate.
+    expect(adds[0]![2]).toEqual({ jobId: "payment.proof.submitted__proof_1__0" });
+    expect(adds[1]![2]).toEqual({ jobId: "payment.proof.submitted__proof_1__1" });
+  });
+
+  it("separates a second rejection of one payment from the first", async () => {
+    const queue = makeQueue();
+    getAsyncQueue.mockReturnValue(queue);
+
+    await enqueuePaymentOutcome(outcome("rejected", 0));
+    await enqueuePaymentOutcome(outcome("rejected", 1));
+
+    const adds = queue.add.mock.calls as unknown as unknown[][];
+    expect(adds[0]![2]).toEqual({ jobId: "payment.outcome__pay_1__rejected__0" });
+    expect(adds[1]![2]).toEqual({ jobId: "payment.outcome__pay_1__rejected__1" });
+  });
+
+  it("still collapses a retry of one announcement", async () => {
+    // The attempt widens the identity; it must not dissolve it. A retry of the SAME announcement
+    // resolves to the same job id and is reported as a duplicate.
+    const queue = {
+      getJob: vi.fn(async () => ({ id: "payment.outcome__pay_1__verified__2" })),
+      add: vi.fn(async () => ({ id: "payment.outcome__pay_1__verified__2" })),
+    };
+    getAsyncQueue.mockReturnValue(queue);
+
+    const result = await enqueuePaymentOutcome(outcome("verified", 2));
+
+    expect(queue.getJob).toHaveBeenCalledWith("payment.outcome__pay_1__verified__2");
+    expect(result.duplicate).toBe(true);
   });
 });

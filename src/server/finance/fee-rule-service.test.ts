@@ -1,7 +1,7 @@
 // @vitest-environment node
 //
 // Fail-closed fee resolution. `resolveFeeRule` itself is exercised against a real database in
-// finance-schema-db.integration.test.ts — its ordering rules live in SQL and a mock cannot assert
+// finance-schema-db.integration.test.ts, because its ordering rules live in SQL and a mock cannot
 // them. What is tested here is the decision made ABOVE that query: what happens when nothing is in
 // force, which is a branch rather than a query and is the one a paid path must never fall through.
 
@@ -58,9 +58,11 @@ describe("requireFeeRuleInForce", () => {
 
   it("REFUSES when no rule is in force, rather than resolving to a zero fee", async () => {
     // The whole point. A helper that returned zero-rate terms here would price a payment at a 0%
-    // platform fee, record a coherent split, accrue nothing, and pass every downstream assertion —
-    // a silently free transaction is unrecoverable in an append-only ledger, a refusal is not.
-    await expect(requireFeeRuleInForce("inst-1", AT, dbReturning([]))).rejects.toThrow(FeeRuleError);
+    // platform fee, record a coherent split, accrue nothing, and pass every downstream assertion.
+    // A silently free transaction is unrecoverable in an append-only ledger, a refusal is not.
+    await expect(requireFeeRuleInForce("inst-1", AT, dbReturning([]))).rejects.toThrow(
+      FeeRuleError,
+    );
   });
 
   it("names the refusal fee_rule_not_in_force so a caller can surface it", async () => {

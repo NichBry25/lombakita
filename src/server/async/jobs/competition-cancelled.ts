@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import type { Job } from "bullmq";
 import { getDb } from "@/server/db/client";
 import { competitions, competitionRegistrations, institutions, users } from "@/server/db/schema";
+import { loadCompetitionPayerUserIds } from "@/server/finance/paid-registration";
 import { logger } from "@/lib/logger";
 import {
   getCompetitionCancellationReasonLabel,
@@ -22,6 +23,19 @@ export type CompetitionCancelledJob = Job<
   void,
   typeof ASYNC_JOB_NAMES.competitionCancelled
 >;
+
+/**
+ * What a payer is told about their money when the competition is cancelled under them.
+ *
+ * DEC-0130 is the whole of it: the transfer went to the ORGANISER'S bank account and Lombakita
+ * never held a rupiah of it, so the platform cannot refund what it never received. Saying who to
+ * ask is the only useful thing this notice can do, and promising a platform-mediated refund would
+ * be a promise no part of this system can keep.
+ */
+const TRANSFER_REFUND_NOTICE =
+  "Jika Anda sudah melakukan transfer, dana tersebut ada pada rekening penyelenggara. " +
+  "Hubungi penyelenggara secara langsung untuk pengembaliannya. Lombakita tidak menampung dana " +
+  "peserta sehingga tidak dapat memprosesnya.";
 
 export const buildCompetitionCancellationRecipientsCondition = (
   competitionId: string,
@@ -98,6 +112,14 @@ export const processCompetitionCancelledJob = async (
     return;
   }
 
+  // WHO ACTUALLY SENT MONEY, so the refund sentence reaches them and nobody else.
+  //
+  // Scoped to the PAYER rather than to everyone on a paid competition: a team pays once through its
+  // captain, and telling three teammates to chase a refund for a transfer they never made sends
+  // them after money that was never theirs. Free registrants get no refund sentence at all, because
+  // for them it would be an invented debt.
+  const payerIds = await loadCompetitionPayerUserIds(competitionId, db);
+
   for (const recipient of recipients) {
     // In-app notification row written FIRST (isolated/swallowed), so it lands regardless of the
     // stub email outcome.
@@ -107,9 +129,11 @@ export const processCompetitionCancelledJob = async (
         userId: recipient.userId,
         type: NOTIFICATION_TYPES.competitionCancelled,
         title: "Kompetisi dibatalkan",
-        body: cancellationReason
-          ? `"${competition.title}" dibatalkan oleh penyelenggara. Alasan: ${cancellationReason}`
-          : `"${competition.title}" yang kamu daftarkan telah dibatalkan oleh penyelenggara.`,
+        body:
+          (cancellationReason
+            ? `"${competition.title}" dibatalkan oleh penyelenggara. Alasan: ${cancellationReason}`
+            : `"${competition.title}" yang kamu daftarkan telah dibatalkan oleh penyelenggara.`) +
+          (payerIds.has(recipient.userId) ? ` ${TRANSFER_REFUND_NOTICE}` : ""),
       },
       { event: "competition.cancelled", jobId: job.id ?? undefined },
     );
@@ -121,6 +145,7 @@ export const processCompetitionCancelledJob = async (
         recipientId: recipient.userId,
         competitionTitle: competition.title,
         cancellationReason: cancellationReason ?? undefined,
+        transferRefundNotice: payerIds.has(recipient.userId),
         publicCompetition,
       });
     } catch (error) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button } from "@/components/ui";
+import { Button, CheckboxField } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { ALLOWED_COMPETITION_TAGS } from "@/lib/competitions/tags";
 import {
@@ -102,10 +102,9 @@ export const CompetitionTagsEditor = ({
         <div className="stack-md">
           <div className="cluster">
             {ALLOWED_COMPETITION_TAGS.map((tag) => (
-              <label key={tag} className="checkbox-chip">
-                <input type="checkbox" checked={selected.has(tag)} onChange={() => toggle(tag)} />{" "}
+              <CheckboxField key={tag} checked={selected.has(tag)} onChange={() => toggle(tag)}>
                 {tag}
-              </label>
+              </CheckboxField>
             ))}
           </div>
           <Button type="button" onClick={saveTags} loading={isSaving}>

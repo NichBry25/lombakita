@@ -25,6 +25,7 @@ export const USERS = {
   ops: { id: "seed-user-ops", email: "seed.ops@seed.lombakita.local", username: "seed_ops", mfa: "satisfied" },
   opsEnrol: { id: "seed-user-ops-enrol", email: "seed.ops.enrol@seed.lombakita.local", username: "seed_ops_enrol", mfa: "enrolment" },
   opsChal: { id: "seed-user-ops-chal", email: "seed.ops.chal@seed.lombakita.local", username: "seed_ops_chal", mfa: "challenge" },
+  finOps: { id: "seed-user-fin", email: "seed.fin@seed.lombakita.local", username: "seed_fin", mfa: "satisfied" },
   susp: { id: "seed-user-susp", email: "seed.susp@seed.lombakita.local", username: "seed_susp" },
   unver: { id: "seed-user-unver", email: "seed.unver@seed.lombakita.local", username: "seed_unver" },
 };
@@ -34,6 +35,10 @@ export const INST = {
   b: { id: "seed-inst-b", slug: "seed-ventures" },
   c: { id: "seed-inst-c", slug: "seed-suspended-org" },
   p: { id: "seed-inst-p", slug: "seed-rec-min" },
+  // The SECOND verified tenant, and the only one that can express a cross-tenant violation. `a` and
+  // `b` cannot: `rec-elev` administers both, so "an outsider reaching into another institution" has
+  // no outsider. `d` is owned by `rec-min`, who administers nothing at `a`.
+  d: { id: "seed-inst-d", slug: "seed-kolektif" },
 };
 
 export const COMP = {
@@ -55,6 +60,8 @@ export const COMP = {
   personalDraft: { id: "seed-comp-personal-draft", slug: "seed-personal-draft" },
   susp: { id: "seed-comp-susp", slug: "seed-susp-open" },
   bDraft: { id: "seed-comp-b-draft", slug: "seed-b-draft" },
+  paid: { id: "seed-comp-paid", slug: "seed-paid" },
+  dPaid: { id: "seed-comp-d-paid", slug: "seed-kolektif-paid" },
 };
 
 export const REG = {

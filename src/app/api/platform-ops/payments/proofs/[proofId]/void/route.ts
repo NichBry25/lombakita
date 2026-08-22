@@ -6,7 +6,7 @@ import { OpsPaymentError, voidPaymentProofAsOps } from "@/server/finance/ops-pay
 
 type RouteParams = { params: Promise<{ proofId: string }> };
 
-// Void a bukti transfer that is awaiting review — the DEC-0132 escape hatch. platform_ops only,
+// Void a bukti transfer that is awaiting review, the DEC-0132 escape hatch. platform_ops only,
 // MFA-gated by requireSessionRole (DEC-0113 choke point). Body: { reason: string }.
 //
 // Writes NO finance event: nothing was confirmed received, so there is nothing to record about the

@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useModal, useToast } from "@/components/ui/primitives";
-import { Button, EmptyState, Feedback, Icon, PageHeader, Skeleton } from "@/components/ui";
+import {
+  Button,
+  CheckboxField,
+  EmptyState,
+  Feedback,
+  Icon,
+  PageHeader,
+  Skeleton,
+} from "@/components/ui";
 
 type PendingDocument = { id: string; originalFileName: string; contentType: string };
 
@@ -26,7 +34,7 @@ type PendingItem = {
 };
 
 // Priority label reflects the ordering the server applied (vouched → corporate email →
-// documents → oldest). Shown to the reviewer as context — the decision is always theirs.
+// documents → oldest). Shown to the reviewer as context. The decision is always theirs.
 function priorityLabel(item: PendingItem): string {
   if (item.submission.vouchedAt) return "Vouched";
   if (item.submission.emailDomainFlag) return "Email Korporat";
@@ -49,7 +57,7 @@ export default function RecruiterVerificationQueuePage() {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   // Fetches the pending queue and returns the list (or [] on any failure, with a toast). Pure
-  // fetch — no setState — so it is safe to await from both the mount effect and post-review.
+  // fetch with no setState, so it is safe to await from both the mount effect and post-review.
   const fetchPending = useCallback(async (): Promise<PendingItem[]> => {
     try {
       const response = await fetch("/api/platform-ops/recruiter-verification/pending");
@@ -116,7 +124,7 @@ export default function RecruiterVerificationQueuePage() {
     [addToast, closeModal, reload],
   );
 
-  // Opens a document via a freshly minted presigned URL — `inline` views it in a new tab,
+  // Opens a document via a freshly minted presigned URL. `inline` views it in a new tab,
   // `attachment` downloads it as `<username>_verification_<original name>`. The presigned URL is
   // short-lived and only ever handed to platform_ops.
   const openDocument = useCallback(
@@ -179,7 +187,7 @@ export default function RecruiterVerificationQueuePage() {
   );
 
   // The modal body is static JSX, so both fields are read from closure variables rather than
-  // component state — the body never re-renders and nothing here needs to.
+  // component state, because the body never re-renders and nothing here needs to.
   const confirmReject = (item: PendingItem) => {
     let reason = "";
     let allowResubmission = true;
@@ -207,18 +215,16 @@ export default function RecruiterVerificationQueuePage() {
             </p>
           </div>
           <div className="form-field">
-            <label className="checkbox-field" htmlFor="reject-allow-resubmission">
-              <input
-                id="reject-allow-resubmission"
-                type="checkbox"
-                defaultChecked
-                aria-describedby="reject-allow-resubmission-help"
-                onChange={(event) => {
-                  allowResubmission = event.target.checked;
-                }}
-              />
+            <CheckboxField
+              id="reject-allow-resubmission"
+              defaultChecked
+              aria-describedby="reject-allow-resubmission-help"
+              onChange={(event) => {
+                allowResubmission = event.target.checked;
+              }}
+            >
               Izinkan pemohon mengajukan ulang
-            </label>
+            </CheckboxField>
             <p className="form-help" id="reject-allow-resubmission-help">
               Jika dimatikan, pemohon tidak dapat mengirim permohonan baru. Anda masih dapat
               membukanya kembali dari antrean ini.
@@ -339,7 +345,7 @@ export default function RecruiterVerificationQueuePage() {
                     ))}
                   </ul>
                 ) : null}
-                {/* A rejected submission has no verdict left to give — the recruiter owns it until
+                {/* A rejected submission has no verdict left to give. The recruiter owns it until
                   they reopen it. The only lever the reviewer keeps is the resubmission bar. */}
                 <div className="auth-form-actions">
                   {isRejected ? (

@@ -23,7 +23,10 @@ import { processTeamInvitationDispatchJob } from "@/server/async/jobs/team-invit
 import { processRecruiterVerificationRejectedJob } from "@/server/async/jobs/recruiter-verification-rejected";
 import { processRegistrationDocumentRequestedJob } from "@/server/async/jobs/registration-document-requested";
 import { processRegistrationDocumentReviewedJob } from "@/server/async/jobs/registration-document-reviewed";
+import { processPaymentProofSubmittedJob } from "@/server/async/jobs/payment-proof-submitted";
+import { processPaymentOutcomeJob } from "@/server/async/jobs/payment-outcome";
 import { processRetentionPurgeJob } from "@/server/async/jobs/retention-purge";
+import { processPaymentExpirySweepJob } from "@/server/async/jobs/payment-expiry-sweep";
 
 export type AsyncJobProcessor<Name extends AsyncJobName = AsyncJobName> = (
   job: Job<AsyncJobPayloadByName[Name], void, Name>,
@@ -73,6 +76,9 @@ export const ASYNC_JOB_REGISTRATIONS = [
     processRegistrationDocumentReviewedJob,
   ),
   defineAsyncJob(ASYNC_JOB_NAMES.retentionPurge, processRetentionPurgeJob),
+  defineAsyncJob(ASYNC_JOB_NAMES.paymentExpirySweep, processPaymentExpirySweepJob),
+  defineAsyncJob(ASYNC_JOB_NAMES.paymentProofSubmitted, processPaymentProofSubmittedJob),
+  defineAsyncJob(ASYNC_JOB_NAMES.paymentOutcome, processPaymentOutcomeJob),
 ] as const;
 
 const getUniqueQueueNames = (): AsyncQueueName[] => {

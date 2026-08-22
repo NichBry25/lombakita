@@ -44,8 +44,8 @@ vi.mock("@/server/competitions/competition-participation-lock", () => ({
 
 // The DEC-0132 in-flight guard, which unpublishCompetition and the edit classifier both consult.
 // Defaulted to "nothing in flight" so the pre-existing lifecycle assertions keep testing what they
-// were written to test; the guard's own behaviour — that it blocks, and that the classifier blocks
-// a fee edit behind it — is proven separately against a live Postgres.
+// were written to test; the guard's own behaviour, that it blocks and that the classifier blocks
+// a fee edit behind it, is proven separately against a live Postgres.
 vi.mock("@/server/finance/paid-registration", () => ({
   hasCompetitionPaymentInFlight: hasCompetitionPaymentInFlightMock,
   hasActiveFreeRegistrations: hasActiveFreeRegistrationsMock,
@@ -58,10 +58,9 @@ vi.mock("@/server/finance/paid-registration", () => ({
 const { classifySpy } = vi.hoisted(() => ({ classifySpy: vi.fn() }));
 
 vi.mock("@/server/competitions/edit-classification", async () => {
-  const actual =
-    await vi.importActual<typeof import("@/server/competitions/edit-classification")>(
-      "@/server/competitions/edit-classification",
-    );
+  const actual = await vi.importActual<typeof import("@/server/competitions/edit-classification")>(
+    "@/server/competitions/edit-classification",
+  );
   return {
     ...actual,
     classifyCompetitionEdit: (
@@ -461,14 +460,18 @@ describe("the classifier's fee rules are reachable from the service", () => {
   it("notifies a payment-window change, on service-built input", async () => {
     const priced = await captureClassifierInput();
 
-    const result = classifyCompetitionEdit(priced, { ...priced, paymentWindowDays: 1 }, {
-      nonCancelledCount: 0,
-      hasActiveIndividual: false,
-      hasActiveTeam: false,
-      activeTeamSizes: [],
-      hasActiveFree: false,
-      hasPaymentInFlight: true,
-    });
+    const result = classifyCompetitionEdit(
+      priced,
+      { ...priced, paymentWindowDays: 1 },
+      {
+        nonCancelledCount: 0,
+        hasActiveIndividual: false,
+        hasActiveTeam: false,
+        activeTeamSizes: [],
+        hasActiveFree: false,
+        hasPaymentInFlight: true,
+      },
+    );
 
     expect(result.notify).toContain("paymentWindowDays");
     expect(result.blocked).not.toContain("paymentWindowDays");

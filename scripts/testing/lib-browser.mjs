@@ -65,6 +65,33 @@ export async function setTheme(page, theme) {
 }
 
 /** Navigate and let the page settle; returns the final URL and HTTP status. */
+/**
+ * Waits until the page has actually finished rendering itself, rather than for a fixed number of
+ * milliseconds.
+ *
+ * THE FIXED SLEEP WAS A SILENT FALSE NEGATIVE. Both audits used `domcontentloaded` plus ~1.5s, and
+ * client sections that fetch their own data render after that on a cold dev server. A control that
+ * had not appeared yet was measured as absent and the page was reported CLEAN. The same page
+ * returned clean, then dirty, then dirty across three consecutive runs with no code change.
+ *
+ * A contrast or target-size audit that reports success for a control it never saw is worse than no
+ * audit, because the number it produces gets quoted.
+ *
+ * Two conditions, both bounded so a genuinely broken page still gets measured rather than hanging:
+ * the network goes quiet, and nothing is still declaring itself busy.
+ */
+export async function settle(page, { budgetMs = 8000 } = {}) {
+  await page.waitForLoadState("networkidle", { timeout: budgetMs }).catch(() => {});
+  await page
+    .waitForFunction(
+      () =>
+        document.querySelectorAll('[aria-busy="true"], .skeleton, [data-skeleton]').length === 0,
+      undefined,
+      { timeout: budgetMs },
+    )
+    .catch(() => {});
+}
+
 export async function visit(page, path, { waitMs = 700 } = {}) {
   const res = await page.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => {});

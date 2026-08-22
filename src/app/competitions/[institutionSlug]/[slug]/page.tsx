@@ -54,7 +54,7 @@ const formatDateTime = (date: Date | string | null) =>
     : "—";
 
 // The fee and its currency are read TOGETHER. `fee_amount` is an integer count of the currency's
-// smallest unit (@/lib/finance/money), so the number alone does not say what it means — the same
+// smallest unit (@/lib/finance/money), so the number alone does not say what it means. The same
 // 50000 is Rp 50.000 under IDR's exponent 0 and $500.00 under USD's exponent 2. Formatting it
 // without reading the currency beside it is the exact defect that convention exists to prevent,
 // and it is why this surface previously showed a price the API never denominated.
@@ -629,10 +629,7 @@ export default async function CompetitionDetailPage({
 
           <div className="stack-xs">
             <p className="eyebrow">Biaya pendaftaran</p>
-            <FeeDisplay
-              feeAmount={competition.feeAmount}
-              feeCurrency={competition.feeCurrency}
-            />
+            <FeeDisplay feeAmount={competition.feeAmount} feeCurrency={competition.feeCurrency} />
           </div>
           <div className="detail-rail-actions">
             <div className="detail-primary-actions">

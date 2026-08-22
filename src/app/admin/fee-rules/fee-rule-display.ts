@@ -3,13 +3,9 @@
 
 import { CURRENCY_EXPONENTS, isSupportedCurrency } from "@/lib/finance/money";
 
-// 250 basis points reads as "2,5%" — Indonesian decimal comma, and no trailing ",0" on a whole
-// percent. The stored unit is basis points; this is the only place it becomes a percentage.
-export const formatBasisPoints = (basisPoints: number): string => {
-  const percent = basisPoints / 100;
-
-  return `${percent.toLocaleString("id-ID", { maximumFractionDigits: 2 })}%`;
-};
+// Re-exported so the two fee-rule surfaces keep one import, while the shared definition lives
+// where a second feature can reach it without importing across route segments.
+export { formatBasisPoints } from "@/lib/finance/fee-display";
 
 /**
  * A stored minor-unit amount as currency text.

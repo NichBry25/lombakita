@@ -11,7 +11,7 @@ import {
 import { getTeamRoleLabel } from "@/lib/access/role-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import { useModal, useToast } from "@/components/ui/primitives";
-import { Button, Icon, IconButton } from "@/components/ui";
+import { Button, Feedback, Icon, IconButton } from "@/components/ui";
 
 type Member = {
   membershipId: string;
@@ -45,6 +45,19 @@ type Props = {
   initialTeam: TeamSnapshot | null;
   initialMembers: Member[];
   initialPendingInvitations: PendingInvitation[];
+  // DEC-0131's third predicate, resolved server-side from ANY member's registration row: a bukti
+  // transfer exists on the team's payment group in ANY status. When true the team cancel control is
+  // WITHHELD. A team pays once, so this is a fact about the team, not about the captain.
+  cancellationClosedByPaymentProof: boolean;
+  // DEC-0170, same rule as the individual path: with the organiser unable to take payment there is
+  // nothing a new team can usefully do, so the controls are WITHHELD rather than left to be refused.
+  //
+  // THAT INCLUDES CREATING THE TEAM AT ALL, not only registering it. This flag reached the roster's
+  // register action and stopped there, so a candidate could still form a team, become its captain
+  // and invite people into it for a competition that cannot accept a registration. The individual
+  // path withheld its one control while the team path withheld its last one. Individual and team
+  // are siblings on every condition in this lane, entry paths included.
+  registrationWithheld: boolean;
 };
 
 type ApiError = { code: string; message: string; details?: Record<string, unknown> };
@@ -86,15 +99,26 @@ export function CompetitionTeamSection(props: Props) {
         <div>
           <h2>Tim</h2>
           <p>
-            {props.competitionMode === "both"
-              ? "Anda dapat mendaftar sebagai tim atau secara individu (di tombol Daftar di atas)."
-              : "Kompetisi ini wajib didaftarkan sebagai tim."}
+            {props.competitionMode !== "both"
+              ? "Kompetisi ini wajib didaftarkan sebagai tim."
+              : props.registrationWithheld
+                ? // The individual "Daftar" control is withheld in this state, so pointing at it
+                  // would send the candidate looking for a button that is deliberately absent.
+                  "Kompetisi ini menerima pendaftaran tim maupun individu."
+                : "Anda dapat mendaftar sebagai tim atau secara individu (di tombol Daftar di atas)."}
           </p>
         </div>
       </div>
 
       {props.initialTeam ? (
         <TeamRoster {...props} team={props.initialTeam} />
+      ) : props.registrationWithheld ? (
+        /* Stands where the create-team form would have been, for the same reason the individual
+           card carries its own sentence: a card with its form removed and nothing in its place
+           says only that something is missing. */
+        <Feedback tone="neutral">
+          Pembuatan tim belum dapat dibuka selama penyelenggara belum bisa menerima pembayaran.
+        </Feedback>
       ) : (
         <CreateTeamForm {...props} />
       )}
@@ -202,7 +226,14 @@ function TeamCancelReasonForm({
 const TEAM_CANCEL_MESSAGE: Record<string, string> = {
   cancellation_reason_required: "Alasan pembatalan wajib diisi.",
   cancellation_reason_too_long: "Alasan pembatalan terlalu panjang (maksimal 500 karakter).",
-  cancellation_not_supported_for_paid: "Pendaftaran berbayar belum dapat dibatalkan.",
+  // The organiser cannot take payment right now: unverified, no published account, or no fee rule
+  // in force. All three collapse to one code server-side so none of them leaks, and none of them is
+  // the candidate's to fix. The generic "coba lagi" fallback was worse than nothing here: it
+  // describes a transient fault and invites a candidate to retry something that will never succeed.
+  registration_payment_unavailable:
+    "Penyelenggara kompetisi ini belum dapat menerima pembayaran, jadi pendaftaran berbayar belum bisa diproses. Hubungi penyelenggara.",
+  cancellation_not_supported_for_paid:
+    "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim.",
   cancellation_disabled_by_institution:
     "Penyelenggara tidak mengizinkan pembatalan untuk kompetisi ini.",
   cancellation_window_closed: "Batas waktu pembatalan telah terlewat.",
@@ -557,7 +588,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
       {isCaptain && (
         <div className="team-primary-actions">
-          {status === "forming" && (
+          {status === "forming" && !props.registrationWithheld && (
             <Button
               onClick={onSubmitTeam}
               loading={pendingAction === "submit-team"}
@@ -569,7 +600,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               Daftarkan tim
             </Button>
           )}
-          {status === "submitted" && (
+          {status === "submitted" && !props.cancellationClosedByPaymentProof && (
             <Button
               onClick={onCancelSubmission}
               loading={pendingAction === "cancel-submission"}
@@ -592,6 +623,15 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
             </Button>
           )}
         </div>
+      )}
+
+      {/* Stands where the cancel control would have been, and only for the captain. A member who
+          never had the control needs no explanation of its absence. */}
+      {isCaptain && status === "submitted" && props.cancellationClosedByPaymentProof && (
+        <Feedback tone="neutral">
+          Pendaftaran tim tidak dapat dibatalkan sendiri setelah bukti transfer dikirim. Hubungi
+          penyelenggara jika ada kekeliruan.
+        </Feedback>
       )}
 
       {sizeBelowMin && status === "forming" && (

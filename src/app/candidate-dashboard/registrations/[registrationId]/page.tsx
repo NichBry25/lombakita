@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
 import { SubmissionShell } from "@/components/submissions/submission-shell";
 import { CandidateDocumentRequestPanel } from "@/components/registration-documents/candidate-document-request-panel";
+import { CandidatePaymentPanel } from "@/components/finance/candidate-payment-panel";
 import { PageHeader } from "@/components/ui";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { getSubmissionViewForRegistration } from "@/server/submissions/submission-service";
 import { listDocumentRequestsForRegistration } from "@/server/registration-documents/registration-document-service";
+import { loadCandidatePaymentView } from "@/server/finance/candidate-payment-view";
 
 export default async function SubmissionPage({
   params,
@@ -29,6 +31,10 @@ export default async function SubmissionPage({
     registrationId,
   );
 
+  // Null for a free competition, which is most of them. The panel is simply absent then, because
+  // there is no payment to describe and an empty "Pembayaran" section would invent an obligation.
+  const payment = await loadCandidatePaymentView(registrationId, session.user.id);
+
   return (
     <main className="page-shell app-page submission-page">
       <PageHeader
@@ -37,6 +43,37 @@ export default async function SubmissionPage({
         backHref="/candidate-dashboard"
         backLabel="Dasbor"
       />
+
+      {/* PAYMENT LEADS. All three panels below are time-bound, but this is the only one whose
+          deadline ENDS the registration when it passes. A document request gates nothing and the
+          submission window closes without cancelling anyone. */}
+      {payment ? (
+        <CandidatePaymentPanel
+          expectedUserId={session.user.id}
+          competitionId={payment.competitionId}
+          registrationId={registrationId}
+          payment={{
+            currency: payment.currency,
+            grossAmount: payment.grossAmount,
+            dueAt: payment.dueAt ? payment.dueAt.toISOString() : null,
+            deadlineSuspended: payment.deadlineSuspended,
+            status: payment.status,
+            instructions: payment.instructions,
+            proof: payment.proof
+              ? {
+                  status: payment.proof.status,
+                  submittedAt: payment.proof.submittedAt.toISOString(),
+                  originalFileName: payment.proof.originalFileName,
+                  rejectionReason: payment.proof.rejectionReason,
+                  resubmissionAllowed: payment.proof.resubmissionAllowed,
+                }
+              : null,
+            isPayer: payment.isPayer,
+            canSubmitProof: payment.canSubmitProof,
+            canResubmitProof: payment.canResubmitProof,
+          }}
+        />
+      ) : null}
 
       {/* Rendered above the submission form: a document request is time-bound and the submission
           window usually is not, so the thing with a deadline goes first. It gates nothing. */}

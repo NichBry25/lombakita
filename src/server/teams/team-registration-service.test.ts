@@ -15,6 +15,21 @@ vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+// The predicate deciding whether a priced team registration may still be reverted. Mocked for the
+// same reason the individual path mocks it: this file tests cancelTeamRegistration's gate ORDER
+// against a queued fake with no proof tables. That a team's proof resolves across the whole payment
+// group (one payment anchored on the captain's row, every member's row in the same group) is
+// proven against a live Postgres in the manual-lane integration suite.
+const { hasSubmittedPaymentProof, findTeamPaymentGroupAnchor } = vi.hoisted(() => ({
+  hasSubmittedPaymentProof: vi.fn().mockResolvedValue(false),
+  // A team always has an anchor row here; the no-rows case is covered against a real database.
+  findTeamPaymentGroupAnchor: vi.fn().mockResolvedValue("reg-anchor"),
+}));
+vi.mock("@/server/finance/paid-registration", () => ({
+  hasSubmittedPaymentProof,
+  findTeamPaymentGroupAnchor,
+}));
+
 import { cancelTeamRegistration, submitTeamRegistration } from "./team-registration-service";
 
 type SelectResult = unknown[];
@@ -209,11 +224,11 @@ describe("submitTeamRegistration — pre-transaction gates", () => {
       [
         [team()],
         [competition({ minTeamSize: null, maxTeamSize: null })],
-        [{ membershipId: "m1", userId: "u_cap" }],
+        [{ membershipId: "m1", userId: "cap_1" }],
         [], // existing regs
       ],
       {
-        txInsertReturning: [{ id: "reg_1", studentId: "u_cap", status: "confirmed" }],
+        txInsertReturning: [{ id: "reg_1", studentId: "cap_1", status: "confirmed" }],
         txTeamUpdateReturning: [{ id: "team_1" }],
       },
     );
@@ -232,14 +247,14 @@ describe("submitTeamRegistration — pre-transaction gates", () => {
         [team()],
         [competition()],
         [
-          { membershipId: "m1", userId: "u_cap_over_32" },
+          { membershipId: "m1", userId: "cap_1" },
           { membershipId: "m2", userId: "u_member_over_32" },
         ],
         [], // existing regs → none
       ],
       {
         txInsertReturning: [
-          { id: "reg_1", studentId: "u_cap_over_32", status: "confirmed" },
+          { id: "reg_1", studentId: "cap_1", status: "confirmed" },
           { id: "reg_2", studentId: "u_member_over_32", status: "confirmed" },
         ],
         txTeamUpdateReturning: [{ id: "team_1" }],
@@ -257,7 +272,7 @@ describe("submitTeamRegistration — pre-transaction gates", () => {
       [team()],
       [competition()],
       [
-        { membershipId: "m1", userId: "u_cap" },
+        { membershipId: "m1", userId: "cap_1" },
         { membershipId: "m2", userId: "u_member" },
       ],
       [{ studentId: "u_member", status: "confirmed" }], // existing reg
@@ -278,14 +293,14 @@ describe("submitTeamRegistration — pre-transaction gates", () => {
         [team()],
         [competition()],
         [
-          { membershipId: "m1", userId: "u_cap" },
+          { membershipId: "m1", userId: "cap_1" },
           { membershipId: "m2", userId: "u_member" },
         ],
         [{ studentId: "u_member", status: "cancelled" }], // cancelled — not a conflict
       ],
       {
         txInsertReturning: [
-          { id: "reg_1", studentId: "u_cap", status: "confirmed" },
+          { id: "reg_1", studentId: "cap_1", status: "confirmed" },
           { id: "reg_2", studentId: "u_member", status: "confirmed" },
         ],
         txTeamUpdateReturning: [{ id: "team_1" }],
@@ -323,14 +338,14 @@ describe("submitTeamRegistration — transactional behaviour", () => {
         [team()],
         [competition()],
         [
-          { membershipId: "m1", userId: "u_cap" },
+          { membershipId: "m1", userId: "cap_1" },
           { membershipId: "m2", userId: "u_member" },
         ],
         [],
       ],
       {
         txInsertReturning: [
-          { id: "reg_1", studentId: "u_cap", status: "confirmed" },
+          { id: "reg_1", studentId: "cap_1", status: "confirmed" },
           { id: "reg_2", studentId: "u_member", status: "confirmed" },
         ],
         txTeamUpdateReturning: [{ id: "team_1" }],
@@ -342,7 +357,7 @@ describe("submitTeamRegistration — transactional behaviour", () => {
       teamId: "team_1",
       status: "submitted",
       registrations: [
-        { id: "reg_1", studentId: "u_cap", status: "confirmed" },
+        { id: "reg_1", studentId: "cap_1", status: "confirmed" },
         { id: "reg_2", studentId: "u_member", status: "confirmed" },
       ],
     });
@@ -352,9 +367,9 @@ describe("submitTeamRegistration — transactional behaviour", () => {
 
   it("throws team_state_conflict when TOCTOU race leaves CAS UPDATE rowless", async () => {
     const { db } = makeDb(
-      [[team()], [competition({ minTeamSize: 1 })], [{ membershipId: "m1", userId: "u_cap" }], []],
+      [[team()], [competition({ minTeamSize: 1 })], [{ membershipId: "m1", userId: "cap_1" }], []],
       {
-        txInsertReturning: [{ id: "reg_1", studentId: "u_cap", status: "confirmed" }],
+        txInsertReturning: [{ id: "reg_1", studentId: "cap_1", status: "confirmed" }],
         txTeamUpdateReturning: [], // CAS returned 0 rows
       },
     );
@@ -366,7 +381,7 @@ describe("submitTeamRegistration — transactional behaviour", () => {
 
   it("translates Postgres 23505 to team_member_already_registered", async () => {
     const { db } = makeDb(
-      [[team()], [competition({ minTeamSize: 1 })], [{ membershipId: "m1", userId: "u_cap" }], []],
+      [[team()], [competition({ minTeamSize: 1 })], [{ membershipId: "m1", userId: "cap_1" }], []],
       {
         txInsertError: Object.assign(new Error("dup"), { code: "23505" }),
       },
@@ -380,7 +395,7 @@ describe("submitTeamRegistration — transactional behaviour", () => {
   // 4.4-Sch-M1 — defense-in-depth: surface a typed 422 if the CHECK constraint ever fires.
   it("translates Postgres 23514 (CHECK violation) to team_registration_invariant_violation", async () => {
     const { db } = makeDb(
-      [[team()], [competition({ minTeamSize: 1 })], [{ membershipId: "m1", userId: "u_cap" }], []],
+      [[team()], [competition({ minTeamSize: 1 })], [{ membershipId: "m1", userId: "cap_1" }], []],
       {
         txInsertError: Object.assign(new Error("check failed"), { code: "23514" }),
       },
@@ -400,7 +415,7 @@ describe("submitTeamRegistration — transactional behaviour", () => {
       cause: { code: "23514" },
     });
     const { db } = makeDb(
-      [[team()], [competition({ minTeamSize: 1 })], [{ membershipId: "m1", userId: "u_cap" }], []],
+      [[team()], [competition({ minTeamSize: 1 })], [{ membershipId: "m1", userId: "cap_1" }], []],
       { txInsertError: wrapped },
     );
 
@@ -456,11 +471,32 @@ describe("cancelTeamRegistration", () => {
     ).rejects.toMatchObject({ code: "cancellation_disabled_by_institution" });
   });
 
-  it("rejects cancellation_not_supported_for_paid for a paid competition", async () => {
-    const { db } = makeDb([[team({ status: "submitted" })], [competition({ feeAmount: 50_000 })]]);
+  it("rejects cancellation_not_supported_for_paid once the team's bukti transfer is submitted", async () => {
+    hasSubmittedPaymentProof.mockResolvedValueOnce(true);
+    const { db } = makeDb([
+      [team({ status: "submitted" })],
+      [competition({ feeAmount: 50_000 })],
+      // The group-member lookup the paid gate makes before asking the predicate.
+      [{ id: "reg_1" }],
+    ]);
     await expect(
       cancelTeamRegistration("cap_1", "comp_1", "team_1", "alasan", db as never, NOW),
     ).rejects.toMatchObject({ code: "cancellation_not_supported_for_paid" });
+  });
+
+  it("lets a paid team with NO bukti transfer past the paid gate", async () => {
+    // The captain and a solo entrant on the same competition, both having transferred nothing, must
+    // get the same answer. This arm was left blanket while the individual arm became conditional in
+    // an earlier draft, and this is the test that would have caught it.
+    hasSubmittedPaymentProof.mockResolvedValueOnce(false);
+    const { db } = makeDb([
+      [team({ status: "submitted" })],
+      [competition({ feeAmount: 50_000, allowCancellation: false })],
+      [{ id: "reg_1" }],
+    ]);
+    await expect(
+      cancelTeamRegistration("cap_1", "comp_1", "team_1", "alasan", db as never, NOW),
+    ).rejects.toMatchObject({ code: "cancellation_disabled_by_institution" });
   });
 
   it("rejects cancellation_window_closed past the cutoff", async () => {
@@ -527,7 +563,7 @@ describe("cancelTeamRegistration", () => {
                 where: vi.fn().mockReturnValue({
                   returning: vi
                     .fn()
-                    .mockResolvedValue([{ id: "reg_1", studentId: "u_cap", status: "cancelled" }]),
+                    .mockResolvedValue([{ id: "reg_1", studentId: "cap_1", status: "cancelled" }]),
                 }),
               }),
             };
@@ -555,7 +591,7 @@ describe("cancelTeamRegistration", () => {
     );
     expect(result.status).toBe("forming");
     expect(result.registrations).toEqual([
-      { id: "reg_1", studentId: "u_cap", status: "cancelled" },
+      { id: "reg_1", studentId: "cap_1", status: "cancelled" },
     ]);
   });
 

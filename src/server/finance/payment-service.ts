@@ -6,6 +6,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   financePaymentEvents,
+  financePaymentInstructionSnapshots,
   financePayments,
   type FinancePaymentEventRecord,
   type FinancePaymentRecord,
@@ -27,6 +28,10 @@ import {
 } from "@/lib/finance/payment-state";
 import { resolveFeeRule, toFeeRuleTerms } from "@/server/finance/fee-rule-service";
 import { isPaymentEventIdempotencyKey } from "@/server/finance/idempotency-key";
+import {
+  requirePaymentInstructions,
+  toInstructionSnapshotValues,
+} from "@/server/institutions/payment-instructions-service";
 
 // THE WRITE SURFACE OF THE FINANCE LEDGER, AND ALL OF IT.
 //
@@ -189,7 +194,7 @@ export const createPayment = async (
   if (input.origin === "manual_transfer" && dueAt === null) {
     throw new PaymentError(
       "payment_due_at_required",
-      "A manual-transfer payment must carry the deadline it was given — resolve it with resolvePaymentDueAt",
+      "A manual-transfer payment must carry the deadline it was given. Resolve it with resolvePaymentDueAt",
     );
   }
 
@@ -198,7 +203,7 @@ export const createPayment = async (
     // enforces, sitting next to the one that is actually binding.
     throw new PaymentError(
       "payment_due_at_not_applicable",
-      "Only a manual-transfer payment carries a due date — the gateway owns expiry on its lane",
+      "Only a manual-transfer payment carries a due date. The gateway owns expiry on its lane",
     );
   }
 
@@ -237,34 +242,72 @@ export const createPayment = async (
   // THE MANUAL LANE SPLITS NOTHING. The payer transferred the whole amount into the institution's
   // own account, so the truthful record is fee 0 / net = gross; the platform's fee on this payment
   // is a separate debt recorded in `finance_fee_accruals` once the transfer is verified. The
-  // computed `fee` above is still what prices that accrual — it is not discarded, it is just not
+  // computed `fee` above is still what prices that accrual, and it is not discarded, only not
   // what this row describes. A database CHECK enforces the same rule, so a future caller that
   // writes the split directly is refused rather than quietly recording a fee that never moved.
   const isManualLane = input.origin === "manual_transfer";
   const platformFeeAmount = isManualLane ? 0 : fee.platformFeeAmount;
   const institutionNetAmount = isManualLane ? fee.grossAmount : fee.institutionNetAmount;
 
+  // WHERE THE PAYER IS ABOUT TO BE TOLD TO SEND THE MONEY, resolved BEFORE the payment exists so a
+  // manual payment can never be recorded against an institution that has published no account.
+  //
+  // The fee-setting surface refuses this case earlier and more helpfully. This is the fail-closed
+  // backstop behind it, in the same position and for the same reason as the verification gate
+  // above: any path that reaches createPayment without passing the earlier gate still cannot
+  // create a debt with nowhere to pay it.
+  //
+  // Gated on a PRICED payment for the same reason that gate is: a free registration recorded on the
+  // manual lane asks nobody for money, so requiring an account number to record one would stop an
+  // institution running free competitions until it had published banking details it will never use.
+  const isPricedManualLane = isManualLane && input.grossAmount > 0;
+  const instructions = isPricedManualLane
+    ? await requirePaymentInstructions(input.receivingInstitutionId, db)
+    : null;
+
   let payment: FinancePaymentRecord | undefined;
 
   try {
-    [payment] = await db
-      .insert(financePayments)
-      .values({
-        payerUserId: input.payerUserId,
-        receivingInstitutionId: input.receivingInstitutionId,
-        subjectType: input.subject.type,
-        competitionRegistrationId: input.subject.competitionRegistrationId,
-        currency: input.currency,
-        origin: input.origin,
-        grossAmount: fee.grossAmount,
-        feeRuleId: rule.id,
-        feeBasisPoints: fee.feeBasisPoints,
-        feeFlatAmount: fee.feeFlatAmount,
-        platformFeeAmount,
-        institutionNetAmount,
-        dueAt: dueAt,
-      })
-      .returning();
+    // ONE TRANSACTION, so a manual payment and the snapshot of what its payer was shown cannot come
+    // apart. A payment row without its snapshot would be a debt whose instructions can only be
+    // recovered by reading today's account details, which is exactly the substitution the snapshot
+    // exists to prevent, and it would look like ordinary data rather than a fault.
+    //
+    // Both timestamps default to now(), which inside one transaction is a single instant, so the
+    // snapshot's `captured_at` equals the payment's `created_at` exactly rather than approximately.
+    payment = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(financePayments)
+        .values({
+          payerUserId: input.payerUserId,
+          receivingInstitutionId: input.receivingInstitutionId,
+          subjectType: input.subject.type,
+          competitionRegistrationId: input.subject.competitionRegistrationId,
+          currency: input.currency,
+          origin: input.origin,
+          grossAmount: fee.grossAmount,
+          feeRuleId: rule.id,
+          feeBasisPoints: fee.feeBasisPoints,
+          feeFlatAmount: fee.feeFlatAmount,
+          platformFeeAmount,
+          institutionNetAmount,
+          dueAt: dueAt,
+        })
+        .returning();
+
+      if (!created) {
+        throw new Error("Payment insert returned no row");
+      }
+
+      if (instructions !== null) {
+        await tx.insert(financePaymentInstructionSnapshots).values({
+          paymentId: created.id,
+          ...toInstructionSnapshotValues(instructions),
+        });
+      }
+
+      return created;
+    });
   } catch (error) {
     // This insert binds the payer, the recipient and every figure of the split in one statement, so
     // an unwrapped driver error would carry all of it into whatever reports the failure.

@@ -19,6 +19,8 @@ export const NOTIFICATION_TYPES = {
   recruiterVerificationRejected: "recruiter_verification_rejected",
   registrationDocumentRequested: "registration_document_requested",
   registrationDocumentReviewed: "registration_document_reviewed",
+  paymentProofSubmitted: "payment_proof_submitted",
+  paymentOutcome: "payment_outcome",
 } as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES];

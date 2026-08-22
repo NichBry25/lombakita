@@ -18,7 +18,7 @@ vi.mock("@/server/finance/fee-rule-service", () => ({ resolveFeeRule, toFeeRuleT
 // The charging gate (DEC-0158) that createPayment calls on any priced payment. Mocked here because
 // this file tests createPayment's OWN validation order against a db with no query surface; that the
 // gate is real, is reached, and actually refuses is proven against a live Postgres in
-// finance-charging-gate-db.integration.test.ts — including a test that fails if the call is removed.
+// finance-charging-gate-db.integration.test.ts, including a test that fails if the call is removed.
 const { assertInstitutionVerified } = vi.hoisted(() => ({
   assertInstitutionVerified: vi.fn().mockResolvedValue({ verificationStatus: "verified" }),
 }));
@@ -49,6 +49,12 @@ const makeInsertDb = () => {
         return { returning, onConflictDoNothing: vi.fn().mockReturnValue({ returning }) };
       },
     }),
+    // createPayment writes the payment and its instructions snapshot in one transaction. Running
+    // the callback against this same fake is enough for the validation-order assertions here;
+    // whether the two rows are genuinely atomic is a database question, proven in the integration
+    // suite rather than against a fake that cannot roll anything back.
+    transaction: async <T>(fn: (tx: Database) => Promise<T>): Promise<T> =>
+      fn(db as unknown as Database),
   };
   return { db: db as unknown as Database, values };
 };

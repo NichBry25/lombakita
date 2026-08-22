@@ -97,7 +97,7 @@ export { isLocalDatabaseHost, parseDatabaseHost } from "./local-database-host";
 // Refuses to continue unless `url` is a loopback database, naming the host it rejected.
 //
 // For scripts that seed or remove rows in financial tables. A connection string pointed at a shared
-// or deployed database is a plausible mistake — a paste, an exported shell — and neither direction
+// or deployed database is a plausible mistake (a paste, an exported shell) and neither direction
 // is recoverable by inspection afterwards: seeded fixtures are indistinguishable from real ledger
 // rows, and a ledger row deleted from the wrong database has no application path that could restore
 // it. Called before the pool opens, so the refusal precedes the connection rather than the query.
@@ -107,7 +107,7 @@ export const assertLocalDatabase = (url: string, purpose: string): void => {
   }
 
   throw new Error(
-    `${purpose} refuses to run against host "${parseDatabaseHost(url) ?? "<unparseable>"}" — it ` +
+    `${purpose} refuses to run against host "${parseDatabaseHost(url) ?? "<unparseable>"}". It ` +
       "operates on financial tables, so it is restricted to a local development database",
   );
 };

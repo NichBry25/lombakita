@@ -15,6 +15,12 @@ import { enqueueRegistrationConfirmed, enqueueRegistrationCancelled } from "@/se
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
+import { hasSubmittedPaymentProof } from "@/server/finance/paid-registration";
+import {
+  createRegistrationPayment,
+  loadRegistrationPricing,
+} from "@/server/registrations/registration-payment";
+import { RegistrationPaymentError } from "@/server/registrations/registration-payment-core";
 
 const REGISTRATION_COLUMNS = {
   id: competitionRegistrations.id,
@@ -204,8 +210,17 @@ export const createIndividualRegistration = async (
     );
   }
 
-  // Phase 7: pending_payment state — not reachable in MVP. All competitions are free; insert
-  // directly to confirmed.
+  // THE REGISTRATION IS `confirmed` WHETHER OR NOT IT HAS BEEN PAID, and that is a deliberate
+  // choice rather than the `pending_payment` state going unused by oversight.
+  //
+  // Payment state is DERIVED by folding the payment's event stream; there is no status column
+  // anywhere in the finance domain, precisely so that no second copy of a money fact can disagree
+  // with the ledger. Projecting it onto `registrations.status` would create exactly that copy, in
+  // the table with the most readers. The paid predicates are the only correct answer to "has this
+  // been paid", and they read the events.
+  //
+  // It also keeps the right to cancel intact: a candidate who has registered and transferred
+  // nothing may still withdraw, and `cancelRegistration` admits only `confirmed` rows.
   try {
     const inserted = await db.transaction(async (tx) => {
       await acquireCompetitionParticipationLock(tx, competitionId);
@@ -227,6 +242,17 @@ export const createIndividualRegistration = async (
           registeredAt: mutationAt,
         })
         .returning(REGISTRATION_COLUMNS);
+
+      if (!row) return row;
+
+      // IN THE SAME TRANSACTION as the registration it prices, so a paid registration without its
+      // payment cannot exist. A refusal here (unverified institution, no published account, no fee
+      // rule) rolls the registration back with it.
+      const pricing = await loadRegistrationPricing(competitionId, tx);
+
+      if (pricing) {
+        await createRegistrationPayment(pricing, row.id, studentId, mutationAt, tx);
+      }
 
       return row;
     });
@@ -252,7 +278,7 @@ export const createIndividualRegistration = async (
 
     return inserted;
   } catch (error) {
-    if (error instanceof RegistrationError) {
+    if (error instanceof RegistrationError || error instanceof RegistrationPaymentError) {
       throw error;
     }
     // Postgres unique-violation on the partial unique index when a concurrent request lands
@@ -294,7 +320,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 //   (b) registration belongs to this candidate (ownership)
 //   (c) registration.status === 'confirmed' (cancelled terminal; pending_payment is Phase 7)
 //   (d) cancellationReason required (non-empty, <= 500 chars)
-//   (e) competition is free, not paid (paid cancellation is Phase 7 — DEC-0074)
+//   (e) if the competition is priced, no bukti transfer has been submitted for this payment group
 //   (f) institution allows cancellation (allow_cancellation = true)
 //   (g) within the cancellation window: now <= event_start_at - cutoff days
 export const cancelRegistration = async (
@@ -350,13 +376,26 @@ export const cancelRegistration = async (
     throw new RegistrationError("competition_not_found", "Competition not found");
   }
 
-  // (e) paid registrations cannot self-cancel in MVP.
-  // TODO Phase 7 (DEC-0074): paid cancellation + Xendit refund path lands here.
+  // (e) a paid registration may self-cancel until its payer has claimed to have sent money.
+  //
+  // This was a blanket refusal on every priced competition. It is now conditional, because the
+  // blanket version stripped the right to leave from a candidate who had registered, paid nothing,
+  // and simply changed their mind, while the platform holds no money of theirs and has nothing to
+  // refund. The line falls at the moment a bukti transfer is submitted: before it, cancelling
+  // costs nobody anything; after it, the candidate has asserted a transfer the platform cannot
+  // independently verify or reverse.
+  //
+  // Deliberately the proof-submitted predicate and not either of the other two. Confirmed-paid
+  // would leave a candidate whose proof is still awaiting review able to cancel out from under an
+  // organiser mid-review, and payment-in-flight would hand the right to cancel BACK the moment a
+  // proof was rejected, even though the transfer it evidences may well have happened.
   if (isPaidCompetition(competition.feeAmount)) {
-    throw new RegistrationError(
-      "cancellation_not_supported_for_paid",
-      "Paid registrations cannot be cancelled yet",
-    );
+    if (await hasSubmittedPaymentProof(registration.id, db)) {
+      throw new RegistrationError(
+        "cancellation_not_supported_for_paid",
+        "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
+      );
+    }
   }
 
   // (f) institution must allow cancellation at all.

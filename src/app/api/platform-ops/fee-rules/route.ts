@@ -8,7 +8,7 @@ import {
   type CreateFeeRuleInput,
 } from "@/server/finance/fee-rule-service";
 
-// MFA is enforced inside requireSessionRole — assertSessionRole applies the operational-session
+// MFA is enforced inside requireSessionRole. assertSessionRole applies the operational-session
 // challenge to every non-self-service role, so this surface is gated on the same choke point as the
 // other platform_ops surfaces rather than on a check of its own.
 const OPERATIONAL_ROLES = ["platform_ops"] as const;
@@ -97,7 +97,7 @@ export async function GET(): Promise<Response> {
   }
 }
 
-// Record a new fee rule. platform_ops only. Rules are effective-dated, so there is no PATCH — a rate
+// Record a new fee rule. platform_ops only. Rules are effective-dated, so there is no PATCH. A rate
 // change is a new rule taking over from a date.
 export async function POST(request: Request): Promise<Response> {
   try {

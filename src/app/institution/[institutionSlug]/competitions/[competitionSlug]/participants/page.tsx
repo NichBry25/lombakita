@@ -5,7 +5,11 @@ import { AccessError } from "@/server/auth/access-core";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { getDb } from "@/server/db/client";
 import { CompetitionError } from "@/server/competitions/competition-core";
-import { getCompetitionIdentityByInstitutionAndSlug } from "@/server/competitions/competition-service";
+import {
+  getCompetitionIdentityByInstitutionAndSlug,
+  loadCompetitionPricing,
+} from "@/server/competitions/competition-service";
+import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { truncateText } from "@/lib/text/truncate";
 import { requireAdminInstitutionBySlug } from "@/server/institution-members/member-service";
 import {
@@ -71,6 +75,11 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
     if (error instanceof CompetitionError) notFound();
     throw error;
   }
+
+  // Gates the payments link below. Reusing the pricing read the charging gate and the edit
+  // classifier already share, rather than adding a third query that reads the same three columns.
+  const { feeAmount } = await loadCompetitionPricing(competitionId, db);
+  const isPaid = isPaidCompetition(feeAmount);
 
   const resolveParam = (val: string | string[] | undefined, fallback: string): string => {
     if (!val) return fallback;
@@ -150,6 +159,20 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
         backHref={`/institution/${institutionSlug}/competitions/${competitionSlug}`}
         backLabel="Kembali"
       />
+
+      {/* Shown only on a PAID competition. A free one has no bukti transfer and never will, so the
+          link would lead every organiser who tried it to a permanently empty queue. */}
+      {isPaid ? (
+        <section className="export-toolbar glass-chrome" aria-label="Pembayaran peserta">
+          <ButtonLink
+            href={`/institution/${institutionSlug}/competitions/${competitionSlug}/payments`}
+            variant="outline"
+            size="sm"
+          >
+            Verifikasi pembayaran
+          </ButtonLink>
+        </section>
+      ) : null}
 
       <section className="export-toolbar glass-chrome" aria-label="Ekspor data kompetisi">
         <a

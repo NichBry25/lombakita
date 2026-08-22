@@ -400,13 +400,13 @@ const applySimplePatchColumns = (
  * them off a projection that excludes them: a money gate whose input is structurally absent reads
  * as free no matter what the row says.
  */
-type CompetitionPricing = {
+export type CompetitionPricing = {
   feeAmount: number | null;
   feeCurrency: string | null;
   paymentWindowDays: number;
 };
 
-const loadCompetitionPricing = async (
+export const loadCompetitionPricing = async (
   competitionId: string,
   db: Database,
 ): Promise<CompetitionPricing> => {
@@ -427,7 +427,7 @@ const loadCompetitionPricing = async (
   return row;
 };
 
-const toClassifiable = (
+export const toClassifiable = (
   row: CompetitionRow,
   pricing: CompetitionPricing,
 ): ClassifiableCompetition => ({
@@ -478,7 +478,7 @@ const mergeForClassification = (
 
 // Loads the non-cancelled registration snapshot used by the post-publish edit classifier. Team
 // sizes are the per-team count of non-cancelled team-typed rows (each member holds one row).
-const loadEditClassificationSnapshot = async (
+export const loadEditClassificationSnapshot = async (
   competitionId: string,
   db: Database,
 ): Promise<EditClassificationSnapshot> => {
@@ -896,7 +896,7 @@ export const transitionCompetitionStatus = async (
 
     // THE CHARGING GATE AT PUBLISH (DEC-0158). A PAID competition cannot go live for an
     // institution that is not verified; a FREE one publishes normally, which is the whole point of
-    // the distinction — verification gates the right to charge, never the right to publish.
+    // the distinction: verification gates the right to charge, never the right to publish.
     //
     // Read here rather than taken from `competition`, because PUBLIC_COMPETITION_COLUMNS
     // deliberately omits the fee fields (DEC-0022) and a projection that excludes the value cannot
@@ -1025,7 +1025,7 @@ export const unpublishCompetition = async (
       );
     }
 
-    // DEC-0132 — UNPUBLISH IS BLOCKED WHILE MONEY IS IN FLIGHT.
+    // UNPUBLISH IS BLOCKED WHILE MONEY IS IN FLIGHT (DEC-0132).
     //
     // Placed BEFORE the status CAS and the registration cancellation below, which is the whole
     // point: this function's next act is to cancel every registration on the competition, and a
@@ -1033,7 +1033,7 @@ export const unpublishCompetition = async (
     // cancelled with their money gone and no in-app record that they are owed anything.
     //
     // Keyed off PAYMENT IN FLIGHT rather than confirmed-paid, deliberately. The dangerous window is
-    // the one where the transfer has happened but the organiser has not verified it yet — the
+    // the one where the transfer has happened but the organiser has not verified it yet, and the
     // narrower predicate would let exactly that case through.
     //
     // The message names the escape hatch because there is one: platform_ops cancellation, which

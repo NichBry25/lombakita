@@ -11,9 +11,7 @@ import { HeaderDashboardMenu } from "@/components/navigation/header-dashboard-me
 
 const HEADER_SCROLL_THRESHOLD_PX = 8;
 
-const PRIMARY_NAVIGATION = [
-  { href: "/competitions", label: "Jelajahi" },
-] as const;
+const PRIMARY_NAVIGATION = [{ href: "/competitions", label: "Jelajahi" }] as const;
 
 type ThemeName = "light" | "dark";
 

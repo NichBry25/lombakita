@@ -1319,6 +1319,7 @@ export const loadInstitutionTypeBySlug = async (
 };
 
 export type InstitutionVerificationSummary = {
+  institutionId: string;
   institutionType: InstitutionType;
   verificationStatus: InstitutionVerificationStatus;
   verifiedAt: Date | null;
@@ -1337,6 +1338,7 @@ export const loadInstitutionVerificationSummaryBySlug = async (
   const normalized = normalizeInstitutionSlug(institutionSlug);
   const [row] = await db
     .select({
+      institutionId: institutions.id,
       institutionType: institutions.institutionType,
       verificationStatus: institutions.verificationStatus,
       verifiedAt: institutions.verifiedAt,

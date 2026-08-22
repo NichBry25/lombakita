@@ -231,21 +231,38 @@ export const assertActorIsTrustedRecruiter = async (
 // already sent real money is not stranded. Suspension is the takedown axis, enforced separately by
 // assertInstitutionNotSuspended.
 //
-// THIS IS THE ONLY VERIFICATION CHECK for charging. Every caller — the fee-setting write path, the
-// publish gate for an already-priced competition, and payment creation as the fail-closed backstop
-// — routes through this one function. A second, lighter check written elsewhere would be a second
-// answer to the same question, and the two would drift.
+// THIS IS THE ONLY VERIFICATION CHECK for charging. Every caller routes through this one function:
+// the fee-setting write path, the publish gate for an already-priced competition, and payment
+// creation as the fail-closed backstop. A second, lighter check written elsewhere would be a
+// second answer to the same question, and the two would drift.
 //
 // Throws CompetitionError 422 competition_institution_not_verified.
-export const assertInstitutionVerified = async (
+/**
+ * This institution's verification status, or null when no such institution exists.
+ *
+ * The non-throwing half of the gate below. A surface that has to SAY why charging is unavailable
+ * cannot use an assertion, and re-reading the column somewhere else is how the panel and the gate
+ * end up disagreeing about the same row.
+ */
+export const loadInstitutionVerificationStatus = async (
   institutionId: string,
   db: Database = getDb(),
-): Promise<{ verificationStatus: InstitutionVerificationStatus }> => {
+): Promise<InstitutionVerificationStatus | null> => {
   const [row] = await db
     .select({ verificationStatus: institutions.verificationStatus })
     .from(institutions)
     .where(eq(institutions.id, institutionId))
     .limit(1);
+
+  return row?.verificationStatus ?? null;
+};
+
+export const assertInstitutionVerified = async (
+  institutionId: string,
+  db: Database = getDb(),
+): Promise<{ verificationStatus: InstitutionVerificationStatus }> => {
+  const verificationStatus = await loadInstitutionVerificationStatus(institutionId, db);
+  const row = verificationStatus === null ? undefined : { verificationStatus };
 
   if (!row) {
     throw new CompetitionError("competition_not_found", 404, "Institution not found");

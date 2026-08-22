@@ -3,6 +3,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 assertServerOnly("server/notifications/notification-email");
 
 import { Resend } from "resend";
+import { asSentence } from "@/lib/finance/payment-display";
 import { publicEnv } from "@/config/env";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
@@ -249,6 +250,8 @@ export const sendCompetitionCancelledEmail = async (options: {
   recipientId: string;
   competitionTitle: string;
   cancellationReason?: string;
+  /** Set only for a recipient who holds a priced payment (see the worker's payer scoping). */
+  transferRefundNotice?: boolean;
   publicCompetition?: {
     institutionSlug: string;
     competitionSlug: string;
@@ -275,6 +278,14 @@ export const sendCompetitionCancelledEmail = async (options: {
     text: [
       `Kompetisi "${options.competitionTitle}" yang kamu daftarkan telah dibatalkan oleh penyelenggara.`,
       ...(options.cancellationReason ? ["", `Alasan: ${options.cancellationReason}`] : []),
+      // DEC-0130: the transfer went to the organiser's account and Lombakita never held it, so the
+      // only honest thing this notice can do is say who has the money.
+      ...(options.transferRefundNotice
+        ? [
+            "",
+            "Jika kamu sudah melakukan transfer, dana tersebut ada pada rekening penyelenggara. Hubungi penyelenggara secara langsung untuk pengembaliannya. Lombakita tidak menampung dana peserta sehingga tidak dapat memprosesnya.",
+          ]
+        : []),
       "",
       publicCompetitionUrl
         ? `Lihat status kompetisi di ${publicCompetitionUrl}.`
@@ -437,5 +448,163 @@ export const sendRegistrationDocumentReviewedEmail = async (options: {
 
   if (error) {
     throw new Error(`Resend document reviewed email dispatch failed: ${error.message}`);
+  }
+};
+
+/**
+ * The organiser's copy of "someone says they paid".
+ *
+ * Deliberately does not assert that money arrived, because the platform never sees it (DEC-0130).
+ * It says what the candidate CLAIMS and asks for a decision, because the organiser's bank
+ * statement is the only record that can settle it.
+ */
+export const sendPaymentProofSubmittedEmail = async (options: {
+  toEmail: string;
+  recipientId: string;
+  competitionTitle: string;
+  institutionSlug: string;
+  competitionSlug: string;
+  payerDisplayName: string;
+  amount: string;
+}): Promise<void> => {
+  const delivery = resolveNotificationDelivery("payment_proof_submitted", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
+
+  const reviewQueueUrl =
+    `${resolveBaseUrl()}/institution/${encodeURIComponent(options.institutionSlug)}` +
+    `/competitions/${encodeURIComponent(options.competitionSlug)}/payments`;
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from,
+    to: options.toEmail,
+    subject: `Bukti transfer baru untuk ${options.competitionTitle}`,
+    text: [
+      `${options.payerDisplayName} mengirim bukti transfer sebesar ${options.amount} untuk ${options.competitionTitle}.`,
+      "",
+      "Cocokkan dengan mutasi rekening lembaga Anda sebelum memberi keputusan. Dana peserta masuk langsung ke rekening Anda, bukan ke Lombakita.",
+      "",
+      `Tinjau di ${reviewQueueUrl}.`,
+    ].join("\n"),
+  });
+
+  if (error) {
+    throw new Error(`Resend payment proof submitted email dispatch failed: ${error.message}`);
+  }
+};
+
+type PaymentOutcomeKind = "verified" | "rejected" | "expired" | "voided";
+
+/** One line per outcome. Separate from the body so the four arms are read once, not twice. */
+const paymentOutcomeSubject = (outcome: PaymentOutcomeKind, competitionTitle: string): string => {
+  if (outcome === "verified") return `Pembayaran diverifikasi untuk ${competitionTitle}`;
+  if (outcome === "rejected") return `Bukti transfer ditolak untuk ${competitionTitle}`;
+  if (outcome === "voided") return `Bukti transfer dibatalkan untuk ${competitionTitle}`;
+  return `Pendaftaran dibatalkan otomatis untuk ${competitionTitle}`;
+};
+
+/**
+ * The body lines for one outcome.
+ *
+ * Early returns rather than a ternary chain: four outcomes with three different actors is the point
+ * at which a nested conditional stops showing which sentence belongs to which decision, and WHICH
+ * ACTOR EACH ARM NAMES is the property that has to stay legible here.
+ */
+const paymentOutcomeBody = (options: {
+  competitionTitle: string;
+  outcome: PaymentOutcomeKind;
+  rejectionReason: string | null;
+  resubmissionAllowed: boolean | null;
+  amount: string;
+}): string[] => {
+  const reasonLines = options.rejectionReason
+    ? ["", `Alasan: ${asSentence(options.rejectionReason)}`]
+    : [];
+
+  if (options.outcome === "verified") {
+    return [
+      `Penyelenggara telah memverifikasi pembayaran sebesar ${options.amount} untuk ${options.competitionTitle}.`,
+      "",
+      "Pendaftaran Anda aktif. Tidak ada tindakan lain yang diperlukan.",
+    ];
+  }
+
+  if (options.outcome === "rejected") {
+    return [
+      `Bukti transfer Anda untuk ${options.competitionTitle} ditolak oleh penyelenggara.`,
+      ...reasonLines,
+      "",
+      options.resubmissionAllowed === false
+        ? "Anda tidak dapat mengirim bukti baru. Hubungi penyelenggara sebelum batas waktu. Jika terlewat, pendaftaran dibatalkan secara otomatis."
+        : "Unggah bukti transfer yang baru sebelum batas waktu pembayaran.",
+    ];
+  }
+
+  if (options.outcome === "voided") {
+    // Lombakita is named as the actor and the organiser is explicitly excluded. Resubmission is
+    // stated unconditionally because the voided arm of the reopen CAS bypasses the organiser's bar.
+    return [
+      `Tim Lombakita membatalkan bukti transfer Anda untuk ${options.competitionTitle}. Pembatalan ini bukan keputusan penyelenggara.`,
+      ...reasonLines,
+      "",
+      "Anda dapat mengirim bukti transfer baru sebelum batas waktu pembayaran.",
+    ];
+  }
+
+  // No actor. The sentence names the deadline as the cause and says outright that nobody decided
+  // this, so the recipient does not go looking for someone to appeal to.
+  return [
+    `Batas waktu pembayaran untuk ${options.competitionTitle} telah lewat, sehingga pendaftaran Anda dibatalkan secara otomatis.`,
+    "",
+    "Pembatalan ini tidak dilakukan oleh penyelenggara dan bukan atas permintaan Anda. Jika Anda sudah melakukan transfer, hubungi penyelenggara.",
+  ];
+};
+
+/**
+ * What became of the money, to a member of the payment group.
+ *
+ * THE EXPIRED ARM HAS NO AUTHOR AND MUST NOT SOUND LIKE IT DOES. Nobody rejected this candidate;
+ * a deadline passed. Wording it as a decision would have them contact an organiser to appeal
+ * something no organiser did.
+ */
+export const sendPaymentOutcomeEmail = async (options: {
+  toEmail: string;
+  recipientId: string;
+  competitionTitle: string;
+  outcome: PaymentOutcomeKind;
+  rejectionReason: string | null;
+  resubmissionAllowed: boolean | null;
+  amount: string;
+}): Promise<void> => {
+  const delivery = resolveNotificationDelivery("payment_outcome", options.toEmail);
+
+  if (!delivery) {
+    return;
+  }
+
+  const { apiKey, from } = delivery;
+
+  const subject = paymentOutcomeSubject(options.outcome, options.competitionTitle);
+  const body = paymentOutcomeBody(options);
+
+  const resend = new Resend(apiKey);
+  const { error } = await resend.emails.send({
+    from,
+    to: options.toEmail,
+    subject,
+    text: [
+      ...body,
+      "",
+      `Buka pendaftaran Anda di ${resolveBaseUrl()}/candidate-dashboard/registrations.`,
+    ].join("\n"),
+  });
+
+  if (error) {
+    throw new Error(`Resend payment outcome email dispatch failed: ${error.message}`);
   }
 };

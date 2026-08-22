@@ -4,6 +4,9 @@ import { getCurrentSession } from "@/server/auth/session";
 import { getPublicCompetitionDetail } from "@/server/competitions/competition-public-service";
 import { getStudentRegistration } from "@/server/registrations/registration-service";
 import { getTeamForCompetitionAndCandidate } from "@/server/teams/team-service";
+import { resolveCancelAffordanceState } from "@/server/finance/cancel-affordance";
+import { resolveChargingReadinessBySlug } from "@/server/finance/charging-readiness";
+import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { IndividualRegistrationSection } from "./individual-section";
 import { CompetitionTeamSection } from "./team-section";
 import { PageHeader } from "@/components/ui";
@@ -76,6 +79,24 @@ export default async function CompetitionRegistrationPage({
       }))
     : [];
 
+  // Whether either cancel control may be offered at all (DEC-0131). Resolved through the same
+  // predicate the two cancel services call, so the page cannot offer what the server refuses.
+  const { individualCancellationClosed, teamCancellationClosed } =
+    await resolveCancelAffordanceState({
+      individualRegistration: initialRegistration,
+      team: teamSnapshot?.team ?? null,
+    });
+
+  // DEC-0170, on the candidate's side of the same state. Verification can be revoked after a
+  // competition was priced and published, so a paid competition whose organiser cannot currently
+  // take payment is a state a candidate can genuinely arrive at, and the server WILL refuse the
+  // registration. Asked here so the refusal is explained before the click rather than discovered by
+  // it. The candidate is told only that payment is unavailable; which of the three conditions
+  // failed is the organiser's business and is not surfaced.
+  const paidRegistrationUnavailable =
+    isPaidCompetition(competition.feeAmount) &&
+    !(await resolveChargingReadinessBySlug(institutionSlug)).ready;
+
   const registrationOpen = competition.ctaState === "open";
 
   return (
@@ -101,6 +122,13 @@ export default async function CompetitionRegistrationPage({
         </div>
       )}
 
+      {paidRegistrationUnavailable && (
+        <div role="alert" className="feedback" data-tone="warning">
+          Kompetisi ini berbayar, tetapi penyelenggaranya belum dapat menerima pembayaran. Anda
+          belum dapat mendaftar sekarang. Hubungi penyelenggara atau periksa kembali nanti.
+        </div>
+      )}
+
       {supportsIndividual && (
         <IndividualRegistrationSection
           competitionId={competition.id}
@@ -112,6 +140,8 @@ export default async function CompetitionRegistrationPage({
           }
           expectedUserId={session.user.id}
           modeLabel={competition.mode === "both" ? "Daftar sebagai individu" : "Daftar"}
+          cancellationClosedByPaymentProof={individualCancellationClosed}
+          registrationWithheld={paidRegistrationUnavailable}
         />
       )}
 
@@ -121,8 +151,10 @@ export default async function CompetitionRegistrationPage({
           competitionMode={competition.mode}
           minTeamSize={competition.minTeamSize}
           maxTeamSize={competition.maxTeamSize}
-          registrationOpen={registrationOpen}
+          registrationOpen={registrationOpen && !paidRegistrationUnavailable}
           expectedUserId={session.user.id}
+          cancellationClosedByPaymentProof={teamCancellationClosed}
+          registrationWithheld={paidRegistrationUnavailable}
           initialTeam={
             teamSnapshot
               ? {

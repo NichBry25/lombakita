@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Icon, IconButton } from "@/components/ui";
+import { Button, CheckboxField, Icon, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { CroppedImageUpload } from "@/components/media/cropped-image-upload";
 import { AVATAR_FRAME, BANNER_FRAME } from "@/lib/media/image-frames";
@@ -191,15 +191,14 @@ export function ResumeSection({
               </a>
             )}
           </div>
-          <label className="pf-editor-check">
-            <input
-              type="checkbox"
-              checked={resume.isPublic}
-              disabled={busy}
-              onChange={(e) => onToggleVisibility(e.target.checked)}
-            />
+          <CheckboxField
+            className="pf-editor-check"
+            checked={resume.isPublic}
+            disabled={busy}
+            onChange={(e) => onToggleVisibility(e.target.checked)}
+          >
             Tampilkan resume di profil publik
-          </label>
+          </CheckboxField>
           <div className="pf-editor-form-actions">
             <Button
               type="button"

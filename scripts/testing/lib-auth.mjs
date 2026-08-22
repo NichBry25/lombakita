@@ -75,19 +75,61 @@ export async function mintSession(email, password = PASSWORD) {
  *
  * Mutates `jar` in place, because the update response reissues the session cookie.
  */
-export async function elevateMfaSession(jar) {
-  const code = generateTotpCode(Buffer.from(MFA_FACTOR_SECRET_HEX, "hex"));
+const TOTP_STEP_MS = 30_000;
 
-  const challengeRes = await fetch(`${BASE}/api/v1/auth/mfa/challenge`, {
-    method: "POST",
-    headers: { "content-type": "application/json", cookie: cookieHeader(jar) },
-    body: JSON.stringify({ code }),
-  });
-  if (!challengeRes.ok) {
-    const detail = await challengeRes.text();
-    throw new Error(`MFA challenge failed (${challengeRes.status}): ${detail.slice(0, 160)}`);
+/**
+ * Runs the challenge, waiting out the TOTP step if the code has already been spent.
+ *
+ * A VERIFIED CODE IS SINGLE USE. The factor records `lastUsedStep` and refuses the same step
+ * twice, which is correct replay protection and not something to work around. But two audit cases
+ * for the same operator inside one 30-second window generate the SAME code, so the second is
+ * refused and the failure arrives looking exactly like a broken page. Waiting for the next step and
+ * retrying once is the harness catching up with the product, and it is what lets more than one ops
+ * surface be audited in a single run.
+ */
+async function challengeWithFreshCode(jar) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const code = generateTotpCode(Buffer.from(MFA_FACTOR_SECRET_HEX, "hex"));
+
+    const res = await fetch(`${BASE}/api/v1/auth/mfa/challenge`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: cookieHeader(jar) },
+      body: JSON.stringify({ code }),
+    });
+
+    if (res.ok) return res.json();
+
+    const detail = await res.text();
+    const spentCode = res.status === 401 && detail.includes("mfa_invalid_code");
+
+    if (spentCode && attempt === 1) {
+      // The SECOND refusal after waiting out the step is not replay any more, and saying so is the
+      // difference between a two-minute diagnosis and an hour of it: a fresh code refused means the
+      // seeded factor's secret no longer matches MFA_FACTOR_SECRET_HEX, or the machine clock has
+      // drifted more than one step from the server's. Neither is a product defect on the page under
+      // audit, which is what the bare message would otherwise imply.
+      throw new Error(
+        `MFA challenge refused a FRESH code after waiting out the TOTP step (${res.status}). ` +
+          `This is no longer replay protection. Re-seed (npx tsx scripts/seed-test-matrix.ts) or ` +
+          `check clock drift. Detail: ${detail.slice(0, 160)}`,
+      );
+    }
+
+    if (!spentCode) {
+      throw new Error(`MFA challenge failed (${res.status}): ${detail.slice(0, 160)}`);
+    }
+
+    // Sleep to just past the next step boundary, so the retry generates a code the factor has not
+    // seen. Computed from the clock rather than a flat 30s, which would double the wait on average.
+    const msIntoStep = Date.now() % TOTP_STEP_MS;
+    await new Promise((resolve) => setTimeout(resolve, TOTP_STEP_MS - msIntoStep + 500));
   }
-  const { elevationGrantId } = await challengeRes.json();
+
+  throw new Error("MFA challenge failed: unreachable");
+}
+
+export async function elevateMfaSession(jar) {
+  const { elevationGrantId } = await challengeWithFreshCode(jar);
 
   const csrfRes = await fetch(`${BASE}/api/auth/csrf`, { headers: { cookie: cookieHeader(jar) } });
   parseSetCookies(csrfRes, jar);

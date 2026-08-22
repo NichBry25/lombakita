@@ -63,13 +63,13 @@ export type PaymentEventActorType = (typeof PAYMENT_EVENT_ACTOR_TYPES)[number];
 // HOW the money reached the institution. Both values are permanent lanes that coexist; neither is
 // a placeholder for the other.
 //
-//   manual_transfer — the payer transfers to the institution's own bank account or QRIS and uploads
-//                     a bukti transfer. The money never passes through any platform-controlled
-//                     account, so NOTHING SPLITS AT TRANSACTION TIME: the institution receives the
-//                     whole gross and the platform's fee becomes an ACCRUAL it owes separately.
-//   gateway         — the payer pays into the institution's gateway sub-account and the platform
-//                     fee splits at transaction time, so the fee columns describe money that has
-//                     already moved apart.
+//   manual_transfer: the payer transfers to the institution's own bank account or QRIS and uploads
+//                    a bukti transfer. The money never passes through any platform-controlled
+//                    account, so NOTHING SPLITS AT TRANSACTION TIME: the institution receives the
+//                    whole gross and the platform's fee becomes an ACCRUAL it owes separately.
+//   gateway:         the payer pays into the institution's gateway sub-account and the platform
+//                    fee splits at transaction time, so the fee columns describe money that has
+//                    already moved apart.
 //
 // The distinction is why `finance_payments` carries a CHECK tying manual_transfer to a zero
 // platform fee: the fee columns mean "what split, when this was recorded", and on the manual lane
@@ -80,16 +80,16 @@ export type PaymentOrigin = (typeof PAYMENT_ORIGINS)[number];
 
 // An accrual row's direction. Append-only, so a correction is a new row rather than an edit.
 //
-//   accrued  — the institution owes this fee on a manual-lane payment. AT MOST ONE per payment,
+//   accrued:   the institution owes this fee on a manual-lane payment. AT MOST ONE per payment,
 //              guaranteed by a partial unique index rather than by a service read-then-write.
-//   reversed — a compensating row that walks an accrual back (a proof later found invalid, an
+//   reversed:  a compensating row that walks an accrual back (a proof later found invalid, an
 //              operator restating a figure). Carries a non-positive amount and a mandatory reason,
 //              and is deliberately UNCONSTRAINED in count: a fee can be corrected more than once.
 export const FEE_ACCRUAL_ENTRY_TYPES = ["accrued", "reversed"] as const;
 
 export type FeeAccrualEntryType = (typeof FEE_ACCRUAL_ENTRY_TYPES)[number];
 
-// Where a bukti transfer sits in its review loop. `rejected` is not terminal — the DEC-0115
+// Where a bukti transfer sits in its review loop. `rejected` is not terminal: the DEC-0115
 // revision loop reopens it to `pending_review`, which is why the rejection reason is retained on
 // the row rather than cleared on resubmission.
 export const MANUAL_PAYMENT_PROOF_STATUSES = [
@@ -104,7 +104,7 @@ export const MANUAL_PAYMENT_PROOF_STATUSES = [
 
 export type ManualPaymentProofStatus = (typeof MANUAL_PAYMENT_PROOF_STATUSES)[number];
 
-// A proof that is submitted and has not been rejected or voided — the PAYMENT IN FLIGHT arm.
+// A proof that is submitted and has not been rejected or voided. This is the PAYMENT IN FLIGHT arm.
 // Exported as data rather than inlined so the predicate and the database index that serves it
 // cannot drift apart.
 export const IN_FLIGHT_PROOF_STATUSES: readonly ManualPaymentProofStatus[] = [

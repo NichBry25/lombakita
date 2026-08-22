@@ -12,6 +12,7 @@ vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn(
 import {
   isPaymentEventIdempotencyKey,
   mintGatewayPaymentEventKey,
+  mintManualExpiryEventKey,
   mintManualPaymentEventKey,
   mintPlatformPaymentEventKey,
   PaymentIdempotencyKeyError,
@@ -117,6 +118,23 @@ describe("mintPlatformPaymentEventKey", () => {
     expect(key.startsWith("pf:corrected:pay_9:")).toBe(true);
   });
 
+  it("stays impossible from the OTHER side: the verification arm cannot emit `once`", () => {
+    // The collision test above fails if `once` changes. THIS one fails if `attempt` validation is
+    // relaxed, which is the same invariant broken from the file that does not mention the expiry
+    // minter in its code. Without this, someone widening `attempt` to accept a string would see
+    // every test pass and would have reintroduced the collision.
+    expect(() =>
+      mintManualPaymentEventKey({
+        action: "expired",
+        proofId: "pay_1",
+        // The exact value that would produce a byte-identical expiry key. Cast because the type
+        // already forbids it, and the cast is what lets the test assert the RUNTIME check exists, so
+        // the guarantee does not rest on a compile-time signature a caller can widen.
+        attempt: "once" as unknown as number,
+      }),
+    ).toThrow(PaymentIdempotencyKeyError);
+  });
+
   it("refuses a payment id carrying the separator", () => {
     expect(() => mintPlatformPaymentEventKey({ action: "refunded", paymentId: "pay:1" })).toThrow(
       /paymentId/,
@@ -164,11 +182,15 @@ describe("isPaymentEventIdempotencyKey", () => {
 });
 
 describe("mintManualPaymentEventKey", () => {
-  it("is DETERMINISTIC for one attempt at one proof — a repeated verify collapses", () => {
+  it("is DETERMINISTIC for one attempt at one proof, so a repeated verify collapses", () => {
     // The opposite of the platform arm, and correctly so. A proof leaves pending_review exactly
     // once per revision (the CAS enforces it), so a repeated verification of the same attempt IS
     // the same event and must not record a second `succeeded`.
-    const first = mintManualPaymentEventKey({ action: "succeeded", proofId: "proof_1", attempt: 0 });
+    const first = mintManualPaymentEventKey({
+      action: "succeeded",
+      proofId: "proof_1",
+      attempt: 0,
+    });
     const second = mintManualPaymentEventKey({
       action: "succeeded",
       proofId: "proof_1",
@@ -183,7 +205,11 @@ describe("mintManualPaymentEventKey", () => {
     // Without the attempt segment, a proof that was rejected, resubmitted and then verified would
     // mint the key its first attempt already used, and the real verification would be swallowed as
     // a replay of a verification that never happened.
-    const first = mintManualPaymentEventKey({ action: "succeeded", proofId: "proof_1", attempt: 0 });
+    const first = mintManualPaymentEventKey({
+      action: "succeeded",
+      proofId: "proof_1",
+      attempt: 0,
+    });
     const second = mintManualPaymentEventKey({
       action: "succeeded",
       proofId: "proof_1",
@@ -225,3 +251,57 @@ describe("mintManualPaymentEventKey", () => {
   });
 });
 
+describe("mintManualExpiryEventKey", () => {
+  it("is DETERMINISTIC, so a re-visited overdue payment collapses onto one expired event", () => {
+    // The sweep is scheduled, so the same payment can be reached twice: by a retry, an overlapping
+    // run, or a redeploy re-registering the schedule. A second visit must land on the first event
+    // rather than append a second `expired` to a ledger with no delete path.
+    const first = mintManualExpiryEventKey({ paymentId: "pay_1" });
+    const second = mintManualExpiryEventKey({ paymentId: "pay_1" });
+
+    expect(first).toBe(second);
+    expect(first).toBe("mn:expired:pay_1:once");
+  });
+
+  it("separates payments", () => {
+    expect(mintManualExpiryEventKey({ paymentId: "pay_1" })).not.toBe(
+      mintManualExpiryEventKey({ paymentId: "pay_2" }),
+    );
+  });
+
+  it("CANNOT collide with a verification key, even when every other segment is made equal", () => {
+    // The adversarial case, constructed rather than assumed: same `mn:` prefix, same `expired`
+    // action, and the same id in the third slot. Only the last segment differs, and that is the
+    // entire guarantee (see the minter's docblock). `attempt` is validated as an integer, so no
+    // verification key can ever end in `once`.
+    const sharedId = "expired";
+
+    const expiry = mintManualExpiryEventKey({ paymentId: sharedId });
+    const verification = mintManualPaymentEventKey({
+      action: "expired",
+      proofId: sharedId,
+      attempt: 0,
+    });
+
+    expect(expiry).not.toBe(verification);
+    expect(expiry.split(":").at(-1)).toBe("once");
+    expect(verification.split(":").at(-1)).toBe("0");
+  });
+
+  it("refuses a payment id carrying the separator", () => {
+    expect(() => mintManualExpiryEventKey({ paymentId: "pay:1" })).toThrow(
+      PaymentIdempotencyKeyError,
+    );
+  });
+
+  it("adds no fourth arm, so the key validates through the existing manual prefix", () => {
+    // A FOURTH MINTING FUNCTION, NOT A FOURTH ARM. If this ever needed its own branch in
+    // `isPaymentEventIdempotencyKey`, the convention would have grown a prefix and the DEC-0151 /
+    // DEC-0172 shape would no longer be three.
+    const key = mintManualExpiryEventKey({ paymentId: "pay_1" });
+
+    expect(isPaymentEventIdempotencyKey(key)).toBe(true);
+    expect(key.startsWith("mn:")).toBe(true);
+    expect(key.split(":")).toHaveLength(4);
+  });
+});
