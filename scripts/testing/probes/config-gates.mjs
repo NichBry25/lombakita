@@ -50,7 +50,8 @@ const probes = [
   {
     name: "the typecheck gate ignores the dev server's generated types",
     klass: "D",
-    harmfulMove: "compiling a directory a long-running process rewrites, so a torn write fails the gate",
+    harmfulMove:
+      "compiling a directory a long-running process rewrites, so a torn write fails the gate",
     files: ["tsconfig.json"],
     appliedMarkers: ['"docs/lombakita-ui-guide"\n  ]'],
     // The mutation REMOVES the exclusion, because that is the harmful move. `next build` puts the
@@ -91,15 +92,31 @@ const probes = [
     detect: async () => vitest("src/config/ci-gates.test.ts"),
   },
   {
+    name: "the mobile layout audit runs in CI",
+    klass: "C",
+    harmfulMove:
+      "removing the step, so a 390px regression is again seen only by whoever runs it locally",
+    files: [".github/workflows/ci.yml"],
+    appliedMarkers: ["# mobile audit removed by probe"],
+    mutate: () =>
+      substituteOnce(
+        ".github/workflows/ci.yml",
+        "      - name: Mobile layout audit\n        if: always()\n        run: node scripts/testing/mobile-audit.mjs\n",
+        "      # mobile audit removed by probe\n",
+      ),
+    detect: async () => vitest("src/config/ci-gates.test.ts"),
+  },
+  {
     name: "the contrast audit runs in CI",
     klass: "C",
-    harmfulMove: "removing the step, so the only check that can see a dark-on-dark theme stops running",
+    harmfulMove:
+      "removing the step, so the only check that can see a dark-on-dark theme stops running",
     files: [".github/workflows/ci.yml"],
     appliedMarkers: ["# contrast audit removed by probe"],
     mutate: () =>
       substituteOnce(
         ".github/workflows/ci.yml",
-        "      - name: Text contrast and tone separation audit\n        run: node scripts/testing/contrast-audit.mjs\n",
+        "      - name: Text contrast and tone separation audit\n        if: always()\n        run: node scripts/testing/contrast-audit.mjs\n",
         "      # contrast audit removed by probe\n",
       ),
     detect: async () => vitest("src/config/ci-gates.test.ts"),
@@ -121,7 +138,8 @@ const probes = [
   {
     name: "no api-matrix assertion may pass for a reason other than the one it names",
     klass: "D",
-    harmfulMove: "reintroducing a status range, which accepts a payload rejection for a policy gate",
+    harmfulMove:
+      "reintroducing a status range, which accepts a payload rejection for a policy gate",
     files: ["scripts/testing/api-matrix.mjs"],
     appliedMarkers: ["publishWhileSuspended.status >= 400"],
     mutate: () =>
@@ -150,7 +168,8 @@ const probes = [
   {
     name: "an automated environment never delivers email",
     klass: "C",
-    harmfulMove: "putting `test` back on the delivering side, so a seeded run mails every fixture address",
+    harmfulMove:
+      "putting `test` back on the delivering side, so a seeded run mails every fixture address",
     files: ["src/config/env.server.ts"],
     appliedMarkers: ['if (appEnv === "no-such-environment")'],
     mutate: () =>
