@@ -66,7 +66,8 @@ export const probes = [
     files: [TOKENS],
     appliedMarkers: ["--color-info-surface: #e4ede5;"],
     mutate: editToken,
-    detect: async () => exitedWith(runAudit("mobile-audit.mjs", "^01-home"), STALE_STYLESHEET_EXIT, "freshness"),
+    detect: async () =>
+      exitedWith(runAudit("mobile-audit.mjs", "^01-home"), STALE_STYLESHEET_EXIT, "freshness"),
   },
   {
     name: "preflight refuses on the served bytes even when the timestamps look fine (witness layer)",
@@ -78,7 +79,8 @@ export const probes = [
       editToken();
       backdateToBuild(TOKENS);
     },
-    detect: async () => exitedWith(runAudit("mobile-audit.mjs", "^01-home"), STALE_STYLESHEET_EXIT, "witness"),
+    detect: async () =>
+      exitedWith(runAudit("mobile-audit.mjs", "^01-home"), STALE_STYLESHEET_EXIT, "witness"),
   },
   {
     name: "preflight refuses BEFORE the audit measures — REMOVED",
@@ -122,7 +124,8 @@ export const probes = [
         '    await page.goto(`${BASE}${spec.path}`, { waitUntil: "domcontentloaded", timeout: 1 });',
       ),
     compiles: () => execFileSync("node", ["--check", "scripts/testing/mobile-audit.mjs"]),
-    detect: async () => exitedWith(runAudit("mobile-audit.mjs", "^01-home"), UNMEASURABLE_EXIT, "unmeasurable"),
+    detect: async () =>
+      exitedWith(runAudit("mobile-audit.mjs", "^01-home"), UNMEASURABLE_EXIT, "unmeasurable"),
   },
   {
     name: "an unmeasurable page cannot be swallowed by the summary — REMOVED",

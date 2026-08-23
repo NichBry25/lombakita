@@ -37,13 +37,23 @@ export async function contextFor(browser, email) {
       await elevateMfaSession(s.jar);
     }
     const cookies = [...s.jar.entries()].map(([name, value]) => ({
-      name, value, domain: "localhost", path: "/", httpOnly: false, secure: false, sameSite: "Lax",
+      name,
+      value,
+      domain: "localhost",
+      path: "/",
+      httpOnly: false,
+      secure: false,
+      sameSite: "Lax",
     }));
     await context.addCookies(cookies);
   }
   // Pin the stored theme so the header's mount effect never fights an explicit override.
   await context.addInitScript(() => {
-    try { window.localStorage.setItem("lombakita-theme", "light"); } catch { /* ignore */ }
+    try {
+      window.localStorage.setItem("lombakita-theme", "light");
+    } catch {
+      /* ignore */
+    }
   });
   return context;
 }
@@ -51,7 +61,11 @@ export async function contextFor(browser, email) {
 export async function setTheme(page, theme) {
   const apply = (t) => {
     document.documentElement.dataset.theme = t;
-    try { window.localStorage.setItem("lombakita-theme", t); } catch { /* ignore */ }
+    try {
+      window.localStorage.setItem("lombakita-theme", t);
+    } catch {
+      /* ignore */
+    }
   };
   // A client-side redirect can destroy the execution context mid-evaluate; settle and retry once.
   try {

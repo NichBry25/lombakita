@@ -148,9 +148,7 @@ const main = async (): Promise<void> => {
         }
 
         retainedUserIds.push(user.id);
-        console.log(
-          `  RETAINED  ${user.email}: referenced by an audit foreign key, left in place`,
-        );
+        console.log(`  RETAINED  ${user.email}: referenced by an audit foreign key, left in place`);
       }
     }
   };

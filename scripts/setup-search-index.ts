@@ -28,7 +28,10 @@ try {
     const eq = trimmed.indexOf("=");
     if (eq === -1) continue;
     const key = trimmed.slice(0, eq).trim();
-    const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+    const val = trimmed
+      .slice(eq + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "");
     if (key && !(key in process.env)) process.env[key] = val;
   }
 } catch {
@@ -78,7 +81,10 @@ async function main() {
   // ── 1. Create index (idempotent) ───────────────────────────────────────────
   console.log("\n[1/3] Creating index...");
   const createTask = await client.createIndex(COMPETITION_INDEX_NAME, { primaryKey: "id" });
-  const createdResult = await client.tasks.waitForTask(createTask.taskUid, { timeout: 30_000, interval: 500 });
+  const createdResult = await client.tasks.waitForTask(createTask.taskUid, {
+    timeout: 30_000,
+    interval: 500,
+  });
   if (createdResult.status === "failed") {
     if (createdResult.error?.code === "index_already_exists") {
       console.log(`  ✓ index '${COMPETITION_INDEX_NAME}' already exists — skipping`);
@@ -97,17 +103,24 @@ async function main() {
   const filterTask = await index.updateFilterableAttributes([
     ...COMPETITION_INDEX_FILTERABLE_ATTRIBUTES,
   ]);
-  await waitForTask(filterTask.taskUid, `filterable attributes: ${COMPETITION_INDEX_FILTERABLE_ATTRIBUTES.join(", ")}`);
+  await waitForTask(
+    filterTask.taskUid,
+    `filterable attributes: ${COMPETITION_INDEX_FILTERABLE_ATTRIBUTES.join(", ")}`,
+  );
 
-  const sortTask = await index.updateSortableAttributes([
-    ...COMPETITION_INDEX_SORTABLE_ATTRIBUTES,
-  ]);
-  await waitForTask(sortTask.taskUid, `sortable attributes: ${COMPETITION_INDEX_SORTABLE_ATTRIBUTES.join(", ")}`);
+  const sortTask = await index.updateSortableAttributes([...COMPETITION_INDEX_SORTABLE_ATTRIBUTES]);
+  await waitForTask(
+    sortTask.taskUid,
+    `sortable attributes: ${COMPETITION_INDEX_SORTABLE_ATTRIBUTES.join(", ")}`,
+  );
 
   const searchTask = await index.updateSearchableAttributes([
     ...COMPETITION_INDEX_SEARCHABLE_ATTRIBUTES,
   ]);
-  await waitForTask(searchTask.taskUid, `searchable attributes: ${COMPETITION_INDEX_SEARCHABLE_ATTRIBUTES.join(", ")}`);
+  await waitForTask(
+    searchTask.taskUid,
+    `searchable attributes: ${COMPETITION_INDEX_SEARCHABLE_ATTRIBUTES.join(", ")}`,
+  );
 
   // ── 3. Backfill documents ──────────────────────────────────────────────────
   console.log("\n[3/3] Backfilling published competitions...");

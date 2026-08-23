@@ -37,9 +37,8 @@ const OVERLAP_TARGETS = 6;
 
 const main = async (): Promise<void> => {
   const { client, db } = await openPool();
-  const { createDocumentRequest, createDocumentRequestsForRegistrations } = await import(
-    "@/server/registration-documents/registration-document-service"
-  );
+  const { createDocumentRequest, createDocumentRequestsForRegistrations } =
+    await import("@/server/registration-documents/registration-document-service");
 
   const { check, failureCount } = createChecker();
   const createdUserIds: string[] = [];
@@ -75,11 +74,14 @@ const main = async (): Promise<void> => {
     const organizerId = await seedUser("docreq_org");
     const tag = organizerId.slice(0, 8);
 
-    const institution = oneRow(await client<{ id: string }[]>`
+    const institution = oneRow(
+      await client<{ id: string }[]>`
       INSERT INTO institutions (display_name, slug, institution_type)
       VALUES (${`Doc Req Conc ${tag}`}, ${`docreq-${tag}`}, 'company')
       RETURNING id
-    `, "institution");
+    `,
+      "institution",
+    );
     createdInstitutionIds.push(institution.id);
 
     await client`
@@ -87,20 +89,26 @@ const main = async (): Promise<void> => {
       VALUES (${institution.id}, ${organizerId}, 'institution_owner', 'active')
     `;
 
-    const competition = oneRow(await client<{ id: string }[]>`
+    const competition = oneRow(
+      await client<{ id: string }[]>`
       INSERT INTO competitions (institution_id, created_by_user_id, slug, title, status)
       VALUES (${institution.id}, ${organizerId}, ${`docreq-comp-${tag}`}, ${`Doc Req Conc ${tag}`}, 'published')
       RETURNING id
-    `, "competition");
+    `,
+      "competition",
+    );
 
     const registrationIds: string[] = [];
     for (let index = 0; index < registrantCount; index += 1) {
       const candidateId = await seedUser("docreq_cand");
-      const registration = oneRow(await client<{ id: string }[]>`
+      const registration = oneRow(
+        await client<{ id: string }[]>`
         INSERT INTO competition_registrations (competition_id, student_id)
         VALUES (${competition.id}, ${candidateId})
         RETURNING id
-      `, "registration");
+      `,
+        "registration",
+      );
       registrationIds.push(registration.id);
     }
 

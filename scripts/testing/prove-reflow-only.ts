@@ -103,41 +103,41 @@ const preview = (label: string, entries: string[]) => {
 };
 
 const main = () => {
-const [revisionA, revisionB, ...paths] = process.argv.slice(2);
-if (!revisionA || !revisionB || paths.length === 0) {
-  console.error(
-    "usage: npm run verify:reflow-only -- <rev-a> <rev-b> <path> [<path>...]\n" +
-      `  <rev-a>, <rev-b>  any git revision, or ${WORKTREE} for the file on disk\n` +
-      "  <path>            repo-relative path, compared at both revisions",
-  );
-  process.exit(2);
-}
-
-let differing = 0;
-for (const path of paths) {
-  const before = shapeOf(contentAt(revisionA, path), path);
-  const after = shapeOf(contentAt(revisionB, path), path);
-  const result = divergence(before, after);
-
-  if (result.identical) {
-    console.log(`REFLOW ONLY   ${path}  (${before.length} nodes, trees identical)`);
-    continue;
+  const [revisionA, revisionB, ...paths] = process.argv.slice(2);
+  if (!revisionA || !revisionB || paths.length === 0) {
+    console.error(
+      "usage: npm run verify:reflow-only -- <rev-a> <rev-b> <path> [<path>...]\n" +
+        `  <rev-a>, <rev-b>  any git revision, or ${WORKTREE} for the file on disk\n` +
+        "  <path>            repo-relative path, compared at both revisions",
+    );
+    process.exit(2);
   }
 
-  differing += 1;
-  console.log(
-    `TREES DIFFER  ${path}  (${before.length} → ${after.length} nodes; ` +
-      `first ${result.at} identical)`,
-  );
-  preview("removed", result.removed);
-  preview("added", result.added);
-}
+  let differing = 0;
+  for (const path of paths) {
+    const before = shapeOf(contentAt(revisionA, path), path);
+    const after = shapeOf(contentAt(revisionB, path), path);
+    const result = divergence(before, after);
 
-console.log(
-  `\n${paths.length} path(s) compared ${revisionA}..${revisionB}; ` +
-    `${differing} differ in parsed shape.`,
-);
-process.exit(differing === 0 ? 0 : 1);
+    if (result.identical) {
+      console.log(`REFLOW ONLY   ${path}  (${before.length} nodes, trees identical)`);
+      continue;
+    }
+
+    differing += 1;
+    console.log(
+      `TREES DIFFER  ${path}  (${before.length} → ${after.length} nodes; ` +
+        `first ${result.at} identical)`,
+    );
+    preview("removed", result.removed);
+    preview("added", result.added);
+  }
+
+  console.log(
+    `\n${paths.length} path(s) compared ${revisionA}..${revisionB}; ` +
+      `${differing} differ in parsed shape.`,
+  );
+  process.exit(differing === 0 ? 0 : 1);
 };
 
 // Exported as functions and run only when this file IS the entry point, so the test beside it can

@@ -14,8 +14,7 @@ const parseSetCookies = (res, jar) => {
   }
 };
 
-export const cookieHeader = (jar) =>
-  [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
+export const cookieHeader = (jar) => [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
 
 /**
  * Logs in via the NextAuth v4 credentials HTTP flow.

@@ -14,20 +14,72 @@ export const MFA_FACTOR_SECRET_HEX = "5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed";
 //   "challenge"    — operational, factor but no claim → every guarded surface sends it to /auth/mfa/challenge
 //   "satisfied"    — operational, factor AND the harness elevates the session after signing in
 export const USERS = {
-  candA: { id: "seed-user-cand-a", email: "seed.cand.a@seed.lombakita.local", username: "seed_cand_a" },
-  candB: { id: "seed-user-cand-b", email: "seed.cand.b@seed.lombakita.local", username: "seed_cand_b" },
-  candC: { id: "seed-user-cand-c", email: "seed.cand.c@seed.lombakita.local", username: "seed_cand_c" },
-  recMin: { id: "seed-user-rec-min", email: "seed.rec.min@seed.lombakita.local", username: "seed_rec_min" },
-  recElev: { id: "seed-user-rec-elev", email: "seed.rec.elev@seed.lombakita.local", username: "seed_rec_elev" },
-  recRej: { id: "seed-user-rec-rej", email: "seed.rec.rej@seed.lombakita.local", username: "seed_rec_rej" },
-  recDraft: { id: "seed-user-rec-draft", email: "seed.rec.draft@seed.lombakita.local", username: "seed_rec_draft" },
+  candA: {
+    id: "seed-user-cand-a",
+    email: "seed.cand.a@seed.lombakita.local",
+    username: "seed_cand_a",
+  },
+  candB: {
+    id: "seed-user-cand-b",
+    email: "seed.cand.b@seed.lombakita.local",
+    username: "seed_cand_b",
+  },
+  candC: {
+    id: "seed-user-cand-c",
+    email: "seed.cand.c@seed.lombakita.local",
+    username: "seed_cand_c",
+  },
+  recMin: {
+    id: "seed-user-rec-min",
+    email: "seed.rec.min@seed.lombakita.local",
+    username: "seed_rec_min",
+  },
+  recElev: {
+    id: "seed-user-rec-elev",
+    email: "seed.rec.elev@seed.lombakita.local",
+    username: "seed_rec_elev",
+  },
+  recRej: {
+    id: "seed-user-rec-rej",
+    email: "seed.rec.rej@seed.lombakita.local",
+    username: "seed_rec_rej",
+  },
+  recDraft: {
+    id: "seed-user-rec-draft",
+    email: "seed.rec.draft@seed.lombakita.local",
+    username: "seed_rec_draft",
+  },
   dual: { id: "seed-user-dual", email: "seed.dual@seed.lombakita.local", username: "seed_dual" },
-  ops: { id: "seed-user-ops", email: "seed.ops@seed.lombakita.local", username: "seed_ops", mfa: "satisfied" },
-  opsEnrol: { id: "seed-user-ops-enrol", email: "seed.ops.enrol@seed.lombakita.local", username: "seed_ops_enrol", mfa: "enrolment" },
-  opsChal: { id: "seed-user-ops-chal", email: "seed.ops.chal@seed.lombakita.local", username: "seed_ops_chal", mfa: "challenge" },
-  finOps: { id: "seed-user-fin", email: "seed.fin@seed.lombakita.local", username: "seed_fin", mfa: "satisfied" },
+  ops: {
+    id: "seed-user-ops",
+    email: "seed.ops@seed.lombakita.local",
+    username: "seed_ops",
+    mfa: "satisfied",
+  },
+  opsEnrol: {
+    id: "seed-user-ops-enrol",
+    email: "seed.ops.enrol@seed.lombakita.local",
+    username: "seed_ops_enrol",
+    mfa: "enrolment",
+  },
+  opsChal: {
+    id: "seed-user-ops-chal",
+    email: "seed.ops.chal@seed.lombakita.local",
+    username: "seed_ops_chal",
+    mfa: "challenge",
+  },
+  finOps: {
+    id: "seed-user-fin",
+    email: "seed.fin@seed.lombakita.local",
+    username: "seed_fin",
+    mfa: "satisfied",
+  },
   susp: { id: "seed-user-susp", email: "seed.susp@seed.lombakita.local", username: "seed_susp" },
-  unver: { id: "seed-user-unver", email: "seed.unver@seed.lombakita.local", username: "seed_unver" },
+  unver: {
+    id: "seed-user-unver",
+    email: "seed.unver@seed.lombakita.local",
+    username: "seed_unver",
+  },
 };
 
 export const INST = {

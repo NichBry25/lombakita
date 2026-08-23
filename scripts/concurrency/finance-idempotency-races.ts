@@ -170,7 +170,8 @@ const main = async (): Promise<void> => {
       );
       await attempt(
         `payments for institution ${institutionId}`,
-        () => client`DELETE FROM finance_payments WHERE receiving_institution_id = ${institutionId}`,
+        () =>
+          client`DELETE FROM finance_payments WHERE receiving_institution_id = ${institutionId}`,
       );
       await attempt(
         `fee rules for institution ${institutionId}`,

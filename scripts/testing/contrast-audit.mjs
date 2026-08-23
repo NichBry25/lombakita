@@ -17,7 +17,14 @@
  *   - opens collapsed sections, whose contents are ABSENT from the DOM rather than hidden
  *   - fails the run on a page it could not measure, instead of counting it as clean
  */
-import { launch, contextFor, setTheme, DESKTOP, settle, expandCollapsibles } from "./lib-browser.mjs";
+import {
+  launch,
+  contextFor,
+  setTheme,
+  DESKTOP,
+  settle,
+  expandCollapsibles,
+} from "./lib-browser.mjs";
 import { preflightOrRefuse } from "./lib-css-fingerprint.mjs";
 import { finishAudit } from "./lib-audit-baseline.mjs";
 import { finding } from "./finding-classes.mjs";
@@ -136,7 +143,12 @@ const measure = () => {
           `ground ΔE ${f.groundDeltaE}, ink ΔE ${f.textDeltaE}. ${f.detail}`,
       );
       findings.push(
-        finding("tone", `tone|${f.theme}|${f.a}|${f.b}`, { need: f.need, separation: f.separation }, f),
+        finding(
+          "tone",
+          `tone|${f.theme}|${f.a}|${f.b}`,
+          { need: f.need, separation: f.separation },
+          f,
+        ),
       );
     }
   }

@@ -118,31 +118,211 @@ const main = async (): Promise<void> => {
       suspensionReason: string | null;
     };
     const users: UserSeed[] = [
-      { id: "seed-user-cand-a", name: "Andi Saputra", email: EMAIL("seed.cand.a"), emailVerified: d(-60), role: "candidate", username: "seed_cand_a", candAt: d(-60), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
-      { id: "seed-user-cand-b", name: "Bela Rahma", email: EMAIL("seed.cand.b"), emailVerified: d(-55), role: "candidate", username: "seed_cand_b", candAt: d(-55), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
-      { id: "seed-user-cand-c", name: "Citra Dewi", email: EMAIL("seed.cand.c"), emailVerified: d(-50), role: "candidate", username: "seed_cand_c", candAt: d(-50), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
+      {
+        id: "seed-user-cand-a",
+        name: "Andi Saputra",
+        email: EMAIL("seed.cand.a"),
+        emailVerified: d(-60),
+        role: "candidate",
+        username: "seed_cand_a",
+        candAt: d(-60),
+        recAt: null,
+        tier: "unverified",
+        suspendedAt: null,
+        suspensionReason: null,
+      },
+      {
+        id: "seed-user-cand-b",
+        name: "Bela Rahma",
+        email: EMAIL("seed.cand.b"),
+        emailVerified: d(-55),
+        role: "candidate",
+        username: "seed_cand_b",
+        candAt: d(-55),
+        recAt: null,
+        tier: "unverified",
+        suspendedAt: null,
+        suspensionReason: null,
+      },
+      {
+        id: "seed-user-cand-c",
+        name: "Citra Dewi",
+        email: EMAIL("seed.cand.c"),
+        emailVerified: d(-50),
+        role: "candidate",
+        username: "seed_cand_c",
+        candAt: d(-50),
+        recAt: null,
+        tier: "unverified",
+        suspendedAt: null,
+        suspensionReason: null,
+      },
       // Exists to hold the one payment state no other candidate can: verified and settled. Without
       // a row in it, `paid` renders on no page, so the badge tone, the withheld verdict controls and
       // the "Lunas" copy are all unreachable by any browser audit.
-      { id: "seed-user-cand-d", name: "Dewi Anggraini", email: EMAIL("seed.cand.d"), emailVerified: d(-48), role: "candidate", username: "seed_cand_d", candAt: d(-48), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
-      { id: "seed-user-rec-min", name: "Rina Wijaya", email: EMAIL("seed.rec.min"), emailVerified: d(-30), role: "recruiter", username: "seed_rec_min", candAt: null, recAt: d(-30), tier: "minimal", suspendedAt: null, suspensionReason: null },
-      { id: "seed-user-rec-elev", name: "Eko Prasetyo", email: EMAIL("seed.rec.elev"), emailVerified: d(-90), role: "recruiter", username: "seed_rec_elev", candAt: null, recAt: d(-90), tier: "elevated", suspendedAt: null, suspensionReason: null },
-      { id: "seed-user-rec-rej", name: "Raka Nugraha", email: EMAIL("seed.rec.rej"), emailVerified: d(-20), role: "recruiter", username: "seed_rec_rej", candAt: null, recAt: d(-20), tier: "minimal", suspendedAt: null, suspensionReason: null },
-      { id: "seed-user-rec-draft", name: "Dodi Firmansyah", email: EMAIL("seed.rec.draft"), emailVerified: d(-15), role: "recruiter", username: "seed_rec_draft", candAt: null, recAt: d(-15), tier: "minimal", suspendedAt: null, suspensionReason: null },
-      { id: "seed-user-dual", name: "Dina Kusuma", email: EMAIL("seed.dual"), emailVerified: d(-45), role: "candidate", username: "seed_dual", candAt: d(-45), recAt: d(-25), tier: "minimal", suspendedAt: null, suspensionReason: null },
+      {
+        id: "seed-user-cand-d",
+        name: "Dewi Anggraini",
+        email: EMAIL("seed.cand.d"),
+        emailVerified: d(-48),
+        role: "candidate",
+        username: "seed_cand_d",
+        candAt: d(-48),
+        recAt: null,
+        tier: "unverified",
+        suspendedAt: null,
+        suspensionReason: null,
+      },
+      {
+        id: "seed-user-rec-min",
+        name: "Rina Wijaya",
+        email: EMAIL("seed.rec.min"),
+        emailVerified: d(-30),
+        role: "recruiter",
+        username: "seed_rec_min",
+        candAt: null,
+        recAt: d(-30),
+        tier: "minimal",
+        suspendedAt: null,
+        suspensionReason: null,
+      },
+      {
+        id: "seed-user-rec-elev",
+        name: "Eko Prasetyo",
+        email: EMAIL("seed.rec.elev"),
+        emailVerified: d(-90),
+        role: "recruiter",
+        username: "seed_rec_elev",
+        candAt: null,
+        recAt: d(-90),
+        tier: "elevated",
+        suspendedAt: null,
+        suspensionReason: null,
+      },
+      {
+        id: "seed-user-rec-rej",
+        name: "Raka Nugraha",
+        email: EMAIL("seed.rec.rej"),
+        emailVerified: d(-20),
+        role: "recruiter",
+        username: "seed_rec_rej",
+        candAt: null,
+        recAt: d(-20),
+        tier: "minimal",
+        suspendedAt: null,
+        suspensionReason: null,
+      },
+      {
+        id: "seed-user-rec-draft",
+        name: "Dodi Firmansyah",
+        email: EMAIL("seed.rec.draft"),
+        emailVerified: d(-15),
+        role: "recruiter",
+        username: "seed_rec_draft",
+        candAt: null,
+        recAt: d(-15),
+        tier: "minimal",
+        suspendedAt: null,
+        suspensionReason: null,
+      },
+      {
+        id: "seed-user-dual",
+        name: "Dina Kusuma",
+        email: EMAIL("seed.dual"),
+        emailVerified: d(-45),
+        role: "candidate",
+        username: "seed_dual",
+        candAt: d(-45),
+        recAt: d(-25),
+        tier: "minimal",
+        suspendedAt: null,
+        suspensionReason: null,
+      },
       // Operational account: candidate_verified_at is the users_one_verified_role_chk
       // satisfier only (migration-0015 carve-out) — deliberately NO candidate_profiles row.
-      { id: "seed-user-ops", name: "Ops Seed", email: EMAIL("seed.ops"), emailVerified: d(-100), role: "platform_ops", username: "seed_ops", candAt: d(-100), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
+      {
+        id: "seed-user-ops",
+        name: "Ops Seed",
+        email: EMAIL("seed.ops"),
+        emailVerified: d(-100),
+        role: "platform_ops",
+        username: "seed_ops",
+        candAt: d(-100),
+        recAt: null,
+        tier: "unverified",
+        suspendedAt: null,
+        suspensionReason: null,
+      },
       // The three MFA states an operational account can be in (Step 7.1-MFA). `seed-user-ops` is
       // the working operator and carries a verified factor, so every existing /admin surface stays
       // reachable once the harness elevates its session; these two sit permanently in the gate.
-      { id: "seed-user-ops-enrol", name: "Ops Belum Enrol", email: EMAIL("seed.ops.enrol"), emailVerified: d(-100), role: "platform_ops", username: "seed_ops_enrol", candAt: d(-100), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
-      { id: "seed-user-ops-chal", name: "Ops Perlu Tantangan", email: EMAIL("seed.ops.chal"), emailVerified: d(-100), role: "platform_ops", username: "seed_ops_chal", candAt: d(-100), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
+      {
+        id: "seed-user-ops-enrol",
+        name: "Ops Belum Enrol",
+        email: EMAIL("seed.ops.enrol"),
+        emailVerified: d(-100),
+        role: "platform_ops",
+        username: "seed_ops_enrol",
+        candAt: d(-100),
+        recAt: null,
+        tier: "unverified",
+        suspendedAt: null,
+        suspensionReason: null,
+      },
+      {
+        id: "seed-user-ops-chal",
+        name: "Ops Perlu Tantangan",
+        email: EMAIL("seed.ops.chal"),
+        emailVerified: d(-100),
+        role: "platform_ops",
+        username: "seed_ops_chal",
+        candAt: d(-100),
+        recAt: null,
+        tier: "unverified",
+        suspendedAt: null,
+        suspensionReason: null,
+      },
       // finance_ops: the dispute reader. Distinct from platform_ops on purpose. The two roles
       // reach different shells and neither may reach the other's, which is what the audits assert.
-      { id: "seed-user-fin", name: "Fina Operasional", email: EMAIL("seed.fin"), emailVerified: d(-100), role: "finance_ops", username: "seed_fin", candAt: d(-100), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
-      { id: "seed-user-susp", name: "Sari Utami", email: EMAIL("seed.susp"), emailVerified: d(-40), role: "candidate", username: "seed_susp", candAt: d(-40), recAt: null, tier: "unverified", suspendedAt: d(-1), suspensionReason: "Pelanggaran ketentuan (data uji)" },
-      { id: "seed-user-unver", name: "Udin Baru", email: EMAIL("seed.unver"), emailVerified: null, role: "candidate", username: "seed_unver", candAt: d(-1), recAt: null, tier: "unverified", suspendedAt: null, suspensionReason: null },
+      {
+        id: "seed-user-fin",
+        name: "Fina Operasional",
+        email: EMAIL("seed.fin"),
+        emailVerified: d(-100),
+        role: "finance_ops",
+        username: "seed_fin",
+        candAt: d(-100),
+        recAt: null,
+        tier: "unverified",
+        suspendedAt: null,
+        suspensionReason: null,
+      },
+      {
+        id: "seed-user-susp",
+        name: "Sari Utami",
+        email: EMAIL("seed.susp"),
+        emailVerified: d(-40),
+        role: "candidate",
+        username: "seed_susp",
+        candAt: d(-40),
+        recAt: null,
+        tier: "unverified",
+        suspendedAt: d(-1),
+        suspensionReason: "Pelanggaran ketentuan (data uji)",
+      },
+      {
+        id: "seed-user-unver",
+        name: "Udin Baru",
+        email: EMAIL("seed.unver"),
+        emailVerified: null,
+        role: "candidate",
+        username: "seed_unver",
+        candAt: d(-1),
+        recAt: null,
+        tier: "unverified",
+        suspendedAt: null,
+        suspensionReason: null,
+      },
     ];
 
     for (const u of users) {
@@ -211,13 +391,55 @@ const main = async (): Promise<void> => {
 
     // Candidate onboarding profiles (every candidate-verified account EXCEPT the ops carve-out).
     const candidateProfiles = [
-      { userId: "seed-user-cand-a", fullName: "Andi Saputra", phone: "+6281200000001", occupation: "college_student", dob: "2004-05-14" },
-      { userId: "seed-user-cand-b", fullName: "Bela Rahma", phone: "+6281200000002", occupation: "school_student", dob: "2008-11-02" },
-      { userId: "seed-user-cand-c", fullName: "Citra Dewi", phone: "+6281200000003", occupation: "professional", dob: "1998-03-27" },
-      { userId: "seed-user-cand-d", fullName: "Dewi Anggraini", phone: "+6281200000007", occupation: "new_graduate", dob: "2000-09-12" },
-      { userId: "seed-user-dual", fullName: "Dina Kusuma", phone: "+6281200000004", occupation: "college_student", dob: "2003-08-19" },
-      { userId: "seed-user-susp", fullName: "Sari Utami", phone: "+6281200000005", occupation: "new_graduate", dob: "2001-01-09" },
-      { userId: "seed-user-unver", fullName: "Udin Baru", phone: "+6281200000006", occupation: "other", dob: "2005-06-30" },
+      {
+        userId: "seed-user-cand-a",
+        fullName: "Andi Saputra",
+        phone: "+6281200000001",
+        occupation: "college_student",
+        dob: "2004-05-14",
+      },
+      {
+        userId: "seed-user-cand-b",
+        fullName: "Bela Rahma",
+        phone: "+6281200000002",
+        occupation: "school_student",
+        dob: "2008-11-02",
+      },
+      {
+        userId: "seed-user-cand-c",
+        fullName: "Citra Dewi",
+        phone: "+6281200000003",
+        occupation: "professional",
+        dob: "1998-03-27",
+      },
+      {
+        userId: "seed-user-cand-d",
+        fullName: "Dewi Anggraini",
+        phone: "+6281200000007",
+        occupation: "new_graduate",
+        dob: "2000-09-12",
+      },
+      {
+        userId: "seed-user-dual",
+        fullName: "Dina Kusuma",
+        phone: "+6281200000004",
+        occupation: "college_student",
+        dob: "2003-08-19",
+      },
+      {
+        userId: "seed-user-susp",
+        fullName: "Sari Utami",
+        phone: "+6281200000005",
+        occupation: "new_graduate",
+        dob: "2001-01-09",
+      },
+      {
+        userId: "seed-user-unver",
+        fullName: "Udin Baru",
+        phone: "+6281200000006",
+        occupation: "other",
+        dob: "2005-06-30",
+      },
     ];
     for (const p of candidateProfiles) {
       await sql`
@@ -232,27 +454,54 @@ const main = async (): Promise<void> => {
 
     // --------------------------------------------------------- institutions
     type InstSeed = {
-      id: string; displayName: string | null; slug: string; type: string;
-      verification: string; verifiedAt: Date | null;
-      suspendedAt: Date | null; suspensionReason: string | null;
-      description: string | null; about: string | null;
-      contactName: string | null; contactEmail: string | null; contactPhone: string | null;
+      id: string;
+      displayName: string | null;
+      slug: string;
+      type: string;
+      verification: string;
+      verifiedAt: Date | null;
+      suspendedAt: Date | null;
+      suspensionReason: string | null;
+      description: string | null;
+      about: string | null;
+      contactName: string | null;
+      contactEmail: string | null;
+      contactPhone: string | null;
       websiteUrl: string | null;
     };
     const institutions: InstSeed[] = [
       {
-        id: "seed-inst-a", displayName: "Seed Academy", slug: "seed-academy", type: "university",
-        verification: "verified", verifiedAt: d(-30), suspendedAt: null, suspensionReason: null,
+        id: "seed-inst-a",
+        displayName: "Seed Academy",
+        slug: "seed-academy",
+        type: "university",
+        verification: "verified",
+        verifiedAt: d(-30),
+        suspendedAt: null,
+        suspensionReason: null,
         description: "Universitas penyelenggara kompetisi data uji.",
-        about: "Seed Academy adalah universitas fiktif untuk pengujian menyeluruh Lombakita. Kami menyelenggarakan kompetisi lintas bidang sepanjang tahun.",
-        contactName: "Panitia Seed Academy", contactEmail: EMAIL("panitia.seed.academy"),
-        contactPhone: "+62215550101", websiteUrl: "https://seed-academy.example",
+        about:
+          "Seed Academy adalah universitas fiktif untuk pengujian menyeluruh Lombakita. Kami menyelenggarakan kompetisi lintas bidang sepanjang tahun.",
+        contactName: "Panitia Seed Academy",
+        contactEmail: EMAIL("panitia.seed.academy"),
+        contactPhone: "+62215550101",
+        websiteUrl: "https://seed-academy.example",
       },
       {
-        id: "seed-inst-b", displayName: "Seed Ventures", slug: "seed-ventures", type: "company",
-        verification: "pending_verification", verifiedAt: null, suspendedAt: null, suspensionReason: null,
+        id: "seed-inst-b",
+        displayName: "Seed Ventures",
+        slug: "seed-ventures",
+        type: "company",
+        verification: "pending_verification",
+        verifiedAt: null,
+        suspendedAt: null,
+        suspensionReason: null,
         description: "Perusahaan data uji — menunggu verifikasi dokumen.",
-        about: null, contactName: null, contactEmail: null, contactPhone: null, websiteUrl: null,
+        about: null,
+        contactName: null,
+        contactEmail: null,
+        contactPhone: null,
+        websiteUrl: null,
       },
       {
         // THE SECOND VERIFIED TENANT, and it exists for one reason: a single-institution fixture is
@@ -261,24 +510,53 @@ const main = async (): Promise<void> => {
         // (MANUAL-D6). Institution B cannot serve: it is pending_verification and so cannot host a
         // paid competition at all. This one is verified, priced, and deliberately owned by someone
         // who administers NOTHING at seed-inst-a.
-        id: "seed-inst-d", displayName: "Seed Kolektif", slug: "seed-kolektif", type: "foundation",
-        verification: "verified", verifiedAt: d(-35), suspendedAt: null, suspensionReason: null,
+        id: "seed-inst-d",
+        displayName: "Seed Kolektif",
+        slug: "seed-kolektif",
+        type: "foundation",
+        verification: "verified",
+        verifiedAt: d(-35),
+        suspendedAt: null,
+        suspensionReason: null,
         description: "Tenant kedua data uji, panggung uji batas antar-institusi.",
-        about: null, contactName: null, contactEmail: null, contactPhone: null, websiteUrl: null,
+        about: null,
+        contactName: null,
+        contactEmail: null,
+        contactPhone: null,
+        websiteUrl: null,
       },
       {
-        id: "seed-inst-c", displayName: "Seed Suspended Org", slug: "seed-suspended-org", type: "company",
-        verification: "verified", verifiedAt: d(-40), suspendedAt: d(-2),
+        id: "seed-inst-c",
+        displayName: "Seed Suspended Org",
+        slug: "seed-suspended-org",
+        type: "company",
+        verification: "verified",
+        verifiedAt: d(-40),
+        suspendedAt: d(-2),
         suspensionReason: "Penangguhan operasional (data uji)",
         description: "Organisasi data uji dalam keadaan ditangguhkan.",
-        about: null, contactName: null, contactEmail: null, contactPhone: null, websiteUrl: null,
+        about: null,
+        contactName: null,
+        contactEmail: null,
+        contactPhone: null,
+        websiteUrl: null,
       },
       {
         // Personal institution: display_name NULL (derived from owner), slug tracks owner username.
-        id: "seed-inst-p", displayName: null, slug: "seed-rec-min", type: "personal",
-        verification: "pending_verification", verifiedAt: null, suspendedAt: null, suspensionReason: null,
+        id: "seed-inst-p",
+        displayName: null,
+        slug: "seed-rec-min",
+        type: "personal",
+        verification: "pending_verification",
+        verifiedAt: null,
+        suspendedAt: null,
+        suspensionReason: null,
         description: "Institusi personal milik Rina (data uji).",
-        about: null, contactName: null, contactEmail: null, contactPhone: null, websiteUrl: null,
+        about: null,
+        contactName: null,
+        contactEmail: null,
+        contactPhone: null,
+        websiteUrl: null,
       },
     ];
     for (const i of institutions) {
@@ -301,14 +579,44 @@ const main = async (): Promise<void> => {
     }
 
     const memberships = [
-      { id: "seed-mem-a-owner", inst: "seed-inst-a", user: "seed-user-rec-elev", role: "institution_owner" },
-      { id: "seed-mem-a-staff", inst: "seed-inst-a", user: "seed-user-dual", role: "institution_staff" },
-      { id: "seed-mem-b-owner", inst: "seed-inst-b", user: "seed-user-rec-elev", role: "institution_owner" },
-      { id: "seed-mem-c-owner", inst: "seed-inst-c", user: "seed-user-rec-elev", role: "institution_owner" },
-      { id: "seed-mem-p-owner", inst: "seed-inst-p", user: "seed-user-rec-min", role: "institution_owner" },
+      {
+        id: "seed-mem-a-owner",
+        inst: "seed-inst-a",
+        user: "seed-user-rec-elev",
+        role: "institution_owner",
+      },
+      {
+        id: "seed-mem-a-staff",
+        inst: "seed-inst-a",
+        user: "seed-user-dual",
+        role: "institution_staff",
+      },
+      {
+        id: "seed-mem-b-owner",
+        inst: "seed-inst-b",
+        user: "seed-user-rec-elev",
+        role: "institution_owner",
+      },
+      {
+        id: "seed-mem-c-owner",
+        inst: "seed-inst-c",
+        user: "seed-user-rec-elev",
+        role: "institution_owner",
+      },
+      {
+        id: "seed-mem-p-owner",
+        inst: "seed-inst-p",
+        user: "seed-user-rec-min",
+        role: "institution_owner",
+      },
       // Owner of D, admin of NOTHING at seed-inst-a. That asymmetry is the fixture: rec-elev owns
       // both A and B, so it can never demonstrate a boundary violation between them.
-      { id: "seed-mem-d-owner", inst: "seed-inst-d", user: "seed-user-rec-min", role: "institution_owner" },
+      {
+        id: "seed-mem-d-owner",
+        inst: "seed-inst-d",
+        user: "seed-user-rec-min",
+        role: "institution_owner",
+      },
     ];
     for (const m of memberships) {
       await sql`
@@ -320,8 +628,18 @@ const main = async (): Promise<void> => {
     }
 
     const socialLinks = [
-      { id: "seed-soc-a-ig", inst: "seed-inst-a", platform: "instagram", url: "https://instagram.com/seedacademy" },
-      { id: "seed-soc-a-web", inst: "seed-inst-a", platform: "website", url: "https://seed-academy.example" },
+      {
+        id: "seed-soc-a-ig",
+        inst: "seed-inst-a",
+        platform: "instagram",
+        url: "https://instagram.com/seedacademy",
+      },
+      {
+        id: "seed-soc-a-web",
+        inst: "seed-inst-a",
+        platform: "website",
+        url: "https://seed-academy.example",
+      },
     ];
     for (const s of socialLinks) {
       await sql`
@@ -333,88 +651,213 @@ const main = async (): Promise<void> => {
 
     // --------------------------------------------------------- competitions
     type CompSeed = {
-      id: string; inst: string; createdBy: string; slug: string; title: string;
-      description: string; status: "draft" | "published"; category: string | null;
-      mode: string | null; minTeam: number | null; maxTeam: number | null;
-      rs: Date | null; re: Date | null; es: Date | null; ee: Date | null; ra: Date | null;
-      allowCancel: boolean; cutoffDays: number | null; eligibilityNote: string | null;
-      featured: boolean; featuredOrder: number | null; publishedAt: Date | null;
+      id: string;
+      inst: string;
+      createdBy: string;
+      slug: string;
+      title: string;
+      description: string;
+      status: "draft" | "published";
+      category: string | null;
+      mode: string | null;
+      minTeam: number | null;
+      maxTeam: number | null;
+      rs: Date | null;
+      re: Date | null;
+      es: Date | null;
+      ee: Date | null;
+      ra: Date | null;
+      allowCancel: boolean;
+      cutoffDays: number | null;
+      eligibilityNote: string | null;
+      featured: boolean;
+      featuredOrder: number | null;
+      publishedAt: Date | null;
       // Minimum-entry commitment. `pca` (participant confirmation) is publish-required and must
       // satisfy registration_end_at <= pca < event_start_at; when omitted it is derived as the
       // midpoint of that window.
-      minEntries?: number | null; pca?: Date | null;
+      minEntries?: number | null;
+      pca?: Date | null;
     };
     const comps: CompSeed[] = [
       {
-        id: "seed-comp-draft", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
-        slug: "seed-draft", title: "Seed Draft Competition",
+        id: "seed-comp-draft",
+        inst: "seed-inst-a",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-draft",
+        title: "Seed Draft Competition",
         description: "Draf kompetisi data uji — belum lengkap, target halaman edit.",
-        status: "draft", category: "other", mode: null, minTeam: null, maxTeam: null,
-        rs: null, re: null, es: null, ee: null, ra: null,
-        allowCancel: false, cutoffDays: null, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: null,
+        status: "draft",
+        category: "other",
+        mode: null,
+        minTeam: null,
+        maxTeam: null,
+        rs: null,
+        re: null,
+        es: null,
+        ee: null,
+        ra: null,
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: null,
       },
       {
-        id: "seed-comp-upcoming", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
-        slug: "seed-upcoming", title: "Olimpiade Seed Nasional",
+        id: "seed-comp-upcoming",
+        inst: "seed-inst-a",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-upcoming",
+        title: "Olimpiade Seed Nasional",
         description: "Pendaftaran belum dibuka — fase 'upcoming'. Uji CTA 'belum dibuka'.",
-        status: "published", category: "olympiad", mode: "both", minTeam: 2, maxTeam: 3,
-        rs: d(5), re: d(30), es: d(45), ee: d(47), ra: d(54),
-        allowCancel: false, cutoffDays: null, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: d(-3),
+        status: "published",
+        category: "olympiad",
+        mode: "both",
+        minTeam: 2,
+        maxTeam: 3,
+        rs: d(5),
+        re: d(30),
+        es: d(45),
+        ee: d(47),
+        ra: d(54),
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: d(-3),
       },
       {
-        id: "seed-comp-open", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
-        slug: "seed-open", title: "Seed Hackathon Nusantara",
-        description: "Kompetisi unggulan data uji: pendaftaran dibuka, mode individu & tim, hadiah, babak, dan tag lengkap.",
-        status: "published", category: "hackathon", mode: "both", minTeam: 2, maxTeam: 4,
-        rs: d(-2), re: d(21), es: d(30), ee: d(32), ra: d(40),
-        allowCancel: true, cutoffDays: 3,
-        eligibilityNote: "Diutamakan untuk siswa SMA/SMK — panitia dapat meminta dokumen bukti status.",
-        featured: false, featuredOrder: null, publishedAt: d(-2),
+        id: "seed-comp-open",
+        inst: "seed-inst-a",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-open",
+        title: "Seed Hackathon Nusantara",
+        description:
+          "Kompetisi unggulan data uji: pendaftaran dibuka, mode individu & tim, hadiah, babak, dan tag lengkap.",
+        status: "published",
+        category: "hackathon",
+        mode: "both",
+        minTeam: 2,
+        maxTeam: 4,
+        rs: d(-2),
+        re: d(21),
+        es: d(30),
+        ee: d(32),
+        ra: d(40),
+        allowCancel: true,
+        cutoffDays: 3,
+        eligibilityNote:
+          "Diutamakan untuk siswa SMA/SMK — panitia dapat meminta dokumen bukti status.",
+        featured: false,
+        featuredOrder: null,
+        publishedAt: d(-2),
       },
       {
-        id: "seed-comp-featured", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
-        slug: "seed-featured", title: "Seed Business Case Challenge",
+        id: "seed-comp-featured",
+        inst: "seed-inst-a",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-featured",
+        title: "Seed Business Case Challenge",
         description: "Kompetisi unggulan (featured #1). Pembatalan mandiri TIDAK diizinkan.",
-        status: "published", category: "business", mode: "individual", minTeam: null, maxTeam: null,
-        rs: d(-1), re: d(14), es: d(20), ee: d(21), ra: d(28),
-        allowCancel: false, cutoffDays: null, eligibilityNote: null,
-        featured: true, featuredOrder: 1, publishedAt: d(-1),
+        status: "published",
+        category: "business",
+        mode: "individual",
+        minTeam: null,
+        maxTeam: null,
+        rs: d(-1),
+        re: d(14),
+        es: d(20),
+        ee: d(21),
+        ra: d(28),
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: true,
+        featuredOrder: 1,
+        publishedAt: d(-1),
       },
       {
-        id: "seed-comp-closing", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
-        slug: "seed-closing", title: "Seed Design Sprint",
+        id: "seed-comp-closing",
+        inst: "seed-inst-a",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-closing",
+        title: "Seed Design Sprint",
         description: "Pendaftaran segera ditutup (badge 'segera ditutup'). Mode tim.",
-        status: "published", category: "design", mode: "team", minTeam: 2, maxTeam: 4,
-        rs: d(-10), re: d(3), es: d(12), ee: d(13), ra: d(20),
-        allowCancel: true, cutoffDays: 2, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: d(-10),
+        status: "published",
+        category: "design",
+        mode: "team",
+        minTeam: 2,
+        maxTeam: 4,
+        rs: d(-10),
+        re: d(3),
+        es: d(12),
+        ee: d(13),
+        ra: d(20),
+        allowCancel: true,
+        cutoffDays: 2,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: d(-10),
       },
       {
         // THE MANUAL PAYMENT LANE'S STAGE. Priced, registration open, individual mode, and owned by
         // a VERIFIED institution that has published bank details. All three are required before
         // `createPayment` will accept a priced manual payment, so a competition missing any one of
         // them cannot host this lane at all.
-        id: "seed-comp-paid", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
-        slug: "seed-paid", title: "Seed Olimpiade Berbayar",
-        description: "Kompetisi berbayar data uji: transfer manual ke rekening penyelenggara, lalu unggah bukti transfer.",
-        status: "published", category: "olympiad", mode: "individual", minTeam: null, maxTeam: null,
-        rs: d(-6), re: d(28), es: d(34), ee: d(35), ra: d(42),
-        allowCancel: true, cutoffDays: 3, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: d(-6),
+        id: "seed-comp-paid",
+        inst: "seed-inst-a",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-paid",
+        title: "Seed Olimpiade Berbayar",
+        description:
+          "Kompetisi berbayar data uji: transfer manual ke rekening penyelenggara, lalu unggah bukti transfer.",
+        status: "published",
+        category: "olympiad",
+        mode: "individual",
+        minTeam: null,
+        maxTeam: null,
+        rs: d(-6),
+        re: d(28),
+        es: d(34),
+        ee: d(35),
+        ra: d(42),
+        allowCancel: true,
+        cutoffDays: 3,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: d(-6),
       },
       {
         // Institution D's priced competition, the other side of the tenant boundary. Same shape as
         // seed-comp-paid so a verdict route that leaked would succeed rather than fail for an
         // unrelated reason.
-        id: "seed-comp-d-paid", inst: "seed-inst-d", createdBy: "seed-user-rec-min",
-        slug: "seed-kolektif-paid", title: "Seed Festival Kolektif",
-        description: "Kompetisi berbayar milik tenant kedua, dipakai untuk menguji batas antar-institusi.",
-        status: "published", category: "design", mode: "individual", minTeam: null, maxTeam: null,
-        rs: d(-6), re: d(28), es: d(34), ee: d(35), ra: d(42),
-        allowCancel: true, cutoffDays: 3, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: d(-6),
+        id: "seed-comp-d-paid",
+        inst: "seed-inst-d",
+        createdBy: "seed-user-rec-min",
+        slug: "seed-kolektif-paid",
+        title: "Seed Festival Kolektif",
+        description:
+          "Kompetisi berbayar milik tenant kedua, dipakai untuk menguji batas antar-institusi.",
+        status: "published",
+        category: "design",
+        mode: "individual",
+        minTeam: null,
+        maxTeam: null,
+        rs: d(-6),
+        re: d(28),
+        es: d(34),
+        ee: d(35),
+        ra: d(42),
+        allowCancel: true,
+        cutoffDays: 3,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: d(-6),
       },
       {
         // Team-capable, registration open, and deliberately EMPTY of registrations. Every other
@@ -422,112 +865,284 @@ const main = async (): Promise<void> => {
         // (create → invite → accept → register → cancel → delete) has nowhere else to run. Keep it
         // unregistered: the assertions restore what they create, and a seeded registrant here
         // would put the captain slot permanently out of reach.
-        id: "seed-comp-teamopen", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
-        slug: "seed-team-open", title: "Seed Team Relay",
+        id: "seed-comp-teamopen",
+        inst: "seed-inst-a",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-team-open",
+        title: "Seed Team Relay",
         description: "Kompetisi mode tim dengan pendaftaran terbuka — panggung uji siklus tim.",
-        status: "published", category: "programming", mode: "team", minTeam: 2, maxTeam: 4,
-        rs: d(-4), re: d(25), es: d(35), ee: d(36), ra: d(43),
-        allowCancel: true, cutoffDays: 3, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: d(-4),
+        status: "published",
+        category: "programming",
+        mode: "team",
+        minTeam: 2,
+        maxTeam: 4,
+        rs: d(-4),
+        re: d(25),
+        es: d(35),
+        ee: d(36),
+        ra: d(43),
+        allowCancel: true,
+        cutoffDays: 3,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: d(-4),
       },
       {
-        id: "seed-comp-closed", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
-        slug: "seed-closed", title: "Seed Essay Marathon",
-        description: "Pendaftaran sudah ditutup, acara belum mulai. Uji CTA 'ditutup' dan penolakan daftar.",
-        status: "published", category: "essay", mode: "individual", minTeam: null, maxTeam: null,
-        rs: d(-30), re: d(-7), es: d(7), ee: d(8), ra: d(15),
-        allowCancel: false, cutoffDays: null, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: d(-30),
+        id: "seed-comp-closed",
+        inst: "seed-inst-a",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-closed",
+        title: "Seed Essay Marathon",
+        description:
+          "Pendaftaran sudah ditutup, acara belum mulai. Uji CTA 'ditutup' dan penolakan daftar.",
+        status: "published",
+        category: "essay",
+        mode: "individual",
+        minTeam: null,
+        maxTeam: null,
+        rs: d(-30),
+        re: d(-7),
+        es: d(7),
+        ee: d(8),
+        ra: d(15),
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: d(-30),
         // Minimum-entry commitment already lapsed with zero entries — the organizer's
         // participation-decision surface is live on this competition.
-        minEntries: 25, pca: d(-1),
+        minEntries: 25,
+        pca: d(-1),
       },
       {
-        id: "seed-comp-inprogress", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
-        slug: "seed-inprogress", title: "Seed Coding League",
+        id: "seed-comp-inprogress",
+        inst: "seed-inst-a",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-inprogress",
+        title: "Seed Coding League",
         description: "Acara sedang berlangsung (fase 'in progress').",
-        status: "published", category: "programming", mode: "individual", minTeam: null, maxTeam: null,
-        rs: d(-30), re: d(-10), es: d(-2), ee: d(2), ra: d(9),
-        allowCancel: false, cutoffDays: null, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: d(-30),
+        status: "published",
+        category: "programming",
+        mode: "individual",
+        minTeam: null,
+        maxTeam: null,
+        rs: d(-30),
+        re: d(-10),
+        es: d(-2),
+        ee: d(2),
+        ra: d(9),
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: d(-30),
       },
       {
-        id: "seed-comp-awaiting", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
-        slug: "seed-awaiting", title: "Seed Data Science Cup",
+        id: "seed-comp-awaiting",
+        inst: "seed-inst-a",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-awaiting",
+        title: "Seed Data Science Cup",
         description: "Acara selesai, menunggu pengumuman hasil (batas +4 hari).",
-        status: "published", category: "data_science", mode: "individual", minTeam: null, maxTeam: null,
-        rs: d(-40), re: d(-20), es: d(-5), ee: d(-3), ra: d(4),
-        allowCancel: false, cutoffDays: null, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: d(-40),
+        status: "published",
+        category: "data_science",
+        mode: "individual",
+        minTeam: null,
+        maxTeam: null,
+        rs: d(-40),
+        re: d(-20),
+        es: d(-5),
+        ee: d(-3),
+        ra: d(4),
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: d(-40),
       },
       {
-        id: "seed-comp-overdue", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
-        slug: "seed-overdue", title: "Seed Debate Open",
+        id: "seed-comp-overdue",
+        inst: "seed-inst-a",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-overdue",
+        title: "Seed Debate Open",
         description: "Hasil melewati tanggal pengumuman + masa tenggang (fase 'terlambat').",
-        status: "published", category: "debate", mode: "team", minTeam: 2, maxTeam: 3,
-        rs: d(-60), re: d(-45), es: d(-32), ee: d(-30), ra: d(-20),
-        allowCancel: false, cutoffDays: null, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: d(-60),
+        status: "published",
+        category: "debate",
+        mode: "team",
+        minTeam: 2,
+        maxTeam: 3,
+        rs: d(-60),
+        re: d(-45),
+        es: d(-32),
+        ee: d(-30),
+        ra: d(-20),
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: d(-60),
       },
       {
-        id: "seed-comp-done", inst: "seed-inst-a", createdBy: "seed-user-rec-elev",
-        slug: "seed-done", title: "Seed Scientific Writing Festival",
+        id: "seed-comp-done",
+        inst: "seed-inst-a",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-done",
+        title: "Seed Scientific Writing Festival",
         description: "Kompetisi selesai dengan hasil terpublikasi — arsip publik tetap terbuka.",
-        status: "published", category: "scientific_writing", mode: "individual", minTeam: null, maxTeam: null,
-        rs: d(-60), re: d(-40), es: d(-25), ee: d(-20), ra: d(-14),
-        allowCancel: false, cutoffDays: null, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: d(-60),
+        status: "published",
+        category: "scientific_writing",
+        mode: "individual",
+        minTeam: null,
+        maxTeam: null,
+        rs: d(-60),
+        re: d(-40),
+        es: d(-25),
+        ee: d(-20),
+        ra: d(-14),
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: d(-60),
       },
       {
-        id: "seed-comp-personal-open", inst: "seed-inst-p", createdBy: "seed-user-rec-min",
-        slug: "seed-personal-open", title: "Kuis Mingguan Rina",
-        description: "Kompetisi di bawah institusi personal (nama & media diturunkan dari pemilik).",
-        status: "published", category: "quiz", mode: "individual", minTeam: null, maxTeam: null,
-        rs: d(-1), re: d(20), es: d(25), ee: d(26), ra: d(33),
-        allowCancel: false, cutoffDays: null, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: d(-1),
+        id: "seed-comp-personal-open",
+        inst: "seed-inst-p",
+        createdBy: "seed-user-rec-min",
+        slug: "seed-personal-open",
+        title: "Kuis Mingguan Rina",
+        description:
+          "Kompetisi di bawah institusi personal (nama & media diturunkan dari pemilik).",
+        status: "published",
+        category: "quiz",
+        mode: "individual",
+        minTeam: null,
+        maxTeam: null,
+        rs: d(-1),
+        re: d(20),
+        es: d(25),
+        ee: d(26),
+        ra: d(33),
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: d(-1),
       },
       {
-        id: "seed-comp-personal-draft", inst: "seed-inst-p", createdBy: "seed-user-rec-min",
-        slug: "seed-personal-draft", title: "Kuis Spesial Rina (Draf)",
-        description: "Draf lengkap siap terbit — uji otomatis: publish HARUS ditolak (tier minimal).",
-        status: "draft", category: "quiz", mode: "individual", minTeam: null, maxTeam: null,
-        rs: d(1), re: d(20), es: d(25), ee: d(26), ra: d(33),
-        allowCancel: false, cutoffDays: null, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: null,
+        id: "seed-comp-personal-draft",
+        inst: "seed-inst-p",
+        createdBy: "seed-user-rec-min",
+        slug: "seed-personal-draft",
+        title: "Kuis Spesial Rina (Draf)",
+        description:
+          "Draf lengkap siap terbit — uji otomatis: publish HARUS ditolak (tier minimal).",
+        status: "draft",
+        category: "quiz",
+        mode: "individual",
+        minTeam: null,
+        maxTeam: null,
+        rs: d(1),
+        re: d(20),
+        es: d(25),
+        ee: d(26),
+        ra: d(33),
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: null,
       },
       {
-        id: "seed-comp-susp", inst: "seed-inst-c", createdBy: "seed-user-rec-elev",
-        slug: "seed-susp-open", title: "Seed Marketing Battle",
-        description: "Kompetisi milik organisasi yang ditangguhkan — uji perilaku keterjangkauan publik.",
-        status: "published", category: "marketing", mode: "individual", minTeam: null, maxTeam: null,
-        rs: d(-5), re: d(15), es: d(20), ee: d(21), ra: d(28),
-        allowCancel: false, cutoffDays: null, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: d(-5),
+        id: "seed-comp-susp",
+        inst: "seed-inst-c",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-susp-open",
+        title: "Seed Marketing Battle",
+        description:
+          "Kompetisi milik organisasi yang ditangguhkan — uji perilaku keterjangkauan publik.",
+        status: "published",
+        category: "marketing",
+        mode: "individual",
+        minTeam: null,
+        maxTeam: null,
+        rs: d(-5),
+        re: d(15),
+        es: d(20),
+        ee: d(21),
+        ra: d(28),
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: d(-5),
       },
       {
         // DEC-0170's runtime state, seeded as the state itself rather than as the path into it: a
         // competition priced and published while its institution was verified, whose institution is
         // no longer able to charge. The charging gate correctly refuses to CREATE this, which is
         // exactly why it has to be seeded: the state is reachable by revocation, not by the form.
-        id: "seed-comp-b-unpayable", inst: "seed-inst-b", createdBy: "seed-user-rec-elev",
-        slug: "seed-b-unpayable", title: "Seed Ventures Growth Sprint",
-        description: "Kompetisi berbayar milik institusi yang kini tidak dapat menerima pembayaran.",
+        id: "seed-comp-b-unpayable",
+        inst: "seed-inst-b",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-b-unpayable",
+        title: "Seed Ventures Growth Sprint",
+        description:
+          "Kompetisi berbayar milik institusi yang kini tidak dapat menerima pembayaran.",
         // `both` so BOTH registration paths are exercised against the withholding, and so the
         // individual CTA carries a label distinguishable from the page heading.
-        status: "published", category: "marketing", mode: "both", minTeam: 2, maxTeam: 4,
-        rs: d(-3), re: d(20), es: d(25), ee: d(26), ra: d(33),
-        allowCancel: false, cutoffDays: null, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: d(-3),
+        status: "published",
+        category: "marketing",
+        mode: "both",
+        minTeam: 2,
+        maxTeam: 4,
+        rs: d(-3),
+        re: d(20),
+        es: d(25),
+        ee: d(26),
+        ra: d(33),
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: d(-3),
       },
       {
-        id: "seed-comp-b-draft", inst: "seed-inst-b", createdBy: "seed-user-rec-elev",
-        slug: "seed-b-draft", title: "Seed Ventures Fintech Days",
-        description: "Draf lengkap di bawah Seed Ventures — target IDOR lintas-tenant dan alur publish.",
-        status: "draft", category: "finance", mode: "individual", minTeam: null, maxTeam: null,
-        rs: d(2), re: d(25), es: d(30), ee: d(31), ra: d(38),
-        allowCancel: false, cutoffDays: null, eligibilityNote: null,
-        featured: false, featuredOrder: null, publishedAt: null,
+        id: "seed-comp-b-draft",
+        inst: "seed-inst-b",
+        createdBy: "seed-user-rec-elev",
+        slug: "seed-b-draft",
+        title: "Seed Ventures Fintech Days",
+        description:
+          "Draf lengkap di bawah Seed Ventures — target IDOR lintas-tenant dan alur publish.",
+        status: "draft",
+        category: "finance",
+        mode: "individual",
+        minTeam: null,
+        maxTeam: null,
+        rs: d(2),
+        re: d(25),
+        es: d(30),
+        ee: d(31),
+        ra: d(38),
+        allowCancel: false,
+        cutoffDays: null,
+        eligibilityNote: null,
+        featured: false,
+        featuredOrder: null,
+        publishedAt: null,
       },
     ];
     for (const c of comps) {
@@ -570,9 +1185,36 @@ const main = async (): Promise<void> => {
 
     // Flagship extras: prizes, rounds, tags.
     const prizes = [
-      { id: "seed-prize-1", comp: "seed-comp-open", order: 0, rank: "Juara 1", title: "Uang tunai + sertifikat", desc: "Hadiah utama.", cash: "5000000", cert: true },
-      { id: "seed-prize-2", comp: "seed-comp-open", order: 1, rank: "Juara 2", title: "Uang tunai", desc: null, cash: "3000000", cert: false },
-      { id: "seed-prize-3", comp: "seed-comp-open", order: 2, rank: "Juara 3", title: "Sertifikat", desc: null, cash: null, cert: true },
+      {
+        id: "seed-prize-1",
+        comp: "seed-comp-open",
+        order: 0,
+        rank: "Juara 1",
+        title: "Uang tunai + sertifikat",
+        desc: "Hadiah utama.",
+        cash: "5000000",
+        cert: true,
+      },
+      {
+        id: "seed-prize-2",
+        comp: "seed-comp-open",
+        order: 1,
+        rank: "Juara 2",
+        title: "Uang tunai",
+        desc: null,
+        cash: "3000000",
+        cert: false,
+      },
+      {
+        id: "seed-prize-3",
+        comp: "seed-comp-open",
+        order: 2,
+        rank: "Juara 3",
+        title: "Sertifikat",
+        desc: null,
+        cash: null,
+        cert: true,
+      },
     ];
     for (const p of prizes) {
       await sql`
@@ -585,8 +1227,26 @@ const main = async (): Promise<void> => {
       `;
     }
     const rounds = [
-      { id: "seed-round-1", comp: "seed-comp-open", order: 0, title: "Babak Penyisihan", desc: "Seleksi proposal daring.", starts: d(22), ends: d(25), platform: "Online" },
-      { id: "seed-round-2", comp: "seed-comp-open", order: 1, title: "Babak Final", desc: "Presentasi final di Jakarta.", starts: d(30), ends: d(32), platform: "Offline" },
+      {
+        id: "seed-round-1",
+        comp: "seed-comp-open",
+        order: 0,
+        title: "Babak Penyisihan",
+        desc: "Seleksi proposal daring.",
+        starts: d(22),
+        ends: d(25),
+        platform: "Online",
+      },
+      {
+        id: "seed-round-2",
+        comp: "seed-comp-open",
+        order: 1,
+        title: "Babak Final",
+        desc: "Presentasi final di Jakarta.",
+        starts: d(30),
+        ends: d(32),
+        platform: "Offline",
+      },
     ];
     for (const r of rounds) {
       await sql`
@@ -656,25 +1316,188 @@ const main = async (): Promise<void> => {
 
     // -------------------------------------------------------- registrations
     type RegSeed = {
-      id: string; comp: string; student: string; team: string | null;
-      type: "individual" | "team"; status: "confirmed" | "cancelled";
-      registeredAt: Date; cancelledAt: Date | null; cancellationReason: string | null;
-      reviewStatus: string; internalNotes: string | null;
+      id: string;
+      comp: string;
+      student: string;
+      team: string | null;
+      type: "individual" | "team";
+      status: "confirmed" | "cancelled";
+      registeredAt: Date;
+      cancelledAt: Date | null;
+      cancellationReason: string | null;
+      reviewStatus: string;
+      internalNotes: string | null;
     };
     const regs: RegSeed[] = [
-      { id: "seed-reg-a-open", comp: "seed-comp-open", student: "seed-user-cand-a", team: null, type: "individual", status: "confirmed", registeredAt: d(-1), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
-      { id: "seed-reg-c-open", comp: "seed-comp-open", student: "seed-user-cand-c", team: null, type: "individual", status: "confirmed", registeredAt: d(-1), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
-      { id: "seed-reg-a-feat-cxl", comp: "seed-comp-featured", student: "seed-user-cand-a", team: null, type: "individual", status: "cancelled", registeredAt: d(-1), cancelledAt: h(-12), cancellationReason: "Jadwal bentrok dengan ujian sekolah.", reviewStatus: "pending_review", internalNotes: null },
-      { id: "seed-reg-a-inprog", comp: "seed-comp-inprogress", student: "seed-user-cand-a", team: null, type: "individual", status: "confirmed", registeredAt: d(-25), cancelledAt: null, cancellationReason: null, reviewStatus: "under_review", internalNotes: null },
-      { id: "seed-reg-a-done", comp: "seed-comp-done", student: "seed-user-cand-a", team: null, type: "individual", status: "confirmed", registeredAt: d(-50), cancelledAt: null, cancellationReason: null, reviewStatus: "shortlisted", internalNotes: "Kandidat kuat — finalis (catatan internal seed)." },
-      { id: "seed-reg-b-done", comp: "seed-comp-done", student: "seed-user-cand-b", team: null, type: "individual", status: "confirmed", registeredAt: d(-49), cancelledAt: null, cancellationReason: null, reviewStatus: "under_review", internalNotes: null },
-      { id: "seed-reg-a-paid", comp: "seed-comp-paid", student: "seed-user-cand-a", team: null, type: "individual", status: "confirmed", registeredAt: d(-5), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
-      { id: "seed-reg-b-paid", comp: "seed-comp-paid", student: "seed-user-cand-b", team: null, type: "individual", status: "confirmed", registeredAt: d(-5), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
-      { id: "seed-reg-c-paid", comp: "seed-comp-paid", student: "seed-user-cand-c", team: null, type: "individual", status: "confirmed", registeredAt: d(-5), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
-      { id: "seed-reg-d-paid", comp: "seed-comp-paid", student: "seed-user-cand-d", team: null, type: "individual", status: "confirmed", registeredAt: d(-5), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
-      { id: "seed-reg-a-dpaid", comp: "seed-comp-d-paid", student: "seed-user-cand-a", team: null, type: "individual", status: "confirmed", registeredAt: d(-4), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
-      { id: "seed-reg-tb-b", comp: "seed-comp-closing", student: "seed-user-cand-b", team: "seed-team-b", type: "team", status: "confirmed", registeredAt: d(-5), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
-      { id: "seed-reg-tb-c", comp: "seed-comp-closing", student: "seed-user-cand-c", team: "seed-team-b", type: "team", status: "confirmed", registeredAt: d(-5), cancelledAt: null, cancellationReason: null, reviewStatus: "pending_review", internalNotes: null },
+      {
+        id: "seed-reg-a-open",
+        comp: "seed-comp-open",
+        student: "seed-user-cand-a",
+        team: null,
+        type: "individual",
+        status: "confirmed",
+        registeredAt: d(-1),
+        cancelledAt: null,
+        cancellationReason: null,
+        reviewStatus: "pending_review",
+        internalNotes: null,
+      },
+      {
+        id: "seed-reg-c-open",
+        comp: "seed-comp-open",
+        student: "seed-user-cand-c",
+        team: null,
+        type: "individual",
+        status: "confirmed",
+        registeredAt: d(-1),
+        cancelledAt: null,
+        cancellationReason: null,
+        reviewStatus: "pending_review",
+        internalNotes: null,
+      },
+      {
+        id: "seed-reg-a-feat-cxl",
+        comp: "seed-comp-featured",
+        student: "seed-user-cand-a",
+        team: null,
+        type: "individual",
+        status: "cancelled",
+        registeredAt: d(-1),
+        cancelledAt: h(-12),
+        cancellationReason: "Jadwal bentrok dengan ujian sekolah.",
+        reviewStatus: "pending_review",
+        internalNotes: null,
+      },
+      {
+        id: "seed-reg-a-inprog",
+        comp: "seed-comp-inprogress",
+        student: "seed-user-cand-a",
+        team: null,
+        type: "individual",
+        status: "confirmed",
+        registeredAt: d(-25),
+        cancelledAt: null,
+        cancellationReason: null,
+        reviewStatus: "under_review",
+        internalNotes: null,
+      },
+      {
+        id: "seed-reg-a-done",
+        comp: "seed-comp-done",
+        student: "seed-user-cand-a",
+        team: null,
+        type: "individual",
+        status: "confirmed",
+        registeredAt: d(-50),
+        cancelledAt: null,
+        cancellationReason: null,
+        reviewStatus: "shortlisted",
+        internalNotes: "Kandidat kuat — finalis (catatan internal seed).",
+      },
+      {
+        id: "seed-reg-b-done",
+        comp: "seed-comp-done",
+        student: "seed-user-cand-b",
+        team: null,
+        type: "individual",
+        status: "confirmed",
+        registeredAt: d(-49),
+        cancelledAt: null,
+        cancellationReason: null,
+        reviewStatus: "under_review",
+        internalNotes: null,
+      },
+      {
+        id: "seed-reg-a-paid",
+        comp: "seed-comp-paid",
+        student: "seed-user-cand-a",
+        team: null,
+        type: "individual",
+        status: "confirmed",
+        registeredAt: d(-5),
+        cancelledAt: null,
+        cancellationReason: null,
+        reviewStatus: "pending_review",
+        internalNotes: null,
+      },
+      {
+        id: "seed-reg-b-paid",
+        comp: "seed-comp-paid",
+        student: "seed-user-cand-b",
+        team: null,
+        type: "individual",
+        status: "confirmed",
+        registeredAt: d(-5),
+        cancelledAt: null,
+        cancellationReason: null,
+        reviewStatus: "pending_review",
+        internalNotes: null,
+      },
+      {
+        id: "seed-reg-c-paid",
+        comp: "seed-comp-paid",
+        student: "seed-user-cand-c",
+        team: null,
+        type: "individual",
+        status: "confirmed",
+        registeredAt: d(-5),
+        cancelledAt: null,
+        cancellationReason: null,
+        reviewStatus: "pending_review",
+        internalNotes: null,
+      },
+      {
+        id: "seed-reg-d-paid",
+        comp: "seed-comp-paid",
+        student: "seed-user-cand-d",
+        team: null,
+        type: "individual",
+        status: "confirmed",
+        registeredAt: d(-5),
+        cancelledAt: null,
+        cancellationReason: null,
+        reviewStatus: "pending_review",
+        internalNotes: null,
+      },
+      {
+        id: "seed-reg-a-dpaid",
+        comp: "seed-comp-d-paid",
+        student: "seed-user-cand-a",
+        team: null,
+        type: "individual",
+        status: "confirmed",
+        registeredAt: d(-4),
+        cancelledAt: null,
+        cancellationReason: null,
+        reviewStatus: "pending_review",
+        internalNotes: null,
+      },
+      {
+        id: "seed-reg-tb-b",
+        comp: "seed-comp-closing",
+        student: "seed-user-cand-b",
+        team: "seed-team-b",
+        type: "team",
+        status: "confirmed",
+        registeredAt: d(-5),
+        cancelledAt: null,
+        cancellationReason: null,
+        reviewStatus: "pending_review",
+        internalNotes: null,
+      },
+      {
+        id: "seed-reg-tb-c",
+        comp: "seed-comp-closing",
+        student: "seed-user-cand-c",
+        team: "seed-team-b",
+        type: "team",
+        status: "confirmed",
+        registeredAt: d(-5),
+        cancelledAt: null,
+        cancellationReason: null,
+        reviewStatus: "pending_review",
+        internalNotes: null,
+      },
     ];
     for (const r of regs) {
       await sql`
@@ -694,8 +1517,28 @@ const main = async (): Promise<void> => {
 
     // ---------------------------------------------------------- submissions
     const submissions = [
-      { id: "seed-sub-a-done", reg: "seed-reg-a-done", by: "seed-user-cand-a", key: "submissions/seed-comp-done/seed-reg-a-done/seed-file-a", name: "karya-andi.pdf", size: 184320, mime: "application/pdf", version: 2, finalizedAt: d(-21) },
-      { id: "seed-sub-b-done", reg: "seed-reg-b-done", by: "seed-user-cand-b", key: "submissions/seed-comp-done/seed-reg-b-done/seed-file-b", name: "karya-bela.pdf", size: 92160, mime: "application/pdf", version: 1, finalizedAt: d(-22) },
+      {
+        id: "seed-sub-a-done",
+        reg: "seed-reg-a-done",
+        by: "seed-user-cand-a",
+        key: "submissions/seed-comp-done/seed-reg-a-done/seed-file-a",
+        name: "karya-andi.pdf",
+        size: 184320,
+        mime: "application/pdf",
+        version: 2,
+        finalizedAt: d(-21),
+      },
+      {
+        id: "seed-sub-b-done",
+        reg: "seed-reg-b-done",
+        by: "seed-user-cand-b",
+        key: "submissions/seed-comp-done/seed-reg-b-done/seed-file-b",
+        name: "karya-bela.pdf",
+        size: 92160,
+        mime: "application/pdf",
+        version: 1,
+        finalizedAt: d(-22),
+      },
     ];
     for (const s of submissions) {
       await sql`
@@ -732,18 +1575,104 @@ const main = async (): Promise<void> => {
 
     // ------------------------------------------------ document requests
     type DocReqSeed = {
-      id: string; reg: string; title: string; instructions: string | null; dueAt: Date;
-      status: string; requestedBy: string; submittedAt: Date | null;
-      reviewedBy: string | null; reviewedAt: Date | null; reviewNote: string | null;
+      id: string;
+      reg: string;
+      title: string;
+      instructions: string | null;
+      dueAt: Date;
+      status: string;
+      requestedBy: string;
+      submittedAt: Date | null;
+      reviewedBy: string | null;
+      reviewedAt: Date | null;
+      reviewNote: string | null;
       revisionCount: number;
     };
     const docReqs: DocReqSeed[] = [
-      { id: "seed-docreq-active", reg: "seed-reg-a-inprog", title: "Kartu Pelajar / KTM", instructions: "Unggah foto kartu pelajar atau KTM yang masih berlaku.", dueAt: d(5), status: "requested", requestedBy: "seed-user-rec-elev", submittedAt: null, reviewedBy: null, reviewedAt: null, reviewNote: null, revisionCount: 0 },
-      { id: "seed-docreq-lapsed", reg: "seed-reg-c-open", title: "Surat Keterangan Siswa", instructions: "Surat keterangan aktif dari sekolah.", dueAt: d(-2), status: "requested", requestedBy: "seed-user-rec-elev", submittedAt: null, reviewedBy: null, reviewedAt: null, reviewNote: null, revisionCount: 0 },
-      { id: "seed-docreq-submitted", reg: "seed-reg-tb-b", title: "Kartu Identitas", instructions: null, dueAt: d(2), status: "submitted", requestedBy: "seed-user-rec-elev", submittedAt: h(-3), reviewedBy: null, reviewedAt: null, reviewNote: null, revisionCount: 0 },
-      { id: "seed-docreq-accepted", reg: "seed-reg-a-done", title: "Kartu Identitas", instructions: null, dueAt: d(-25), status: "accepted", requestedBy: "seed-user-rec-elev", submittedAt: d(-26), reviewedBy: "seed-user-rec-elev", reviewedAt: d(-24), reviewNote: null, revisionCount: 0 },
-      { id: "seed-docreq-rejected", reg: "seed-reg-b-done", title: "Kartu Identitas", instructions: null, dueAt: d(-25), status: "rejected", requestedBy: "seed-user-rec-elev", submittedAt: d(-26), reviewedBy: "seed-user-rec-elev", reviewedAt: d(-24), reviewNote: "Foto buram dan tidak terbaca.", revisionCount: 1 },
-      { id: "seed-docreq-cancelled", reg: "seed-reg-a-done", title: "Surat Domisili", instructions: null, dueAt: d(-20), status: "cancelled", requestedBy: "seed-user-rec-elev", submittedAt: null, reviewedBy: null, reviewedAt: null, reviewNote: null, revisionCount: 0 },
+      {
+        id: "seed-docreq-active",
+        reg: "seed-reg-a-inprog",
+        title: "Kartu Pelajar / KTM",
+        instructions: "Unggah foto kartu pelajar atau KTM yang masih berlaku.",
+        dueAt: d(5),
+        status: "requested",
+        requestedBy: "seed-user-rec-elev",
+        submittedAt: null,
+        reviewedBy: null,
+        reviewedAt: null,
+        reviewNote: null,
+        revisionCount: 0,
+      },
+      {
+        id: "seed-docreq-lapsed",
+        reg: "seed-reg-c-open",
+        title: "Surat Keterangan Siswa",
+        instructions: "Surat keterangan aktif dari sekolah.",
+        dueAt: d(-2),
+        status: "requested",
+        requestedBy: "seed-user-rec-elev",
+        submittedAt: null,
+        reviewedBy: null,
+        reviewedAt: null,
+        reviewNote: null,
+        revisionCount: 0,
+      },
+      {
+        id: "seed-docreq-submitted",
+        reg: "seed-reg-tb-b",
+        title: "Kartu Identitas",
+        instructions: null,
+        dueAt: d(2),
+        status: "submitted",
+        requestedBy: "seed-user-rec-elev",
+        submittedAt: h(-3),
+        reviewedBy: null,
+        reviewedAt: null,
+        reviewNote: null,
+        revisionCount: 0,
+      },
+      {
+        id: "seed-docreq-accepted",
+        reg: "seed-reg-a-done",
+        title: "Kartu Identitas",
+        instructions: null,
+        dueAt: d(-25),
+        status: "accepted",
+        requestedBy: "seed-user-rec-elev",
+        submittedAt: d(-26),
+        reviewedBy: "seed-user-rec-elev",
+        reviewedAt: d(-24),
+        reviewNote: null,
+        revisionCount: 0,
+      },
+      {
+        id: "seed-docreq-rejected",
+        reg: "seed-reg-b-done",
+        title: "Kartu Identitas",
+        instructions: null,
+        dueAt: d(-25),
+        status: "rejected",
+        requestedBy: "seed-user-rec-elev",
+        submittedAt: d(-26),
+        reviewedBy: "seed-user-rec-elev",
+        reviewedAt: d(-24),
+        reviewNote: "Foto buram dan tidak terbaca.",
+        revisionCount: 1,
+      },
+      {
+        id: "seed-docreq-cancelled",
+        reg: "seed-reg-a-done",
+        title: "Surat Domisili",
+        instructions: null,
+        dueAt: d(-20),
+        status: "cancelled",
+        requestedBy: "seed-user-rec-elev",
+        submittedAt: null,
+        reviewedBy: null,
+        reviewedAt: null,
+        reviewNote: null,
+        revisionCount: 0,
+      },
     ];
     for (const q of docReqs) {
       await sql`
@@ -762,8 +1691,22 @@ const main = async (): Promise<void> => {
       `;
     }
     const docFiles = [
-      { id: "seed-docfile-submitted", req: "seed-docreq-submitted", key: "registration-documents/seed-comp-closing/seed-reg-tb-b/seed-docreq-submitted/seed-file", name: "ktm-bela.jpg", size: 234567, mime: "image/jpeg" },
-      { id: "seed-docfile-accepted", req: "seed-docreq-accepted", key: "registration-documents/seed-comp-done/seed-reg-a-done/seed-docreq-accepted/seed-file", name: "ktp-andi.jpg", size: 198765, mime: "image/jpeg" },
+      {
+        id: "seed-docfile-submitted",
+        req: "seed-docreq-submitted",
+        key: "registration-documents/seed-comp-closing/seed-reg-tb-b/seed-docreq-submitted/seed-file",
+        name: "ktm-bela.jpg",
+        size: 234567,
+        mime: "image/jpeg",
+      },
+      {
+        id: "seed-docfile-accepted",
+        req: "seed-docreq-accepted",
+        key: "registration-documents/seed-comp-done/seed-reg-a-done/seed-docreq-accepted/seed-file",
+        name: "ktp-andi.jpg",
+        size: 198765,
+        mime: "image/jpeg",
+      },
     ];
     for (const f of docFiles) {
       await sql`
@@ -776,16 +1719,64 @@ const main = async (): Promise<void> => {
 
     // -------------------------------------------------------- notifications
     const notifs = [
-      { id: "seed-notif-a1", user: "seed-user-cand-a", type: "result_published", title: "Hasil kompetisi diumumkan", body: "Hasil Seed Scientific Writing Festival telah diumumkan. Selamat, Juara 1!", readAt: null, createdAt: d(-14) },
-      { id: "seed-notif-a2", user: "seed-user-cand-a", type: "registration_confirmed", title: "Pendaftaran dikonfirmasi", body: "Pendaftaran Anda di Seed Hackathon Nusantara telah dikonfirmasi.", readAt: h(-20), createdAt: d(-1) },
-      { id: "seed-notif-a3", user: "seed-user-cand-a", type: "registration_document_requested", title: "Dokumen diminta panitia", body: "Panitia Seed Coding League meminta Kartu Pelajar / KTM sebelum tenggat.", readAt: null, createdAt: h(-6) },
-      { id: "seed-notif-b1", user: "seed-user-cand-b", type: "submission_finalized", title: "Karya difinalisasi", body: "Karya Anda untuk Seed Scientific Writing Festival telah difinalisasi.", readAt: d(-21), createdAt: d(-22) },
+      {
+        id: "seed-notif-a1",
+        user: "seed-user-cand-a",
+        type: "result_published",
+        title: "Hasil kompetisi diumumkan",
+        body: "Hasil Seed Scientific Writing Festival telah diumumkan. Selamat, Juara 1!",
+        readAt: null,
+        createdAt: d(-14),
+      },
+      {
+        id: "seed-notif-a2",
+        user: "seed-user-cand-a",
+        type: "registration_confirmed",
+        title: "Pendaftaran dikonfirmasi",
+        body: "Pendaftaran Anda di Seed Hackathon Nusantara telah dikonfirmasi.",
+        readAt: h(-20),
+        createdAt: d(-1),
+      },
+      {
+        id: "seed-notif-a3",
+        user: "seed-user-cand-a",
+        type: "registration_document_requested",
+        title: "Dokumen diminta panitia",
+        body: "Panitia Seed Coding League meminta Kartu Pelajar / KTM sebelum tenggat.",
+        readAt: null,
+        createdAt: h(-6),
+      },
+      {
+        id: "seed-notif-b1",
+        user: "seed-user-cand-b",
+        type: "submission_finalized",
+        title: "Karya difinalisasi",
+        body: "Karya Anda untuk Seed Scientific Writing Festival telah difinalisasi.",
+        readAt: d(-21),
+        createdAt: d(-22),
+      },
       // The two manual-lane rows. Seeded READ deliberately: CAND-03 pins candA's unread count at 3,
       // and a seed that renders a surface must not silently move another surface's assertion.
       // The expired one is here rather than the verified one because its copy is the one that can
       // do harm: a cancellation with no named cause reads as the organiser rejecting the payer.
-      { id: "seed-notif-a4", user: "seed-user-cand-a", type: "payment_outcome", title: "Pendaftaran dibatalkan otomatis untuk Seed Coding League", body: "Batas waktu pembayaran telah lewat, sehingga pendaftaran Anda dibatalkan secara otomatis. Ini bukan keputusan penyelenggara. Jika Anda sudah melakukan transfer, hubungi penyelenggara.", readAt: h(-2), createdAt: h(-3) },
-      { id: "seed-notif-r1", user: "seed-user-rec-elev", type: "payment_proof_submitted", title: "Bukti transfer baru untuk Seed Coding League", body: "Seed Candidate A mengirim bukti transfer sebesar Rp 150.000. Tinjau dan beri keputusan.", readAt: h(-2), createdAt: h(-3) },
+      {
+        id: "seed-notif-a4",
+        user: "seed-user-cand-a",
+        type: "payment_outcome",
+        title: "Pendaftaran dibatalkan otomatis untuk Seed Coding League",
+        body: "Batas waktu pembayaran telah lewat, sehingga pendaftaran Anda dibatalkan secara otomatis. Ini bukan keputusan penyelenggara. Jika Anda sudah melakukan transfer, hubungi penyelenggara.",
+        readAt: h(-2),
+        createdAt: h(-3),
+      },
+      {
+        id: "seed-notif-r1",
+        user: "seed-user-rec-elev",
+        type: "payment_proof_submitted",
+        title: "Bukti transfer baru untuk Seed Coding League",
+        body: "Seed Candidate A mengirim bukti transfer sebesar Rp 150.000. Tinjau dan beri keputusan.",
+        readAt: h(-2),
+        createdAt: h(-3),
+      },
     ];
     for (const n of notifs) {
       await sql`
@@ -817,17 +1808,108 @@ const main = async (): Promise<void> => {
 
     // -------------------------------- recruiter verification submissions
     type RvsSeed = {
-      id: string; user: string; fullName: string; mobile: string;
-      corporateEmail: string | null; emailFlag: boolean | null; vouchedAt: Date | null;
-      status: string; rejectionReason: string | null; resubAllowed: boolean; resubCount: number;
-      firstAt: Date; submittedAt: Date; reviewedAt: Date | null; reviewer: string | null;
+      id: string;
+      user: string;
+      fullName: string;
+      mobile: string;
+      corporateEmail: string | null;
+      emailFlag: boolean | null;
+      vouchedAt: Date | null;
+      status: string;
+      rejectionReason: string | null;
+      resubAllowed: boolean;
+      resubCount: number;
+      firstAt: Date;
+      submittedAt: Date;
+      reviewedAt: Date | null;
+      reviewer: string | null;
     };
     const rvs: RvsSeed[] = [
-      { id: "seed-rvs-min", user: "seed-user-rec-min", fullName: "Rina Wijaya", mobile: "+6281200001111", corporateEmail: null, emailFlag: null, vouchedAt: null, status: "pending_review", rejectionReason: null, resubAllowed: true, resubCount: 0, firstAt: d(-2), submittedAt: d(-2), reviewedAt: null, reviewer: null },
-      { id: "seed-rvs-dual", user: "seed-user-dual", fullName: "Dina Kusuma", mobile: "+6281200002222", corporateEmail: "dina@seedcorp.example", emailFlag: true, vouchedAt: d(-1), status: "pending_review", rejectionReason: null, resubAllowed: true, resubCount: 0, firstAt: d(-1), submittedAt: d(-1), reviewedAt: null, reviewer: null },
-      { id: "seed-rvs-elev", user: "seed-user-rec-elev", fullName: "Eko Prasetyo", mobile: "+6281200003333", corporateEmail: "eko@seed-academy.example", emailFlag: true, vouchedAt: null, status: "approved", rejectionReason: null, resubAllowed: true, resubCount: 0, firstAt: d(-40), submittedAt: d(-40), reviewedAt: d(-39), reviewer: "seed-user-ops" },
-      { id: "seed-rvs-rej", user: "seed-user-rec-rej", fullName: "Raka Nugraha", mobile: "+6281200004444", corporateEmail: null, emailFlag: null, vouchedAt: null, status: "rejected", rejectionReason: "Nomor tidak dapat dihubungi dan dokumen tidak jelas.", resubAllowed: true, resubCount: 1, firstAt: d(-10), submittedAt: d(-5), reviewedAt: d(-1), reviewer: "seed-user-ops" },
-      { id: "seed-rvs-draft", user: "seed-user-rec-draft", fullName: "Dodi Firmansyah", mobile: "+6281200005555", corporateEmail: null, emailFlag: null, vouchedAt: null, status: "draft", rejectionReason: null, resubAllowed: true, resubCount: 0, firstAt: d(-8), submittedAt: d(-8), reviewedAt: null, reviewer: null },
+      {
+        id: "seed-rvs-min",
+        user: "seed-user-rec-min",
+        fullName: "Rina Wijaya",
+        mobile: "+6281200001111",
+        corporateEmail: null,
+        emailFlag: null,
+        vouchedAt: null,
+        status: "pending_review",
+        rejectionReason: null,
+        resubAllowed: true,
+        resubCount: 0,
+        firstAt: d(-2),
+        submittedAt: d(-2),
+        reviewedAt: null,
+        reviewer: null,
+      },
+      {
+        id: "seed-rvs-dual",
+        user: "seed-user-dual",
+        fullName: "Dina Kusuma",
+        mobile: "+6281200002222",
+        corporateEmail: "dina@seedcorp.example",
+        emailFlag: true,
+        vouchedAt: d(-1),
+        status: "pending_review",
+        rejectionReason: null,
+        resubAllowed: true,
+        resubCount: 0,
+        firstAt: d(-1),
+        submittedAt: d(-1),
+        reviewedAt: null,
+        reviewer: null,
+      },
+      {
+        id: "seed-rvs-elev",
+        user: "seed-user-rec-elev",
+        fullName: "Eko Prasetyo",
+        mobile: "+6281200003333",
+        corporateEmail: "eko@seed-academy.example",
+        emailFlag: true,
+        vouchedAt: null,
+        status: "approved",
+        rejectionReason: null,
+        resubAllowed: true,
+        resubCount: 0,
+        firstAt: d(-40),
+        submittedAt: d(-40),
+        reviewedAt: d(-39),
+        reviewer: "seed-user-ops",
+      },
+      {
+        id: "seed-rvs-rej",
+        user: "seed-user-rec-rej",
+        fullName: "Raka Nugraha",
+        mobile: "+6281200004444",
+        corporateEmail: null,
+        emailFlag: null,
+        vouchedAt: null,
+        status: "rejected",
+        rejectionReason: "Nomor tidak dapat dihubungi dan dokumen tidak jelas.",
+        resubAllowed: true,
+        resubCount: 1,
+        firstAt: d(-10),
+        submittedAt: d(-5),
+        reviewedAt: d(-1),
+        reviewer: "seed-user-ops",
+      },
+      {
+        id: "seed-rvs-draft",
+        user: "seed-user-rec-draft",
+        fullName: "Dodi Firmansyah",
+        mobile: "+6281200005555",
+        corporateEmail: null,
+        emailFlag: null,
+        vouchedAt: null,
+        status: "draft",
+        rejectionReason: null,
+        resubAllowed: true,
+        resubCount: 0,
+        firstAt: d(-8),
+        submittedAt: d(-8),
+        reviewedAt: null,
+        reviewer: null,
+      },
     ];
     for (const v of rvs) {
       await sql`

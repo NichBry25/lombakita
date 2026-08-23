@@ -32,12 +32,10 @@ const ITERATIONS = 5;
 
 const main = async (): Promise<void> => {
   const { client, db } = await openPool();
-  const { upgradeInstitutionType, createInstitutionWorkspaceForUser } = await import(
-    "@/server/institution-workspace/institution-service"
-  );
-  const { MAX_INSTITUTIONS_PER_RECRUITER } = await import(
-    "@/server/institution-workspace/institution-core"
-  );
+  const { upgradeInstitutionType, createInstitutionWorkspaceForUser } =
+    await import("@/server/institution-workspace/institution-service");
+  const { MAX_INSTITUTIONS_PER_RECRUITER } =
+    await import("@/server/institution-workspace/institution-core");
 
   const { check, failureCount } = createChecker();
   const createdUserIds: string[] = [];
@@ -56,11 +54,14 @@ const main = async (): Promise<void> => {
   };
 
   const seedPersonalInstitution = async (userId: string, slug: string): Promise<string> => {
-    const row = oneRow(await client<{ id: string }[]>`
+    const row = oneRow(
+      await client<{ id: string }[]>`
       INSERT INTO institutions (display_name, slug, institution_type)
       VALUES (NULL, ${slug}, 'personal')
       RETURNING id
-    `, "row");
+    `,
+      "row",
+    );
     await client`
       INSERT INTO institution_memberships (institution_id, user_id, membership_role, status)
       VALUES (${row.id}, ${userId}, 'institution_owner', 'active')
@@ -108,9 +109,23 @@ const main = async (): Promise<void> => {
       // Distinct display names → distinct derived slugs, so nothing but the cap can stop a racer.
       const outcome = await race(
         () =>
-          upgradeInstitutionType(userId, personalOne, "company", `Upg Conc Up One ${i} ${tag}`, null, db),
+          upgradeInstitutionType(
+            userId,
+            personalOne,
+            "company",
+            `Upg Conc Up One ${i} ${tag}`,
+            null,
+            db,
+          ),
         () =>
-          upgradeInstitutionType(userId, personalTwo, "foundation", `Upg Conc Up Two ${i} ${tag}`, null, db),
+          upgradeInstitutionType(
+            userId,
+            personalTwo,
+            "foundation",
+            `Upg Conc Up Two ${i} ${tag}`,
+            null,
+            db,
+          ),
       );
 
       const finalFullCount = await countOwnedFull(userId);
@@ -141,9 +156,23 @@ const main = async (): Promise<void> => {
 
       const outcome = await race(
         () =>
-          upgradeInstitutionType(userOne, personalOne, "company", `Upg Conc Cross One ${i} ${tagOne}`, null, db),
+          upgradeInstitutionType(
+            userOne,
+            personalOne,
+            "company",
+            `Upg Conc Cross One ${i} ${tagOne}`,
+            null,
+            db,
+          ),
         () =>
-          upgradeInstitutionType(userTwo, personalTwo, "company", `Upg Conc Cross Two ${i} ${tagTwo}`, null, db),
+          upgradeInstitutionType(
+            userTwo,
+            personalTwo,
+            "company",
+            `Upg Conc Cross Two ${i} ${tagTwo}`,
+            null,
+            db,
+          ),
       );
 
       const countOne = await countOwnedFull(userOne);
@@ -168,7 +197,9 @@ const main = async (): Promise<void> => {
       await client`DELETE FROM institutions WHERE id = ANY(${client.array(instIds)})`;
     }
     await client`DELETE FROM users WHERE id = ANY(${client.array(createdUserIds)})`;
-    console.log(`\nCleaned up ${createdUserIds.length} seeded users and ${instIds.length} institutions.`);
+    console.log(
+      `\nCleaned up ${createdUserIds.length} seeded users and ${instIds.length} institutions.`,
+    );
   };
 
   try {

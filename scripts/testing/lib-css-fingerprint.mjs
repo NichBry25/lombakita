@@ -252,7 +252,9 @@ const compareTokensInPage = async (page, theme, tokens) =>
         probe.style.color = "";
         probe.style.color = resolved;
         if (probe.style.color !== "") return `colour:${getComputedStyle(probe).color}`;
-        const flattened = normaliseEmbeddedColours(resolved.replace(/\s+/g, " ").trim().toLowerCase());
+        const flattened = normaliseEmbeddedColours(
+          resolved.replace(/\s+/g, " ").trim().toLowerCase(),
+        );
         return `text:${normaliseNumbers(flattened)}`;
       };
 
@@ -307,7 +309,10 @@ export const assertServedCssMatchesSource = async (page) => {
 
   const tokens = sourceTokens(sources);
   const tokenMismatches = [
-    ...(await compareTokensInPage(page, "light", tokens.light)).map((m) => ({ ...m, theme: "light" })),
+    ...(await compareTokensInPage(page, "light", tokens.light)).map((m) => ({
+      ...m,
+      theme: "light",
+    })),
     ...(await compareTokensInPage(page, "dark", tokens.dark)).map((m) => ({ ...m, theme: "dark" })),
   ];
 

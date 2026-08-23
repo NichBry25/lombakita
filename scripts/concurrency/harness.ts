@@ -92,8 +92,7 @@ export const settleAll = async (operations: Array<Promise<unknown>>): Promise<Ra
 
     // A domain error carries a string `code` AND an HTTP status; a driver error's `code` is a
     // 5-character SQLSTATE and belongs in `other`, where an assertion will notice it.
-    const isDomainError =
-      reason && typeof reason.code === "string" && reason.code !== sqlState;
+    const isDomainError = reason && typeof reason.code === "string" && reason.code !== sqlState;
     if (isDomainError) {
       outcome.failCodes.push(reason.code as string);
       outcome.failStatuses.push(reason.httpStatus ?? reason.status ?? null);

@@ -599,7 +599,9 @@ for (const testCase of targets) {
     const detail = String(error).slice(0, 160);
     // A timeout that survives the warm-up is still more likely to be compilation than a defect, so
     // the message says so rather than leaving the reader to choose between two explanations.
-    const hint = /Timeout/.test(detail) ? " (COLD COMPILE SUSPECTED, RE-RUN before treating this as a product defect)" : "";
+    const hint = /Timeout/.test(detail)
+      ? " (COLD COMPILE SUSPECTED, RE-RUN before treating this as a product defect)"
+      : "";
     misses.push(`${testCase.id}: could not be checked: ${detail}${hint}`);
   } finally {
     await context?.close();

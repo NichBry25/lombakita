@@ -72,7 +72,10 @@ export const toneSeparationFindings = async (page) =>
         const computed = getComputedStyle(probe).color;
         const parts = /rgba?\(([^)]+)\)/.exec(computed);
         if (!parts) return null;
-        return parts[1].split(/[,/]+/).slice(0, 3).map((n) => Number.parseFloat(n));
+        return parts[1]
+          .split(/[,/]+/)
+          .slice(0, 3)
+          .map((n) => Number.parseFloat(n));
       };
 
       const toLab = ([r, g, b]) => {
@@ -99,7 +102,7 @@ export const toneSeparationFindings = async (page) =>
         const a2p = (1 + g) * a2;
         const c1p = Math.hypot(a1p, b1);
         const c2p = Math.hypot(a2p, b2);
-        const hue = (a, b) => (a === 0 && b === 0 ? 0 : ((Math.atan2(b, a) / rad) + 360) % 360);
+        const hue = (a, b) => (a === 0 && b === 0 ? 0 : (Math.atan2(b, a) / rad + 360) % 360);
         const h1p = hue(a1p, b1);
         const h2p = hue(a2p, b2);
         const dLp = l2 - l1;
@@ -132,10 +135,7 @@ export const toneSeparationFindings = async (page) =>
         const sH = 1 + 0.015 * cBarP * t;
         const rT = -rC * Math.sin(2 * dTheta * rad);
         return Math.sqrt(
-          (dLp / sL) ** 2 +
-            (dCp / sC) ** 2 +
-            (dHp / sH) ** 2 +
-            rT * (dCp / sC) * (dHp / sH),
+          (dLp / sL) ** 2 + (dCp / sC) ** 2 + (dHp / sH) ** 2 + rT * (dCp / sC) * (dHp / sH),
         );
       };
 

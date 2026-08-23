@@ -140,7 +140,9 @@ const main = async (): Promise<void> => {
   // ---- RACE 1: failed_attempt_count lost update ----------------------------
 
   const runFailedAttemptCounterRace = async (): Promise<void> => {
-    console.log(`\n[mfa-lockout] ${ITERATIONS} iterations, two concurrent wrong codes on one factor`);
+    console.log(
+      `\n[mfa-lockout] ${ITERATIONS} iterations, two concurrent wrong codes on one factor`,
+    );
     for (let i = 0; i < ITERATIONS; i += 1) {
       const userId = await seedOperationalUser("mfarace_ctr");
       const now = new Date("2026-08-10T00:00:00.000Z");
@@ -182,7 +184,9 @@ const main = async (): Promise<void> => {
   // ---- RACE 2: recovery-code double-redemption -----------------------------
 
   const runRecoveryCodeRedemptionRace = async (): Promise<void> => {
-    console.log(`\n[mfa-recovery] ${ITERATIONS} iterations, two concurrent redemptions of one code`);
+    console.log(
+      `\n[mfa-recovery] ${ITERATIONS} iterations, two concurrent redemptions of one code`,
+    );
     for (let i = 0; i < ITERATIONS; i += 1) {
       const userId = await seedOperationalUser("mfarace_rec");
       const now = new Date("2026-08-10T00:00:00.000Z");
@@ -195,7 +199,12 @@ const main = async (): Promise<void> => {
 
       const redeemAt = new Date(now.getTime() + 3600_000);
       const codeHash = createHash("sha256")
-        .update(recoveryCode.trim().toUpperCase().replace(/[\s-]+/g, ""))
+        .update(
+          recoveryCode
+            .trim()
+            .toUpperCase()
+            .replace(/[\s-]+/g, ""),
+        )
         .digest("hex");
 
       const { outcome, barrierHeld } = await raceBehindRowLock(
@@ -209,7 +218,9 @@ const main = async (): Promise<void> => {
         .select()
         .from(platformOpsAuditLogs)
         .where(eq(platformOpsAuditLogs.targetUserId, userId));
-      const recoveryUsedCount = auditRows.filter((row) => row.eventType === "mfa.recovery_code_used").length;
+      const recoveryUsedCount = auditRows.filter(
+        (row) => row.eventType === "mfa.recovery_code_used",
+      ).length;
       const resetCount = auditRows.filter((row) => row.eventType === "mfa.reset").length;
 
       // The loser refuses with `mfa_not_enrolled` (404), not `mfa_invalid_recovery_code` (401).

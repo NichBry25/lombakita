@@ -208,8 +208,9 @@ await collapsiblePage.close();
 const toneFixture = (tones) => `<!doctype html><html><head><meta charset="utf-8"><style>
   :root {
 ${Object.entries(tones)
-  .map(([name, [surface, ink]]) =>
-    `    --color-${name}-surface: ${surface};\n    --color-${name}-text: ${ink};`,
+  .map(
+    ([name, [surface, ink]]) =>
+      `    --color-${name}-surface: ${surface};\n    --color-${name}-text: ${ink};`,
   )
   .join("\n")}
     --color-inset: #f4eee0;

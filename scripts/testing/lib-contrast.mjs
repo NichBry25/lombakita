@@ -105,8 +105,7 @@ export const audit = async (page) =>
       return label.htmlFor ? document.getElementById(label.htmlFor) : null;
     };
 
-    const isDisabled = (el) =>
-      el.disabled === true || el.getAttribute("aria-disabled") === "true";
+    const isDisabled = (el) => el.disabled === true || el.getAttribute("aria-disabled") === "true";
 
     const isInactive = (el) => {
       if (el.closest(":disabled, [aria-disabled='true']")) return true;
