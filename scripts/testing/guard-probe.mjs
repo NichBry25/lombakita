@@ -23,6 +23,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { transform as parseCss } from "lightningcss";
 
 const git = (args) => execFileSync("git", args, { encoding: "utf8" }).trim();
 
@@ -117,6 +118,10 @@ const CODE_CHECKS = {
   ".ts": () => execFileSync("npx", ["tsc", "--noEmit"], { stdio: "pipe" }),
   ".tsx": () => execFileSync("npx", ["tsc", "--noEmit"], { stdio: "pipe" }),
   ".mts": () => execFileSync("npx", ["tsc", "--noEmit"], { stdio: "pipe" }),
+  // The same parser the build uses, so a mutated stylesheet is held to the grammar the browser
+  // will be served. A CSS mutation that does not parse changes which RULES exist rather than which
+  // VALUES they carry, which is a different experiment from the one the probe claims to run.
+  ".css": (file) => parseCss({ filename: file, code: readFileSync(file), minify: false }),
 };
 
 // Data, not code: nothing to compile, and a parse check on them would be theatre. A `.json` is
