@@ -176,12 +176,17 @@ export const probes = [
     harmfulMove:
       "putting `test` back on the delivering side, so a seeded run mails every fixture address",
     files: ["src/config/env.server.ts"],
-    appliedMarkers: ['if (appEnv === "no-such-environment")'],
+    appliedMarkers: ["// probe: test back on the delivering side"],
+    // The mutation RESTORES the old rule — "anything that is not local delivers" — rather than
+    // renaming the environment to one that does not exist. The rename does not typecheck, so under
+    // a mandatory clause 1 it is a refusal rather than a probe, and under the optional clause it
+    // was believed for a fortnight: `tsc` and `vitest` both go red on a type error exactly as they
+    // do on a guard holding.
     mutate: () =>
       substituteOnce(
         "src/config/env.server.ts",
-        '  if (appEnv === "test") {\n    return false;\n  }',
-        '  if (appEnv === "no-such-environment") {\n    return false;\n  }',
+        '  if (appEnv === "test") {\n    return false;\n  }\n\n  if (appEnv !== "local") {',
+        '  // probe: test back on the delivering side\n  if (appEnv !== "local") {',
       ),
     detect: async () => vitest("src/config/env-email-delivery.test.ts"),
   },

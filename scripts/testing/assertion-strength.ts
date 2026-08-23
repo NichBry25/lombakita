@@ -74,9 +74,17 @@ const isStringReceiver = (checker: ts.TypeChecker, receiver: ts.Expression): boo
  *
  * Declaration files are skipped: a `.d.ts` has no body to read, and following one would resolve
  * into the standard library rather than into this repository's own helpers.
+ *
+ * The ALIAS unwrap is not a detail. An imported identifier resolves to its `import` specifier, not
+ * to the function it names, so a helper defined in the file that calls it was read and the same
+ * helper moved into a shared module was invisible — and moving them into a shared module is
+ * exactly what Rule 37 asks for. A probe caught this: `refusedWith` was weakened to a status range
+ * inside `lib-assertions.mjs` and the gate reported all 122 assertions strong.
  */
 const resolvedBodyOf = (checker: ts.TypeChecker, callee: ts.Identifier): ts.Node | null => {
-  const symbol = checker.getSymbolAtLocation(callee);
+  const local = checker.getSymbolAtLocation(callee);
+  const symbol =
+    local && local.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(local) : local;
   const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
   if (!declaration) return null;
   if (declaration.getSourceFile().isDeclarationFile) return null;
