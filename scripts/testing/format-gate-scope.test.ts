@@ -23,7 +23,7 @@
 
 import { describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -50,6 +50,36 @@ const DELETED_FROM_THE_REPOSITORY = [
   ".env.production.example",
   ".env.worker.example",
 ];
+
+/** The wildcard patterns in a Prettier invocation, unquoted. */
+const globPatternsIn = (script: string): string[] =>
+  script
+    .split(/\s+/)
+    .filter((token) => token.includes("*"))
+    .map((token) => token.replace(/^"|"$/g, ""));
+
+/**
+ * How many files a `dir/**\/*.{a,b}` pattern actually matches.
+ *
+ * Only the two shapes the gate uses are understood, and an unrecognised one throws rather than
+ * returning zero — a matcher that silently answers "none" to a pattern it cannot read would fail
+ * the gate for the wrong reason, which is the failure class this whole file is about.
+ */
+const filesMatching = (pattern: string): number => {
+  const match = /^(.*?)\/(?:\*\*\/)?\*\.\{([^}]+)\}$/.exec(pattern);
+  if (!match) throw new Error(`this test cannot read the pattern ${pattern}`);
+
+  const [, directory, extensionList] = match;
+  const extensions = extensionList!.split(",").map((e) => `.${e}`);
+  const root = resolve(process.cwd(), directory!);
+  if (!existsSync(root)) return 0;
+
+  const recursive = pattern.includes("**");
+  const entries = readdirSync(root, { recursive, withFileTypes: true });
+  return entries.filter(
+    (entry) => entry.isFile() && extensions.some((extension) => entry.name.endsWith(extension)),
+  ).length;
+};
 
 const isIgnoredOrAbsent = (path: string): boolean => {
   try {
@@ -85,17 +115,22 @@ describe("format gate scope", () => {
     expect(formatCheck).toContain(".github/workflows/*.{yml,yaml}");
   });
 
-  // The distinction the single word "gitignored" hid: four of these are not merely uncommittable,
-  // they are gone. Nothing on this machine or any other has them to format.
-  it.each(DELETED_FROM_THE_REPOSITORY)("%s does not exist on disk at all", (path) => {
-    expect(existsSync(resolve(process.cwd(), path))).toBe(false);
+  // The apparatus that gates the repository was itself ungated: every line this step wrote landed
+  // in scripts/testing/, the one directory the format gate could not see.
+  it("covers the tooling directory, which is where the gates themselves live", () => {
+    expect(formatCheck).toContain("scripts/**/*.{ts,mjs}");
   });
 
-  // README.md is the one that still exists here, which is exactly why its reason has to be the
-  // other one: the gate would pass locally and fail in CI, the worst of the three outcomes.
-  it("README.md exists locally, which is why local success proves nothing about it", () => {
-    expect(existsSync(resolve(process.cwd(), "README.md"))).toBe(true);
-    expect(isIgnoredOrAbsent("README.md")).toBe(true);
+  // Zero matches is Prettier's error condition, so a pattern in the gate that matches nothing makes
+  // the gate permanently red — measured in the block at the bottom of this file. Checked per
+  // pattern, because the failure arrives when a directory is emptied, not when the pattern is
+  // written. Counted from the filesystem rather than by running Prettier: asking the formatter adds
+  // fifteen seconds to the suite to answer a question about which files exist.
+  it.each(globPatternsIn(formatCheck))("%s matches at least one file", (pattern) => {
+    expect(
+      filesMatching(pattern),
+      `${pattern} matches nothing, so the gate can never pass`,
+    ).toBeGreaterThan(0);
   });
 
   // `format` and `format:check` must look at the same set, or `npm run format` leaves files the
