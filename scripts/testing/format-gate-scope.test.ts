@@ -5,30 +5,51 @@
 // here with the reason each one is excluded, and pinned — both that the gate still lists them
 // nowhere, and that it still covers what it is for.
 //
-// The five below were REMOVED rather than kept because Prettier exits non-zero on
-// `No files matching the pattern`: listing a path that is absent from a clean checkout means the
-// gate can never pass, which is exactly what it did on its first CI run. All five are gitignored
-// (README.md at .gitignore:61, the four .env examples alongside it) and all five were tracked once,
-// so they are present on a developer's disk and absent everywhere the gate actually runs.
+// The five below were REMOVED rather than kept, and they are NOT one case. Four of them no longer
+// exist anywhere — not in the checkout, not on the developer's disk, not in the working tree — so
+// there is nothing for the gate to read. README.md exists locally and cannot be committed at all
+// under DEC-0101, so it is absent from every environment the gate runs in.
+//
+// A glob does not rescue either case, and this was measured rather than assumed: Prettier exits 2
+// on `.env*.example` with the same "No files matching the pattern were found" it gives an explicit
+// path. Zero matches is the error, not the spelling of the pattern. So the choice is not
+// "exclusion versus glob" — it is "exclusion versus a gate that can never pass", and the second is
+// what shipped on the first CI run.
+//
+// This is a reduction in the gate's DECLARED subject and not in what it covers: no environment the
+// gate runs in contains any of these files. The "genuinely absent" test below is what keeps that
+// true — the day one of them comes back as a tracked file, the reason for its entry has gone and
+// the test goes red until the entry does.
 
 import { describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8")) as {
   scripts: Record<string, string>;
 };
 
-/** Path, and why the format gate cannot list it. */
+/** Path, and why the format gate cannot list it. One reason per path, not one reason for all. */
 const EXCLUDED_FROM_THE_GATE = {
-  "README.md": "gitignored, so it exists on a developer's disk and nowhere the gate runs",
-  ".env.example": "gitignored and no longer on disk",
-  ".env.preview.example": "gitignored and no longer on disk",
-  ".env.production.example": "gitignored and no longer on disk",
-  ".env.worker.example": "gitignored and no longer on disk",
+  "README.md":
+    "gitignored under DEC-0101 and never committed, so it is on this disk and in no checkout",
+  ".env.example": "deleted from the repository; the file does not exist in any environment",
+  ".env.preview.example": "deleted from the repository; the file does not exist in any environment",
+  ".env.production.example":
+    "deleted from the repository; the file does not exist in any environment",
+  ".env.worker.example": "deleted from the repository; the file does not exist in any environment",
   "tsconfig.json": "`next build` rewrites and reflows it, so the gate would go red after any build",
 };
+
+/** The four that are gone entirely, as opposed to the one that merely cannot be committed. */
+const DELETED_FROM_THE_REPOSITORY = [
+  ".env.example",
+  ".env.preview.example",
+  ".env.production.example",
+  ".env.worker.example",
+];
 
 const isIgnoredOrAbsent = (path: string): boolean => {
   try {
@@ -64,10 +85,69 @@ describe("format gate scope", () => {
     expect(formatCheck).toContain(".github/workflows/*.{yml,yaml}");
   });
 
+  // The distinction the single word "gitignored" hid: four of these are not merely uncommittable,
+  // they are gone. Nothing on this machine or any other has them to format.
+  it.each(DELETED_FROM_THE_REPOSITORY)("%s does not exist on disk at all", (path) => {
+    expect(existsSync(resolve(process.cwd(), path))).toBe(false);
+  });
+
+  // README.md is the one that still exists here, which is exactly why its reason has to be the
+  // other one: the gate would pass locally and fail in CI, the worst of the three outcomes.
+  it("README.md exists locally, which is why local success proves nothing about it", () => {
+    expect(existsSync(resolve(process.cwd(), "README.md"))).toBe(true);
+    expect(isIgnoredOrAbsent("README.md")).toBe(true);
+  });
+
   // `format` and `format:check` must look at the same set, or `npm run format` leaves files the
   // gate then fails on, or cleans files the gate never checks.
   it("writes exactly what it checks", () => {
     const patternsOf = (script: string) => script.replace(/^prettier[^"]*/, "").trim();
     expect(patternsOf(formatWrite)).toBe(patternsOf(formatCheck));
+  });
+});
+
+/**
+ * The measurement the exclusions rest on, pinned so it is re-checked rather than remembered.
+ *
+ * The proposed alternative to excluding a missing path is a glob. It does not work: Prettier treats
+ * zero matches as an error whether the pattern is a literal path or a wildcard. If a future Prettier
+ * changes that, this test goes red and every `.env*.example` entry above can become a glob.
+ */
+describe("what Prettier does with a pattern that matches nothing", () => {
+  const prettier = resolve(process.cwd(), "node_modules/.bin/prettier");
+
+  const checkIn = (directory: string, patterns: string[]) =>
+    spawnSync(prettier, ["--ignore-unknown", "--check", ...patterns], {
+      cwd: directory,
+      encoding: "utf8",
+    });
+
+  it("errors on a wildcard that matches nothing, exactly as on a literal path", () => {
+    const directory = mkdtempSync(join(tmpdir(), "format-scope-"));
+    try {
+      writeFileSync(join(directory, "kept.ts"), "const a = 1;\n");
+
+      const wildcard = checkIn(directory, ["kept.ts", ".env*.example"]);
+      const literal = checkIn(directory, ["kept.ts", ".env.example"]);
+
+      expect(wildcard.status).not.toBe(0);
+      expect(literal.status).not.toBe(0);
+      expect(wildcard.stderr).toContain("No files matching the pattern");
+      expect(literal.stderr).toContain("No files matching the pattern");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("passes once the wildcard matches at least one file", () => {
+    const directory = mkdtempSync(join(tmpdir(), "format-scope-"));
+    try {
+      writeFileSync(join(directory, "kept.ts"), "const a = 1;\n");
+      writeFileSync(join(directory, ".env.preview.example"), "A=1\n");
+
+      expect(checkIn(directory, ["kept.ts", ".env*.example"]).status).toBe(0);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
