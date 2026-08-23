@@ -243,8 +243,8 @@ const probes = [
       // and the exempt element has already been reported.
       substituteOnce(
         "scripts/testing/lib-contrast.mjs",
-        "          sample: text.slice(0, 40),\n        });\n      }\n    }",
-        "          sample: text.slice(0, 40),\n        });\n      }\n      if (isInactive(el)) continue;\n    }",
+        "        occurrences: 1,\n      });\n    }",
+        "        occurrences: 1,\n      });\n      if (isInactive(el)) continue;\n    }",
       );
     },
     compiles: () => execFileSync("node", ["--check", "scripts/testing/lib-contrast.mjs"]),
