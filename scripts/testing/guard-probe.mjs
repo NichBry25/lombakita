@@ -49,9 +49,14 @@ const restoreFromGit = (files) => {
 
 /** Registered so a Ctrl-C during measurement cannot leave a mutated file behind. */
 const onSignal = new Map();
+// Registered once for the life of the process, not once per probe. Keying off the map's size
+// re-registers on every probe after the first, because each probe's teardown empties the map
+// again — a thirteen-probe suite ended up with eleven handlers and a listener-leak warning.
+let signalTeardownInstalled = false;
 const installSignalTeardown = (key, teardown) => {
   onSignal.set(key, teardown);
-  if (onSignal.size > 1) return;
+  if (signalTeardownInstalled) return;
+  signalTeardownInstalled = true;
   for (const signal of ["SIGINT", "SIGTERM"]) {
     process.on(signal, () => {
       for (const run of onSignal.values()) {
@@ -81,7 +86,9 @@ export const substituteOnce = (path, find, replace) => {
     throw new Error(`mutation anchor not found in ${path}: ${JSON.stringify(find.slice(0, 80))}`);
   }
   if (before.indexOf(find, first + find.length) !== -1) {
-    throw new Error(`mutation anchor is ambiguous in ${path}: ${JSON.stringify(find.slice(0, 80))}`);
+    throw new Error(
+      `mutation anchor is ambiguous in ${path}: ${JSON.stringify(find.slice(0, 80))}`,
+    );
   }
   writeFileSync(path, before.slice(0, first) + replace + before.slice(first + find.length));
 };
@@ -182,7 +189,9 @@ export const runProbes = async (probes) => {
   console.log(`\n${results.length - green.length}/${results.length} probes went red as claimed.`);
   if (green.length > 0) {
     for (const r of green) {
-      console.error(`NOT PROVEN: ${r.name} — the guard did not refuse when its premise was broken.`);
+      console.error(
+        `NOT PROVEN: ${r.name} — the guard did not refuse when its premise was broken.`,
+      );
     }
     process.exit(1);
   }
