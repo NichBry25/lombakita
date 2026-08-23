@@ -21,32 +21,40 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const EXIT_FINDINGS = 1;
 export const EXIT_UNMEASURABLE = 4;
 
-const REPO_ROOT = resolve(new URL("../..", import.meta.url).pathname);
+/**
+ * Where this module sits on disk, under either loader that runs it.
+ *
+ * Plain node gives a `file:` URL. Vite gives a bare path prefixed with `/@fs` and sometimes a
+ * query string, because the module is outside its project root. The old `new URL(...).pathname`
+ * handled neither: it left percent-encoding in place, so a checkout under a path containing a
+ * space resolved to a directory that does not exist, and it carried the `/@fs` prefix straight
+ * through — which is why the baseline silently read as EMPTY from any test that imported this
+ * file, while every audit running under node read it correctly.
+ */
+const moduleDirectory = import.meta.url.startsWith("file:")
+  ? dirname(fileURLToPath(import.meta.url))
+  : dirname(import.meta.url.replace(/^\/@fs/, "").split("?")[0]);
+
+const REPO_ROOT = resolve(moduleDirectory, "../..");
 export const BASELINE_DIR = join(REPO_ROOT, "scripts/testing/baselines");
 
 export const baselinePath = (name) => join(BASELINE_DIR, `${name}.json`);
-
-/**
- * Shapes a parsed baseline document for comparison. Separate from `readBaseline` because locating
- * the file depends on `import.meta.url`, which resolves to a `/@fs/`-prefixed path under Vite —
- * a test that wants to exercise the real shaping code should hand it the real document rather
- * than depend on a path resolution that only holds when the audits run under plain node.
- */
-export const parseBaseline = (parsed) => ({
-  takenAt: parsed.takenAt,
-  keys: new Set(parsed.findings.map((f) => f.key)),
-  byKey: new Map(parsed.findings.map((f) => [f.key, f])),
-});
 
 /** The recorded findings for `name`, or an empty baseline when none has been taken yet. */
 export const readBaseline = (name) => {
   const path = baselinePath(name);
   if (!existsSync(path)) return { takenAt: null, keys: new Set(), byKey: new Map() };
-  return parseBaseline(JSON.parse(readFileSync(path, "utf8")));
+  const parsed = JSON.parse(readFileSync(path, "utf8"));
+  return {
+    takenAt: parsed.takenAt,
+    keys: new Set(parsed.findings.map((f) => f.key)),
+    byKey: new Map(parsed.findings.map((f) => [f.key, f])),
+  };
 };
 
 /**
@@ -55,16 +63,49 @@ export const readBaseline = (name) => {
  * Deliberately a separate, explicit act (`UPDATE_BASELINE=1`) rather than something a failing run
  * does for itself: a gate that rewrites its own expectations when it fails is not a gate.
  */
+export const CURATED_DROP_FLAG = "DROP_CURATED_FINDINGS";
+
+/**
+ * The entries a regeneration must carry forward rather than delete.
+ *
+ * A `seenIn` entry was measured on a machine this run is not — the CI runner reports three
+ * institution-public pages overflowing that macOS does not. A local regeneration cannot reproduce
+ * those and cannot disprove them either, so writing this run's findings alone DELETES evidence
+ * instead of superseding it, and the next CI run fails on findings that were already known.
+ *
+ * A README warning would not have fixed this. Prose protecting a destructive default is the same
+ * class of guard as the one being repaired here.
+ */
+const curatedCarryOver = (previous, measuredKeys) =>
+  [...previous.byKey.values()].filter((f) => f.seenIn && !measuredKeys.has(f.key));
+
 export const writeBaseline = (name, findings, note) => {
+  const measured = findings.map(({ key, ...rest }) => ({ key, ...rest }));
+  const measuredKeys = new Set(measured.map((f) => f.key));
+  const carried = curatedCarryOver(readBaseline(name), measuredKeys);
+  const dropping = process.env[CURATED_DROP_FLAG] === "1";
+
   mkdirSync(dirname(baselinePath(name)), { recursive: true });
   const body = {
     audit: name,
     takenAt: new Date().toISOString(),
     note,
-    findings: findings.map(({ key, ...rest }) => ({ key, ...rest })),
+    findings: dropping ? measured : [...measured, ...carried],
   };
   writeFileSync(baselinePath(name), `${JSON.stringify(body, null, 2)}\n`);
-  console.log(`\nBaseline written: ${baselinePath(name)} (${findings.length} finding(s)).`);
+
+  console.log(`\nBaseline written: ${baselinePath(name)} (${body.findings.length} finding(s)).`);
+  if (carried.length > 0 && !dropping) {
+    console.log(
+      `  ${carried.length} finding(s) recorded on another machine were CARRIED OVER, because this ` +
+        `run could not have reproduced them. To drop them, re-run with ${CURATED_DROP_FLAG}=1.`,
+    );
+    for (const finding of carried) console.log(`  KEPT  ${finding.seenIn}  ${finding.key}`);
+  }
+  if (carried.length > 0 && dropping) {
+    console.log(`  ${carried.length} finding(s) from another machine DROPPED at your request:`);
+    for (const finding of carried) console.log(`  DROPPED  ${finding.seenIn}  ${finding.key}`);
+  }
 };
 
 export const updatingBaseline = process.env.UPDATE_BASELINE === "1";

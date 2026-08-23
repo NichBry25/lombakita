@@ -13,6 +13,10 @@ const tsconfig = JSON.parse(readFileSync(resolve(process.cwd(), "tsconfig.json")
   exclude: string[];
 };
 
+const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8")) as {
+  scripts: Record<string, string>;
+};
+
 describe("tsconfig include", () => {
   // NOT IN THE FORMAT GATE, and this is the reason. `next build` rewrites this file — it appends
   // its own `include` entries and reflows the JSON — so requiring Prettier's shape here would make
@@ -50,5 +54,41 @@ describe("tsconfig include", () => {
         "scripts/**/*.mts",
       ]),
     );
+  });
+});
+
+// What the FORMAT gate looks at, and — more importantly — what it deliberately does not. The gate
+// became a merge blocker in the same change that narrowed it, and a silent narrowing is how a gate
+// ends up covering less than everyone believes it does.
+describe("format gate scope", () => {
+  const formatCheck = () => packageJson.scripts["format:check"] ?? "";
+
+  // Prettier exits non-zero on `No files matching the pattern`, so listing a path that does not
+  // exist in a clean checkout means the gate can NEVER pass — which is what it did on its first CI
+  // run. `README.md` is gitignored (.gitignore:61), so it is present on this machine and absent
+  // everywhere else; the four `.env*.example` files were deleted from the repository before this
+  // gate existed. Restoring the entries would break the gate rather than widen it.
+  it("lists no path that is absent from a clean checkout", () => {
+    for (const absent of [
+      "README.md",
+      ".env.example",
+      ".env.preview.example",
+      ".env.production.example",
+      ".env.worker.example",
+    ]) {
+      expect(formatCheck()).not.toContain(absent);
+    }
+  });
+
+  it("still covers the application source and the workflows", () => {
+    expect(formatCheck()).toContain("src/**/*.{ts,tsx,css}");
+    expect(formatCheck()).toContain(".github/workflows/*.{yml,yaml}");
+  });
+
+  // `format` and `format:check` must look at the same set, or `npm run format` leaves files the
+  // gate then fails on, or cleans files the gate never checks.
+  it("writes exactly what it checks", () => {
+    const patternsOf = (script: string) => script.replace(/^prettier[^"]*/, "").trim();
+    expect(patternsOf(packageJson.scripts["format"] ?? "")).toBe(patternsOf(formatCheck()));
   });
 });

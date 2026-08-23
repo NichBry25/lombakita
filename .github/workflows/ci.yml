@@ -119,8 +119,18 @@ jobs:
     # Resend delivery real and every `@seed.lombakita.local` address hard-bounces. This job runs
     # `APP_ENV=test` against a Postgres that exists only for this run. Two independent things stop a
     # send: `test` never delivers (env.server.ts, and it cannot be flag-enabled), and no
-    # RESEND_API_KEY is set here at all, so the delivery boundary throws rather than sends. The
-    # audits are read-only navigations in any case.
+    # RESEND_API_KEY is set here at all, so the delivery boundary throws rather than sends.
+    #
+    # WHICH HALF IS LOAD-BEARING, because they are not interchangeable. The absent key is what keeps
+    # a verification token out of the uploaded log: `resolveEmailDelivery` throws on a missing key
+    # BEFORE reaching the suppressed-delivery branch, and that branch logs the action URL, which for
+    # a signup embeds the raw single-use token. `APP_ENV=test` stops the send; the absent key stops
+    # the logging. Setting a key here would restore the second hazard while the first stayed closed.
+    #
+    # The audits navigate and MEASURE, but they are not read-only: `expandCollapsibles` clicks every
+    # `button[aria-expanded="false"]` so that collapsed content is in the DOM to measure. It skips
+    # submits and disabled controls, and anything it did provoke would land in this run's own
+    # throwaway database.
     #
     # Every credential below is a literal, obviously-fake constant. Nothing here is a repository
     # secret, so nothing real can reach a log, an artifact, or a failure message.

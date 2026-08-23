@@ -1,19 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   classifyAgainstBaseline,
-  parseBaseline,
+  writeBaseline,
+  readBaseline,
   type AuditFinding,
   type Baseline,
 } from "./lib-audit-baseline.mjs";
 
-const committedBaseline = (name: string): Baseline =>
-  parseBaseline(
-    JSON.parse(readFileSync(join(process.cwd(), `scripts/testing/baselines/${name}.json`), "utf8")),
-  );
+const committedBaseline = (name: string): Baseline => readBaseline(name);
 
 const baselineOf = (findings: AuditFinding[]): Baseline => ({
   takenAt: "2026-08-22T17:37:06.072Z",
@@ -183,5 +181,56 @@ describe("finishAudit acts on what it classified", () => {
 
     expect(result.status).toBe(0);
     expect(result.stderr).not.toContain("WORSE");
+  });
+});
+
+/**
+ * Regenerating a baseline is the one operation that can DELETE a recorded finding, and the README
+ * gives the command with no warning. These pin that it cannot delete a finding this machine was
+ * never able to see.
+ */
+describe("writeBaseline against findings recorded on another machine", () => {
+  const NAME = "probe-write-baseline";
+  const PATH = join(process.cwd(), `scripts/testing/baselines/${NAME}.json`);
+  const CURATED = { key: "ci-only|overflow", seenIn: "ci", magnitude: 400 };
+
+  const regenerate = (measured: AuditFinding[], drop: boolean): AuditFinding[] => {
+    writeFileSync(
+      PATH,
+      JSON.stringify({ audit: NAME, takenAt: null, note: "", findings: [CURATED] }),
+    );
+    const previous = process.env.DROP_CURATED_FINDINGS;
+    try {
+      if (drop) process.env.DROP_CURATED_FINDINGS = "1";
+      else delete process.env.DROP_CURATED_FINDINGS;
+      writeBaseline(NAME, measured, "regenerated");
+      return [...readBaseline(NAME).byKey.values()];
+    } finally {
+      if (previous === undefined) delete process.env.DROP_CURATED_FINDINGS;
+      else process.env.DROP_CURATED_FINDINGS = previous;
+      rmSync(PATH, { force: true });
+    }
+  };
+
+  it("carries a seenIn finding forward when this run could not reproduce it", () => {
+    const written = regenerate([{ key: "local|overflow", magnitude: 610 }], false);
+
+    expect(written.map((f) => f.key).sort()).toEqual(["ci-only|overflow", "local|overflow"]);
+    expect(written.find((f) => f.key === "ci-only|overflow")?.magnitude).toBe(400);
+    expect(existsSync(PATH)).toBe(false);
+  });
+
+  it("drops it only when told to explicitly", () => {
+    const written = regenerate([{ key: "local|overflow", magnitude: 610 }], true);
+
+    expect(written.map((f) => f.key)).toEqual(["local|overflow"]);
+    expect(existsSync(PATH)).toBe(false);
+  });
+
+  it("does not duplicate a curated finding this run DID reproduce", () => {
+    const written = regenerate([{ key: "ci-only|overflow", magnitude: 401 }], false);
+
+    expect(written.map((f) => f.key)).toEqual(["ci-only|overflow"]);
+    expect(written[0]?.magnitude).toBe(401);
   });
 });

@@ -107,6 +107,52 @@ export const substituteOnce = (path, find, replace) => {
  * @param {() => Promise<{refused: boolean, evidence: string}>} spec.detect
  * @returns {Promise<{name: string, ok: boolean, detail: string}>}
  */
+/** Extension groups: which files are code that must be shown to parse, and which are data. */
+const CODE_CHECKS = {
+  ".mjs": (file) => execFileSync("node", ["--check", file], { stdio: "pipe" }),
+  ".js": (file) => execFileSync("node", ["--check", file], { stdio: "pipe" }),
+  ".cjs": (file) => execFileSync("node", ["--check", file], { stdio: "pipe" }),
+  // No per-file mode survives this project's path aliases, so a TypeScript mutation is checked by
+  // the same command the repository's own gate runs.
+  ".ts": () => execFileSync("npx", ["tsc", "--noEmit"], { stdio: "pipe" }),
+  ".tsx": () => execFileSync("npx", ["tsc", "--noEmit"], { stdio: "pipe" }),
+  ".mts": () => execFileSync("npx", ["tsc", "--noEmit"], { stdio: "pipe" }),
+};
+
+// Data, not code: nothing to compile, and a parse check on them would be theatre. A `.json` is
+// still parsed, because a mutation that produces invalid JSON is the same trap in a different suit.
+const DATA_CHECKS = {
+  ".json": (file) => JSON.parse(readFileSync(file, "utf8")),
+  ".yml": () => undefined,
+  ".yaml": () => undefined,
+};
+
+const extensionOf = (file) => {
+  const dot = file.lastIndexOf(".");
+  return dot === -1 ? "" : file.slice(dot);
+};
+
+/**
+ * The compile check a probe gets when it declares none.
+ *
+ * Throws for a file this cannot check rather than waving it through: an unknown extension means
+ * nobody has decided whether it is code, and defaulting to "no check" is how the clause became
+ * skippable in the first place.
+ */
+const defaultCompileCheckFor = (name, files) => async () => {
+  for (const file of files) {
+    const extension = extensionOf(file);
+    const check = CODE_CHECKS[extension] ?? DATA_CHECKS[extension];
+    if (!check) {
+      throw new Error(
+        `${name}: no compile check known for ${file}. Add its extension to CODE_CHECKS or ` +
+          `DATA_CHECKS, or give the probe an explicit \`compiles\`.`,
+      );
+    }
+    check(file);
+  }
+};
+
 export const runProbe = async (spec) => {
   const { name, harmfulMove, klass, files, mutate, appliedMarkers, compiles, detect } = spec;
 
@@ -142,8 +188,11 @@ export const runProbe = async (spec) => {
       }
     }
 
-    // CLAUSE 1 — compiles. Optional only where the mutated file is not code.
-    if (compiles) await compiles();
+    // CLAUSE 1 — compiles. NOT optional for a code file. A mutation that does not parse proves the
+    // parser refuses, not that the guard does, and most detectors here are `vitest` or `tsc`, which
+    // fail identically on a syntax error and on a guard holding. Eight of thirteen probes used to
+    // skip this because the field was opt-in.
+    await (compiles ?? defaultCompileCheckFor(name, files))();
 
     // CLAUSE 3 — reached. `detect` returns a verdict object; a detector that threw or returned
     // nothing did not measure, and must not be read as "the guard held".

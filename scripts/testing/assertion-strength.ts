@@ -13,11 +13,18 @@
  *   RANGE       `status >= 400 && status < 500` — a payload-validation 400 satisfies an assertion
  *               named for a policy refusal. Measured live: CAND-15 sent the wrong field name and
  *               was rejected by the parser, never reaching the cancellation gate it names.
- *   HELPER      `is2xx(r)` — the same range wearing a helper's name.
+ *   HELPER      a call whose own body carries one of the other three. The callee is resolved
+ *               through the type checker, not matched by name: the previous version hardcoded
+ *               `is2xx`, which this repo deleted, so the class detected nothing while the helper
+ *               that does exist was invisible to it.
  *   DISJUNCTION `status === 401 || status === 403` — passes on whichever the code happens to do,
  *               so a change from one to the other is invisible.
  *   SUBSTRING   `JSON.stringify(body).includes("…")` — satisfied by any longer string containing
  *               the needle, including one that says the opposite.
+ *
+ * Every harness that owns a `record(...)` of this shape is covered. Leaving one out is how half
+ * the surface went ungated: `r2-flows.mjs` declares its own `record` with a byte-identical
+ * signature, and eleven of its twenty-two assertions were weak while the gate reported green.
  *
  * Usage: node --import tsx scripts/testing/assertion-strength.ts [--list]
  * Exit code: 0 when every assertion pins what it means; 1 otherwise.
@@ -28,13 +35,16 @@ import ts from "typescript";
 type Weakness = "RANGE" | "HELPER" | "DISJUNCTION" | "SUBSTRING";
 
 type Assertion = {
+  harness: string;
   id: string;
   name: string;
   source: string;
   weaknesses: Weakness[];
 };
 
-const MATRIX = resolve(process.cwd(), "scripts/testing/api-matrix.mjs");
+const HARNESSES = ["scripts/testing/api-matrix.mjs", "scripts/testing/r2-flows.mjs"].map(
+  (relative) => resolve(process.cwd(), relative),
+);
 
 /** `.status` on anything — the property every range form compares. */
 const isStatusAccess = (node: ts.Node): boolean =>
@@ -59,12 +69,40 @@ const isStringReceiver = (checker: ts.TypeChecker, receiver: ts.Expression): boo
   const type = checker.getTypeAtLocation(receiver);
   const types = type.isUnion() ? type.types : [type];
   return types.some(
-    (candidate) =>
-      (candidate.flags & (ts.TypeFlags.String | ts.TypeFlags.StringLiteral)) !== 0,
+    (candidate) => (candidate.flags & (ts.TypeFlags.String | ts.TypeFlags.StringLiteral)) !== 0,
   );
 };
 
-const weaknessesIn = (checker: ts.TypeChecker, expression: ts.Expression): Weakness[] => {
+/**
+ * The body of the function `callee` names, when it is one this program can see.
+ *
+ * This is what makes HELPER a real class rather than a list of names someone remembered. A helper
+ * is only as strong as what it does, so the classifier reads it — an assertion that delegates to a
+ * status range is the same defect whether the range is written inline or one call away.
+ */
+const resolvedBodyOf = (checker: ts.TypeChecker, callee: ts.Identifier): ts.Node | null => {
+  const symbol = checker.getSymbolAtLocation(callee);
+  const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  if (!declaration) return null;
+  if (declaration.getSourceFile().isDeclarationFile) return null;
+
+  if (ts.isFunctionDeclaration(declaration) || ts.isFunctionExpression(declaration)) {
+    return declaration.body ?? null;
+  }
+  if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+    const initializer = declaration.initializer;
+    if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) {
+      return initializer.body;
+    }
+  }
+  return null;
+};
+
+const weaknessesIn = (
+  checker: ts.TypeChecker,
+  expression: ts.Node,
+  visited: Set<ts.Node> = new Set(),
+): Weakness[] => {
   const found = new Set<Weakness>();
   const equalityComparisonsOnStatus: ts.BinaryExpression[] = [];
 
@@ -81,7 +119,17 @@ const weaknessesIn = (checker: ts.TypeChecker, expression: ts.Expression): Weakn
     }
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
-      if (ts.isIdentifier(callee) && callee.text === "is2xx") found.add("HELPER");
+      if (ts.isIdentifier(callee)) {
+        const body = resolvedBodyOf(checker, callee);
+        if (body && !visited.has(body)) {
+          visited.add(body);
+          const inner = weaknessesIn(checker, body, visited);
+          if (inner.length > 0) {
+            found.add("HELPER");
+            for (const weakness of inner) found.add(weakness);
+          }
+        }
+      }
       if (
         ts.isPropertyAccessExpression(callee) &&
         callee.name.text === "includes" &&
@@ -113,10 +161,10 @@ const weaknessesIn = (checker: ts.TypeChecker, expression: ts.Expression): Weakn
   return [...found];
 };
 
-const collect = (): Assertion[] => {
+const collect = (): { assertions: Assertion[]; unclassifiable: Assertion[] } => {
   // A full program, not a lone source file: the receiver of `.includes()` has to be TYPED before
   // the classifier can say whether it is searching a string or a list.
-  const program = ts.createProgram([MATRIX], {
+  const program = ts.createProgram(HARNESSES, {
     allowJs: true,
     checkJs: false,
     noEmit: true,
@@ -126,41 +174,60 @@ const collect = (): Assertion[] => {
     strict: true,
   });
   const checker = program.getTypeChecker();
-  const tree = program.getSourceFile(MATRIX);
-  if (!tree) throw new Error(`could not parse ${MATRIX}`);
   const assertions: Assertion[] = [];
+  // A `record(...)` the classifier cannot read is not a pass. Skipping it silently would lower the
+  // reported total with nothing saying so, which is the shape of the defect this file exists for.
+  const unclassifiable: Assertion[] = [];
 
-  const walk = (node: ts.Node) => {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "record" &&
-      node.arguments.length >= 5
-    ) {
-      const [idArg, nameArg] = node.arguments;
-      const pass = node.arguments[4];
-      if (pass) {
-        assertions.push({
-          id: ts.isStringLiteralLike(idArg!) ? idArg.text : "(computed)",
-          name: ts.isStringLiteralLike(nameArg!) ? nameArg.text : "(computed)",
-          source: pass.getText().replace(/\s+/g, " ").slice(0, 120),
-          weaknesses: weaknessesIn(checker, pass),
-        });
+  for (const path of HARNESSES) {
+    const tree = program.getSourceFile(path);
+    if (!tree) throw new Error(`could not parse ${path}`);
+    const harness = path.split("/").slice(-1)[0]!;
+
+    const walk = (node: ts.Node) => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "record"
+      ) {
+        const [idArg, nameArg] = node.arguments;
+        const pass = node.arguments[4];
+        const entry = {
+          harness,
+          id: idArg && ts.isStringLiteralLike(idArg) ? idArg.text : "(computed)",
+          name: nameArg && ts.isStringLiteralLike(nameArg) ? nameArg.text : "(computed)",
+        };
+        if (pass) {
+          assertions.push({
+            ...entry,
+            source: pass.getText().replace(/\s+/g, " ").slice(0, 120),
+            weaknesses: weaknessesIn(checker, pass),
+          });
+        } else {
+          unclassifiable.push({
+            ...entry,
+            source: `${node.arguments.length} argument(s); no pass expression at index 4`,
+            weaknesses: [],
+          });
+        }
       }
-    }
-    node.forEachChild(walk);
-  };
-  tree.forEachChild(walk);
-  return assertions;
+      node.forEachChild(walk);
+    };
+    tree.forEachChild(walk);
+  }
+
+  return { assertions, unclassifiable };
 };
 
-const assertions = collect();
+const { assertions, unclassifiable } = collect();
 const weak = assertions.filter((a) => a.weaknesses.length > 0);
 
 if (process.argv.includes("--list")) {
   for (const assertion of assertions) {
     const verdict = assertion.weaknesses.length ? assertion.weaknesses.join("+") : "pins";
-    console.log(`${verdict.padEnd(22)} ${assertion.id.padEnd(18)} ${assertion.source}`);
+    console.log(
+      `${verdict.padEnd(22)} ${assertion.harness.padEnd(16)} ${assertion.id.padEnd(18)} ${assertion.source}`,
+    );
   }
   console.log("");
 }
@@ -172,9 +239,29 @@ for (const assertion of weak) {
   }
 }
 
-console.log(`${assertions.length} assertions; ${weak.length} cannot fail for the reason they name.`);
+const perHarness = new Map<string, number>();
+for (const assertion of assertions) {
+  perHarness.set(assertion.harness, (perHarness.get(assertion.harness) ?? 0) + 1);
+}
+
+console.log(
+  `${assertions.length} assertions; ${weak.length} cannot fail for the reason they name.`,
+);
+for (const [harness, count] of perHarness) console.log(`  ${harness.padEnd(20)} ${count}`);
 for (const [kind, count] of [...byKind].sort((a, b) => b[1] - a[1])) {
-  console.log(`  ${kind.padEnd(12)} ${count}`);
+  console.log(`  ${kind.padEnd(20)} ${count}`);
+}
+
+if (unclassifiable.length > 0) {
+  console.error(`\n${unclassifiable.length} record() call(s) the classifier could not read:`);
+  for (const entry of unclassifiable) {
+    console.error(`  ${entry.harness}  ${entry.id}  ${entry.source}`);
+  }
+  console.error(
+    `\nAn assertion this file cannot classify is not an assertion it has cleared. Give the call ` +
+      `its pass expression, or the reported total describes fewer assertions than the harness has.`,
+  );
+  process.exit(1);
 }
 
 if (weak.length > 0) {

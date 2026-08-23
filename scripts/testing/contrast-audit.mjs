@@ -102,6 +102,9 @@ await browser.close();
  * Prints the report and returns its findings. Called by `finishAudit` only once the run has been
  * established as one that measured everything it claims to describe.
  */
+/** Two decimals, so a magnitude does not carry float noise into a committed baseline. */
+const round2 = (value) => Math.round(value * 100) / 100;
+
 const measure = () => {
   const findings = [];
   for (const entry of report) {
@@ -109,17 +112,24 @@ const measure = () => {
     console.log(`  ${entry.found.length} pairing(s) under threshold`);
     for (const f of entry.found.slice(0, 8)) {
       const flag = f.approx ? " ~" : "  ";
+      const repeats = f.occurrences > 1 ? ` x${f.occurrences}` : "";
       console.log(
         `${flag} ${String(f.ratio).padStart(5)}:1 (need ${f.need})  ${f.fg} on ${f.bg}  ` +
-          `${f.size}px  ${f.el}  "${f.sample}"`,
+          `${f.size}px  ${f.el}${repeats}  "${f.sample}"`,
       );
     }
     if (entry.found.length > 8) console.log(`   …and ${entry.found.length - 8} more`);
     for (const f of entry.found) {
       findings.push({
         key: `${entry.id}|${entry.theme}|${f.el}|${f.fg}on${f.bg}`,
+        // The DEFICIT, so higher is worse here as it is everywhere else. A pairing's ratio is a
+        // pure function of the two colours already in the key, so this is belt and braces rather
+        // than the only guard — but a magnitude that holds only by accident of key composition is
+        // one refactor away from not holding.
+        magnitude: round2(f.need - f.ratio),
         ratio: f.ratio,
         need: f.need,
+        occurrences: f.occurrences,
         sample: f.sample,
       });
     }
@@ -132,7 +142,13 @@ const measure = () => {
         `  [${f.theme}] ${f.a} vs ${f.b}: separation ΔE ${f.separation} (need ${f.need}) — ` +
           `ground ΔE ${f.groundDeltaE}, ink ΔE ${f.textDeltaE}. ${f.detail}`,
       );
-      findings.push({ key: `tone|${f.theme}|${f.a}|${f.b}`, ...f });
+      // Separation is LOWER-is-worse, so the magnitude is the shortfall against the threshold.
+      // Storing the raw separation would invert the comparison and pass every regression.
+      findings.push({
+        key: `tone|${f.theme}|${f.a}|${f.b}`,
+        magnitude: round2(f.need - f.separation),
+        ...f,
+      });
     }
   }
 

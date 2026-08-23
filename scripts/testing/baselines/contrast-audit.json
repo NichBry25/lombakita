@@ -1,10 +1,11 @@
 {
   "audit": "contrast-audit",
-  "takenAt": "2026-08-22T17:40:44.474Z",
+  "takenAt": "2026-08-23T08:06:47.360Z",
   "note": "105 pages x light/dark at 1440px, plus tone separation",
   "findings": [
     {
       "key": "tone|light|success|info",
+      "magnitude": 5.3,
       "theme": "light",
       "a": "success",
       "b": "info",
@@ -16,6 +17,7 @@
     },
     {
       "key": "tone|light|warning|error",
+      "magnitude": 1.1,
       "theme": "light",
       "a": "warning",
       "b": "error",
@@ -27,6 +29,7 @@
     },
     {
       "key": "tone|light|info|neutral",
+      "magnitude": 3.24,
       "theme": "light",
       "a": "info",
       "b": "neutral",
@@ -38,6 +41,7 @@
     },
     {
       "key": "tone|light|neutral|disabled",
+      "magnitude": 0.08,
       "theme": "light",
       "a": "neutral",
       "b": "disabled",
@@ -49,6 +53,7 @@
     },
     {
       "key": "tone|dark|warning|error",
+      "magnitude": 6.9,
       "theme": "dark",
       "a": "warning",
       "b": "error",
@@ -60,6 +65,7 @@
     },
     {
       "key": "tone|dark|info|neutral",
+      "magnitude": 4.85,
       "theme": "dark",
       "a": "info",
       "b": "neutral",

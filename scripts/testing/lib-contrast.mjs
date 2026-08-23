@@ -157,19 +157,36 @@ export const audit = async (page) =>
       const got = ratio(painted, bg);
       if (got >= need) continue;
 
+      // `describe(el)` is one element level and two classes, so two structurally different
+      // elements sharing a tag, those classes and both colours collapse to one finding. Count
+      // them: a page baselined for one bad pairing would otherwise absorb forty of them silently.
       const key = `${describe(el)}|${hex(painted)}|${hex(bg)}`;
-      if (!findings.has(key)) {
-        findings.set(key, {
-          el: path(el),
-          fg: hex(painted),
-          bg: hex(bg),
-          ratio: Math.round(got * 100) / 100,
-          need,
-          approx,
-          size: Math.round(size),
-          sample: text.slice(0, 40),
-        });
+      const existing = findings.get(key);
+      if (existing) {
+        existing.occurrences += 1;
+        // Keep the WORST instance's numbers. Two elements can share a descriptor and both colours
+        // and still differ in font size, which changes the threshold each is held to.
+        if (need - got > existing.need - existing.ratio) {
+          existing.el = path(el);
+          existing.ratio = Math.round(got * 100) / 100;
+          existing.need = need;
+          existing.approx = approx;
+          existing.size = Math.round(size);
+          existing.sample = text.slice(0, 40);
+        }
+        continue;
       }
+      findings.set(key, {
+        el: path(el),
+        fg: hex(painted),
+        bg: hex(bg),
+        ratio: Math.round(got * 100) / 100,
+        need,
+        approx,
+        size: Math.round(size),
+        sample: text.slice(0, 40),
+        occurrences: 1,
+      });
     }
     return [...findings.values()].sort((a, b) => a.ratio - b.ratio);
   });

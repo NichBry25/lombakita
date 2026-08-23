@@ -82,15 +82,35 @@ const audit = async (page) =>
       const label = el.closest("label");
       const box = label && label.contains(el) ? label.getBoundingClientRect() : r;
       if (box.width < 44 || box.height < 44) {
-        small.push(`${describe(el)} ${Math.round(box.width)}x${Math.round(box.height)}`);
+        small.push({
+          descriptor: describe(el),
+          width: Math.round(box.width),
+          height: Math.round(box.height),
+        });
       }
+    }
+
+    const uniqueSmall = [];
+    const seenSmall = new Set();
+    for (const entry of small) {
+      const identity = `${entry.descriptor} ${entry.width}x${entry.height}`;
+      if (seenSmall.has(identity)) continue;
+      seenSmall.add(identity);
+      uniqueSmall.push(entry);
     }
 
     return {
       scrollWidth: document.documentElement.scrollWidth,
       viewport: vw,
-      wide: wide.map(({ el, r }) => `${describe(el)} right=${Math.round(r.right)}`),
-      small: [...new Set(small)],
+      wide: wide.map(({ el, r }) => ({
+        descriptor: describe(el),
+        right: Math.round(r.right),
+        // How far past the viewport edge, in whichever direction it goes. A LEFT-overflowing
+        // element does not raise the document's scrollWidth, so the page-level overflow finding
+        // cannot see it and this is the only number that measures it.
+        overshoot: Math.round(Math.max(r.right - vw, -r.left, 0)),
+      })),
+      small: uniqueSmall,
       smallTotal: small.length,
     };
   });
@@ -164,18 +184,29 @@ const measure = () => {
       `  ${page.wide.length} element(s) past the viewport edge, ${page.small.length} ` +
         `undersized control(s) (${page.smallTotal} including repeats)`,
     );
-    for (const w of page.wide.slice(0, 6)) console.log(`  WIDE      ${w}`);
+    for (const w of page.wide.slice(0, 6)) {
+      console.log(`  WIDE      ${w.descriptor} right=${w.right} (${w.overshoot}px past the edge)`);
+    }
     if (page.wide.length > 6) console.log(`  WIDE      …and ${page.wide.length - 6} more`);
-    for (const s of page.small.slice(0, 6)) console.log(`  TARGET    ${s}`);
+    for (const s of page.small.slice(0, 6)) {
+      console.log(`  TARGET    ${s.descriptor} ${s.width}x${s.height}`);
+    }
     if (page.small.length > 6) console.log(`  TARGET    …and ${page.small.length - 6} more`);
 
+    // Both kinds are keyed on the ELEMENT and hold their measured size as a magnitude, so the same
+    // element getting worse fails while the same element getting better passes. Keying on the size
+    // instead would churn on a pixel; carrying no size at all would let a 40x40 control shrink to
+    // 12x12 under a green run, which is what the earlier version did.
     for (const w of page.wide) {
-      add(`${page.id}|wide|${w.split(" right=")[0]}`, { detail: w });
+      add(`${page.id}|wide|${w.descriptor}`, { magnitude: w.overshoot, right: w.right });
     }
     for (const s of page.small) {
-      // Keyed on the control, not on its measured size: a 40x40 that becomes 40x43 is the same
-      // known finding, and a baseline that churns on a pixel is a baseline nobody re-takes.
-      add(`${page.id}|target|${s.replace(/ \d+x\d+$/, "")}`, { detail: s });
+      // The deficit, not the size: the metric is "how far under the 44px minimum", so that higher
+      // is worse here exactly as it is for every other magnitude.
+      add(`${page.id}|target|${s.descriptor}`, {
+        magnitude: 44 - Math.min(s.width, s.height),
+        size: `${s.width}x${s.height}`,
+      });
     }
   }
 

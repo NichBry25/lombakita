@@ -29,6 +29,7 @@
     "verify:finance": "node --import tsx scripts/finance/verify-payment-ledger.ts",
     "verify:assertion-strength": "node --import tsx scripts/testing/assertion-strength.ts",
     "verify:contrast-selftest": "node scripts/testing/contrast-audit-selftest.mjs",
+    "verify:required-checks": "node scripts/verify/required-checks.mjs",
     "verify:guard-probes": "node scripts/testing/probes/config-gates.mjs",
     "verify:audit-probes": "node scripts/testing/probes/browser-audit-refusals.mjs",
     "verify:deploy-env": "node --import tsx src/server/scripts/verify-deploy-env.ts",

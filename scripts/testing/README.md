@@ -19,7 +19,7 @@ they drive the running app, assert behavior, and capture screenshots into `test-
 
 ```bash
 node --import tsx scripts/seed-test-matrix.ts   # always first — also resets scratch state
-node scripts/testing/api-matrix.mjs             # 59 API, guard, and isolation assertions
+node scripts/testing/api-matrix.mjs             # 100 API, guard, and isolation assertions
 node scripts/testing/r2-flows.mjs               # 22 real-byte upload/validation assertions
 node scripts/testing/flows.mjs                  # UI flows + a screenshot of every reaction
 node scripts/testing/gallery.mjs                # every page × light/dark × desktop/mobile
@@ -31,6 +31,12 @@ node scripts/testing/ui-states.mjs              # what each surface must SAY and
 All three now run in CI on every PR (`.github/workflows/ci.yml`, job `browser audits`), against a
 production build of the branch and a freshly seeded matrix. Running them locally is still the way to
 see a failure quickly; it is no longer the only way they run.
+
+**Running is not gating.** A job blocks a merge only while branch protection lists its display name
+in `required_status_checks.contexts` — `browser audits` ran for a full day reporting findings it
+could not fail a pull request with. `src/config/required-checks.ts` holds what must be required and
+`npm run verify:required-checks` compares it against the live rule; a test pins that each name still
+matches a job in `ci.yml`, because renaming a job unhooks it from protection silently.
 
 ## Exit codes, shared by `contrast-audit` and `mobile-audit`
 
@@ -52,12 +58,24 @@ that cannot describe the app, and it can never be baselined away.
 taken. A run fails on findings NOT in its baseline and reports (without failing) the baselined ones
 that no longer reproduce, so the file gets pruned rather than trusted forever.
 
+Every finding carries a **magnitude** in the audit's own unit, where higher is worse — the measured
+`scrollWidth` for an overflow, how far past the edge for a wide element, the shortfall against 44px
+for a touch target, the shortfall against the threshold for a contrast ratio or a tone pair. A
+baselined finding fails the run when its magnitude GROWS. Without it a key says only that a page has
+a fault of some kind, and a page allowlisted at 400px stays allowlisted at 900px.
+
 Re-take a baseline deliberately, never as a reaction to a red run:
 
 ```bash
 UPDATE_BASELINE=1 node scripts/testing/contrast-audit.mjs
 UPDATE_BASELINE=1 node scripts/testing/mobile-audit.mjs
 ```
+
+A regeneration writes what THIS machine measured. Findings marked `seenIn` were recorded on a
+different one — the CI runner reports three institution-public pages overflowing that macOS does
+not — so this run can neither reproduce nor disprove them. They are carried forward automatically;
+dropping them takes `DROP_CURATED_FINDINGS=1` as well, and the run prints every entry it kept or
+dropped either way.
 
 ## Proving the guards
 

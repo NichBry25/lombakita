@@ -12,17 +12,35 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
 
-/** Runs a command and reports whether it FAILED. A detector going red is the result we want. */
+/** A line that names WHICH assertion failed, as opposed to any non-zero exit at all. */
+const FAILURE_SIGNAL = /FAIL|✗|✘|error TS|AssertionError|Tests\s+\d+ failed/;
+
+/**
+ * Runs a command and reports whether it went red FOR AN IDENTIFIED REASON.
+ *
+ * Accepting any non-zero exit as "the guard refused" is Rule 36 clause 3's own failure mode wearing
+ * the opposite sign: `vitest run some/renamed.test.ts` exits 1 having run nothing, and a probe
+ * whose detector path is mistyped would report RED — PROVEN. So an exit with no recognisable
+ * failure line THROWS: a detector that crashed did not measure, and must not be read either way.
+ */
 const fails = (command, args) => {
+  const label = `${command} ${args.join(" ")}`;
   try {
     execFileSync(command, args, { stdio: "pipe" });
-    return { refused: false, evidence: `${command} ${args.join(" ")} still passed` };
+    return { refused: false, evidence: `${label} still passed` };
   } catch (error) {
     const output = `${error.stdout ?? ""}${error.stderr ?? ""}`;
-    const firstFailure =
-      output.split("\n").find((line) => /FAIL|✗|error TS|✘|AssertionError/.test(line)) ??
-      `exit ${error.status}`;
-    return { refused: true, evidence: `detector went red: ${firstFailure.trim().slice(0, 140)}` };
+    if (/No test files found/i.test(output)) {
+      throw new Error(`${label} ran no tests at all — the detector never reached an assertion`);
+    }
+    const named = output.split("\n").find((line) => FAILURE_SIGNAL.test(line));
+    if (!named) {
+      throw new Error(
+        `${label} exited ${error.status} without naming a failed assertion. A detector that ` +
+          `crashed is not a guard that refused. Tail of its output:\n${output.slice(-600)}`,
+      );
+    }
+    return { refused: true, evidence: `detector went red: ${named.trim().slice(0, 140)}` };
   }
 };
 
@@ -255,6 +273,29 @@ const probes = [
       ),
     compiles: () => execFileSync("node", ["--check", "scripts/testing/lib-audit-baseline.mjs"]),
     detect: async () => vitest("scripts/testing/audit-baseline.test.ts"),
+  },
+  {
+    name: "a candidate cannot presign an upload against another candidate's document request",
+    // The guard is the WHERE clause: `loadRequestForCandidate` scopes by the caller's own
+    // registration, so ownership and existence collapse into one 404. There is no move analogue —
+    // `requireOpenRequestForCandidate` RETURNS the row `prepareRequestDocumentUpload` needs for the
+    // object key, so moving it below its use is a reference error rather than a silent reordering.
+    // Rule 36 names that shape as the one to prefer; this probe is therefore removal only.
+    klass: "D",
+    harmfulMove:
+      "dropping the ownership predicate, so any candidate can presign against any request id",
+    files: ["src/server/registration-documents/registration-document-service.ts"],
+    appliedMarkers: ["// probe: ownership predicate removed"],
+    mutate: () =>
+      substituteOnce(
+        "src/server/registration-documents/registration-document-service.ts",
+        "        eq(competitionDocumentRequests.id, requestId),\n" +
+          "        eq(competitionRegistrations.studentId, userId),",
+        "        eq(competitionDocumentRequests.id, requestId),\n" +
+          "        // probe: ownership predicate removed",
+      ),
+    detect: async () =>
+      vitest("src/server/registration-documents/document-request-ownership-db.integration.test.ts"),
   },
 ];
 

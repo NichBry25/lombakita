@@ -12,6 +12,7 @@
 // not have and does not need for four exact strings.
 
 import { describe, expect, it } from "vitest";
+import { REQUIRED_STATUS_CHECKS } from "@/config/required-checks";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -68,5 +69,26 @@ describe("ci.yml", () => {
 
   it("runs the audits under APP_ENV=test", () => {
     expect(workflow).toMatch(/^\s+APP_ENV: test$/m);
+  });
+});
+
+/**
+ * A workflow step is not a gate until branch protection names it, and protection names a job by
+ * its DISPLAY NAME. Renaming a job therefore silently unhooks it from protection: the workflow
+ * still runs, the rule still lists the old string, and nothing fails. This is the half of that
+ * check CI can perform; `scripts/verify/required-checks.mjs` performs the other half against the
+ * live protection rule, which needs an admin call a pull request's workflow does not have.
+ */
+describe("required status checks", () => {
+  it("names a job that exists in ci.yml", () => {
+    for (const check of REQUIRED_STATUS_CHECKS) {
+      expect(workflow, `no job in ci.yml is named "${check}"`).toContain(`name: ${check}\n`);
+    }
+  });
+
+  // The browser audits are the reason this exists. They ran on every pull request for the whole of
+  // their first day while being unable to fail one.
+  it("includes the browser audits", () => {
+    expect(REQUIRED_STATUS_CHECKS).toContain("browser audits");
   });
 });
