@@ -18,35 +18,46 @@
  *   1  measured; findings this baseline does not carry
  *   3  refused to measure — the stylesheet preflight (lib-css-fingerprint.mjs)
  *   4  at least one page could not be measured
+ *   5  a finding named no declared class, so nothing measured how bad it is
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { FINDING_CLASSES } from "./finding-classes.mjs";
 
 export const EXIT_FINDINGS = 1;
 export const EXIT_UNMEASURABLE = 4;
+export const EXIT_UNDECLARED_FINDING = 5;
 
-const REPO_ROOT = resolve(new URL("../..", import.meta.url).pathname);
+/**
+ * Where this module sits on disk, under either loader that runs it.
+ *
+ * Plain node gives a `file:` URL. Vite gives a bare path prefixed with `/@fs` and sometimes a query
+ * string, because the module is outside its project root. The old `new URL(...).pathname` handled
+ * neither: it left percent-encoding in place, so a checkout under a path containing a space
+ * resolved to a directory that does not exist, and it carried the `/@fs` prefix straight through —
+ * which made the baseline read as EMPTY from any test that imported this file, while every audit
+ * running under node read it correctly.
+ */
+const moduleDirectory = import.meta.url.startsWith("file:")
+  ? dirname(fileURLToPath(import.meta.url))
+  : dirname(import.meta.url.replace(/^\/@fs/, "").split("?")[0]);
+
+const REPO_ROOT = resolve(moduleDirectory, "../..");
 export const BASELINE_DIR = join(REPO_ROOT, "scripts/testing/baselines");
 
 export const baselinePath = (name) => join(BASELINE_DIR, `${name}.json`);
-
-/**
- * Shapes a parsed baseline document for comparison. Separate from `readBaseline` because locating
- * the file depends on `import.meta.url`, which resolves to a `/@fs/`-prefixed path under Vite —
- * a test that wants to exercise the real shaping code should hand it the real document rather
- * than depend on a path resolution that only holds when the audits run under plain node.
- */
-export const parseBaseline = (parsed) => ({
-  takenAt: parsed.takenAt,
-  keys: new Set(parsed.findings.map((f) => f.key)),
-  byKey: new Map(parsed.findings.map((f) => [f.key, f])),
-});
 
 /** The recorded findings for `name`, or an empty baseline when none has been taken yet. */
 export const readBaseline = (name) => {
   const path = baselinePath(name);
   if (!existsSync(path)) return { takenAt: null, keys: new Set(), byKey: new Map() };
-  return parseBaseline(JSON.parse(readFileSync(path, "utf8")));
+  const parsed = JSON.parse(readFileSync(path, "utf8"));
+  return {
+    takenAt: parsed.takenAt,
+    keys: new Set(parsed.findings.map((f) => f.key)),
+    byKey: new Map(parsed.findings.map((f) => [f.key, f])),
+  };
 };
 
 /**
@@ -55,16 +66,50 @@ export const readBaseline = (name) => {
  * Deliberately a separate, explicit act (`UPDATE_BASELINE=1`) rather than something a failing run
  * does for itself: a gate that rewrites its own expectations when it fails is not a gate.
  */
+export const CURATED_DROP_FLAG = "DROP_CURATED_FINDINGS";
+
+/**
+ * The entries a regeneration carries forward instead of deleting.
+ *
+ * A `seenIn` entry was measured on a machine this run is not — the CI runner reports three
+ * institution-public pages overflowing that macOS does not. This run can neither reproduce them nor
+ * disprove them, so writing only what it measured DELETES evidence rather than superseding it, and
+ * the next CI run fails on findings that were already known and recorded.
+ *
+ * A README warning would not have fixed this. Prose protecting a destructive default is the same
+ * class of guard as the ones this step exists to repair.
+ */
+const curatedCarryOver = (previous, measuredKeys) =>
+  [...previous.byKey.values()].filter((f) => f.seenIn && !measuredKeys.has(f.key));
+
 export const writeBaseline = (name, findings, note) => {
+  const measured = findings.map(({ key, ...rest }) => ({ key, ...rest }));
+  const measuredKeys = new Set(measured.map((f) => f.key));
+  const carried = curatedCarryOver(readBaseline(name), measuredKeys);
+  const dropping = process.env[CURATED_DROP_FLAG] === "1";
+
   mkdirSync(dirname(baselinePath(name)), { recursive: true });
   const body = {
     audit: name,
     takenAt: new Date().toISOString(),
     note,
-    findings: findings.map(({ key, ...rest }) => ({ key, ...rest })),
+    findings: dropping ? measured : [...measured, ...carried],
   };
   writeFileSync(baselinePath(name), `${JSON.stringify(body, null, 2)}\n`);
-  console.log(`\nBaseline written: ${baselinePath(name)} (${findings.length} finding(s)).`);
+
+  console.log(`\nBaseline written: ${baselinePath(name)} (${body.findings.length} finding(s)).`);
+  if (carried.length === 0) return;
+
+  if (dropping) {
+    console.log(`  ${carried.length} finding(s) from another machine DROPPED at your request:`);
+    for (const f of carried) console.log(`  DROPPED  ${f.seenIn}  ${f.key}`);
+    return;
+  }
+  console.log(
+    `  ${carried.length} finding(s) recorded on another machine were CARRIED OVER, because this ` +
+      `run could not have reproduced them. To drop them, re-run with ${CURATED_DROP_FLAG}=1.`,
+  );
+  for (const f of carried) console.log(`  KEPT  ${f.seenIn}  ${f.key}`);
 };
 
 export const updatingBaseline = process.env.UPDATE_BASELINE === "1";
@@ -107,6 +152,33 @@ export const classifyAgainstBaseline = (findings, baseline) => {
  * established that the rest is fine, and reporting a finding count from it invites exactly the
  * reading that the count is complete.
  */
+/**
+ * Every finding names a class this repository has declared, and carries the magnitude that class
+ * says how to measure.
+ *
+ * `finding()` already refuses an undeclared class at the emit site. This is the collection point
+ * saying the same thing, so a finding assembled by hand — the way all of them used to be — cannot
+ * reach a baseline with no severity attached. That is the state the whole table exists to make
+ * impossible, and a check only at the emit site would leave it one object literal away.
+ */
+const assertEveryFindingIsDeclared = (findings) => {
+  const undeclared = findings.filter(
+    (f) => !FINDING_CLASSES[f.class] || !Number.isFinite(f.magnitude),
+  );
+  if (undeclared.length === 0) return;
+
+  console.error(`\n${undeclared.length} finding(s) carry no declared class and magnitude:`);
+  for (const f of undeclared.slice(0, 10)) {
+    console.error(`  UNDECLARED  ${f.key}  class=${f.class ?? "(none)"} magnitude=${f.magnitude}`);
+  }
+  console.error(
+    `\nA finding whose severity nothing measures can only ever be compared by key, which lets it ` +
+      `worsen without limit under a green run. Build it with finding() from finding-classes.mjs, ` +
+      `and declare the class there if it is new.`,
+  );
+  process.exit(EXIT_UNDECLARED_FINDING);
+};
+
 export const finishAudit = ({ name, measure, unmeasurable, note }) => {
   // THE REPORT IS PRODUCED HERE, not before the call. An audit that printed its findings and its
   // total on the way to `finishAudit` has already published the number by the time the run is
@@ -127,6 +199,7 @@ export const finishAudit = ({ name, measure, unmeasurable, note }) => {
   }
 
   const findings = measure();
+  assertEveryFindingIsDeclared(findings);
 
   if (updatingBaseline) {
     writeBaseline(name, findings, note);

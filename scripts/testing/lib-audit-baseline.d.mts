@@ -22,14 +22,16 @@ export interface BaselineComparison {
   healed: string[];
 }
 
+export declare const CURATED_DROP_FLAG: string;
 export declare const EXIT_FINDINGS: number;
 export declare const EXIT_UNMEASURABLE: number;
 export declare const baselinePath: (name: string) => string;
-export declare const parseBaseline: (parsed: {
-  takenAt: string | null;
-  findings: AuditFinding[];
-}) => Baseline;
 export declare const readBaseline: (name: string) => Baseline;
+export declare const writeBaseline: (
+  name: string,
+  findings: AuditFinding[],
+  note: string,
+) => void;
 export declare const classifyAgainstBaseline: (
   findings: AuditFinding[],
   baseline: Baseline,

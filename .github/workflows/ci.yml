@@ -112,7 +112,15 @@ jobs:
     # verifies a withheld affordance stays withheld — eleven surfaces, three shipped anti-patterns
     # caught — and it ran on one laptop, by hand, when someone remembered. `contrast-audit` is the
     # only thing that can see a theme rendering dark-on-dark, and `mobile-audit` the only thing that
-    # measures a 44px target. All three now gate every PR.
+    # measures a 44px target. All three now RUN on every pull request.
+    #
+    # RUNNING IS NOT GATING, and this comment said otherwise for as long as it existed. A job blocks
+    # a merge only while branch protection lists its display name in
+    # `required_status_checks.contexts`, and that list currently holds `lint, typecheck, test` and
+    # nothing else. So a pull request whose mobile audit exits 1 on a fresh overflow, whose contrast
+    # audit exits 1 on an unreadable pairing, or whose preflight exits 3 having measured nothing, is
+    # still mergeable. Adding `browser audits` to that list is a repository setting, not a change
+    # anything in this file can make.
     #
     # THE EMAIL HAZARD IS NOT THE ONE UAT2-D1 DESCRIBES, and this was checked rather than assumed.
     # UAT2-D1 is about seeded fixtures against a PREVIEW deployment, where `APP_ENV=preview` makes

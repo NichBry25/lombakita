@@ -16,6 +16,7 @@
 import { launch, contextFor, MOBILE, settle, expandCollapsibles } from "./lib-browser.mjs";
 import { preflightOrRefuse } from "./lib-css-fingerprint.mjs";
 import { finishAudit } from "./lib-audit-baseline.mjs";
+import { finding } from "./finding-classes.mjs";
 import { PAGES } from "./pages.mjs";
 import { BASE, USERS } from "./seeds.mjs";
 
@@ -82,15 +83,34 @@ const audit = async (page) =>
       const label = el.closest("label");
       const box = label && label.contains(el) ? label.getBoundingClientRect() : r;
       if (box.width < 44 || box.height < 44) {
-        small.push(`${describe(el)} ${Math.round(box.width)}x${Math.round(box.height)}`);
+        small.push({
+          descriptor: describe(el),
+          width: Math.round(box.width),
+          height: Math.round(box.height),
+        });
       }
+    }
+
+    const uniqueSmall = [];
+    const seenSmall = new Set();
+    for (const entry of small) {
+      const identity = `${entry.descriptor} ${entry.width}x${entry.height}`;
+      if (seenSmall.has(identity)) continue;
+      seenSmall.add(identity);
+      uniqueSmall.push(entry);
     }
 
     return {
       scrollWidth: document.documentElement.scrollWidth,
       viewport: vw,
-      wide: wide.map(({ el, r }) => `${describe(el)} right=${Math.round(r.right)}`),
-      small: [...new Set(small)],
+      // Both edges travel out of the browser, because the `wide` magnitude is the overshoot in
+      // whichever direction it goes and only `left` can describe the one scrollWidth cannot see.
+      wide: wide.map(({ el, r }) => ({
+        descriptor: describe(el),
+        right: Math.round(r.right),
+        left: Math.round(r.left),
+      })),
+      small: uniqueSmall,
       smallTotal: small.length,
     };
   });
@@ -139,10 +159,16 @@ const measure = () => {
   // tell them apart — a "healed" report would fire on the wrong one. One key, with how many
   // elements matched it.
   const byKey = new Map();
-  const add = (key, detail) => {
-    const existing = byKey.get(key);
-    if (existing) existing.occurrences += 1;
-    else byKey.set(key, { key, occurrences: 1, ...detail });
+  const add = (built) => {
+    const existing = byKey.get(built.key);
+    if (!existing) {
+      byKey.set(built.key, { ...built, occurrences: 1 });
+      return;
+    }
+    existing.occurrences += 1;
+    // The WORST of the collapsed siblings, not the first one measured. Keeping the first would let
+    // the worst instance hide behind a better one that happened to be walked earlier.
+    if (built.magnitude > existing.magnitude) existing.magnitude = built.magnitude;
   };
   for (const page of measured) {
     const overflow = page.scrollWidth > page.viewport + 1;
@@ -151,10 +177,14 @@ const measure = () => {
     console.log(`\n${page.id}  (${page.path})`);
     if (overflow) {
       console.log(`  OVERFLOW  scrollWidth ${page.scrollWidth} > viewport ${page.viewport}`);
-      // The magnitude IS the scrollWidth, and the baseline holds the finding to it. Without it the
-      // key `<page>|overflow` allows any overflow on that page forever, whatever its size and from
-      // whatever cause. The number is already measured here, so carrying it costs nothing.
-      add(`${page.id}|overflow`, { magnitude: page.scrollWidth, viewport: page.viewport });
+      add(
+        finding(
+          "overflow",
+          `${page.id}|overflow`,
+          { scrollWidth: page.scrollWidth },
+          { viewport: page.viewport },
+        ),
+      );
     }
 
     // THE COUNT IS THE FINDING; the listing is a convenience. Printing six of eighteen and no total
@@ -164,18 +194,37 @@ const measure = () => {
       `  ${page.wide.length} element(s) past the viewport edge, ${page.small.length} ` +
         `undersized control(s) (${page.smallTotal} including repeats)`,
     );
-    for (const w of page.wide.slice(0, 6)) console.log(`  WIDE      ${w}`);
+    for (const w of page.wide.slice(0, 6)) {
+      console.log(`  WIDE      ${w.descriptor} left=${w.left} right=${w.right}`);
+    }
     if (page.wide.length > 6) console.log(`  WIDE      …and ${page.wide.length - 6} more`);
-    for (const s of page.small.slice(0, 6)) console.log(`  TARGET    ${s}`);
+    for (const s of page.small.slice(0, 6)) {
+      console.log(`  TARGET    ${s.descriptor} ${s.width}x${s.height}`);
+    }
     if (page.small.length > 6) console.log(`  TARGET    …and ${page.small.length - 6} more`);
 
+    // Keyed on the ELEMENT, with the measurement carried as a magnitude rather than folded into
+    // the key. Keying on the size would churn on a pixel and nobody would re-take the baseline;
+    // carrying no size at all is what let a 40x40 control shrink to 12x12 under a green run.
     for (const w of page.wide) {
-      add(`${page.id}|wide|${w.split(" right=")[0]}`, { detail: w });
+      add(
+        finding(
+          "wide",
+          `${page.id}|wide|${w.descriptor}`,
+          { right: w.right, left: w.left, viewport: page.viewport },
+          { right: w.right, left: w.left },
+        ),
+      );
     }
     for (const s of page.small) {
-      // Keyed on the control, not on its measured size: a 40x40 that becomes 40x43 is the same
-      // known finding, and a baseline that churns on a pixel is a baseline nobody re-takes.
-      add(`${page.id}|target|${s.replace(/ \d+x\d+$/, "")}`, { detail: s });
+      add(
+        finding(
+          "target",
+          `${page.id}|target|${s.descriptor}`,
+          { width: s.width, height: s.height },
+          { size: `${s.width}x${s.height}` },
+        ),
+      );
     }
   }
 

@@ -19,7 +19,7 @@ they drive the running app, assert behavior, and capture screenshots into `test-
 
 ```bash
 node --import tsx scripts/seed-test-matrix.ts   # always first — also resets scratch state
-node scripts/testing/api-matrix.mjs             # 59 API, guard, and isolation assertions
+node scripts/testing/api-matrix.mjs             # 100 API, guard, and isolation assertions
 node scripts/testing/r2-flows.mjs               # 22 real-byte upload/validation assertions
 node scripts/testing/flows.mjs                  # UI flows + a screenshot of every reaction
 node scripts/testing/gallery.mjs                # every page × light/dark × desktop/mobile
@@ -32,6 +32,12 @@ All three now run in CI on every PR (`.github/workflows/ci.yml`, job `browser au
 production build of the branch and a freshly seeded matrix. Running them locally is still the way to
 see a failure quickly; it is no longer the only way they run.
 
+**Running is not gating.** A job blocks a merge only while branch protection lists its display name
+in `required_status_checks.contexts`. That list holds `lint, typecheck, test` and nothing else, so
+the browser audits currently report their findings without being able to fail a pull request on
+them. Making them block is a repository setting; until it is made, a red audit here is a signal to
+read, not a wall.
+
 ## Exit codes, shared by `contrast-audit` and `mobile-audit`
 
 | Code | Meaning |
@@ -40,11 +46,27 @@ see a failure quickly; it is no longer the only way they run.
 | 1 | measured; findings this baseline does not carry |
 | 3 | REFUSED to measure — the stylesheet preflight |
 | 4 | at least one page could not be measured |
+| 5 | a finding named a class this repository has not declared |
 
-**3 and 4 are refusals, not findings.** Exit 3 means the browser was not loading the stylesheet on
+**3, 4 and 5 are refusals, not findings.** Exit 3 means the browser was not loading the stylesheet on
 disk, so nothing measured would have been about the working tree: the audit prints why and produces
 no report. Exit 4 means a page timed out or errored; that page is not a lower total, it is a run
-that cannot describe the app, and it can never be baselined away.
+that cannot describe the app, and it can never be baselined away. Exit 5 means an audit emitted a
+finding whose class is absent from `finding-classes.mjs`, or whose magnitude did not compute to a
+finite number: the comparison has no idea whether that finding got worse, so the run refuses rather
+than report a total it cannot stand behind.
+
+## Finding classes
+
+`finding-classes.mjs` is the declaration of what these audits can find. Every class names the audit
+that emits it, what it describes, the unit it is measured in, and a `magnitudeOf` that turns a
+measurement into a single number where **higher is always worse**. Two of the five measure something
+where lower is worse in the real world — a contrast ratio, a tone separation — so they store the
+DEFICIT against their threshold, which restores the direction.
+
+`finding-classes.test.ts` scans both audit files for `finding("<class>", …)` and asserts the declared
+set equals the emitted set in both directions. Adding a finding class to an audit without declaring
+it here is a failing test, and, if it somehow ships, a runtime exit 5.
 
 ## Baselines
 
@@ -52,12 +74,34 @@ that cannot describe the app, and it can never be baselined away.
 taken. A run fails on findings NOT in its baseline and reports (without failing) the baselined ones
 that no longer reproduce, so the file gets pruned rather than trusted forever.
 
+**A baselined finding still fails when it gets worse.** Each entry carries its magnitude, and a
+measured finding whose magnitude exceeds the recorded one is reported as WORSENED and exits 1 even
+though its key is allowlisted. Being known is permission to stay as bad as you were, not permission
+to decay: the allowlist absorbs the finding, never a later regression at the same key.
+
 Re-take a baseline deliberately, never as a reaction to a red run:
 
 ```bash
 UPDATE_BASELINE=1 node scripts/testing/contrast-audit.mjs
 UPDATE_BASELINE=1 node scripts/testing/mobile-audit.mjs
 ```
+
+### `UPDATE_BASELINE=1` cannot silently drop what your machine cannot see
+
+A baseline entry marked `seenIn` was measured somewhere this run is not — the CI runner, a different
+platform, a viewport nobody reproduces locally. Your machine not reproducing it is not evidence it
+is fixed; it is evidence you are not the machine that saw it. So `UPDATE_BASELINE=1` **carries every
+`seenIn` entry forward** and prints one `KEPT` line per entry, rather than writing a file that quietly
+declares those findings resolved.
+
+To actually drop them, say so:
+
+```bash
+DROP_CURATED_FINDINGS=1 UPDATE_BASELINE=1 node scripts/testing/mobile-audit.mjs
+```
+
+The second flag exists so that dropping a finding measured elsewhere is a sentence somebody typed,
+not a side effect of re-taking a baseline on a laptop.
 
 ## Proving the guards
 
@@ -138,6 +182,13 @@ upward by one per run.
 | `r2-flows.mjs` | Presign → real PUT → record/finalize → read back, plus the negative cases |
 | `flows.mjs` | Clicks and typing, capturing how each state looks |
 | `gallery.mjs` | The design gallery |
+| `finding-classes.mjs` | What the audits can find, and how bad each finding is — pinned to the audits by test |
+| `lib-audit-baseline.mjs` | Baseline read/compare/write, the worsening check, and the exit-code contract |
+| `lib-assertions.mjs` | The response-assertion vocabulary both API harnesses share |
+| `assertion-harnesses.ts` | Which files the assertion-strength gate reads — pinned to disk by test |
+| `assertion-strength.ts` | Rejects an assertion that cannot fail, resolving helpers through the TypeChecker |
+| `guard-probe.mjs` | The Rule 36 probe runner: compile, apply, assert, restore from git |
+| `probes/detectors.mjs` | Shared refusal detectors — a probe is red only for the reason it names |
 
 All seeded accounts use the password `UjiCoba123!` and `@seed.lombakita.local` addresses, which
 deliberately do not resolve — no seeded flow can send mail to a real person.

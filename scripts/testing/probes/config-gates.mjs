@@ -10,25 +10,30 @@
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
+import { TEST_FAILURE, refusedWhen, run } from "./detectors.mjs";
 
-/** Runs a command and reports whether it FAILED. A detector going red is the result we want. */
-const fails = (command, args) => {
-  try {
-    execFileSync(command, args, { stdio: "pipe" });
-    return { refused: false, evidence: `${command} ${args.join(" ")} still passed` };
-  } catch (error) {
-    const output = `${error.stdout ?? ""}${error.stderr ?? ""}`;
-    const firstFailure =
-      output.split("\n").find((line) => /FAIL|✗|error TS|✘|AssertionError/.test(line)) ??
-      `exit ${error.status}`;
-    return { refused: true, evidence: `detector went red: ${firstFailure.trim().slice(0, 140)}` };
-  }
-};
+/**
+ * Runs a command and reports whether it went red FOR AN IDENTIFIED REASON.
+ *
+ * `reached` is what makes this a Rule 36 clause 3 detector rather than an exit-code reader: the run
+ * must name which assertion failed. Its absence throws, because a crashed detector is not a guard
+ * that refused. The shape comes from browser-audit-refusals.mjs, which had it first.
+ */
+const fails = (command, args, reached = TEST_FAILURE) =>
+  refusedWhen(run(command, args), { reached, label: `${command} ${args.join(" ")}` });
+
+/**
+ * The assertion-strength gate reports its verdict in prose rather than a runner's vocabulary, so it
+ * needs its own signal. The leading digit class matters: the same sentence is printed with a count
+ * of zero when the gate PASSES, and a detector that accepted it would be reading a success.
+ */
+const WEAK_ASSERTION = /[1-9]\d* cannot fail for the reason they name/;
 
 const vitest = (file) => fails("npx", ["vitest", "run", file]);
 
-const probes = [
+export const probes = [
   {
     name: "database-backed suites are required by default",
     // The tripwire throws at module load. There is no position inside the module at which it would
@@ -149,7 +154,7 @@ const probes = [
         "publishWhileSuspended.status >= 400 && publishWhileSuspended.status < 500",
       ),
     compiles: () => execFileSync("node", ["--check", "scripts/testing/api-matrix.mjs"]),
-    detect: async () => fails("npm", ["run", "verify:assertion-strength"]),
+    detect: async () => fails("npm", ["run", "verify:assertion-strength"], WEAK_ASSERTION),
   },
   {
     name: "the assertion-strength gate runs in CI",
@@ -256,6 +261,127 @@ const probes = [
     compiles: () => execFileSync("node", ["--check", "scripts/testing/lib-audit-baseline.mjs"]),
     detect: async () => vitest("scripts/testing/audit-baseline.test.ts"),
   },
+  {
+    name: "an audit cannot emit a finding class this repository has not declared",
+    // `finding-classes.mjs` is a declaration and the test beside it is what makes it one. Without
+    // the test the file is documentation: an audit could emit anything, and the class would exist
+    // only in the argument nobody compared to the table.
+    klass: "D",
+    harmfulMove:
+      "emitting a class absent from the table, so nothing knows how bad that finding is or when it worsens",
+    files: ["scripts/testing/mobile-audit.mjs"],
+    appliedMarkers: ['"wide-by-probe"'],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/mobile-audit.mjs",
+        '        finding(\n          "wide",\n          `${page.id}|wide|${w.descriptor}`,',
+        '        finding(\n          "wide-by-probe",\n          `${page.id}|wide|${w.descriptor}`,',
+      ),
+    detect: async () => vitest("scripts/testing/finding-classes.test.ts"),
+  },
+  {
+    name: "the declaration gate refuses BEFORE the baseline is written",
+    // The one probe in this file whose detector must be a post-state. Moved below the
+    // `UPDATE_BASELINE` branch the gate still exits 5 and still prints UNDECLARED — after writing
+    // the undeclared finding into the baseline, where the next run reads it as permitted. Every
+    // output a detector could read is identical across the move; only the FILE differs.
+    klass: "B",
+    harmfulMove:
+      "checking after the regeneration branch, so the finding it refuses is already in the baseline",
+    files: ["scripts/testing/lib-audit-baseline.mjs"],
+    appliedMarkers: ["// probe: declaration gate moved below the write"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/lib-audit-baseline.mjs",
+        "  const findings = measure();\n  assertEveryFindingIsDeclared(findings);\n\n  if (updatingBaseline) {\n    writeBaseline(name, findings, note);\n    return;\n  }",
+        "  const findings = measure();\n  // probe: declaration gate moved below the write\n\n  if (updatingBaseline) {\n    writeBaseline(name, findings, note);\n    return;\n  }\n  assertEveryFindingIsDeclared(findings);",
+      ),
+    detect: async () => vitest("scripts/testing/audit-baseline.test.ts"),
+  },
+  {
+    name: "regenerating a baseline cannot silently drop what this machine could not see",
+    // A move analogue does not exist: `carried` is computed from the previous file and consumed by
+    // the object being written, so moving the read below the write is a reference error rather than
+    // a defect. The removal is the whole test, and Rule 36 asks for that to be said.
+    klass: "B",
+    harmfulMove:
+      "writing only what this run measured, which DELETES the CI-only findings rather than superseding them",
+    files: ["scripts/testing/lib-audit-baseline.mjs"],
+    appliedMarkers: ["// probe: curated findings no longer carried"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/lib-audit-baseline.mjs",
+        "  [...previous.byKey.values()].filter((f) => f.seenIn && !measuredKeys.has(f.key));",
+        "  // probe: curated findings no longer carried\n  [];",
+      ),
+    compiles: () => execFileSync("node", ["--check", "scripts/testing/lib-audit-baseline.mjs"]),
+    detect: async () => vitest("scripts/testing/audit-baseline.test.ts"),
+  },
+  {
+    name: "the assertion-strength gate reads every harness that has assertions",
+    klass: "D",
+    harmfulMove:
+      "narrowing the declared subject back to one file, which is how twenty-two assertions went unread",
+    files: ["scripts/testing/assertion-harnesses.ts"],
+    appliedMarkers: ['"scripts/testing/api-matrix.mjs",\n] as const;'],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/assertion-harnesses.ts",
+        '  "scripts/testing/api-matrix.mjs",\n  "scripts/testing/r2-flows.mjs",\n] as const;',
+        '  "scripts/testing/api-matrix.mjs",\n] as const;',
+      ),
+    detect: async () => vitest("scripts/testing/assertion-harnesses.test.ts"),
+  },
+  {
+    name: "a weak assertion is seen through the helper it was written behind",
+    // The gate read the call site's own text, so `refusedWith(r, 403, "x")` was strong by virtue of
+    // being a call. Every weakness in this repository was one helper deep, which is where a
+    // weakness naturally goes: it is written once and reused. Weakening the HELPER and requiring
+    // the gate to notice is the only thing that shows the resolution happens.
+    klass: "D",
+    harmfulMove:
+      "putting the status range inside the shared helper, where a call-site scan cannot see it",
+    files: ["scripts/testing/lib-assertions.mjs"],
+    appliedMarkers: ["r.status >= 400 && r.status < 500"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/lib-assertions.mjs",
+        "export const refusedWith = (r, status, code) => r.status === status && errorCode(r) === code;",
+        "export const refusedWith = (r, status, code) => r.status >= 400 && r.status < 500;",
+      ),
+    compiles: () => execFileSync("node", ["--check", "scripts/testing/lib-assertions.mjs"]),
+    detect: async () => fails("npm", ["run", "verify:assertion-strength"], WEAK_ASSERTION),
+  },
+  {
+    name: "the format gate's exclusions are the declared ones and no others",
+    klass: "D",
+    harmfulMove:
+      "adding a path back to the gate that no clean checkout contains, which makes it permanently red",
+    files: ["package.json"],
+    appliedMarkers: ["--write README.md", "--check README.md"],
+    // README.md specifically, because it is one of the declared exclusions and the reason it is
+    // excluded is the one that matters: it is gitignored, so it is on this disk and on no runner's.
+    // Adding it to both scripts keeps them identical, so the only test that can go red is the one
+    // asserting the exclusion — which is the claim being probed.
+    mutate: () => {
+      substituteOnce(
+        "package.json",
+        '"format": "prettier --ignore-unknown --write \\"src/**',
+        '"format": "prettier --ignore-unknown --write README.md \\"src/**',
+      );
+      substituteOnce(
+        "package.json",
+        '"format:check": "prettier --ignore-unknown --check \\"src/**',
+        '"format:check": "prettier --ignore-unknown --check README.md \\"src/**',
+      );
+    },
+    detect: async () => vitest("scripts/testing/format-gate-scope.test.ts"),
+  },
 ];
 
-await runProbes(probes);
+// Exported as DATA and run only when this file IS the entry point, so a test can read the probe
+// set — which files each one mutates, and whether it declares its own compile check — without
+// mutating the tree to find out.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  await runProbes(probes);
+}

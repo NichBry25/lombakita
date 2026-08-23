@@ -12,7 +12,9 @@
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import { statSync, utimesSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
+import { refusedWhen } from "./detectors.mjs";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const STALE_STYLESHEET_EXIT = 3;
@@ -26,18 +28,13 @@ const runAudit = (script, filter) =>
     env: { ...process.env, BASE_URL: BASE },
   });
 
-/** A report is the thing a refusal must NOT produce. Both audits print this line when they measure. */
-const printedAReport = (result) => /pages clean/.test(`${result.stdout}${result.stderr}`);
+/** Both audits print this line when they measure, and only when they measure. */
+const REPORT_LINE = /pages clean/;
 
-const exitedWith = (result, code, label) => ({
-  refused: result.status === code && !printedAReport(result),
-  evidence:
-    result.status === code
-      ? printedAReport(result)
-        ? `exited ${code} but PRINTED A REPORT anyway — the refusal came after the measurement`
-        : `${label}: exit ${code}, no report`
-      : `expected exit ${code}, got ${result.status}: ${(result.stderr || result.stdout).trim().slice(0, 160)}`,
-});
+// A report is the thing a refusal must NOT produce, so its absence is what makes the exit code
+// mean "declined to measure" rather than "measured and then fell over".
+const exitedWith = (result, code, label) =>
+  refusedWhen(result, { status: code, forbidden: REPORT_LINE, label });
 
 /**
  * Backdates a file to the newest compiled CSS chunk.
@@ -61,7 +58,7 @@ const TOKENS = "src/styles/brand-tokens.css";
 const editToken = () =>
   substituteOnce(TOKENS, "  --color-info-surface: #e4ede4;", "  --color-info-surface: #e4ede5;");
 
-const probes = [
+export const probes = [
   {
     name: "preflight refuses when a stylesheet edit has not been compiled (freshness layer)",
     klass: "D",
@@ -103,9 +100,10 @@ const probes = [
     // "refused" from "crashed" proves nothing. Red here means the report came back.
     detect: async () => {
       const result = runAudit("mobile-audit.mjs", "^01-home");
+      const reported = REPORT_LINE.test(`${result.stdout}${result.stderr}`);
       return {
-        refused: printedAReport(result) && result.status !== STALE_STYLESHEET_EXIT,
-        evidence: printedAReport(result)
+        refused: reported && result.status !== STALE_STYLESHEET_EXIT,
+        evidence: reported
           ? `without the call the audit reported on a stale stylesheet (exit ${result.status})`
           : `no report produced; exit ${result.status} — the removal did not reach the audit`,
       };
@@ -161,4 +159,9 @@ const probes = [
   },
 ];
 
-await runProbes(probes);
+// Exported as DATA and run only when this file IS the entry point, so a test can read the probe
+// set — which files each one mutates, and whether it declares its own compile check — without
+// mutating the tree to find out.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  await runProbes(probes);
+}

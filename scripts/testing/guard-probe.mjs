@@ -23,8 +23,35 @@
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { transform as parseCss } from "lightningcss";
 
 const git = (args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+
+/**
+ * Every listed path is TRACKED.
+ *
+ * `git diff --quiet HEAD --` says nothing about a path git has never seen, so an untracked file
+ * passes the clean check, gets mutated, and then cannot be restored — and the restore failure
+ * throws from the `finally`, which is the one place a throw leaves the mutation on disk. Found by
+ * the probe that proves clause 1: its fixture was new, and the harness reported a git error where
+ * the compile refusal should have been.
+ */
+const assertTracked = (files) => {
+  const untracked = files.filter((file) => {
+    try {
+      execFileSync("git", ["ls-files", "--error-unmatch", "--", file], { stdio: "ignore" });
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  if (untracked.length > 0) {
+    throw new Error(
+      `refusing to probe. git does not track these, so a mutation to them could not be undone: ` +
+        `${untracked.join(", ")}. Commit them first.`,
+    );
+  }
+};
 
 /** True when the working tree matches HEAD for exactly these paths. */
 const pathsClean = (files) => {
@@ -107,10 +134,78 @@ export const substituteOnce = (path, find, replace) => {
  * @param {() => Promise<{refused: boolean, evidence: string}>} spec.detect
  * @returns {Promise<{name: string, ok: boolean, detail: string}>}
  */
+/**
+ * HOW EACH KIND OF FILE IS SHOWN TO PARSE.
+ *
+ * The probe harness's declared subject. A probe may still bring its own `compiles`, but it may not
+ * bring none: an extension that appears in neither table is a refusal rather than a wave-through,
+ * because "nobody decided whether this is code" is exactly how the clause became skippable.
+ */
+export const CODE_CHECKS = {
+  ".mjs": (file) => execFileSync("node", ["--check", file], { stdio: "pipe" }),
+  ".js": (file) => execFileSync("node", ["--check", file], { stdio: "pipe" }),
+  ".cjs": (file) => execFileSync("node", ["--check", file], { stdio: "pipe" }),
+  // No per-file mode survives this project's path aliases, so a TypeScript mutation is checked by
+  // the same command the repository's own gate runs.
+  ".ts": () => execFileSync("npx", ["tsc", "--noEmit"], { stdio: "pipe" }),
+  ".tsx": () => execFileSync("npx", ["tsc", "--noEmit"], { stdio: "pipe" }),
+  ".mts": () => execFileSync("npx", ["tsc", "--noEmit"], { stdio: "pipe" }),
+  // The parser the build itself uses. A stylesheet mutation that does not parse changes which
+  // RULES exist rather than which VALUES they carry, and that is a different experiment from the
+  // one a preflight probe claims to run.
+  ".css": (file) => parseCss({ filename: file, code: readFileSync(file), minify: false }),
+};
+
+/** Data, not code. A `.json` is still parsed: invalid JSON is the same trap in a different suit. */
+export const DATA_CHECKS = {
+  ".json": (file) => JSON.parse(readFileSync(file, "utf8")),
+  ".yml": () => undefined,
+  ".yaml": () => undefined,
+};
+
+export const extensionOf = (file) => {
+  const dot = file.lastIndexOf(".");
+  return dot === -1 ? "" : file.slice(dot);
+};
+
+/** True when a mutation to this file has to be shown to parse before its detector is believed. */
+export const isCodeFile = (file) => extensionOf(file) in CODE_CHECKS;
+
+/**
+ * The check that shows a mutation to `file` still parses.
+ *
+ * Throws for an extension in neither table, so a probe cannot be run against a file kind nobody has
+ * classified. Exported because it IS the declaration: a test asserts every file every probe mutates
+ * resolves through it.
+ */
+export const compileCheckFor = (file) => {
+  const extension = extensionOf(file);
+  const check = CODE_CHECKS[extension] ?? DATA_CHECKS[extension];
+  if (!check) {
+    throw new Error(
+      `no compile check is declared for ${file}. Add its extension to CODE_CHECKS or DATA_CHECKS ` +
+        `in guard-probe.mjs, or give the probe an explicit \`compiles\`.`,
+    );
+  }
+  return () => check(file);
+};
+
+const defaultCompileCheckFor = (name, files) => async () => {
+  for (const file of files) {
+    try {
+      compileCheckFor(file)();
+    } catch (error) {
+      throw new Error(`${name}: ${error.message}`);
+    }
+  }
+};
+
 export const runProbe = async (spec) => {
   const { name, harmfulMove, klass, files, mutate, appliedMarkers, compiles, detect } = spec;
 
   if (!files?.length) throw new Error(`${name}: probe has no explicit file list`);
+
+  assertTracked(files);
 
   // CLAUSE 6 — committed work only. A restore is a destructive operation against these paths, and
   // it is only safe when HEAD already holds what is on disk.
@@ -142,8 +237,11 @@ export const runProbe = async (spec) => {
       }
     }
 
-    // CLAUSE 1 — compiles. Optional only where the mutated file is not code.
-    if (compiles) await compiles();
+    // CLAUSE 1 — compiles. NOT optional for a code file, because most detectors here are `vitest`
+    // or `tsc`, which fail identically on a syntax error and on a guard holding: a probe whose
+    // mutation did not parse cannot say which of the two it observed. It was opt-in, and eight of
+    // thirteen probes were opting out.
+    await (compiles ?? defaultCompileCheckFor(name, files))();
 
     // CLAUSE 3 — reached. `detect` returns a verdict object; a detector that threw or returned
     // nothing did not measure, and must not be read as "the guard held".

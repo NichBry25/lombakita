@@ -20,6 +20,7 @@
 import { launch, contextFor, setTheme, DESKTOP, settle, expandCollapsibles } from "./lib-browser.mjs";
 import { preflightOrRefuse } from "./lib-css-fingerprint.mjs";
 import { finishAudit } from "./lib-audit-baseline.mjs";
+import { finding } from "./finding-classes.mjs";
 import { audit } from "./lib-contrast.mjs";
 import { toneSeparationFindings } from "./lib-tone-separation.mjs";
 import { PAGES } from "./pages.mjs";
@@ -116,12 +117,14 @@ const measure = () => {
     }
     if (entry.found.length > 8) console.log(`   …and ${entry.found.length - 8} more`);
     for (const f of entry.found) {
-      findings.push({
-        key: `${entry.id}|${entry.theme}|${f.el}|${f.fg}on${f.bg}`,
-        ratio: f.ratio,
-        need: f.need,
-        sample: f.sample,
-      });
+      findings.push(
+        finding(
+          "contrast",
+          `${entry.id}|${entry.theme}|${f.el}|${f.fg}on${f.bg}`,
+          { need: f.need, ratio: f.ratio },
+          { ratio: f.ratio, need: f.need, sample: f.sample },
+        ),
+      );
     }
   }
 
@@ -132,7 +135,9 @@ const measure = () => {
         `  [${f.theme}] ${f.a} vs ${f.b}: separation ΔE ${f.separation} (need ${f.need}) — ` +
           `ground ΔE ${f.groundDeltaE}, ink ΔE ${f.textDeltaE}. ${f.detail}`,
       );
-      findings.push({ key: `tone|${f.theme}|${f.a}|${f.b}`, ...f });
+      findings.push(
+        finding("tone", `tone|${f.theme}|${f.a}|${f.b}`, { need: f.need, separation: f.separation }, f),
+      );
     }
   }
 
