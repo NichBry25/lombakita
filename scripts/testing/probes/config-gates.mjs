@@ -279,8 +279,8 @@ export const probes = [
     mutate: () =>
       substituteOnce(
         "scripts/testing/mobile-audit.mjs",
-        '        finding(\n          "wide",\n          `${page.id}|wide|${w.descriptor}`,',
-        '        finding(\n          "wide-by-probe",\n          `${page.id}|wide|${w.descriptor}`,',
+        '        finding(\n          "wide",\n          `${page.id}|${page.width}|wide|${w.descriptor}`,',
+        '        finding(\n          "wide-by-probe",\n          `${page.id}|${page.width}|wide|${w.descriptor}`,',
       ),
     detect: async () => vitest("scripts/testing/finding-classes.test.ts"),
   },
@@ -381,6 +381,37 @@ export const probes = [
       );
     },
     detect: async () => vitest("scripts/testing/format-gate-scope.test.ts"),
+  },
+  {
+    name: "the mobile audit cannot quietly narrow the widths it measures",
+    // The widths ARE the subject, and nothing in the audit can notice one leaving. Readings taken
+    // at a dropped width become findings that no longer reproduce, which the run prints as good
+    // news on its way to exit 0. The pin is the test, so this is what shows the test does the
+    // noticing: with 360 out of the declaration, the ten 360px readings in the committed baseline
+    // are recorded at a width nothing declares.
+    klass: "D",
+    harmfulMove:
+      "narrowing the set back towards 390, the one width where the overflowing pages read clean",
+    files: ["scripts/testing/lib-browser.mjs"],
+    appliedMarkers: ["// probe: 360 dropped"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/lib-browser.mjs",
+        "  { width: 360, height: 800 },\n  { width: 375, height: 812 },",
+        "  // probe: 360 dropped\n  { width: 375, height: 812 },",
+      ),
+    // Named down to the one assertion, because the file also pins the widths against a literal
+    // triple and that assertion fails first. A probe whose evidence line reads "the set is not
+    // [360, 375, 390]" has shown a constant being compared to itself. The claim here is the other
+    // one: the baseline still holds readings taken at the width that just left the declaration.
+    detect: async () =>
+      fails("npx", [
+        "vitest",
+        "run",
+        "scripts/testing/mobile-viewports.test.ts",
+        "-t",
+        "carries every recorded finding under a declared width",
+      ]),
   },
 ];
 

@@ -106,7 +106,11 @@ jobs:
   browser-audits:
     name: browser audits
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 45 was set when the mobile audit walked the inventory once. It walks it three times now, one
+    # per width in MOBILE_VIEWPORTS, which took this job's longest step from about two minutes to
+    # about five on a laptop and more than that on a runner. A timed-out job reports a failure that
+    # says nothing about the app, which on a non-required check is noise nobody acts on.
+    timeout-minutes: 60
 
     # NO BROWSER AUDIT HAD EVER RUN HERE. `ui-states.mjs` is the only mechanism in the repo that
     # verifies a withheld affordance stays withheld — eleven surfaces, three shipped anti-patterns

@@ -22,10 +22,21 @@ const UNMEASURABLE_EXIT = 4;
 
 // One page, so a probe costs seconds rather than the full inventory. `^01-home` is the landing
 // page: anonymous, always present, and the first entry the audits reach.
+//
+// BOUNDED, because an unbounded one has been observed. A probe run left an audit sitting with its
+// browser open and no output for sixteen minutes, and `spawnSync` waits for as long as its child
+// takes, so the probe suite simply stopped. The bound does not fix that; it turns it into a verdict
+// the detector can read. A killed run has no exit code, so every detector here reports "expected
+// exit N, got null" and the probe comes back NOT PROVEN, which is what an unfinished measurement
+// should look like. One page at three widths takes about six seconds.
+const AUDIT_BUDGET_MS = 180000;
+
 const runAudit = (script, filter) =>
   spawnSync("node", [`scripts/testing/${script}`, filter], {
     encoding: "utf8",
     env: { ...process.env, BASE_URL: BASE },
+    timeout: AUDIT_BUDGET_MS,
+    killSignal: "SIGKILL",
   });
 
 /** Both audits print this line when they measure, and only when they measure. */
@@ -53,6 +64,22 @@ const backdateToBuild = (path) => {
   const { atime, mtime } = statSync(chunk);
   utimesSync(path, atime, mtime);
 };
+
+/*
+ * What an unmeasurable page is made of, for the two probes that need one.
+ *
+ * It used to be `timeout: 1`, and that mutation deadlocked. A 1ms budget aborts the navigation
+ * while the document is still arriving, and Chromium was then left with an in-flight load it never
+ * finished: the audit sat with its browser open and produced nothing, on roughly half the runs. A
+ * refused connection is the same event without the pathology. Nothing is listening on port 9, the
+ * connect fails before a navigation begins, and `page.goto` rejects at once. It is also the closer
+ * analogue of the thing being probed, which is a page the audit could not reach.
+ */
+const NOWHERE = "http://127.0.0.1:9/probe-unmeasurable";
+const REACHES_NOWHERE =
+  '      await page.goto("http://127.0.0.1:9/probe-unmeasurable", { waitUntil: "domcontentloaded", timeout: 45000 });';
+const REACHES_THE_APP =
+  '      await page.goto(`${BASE}${spec.path}`, { waitUntil: "domcontentloaded", timeout: 45000 });';
 
 const TOKENS = "src/styles/brand-tokens.css";
 const editToken = () =>
@@ -93,7 +120,7 @@ export const probes = [
       backdateToBuild(TOKENS);
       substituteOnce(
         "scripts/testing/mobile-audit.mjs",
-        '      await preflightOrRefuse(page, "mobile-audit");',
+        '        await preflightOrRefuse(page, "mobile-audit");',
         "      // probe: preflight removed",
       );
     },
@@ -116,13 +143,9 @@ export const probes = [
     klass: "D",
     harmfulMove: "resolving a timed-out page into the summary count, where it reads as clean",
     files: ["scripts/testing/mobile-audit.mjs"],
-    appliedMarkers: ["timeout: 1 }"],
+    appliedMarkers: [NOWHERE],
     mutate: () =>
-      substituteOnce(
-        "scripts/testing/mobile-audit.mjs",
-        '    await page.goto(`${BASE}${spec.path}`, { waitUntil: "domcontentloaded", timeout: 45000 });',
-        '    await page.goto(`${BASE}${spec.path}`, { waitUntil: "domcontentloaded", timeout: 1 });',
-      ),
+      substituteOnce("scripts/testing/mobile-audit.mjs", REACHES_THE_APP, REACHES_NOWHERE),
     compiles: () => execFileSync("node", ["--check", "scripts/testing/mobile-audit.mjs"]),
     detect: async () =>
       exitedWith(runAudit("mobile-audit.mjs", "^01-home"), UNMEASURABLE_EXIT, "unmeasurable"),
@@ -134,11 +157,7 @@ export const probes = [
     files: ["scripts/testing/mobile-audit.mjs", "scripts/testing/lib-audit-baseline.mjs"],
     appliedMarkers: ["// probe: unmeasurable pages tolerated"],
     mutate: () => {
-      substituteOnce(
-        "scripts/testing/mobile-audit.mjs",
-        '    await page.goto(`${BASE}${spec.path}`, { waitUntil: "domcontentloaded", timeout: 45000 });',
-        '    await page.goto(`${BASE}${spec.path}`, { waitUntil: "domcontentloaded", timeout: 1 });',
-      );
+      substituteOnce("scripts/testing/mobile-audit.mjs", REACHES_THE_APP, REACHES_NOWHERE);
       substituteOnce(
         "scripts/testing/lib-audit-baseline.mjs",
         "  if (unmeasurable.length > 0) {",
@@ -159,6 +178,34 @@ export const probes = [
             : `exit ${result.status} — the removal did not reach the decision`,
       };
     },
+  },
+  {
+    name: "a reading filed under a width it was not taken at fails the run",
+    // The finding key names the width. Nothing else in the run does, so if the loop stops setting
+    // the viewport it iterates, every reading is a 390px measurement wearing a 360px key and the
+    // baseline fills with evidence about a screen nobody looked at. Pinning the widths in a test
+    // cannot see this: the declaration would still say three, and the audit would still walk three.
+    klass: "B",
+    harmfulMove: "measuring at one width while filing the reading under another",
+    // The only probe here that needs the audit to MEASURE, which makes it the only one that has to
+    // get past the stylesheet preflight. Every probe above restores brand-tokens.css with `git
+    // checkout`, and a checkout stamps a fresh mtime, so from the second probe onwards the source
+    // looks newer than anything compiled from it and the audit refuses with exit 3. The others
+    // never notice because their pages time out before the preflight runs. Backdating undoes the
+    // checkout's timestamp without touching a byte of the file, which is why it is listed here as a
+    // file this probe touches.
+    files: ["scripts/testing/mobile-audit.mjs", TOKENS],
+    appliedMarkers: ["// probe: every width measured at the widest"],
+    mutate: () => {
+      backdateToBuild(TOKENS);
+      substituteOnce(
+        "scripts/testing/mobile-audit.mjs",
+        "    await page.setViewportSize(viewport);",
+        "    // probe: every width measured at the widest\n    await page.setViewportSize(MOBILE_VIEWPORTS[2]);",
+      );
+    },
+    detect: async () =>
+      exitedWith(runAudit("mobile-audit.mjs", "^01-home"), UNMEASURABLE_EXIT, "viewport mismatch"),
   },
 ];
 

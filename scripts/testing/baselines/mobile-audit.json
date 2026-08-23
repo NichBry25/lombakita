@@ -1,66 +1,267 @@
 {
   "audit": "mobile-audit",
-  "takenAt": "2026-08-22T17:37:06.072Z",
-  "note": "390px viewport, 105 pages. Findings marked seenIn:ci reproduce on the CI runner and NOT on macOS \u2014 the three institution-public pages overflow by exactly 10px there (scrollWidth 400 against a 390 viewport) and the team page reads 621 rather than 610. The difference is real and measured; a local run reports them as no longer reproducing, which is how the divergence stays visible. Overflow findings carry a magnitude (the measured scrollWidth, higher is worse) and fail the run if they grow. Where the two machines disagree the WORSE reading is recorded \u2014 the team page at 621, not the 610 this laptop measures \u2014 because a magnitude taken on one machine would otherwise fail the other on the machine difference rather than on a regression. The cost of that choice is that a local degradation from 610 up to 621 passes.",
+  "takenAt": "2026-08-23T18:20:30.303Z",
+  "note": "360/375/390px viewports, 105 pages. TWO ENTRIES BELOW ARE CURATED BY HAND and a regeneration will overwrite them, so read this before re-taking the baseline. (1) Findings marked seenIn:ci reproduce on the CI runner and NOT on macOS: the three institution-public pages measure 400px of content there against the 384 this laptop measures. A local run reports them as no longer reproducing, which is how the divergence stays visible, and writeBaseline carries them forward rather than deleting them. They exist only at 390 because 390 is the only width CI has ever run; its first run at 360 and 375 will report fresh findings on those same pages, and those readings have to come from CI rather than be guessed here. (2) 62-institution-team|390|overflow is recorded at 621, which is the CI reading; this machine measures 610. Where the two disagree the WORSE reading is recorded, so a CI run fails on a regression rather than on the machine difference. The cost of that choice is that a local degradation from 610 up to 621 passes. Overflow findings carry the measured scrollWidth as their magnitude and wide findings carry the overshoot past the edge; both are higher-is-worse and fail the run if they grow.",
   "findings": [
     {
-      "key": "62-institution-team|overflow",
+      "key": "15-institution-public|360|overflow",
+      "class": "overflow",
+      "magnitude": 384,
+      "viewport": 360,
+      "occurrences": 1
+    },
+    {
+      "key": "15-institution-public|360|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 24,
+      "right": 384,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "15-institution-public|360|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 24,
+      "right": 384,
+      "left": 18,
+      "occurrences": 3
+    },
+    {
+      "key": "15-institution-public|375|overflow",
+      "class": "overflow",
+      "magnitude": 384,
+      "viewport": 375,
+      "occurrences": 1
+    },
+    {
+      "key": "15-institution-public|375|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 9,
+      "right": 384,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "15-institution-public|375|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 9,
+      "right": 384,
+      "left": 18,
+      "occurrences": 3
+    },
+    {
+      "key": "43-institution-public-as-candidate|360|overflow",
+      "class": "overflow",
+      "magnitude": 384,
+      "viewport": 360,
+      "occurrences": 1
+    },
+    {
+      "key": "43-institution-public-as-candidate|360|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 24,
+      "right": 384,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "43-institution-public-as-candidate|360|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 24,
+      "right": 384,
+      "left": 18,
+      "occurrences": 3
+    },
+    {
+      "key": "43-institution-public-as-candidate|375|overflow",
+      "class": "overflow",
+      "magnitude": 384,
+      "viewport": 375,
+      "occurrences": 1
+    },
+    {
+      "key": "43-institution-public-as-candidate|375|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 9,
+      "right": 384,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "43-institution-public-as-candidate|375|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 9,
+      "right": 384,
+      "left": 18,
+      "occurrences": 3
+    },
+    {
+      "key": "52-institution-public-preview|360|overflow",
+      "class": "overflow",
+      "magnitude": 384,
+      "viewport": 360,
+      "occurrences": 1
+    },
+    {
+      "key": "52-institution-public-preview|360|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 24,
+      "right": 384,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "52-institution-public-preview|360|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 24,
+      "right": 384,
+      "left": 18,
+      "occurrences": 3
+    },
+    {
+      "key": "52-institution-public-preview|375|overflow",
+      "class": "overflow",
+      "magnitude": 384,
+      "viewport": 375,
+      "occurrences": 1
+    },
+    {
+      "key": "52-institution-public-preview|375|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 9,
+      "right": 384,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "52-institution-public-preview|375|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 9,
+      "right": 384,
+      "left": 18,
+      "occurrences": 3
+    },
+    {
+      "key": "57-competition-edit-draft|360|overflow",
+      "class": "overflow",
+      "magnitude": 370,
+      "viewport": 360,
+      "occurrences": 1
+    },
+    {
+      "key": "57-competition-edit-draft|360|wide|header.page-heading",
+      "class": "wide",
+      "magnitude": 10,
+      "right": 370,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "57-competition-edit-draft|360|wide|form.competition-edit-form",
+      "class": "wide",
+      "magnitude": 10,
+      "right": 370,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "57-competition-edit-draft|360|wide|section.content-section.stack-md",
+      "class": "wide",
+      "magnitude": 10,
+      "right": 370,
+      "left": 18,
+      "occurrences": 4
+    },
+    {
+      "key": "57-competition-edit-draft|360|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 10,
+      "right": 370,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "57-competition-edit-draft|360|wide|div.form-action-bar.glass-chrome",
+      "class": "wide",
+      "magnitude": 10,
+      "right": 370,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "62-institution-team|360|overflow",
+      "class": "overflow",
+      "magnitude": 610,
+      "viewport": 360,
+      "occurrences": 1
+    },
+    {
+      "key": "62-institution-team|375|overflow",
+      "class": "overflow",
+      "magnitude": 610,
+      "viewport": 375,
+      "occurrences": 1
+    },
+    {
+      "key": "62-institution-team|390|overflow",
+      "class": "overflow",
       "magnitude": 621,
-      "viewport": 390
+      "viewport": 390,
+      "occurrences": 1
     },
     {
-      "key": "15-institution-public|overflow",
+      "key": "15-institution-public|390|overflow",
       "occurrences": 1,
       "seenIn": "ci",
       "magnitude": 400,
       "viewport": 390
     },
     {
-      "key": "15-institution-public|wide|article.pf-card",
+      "key": "15-institution-public|390|wide|article.pf-card",
       "occurrences": 1,
       "detail": "article.pf-card right=400",
       "seenIn": "ci"
     },
     {
-      "key": "15-institution-public|wide|section.content-section",
+      "key": "15-institution-public|390|wide|section.content-section",
       "occurrences": 3,
       "detail": "section.content-section right=400",
       "seenIn": "ci"
     },
     {
-      "key": "43-institution-public-as-candidate|overflow",
+      "key": "43-institution-public-as-candidate|390|overflow",
       "occurrences": 1,
       "seenIn": "ci",
       "magnitude": 400,
       "viewport": 390
     },
     {
-      "key": "43-institution-public-as-candidate|wide|article.pf-card",
+      "key": "43-institution-public-as-candidate|390|wide|article.pf-card",
       "occurrences": 1,
       "detail": "article.pf-card right=400",
       "seenIn": "ci"
     },
     {
-      "key": "43-institution-public-as-candidate|wide|section.content-section",
+      "key": "43-institution-public-as-candidate|390|wide|section.content-section",
       "occurrences": 3,
       "detail": "section.content-section right=400",
       "seenIn": "ci"
     },
     {
-      "key": "52-institution-public-preview|overflow",
+      "key": "52-institution-public-preview|390|overflow",
       "occurrences": 1,
       "seenIn": "ci",
       "magnitude": 400,
       "viewport": 390
     },
     {
-      "key": "52-institution-public-preview|wide|article.pf-card",
+      "key": "52-institution-public-preview|390|wide|article.pf-card",
       "occurrences": 1,
       "detail": "article.pf-card right=400",
       "seenIn": "ci"
     },
     {
-      "key": "52-institution-public-preview|wide|section.content-section",
+      "key": "52-institution-public-preview|390|wide|section.content-section",
       "occurrences": 3,
       "detail": "section.content-section right=400",
       "seenIn": "ci"

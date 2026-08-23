@@ -6,6 +6,7 @@
 import type { Browser, BrowserContext, Page } from "playwright";
 
 export declare const DESKTOP: { width: number; height: number };
+export declare const MOBILE_VIEWPORTS: readonly { width: number; height: number }[];
 export declare const MOBILE: { width: number; height: number };
 
 export declare function launch(): Promise<Browser>;

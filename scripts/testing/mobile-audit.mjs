@@ -8,12 +8,21 @@
  *
  * Taste still needs eyes; this finds the things eyes miss and proves the fixes landed.
  *
+ * It walks the inventory once per width in MOBILE_VIEWPORTS (lib-browser.mjs), because one width
+ * is not mobile. See that declaration for what the single width was hiding.
+ *
  * Three things it does before it will report anything, each of which it used to skip:
  *   - refuses outright unless the browser is loading the stylesheet on disk (lib-css-fingerprint)
  *   - opens collapsed sections, whose contents are ABSENT from the DOM rather than hidden
  *   - fails the run on a page it could not measure, instead of counting it toward the total
  */
-import { launch, contextFor, MOBILE, settle, expandCollapsibles } from "./lib-browser.mjs";
+import {
+  launch,
+  contextFor,
+  MOBILE_VIEWPORTS,
+  settle,
+  expandCollapsibles,
+} from "./lib-browser.mjs";
 import { preflightOrRefuse } from "./lib-css-fingerprint.mjs";
 import { finishAudit } from "./lib-audit-baseline.mjs";
 import { finding } from "./finding-classes.mjs";
@@ -115,6 +124,25 @@ const audit = async (page) =>
     };
   });
 
+/**
+ * Awaits `work`, and gives up on it after `budgetMs`.
+ *
+ * For teardown only, and it exists because teardown was observed never finishing. With every
+ * navigation on a page failing, `page.close()` returned nothing at all: the run sat with its
+ * browser open and produced no output for sixteen minutes, on roughly half the attempts, and a
+ * measurement that never reports is the same failure as one that reports what it never measured.
+ * Nothing past this point reads the page, so a close that does not come back is not worth waiting
+ * for, and closing the browser takes the renderer down anyway.
+ */
+const orGiveUp = (work, budgetMs) =>
+  Promise.race([
+    work.catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, budgetMs).unref()),
+  ]);
+
+const CLOSE_PAGE_BUDGET_MS = 5000;
+const CLOSE_BROWSER_BUDGET_MS = 15000;
+
 const browser = await launch();
 const contexts = new Map();
 const measured = [];
@@ -127,27 +155,49 @@ for (const spec of targets) {
     contexts.set(key, await contextFor(browser, spec.as ? USERS[spec.as].email : null));
   }
   const page = await contexts.get(key).newPage();
-  await page.setViewportSize(MOBILE);
-  try {
-    await page.goto(`${BASE}${spec.path}`, { waitUntil: "domcontentloaded", timeout: 45000 });
-    // Heavy forms measure mid-layout at shorter waits and report phantom 25px-tall inputs.
-    await settle(page);
-    // Once, on the first page that loads: everything after this depends on the browser seeing the
-    // stylesheet the working tree holds, and there is no point measuring 104 more pages against a
-    // stylesheet that is not the one under test.
-    if (!preflightDone) {
-      await preflightOrRefuse(page, "mobile-audit");
-      preflightDone = true;
+  // A fresh NAVIGATION per width, not one load measured three times. A component that sizes itself
+  // on mount keeps the decision it made at the width it mounted at, so a page that was resized
+  // under the measurement would report the 390px layout under a 360px key. The viewport is set
+  // first and the document is loaded after it, so every reading describes a document that rendered
+  // at the width it is filed under. Three navigations per page is what that costs.
+  for (const viewport of MOBILE_VIEWPORTS) {
+    await page.setViewportSize(viewport);
+    try {
+      await page.goto(`${BASE}${spec.path}`, { waitUntil: "domcontentloaded", timeout: 45000 });
+      // Heavy forms measure mid-layout at shorter waits and report phantom 25px-tall inputs.
+      await settle(page);
+      // Once, on the first page that loads: everything after this depends on the browser seeing the
+      // stylesheet the working tree holds, and there is no point measuring 104 more pages against a
+      // stylesheet that is not the one under test.
+      if (!preflightDone) {
+        await preflightOrRefuse(page, "mobile-audit");
+        preflightDone = true;
+      }
+      await expandCollapsibles(page);
+      const reading = await audit(page);
+      // The key this reading gets filed under names the width it was taken at, so it has to be the
+      // width that was set. A document reporting a different clientWidth means something took the
+      // viewport away from the audit, and a reading filed under a width it was not measured at is
+      // worse than no reading.
+      if (reading.viewport !== viewport.width) {
+        unmeasurable.push({
+          id: `${spec.id}@${viewport.width}`,
+          reason: `viewport set to ${viewport.width}px, document reports ${reading.viewport}px`,
+        });
+      } else {
+        measured.push({ id: spec.id, path: spec.path, width: viewport.width, ...reading });
+      }
+    } catch (error) {
+      unmeasurable.push({
+        id: `${spec.id}@${viewport.width}`,
+        reason: String(error).slice(0, 160),
+      });
     }
-    await expandCollapsibles(page);
-    measured.push({ id: spec.id, path: spec.path, ...(await audit(page)) });
-  } catch (error) {
-    unmeasurable.push({ id: spec.id, reason: String(error).slice(0, 160) });
   }
-  await page.close();
+  await orGiveUp(page.close(), CLOSE_PAGE_BUDGET_MS);
 }
 
-await browser.close();
+await orGiveUp(browser.close(), CLOSE_BROWSER_BUDGET_MS);
 
 /**
  * Prints the report and returns its findings. Called by `finishAudit` only once the run has been
@@ -174,13 +224,13 @@ const measure = () => {
     const overflow = page.scrollWidth > page.viewport + 1;
     if (!overflow && page.wide.length === 0 && page.small.length === 0) continue;
 
-    console.log(`\n${page.id}  (${page.path})`);
+    console.log(`\n${page.id} @ ${page.width}px  (${page.path})`);
     if (overflow) {
       console.log(`  OVERFLOW  scrollWidth ${page.scrollWidth} > viewport ${page.viewport}`);
       add(
         finding(
           "overflow",
-          `${page.id}|overflow`,
+          `${page.id}|${page.width}|overflow`,
           { scrollWidth: page.scrollWidth },
           { viewport: page.viewport },
         ),
@@ -210,7 +260,7 @@ const measure = () => {
       add(
         finding(
           "wide",
-          `${page.id}|wide|${w.descriptor}`,
+          `${page.id}|${page.width}|wide|${w.descriptor}`,
           { right: w.right, left: w.left, viewport: page.viewport },
           { right: w.right, left: w.left },
         ),
@@ -220,7 +270,7 @@ const measure = () => {
       add(
         finding(
           "target",
-          `${page.id}|target|${s.descriptor}`,
+          `${page.id}|${page.width}|target|${s.descriptor}`,
           { width: s.width, height: s.height },
           { size: `${s.width}x${s.height}` },
         ),
@@ -229,8 +279,15 @@ const measure = () => {
   }
 
   const findings = [...byKey.values()];
-  const cleanPages = measured.length - new Set(findings.map((f) => f.key.split("|")[0])).size;
-  console.log(`\n${cleanPages}/${measured.length} pages clean at ${MOBILE.width}px.`);
+  // One line per width. A single combined total would let a width with nothing wrong carry one that
+  // is broken on every page, which is the arithmetic that made 390 look like an answer.
+  for (const { width } of MOBILE_VIEWPORTS) {
+    const atWidth = measured.filter((page) => page.width === width);
+    const dirty = new Set(
+      findings.filter((f) => f.key.split("|")[1] === String(width)).map((f) => f.key.split("|")[0]),
+    );
+    console.log(`\n${atWidth.length - dirty.size}/${atWidth.length} pages clean at ${width}px.`);
+  }
   return findings;
 };
 
@@ -238,5 +295,5 @@ finishAudit({
   name: "mobile-audit",
   measure,
   unmeasurable,
-  note: `${MOBILE.width}px viewport, ${measured.length} pages`,
+  note: `${MOBILE_VIEWPORTS.map((v) => v.width).join("/")}px viewports, ${targets.length} pages`,
 });

@@ -23,7 +23,7 @@ node scripts/testing/api-matrix.mjs             # 100 API, guard, and isolation 
 node scripts/testing/r2-flows.mjs               # 22 real-byte upload/validation assertions
 node scripts/testing/flows.mjs                  # UI flows + a screenshot of every reaction
 node scripts/testing/gallery.mjs                # every page × light/dark × desktop/mobile
-node scripts/testing/mobile-audit.mjs           # every page at 390px: overflow, edge, touch targets
+node scripts/testing/mobile-audit.mjs           # every page at 360/375/390px: overflow, edge, targets
 node scripts/testing/contrast-audit.mjs         # every page x light/dark: WCAG AA text contrast
 node scripts/testing/ui-states.mjs              # what each surface must SAY and must NOT OFFER
 ```
@@ -128,7 +128,18 @@ eye. It catches the one class of defect nothing else here can: a token that is c
 mode and renders dark-on-dark in the other theme, with lint, typecheck, tests and build all green.
 
 `mobile-audit.mjs` reports only what is measurable — a page that scrolls sideways, an element
-painting past the viewport edge, a control under 44×44px. Taste still needs eyes. It takes the same
+painting past the viewport edge, a control under 44×44px. Taste still needs eyes.
+
+**It walks the inventory once per width in `MOBILE_VIEWPORTS`, which is 360, 375 and 390.** For most
+of its life it measured 390 alone, and 390 is the widest of the three and the only one where the
+institution-public pages read clean: they lay out 384px of content, which fits inside 390 with six
+pixels to spare and hangs 24px off a 360px screen. A run reporting "104/105 pages clean" was
+describing one forgiving width. Every finding key now carries the width it was taken at
+(`<page>|<width>|<class>`), the summary prints a clean count per width, and `mobile-viewports.test.ts`
+holds the declaration to the baseline in both directions: a width cannot leave the set while the
+baseline carries readings taken at it, and it cannot join the set without the baseline being
+re-taken. Three navigations per page is what this costs; a page is loaded fresh at each width rather
+than resized, because a component that measures itself on mount keeps the width it mounted at. It takes the same
 regex argument as the gallery and needs the same chunking (`for c in "^0" … "^8"`), and a flagged
 page should always be **re-run on its own** before you believe it: a heavy form measured
 mid-layout reports phantom undersized inputs, and a cold dev compile can time a page out outright.
@@ -176,7 +187,7 @@ upward by one per run.
 |---|---|
 | `seeds.mjs` | Ids, slugs, and emails of every seeded fixture — the single place to update if the seed changes |
 | `lib-auth.mjs` | Mints real NextAuth credential sessions over HTTP; thin fetch wrapper |
-| `lib-browser.mjs` | Playwright launch, session-carrying contexts, theme switching, screenshots |
+| `lib-browser.mjs` | Playwright launch, session-carrying contexts, theme switching, screenshots, and `MOBILE_VIEWPORTS` — the widths the mobile audit measures |
 | `pages.mjs` | The 85-entry page inventory for the gallery (`as` selects the session) |
 | `api-matrix.mjs` | Auth branches, ownership/IDOR, publish gates, ops guards, rate limiting |
 | `r2-flows.mjs` | Presign → real PUT → record/finalize → read back, plus the negative cases |
@@ -188,6 +199,7 @@ upward by one per run.
 | `assertion-harnesses.ts` | Which files the assertion-strength gate reads — pinned to disk by test |
 | `assertion-strength.ts` | Rejects an assertion that cannot fail, resolving helpers through the TypeChecker |
 | `guard-probe.mjs` | The Rule 36 probe runner: compile, apply, assert, restore from git |
+| `mobile-viewports.test.ts` | The declared mobile widths, pinned against the widths the baseline was taken at |
 | `probes/detectors.mjs` | Shared refusal detectors — a probe is red only for the reason it names |
 
 All seeded accounts use the password `UjiCoba123!` and `@seed.lombakita.local` addresses, which

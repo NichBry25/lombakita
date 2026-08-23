@@ -4,7 +4,28 @@ import { elevateMfaSession, mintSession } from "./lib-auth.mjs";
 import { BASE, USERS } from "./seeds.mjs";
 
 export const DESKTOP = { width: 1440, height: 900 };
-export const MOBILE = { width: 390, height: 844 };
+
+/*
+ * EVERY VIEWPORT THE MOBILE AUDIT MEASURES.
+ *
+ * It measured one width, and that width was 390, the widest phone of the three and the only one of
+ * them that passes. The institution-public pages lay out 384px of content, which reads clean
+ * against a 390px screen because 390 leaves six pixels of headroom, and overflows by 24px at 360
+ * and by 9px at 375. A large share of the Indonesian market is on the two widths nothing looked at,
+ * so a run reporting "104/105 pages clean" was describing one forgiving screen and calling it
+ * mobile.
+ *
+ * The widths are the subject. The heights are the ordinary device heights at each width and nothing
+ * the audit measures depends on them.
+ */
+export const MOBILE_VIEWPORTS = [
+  { width: 360, height: 800 },
+  { width: 375, height: 812 },
+  { width: 390, height: 844 },
+];
+
+/** The widest of the audited set, for the scripts that shoot a single phone screenshot. */
+export const MOBILE = MOBILE_VIEWPORTS[MOBILE_VIEWPORTS.length - 1];
 
 // Playwright 1.62 refuses to install Chromium on mac13-arm64, but a compatible build is already
 // in the shared ms-playwright cache; point at it directly rather than downgrading the library.
