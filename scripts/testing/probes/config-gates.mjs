@@ -16,6 +16,13 @@ import { runProbes, substituteOnce } from "../guard-probe.mjs";
 const FAILURE_SIGNAL = /FAIL|✗|✘|error TS|AssertionError|Tests\s+\d+ failed/;
 
 /**
+ * The assertion-strength gate reports its own verdict in prose rather than a runner's vocabulary,
+ * so it needs its own signal. The leading digit class matters: the same sentence is printed with a
+ * count of zero when the gate PASSES, and a probe that accepted it would be reading a success.
+ */
+const WEAK_ASSERTION_SIGNAL = /[1-9]\d* cannot fail for the reason they name/;
+
+/**
  * Runs a command and reports whether it went red FOR AN IDENTIFIED REASON.
  *
  * Accepting any non-zero exit as "the guard refused" is Rule 36 clause 3's own failure mode wearing
@@ -23,7 +30,7 @@ const FAILURE_SIGNAL = /FAIL|✗|✘|error TS|AssertionError|Tests\s+\d+ failed/
  * whose detector path is mistyped would report RED — PROVEN. So an exit with no recognisable
  * failure line THROWS: a detector that crashed did not measure, and must not be read either way.
  */
-const fails = (command, args) => {
+const fails = (command, args, expectedSignal = FAILURE_SIGNAL) => {
   const label = `${command} ${args.join(" ")}`;
   try {
     execFileSync(command, args, { stdio: "pipe" });
@@ -33,10 +40,10 @@ const fails = (command, args) => {
     if (/No test files found/i.test(output)) {
       throw new Error(`${label} ran no tests at all — the detector never reached an assertion`);
     }
-    const named = output.split("\n").find((line) => FAILURE_SIGNAL.test(line));
+    const named = output.split("\n").find((line) => expectedSignal.test(line));
     if (!named) {
       throw new Error(
-        `${label} exited ${error.status} without naming a failed assertion. A detector that ` +
+        `${label} exited ${error.status} without matching ${expectedSignal}. A detector that ` +
           `crashed is not a guard that refused. Tail of its output:\n${output.slice(-600)}`,
       );
     }
@@ -167,7 +174,7 @@ const probes = [
         "publishWhileSuspended.status >= 400 && publishWhileSuspended.status < 500",
       ),
     compiles: () => execFileSync("node", ["--check", "scripts/testing/api-matrix.mjs"]),
-    detect: async () => fails("npm", ["run", "verify:assertion-strength"]),
+    detect: async () => fails("npm", ["run", "verify:assertion-strength"], WEAK_ASSERTION_SIGNAL),
   },
   {
     name: "the assertion-strength gate runs in CI",
