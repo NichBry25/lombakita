@@ -196,12 +196,17 @@ const probes = [
     harmfulMove:
       "putting `test` back on the delivering side, so a seeded run mails every fixture address",
     files: ["src/config/env.server.ts"],
-    appliedMarkers: ['if (appEnv === "no-such-environment")'],
+    appliedMarkers: ["// probe: the test branch is gone"],
+    // The branch is REMOVED rather than renamed. Comparing `appEnv` against a value outside its
+    // union does not typecheck, so the earlier mutation could not compile — and its vitest detector
+    // fails identically on a type error and on the guard holding, which made the probe unable to
+    // say which one it had observed. Deleting the branch restores the exact predicate that shipped
+    // before the fix, and compiles.
     mutate: () =>
       substituteOnce(
         "src/config/env.server.ts",
-        '  if (appEnv === "test") {\n    return false;\n  }',
-        '  if (appEnv === "no-such-environment") {\n    return false;\n  }',
+        '  if (appEnv === "test") {\n    return false;\n  }\n',
+        "  // probe: the test branch is gone\n",
       ),
     detect: async () => vitest("src/config/env-email-delivery.test.ts"),
   },
