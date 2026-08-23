@@ -133,6 +133,19 @@ describe("format gate scope", () => {
     ).toBeGreaterThan(0);
   });
 
+  // The distinction the single word "gitignored" hid: four of these are not merely uncommittable,
+  // they are gone. Nothing on this machine or any other has them to format.
+  it.each(DELETED_FROM_THE_REPOSITORY)("%s does not exist on disk at all", (path) => {
+    expect(existsSync(resolve(process.cwd(), path))).toBe(false);
+  });
+
+  // README.md is the one that still exists here, which is exactly why its reason has to be the
+  // other one: the gate would pass locally and fail in CI, the worst of the three outcomes.
+  it("README.md exists locally, which is why local success proves nothing about it", () => {
+    expect(existsSync(resolve(process.cwd(), "README.md"))).toBe(true);
+    expect(isIgnoredOrAbsent("README.md")).toBe(true);
+  });
+
   // `format` and `format:check` must look at the same set, or `npm run format` leaves files the
   // gate then fails on, or cleans files the gate never checks.
   it("writes exactly what it checks", () => {
