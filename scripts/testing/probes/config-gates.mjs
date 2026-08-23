@@ -201,6 +201,42 @@ const probes = [
     compiles: () => execFileSync("node", ["--check", "scripts/testing/lib-contrast.mjs"]),
     detect: async () => fails("node", ["scripts/testing/contrast-audit-selftest.mjs"]),
   },
+  {
+    name: "a baselined finding that measured worse fails the run",
+    // `classifyAgainstBaseline` is a pure function over two collections and `finishAudit` acts on
+    // its result with a single exit. There is no write to order the check against, so a move
+    // analogue does not exist for either; Rule 36 asks for that to be said rather than for a probe
+    // that measures nothing. Both removal probes below are the whole test.
+    klass: "D",
+    harmfulMove:
+      "comparing baselined findings by key alone, so a page baselined at 400px stays baselined at 900px",
+    files: ["scripts/testing/lib-audit-baseline.mjs"],
+    appliedMarkers: ["// probe: magnitude regressions no longer recorded"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/lib-audit-baseline.mjs",
+        "    worsened.push({ key: finding.key, was: recorded.magnitude, now: finding.magnitude });",
+        "    // probe: magnitude regressions no longer recorded",
+      ),
+    compiles: () => execFileSync("node", ["--check", "scripts/testing/lib-audit-baseline.mjs"]),
+    detect: async () => vitest("scripts/testing/audit-baseline.test.ts"),
+  },
+  {
+    name: "the run's exit code acts on the regression it classified",
+    klass: "D",
+    harmfulMove:
+      "classifying the regression, printing it, and still exiting 0 — the report is right and the gate is green",
+    files: ["scripts/testing/lib-audit-baseline.mjs"],
+    appliedMarkers: ["if (fresh.length > 0) {\n    process.exit(EXIT_FINDINGS);"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/lib-audit-baseline.mjs",
+        "  if (fresh.length > 0 || worsened.length > 0) {\n    process.exit(EXIT_FINDINGS);",
+        "  if (fresh.length > 0) {\n    process.exit(EXIT_FINDINGS);",
+      ),
+    compiles: () => execFileSync("node", ["--check", "scripts/testing/lib-audit-baseline.mjs"]),
+    detect: async () => vitest("scripts/testing/audit-baseline.test.ts"),
+  },
 ];
 
 await runProbes(probes);

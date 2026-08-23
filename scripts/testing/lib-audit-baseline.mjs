@@ -30,12 +30,23 @@ export const BASELINE_DIR = join(REPO_ROOT, "scripts/testing/baselines");
 
 export const baselinePath = (name) => join(BASELINE_DIR, `${name}.json`);
 
+/**
+ * Shapes a parsed baseline document for comparison. Separate from `readBaseline` because locating
+ * the file depends on `import.meta.url`, which resolves to a `/@fs/`-prefixed path under Vite —
+ * a test that wants to exercise the real shaping code should hand it the real document rather
+ * than depend on a path resolution that only holds when the audits run under plain node.
+ */
+export const parseBaseline = (parsed) => ({
+  takenAt: parsed.takenAt,
+  keys: new Set(parsed.findings.map((f) => f.key)),
+  byKey: new Map(parsed.findings.map((f) => [f.key, f])),
+});
+
 /** The recorded findings for `name`, or an empty baseline when none has been taken yet. */
 export const readBaseline = (name) => {
   const path = baselinePath(name);
-  if (!existsSync(path)) return { takenAt: null, keys: new Set() };
-  const parsed = JSON.parse(readFileSync(path, "utf8"));
-  return { takenAt: parsed.takenAt, keys: new Set(parsed.findings.map((f) => f.key)) };
+  if (!existsSync(path)) return { takenAt: null, keys: new Set(), byKey: new Map() };
+  return parseBaseline(JSON.parse(readFileSync(path, "utf8")));
 };
 
 /**
@@ -57,6 +68,37 @@ export const writeBaseline = (name, findings, note) => {
 };
 
 export const updatingBaseline = process.env.UPDATE_BASELINE === "1";
+/**
+ * Splits this run's findings three ways against the baseline: never seen before, seen before and
+ * now worse, and recorded but no longer reproducing.
+ *
+ * `magnitude` is how bad a finding is in the audit's own unit, where HIGHER IS WORSE. It exists
+ * because a key alone says a page has a fault of some KIND and nothing about the SIZE of it: a page
+ * baselined for horizontal overflow at 621px stays baselined at 900px, so the allowlist mutes a
+ * dimension of the page rather than the defect that was measured on it, and every later regression
+ * from any cause is pre-absorbed. A finding that carries a magnitude is therefore held to it —
+ * same key, larger number, the run fails.
+ *
+ * A SMALLER number is not a failure. That is the fix landing, and it stays green until someone
+ * re-takes the baseline. Findings that carry no magnitude are compared by key alone, as before.
+ */
+export const classifyAgainstBaseline = (findings, baseline) => {
+  const fresh = findings.filter((f) => !baseline.keys.has(f.key));
+
+  const worsened = [];
+  for (const finding of findings) {
+    const recorded = baseline.byKey.get(finding.key);
+    if (!recorded) continue;
+    if (typeof recorded.magnitude !== "number") continue;
+    if (typeof finding.magnitude !== "number") continue;
+    if (finding.magnitude <= recorded.magnitude) continue;
+    worsened.push({ key: finding.key, was: recorded.magnitude, now: finding.magnitude });
+  }
+
+  const healed = [...baseline.keys].filter((key) => !findings.some((f) => f.key === key));
+
+  return { fresh, worsened, healed };
+};
 
 /**
  * Decides the run's outcome and exits.
@@ -92,8 +134,7 @@ export const finishAudit = ({ name, measure, unmeasurable, note }) => {
   }
 
   const baseline = readBaseline(name);
-  const fresh = findings.filter((f) => !baseline.keys.has(f.key));
-  const healed = [...baseline.keys].filter((key) => !findings.some((f) => f.key === key));
+  const { fresh, worsened, healed } = classifyAgainstBaseline(findings, baseline);
 
   if (healed.length > 0) {
     console.log(
@@ -106,14 +147,24 @@ export const finishAudit = ({ name, measure, unmeasurable, note }) => {
     if (healed.length > 10) console.log(`  NOT SEEN  …and ${healed.length - 10} more`);
   }
 
-  if (fresh.length === 0) {
-    console.log(
-      `\n${findings.length} finding(s), all of them in the baseline taken ${baseline.takenAt ?? "(never)"}.`,
-    );
-    return;
+  if (worsened.length > 0) {
+    console.error(`\n${worsened.length} baselined finding(s) measured WORSE than when recorded:`);
+    for (const entry of worsened) {
+      console.error(`  WORSE  ${entry.key.padEnd(48)} ${entry.was} → ${entry.now}`);
+    }
   }
 
-  console.error(`\n${fresh.length} finding(s) NOT in the baseline:`);
-  for (const finding of fresh) console.error(`  NEW  ${finding.key}`);
-  process.exit(EXIT_FINDINGS);
+  if (fresh.length > 0) {
+    console.error(`\n${fresh.length} finding(s) NOT in the baseline:`);
+    for (const finding of fresh) console.error(`  NEW  ${finding.key}`);
+  }
+
+  if (fresh.length > 0 || worsened.length > 0) {
+    process.exit(EXIT_FINDINGS);
+  }
+
+  console.log(
+    `\n${findings.length} finding(s), all of them in the baseline taken ` +
+      `${baseline.takenAt ?? "(never)"}, none worse than recorded.`,
+  );
 };

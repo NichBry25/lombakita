@@ -151,7 +151,10 @@ const measure = () => {
     console.log(`\n${page.id}  (${page.path})`);
     if (overflow) {
       console.log(`  OVERFLOW  scrollWidth ${page.scrollWidth} > viewport ${page.viewport}`);
-      add(`${page.id}|overflow`, { scrollWidth: page.scrollWidth });
+      // The magnitude IS the scrollWidth, and the baseline holds the finding to it. Without it the
+      // key `<page>|overflow` allows any overflow on that page forever, whatever its size and from
+      // whatever cause. The number is already measured here, so carrying it costs nothing.
+      add(`${page.id}|overflow`, { magnitude: page.scrollWidth, viewport: page.viewport });
     }
 
     // THE COUNT IS THE FINDING; the listing is a convenience. Printing six of eighteen and no total
