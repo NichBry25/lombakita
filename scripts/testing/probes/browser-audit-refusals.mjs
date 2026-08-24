@@ -2,7 +2,13 @@
  * Rule 36 probes for the two refusals the browser audits gained: they must decline to report a
  * measurement they could not honestly take.
  *
- * Both need an app to point at, and a PRODUCTION build is the honest environment for the first:
+ * Every probe here drives a browser, which is what puts them in this file rather than beside the
+ * config gates: only the job that installs Chromium can run them. Most also need an app to point
+ * at; the two contrast-auditor probes at the end need only the browser, because their fixture is
+ * set with `page.setContent`. They lived in the other file until it ran in CI for the first time
+ * and reported a browser that was never installed.
+ *
+ * A PRODUCTION build is the honest environment for the first:
  * `next start` serves a stylesheet fixed at build time, so an edit to the source is a real
  * source-versus-served divergence rather than a race with a recompile.
  *
@@ -15,7 +21,7 @@ import { utimesSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
 import { assertBuildIsNewerThanSources, newestCompiledChunkMs } from "../lib-css-fingerprint.mjs";
-import { refusedWhen } from "./detectors.mjs";
+import { fails, refusedWhen } from "./detectors.mjs";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const STALE_STYLESHEET_EXIT = 3;
@@ -224,6 +230,46 @@ export const probes = [
     },
     detect: async () =>
       exitedWith(runAudit("mobile-audit.mjs", "^01-home"), UNMEASURABLE_EXIT, "viewport mismatch"),
+  },
+  {
+    name: "the disabled exemption reaches a label wrapping its control — REMOVED",
+    klass: "D",
+    harmfulMove: "exempting by ancestry alone, which misses every checkbox row in the app",
+    files: ["scripts/testing/lib-contrast.mjs"],
+    appliedMarkers: ["if (el.closest(\":disabled, [aria-disabled='true']\")) continue;"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/lib-contrast.mjs",
+        "      if (isInactive(el)) continue;",
+        "      if (el.closest(\":disabled, [aria-disabled='true']\")) continue;",
+      ),
+    detect: async () => fails("node", ["scripts/testing/contrast-audit-selftest.mjs"]),
+  },
+  {
+    name: "the disabled exemption reaches a label wrapping its control — MOVED",
+    klass: "D",
+    // The move that matters: the exemption still runs, but AFTER the finding has been recorded.
+    // Every text of every inactive component is then reported, which is the state that buries the
+    // real findings — and a presence check on the guard's own line would not see it.
+    harmfulMove: "running the exemption after the finding is recorded, so it exempts nothing",
+    files: ["scripts/testing/lib-contrast.mjs"],
+    appliedMarkers: ["// probe: exemption moved below the record"],
+    mutate: () => {
+      substituteOnce(
+        "scripts/testing/lib-contrast.mjs",
+        "      if (isInactive(el)) continue;",
+        "      // probe: exemption moved below the record",
+      );
+      // After the `findings.set`, where a `continue` at the end of the loop body changes nothing
+      // and the exempt element has already been reported.
+      substituteOnce(
+        "scripts/testing/lib-contrast.mjs",
+        "          sample: text.slice(0, 40),\n        });\n      }\n    }",
+        "          sample: text.slice(0, 40),\n        });\n      }\n      if (isInactive(el)) continue;\n    }",
+      );
+    },
+    compiles: () => execFileSync("node", ["--check", "scripts/testing/lib-contrast.mjs"]),
+    detect: async () => fails("node", ["scripts/testing/contrast-audit-selftest.mjs"]),
   },
 ];
 

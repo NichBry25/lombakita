@@ -308,8 +308,11 @@ jobs:
           fi
           echo "wrote=1" >> "$GITHUB_OUTPUT"
 
+      # `always()` is load-bearing, not decoration. A step condition that names no status function
+      # gets an implicit `success() &&`, so without it this is skipped on exactly the runs it exists
+      # for — the audit has already failed by the time the regeneration runs.
       - name: Upload the mobile baseline this run measured
-        if: steps.recurate.outputs.wrote == '1'
+        if: always() && steps.recurate.outputs.wrote == '1'
         uses: actions/upload-artifact@v4
         with:
           name: mobile-audit-baseline-from-ci

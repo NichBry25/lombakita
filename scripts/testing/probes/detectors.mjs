@@ -62,3 +62,15 @@ export const refusedWhen = (result, { status, reached, forbidden, label }) => {
 
 /** A test runner naming which case failed, as opposed to any non-zero exit at all. */
 export const TEST_FAILURE = /FAIL|✗|✘|error TS|AssertionError|Tests\s+\d+ failed/;
+
+/**
+ * Runs a command and reports whether it went red FOR AN IDENTIFIED REASON.
+ *
+ * `reached` is what makes this a Rule 36 clause 3 detector rather than an exit-code reader: the run
+ * must name which assertion failed. Its absence throws, because a crashed detector is not a guard
+ * that refused — a probe suite once reported a browser that was never installed as a guard holding.
+ *
+ * Lives here rather than in either probe file because both need it and neither owns it.
+ */
+export const fails = (command, args, reached = TEST_FAILURE) =>
+  refusedWhen(run(command, args), { reached, label: `${command} ${args.join(" ")}` });

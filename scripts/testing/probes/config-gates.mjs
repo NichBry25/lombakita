@@ -12,17 +12,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
-import { TEST_FAILURE, refusedWhen, run } from "./detectors.mjs";
-
-/**
- * Runs a command and reports whether it went red FOR AN IDENTIFIED REASON.
- *
- * `reached` is what makes this a Rule 36 clause 3 detector rather than an exit-code reader: the run
- * must name which assertion failed. Its absence throws, because a crashed detector is not a guard
- * that refused. The shape comes from browser-audit-refusals.mjs, which had it first.
- */
-const fails = (command, args, reached = TEST_FAILURE) =>
-  refusedWhen(run(command, args), { reached, label: `${command} ${args.join(" ")}` });
+import { fails } from "./detectors.mjs";
 
 /**
  * The assertion-strength gate reports its verdict in prose rather than a runner's vocabulary, so it
@@ -189,46 +179,6 @@ export const probes = [
         '  // probe: test back on the delivering side\n  if (appEnv !== "local") {',
       ),
     detect: async () => vitest("src/config/env-email-delivery.test.ts"),
-  },
-  {
-    name: "the disabled exemption reaches a label wrapping its control — REMOVED",
-    klass: "D",
-    harmfulMove: "exempting by ancestry alone, which misses every checkbox row in the app",
-    files: ["scripts/testing/lib-contrast.mjs"],
-    appliedMarkers: ["if (el.closest(\":disabled, [aria-disabled='true']\")) continue;"],
-    mutate: () =>
-      substituteOnce(
-        "scripts/testing/lib-contrast.mjs",
-        "      if (isInactive(el)) continue;",
-        "      if (el.closest(\":disabled, [aria-disabled='true']\")) continue;",
-      ),
-    detect: async () => fails("node", ["scripts/testing/contrast-audit-selftest.mjs"]),
-  },
-  {
-    name: "the disabled exemption reaches a label wrapping its control — MOVED",
-    klass: "D",
-    // The move that matters: the exemption still runs, but AFTER the finding has been recorded.
-    // Every text of every inactive component is then reported, which is the state that buries the
-    // real findings — and a presence check on the guard's own line would not see it.
-    harmfulMove: "running the exemption after the finding is recorded, so it exempts nothing",
-    files: ["scripts/testing/lib-contrast.mjs"],
-    appliedMarkers: ["// probe: exemption moved below the record"],
-    mutate: () => {
-      substituteOnce(
-        "scripts/testing/lib-contrast.mjs",
-        "      if (isInactive(el)) continue;",
-        "      // probe: exemption moved below the record",
-      );
-      // After the `findings.set`, where a `continue` at the end of the loop body changes nothing
-      // and the exempt element has already been reported.
-      substituteOnce(
-        "scripts/testing/lib-contrast.mjs",
-        "          sample: text.slice(0, 40),\n        });\n      }\n    }",
-        "          sample: text.slice(0, 40),\n        });\n      }\n      if (isInactive(el)) continue;\n    }",
-      );
-    },
-    compiles: () => execFileSync("node", ["--check", "scripts/testing/lib-contrast.mjs"]),
-    detect: async () => fails("node", ["scripts/testing/contrast-audit-selftest.mjs"]),
   },
   {
     name: "a baselined finding that measured worse fails the run",
