@@ -92,6 +92,19 @@ const isIgnoredOrAbsent = (path: string): boolean => {
   }
 };
 
+/** Whether git has this path in its index, which is the same answer on every checkout. */
+const isTracked = (path: string): boolean => {
+  try {
+    execFileSync("git", ["ls-files", "--error-unmatch", "--", path], {
+      cwd: process.cwd(),
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 describe("format gate scope", () => {
   const formatCheck = packageJson.scripts["format:check"] ?? "";
   const formatWrite = packageJson.scripts["format"] ?? "";
@@ -139,10 +152,14 @@ describe("format gate scope", () => {
     expect(existsSync(resolve(process.cwd(), path))).toBe(false);
   });
 
-  // README.md is the one that still exists here, which is exactly why its reason has to be the
-  // other one: the gate would pass locally and fail in CI, the worst of the three outcomes.
-  it("README.md exists locally, which is why local success proves nothing about it", () => {
-    expect(existsSync(resolve(process.cwd(), "README.md"))).toBe(true);
+  // README.md is the one exclusion whose FILE may or may not be on a given disk: it is on this one,
+  // and on no runner's. This asserted `existsSync(...) === true`, which is the accident rather than
+  // the rule — true here, false in CI, and red in the required job for three runs while every check
+  // I ran was local. That is the defect this whole step is about, written into a test whose own name
+  // said local success proves nothing. What holds on every machine is that no checkout contains it:
+  // gitignored under DEC-0101, and never in the index.
+  it("README.md is in no checkout, whether or not it is on this disk", () => {
+    expect(isTracked("README.md")).toBe(false);
     expect(isIgnoredOrAbsent("README.md")).toBe(true);
   });
 
