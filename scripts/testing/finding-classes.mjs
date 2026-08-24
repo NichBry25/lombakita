@@ -72,6 +72,17 @@ export const FINDING_CLASSES = {
 };
 
 /**
+ * Whether a finding carries a class this repository declares AND a magnitude that class knows how
+ * to compare.
+ *
+ * One predicate, used at every point where a finding crosses a boundary: the emit site, the
+ * comparison against a baseline, and the carry-over of an entry recorded on another machine. It was
+ * only ever applied at the first of those, and the other two were the way in.
+ */
+export const isDeclaredFinding = (finding) =>
+  Boolean(finding) && Boolean(FINDING_CLASSES[finding.class]) && Number.isFinite(finding.magnitude);
+
+/**
  * One finding, with its severity resolved through the table.
  *
  * Throws on an undeclared class rather than recording a finding with no magnitude, because a

@@ -20,6 +20,8 @@ export interface BaselineComparison {
   fresh: AuditFinding[];
   worsened: { key: string; was: number; now: number }[];
   healed: string[];
+  /** Recorded entries with no declared class and magnitude. The caller must refuse on these. */
+  unclassifiable: AuditFinding[];
 }
 
 export declare const CURATED_DROP_FLAG: string;

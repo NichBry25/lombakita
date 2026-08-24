@@ -46,7 +46,7 @@ read, not a wall.
 | 1 | measured; findings this baseline does not carry |
 | 3 | REFUSED to measure — the stylesheet preflight |
 | 4 | at least one page could not be measured |
-| 5 | a finding named a class this repository has not declared |
+| 5 | a finding — emitted, carried forward, or already in the baseline — that nothing can compare |
 
 **3, 4 and 5 are refusals, not findings.** Exit 3 means the browser was not loading the stylesheet on
 disk, so nothing measured would have been about the working tree: the audit prints why and produces
@@ -55,6 +55,16 @@ that cannot describe the app, and it can never be baselined away. Exit 5 means a
 finding whose class is absent from `finding-classes.mjs`, or whose magnitude did not compute to a
 finite number: the comparison has no idea whether that finding got worse, so the run refuses rather
 than report a total it cannot stand behind.
+
+**Exit 5 covers the RECORDED side too, and that is where it was missing.** The emit gate stopped an
+undeclared finding being written; nothing stopped one that was already in the file. Twelve entries
+across the two baselines carried no magnitude — all six contrast findings, which predate
+`finding()`, and six `seenIn: ci` entries copied forward by every regeneration since. The comparison
+stepped over each of them, so they were held to their KEY alone: the exact behaviour the magnitude
+table was added to end, live under a green run. Every tone pairing could have decayed from 9.92 to
+0.5, and three pages from 400px of overflow to 900px, without the gate saying a word. A recorded
+entry nothing can compare is now refused at three points — when the comparison reads it, when a
+regeneration would carry it forward, and when the run would otherwise print its verdict.
 
 ## Finding classes
 
@@ -102,6 +112,14 @@ DROP_CURATED_FINDINGS=1 UPDATE_BASELINE=1 node scripts/testing/mobile-audit.mjs
 
 The second flag exists so that dropping a finding measured elsewhere is a sentence somebody typed,
 not a side effect of re-taking a baseline on a laptop.
+
+**A carried entry still has to be comparable.** Carry-over is the one path into a baseline that
+never passes the emit gate, which is how six entries with no magnitude survived every regeneration
+and could never acquire one. A regeneration now refuses (exit 5, `UNCARRIABLE`) rather than copying
+such an entry into the new file. Give it the class its key names and the magnitude the machine that
+recorded it measured — and where that machine is CI, the number has to come from a CI run, not from
+a guess made here. Dropping stays open, because dropping deletes the entry rather than keeping it in
+a state nothing can compare.
 
 ## Proving the guards
 
@@ -200,6 +218,9 @@ upward by one per run.
 | `assertion-strength.ts` | Rejects an assertion that cannot fail, resolving helpers through the TypeChecker |
 | `guard-probe.mjs` | The Rule 36 probe runner: compile, apply, assert, restore from git |
 | `mobile-viewports.test.ts` | The declared mobile widths, pinned against the widths the baseline was taken at |
+| `declared-assertions.mjs` | What `r2-flows` says it asserts, and the denominator its summary divides by — pinned to the harness by test |
+| `assertion-resolution.test.ts` | The strength gate's resolution, across every spelling an import takes |
+| `fixtures/` | Helper modules in each import spelling, for the resolution test |
 | `probes/detectors.mjs` | Shared refusal detectors — a probe is red only for the reason it names |
 
 All seeded accounts use the password `UjiCoba123!` and `@seed.lombakita.local` addresses, which

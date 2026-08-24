@@ -32,19 +32,22 @@ const baselineOf = (findings: AuditFinding[]): Baseline => ({
 
 describe("classifyAgainstBaseline", () => {
   it("reports a key the baseline has never seen as fresh", () => {
-    const baseline = baselineOf([{ key: "a|overflow", magnitude: 400 }]);
+    const baseline = baselineOf([overflowFinding("a|overflow", 400)]);
 
-    const { fresh, worsened } = classifyAgainstBaseline([{ key: "b|overflow" }], baseline);
+    const { fresh, worsened } = classifyAgainstBaseline(
+      [overflowFinding("b|overflow", 400)],
+      baseline,
+    );
 
     expect(fresh.map((f) => f.key)).toEqual(["b|overflow"]);
     expect(worsened).toEqual([]);
   });
 
   it("accepts a baselined finding measured at exactly what was recorded", () => {
-    const baseline = baselineOf([{ key: "a|overflow", magnitude: 400 }]);
+    const baseline = baselineOf([overflowFinding("a|overflow", 400)]);
 
     const { fresh, worsened } = classifyAgainstBaseline(
-      [{ key: "a|overflow", magnitude: 400 }],
+      [overflowFinding("a|overflow", 400)],
       baseline,
     );
 
@@ -55,10 +58,10 @@ describe("classifyAgainstBaseline", () => {
   // The defect this exists to close: the key alone said "this page overflows", so a page baselined
   // at 400px stayed baselined at 900px and the gate reported green over the regression.
   it("fails a baselined finding that measured worse than it was recorded at", () => {
-    const baseline = baselineOf([{ key: "a|overflow", magnitude: 400 }]);
+    const baseline = baselineOf([overflowFinding("a|overflow", 400)]);
 
     const { fresh, worsened } = classifyAgainstBaseline(
-      [{ key: "a|overflow", magnitude: 900 }],
+      [overflowFinding("a|overflow", 900)],
       baseline,
     );
 
@@ -67,31 +70,61 @@ describe("classifyAgainstBaseline", () => {
   });
 
   it("does not fail a baselined finding that improved", () => {
-    const baseline = baselineOf([{ key: "a|overflow", magnitude: 400 }]);
+    const baseline = baselineOf([overflowFinding("a|overflow", 400)]);
 
-    const { worsened } = classifyAgainstBaseline([{ key: "a|overflow", magnitude: 391 }], baseline);
+    const { worsened } = classifyAgainstBaseline([overflowFinding("a|overflow", 391)], baseline);
 
     expect(worsened).toEqual([]);
   });
 
-  // Findings whose kind carries no measurable magnitude — a `wide` element, a contrast pairing —
-  // are still compared by key alone, so adding magnitudes to one audit cannot break the others.
-  it("compares by key alone when either side carries no magnitude", () => {
-    const baseline = baselineOf([{ key: "a|wide|div.card" }]);
+  // THE FAIL-OPEN, INVERTED. This test used to assert the skip and justify it: findings whose kind
+  // carries no measurable magnitude were "still compared by key alone, so adding magnitudes to one
+  // audit cannot break the others". The premise was already false when it was written — `wide` and
+  // `contrast` both carry magnitudes — and what it actually pinned was a recorded entry being held
+  // to its key while it worsened without limit. Twelve entries were living in that state.
+  it("refuses a recorded entry with no magnitude rather than comparing it by key", () => {
+    const baseline = baselineOf([{ key: "a|wide|div.card", class: "wide" } as AuditFinding]);
 
-    const { fresh, worsened } = classifyAgainstBaseline(
-      [{ key: "a|wide|div.card", magnitude: 9000 }],
+    const { worsened, unclassifiable } = classifyAgainstBaseline(
+      [{ key: "a|wide|div.card", class: "wide", magnitude: 9000 }],
       baseline,
     );
 
-    expect(fresh).toEqual([]);
     expect(worsened).toEqual([]);
+    expect(unclassifiable.map((f) => f.key)).toEqual(["a|wide|div.card"]);
+  });
+
+  it("refuses a recorded entry whose class this repository does not declare", () => {
+    const baseline = baselineOf([
+      { key: "a|overflow", class: "nonesuch", magnitude: 400 } as AuditFinding,
+    ]);
+
+    const { unclassifiable } = classifyAgainstBaseline(
+      [overflowFinding("a|overflow", 400)],
+      baseline,
+    );
+
+    expect(unclassifiable.map((f) => f.key)).toEqual(["a|overflow"]);
+  });
+
+  // A recorded entry this run did not reproduce still mutes the key it holds, so it is refused on
+  // the same terms. Reading it as healed would report good news about an entry nothing can compare.
+  it("refuses an unclassifiable entry even when this run did not reproduce it", () => {
+    const baseline = baselineOf([{ key: "gone|overflow" } as AuditFinding]);
+
+    const { healed, unclassifiable } = classifyAgainstBaseline([], baseline);
+
+    expect(healed).toEqual(["gone|overflow"]);
+    expect(unclassifiable.map((f) => f.key)).toEqual(["gone|overflow"]);
   });
 
   it("reports a recorded key that did not reproduce as healed", () => {
-    const baseline = baselineOf([{ key: "a|overflow", magnitude: 400 }, { key: "b|overflow" }]);
+    const baseline = baselineOf([
+      overflowFinding("a|overflow", 400),
+      overflowFinding("b|overflow", 400),
+    ]);
 
-    const { healed } = classifyAgainstBaseline([{ key: "a|overflow", magnitude: 400 }], baseline);
+    const { healed } = classifyAgainstBaseline([overflowFinding("a|overflow", 400)], baseline);
 
     expect(healed).toEqual(["b|overflow"]);
   });
@@ -131,8 +164,8 @@ describe("the committed mobile-audit baseline", () => {
 const runFinishAudit = (
   findings: unknown[],
   recorded: AuditFinding[],
-  { update = false }: { update?: boolean } = {},
-): { status: number; stderr: string; writtenKeys: string[] | null } => {
+  { update = false, drop = false }: { update?: boolean; drop?: boolean } = {},
+): { status: number; stdout: string; stderr: string; writtenKeys: string[] | null } => {
   const name = "probe-finish-audit";
   const path = join(process.cwd(), `scripts/testing/baselines/${name}.json`);
   const moduleUrl = pathToFileURL(
@@ -161,14 +194,23 @@ const runFinishAudit = (
     ].join("\n");
     const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
       encoding: "utf8",
-      env: { ...process.env, UPDATE_BASELINE: update ? "1" : "0" },
+      env: {
+        ...process.env,
+        UPDATE_BASELINE: update ? "1" : "0",
+        [CURATED_DROP_FLAG]: drop ? "1" : "0",
+      },
     });
     // POST-STATE, read before teardown. What the child left in the baseline file is the only thing
     // that distinguishes a guard which refused from one that refused after writing.
     const writtenKeys = existsSync(path)
       ? (JSON.parse(readFileSync(path, "utf8")).findings as AuditFinding[]).map((f) => f.key)
       : null;
-    return { status: result.status ?? -1, stderr: result.stderr, writtenKeys };
+    return {
+      status: result.status ?? -1,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      writtenKeys,
+    };
   } finally {
     // Teardown here rather than after the assertions: a failing expectation must not be able to
     // leave a stray baseline file behind for the next run to compare against.
@@ -244,6 +286,89 @@ describe("the declaration gate refuses before anything is written", () => {
 
     expect(result.status).toBe(0);
     expect(result.writtenKeys).toEqual(["x|overflow"]);
+  });
+});
+
+/**
+ * The refusal that closes the fail-open, measured on the EXIT CODE and on the FILE rather than on
+ * the classifier that reports it. A comparison that identifies an uncomparable entry and then
+ * carries on printing "none worse than recorded" is a report, not a gate.
+ */
+describe("finishAudit refuses a baseline it cannot compare", () => {
+  it("exits 5 rather than reporting a run against an uncomparable entry", () => {
+    const result = runFinishAudit(
+      [overflowFinding("a|overflow", 400)],
+      [{ key: "a|overflow", class: "overflow" } as AuditFinding],
+    );
+
+    expect(result.status).toBe(5);
+    expect(result.stderr).toContain("UNCLASSIFIABLE");
+  });
+
+  // Clause 3: the refusal has to be shown to happen INSTEAD of the report, not alongside it. The
+  // sentence below is the one a green run prints, and it is the one that must not appear.
+  it("does not print a verdict about a baseline it just refused", () => {
+    const result = runFinishAudit(
+      [overflowFinding("a|overflow", 400)],
+      [{ key: "a|overflow", class: "overflow" } as AuditFinding],
+    );
+
+    expect(result.stdout).not.toContain("none worse than recorded");
+  });
+
+  it("still compares a baseline whose every entry carries its class and magnitude", () => {
+    const result = runFinishAudit(
+      [overflowFinding("a|overflow", 400)],
+      [overflowFinding("a|overflow", 400)],
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("none worse than recorded");
+  });
+});
+
+/**
+ * The carry-over half, measured by POST-STATE. A carried entry never passes the emit gate: it is
+ * copied out of the previous file into the new one, so an entry nothing can compare survives every
+ * regeneration and can never acquire a magnitude. Six were living in exactly that loop.
+ */
+describe("writeBaseline refuses to carry an entry nothing can compare", () => {
+  const UNCOMPARABLE = { key: "ci-only|wide|div.card", class: "wide", seenIn: "ci" };
+
+  it("exits 5 and leaves the previous baseline in place", () => {
+    const result = runFinishAudit(
+      [overflowFinding("local|overflow", 610)],
+      [UNCOMPARABLE as AuditFinding],
+      { update: true },
+    );
+
+    expect(result.status).toBe(5);
+    expect(result.stderr).toContain("UNCARRIABLE");
+    expect(result.writtenKeys).toEqual(["ci-only|wide|div.card"]);
+  });
+
+  it("carries it when it has the magnitude the recording machine measured", () => {
+    const result = runFinishAudit(
+      [overflowFinding("local|overflow", 610)],
+      [{ ...UNCOMPARABLE, magnitude: 10 } as AuditFinding],
+      { update: true },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.writtenKeys?.sort()).toEqual(["ci-only|wide|div.card", "local|overflow"]);
+  });
+
+  // The documented escape stays open, because dropping DELETES the entry rather than keeping it in
+  // a state nothing can compare. Refusing here as well would leave no way out of the loop.
+  it("lets the explicit drop remove it instead", () => {
+    const result = runFinishAudit(
+      [overflowFinding("local|overflow", 610)],
+      [UNCOMPARABLE as AuditFinding],
+      { update: true, drop: true },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.writtenKeys).toEqual(["local|overflow"]);
   });
 });
 

@@ -15,6 +15,9 @@ export interface FindingClass {
 
 export declare const FINDING_CLASSES: Record<string, FindingClass>;
 
+/** A finding carries a declared class and a magnitude that class knows how to compare. */
+export declare const isDeclaredFinding: (finding: unknown) => boolean;
+
 export declare const finding: (
   className: string,
   key: string,

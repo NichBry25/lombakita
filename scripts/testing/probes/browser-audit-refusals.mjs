@@ -168,14 +168,25 @@ export const probes = [
       execFileSync("node", ["--check", "scripts/testing/mobile-audit.mjs"]);
       execFileSync("node", ["--check", "scripts/testing/lib-audit-baseline.mjs"]);
     },
+    // Inverted, and it names the refusal it is watching rather than a bare exit 0. It used to read
+    // `status === 0`, which meant it also went green the moment ANY other refusal fired first: the
+    // baseline gained entries nothing could compare, that check exited 5 before this one could be
+    // judged, and the probe reported the guard as holding when it had never been reached. A probe
+    // that cannot tell its own guard from a neighbouring one proves nothing. Red here is the report
+    // coming back with three pages nobody measured folded silently into it.
     detect: async () => {
       const result = runAudit("mobile-audit.mjs", "^01-home");
+      const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+      const refusedAsUnmeasurable =
+        result.status === UNMEASURABLE_EXIT && /COULD NOT BE MEASURED/.test(output);
+      const reported = REPORT_LINE.test(output);
       return {
-        refused: result.status === 0,
-        evidence:
-          result.status === 0
-            ? "without the branch a run that measured nothing exits 0"
-            : `exit ${result.status} — the removal did not reach the decision`,
+        refused: reported && !refusedAsUnmeasurable,
+        evidence: refusedAsUnmeasurable
+          ? `exit ${result.status} — the removal did not reach the decision`
+          : reported
+            ? `without the branch the run reported on pages it never measured (exit ${result.status})`
+            : `no report produced; exit ${result.status} — the run did not get past the branch`,
       };
     },
   },

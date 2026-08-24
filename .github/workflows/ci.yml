@@ -17,7 +17,9 @@ jobs:
   checks:
     name: lint, typecheck, test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Twenty was set before this job ran the guard probes, which spend most of their time invoking
+    # vitest once per probe.
+    timeout-minutes: 40
 
     # DEC-0142. Every database-backed suite in this repo is written so that deleting
     # its guard makes it FAIL — which was worth nothing, because none of them ever RAN here:
@@ -67,9 +69,13 @@ jobs:
         run: npm run lint
 
       # `npm run format` has been the repo standard since the beginning and nothing enforced it,
-      # which is why files drift: twenty-eight under `src` were unclean when this gate was added.
-      # Scope is the standard's own scope and is deliberately not widened to `scripts/`, where the
-      # runner scripts use tabular long lines that Prettier would reflow into noise.
+      # which is why files drift: twenty-eight under `src` were unclean when this gate was added,
+      # and thirty-three under `scripts/` were unclean when it was widened to cover them. It was
+      # deliberately NOT widened at first, on the belief that Prettier would reflow the runner
+      # scripts' tabular long lines into noise. That belief was never measured. When it was, by
+      # comparing the parsed shape of all thirty-three files before and after, nothing changed but
+      # whitespace, and the directory holding every gate in this repository had itself been the one
+      # directory the format gate could not see.
       - name: Format
         run: npm run format:check
 
@@ -97,6 +103,18 @@ jobs:
       - name: Assertion strength
         run: npm run verify:assertion-strength
 
+      # THE PROBES, WHICH HAD NEVER RUN HERE. Every gate above is a claim that something fails when
+      # a guard is removed, and each claim was checked exactly once, by hand, by whoever wrote it.
+      # Deleting `getAliasedSymbol` from the assertion-strength checker left FIVE gates green,
+      # including the assertion-strength gate itself, so the only thing standing between that
+      # deletion and a silent full regression was a suite nothing invoked. A probe suite that is not
+      # run is the same kind of object as an audit that is not gating.
+      #
+      # These mutate tracked files and restore them from git, which is safe on a runner's own
+      # checkout and is why the harness refuses to run over anything that differs from HEAD.
+      - name: Guard probes
+        run: node scripts/testing/probes/config-gates.mjs
+
       # Build is intentionally NOT run here. `next build` requires runtime env
       # (DATABASE_URL / AUTH_SECRET, and a reachable DB for public-page
       # prerendering) that CI does not hold. The authoritative build gate is the
@@ -108,9 +126,9 @@ jobs:
     runs-on: ubuntu-latest
     # 45 was set when the mobile audit walked the inventory once. It walks it three times now, one
     # per width in MOBILE_VIEWPORTS, which took this job's longest step from about two minutes to
-    # about five on a laptop and more than that on a runner. A timed-out job reports a failure that
-    # says nothing about the app, which on a non-required check is noise nobody acts on.
-    timeout-minutes: 60
+    # about five on a laptop and more than that on a runner, and the browser probes run six audits
+    # of their own after it. A timed-out job reports a failure that says nothing about the app.
+    timeout-minutes: 75
 
     # NO BROWSER AUDIT HAD EVER RUN HERE. `ui-states.mjs` is the only mechanism in the repo that
     # verifies a withheld affordance stays withheld — eleven surfaces, three shipped anti-patterns
@@ -260,6 +278,13 @@ jobs:
       - name: Text contrast and tone separation audit
         if: always()
         run: node scripts/testing/contrast-audit.mjs
+
+      # The other half of the probe suite. It lives here rather than beside the config gates because
+      # every one of its mutations is measured by running an audit against a served app, which only
+      # this job has.
+      - name: Guard probes — browser audit refusals
+        if: always()
+        run: node scripts/testing/probes/browser-audit-refusals.mjs
 
       # A page that could not be measured exits the audit 4, and the reason is almost always in the
       # server's own log rather than in the browser's error. Uploaded only on failure, and it

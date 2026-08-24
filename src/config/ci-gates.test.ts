@@ -36,8 +36,26 @@ describe("ci.yml", () => {
     ["ui state assertions", "node scripts/testing/ui-states.mjs"],
     ["the mobile layout audit", "node scripts/testing/mobile-audit.mjs"],
     ["the contrast and tone-separation audit", "node scripts/testing/contrast-audit.mjs"],
+    // Both halves of the probe suite. Every gate in this repository is a claim that something goes
+    // red when a guard is removed, and the probes are the only thing that has ever checked those
+    // claims. Deleting one line from the assertion-strength checker left five gates green,
+    // including that checker's own, and nothing but this suite could see it.
+    ["the config-gate probes", "node scripts/testing/probes/config-gates.mjs"],
+    ["the browser-audit probes", "node scripts/testing/probes/browser-audit-refusals.mjs"],
   ])("runs %s", (_label, command) => {
     expect(runsCommand(command)).toBe(true);
+  });
+
+  // The config-gate probes run in the job branch protection requires, so the claims they check are
+  // gating today rather than when someone adds another context to the required list. The browser
+  // half needs a served app and can only live in the job that has one.
+  it("runs the config-gate probes in the required job", () => {
+    const required = workflow.slice(
+      workflow.indexOf("name: lint, typecheck, test"),
+      workflow.indexOf("browser-audits:"),
+    );
+
+    expect(required).toContain("node scripts/testing/probes/config-gates.mjs");
   });
 
   // A grep for the range form found 4 weak assertions; resolving the same file against its parsed

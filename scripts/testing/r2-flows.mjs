@@ -6,6 +6,7 @@
 import { writeFileSync, mkdirSync } from "fs";
 import { mintSession, apiFetch } from "./lib-auth.mjs";
 import { bodySnippet, errorCode, isPresignedUrl, refusedWith } from "./lib-assertions.mjs";
+import { R2_FLOWS_ASSERTIONS, unreachedAssertions } from "./declared-assertions.mjs";
 import { USERS, INST, COMP, REG } from "./seeds.mjs";
 
 const REPO = "/Users/nikau/Developer/lombakita";
@@ -423,6 +424,22 @@ const main = async () => {
         { method: "PATCH", cookie: elev.cookie, json: { action: "cancel" } },
       );
     }
+  }
+
+  // THE DENOMINATOR IS THE DECLARED SET. Seven of these assertions sit inside `if (target)` and
+  // `if (dPresign.status === 200)`, so a failure upstream used to remove them from the numerator
+  // and the divisor at once and the run still reported every remaining assertion passing. An
+  // assertion that did not run is a failure: nothing was measured, and a total that quietly
+  // describes fewer checks than the harness contains is the defect this whole step exists for.
+  for (const id of unreachedAssertions(R2_FLOWS_ASSERTIONS, results)) {
+    record(
+      id,
+      "declared but never reached",
+      "a result",
+      "never ran",
+      false,
+      "skipped by an earlier failure",
+    );
   }
 
   mkdirSync(`${REPO}/test-artifacts/behavior`, { recursive: true });

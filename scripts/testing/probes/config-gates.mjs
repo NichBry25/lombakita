@@ -413,6 +413,150 @@ export const probes = [
         "carries every recorded finding under a declared width",
       ]),
   },
+  {
+    name: "a recorded finding nothing can compare is refused, not skipped",
+    // The fail-open this step was built to remove, one level below where it was removed. The emit
+    // gate stops an undeclared finding being written; nothing stopped one already sitting in the
+    // baseline, and twelve were. The comparison stepped over each of them and held it to its key,
+    // which is the behaviour the magnitude table exists to end.
+    klass: "D",
+    harmfulMove:
+      "skipping the entry, so a page stays allowlisted at any size and a pairing at any ratio",
+    files: ["scripts/testing/lib-audit-baseline.mjs"],
+    appliedMarkers: ["// probe: uncomparable entries skipped again"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/lib-audit-baseline.mjs",
+        "  const unclassifiable = [...baseline.byKey.values()].filter((f) => !isDeclaredFinding(f));",
+        "  // probe: uncomparable entries skipped again\n  const unclassifiable = [];",
+      ),
+    compiles: () => execFileSync("node", ["--check", "scripts/testing/lib-audit-baseline.mjs"]),
+    detect: async () => vitest("scripts/testing/audit-baseline.test.ts"),
+  },
+  {
+    name: "the run refuses instead of reporting a verdict on a baseline it cannot compare",
+    // Classifying the entry and then printing "none worse than recorded" anyway is a report, not a
+    // gate. The same shape as the worsened-findings exit above, and a separate probe for the same
+    // reason: identifying a problem and acting on it are two claims.
+    klass: "D",
+    harmfulMove: "printing the run's verdict anyway, which is the sentence a green run ends with",
+    files: ["scripts/testing/lib-audit-baseline.mjs"],
+    appliedMarkers: ["// probe: refusal on an uncomparable baseline removed"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/lib-audit-baseline.mjs",
+        "  if (unclassifiable.length > 0) {",
+        "  // probe: refusal on an uncomparable baseline removed\n  if (false) {",
+      ),
+    compiles: () => execFileSync("node", ["--check", "scripts/testing/lib-audit-baseline.mjs"]),
+    detect: async () => vitest("scripts/testing/audit-baseline.test.ts"),
+  },
+  {
+    name: "a regeneration refuses to carry forward an entry nothing can compare",
+    // POST-STATE, and it has to be: with the refusal gone the regeneration succeeds and the entry
+    // is copied into the new file, where the next run reads it as a known and permitted state. The
+    // exit code and the output are then the ones a correct regeneration produces.
+    klass: "B",
+    harmfulMove:
+      "copying it into the new baseline, where it survives every regeneration and can never acquire a magnitude",
+    files: ["scripts/testing/lib-audit-baseline.mjs"],
+    appliedMarkers: ["// probe: uncarriable entries carried anyway"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/lib-audit-baseline.mjs",
+        "  const uncarriable = dropping ? [] : carried.filter((f) => !isDeclaredFinding(f));",
+        "  // probe: uncarriable entries carried anyway\n  const uncarriable = [];",
+      ),
+    compiles: () => execFileSync("node", ["--check", "scripts/testing/lib-audit-baseline.mjs"]),
+    detect: async () => vitest("scripts/testing/audit-baseline.test.ts"),
+  },
+  {
+    name: "the strength gate resolves a helper through every spelling of its import",
+    // THE ONE THAT MATTERS. Deleting this line is what blinded the gate the first time, and until
+    // now the whole automated suite stayed green over it: the gate itself exits 0 on a clean tree
+    // whether or not it can see anything, because on a clean tree there is no weakness to miss.
+    klass: "D",
+    harmfulMove:
+      "resolving an imported identifier to its import specifier, which is every assertion in both harnesses",
+    files: ["scripts/testing/assertion-strength.ts"],
+    appliedMarkers: ["// probe: alias unwrap removed"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/assertion-strength.ts",
+        "  const symbol =\n    local && local.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(local) : local;",
+        "  // probe: alias unwrap removed\n  const symbol = local;",
+      ),
+    detect: async () => vitest("scripts/testing/assertion-resolution.test.ts"),
+  },
+  {
+    name: "a helper the strength gate cannot open is refused, not cleared",
+    // INVERTED, and it needs two mutations to say anything: with only the refusal removed there is
+    // nothing unresolvable on a clean tree, so the gate would exit 0 either way and the probe would
+    // measure nothing. Blinding the resolution first is what creates the condition; the refusal is
+    // what makes that condition visible. Red here means the gate cleared 122 assertions it could
+    // not read, which is exactly what it used to do.
+    klass: "D",
+    harmfulMove: "counting an unopenable helper as one with nothing weak inside it",
+    files: ["scripts/testing/assertion-strength.ts"],
+    appliedMarkers: ["// probe: refusal on an unopenable helper removed"],
+    mutate: () => {
+      substituteOnce(
+        "scripts/testing/assertion-strength.ts",
+        "  const symbol =\n    local && local.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(local) : local;",
+        "  const symbol = local;",
+      );
+      substituteOnce(
+        "scripts/testing/assertion-strength.ts",
+        "  if (unresolved.length > 0) {",
+        "  // probe: refusal on an unopenable helper removed\n  if (false) {",
+      );
+    },
+    detect: async () => {
+      const result = run("npm", ["run", "verify:assertion-strength"]);
+      const output = `${result.stdout}${result.stderr}`;
+      const cleared = /\d+ assertions; 0 cannot fail for the reason they name/.test(output);
+      return {
+        refused: result.status === 0 && cleared,
+        evidence:
+          result.status === 0 && cleared
+            ? "the gate cleared every assertion while unable to open a single helper"
+            : `exit ${result.status} — the removal did not reach the verdict`,
+      };
+    },
+  },
+  {
+    name: "an assertion that never ran fails the harness rather than shrinking its divisor",
+    // The `N/M pages clean` defect, in the sibling harness. Seven of r2-flows' assertions sit
+    // inside guards, and a skipped one used to leave the numerator and the denominator both one
+    // smaller, so a run that checked fifteen of twenty-two reported every one of them passing.
+    klass: "D",
+    harmfulMove: "reporting a total over what ran, quoted as if it described what was declared",
+    files: ["scripts/testing/declared-assertions.mjs"],
+    appliedMarkers: ["// probe: unreached assertions no longer named"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/testing/declared-assertions.mjs",
+        "  declared.filter((id) => !results.some((result) => result.id === id));",
+        "  // probe: unreached assertions no longer named\n  [];",
+      ),
+    compiles: () => execFileSync("node", ["--check", "scripts/testing/declared-assertions.mjs"]),
+    detect: async () => vitest("scripts/testing/declared-assertions.test.ts"),
+  },
+  {
+    name: "the guard probes run in the job branch protection requires",
+    klass: "C",
+    harmfulMove:
+      "removing the step, so every claim that a gate fails when its guard is gone goes back to being checked by hand",
+    files: [".github/workflows/ci.yml"],
+    appliedMarkers: ["# guard probes removed by probe"],
+    mutate: () =>
+      substituteOnce(
+        ".github/workflows/ci.yml",
+        "      - name: Guard probes\n        run: node scripts/testing/probes/config-gates.mjs\n",
+        "      # guard probes removed by probe\n",
+      ),
+    detect: async () => vitest("src/config/ci-gates.test.ts"),
+  },
 ];
 
 // Exported as DATA and run only when this file IS the entry point, so a test can read the probe

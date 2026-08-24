@@ -1,7 +1,7 @@
 {
   "audit": "mobile-audit",
   "takenAt": "2026-08-23T18:20:30.303Z",
-  "note": "360/375/390px viewports, 105 pages. TWO ENTRIES BELOW ARE CURATED BY HAND and a regeneration will overwrite them, so read this before re-taking the baseline. (1) Findings marked seenIn:ci reproduce on the CI runner and NOT on macOS: the three institution-public pages measure 400px of content there against the 384 this laptop measures. A local run reports them as no longer reproducing, which is how the divergence stays visible, and writeBaseline carries them forward rather than deleting them. They exist only at 390 because 390 is the only width CI has ever run; its first run at 360 and 375 will report fresh findings on those same pages, and those readings have to come from CI rather than be guessed here. (2) 62-institution-team|390|overflow is recorded at 621, which is the CI reading; this machine measures 610. Where the two disagree the WORSE reading is recorded, so a CI run fails on a regression rather than on the machine difference. The cost of that choice is that a local degradation from 610 up to 621 passes. Overflow findings carry the measured scrollWidth as their magnitude and wide findings carry the overshoot past the edge; both are higher-is-worse and fail the run if they grow.",
+  "note": "360/375/390px viewports, 105 pages. TWO ENTRIES BELOW ARE CURATED BY HAND and a regeneration will overwrite them, so read this before re-taking the baseline. (1) Their `class` was migrated from the third segment of their own key, which is a rename and not a reading. Their `magnitude` was NOT: six wide entries still carry none, so the audit refuses to compare this baseline until the machine that recorded them supplies the numbers. Findings marked seenIn:ci reproduce on the CI runner and NOT on macOS: the three institution-public pages measure 400px of content there against the 384 this laptop measures. A local run reports them as no longer reproducing, which is how the divergence stays visible, and writeBaseline carries them forward rather than deleting them. They exist only at 390 because 390 is the only width CI has ever run; its first run at 360 and 375 will report fresh findings on those same pages, and those readings have to come from CI rather than be guessed here. (2) 62-institution-team|390|overflow is recorded at 621, which is the CI reading; this machine measures 610. Where the two disagree the WORSE reading is recorded, so a CI run fails on a regression rather than on the machine difference. The cost of that choice is that a local degradation from 610 up to 621 passes. Overflow findings carry the measured scrollWidth as their magnitude and wide findings carry the overshoot past the edge; both are higher-is-worse and fail the run if they grow.",
   "findings": [
     {
       "key": "15-institution-public|360|overflow",
@@ -214,57 +214,66 @@
       "occurrences": 1,
       "seenIn": "ci",
       "magnitude": 400,
-      "viewport": 390
+      "viewport": 390,
+      "class": "overflow"
     },
     {
       "key": "15-institution-public|390|wide|article.pf-card",
       "occurrences": 1,
       "detail": "article.pf-card right=400",
-      "seenIn": "ci"
+      "seenIn": "ci",
+      "class": "wide"
     },
     {
       "key": "15-institution-public|390|wide|section.content-section",
       "occurrences": 3,
       "detail": "section.content-section right=400",
-      "seenIn": "ci"
+      "seenIn": "ci",
+      "class": "wide"
     },
     {
       "key": "43-institution-public-as-candidate|390|overflow",
       "occurrences": 1,
       "seenIn": "ci",
       "magnitude": 400,
-      "viewport": 390
+      "viewport": 390,
+      "class": "overflow"
     },
     {
       "key": "43-institution-public-as-candidate|390|wide|article.pf-card",
       "occurrences": 1,
       "detail": "article.pf-card right=400",
-      "seenIn": "ci"
+      "seenIn": "ci",
+      "class": "wide"
     },
     {
       "key": "43-institution-public-as-candidate|390|wide|section.content-section",
       "occurrences": 3,
       "detail": "section.content-section right=400",
-      "seenIn": "ci"
+      "seenIn": "ci",
+      "class": "wide"
     },
     {
       "key": "52-institution-public-preview|390|overflow",
       "occurrences": 1,
       "seenIn": "ci",
       "magnitude": 400,
-      "viewport": 390
+      "viewport": 390,
+      "class": "overflow"
     },
     {
       "key": "52-institution-public-preview|390|wide|article.pf-card",
       "occurrences": 1,
       "detail": "article.pf-card right=400",
-      "seenIn": "ci"
+      "seenIn": "ci",
+      "class": "wide"
     },
     {
       "key": "52-institution-public-preview|390|wide|section.content-section",
       "occurrences": 3,
       "detail": "section.content-section right=400",
-      "seenIn": "ci"
+      "seenIn": "ci",
+      "class": "wide"
     }
   ]
 }

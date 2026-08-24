@@ -18,12 +18,14 @@
  *   1  measured; findings this baseline does not carry
  *   3  refused to measure — the stylesheet preflight (lib-css-fingerprint.mjs)
  *   4  at least one page could not be measured
- *   5  a finding named no declared class, so nothing measured how bad it is
+ *   5  a finding named no declared class, so nothing measured how bad it is — whether it was
+ *      emitted by this run, carried forward from another machine, or already sitting in the
+ *      committed baseline
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { FINDING_CLASSES } from "./finding-classes.mjs";
+import { isDeclaredFinding } from "./finding-classes.mjs";
 
 export const EXIT_FINDINGS = 1;
 export const EXIT_UNMEASURABLE = 4;
@@ -88,6 +90,31 @@ export const writeBaseline = (name, findings, note) => {
   const carried = curatedCarryOver(readBaseline(name), measuredKeys);
   const dropping = process.env[CURATED_DROP_FLAG] === "1";
 
+  // REFUSED, not carried. A carried entry is the one thing here that never passes the emit gate:
+  // it is copied out of the previous file and into the new one, so an entry with no class and no
+  // magnitude survives every regeneration and can never acquire one. Six such entries were carried
+  // forward on this branch, muting three pages by key alone under a green run. Dropping is the
+  // documented escape and stays open, because a dropped entry is deleted rather than kept in a
+  // state nothing can compare.
+  const uncarriable = dropping ? [] : carried.filter((f) => !isDeclaredFinding(f));
+  if (uncarriable.length > 0) {
+    console.error(
+      `\n${uncarriable.length} finding(s) recorded on another machine carry no declared class ` +
+        `and magnitude, so this regeneration would copy forward an entry nothing can compare:`,
+    );
+    for (const f of uncarriable) {
+      console.error(
+        `  UNCARRIABLE  ${f.key}  class=${f.class ?? "(none)"} magnitude=${f.magnitude}`,
+      );
+    }
+    console.error(
+      `\nGive each one the class its key names and the magnitude the machine that recorded it ` +
+        `measured, or drop it with ${CURATED_DROP_FLAG}=1. Carrying it forward is how it stays ` +
+        `uncomparable for another regeneration.`,
+    );
+    process.exit(EXIT_UNDECLARED_FINDING);
+  }
+
   mkdirSync(dirname(baselinePath(name)), { recursive: true });
   const body = {
     audit: name,
@@ -125,24 +152,35 @@ export const updatingBaseline = process.env.UPDATE_BASELINE === "1";
  * same key, larger number, the run fails.
  *
  * A SMALLER number is not a failure. That is the fix landing, and it stays green until someone
- * re-takes the baseline. Findings that carry no magnitude are compared by key alone, as before.
+ * re-takes the baseline.
+ *
+ * A RECORDED ENTRY NOTHING CAN CLASSIFY IS REFUSED, NOT SKIPPED, and that is the difference between
+ * this being a gate and being a report. Skipping it was the fail-open: twelve entries across the
+ * two committed baselines carried no magnitude, the comparison stepped over them, and they were
+ * held to their key alone — which is the exact behaviour the magnitude table was added to end. A
+ * tone pairing could decay from 9.92 to 0.5 and three pages could go from 400px of overflow to
+ * 900px, under a green run, on the branch that claims to have closed it. The skip below still
+ * exists so the loop cannot compare against a number that is not there; what changed is that the
+ * entry now leaves through `unclassifiable`, and the caller has to act on it.
  */
 export const classifyAgainstBaseline = (findings, baseline) => {
+  const unclassifiable = [...baseline.byKey.values()].filter((f) => !isDeclaredFinding(f));
+
   const fresh = findings.filter((f) => !baseline.keys.has(f.key));
 
   const worsened = [];
   for (const finding of findings) {
     const recorded = baseline.byKey.get(finding.key);
     if (!recorded) continue;
-    if (typeof recorded.magnitude !== "number") continue;
-    if (typeof finding.magnitude !== "number") continue;
+    if (!isDeclaredFinding(recorded)) continue;
+    if (!isDeclaredFinding(finding)) continue;
     if (finding.magnitude <= recorded.magnitude) continue;
     worsened.push({ key: finding.key, was: recorded.magnitude, now: finding.magnitude });
   }
 
   const healed = [...baseline.keys].filter((key) => !findings.some((f) => f.key === key));
 
-  return { fresh, worsened, healed };
+  return { fresh, worsened, healed, unclassifiable };
 };
 
 /**
@@ -162,9 +200,7 @@ export const classifyAgainstBaseline = (findings, baseline) => {
  * impossible, and a check only at the emit site would leave it one object literal away.
  */
 const assertEveryFindingIsDeclared = (findings) => {
-  const undeclared = findings.filter(
-    (f) => !FINDING_CLASSES[f.class] || !Number.isFinite(f.magnitude),
-  );
+  const undeclared = findings.filter((f) => !isDeclaredFinding(f));
   if (undeclared.length === 0) return;
 
   console.error(`\n${undeclared.length} finding(s) carry no declared class and magnitude:`);
@@ -207,7 +243,32 @@ export const finishAudit = ({ name, measure, unmeasurable, note }) => {
   }
 
   const baseline = readBaseline(name);
-  const { fresh, worsened, healed } = classifyAgainstBaseline(findings, baseline);
+  const { fresh, worsened, healed, unclassifiable } = classifyAgainstBaseline(findings, baseline);
+
+  // BEFORE any of the three reports below. Every one of them is a statement about this run measured
+  // against the baseline, and a baseline carrying entries nothing can compare does not support any
+  // of them. "None worse than recorded" is the sentence that must not be printed here.
+  if (unclassifiable.length > 0) {
+    console.error(
+      `\n${unclassifiable.length} recorded finding(s) carry no declared class and magnitude, so ` +
+        `this run cannot say whether they got worse:`,
+    );
+    for (const f of unclassifiable.slice(0, 12)) {
+      console.error(
+        `  UNCLASSIFIABLE  ${f.key}  class=${f.class ?? "(none)"} magnitude=${f.magnitude}`,
+      );
+    }
+    if (unclassifiable.length > 12) {
+      console.error(`  UNCLASSIFIABLE  …and ${unclassifiable.length - 12} more`);
+    }
+    console.error(
+      `\nAn entry held to its key alone is muted, not baselined: the page stays allowlisted at ` +
+        `any size and the pairing at any ratio. Give each one the class its key names and the ` +
+        `magnitude the run that recorded it measured. Where that run was another machine, the ` +
+        `number has to come from that machine.`,
+    );
+    process.exit(EXIT_UNDECLARED_FINDING);
+  }
 
   if (healed.length > 0) {
     console.log(
