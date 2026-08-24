@@ -11,9 +11,10 @@
  * Runs only over committed work — the harness refuses if any listed file differs from HEAD.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { statSync, utimesSync } from "node:fs";
+import { utimesSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
+import { assertBuildIsNewerThanSources, newestCompiledChunkMs } from "../lib-css-fingerprint.mjs";
 import { refusedWhen } from "./detectors.mjs";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
@@ -48,7 +49,12 @@ const exitedWith = (result, code, label) =>
   refusedWhen(result, { status: code, forbidden: REPORT_LINE, label });
 
 /**
- * Backdates a file to the newest compiled CSS chunk.
+ * Puts a file's timestamp a second behind the build, without touching a byte of it.
+ *
+ * A second rather than zero, and read from the same chunk set the preflight compares against
+ * rather than a glob of its own. Copying the newest chunk's `mtime` Date truncated the nanosecond
+ * timestamp the filesystem holds, so the copy could land a fraction of a millisecond ABOVE its own
+ * source and the preflight then refused a tree that was fine, reporting the gap as "0s".
  *
  * The preflight has two layers and they fail independently. Editing a stylesheet trips the cheap
  * one (the source is newer than anything compiled from it) before the expensive one ever runs, so
@@ -56,13 +62,14 @@ const exitedWith = (result, code, label) =>
  * did not measure.
  */
 const backdateToBuild = (path) => {
-  const chunk = execFileSync(
-    "bash",
-    ["-c", "ls -t .next/static/chunks/*.css .next/dev/static/chunks/*.css 2>/dev/null | head -1"],
-    { encoding: "utf8" },
-  ).trim();
-  const { atime, mtime } = statSync(chunk);
-  utimesSync(path, atime, mtime);
+  const newest = newestCompiledChunkMs();
+  if (newest === null) return;
+  const wellBehind = new Date(newest - 1000);
+  utimesSync(path, wellBehind, wellBehind);
+  // The whole point of the call, asserted where it happens. Without this a backdate that failed to
+  // land shows up half an hour later as a probe reporting a stylesheet refusal it never set out to
+  // measure, which is how this went unnoticed until a runner rounded a timestamp differently.
+  assertBuildIsNewerThanSources([{ path }]);
 };
 
 /*

@@ -153,6 +153,20 @@ const compiledChunks = (dir, found = []) => {
 };
 
 /**
+ * The mtime of the newest compiled CSS chunk, or null when nothing has been compiled yet.
+ *
+ * Exported because anything that needs to place a timestamp relative to the build has to read the
+ * same set `assertBuildIsNewerThanSources` compares against. A second definition — a glob, a
+ * hardcoded output directory — is a second answer to the same question, and the two only have to
+ * disagree by a millisecond to make the refusal below fire on a tree that is fine.
+ */
+export const newestCompiledChunkMs = () => {
+  const chunks = compiledChunks(join(REPO_ROOT, ".next"));
+  if (chunks.length === 0) return null;
+  return Math.max(...chunks.map((f) => statSync(f).mtimeMs));
+};
+
+/**
  * Refuses when a stylesheet source is newer than everything compiled from it.
  *
  * This is the incident in its plainest form: the source was edited and the compiler never ran, so
@@ -160,10 +174,9 @@ const compiledChunks = (dir, found = []) => {
  * clone has no `.next`, and refusing there would be refusing to measure a tree that is fine.
  */
 export const assertBuildIsNewerThanSources = (sources) => {
-  const chunks = compiledChunks(join(REPO_ROOT, ".next"));
-  if (chunks.length === 0) return;
+  const newestChunk = newestCompiledChunkMs();
+  if (newestChunk === null) return;
 
-  const newestChunk = Math.max(...chunks.map((f) => statSync(f).mtimeMs));
   for (const { path } of sources) {
     const sourceMs = statSync(path).mtimeMs;
     if (sourceMs > newestChunk) {
