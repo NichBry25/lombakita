@@ -557,6 +557,40 @@ export const probes = [
       ),
     detect: async () => vitest("src/config/ci-gates.test.ts"),
   },
+  {
+    name: "a job renamed out from under its required context fails the run",
+    // Branch protection matches a job by its DISPLAY NAME. Rename the job and the context it was
+    // required under stops resolving: every pull request blocks on a check nothing will ever
+    // report, and it reads as a broken repository rather than as the rename that did it. The
+    // opposite edit is worse and the same pin catches it — a job renamed INTO a name nothing
+    // requires simply stops gating, silently, which is the defect this whole step is about.
+    klass: "C",
+    harmfulMove: "renaming a job so its required context can never be satisfied, or never applies",
+    files: [".github/workflows/ci.yml"],
+    appliedMarkers: ["name: lint, typecheck, tests"],
+    mutate: () =>
+      substituteOnce(
+        ".github/workflows/ci.yml",
+        "    name: lint, typecheck, test\n",
+        "    name: lint, typecheck, tests\n",
+      ),
+    detect: async () => vitest("src/config/ci-gates.test.ts"),
+  },
+  {
+    name: "a gating job nothing requires fails the run",
+    klass: "C",
+    harmfulMove:
+      "adding a job that reports a verdict nobody has to wait for, which is running rather than gating",
+    files: [".github/workflows/ci.yml"],
+    appliedMarkers: ["# probe: a job nothing requires"],
+    mutate: () =>
+      substituteOnce(
+        ".github/workflows/ci.yml",
+        "  browser-audits:\n",
+        "  probe-only:\n    # probe: a job nothing requires\n    name: probe only\n    runs-on: ubuntu-latest\n    steps:\n      - run: 'true'\n\n  browser-audits:\n",
+      ),
+    detect: async () => vitest("src/config/ci-gates.test.ts"),
+  },
 ];
 
 // Exported as DATA and run only when this file IS the entry point, so a test can read the probe

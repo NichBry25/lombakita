@@ -14,6 +14,8 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+// @ts-expect-error — a plain .mjs declaration, shared with the script that checks it against GitHub.
+import { REQUIRED_CONTEXTS, jobDisplayNames } from "../../scripts/testing/required-contexts.mjs";
 
 const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/ci.yml"), "utf8");
 
@@ -86,5 +88,31 @@ describe("ci.yml", () => {
 
   it("runs the audits under APP_ENV=test", () => {
     expect(workflow).toMatch(/^\s+APP_ENV: test$/m);
+  });
+
+  // WHICH OF THESE ACTUALLY BLOCKS A MERGE.
+  //
+  // Both jobs ran on every pull request for weeks while branch protection required one of them,
+  // so an audit could exit 1 on a fresh overflow and the pull request stayed mergeable. The list
+  // in `required-contexts.mjs` is the declaration; these two pins are the only part of it a test
+  // in this repository can prove. Whether GitHub agrees is checked by
+  // `npm run verify:branch-protection`, which needs a token this workflow does not carry.
+  describe("required contexts", () => {
+    const names = jobDisplayNames(workflow) as string[];
+
+    it("requires every job the workflow declares", () => {
+      // Adding a gating job and not requiring it is the defect restated, one job later.
+      expect(names.length).toBeGreaterThan(0);
+      expect([...names].sort()).toEqual([...REQUIRED_CONTEXTS].sort());
+    });
+
+    it("requires nothing no job reports", () => {
+      // Branch protection matches on the display name. A required context nothing reports under
+      // never resolves, so every pull request blocks forever and it reads as a broken repository
+      // rather than as the rename that caused it.
+      for (const context of REQUIRED_CONTEXTS as string[]) {
+        expect(names).toContain(context);
+      }
+    });
   });
 });

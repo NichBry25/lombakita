@@ -28,6 +28,7 @@
     "verify:concurrency": "for f in scripts/verify-owner-cap-concurrency.ts scripts/concurrency/*.ts; do case \"$f\" in *harness.ts) continue ;; esac; echo \"→ $f\"; node --import tsx \"$f\" || exit 1; done",
     "verify:finance": "node --import tsx scripts/finance/verify-payment-ledger.ts",
     "verify:assertion-strength": "node --import tsx scripts/testing/assertion-strength.ts",
+    "verify:branch-protection": "node scripts/testing/verify-branch-protection.mjs",
     "verify:reflow-only": "node --import tsx scripts/testing/prove-reflow-only.ts",
     "verify:contrast-selftest": "node scripts/testing/contrast-audit-selftest.mjs",
     "verify:guard-probes": "node scripts/testing/probes/config-gates.mjs",

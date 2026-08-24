@@ -286,6 +286,36 @@ jobs:
         if: always()
         run: node scripts/testing/probes/browser-audit-refusals.mjs
 
+      # THE BASELINE HAS TO COME FROM THE MACHINE THAT MEASURED IT. This runner and a macOS laptop
+      # do not render the same page — the three institution pages measure 400px of content here and
+      # 384 there — so a reading taken locally and filed as if it came from CI is the substitution
+      # this whole apparatus exists to prevent. When the audit refuses, this regenerates the
+      # baseline FROM THIS RUN and uploads it, which is the only honest way to curate one.
+      #
+      # It cannot weaken the gate above: the audit has already reported and set the job's outcome by
+      # the time this runs, and the file it writes lives in the artifact, never in a commit this job
+      # makes. If the regeneration writes nothing — a refusal of its own — the step fails and the
+      # upload does not run, because an artifact holding the committed baseline under this run's
+      # name would be a local guess wearing CI's clothes.
+      - name: Regenerate the mobile baseline from this run
+        id: recurate
+        if: failure()
+        run: |
+          UPDATE_BASELINE=1 node scripts/testing/mobile-audit.mjs
+          if git diff --quiet -- scripts/testing/baselines/mobile-audit.json; then
+            echo "the regeneration wrote nothing, so this run has no reading to hand back"
+            exit 1
+          fi
+          echo "wrote=1" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the mobile baseline this run measured
+        if: steps.recurate.outputs.wrote == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-audit-baseline-from-ci
+          path: scripts/testing/baselines/mobile-audit.json
+          retention-days: 7
+
       # A page that could not be measured exits the audit 4, and the reason is almost always in the
       # server's own log rather than in the browser's error. Uploaded only on failure, and it
       # carries no credential: every value in this job is a literal fake.
