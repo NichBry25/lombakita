@@ -12,7 +12,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
-import { fails } from "./detectors.mjs";
+import { fails, run } from "./detectors.mjs";
 
 /**
  * The assertion-strength gate reports its verdict in prose rather than a runner's vocabulary, so it
