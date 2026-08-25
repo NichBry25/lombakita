@@ -21,6 +21,127 @@ import { fails, run } from "./detectors.mjs";
  */
 const WEAK_ASSERTION = /[1-9]\d* cannot fail for the reason they name/;
 
+// A process configured the way the Railway worker is: delivery ON, so nothing here is protected by
+// an environment that happens not to send. Every credential is an obvious fake and the child
+// answers its own HTTP, so no request reaches a real provider even with the guard removed.
+const WORKER_LIKE_ENV = {
+  DATABASE_URL: "postgresql://localhost:5432/lombakita",
+  APP_ENV: "production",
+  NEXT_PUBLIC_APP_ENV: "production",
+  RUNTIME_NAME: "worker",
+  AUTH_SECRET: "probe-only-secret-not-used-for-signing-anything-real",
+  APP_BASE_URL: "https://probe.invalid",
+  AUTH_URL: "https://probe.invalid",
+  RESEND_API_KEY: "re_probe_key_not_real_0000000000",
+  AUTH_EMAIL_FROM: "probe@probe.invalid",
+};
+
+/**
+ * Whether a send to a reserved address actually reached the provider, run in a worker-like process.
+ *
+ * THE POST-STATE, not the error. Guarded and unguarded both end in a thrown something, so the only
+ * honest question is whether a request to api.resend.com exists. The child records its own outbound
+ * calls and prints them as JSON.
+ */
+const sentToProviderInWorker = async () => {
+  const result = run(
+    "npx",
+    ["tsx", "scripts/testing/probes/worker-send-attempt.ts"],
+    WORKER_LIKE_ENV,
+  );
+  const reported = /\{"refusal":.*\}/.exec(`${result.stdout ?? ""}${result.stderr ?? ""}`);
+
+  if (!reported) {
+    throw new Error(
+      "worker-send-attempt printed no verdict, so nothing was measured. Tail of its output:\n" +
+        `${result.stdout ?? ""}${result.stderr ?? ""}`.slice(-600),
+    );
+  }
+
+  const { refusal, attempts } = JSON.parse(reported[0]);
+
+  return {
+    refused: attempts.length > 0,
+    evidence:
+      attempts.length > 0
+        ? `the worker sent to ${attempts.join(", ")} (refusal: ${refusal})`
+        : `no request left the worker; it refused with ${refusal}`,
+  };
+};
+
+/**
+ * Whether the refusal still fires in a process that would not have sent anyway.
+ *
+ * The requirement is EVERY environment, no override. A refusal that only runs where delivery is
+ * already off is a rule that holds exactly where it was never needed, and no send-attempt detector
+ * can see the difference — in a non-delivering process there is nothing to attempt either way.
+ * So this reads the result: did the guard refuse, or did the message get quietly suppressed.
+ */
+const refusesWhereDeliveryIsOff = async () => {
+  const result = run("npx", ["tsx", "scripts/testing/probes/worker-send-attempt.ts"], {
+    ...WORKER_LIKE_ENV,
+    APP_ENV: "test",
+    NEXT_PUBLIC_APP_ENV: "test",
+  });
+  const reported = /\{"refusal":.*\}/.exec(`${result.stdout ?? ""}${result.stderr ?? ""}`);
+
+  if (!reported) {
+    throw new Error(
+      "worker-send-attempt printed no verdict, so nothing was measured. Tail of its output:\n" +
+        `${result.stdout ?? ""}${result.stderr ?? ""}`.slice(-600),
+    );
+  }
+
+  const { refusal } = JSON.parse(reported[0]);
+
+  return {
+    refused: refusal !== "ReservedRecipientError",
+    evidence:
+      refusal === "ReservedRecipientError"
+        ? "the refusal fired even with delivery disabled"
+        : `delivery was off and the send returned with refusal: ${refusal} — the address was suppressed, not refused`,
+  };
+};
+
+/**
+ * Whether a remote connection string got past the harness into a script's hands.
+ *
+ * The harness is imported with DATABASE_URL pointed at a host that is plainly not loopback. Guarded,
+ * the import throws and nothing downstream runs. Unguarded, the import succeeds and the child prints
+ * the remote host it was handed — which is the post-state: a script now holds a string it will write
+ * through.
+ */
+const remoteUrlEscapedTheHarness = async () => {
+  const result = run(
+    "npx",
+    [
+      "tsx",
+      "-e",
+      'import("./scripts/lib/live-harness").then((m) => console.log("ESCAPED " + (m.default ?? m).databaseUrl)).catch((e) => console.log("REFUSED " + e.message));',
+    ],
+    { DATABASE_URL: "postgres://u:p@ep-probe.ap-southeast-1.aws.neon.tech/db" },
+  );
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  // The URL itself, not merely the word after ESCAPED: `tsx -e` exposes this module under `default`,
+  // and reading the wrong key printed "ESCAPED undefined" — which the old pattern matched, so the
+  // probe reported PROVEN while measuring nothing.
+  const escaped = /ESCAPED (postgres\S+)/.exec(output);
+  const refused = /REFUSED .*refuses to run against non-local infrastructure/.test(output);
+
+  if (!escaped && !refused) {
+    throw new Error(
+      `the harness import neither refused nor handed back a URL, so nothing was measured. Output:\n${output.slice(-600)}`,
+    );
+  }
+
+  return {
+    refused: Boolean(escaped),
+    evidence: escaped
+      ? `the harness handed a script ${escaped[1]}`
+      : "the import refused and no connection string reached a script",
+  };
+};
+
 const vitest = (file) => fails("npx", ["vitest", "run", file]);
 
 export const probes = [
@@ -540,6 +661,103 @@ export const probes = [
         "  probe-only:\n    # probe: a job nothing requires\n    name: probe only\n    runs-on: ubuntu-latest\n    steps:\n      - run: 'true'\n\n  browser-audits:\n",
       ),
     detect: async () => vitest("src/config/ci-gates.test.ts"),
+  },
+  {
+    name: "a recipient at a reserved TLD is refused IN THE WORKER — REMOVED",
+    // CLASS B, and the post-state is the only thing worth reading here. Both outcomes throw
+    // something, so an error-identity detector would report a guard holding whenever anything at
+    // all went wrong. What separates them is whether a request to api.resend.com EXISTS: with the
+    // refusal there are none, without it there is exactly one.
+    //
+    // The child runs with APP_ENV=production and RUNTIME_NAME=worker, so delivery is ON. That is
+    // the condition a per-process gate keyed on APP_ENV would already have waved through, and it is
+    // the process that actually sends — the enqueueing process is not.
+    klass: "B",
+    harmfulMove:
+      "dropping the refusal, so every seeded fixture address is handed to the provider and hard bounces against this sending domain",
+    files: ["src/server/email/delivery.ts"],
+    appliedMarkers: ["// probe: recipient refusal removed"],
+    mutate: () =>
+      substituteOnce(
+        "src/server/email/delivery.ts",
+        "  assertRecipientIsRoutable(context.to, context.kind);",
+        "  // probe: recipient refusal removed",
+      ),
+    detect: async () => sentToProviderInWorker(),
+  },
+  {
+    name: "a recipient at a reserved TLD is refused BEFORE the delivery flag is read — MOVED",
+    // NOT A CLASS B MOVE, and the first attempt at this probe proved it by coming back green.
+    // `resolveEmailDelivery` returns the credential the send requires, so EVERY position inside it
+    // precedes the send and no reordering within it can let a message out. That is the shape Rule 36
+    // says to prefer, and where it holds the ordering question is already answered.
+    //
+    // What the move does break is the other half of the requirement: no environment exemption.
+    // Below the suppression branch the refusal is never reached where delivery is off, so an
+    // address that can only bounce is silently suppressed instead of refused, and the rule holds
+    // only where it was never needed. That is a result-content question — class D — and the
+    // detector reads what the guard did in a NON-delivering process.
+    klass: "D",
+    harmfulMove:
+      "checking after the delivery flag, so the refusal holds only in the environments that never send",
+    files: ["src/server/email/delivery.ts"],
+    appliedMarkers: ["// probe: refusal moved below the delivery flag"],
+    mutate: () => {
+      substituteOnce(
+        "src/server/email/delivery.ts",
+        "  assertRecipientIsRoutable(context.to, context.kind);",
+        "  // probe: refusal moved below the delivery flag",
+      );
+      substituteOnce(
+        "src/server/email/delivery.ts",
+        "  return { apiKey: serverEnv.resendApiKey, from: serverEnv.authEmailFrom };",
+        "  assertRecipientIsRoutable(context.to, context.kind);\n  return { apiKey: serverEnv.resendApiKey, from: serverEnv.authEmailFrom };",
+      );
+    },
+    detect: async () => refusesWhereDeliveryIsOff(),
+  },
+  {
+    name: "the harness refuses non-local infrastructure — REMOVED",
+    // CLASS A1-pre: the guard throws before anything opens a connection, so the harmful move is
+    // anywhere BELOW module scope. Detector is the post-state — whether a remote connection string
+    // escaped the module into a script's hands — rather than which error came back.
+    klass: "A1-pre",
+    harmfulMove:
+      "deleting the module-scope call, so a script inherits a harness that vetted nothing and writes wherever DATABASE_URL points",
+    files: ["scripts/lib/live-harness.ts"],
+    appliedMarkers: ["// probe: infrastructure guard removed"],
+    mutate: () =>
+      substituteOnce(
+        "scripts/lib/live-harness.ts",
+        "\nassertLocalInfrastructure();",
+        "\n// probe: infrastructure guard removed",
+      ),
+    detect: async () => remoteUrlEscapedTheHarness(),
+  },
+  {
+    name: "the harness refuses non-local infrastructure BEFORE a script can read the URL — MOVED",
+    // Moved inside `openPool`, the guard still exists and still refuses — but only for scripts that
+    // open their pool through the harness. A script that reads the exported `databaseUrl` and
+    // builds its own client is then unguarded, and the import that was supposed to have settled the
+    // question returns a remote connection string instead.
+    klass: "A1-pre",
+    harmfulMove:
+      "checking inside openPool, so the exported connection string reaches a script that opens its own",
+    files: ["scripts/lib/live-harness.ts"],
+    appliedMarkers: ["// probe: infrastructure guard moved into openPool"],
+    mutate: () => {
+      substituteOnce(
+        "scripts/lib/live-harness.ts",
+        "\nassertLocalInfrastructure();",
+        "\n// probe: infrastructure guard moved into openPool",
+      );
+      substituteOnce(
+        "scripts/lib/live-harness.ts",
+        "export const openPool = async (maxConnections: number = POOL_SIZE) => {",
+        "export const openPool = async (maxConnections: number = POOL_SIZE) => {\n  assertLocalInfrastructure();",
+      );
+    },
+    detect: async () => remoteUrlEscapedTheHarness(),
   },
 ];
 
