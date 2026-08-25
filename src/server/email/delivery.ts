@@ -1,6 +1,7 @@
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
+import { assertRecipientIsRoutable } from "@/server/email/reserved-recipients";
 
 assertServerOnly("server/email/delivery");
 
@@ -24,6 +25,13 @@ export const resolveEmailDelivery = (context: {
   to: string;
   actionUrl?: string;
 }): EmailDelivery | null => {
+  // FIRST, above every other consideration in this function. A reserved recipient is refused
+  // whatever the environment, whether or not delivery is enabled and whether or not a provider is
+  // configured, because the alternative is a rule that holds only where someone remembered to set a
+  // variable. It throws rather than returning null: null means "suppressed, carry on", and an
+  // address that can only bounce is not a send to carry on from.
+  assertRecipientIsRoutable(context.to, context.kind);
+
   if (!serverEnv.resendApiKey || !serverEnv.authEmailFrom) {
     throw new Error("Resend email provider is not fully configured");
   }

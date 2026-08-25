@@ -21,8 +21,13 @@ export const parseDatabaseHost = (url: string): string | null => {
 
 // An unparseable string is reported non-local: a caller uses this to decide whether it may write,
 // and a string this cannot read is not one to write through.
-export const isLocalDatabaseHost = (url: string): boolean => {
+export const isLoopbackUrl = (url: string): boolean => {
   const host = parseDatabaseHost(url);
 
   return host !== null && LOOPBACK_HOSTS.has(host);
 };
+
+// The same predicate under the name its first caller gave it. Nothing about the check is specific
+// to Postgres — a redis:// URL parses identically — so the harness guard reads `isLoopbackUrl` for
+// both of the connection strings it refuses, and the finance scripts keep the name they import.
+export const isLocalDatabaseHost = isLoopbackUrl;
