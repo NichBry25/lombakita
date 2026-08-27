@@ -8,9 +8,14 @@
  * done to the DOMAIN, not to the environment that caused it, so a preview deployment can spend the
  * reputation production depends on.
  *
- * NO ENVIRONMENT EXEMPTION, and none can be added: a gate keyed on APP_ENV is a per-PROCESS
- * property, and the process that sends is the Railway worker rather than the one that enqueued the
- * job. A recipient travels with the message and can be judged wherever it is about to be sent.
+ * PER MESSAGE, NOT PER PROCESS. A gate keyed on APP_ENV belongs to whichever process set it, and
+ * the process that sends is the Railway worker rather than the one that enqueued the job — in the
+ * incident that worker had delivery ENABLED. A recipient travels with the message, so it can be
+ * judged wherever the message is about to go, which is the only place that generalises.
+ *
+ * The caller places this where a usable credential is about to be returned, so it fires if and only
+ * if a send would otherwise happen. Where delivery is off nothing is about to be sent, the address
+ * is suppressed and logged like any other, and a local signup still completes from the console.
  */
 
 // RFC 2606 reserves test/example/invalid/localhost; RFC 6762 reserves local for mDNS. Data rather

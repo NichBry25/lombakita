@@ -70,14 +70,13 @@ const sentToProviderInWorker = async () => {
 };
 
 /**
- * Whether the refusal still fires in a process that would not have sent anyway.
+ * Whether a reserved address is SUPPRESSED, rather than refused, where nothing would have been sent.
  *
- * The requirement is EVERY environment, no override. A refusal that only runs where delivery is
- * already off is a rule that holds exactly where it was never needed, and no send-attempt detector
- * can see the difference — in a non-delivering process there is nothing to attempt either way.
- * So this reads the result: did the guard refuse, or did the message get quietly suppressed.
+ * A refusal in a non-delivering process adds no safety — there is no send to stop — and it breaks
+ * every local flow that used to complete from the console. No send-attempt detector can see this:
+ * in a process with delivery off there is nothing to attempt either way. So this reads the result.
  */
-const refusesWhereDeliveryIsOff = async () => {
+const suppressesWhereDeliveryIsOff = async () => {
   const result = run("npx", ["tsx", "scripts/testing/probes/worker-send-attempt.ts"], {
     ...WORKER_LIKE_ENV,
     APP_ENV: "test",
@@ -95,11 +94,11 @@ const refusesWhereDeliveryIsOff = async () => {
   const { refusal } = JSON.parse(reported[0]);
 
   return {
-    refused: refusal !== "ReservedRecipientError",
+    refused: refusal === "ReservedRecipientError",
     evidence:
       refusal === "ReservedRecipientError"
-        ? "the refusal fired even with delivery disabled"
-        : `delivery was off and the send returned with refusal: ${refusal} — the address was suppressed, not refused`,
+        ? "delivery was off and the guard threw anyway, so a flow that would have suppressed now fails"
+        : `delivery was off and the address was suppressed as it should be (refusal: ${refusal})`,
   };
 };
 
@@ -680,41 +679,40 @@ export const probes = [
     mutate: () =>
       substituteOnce(
         "src/server/email/delivery.ts",
-        "  assertRecipientIsRoutable(context.to, context.kind);",
-        "  // probe: recipient refusal removed",
+        "  assertRecipientIsRoutable(context.to, context.kind);\n\n  return { apiKey: serverEnv.resendApiKey, from: serverEnv.authEmailFrom };",
+        "  // probe: recipient refusal removed\n\n  return { apiKey: serverEnv.resendApiKey, from: serverEnv.authEmailFrom };",
       ),
     detect: async () => sentToProviderInWorker(),
   },
   {
-    name: "a recipient at a reserved TLD is refused BEFORE the delivery flag is read — MOVED",
-    // NOT A CLASS B MOVE, and the first attempt at this probe proved it by coming back green.
-    // `resolveEmailDelivery` returns the credential the send requires, so EVERY position inside it
-    // precedes the send and no reordering within it can let a message out. That is the shape Rule 36
-    // says to prefer, and where it holds the ordering question is already answered.
+    name: "a reserved recipient is SUPPRESSED, not refused, where nothing would be sent — MOVED",
+    // NOT A CLASS B MOVE. `resolveEmailDelivery` returns the credential the send requires, so every
+    // position inside it precedes the send and no reordering within it can let a message out — the
+    // shape Rule 36 says to prefer, where the ordering question is already answered.
     //
-    // What the move does break is the other half of the requirement: no environment exemption.
-    // Below the suppression branch the refusal is never reached where delivery is off, so an
-    // address that can only bounce is silently suppressed instead of refused, and the rule holds
-    // only where it was never needed. That is a result-content question — class D — and the
-    // detector reads what the guard did in a NON-delivering process.
+    // The move that matters here runs the other way. Lifted ABOVE the suppression branch the guard
+    // refuses in processes that were never going to send, which adds no safety and breaks sixteen
+    // of the seventeen flows invisibly: three fire-and-forget in process, thirteen inside a worker
+    // whose inbox row is already written. That is result content — class D — and the detector reads
+    // what the guard did in a NON-delivering process, where the correct answer is suppression.
     klass: "D",
     harmfulMove:
-      "checking after the delivery flag, so the refusal holds only in the environments that never send",
+      "checking before the delivery flag, so a process that would never have sent throws instead of suppressing",
     files: ["src/server/email/delivery.ts"],
-    appliedMarkers: ["// probe: refusal moved below the delivery flag"],
+    appliedMarkers: ["// probe: refusal lifted above the delivery flag"],
     mutate: () => {
       substituteOnce(
         "src/server/email/delivery.ts",
-        "  assertRecipientIsRoutable(context.to, context.kind);",
-        "  // probe: refusal moved below the delivery flag",
+        "  assertRecipientIsRoutable(context.to, context.kind);\n\n  return { apiKey: serverEnv.resendApiKey, from: serverEnv.authEmailFrom };",
+        "  return { apiKey: serverEnv.resendApiKey, from: serverEnv.authEmailFrom };",
       );
       substituteOnce(
         "src/server/email/delivery.ts",
-        "  return { apiKey: serverEnv.resendApiKey, from: serverEnv.authEmailFrom };",
-        "  assertRecipientIsRoutable(context.to, context.kind);\n  return { apiKey: serverEnv.resendApiKey, from: serverEnv.authEmailFrom };",
+        "  if (!serverEnv.emailDeliveryEnabled) {",
+        "  // probe: refusal lifted above the delivery flag\n  assertRecipientIsRoutable(context.to, context.kind);\n\n  if (!serverEnv.emailDeliveryEnabled) {",
       );
     },
-    detect: async () => refusesWhereDeliveryIsOff(),
+    detect: async () => suppressesWhereDeliveryIsOff(),
   },
   {
     name: "the harness refuses non-local infrastructure — REMOVED",
