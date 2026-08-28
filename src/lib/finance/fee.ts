@@ -81,11 +81,12 @@ const assertTerms = (grossAmount: number, terms: FeeRuleTerms): void => {
     }
   }
 
-  if (minimumFeeAmount !== null && maximumFeeAmount !== null && minimumFeeAmount > maximumFeeAmount) {
-    throw new FeeComputationError(
-      "fee_bounds_invalid",
-      "Fee minimum cannot exceed fee maximum",
-    );
+  if (
+    minimumFeeAmount !== null &&
+    maximumFeeAmount !== null &&
+    minimumFeeAmount > maximumFeeAmount
+  ) {
+    throw new FeeComputationError("fee_bounds_invalid", "Fee minimum cannot exceed fee maximum");
   }
 };
 

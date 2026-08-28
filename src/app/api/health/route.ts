@@ -27,7 +27,9 @@ type HealthCheckName = keyof typeof HEALTH_PROBES;
 
 const HEALTH_CHECK_NAMES = Object.keys(HEALTH_PROBES) as HealthCheckName[];
 
-const runProbe = async (name: HealthCheckName): Promise<readonly [HealthCheckName, CheckStatus]> => {
+const runProbe = async (
+  name: HealthCheckName,
+): Promise<readonly [HealthCheckName, CheckStatus]> => {
   try {
     await HEALTH_PROBES[name]();
     return [name, "ok"] as const;

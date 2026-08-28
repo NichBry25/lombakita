@@ -19,6 +19,25 @@ export default defineConfig({
     // take before being declared failed — fast tests stay fast.
     testTimeout: 15_000,
     hookTimeout: 15_000,
+    // DB-BACKED FILES MUST NOT RUN AT THE SAME TIME AS EACH OTHER. `TEST_DATABASE_URL` resolves to
+    // `DATABASE_URL`, so every database-backed file executes against one database, and one of them
+    // takes ACCESS EXCLUSIVE on `finance_payment_instruction_snapshots` under a 5s `lock_timeout` to
+    // prove what the code does when that table is gone. Run concurrently, a second file's ordinary
+    // read of the same table blocks the lock, the probe fails 55P03, and the failure is reported
+    // against an assertion that is fine.
+    //
+    // Chosen over a separate probe database, which the debt named as the other durable fix. A second
+    // database is a provisioning step — created, migrated, kept at the same schema version — and a
+    // worktree where someone skipped it silently falls back to the shared one, which is the failure
+    // mode this whole step exists to remove. This is one line, cannot be half-applied, and holds in
+    // every worktree and every CI job without anyone remembering anything.
+    //
+    // It does NOT stop the RUNNING APP touching that table while the suite holds the lock. That
+    // contention is real and remains; the probe names 55P03 explicitly when it happens, so the
+    // reader is told it is the harness rather than the assertion.
+    //
+    // Measured cost, 250 files / 2800 tests: 91s parallel, 161s serial. Both runs green.
+    fileParallelism: false,
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

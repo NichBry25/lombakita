@@ -18,7 +18,12 @@ type QueryOutcome = { kind: "row"; row: QueryRow } | { kind: "empty" } | { kind:
 
 let queryOutcome: QueryOutcome = {
   kind: "row",
-  row: { role: "platform_ops", suspendedAt: null, mfaInvalidatedAt: null, hasVerifiedMfaFactor: false },
+  row: {
+    role: "platform_ops",
+    suspendedAt: null,
+    mfaInvalidatedAt: null,
+    hasVerifiedMfaFactor: false,
+  },
 };
 
 const limitMock = vi.fn(async () => {
@@ -117,7 +122,12 @@ const callSession = async (token: Record<string, unknown>) => {
 beforeEach(() => {
   queryOutcome = {
     kind: "row",
-    row: { role: "platform_ops", suspendedAt: null, mfaInvalidatedAt: null, hasVerifiedMfaFactor: true },
+    row: {
+      role: "platform_ops",
+      suspendedAt: null,
+      mfaInvalidatedAt: null,
+      hasVerifiedMfaFactor: true,
+    },
   };
   consumeMfaElevationGrantMock.mockReset();
 });
@@ -226,7 +236,12 @@ describe("session callback — mfaStatus", () => {
   it("is not_applicable for a self-service role even with no verified factor", async () => {
     queryOutcome = {
       kind: "row",
-      row: { role: "candidate", suspendedAt: null, mfaInvalidatedAt: null, hasVerifiedMfaFactor: false },
+      row: {
+        role: "candidate",
+        suspendedAt: null,
+        mfaInvalidatedAt: null,
+        hasVerifiedMfaFactor: false,
+      },
     };
 
     const result = await callSession(tokenFor("candidate"));
@@ -237,7 +252,12 @@ describe("session callback — mfaStatus", () => {
   it("is enrolment_required for an operational role with no verified factor", async () => {
     queryOutcome = {
       kind: "row",
-      row: { role: "platform_ops", suspendedAt: null, mfaInvalidatedAt: null, hasVerifiedMfaFactor: false },
+      row: {
+        role: "platform_ops",
+        suspendedAt: null,
+        mfaInvalidatedAt: null,
+        hasVerifiedMfaFactor: false,
+      },
     };
 
     const result = await callSession(tokenFor("platform_ops"));
@@ -248,7 +268,12 @@ describe("session callback — mfaStatus", () => {
   it("is challenge_required for a verified factor with no mfaVerifiedAt claim on the token", async () => {
     queryOutcome = {
       kind: "row",
-      row: { role: "platform_ops", suspendedAt: null, mfaInvalidatedAt: null, hasVerifiedMfaFactor: true },
+      row: {
+        role: "platform_ops",
+        suspendedAt: null,
+        mfaInvalidatedAt: null,
+        hasVerifiedMfaFactor: true,
+      },
     };
 
     const result = await callSession(tokenFor("platform_ops"));
@@ -260,7 +285,12 @@ describe("session callback — mfaStatus", () => {
     const invalidatedAt = new Date("2026-08-01T00:00:00.000Z");
     queryOutcome = {
       kind: "row",
-      row: { role: "platform_ops", suspendedAt: null, mfaInvalidatedAt: invalidatedAt, hasVerifiedMfaFactor: true },
+      row: {
+        role: "platform_ops",
+        suspendedAt: null,
+        mfaInvalidatedAt: invalidatedAt,
+        hasVerifiedMfaFactor: true,
+      },
     };
     const claimSeconds = Math.floor(invalidatedAt.getTime() / 1000) + 60;
 
@@ -276,7 +306,12 @@ describe("session callback — mfaStatus", () => {
     const invalidatedAt = new Date("2026-08-01T00:00:00.000Z");
     queryOutcome = {
       kind: "row",
-      row: { role: "platform_ops", suspendedAt: null, mfaInvalidatedAt: invalidatedAt, hasVerifiedMfaFactor: true },
+      row: {
+        role: "platform_ops",
+        suspendedAt: null,
+        mfaInvalidatedAt: invalidatedAt,
+        hasVerifiedMfaFactor: true,
+      },
     };
     const staleClaimSeconds = Math.floor(invalidatedAt.getTime() / 1000) - 60;
 
@@ -301,7 +336,10 @@ describe("session callback — mfaStatus", () => {
     await callSession(tokenFor("platform_ops"));
 
     expect(selectMock).toHaveBeenCalledWith(
-      expect.objectContaining({ mfaInvalidatedAt: expect.anything(), hasVerifiedMfaFactor: expect.anything() }),
+      expect.objectContaining({
+        mfaInvalidatedAt: expect.anything(),
+        hasVerifiedMfaFactor: expect.anything(),
+      }),
     );
     expect(limitMock).toHaveBeenCalledTimes(1);
   });

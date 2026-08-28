@@ -131,73 +131,76 @@ const seedSubmission = async (tx: Tx, options: SeedOptions): Promise<string> => 
 const due = (tx: Tx): Promise<string[]> =>
   listCompetitionsDueForSubmissionPurge(GRACE_DAYS, tx as never, NOW);
 
-describe.skipIf(skipWithoutDatabase)("listCompetitionsDueForSubmissionPurge (real database)", () => {
-  it("returns a competition whose event ended before the cutoff with an unfinalized submission", async () => {
-    await inRollback(async (tx) => {
-      const competitionId = await seedSubmission(tx, {
-        eventEndAt: LONG_PAST,
-        finalized: false,
+describe.skipIf(skipWithoutDatabase)(
+  "listCompetitionsDueForSubmissionPurge (real database)",
+  () => {
+    it("returns a competition whose event ended before the cutoff with an unfinalized submission", async () => {
+      await inRollback(async (tx) => {
+        const competitionId = await seedSubmission(tx, {
+          eventEndAt: LONG_PAST,
+          finalized: false,
+        });
+        expect(await due(tx)).toContain(competitionId);
       });
-      expect(await due(tx)).toContain(competitionId);
     });
-  });
 
-  // The guarantee the whole feature rests on: a finalized entry is the participant's work and is
-  // never in scope, however old the competition is.
-  it("never returns a competition whose only submission is finalized", async () => {
-    await inRollback(async (tx) => {
-      const competitionId = await seedSubmission(tx, { eventEndAt: LONG_PAST, finalized: true });
-      expect(await due(tx)).not.toContain(competitionId);
-    });
-  });
-
-  // Proves the IS NOT NULL clause does real work rather than being incidentally satisfied: with a
-  // NULL event_end_at, `event_end_at < cutoff` is NULL (not false), and this is what keeps that
-  // row out.
-  it("never returns a competition with no event end date", async () => {
-    await inRollback(async (tx) => {
-      const competitionId = await seedSubmission(tx, { eventEndAt: null, finalized: false });
-      expect(await due(tx)).not.toContain(competitionId);
-    });
-  });
-
-  it("does not return a competition still inside its grace window", async () => {
-    await inRollback(async (tx) => {
-      const competitionId = await seedSubmission(tx, {
-        eventEndAt: JUST_INSIDE_GRACE,
-        finalized: false,
+    // The guarantee the whole feature rests on: a finalized entry is the participant's work and is
+    // never in scope, however old the competition is.
+    it("never returns a competition whose only submission is finalized", async () => {
+      await inRollback(async (tx) => {
+        const competitionId = await seedSubmission(tx, { eventEndAt: LONG_PAST, finalized: true });
+        expect(await due(tx)).not.toContain(competitionId);
       });
-      expect(await due(tx)).not.toContain(competitionId);
     });
-  });
 
-  it("separates a due competition from a not-yet-due one in the same run", async () => {
-    await inRollback(async (tx) => {
-      const dueId = await seedSubmission(tx, { eventEndAt: LONG_PAST, finalized: false });
-      const notDueId = await seedSubmission(tx, {
-        eventEndAt: JUST_INSIDE_GRACE,
-        finalized: false,
+    // Proves the IS NOT NULL clause does real work rather than being incidentally satisfied: with a
+    // NULL event_end_at, `event_end_at < cutoff` is NULL (not false), and this is what keeps that
+    // row out.
+    it("never returns a competition with no event end date", async () => {
+      await inRollback(async (tx) => {
+        const competitionId = await seedSubmission(tx, { eventEndAt: null, finalized: false });
+        expect(await due(tx)).not.toContain(competitionId);
+      });
+    });
+
+    it("does not return a competition still inside its grace window", async () => {
+      await inRollback(async (tx) => {
+        const competitionId = await seedSubmission(tx, {
+          eventEndAt: JUST_INSIDE_GRACE,
+          finalized: false,
+        });
+        expect(await due(tx)).not.toContain(competitionId);
+      });
+    });
+
+    it("separates a due competition from a not-yet-due one in the same run", async () => {
+      await inRollback(async (tx) => {
+        const dueId = await seedSubmission(tx, { eventEndAt: LONG_PAST, finalized: false });
+        const notDueId = await seedSubmission(tx, {
+          eventEndAt: JUST_INSIDE_GRACE,
+          finalized: false,
+        });
+
+        const result = await due(tx);
+
+        expect(result).toContain(dueId);
+        expect(result).not.toContain(notDueId);
+      });
+    });
+
+    it("leaves the database untouched — the rollback is real", async () => {
+      let seededCompetitionId = "";
+      await inRollback(async (tx) => {
+        seededCompetitionId = await seedSubmission(tx, {
+          eventEndAt: LONG_PAST,
+          finalized: false,
+        });
+        expect(await due(tx)).toContain(seededCompetitionId);
       });
 
-      const result = await due(tx);
-
-      expect(result).toContain(dueId);
-      expect(result).not.toContain(notDueId);
+      // Outside the transaction the fixture must not exist.
+      const survivors = await listCompetitionsDueForSubmissionPurge(GRACE_DAYS, db as never, NOW);
+      expect(survivors).not.toContain(seededCompetitionId);
     });
-  });
-
-  it("leaves the database untouched — the rollback is real", async () => {
-    let seededCompetitionId = "";
-    await inRollback(async (tx) => {
-      seededCompetitionId = await seedSubmission(tx, {
-        eventEndAt: LONG_PAST,
-        finalized: false,
-      });
-      expect(await due(tx)).toContain(seededCompetitionId);
-    });
-
-    // Outside the transaction the fixture must not exist.
-    const survivors = await listCompetitionsDueForSubmissionPurge(GRACE_DAYS, db as never, NOW);
-    expect(survivors).not.toContain(seededCompetitionId);
-  });
-});
+  },
+);

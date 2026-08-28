@@ -23,7 +23,13 @@ const runFlow = async (browser, name, as, fn) => {
     const file = `${String(n).padStart(2, "0")}-${stepName}`;
     await page.waitForTimeout(500);
     await shot(page, `${dir}/${file}.png`);
-    steps.push({ flow: name, step: stepName, file: `${name}/${file}.png`, note, url: page.url().replace(BASE, "") });
+    steps.push({
+      flow: name,
+      step: stepName,
+      file: `${name}/${file}.png`,
+      note,
+      url: page.url().replace(BASE, ""),
+    });
     console.log(`  shot ${name}/${file}  ${note}`);
   };
   try {
@@ -31,7 +37,13 @@ const runFlow = async (browser, name, as, fn) => {
     console.log(`ok   flow ${name}`);
   } catch (e) {
     console.log(`ERR  flow ${name}: ${String(e).slice(0, 200)}`);
-    steps.push({ flow: name, step: "ERROR", file: "", note: String(e).slice(0, 250), url: page.url().replace(BASE, "") });
+    steps.push({
+      flow: name,
+      step: "ERROR",
+      file: "",
+      note: String(e).slice(0, 250),
+      url: page.url().replace(BASE, ""),
+    });
     await shot(page, `${dir}/99-error-state.png`).catch(() => {});
   }
   await context.close();
@@ -50,7 +62,10 @@ const main = async () => {
   await runFlow(browser, "login-suspended", null, async (page, capture) => {
     await visit(page, "/auth/login");
     await capture("entry", "method-first auth entry");
-    await page.getByRole("button", { name: /email & password/i }).first().click();
+    await page
+      .getByRole("button", { name: /email & password/i })
+      .first()
+      .click();
     await page.waitForSelector("#auth-email", { timeout: 20000 });
     await capture("credentials-form", "email + password stage");
     await page.fill("#auth-email", USERS.susp.email);
@@ -62,7 +77,10 @@ const main = async () => {
 
   await runFlow(browser, "login-unverified", null, async (page, capture) => {
     await visit(page, "/auth/login");
-    await page.getByRole("button", { name: /email & password/i }).first().click();
+    await page
+      .getByRole("button", { name: /email & password/i })
+      .first()
+      .click();
     await page.waitForSelector("#auth-email", { timeout: 20000 });
     await page.fill("#auth-email", USERS.unver.email);
     await clickText(page, "Lanjut");
@@ -71,7 +89,10 @@ const main = async () => {
 
   await runFlow(browser, "login-new-email", null, async (page, capture) => {
     await visit(page, "/auth/login");
-    await page.getByRole("button", { name: /email & password/i }).first().click();
+    await page
+      .getByRole("button", { name: /email & password/i })
+      .first()
+      .click();
     await page.waitForSelector("#auth-email", { timeout: 20000 });
     await page.fill("#auth-email", "calon.baru@seed.lombakita.local");
     await page.fill("#auth-password", PASSWORD);
@@ -81,7 +102,10 @@ const main = async () => {
 
   await runFlow(browser, "login-wrong-password", null, async (page, capture) => {
     await visit(page, "/auth/login");
-    await page.getByRole("button", { name: /email & password/i }).first().click();
+    await page
+      .getByRole("button", { name: /email & password/i })
+      .first()
+      .click();
     await page.waitForSelector("#auth-email", { timeout: 20000 });
     await page.fill("#auth-email", USERS.candA.email);
     await page.fill("#auth-password", "SalahSekali999!");
@@ -93,9 +117,15 @@ const main = async () => {
   await runFlow(browser, "save-toggle", "candA", async (page, capture) => {
     await visit(page, "/competitions/seed-academy/seed-closing");
     await capture("detail-before", "detail page, competition not yet saved");
-    await page.getByRole("button", { name: /simpan kompetisi/i }).first().click();
+    await page
+      .getByRole("button", { name: /simpan kompetisi/i })
+      .first()
+      .click();
     await capture("after-save", "save control reacts (bookmark filled / label flips)");
-    await page.getByRole("button", { name: /hapus dari tersimpan/i }).first().click();
+    await page
+      .getByRole("button", { name: /hapus dari tersimpan/i })
+      .first()
+      .click();
     await capture("after-unsave", "unsaved again");
   });
 
@@ -124,7 +154,10 @@ const main = async () => {
     await visit(page, "/candidate-dashboard");
     await capture("dashboard", "candidate dashboard with registrations");
     await visit(page, "/candidate-dashboard/registrations/seed-reg-a-open");
-    await capture("registration-detail", "registration detail for a cancellable competition (allow_cancellation=true, cutoff 3d)");
+    await capture(
+      "registration-detail",
+      "registration detail for a cancellable competition (allow_cancellation=true, cutoff 3d)",
+    );
     const cancel = page.getByRole("button", { name: /batalkan/i }).first();
     if (await cancel.count()) {
       await cancel.click();
@@ -170,9 +203,15 @@ const main = async () => {
     if (await publish.count()) {
       await publish.click();
       await page.waitForTimeout(800);
-      await capture("publish-attempt", "reaction to publishing without Trusted status (should refuse)");
+      await capture(
+        "publish-attempt",
+        "reaction to publishing without Trusted status (should refuse)",
+      );
     } else {
-      await capture("publish-control-absent", "publish control not offered to a minimal-tier recruiter");
+      await capture(
+        "publish-control-absent",
+        "publish control not offered to a minimal-tier recruiter",
+      );
     }
   });
 
@@ -184,7 +223,9 @@ const main = async () => {
       await publish.click();
       await page.waitForTimeout(1200);
       await capture("after-publish", "reaction after a successful publish (Trusted recruiter)");
-      const unpublish = page.getByRole("button", { name: /tarik ke draf|batalkan publikasi/i }).first();
+      const unpublish = page
+        .getByRole("button", { name: /tarik ke draf|batalkan publikasi/i })
+        .first();
       if (await unpublish.count()) {
         await unpublish.click();
         await capture("unpublish-modal", "unpublish confirmation (cancels registrations)");
@@ -200,7 +241,10 @@ const main = async () => {
   await runFlow(browser, "participants-review", "recElev", async (page, capture) => {
     await visit(page, "/institution/seed-academy/competitions/seed-done/participants");
     await capture("participants", "participants console for a finished competition");
-    await visit(page, "/institution/seed-academy/competitions/seed-done/participants/seed-reg-a-done");
+    await visit(
+      page,
+      "/institution/seed-academy/competitions/seed-done/participants/seed-reg-a-done",
+    );
     await capture("review-page", "review page: submission, internal status, result, documents");
   });
 
@@ -222,9 +266,12 @@ const main = async () => {
     const up = page.getByRole("button", { name: /tingkatkan/i }).first();
     if (await up.count()) {
       const blocked = await up.isDisabled();
-      await capture("upgrade-control", blocked
-        ? "upgrade control is DISABLED at minimal tier — the gate is visible, not just server-side"
-        : "upgrade control is enabled");
+      await capture(
+        "upgrade-control",
+        blocked
+          ? "upgrade control is DISABLED at minimal tier — the gate is visible, not just server-side"
+          : "upgrade control is enabled",
+      );
       if (!blocked) {
         await up.click();
         await page.waitForTimeout(700);
@@ -240,14 +287,19 @@ const main = async () => {
     const reject = page.getByRole("button", { name: /tolak/i }).first();
     if (await reject.count()) {
       await reject.click();
-      await capture("reject-modal", "reject modal with reason + 'allow resubmission' default-checked");
+      await capture(
+        "reject-modal",
+        "reject modal with reason + 'allow resubmission' default-checked",
+      );
     }
   });
 
   await runFlow(browser, "ops-moderation", "ops", async (page, capture) => {
     await visit(page, "/admin/moderation");
     await capture("console", "moderation console");
-    const input = page.locator('input[type="email"], input[name*="email" i], input[type="search"]').first();
+    const input = page
+      .locator('input[type="email"], input[name*="email" i], input[type="search"]')
+      .first();
     if (await input.count()) {
       await input.fill(USERS.candC.email);
       await capture("lookup-typed", "user lookup query entered");
@@ -283,7 +335,10 @@ const main = async () => {
   // ---------------------------------------------------------------- guards
   await runFlow(browser, "guard-ops-on-candidate", "ops", async (page, capture) => {
     const r = await visit(page, "/candidate-dashboard");
-    await capture("redirected", `operational account on a participant surface → ${r.url.replace(BASE, "")}`);
+    await capture(
+      "redirected",
+      `operational account on a participant surface → ${r.url.replace(BASE, "")}`,
+    );
   });
 
   await runFlow(browser, "guard-candidate-on-institution", "candA", async (page, capture) => {
@@ -293,7 +348,10 @@ const main = async () => {
 
   await runFlow(browser, "guard-cross-tenant", "recMin", async (page, capture) => {
     const r = await visit(page, "/institution/seed-academy/competitions/seed-open/participants");
-    await capture("blocked", `outsider recruiter on another institution → ${r.url.replace(BASE, "")}`);
+    await capture(
+      "blocked",
+      `outsider recruiter on another institution → ${r.url.replace(BASE, "")}`,
+    );
   });
 
   await browser.close();
@@ -314,12 +372,20 @@ const main = async () => {
       "",
       "| Step | Screenshot | URL | What it shows |",
       "|---|---|---|---|",
-      ...list.map((s) => `| ${s.step} | ${s.file ? `[png](${s.file})` : "—"} | \`${s.url}\` | ${s.note.replaceAll("|", "/")} |`),
+      ...list.map(
+        (s) =>
+          `| ${s.step} | ${s.file ? `[png](${s.file})` : "—"} | \`${s.url}\` | ${s.note.replaceAll("|", "/")} |`,
+      ),
       "",
     ]),
   ].join("\n");
   writeFileSync(`${OUT}/flows.md`, md);
-  console.log(`\n${steps.length} reaction screenshots across ${byFlow.size} flows → test-artifacts/behavior/flows/flows.md`);
+  console.log(
+    `\n${steps.length} reaction screenshots across ${byFlow.size} flows → test-artifacts/behavior/flows/flows.md`,
+  );
 };
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

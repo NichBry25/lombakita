@@ -140,7 +140,11 @@ describe("assertSessionRole — MFA gate", () => {
   it("throws mfa_enrolment_required for an operational role with no verified factor", () => {
     const session = assertAuthenticatedSession(
       buildSession({
-        user: { id: "ops_1", role: "platform_ops", mfaStatus: "enrolment_required" } as Session["user"],
+        user: {
+          id: "ops_1",
+          role: "platform_ops",
+          mfaStatus: "enrolment_required",
+        } as Session["user"],
       }),
     );
 
@@ -157,7 +161,11 @@ describe("assertSessionRole — MFA gate", () => {
   it("throws mfa_challenge_required for an operational role with a stale or absent claim", () => {
     const session = assertAuthenticatedSession(
       buildSession({
-        user: { id: "ops_1", role: "finance_ops", mfaStatus: "challenge_required" } as Session["user"],
+        user: {
+          id: "ops_1",
+          role: "finance_ops",
+          mfaStatus: "challenge_required",
+        } as Session["user"],
       }),
     );
 

@@ -88,7 +88,10 @@ describe("POST /api/platform-ops/fee-rules", () => {
     const response = await POST(postBody(validBody));
 
     expect(response.status).toBe(201);
-    expect(createFeeRule).toHaveBeenCalledWith("ops-1", expect.objectContaining({ basisPoints: 250 }));
+    expect(createFeeRule).toHaveBeenCalledWith(
+      "ops-1",
+      expect.objectContaining({ basisPoints: 250 }),
+    );
   });
 
   it("does not write when the role gate rejects", async () => {
@@ -144,6 +147,9 @@ describe("POST /api/platform-ops/fee-rules", () => {
 
     await POST(postBody({ ...validBody, currency: "idr" }));
 
-    expect(createFeeRule).toHaveBeenCalledWith("ops-1", expect.objectContaining({ currency: "IDR" }));
+    expect(createFeeRule).toHaveBeenCalledWith(
+      "ops-1",
+      expect.objectContaining({ currency: "IDR" }),
+    );
   });
 });

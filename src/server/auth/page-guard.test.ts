@@ -185,7 +185,11 @@ describe("requireRolePage — MFA gate", () => {
 
   it("redirects an operational session needing enrolment to /auth/mfa/enroll", async () => {
     getCurrentSessionMock.mockResolvedValue(
-      buildSession({ role: "platform_ops", verifiedRoles: [], mfaStatus: "enrolment_required" } as never),
+      buildSession({
+        role: "platform_ops",
+        verifiedRoles: [],
+        mfaStatus: "enrolment_required",
+      } as never),
     );
 
     await expect(
@@ -197,7 +201,11 @@ describe("requireRolePage — MFA gate", () => {
 
   it("redirects an operational session needing a challenge to /auth/mfa/challenge", async () => {
     getCurrentSessionMock.mockResolvedValue(
-      buildSession({ role: "finance_ops", verifiedRoles: [], mfaStatus: "challenge_required" } as never),
+      buildSession({
+        role: "finance_ops",
+        verifiedRoles: [],
+        mfaStatus: "challenge_required",
+      } as never),
     );
 
     await expect(

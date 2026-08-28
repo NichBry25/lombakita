@@ -44,15 +44,12 @@ const BARRIER_POLL_INTERVAL_MS = 25;
 
 const main = async (): Promise<void> => {
   const { client, db } = await openPool();
-  const { verifyInstitution } = await import(
-    "@/server/institution-verification/verification-service"
-  );
-  const { reviewVerificationSubmission } = await import(
-    "@/server/institution-verification/submission-service"
-  );
-  const { reviewRecruiterVerification, withdrawRecruiterVerification } = await import(
-    "@/server/recruiter-verification/recruiter-verification-service"
-  );
+  const { verifyInstitution } =
+    await import("@/server/institution-verification/verification-service");
+  const { reviewVerificationSubmission } =
+    await import("@/server/institution-verification/submission-service");
+  const { reviewRecruiterVerification, withdrawRecruiterVerification } =
+    await import("@/server/recruiter-verification/recruiter-verification-service");
 
   const { check, failureCount } = createChecker();
   const createdUserIds: string[] = [];
@@ -164,11 +161,14 @@ const main = async (): Promise<void> => {
       const reviewerId = await seedUser("casinst_ops", { role: "platform_ops" });
       const tag = ownerId.slice(0, 8);
 
-      const institution = oneRow(await client<{ id: string }[]>`
+      const institution = oneRow(
+        await client<{ id: string }[]>`
         INSERT INTO institutions (display_name, slug, institution_type, verification_status)
         VALUES (${`CAS Inst ${tag}`}, ${`casinst-${tag}`}, 'company', 'under_review')
         RETURNING id
-      `, "institution");
+      `,
+        "institution",
+      );
       createdInstitutionIds.push(institution.id);
 
       await client`
@@ -176,12 +176,15 @@ const main = async (): Promise<void> => {
         VALUES (${institution.id}, ${ownerId}, 'institution_owner', 'active')
       `;
 
-      const submission = oneRow(await client<{ id: string }[]>`
+      const submission = oneRow(
+        await client<{ id: string }[]>`
         INSERT INTO institution_verification_submissions
           (institution_id, submitted_by_user_id, target_institution_type, status)
         VALUES (${institution.id}, ${ownerId}, 'company', 'pending_review')
         RETURNING id
-      `, "submission");
+      `,
+        "submission",
+      );
 
       const approve = () =>
         reviewVerificationSubmission(
@@ -213,9 +216,12 @@ const main = async (): Promise<void> => {
       );
       const expectedFinalStatus = approveFirst ? "verified" : "rejected";
 
-      const finalRow = oneRow(await client<{ verification_status: string }[]>`
+      const finalRow = oneRow(
+        await client<{ verification_status: string }[]>`
         SELECT verification_status FROM institutions WHERE id = ${institution.id}
-      `, "finalRow");
+      `,
+        "finalRow",
+      );
       const auditRows = await client<{ from_status: string; to_status: string }[]>`
         SELECT from_status, to_status FROM institution_verification_audit
         WHERE institution_id = ${institution.id}
@@ -254,11 +260,14 @@ const main = async (): Promise<void> => {
       const applicantId = await seedUser("casrev_app", { recruiterTier: "minimal" });
       const reviewerId = await seedUser("casrev_ops", { role: "platform_ops" });
 
-      const submission = oneRow(await client<{ id: string }[]>`
+      const submission = oneRow(
+        await client<{ id: string }[]>`
         INSERT INTO recruiter_verification_submissions (user_id, full_name, mobile_number, status)
         VALUES (${applicantId}, 'Uji Balapan', '+628100000000', 'pending_review')
         RETURNING id
-      `, "submission");
+      `,
+        "submission",
+      );
 
       const withdraw = () => withdrawRecruiterVerification(applicantId, db);
       const approve = () =>
@@ -274,17 +283,25 @@ const main = async (): Promise<void> => {
         withdrawFirst ? approve : withdraw,
       );
 
-      const finalRow = oneRow(await client<{
-        status: string;
-        reviewer_user_id: string | null;
-        reviewed_at: Date | null;
-      }[]>`
+      const finalRow = oneRow(
+        await client<
+          {
+            status: string;
+            reviewer_user_id: string | null;
+            reviewed_at: Date | null;
+          }[]
+        >`
         SELECT status, reviewer_user_id, reviewed_at
         FROM recruiter_verification_submissions WHERE id = ${submission.id}
-      `, "finalRow");
-      const applicant = oneRow(await client<{ recruiter_verification_tier: string }[]>`
+      `,
+        "finalRow",
+      );
+      const applicant = oneRow(
+        await client<{ recruiter_verification_tier: string }[]>`
         SELECT recruiter_verification_tier FROM users WHERE id = ${applicantId}
-      `, "applicant");
+      `,
+        "applicant",
+      );
 
       // The two legal end states. A withdrawn submission must carry no verdict and must not have
       // elevated the applicant; an approved one must carry its reviewer.

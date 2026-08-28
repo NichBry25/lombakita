@@ -26,7 +26,14 @@
  * ledger data and `finance_payments` has no application delete path to remove them with.
  */
 
-import { assertLocalDatabase, createChecker, databaseUrl, finish, oneRow, openPool } from "../lib/live-harness";
+import {
+  assertLocalDatabase,
+  createChecker,
+  databaseUrl,
+  finish,
+  oneRow,
+  openPool,
+} from "../lib/live-harness";
 
 const NOW = new Date("2026-08-10T00:00:00.000Z");
 const LAST_MONTH = new Date("2026-07-01T00:00:00.000Z");
@@ -41,9 +48,8 @@ const main = async (): Promise<void> => {
   const { client, db } = await openPool(4);
   const { check, failureCount } = createChecker();
 
-  const { createPayment, appendPaymentEvent, loadPaymentLedger } = await import(
-    "@/server/finance/payment-service"
-  );
+  const { createPayment, appendPaymentEvent, loadPaymentLedger } =
+    await import("@/server/finance/payment-service");
 
   const tag = `ledger_${Date.now()}`;
   const created: { users: string[]; institutions: string[]; feeRules: string[] } = {
@@ -118,7 +124,7 @@ const main = async (): Promise<void> => {
         grossAmount: 150_000,
         currency: "IDR",
         origin: "gateway",
-      pricedAt: NOW,
+        pricedAt: NOW,
       },
       db,
     );
@@ -204,7 +210,10 @@ const main = async (): Promise<void> => {
       db,
     );
 
-    check(retry.deduplicated && retry.event.id === capture.event.id, "the retry records nothing new");
+    check(
+      retry.deduplicated && retry.event.id === capture.event.id,
+      "the retry records nothing new",
+    );
 
     const captureCount = oneRow(
       await client<{ n: string }[]>`
@@ -260,8 +269,9 @@ const main = async (): Promise<void> => {
 
     check(refunded?.state.status === "refunded", "the payment reads as refunded");
     check(
-      refunded?.events.some((event) => event.eventType === "succeeded" && event.amount === 150_000) ===
-        true,
+      refunded?.events.some(
+        (event) => event.eventType === "succeeded" && event.amount === 150_000,
+      ) === true,
       "the original capture is still there to read, with its amount intact",
     );
     check(refunded?.state.capturedAmount === 150_000, "the ledger still reports what was captured");

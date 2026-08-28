@@ -453,7 +453,8 @@ export const authOptions: NextAuthOptions = {
         // it consumes nothing and elevates nothing — `consumeMfaElevationGrant` returns null for a
         // missing/expired/already-consumed id, and any exception (Redis unavailable) is caught and
         // also elevates nothing, matching the fail-closed posture the rest of this gate depends on.
-        const elevationGrant = (session as { mfaElevationGrant?: unknown } | null)?.mfaElevationGrant;
+        const elevationGrant = (session as { mfaElevationGrant?: unknown } | null)
+          ?.mfaElevationGrant;
         if (typeof elevationGrant === "string" && elevationGrant.length > 0) {
           try {
             const grantedUserId = await consumeMfaElevationGrant(elevationGrant);

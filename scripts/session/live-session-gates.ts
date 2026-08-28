@@ -127,7 +127,9 @@ const main = async (): Promise<void> => {
 
     // ---- RG-T1: operational accounts are refused participant surfaces, and not offered them ----
 
-    console.log(`\n[RG-T1] an operational account is refused a participant page AND not offered it`);
+    console.log(
+      `\n[RG-T1] an operational account is refused a participant page AND not offered it`,
+    );
 
     const opsDash = await land(opsContext, "/candidate-dashboard");
     check(
@@ -188,12 +190,17 @@ const main = async (): Promise<void> => {
 
   // The restores above run even on a thrown assertion, so confirm the seed is genuinely back rather
   // than trusting that they did. A seed left demoted or suspended breaks every later suite quietly.
-  const opsRow = await client<{ role: string }[]>`SELECT role FROM users WHERE id = ${USERS.ops.id}`;
+  const opsRow = await client<
+    { role: string }[]
+  >`SELECT role FROM users WHERE id = ${USERS.ops.id}`;
   const candRow = await client<{ suspended_at: Date | null }[]>`
     SELECT suspended_at FROM users WHERE id = ${USERS.candA.id}
   `;
   console.log(`\n[seed restored]`);
-  check(opsRow[0]?.role === "platform_ops", `SEED-01  ops account is platform_ops again (got ${opsRow[0]?.role})`);
+  check(
+    opsRow[0]?.role === "platform_ops",
+    `SEED-01  ops account is platform_ops again (got ${opsRow[0]?.role})`,
+  );
   check(
     candRow[0]?.suspended_at === null,
     `SEED-02  candA is not suspended (got ${String(candRow[0]?.suspended_at)})`,

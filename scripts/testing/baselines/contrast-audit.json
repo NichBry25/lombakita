@@ -1,0 +1,85 @@
+{
+  "audit": "contrast-audit",
+  "takenAt": "2026-08-23T20:43:57.015Z",
+  "note": "105 pages x light/dark at 1440px, plus tone separation",
+  "findings": [
+    {
+      "key": "tone|light|success|info",
+      "class": "tone",
+      "magnitude": 5.3,
+      "theme": "light",
+      "a": "success",
+      "b": "info",
+      "groundDeltaE": 4.7,
+      "textDeltaE": 4.5,
+      "separation": 4.7,
+      "need": 10,
+      "detail": "the grounds carry what separation there is; the ink does not"
+    },
+    {
+      "key": "tone|light|warning|error",
+      "class": "tone",
+      "magnitude": 1.1,
+      "theme": "light",
+      "a": "warning",
+      "b": "error",
+      "groundDeltaE": 8.9,
+      "textDeltaE": 2.77,
+      "separation": 8.9,
+      "need": 10,
+      "detail": "the grounds carry what separation there is; the ink does not"
+    },
+    {
+      "key": "tone|light|info|neutral",
+      "class": "tone",
+      "magnitude": 3.24,
+      "theme": "light",
+      "a": "info",
+      "b": "neutral",
+      "groundDeltaE": 6.76,
+      "textDeltaE": 4.41,
+      "separation": 6.76,
+      "need": 10,
+      "detail": "the grounds carry what separation there is; the ink does not"
+    },
+    {
+      "key": "tone|light|neutral|disabled",
+      "class": "tone",
+      "magnitude": 0.08,
+      "theme": "light",
+      "a": "neutral",
+      "b": "disabled",
+      "groundDeltaE": 0.84,
+      "textDeltaE": 9.92,
+      "separation": 9.92,
+      "need": 10,
+      "detail": "the ink carries what separation there is; the grounds do not"
+    },
+    {
+      "key": "tone|dark|warning|error",
+      "class": "tone",
+      "magnitude": 6.9,
+      "theme": "dark",
+      "a": "warning",
+      "b": "error",
+      "groundDeltaE": 3.1,
+      "textDeltaE": 2.85,
+      "separation": 3.1,
+      "need": 10,
+      "detail": "the grounds carry what separation there is; the ink does not"
+    },
+    {
+      "key": "tone|dark|info|neutral",
+      "class": "tone",
+      "magnitude": 4.85,
+      "theme": "dark",
+      "a": "info",
+      "b": "neutral",
+      "groundDeltaE": 2.79,
+      "textDeltaE": 5.15,
+      "separation": 5.15,
+      "need": 10,
+      "detail": "the ink carries what separation there is; the grounds do not"
+    }
+  ]
+}

@@ -15,7 +15,15 @@
 
 import { readFileSync } from "fs";
 import { resolve } from "path";
-import { isLocalDatabaseHost, parseDatabaseHost } from "./local-database-host";
+import { isLocalDatabaseHost, isLoopbackUrl, parseDatabaseHost } from "./local-database-host";
+
+// WHICH FILE A VALUE CAME FROM, recorded as it is read rather than reconstructed afterwards. A
+// shell export silently overriding .env.local, or .env.local silently filling a variable the
+// operator believed they had exported, both end with a script connecting somewhere its author did
+// not intend. The banner below reports the answer on every run; guessing it later is not possible,
+// because by then both look identical in `process.env`.
+type EnvSource = "shell export" | ".env.local" | "unset";
+const envSources = new Map<string, EnvSource>();
 
 try {
   for (const line of readFileSync(resolve(process.cwd(), ".env.local"), "utf8").split("\n")) {
@@ -28,11 +36,20 @@ try {
       .slice(eq + 1)
       .trim()
       .replace(/^["']|["']$/g, "");
-    if (key && !(key in process.env)) process.env[key] = value;
+    if (!key) continue;
+    if (key in process.env) {
+      envSources.set(key, "shell export");
+      continue;
+    }
+    process.env[key] = value;
+    envSources.set(key, ".env.local");
   }
 } catch {
   // .env.local is optional; fall back to ambient environment.
 }
+
+const sourceOf = (key: string): EnvSource =>
+  envSources.get(key) ?? (process.env[key] ? "shell export" : "unset");
 
 process.env.APP_ENV = "test";
 
@@ -41,6 +58,54 @@ export const databaseUrl = (() => {
   if (!url) throw new Error("DATABASE_URL is not set");
   return url;
 })();
+
+export const redisUrl = process.env.REDIS_URL ?? null;
+
+/**
+ * Refuses to let this module finish loading unless every connection string it resolved is loopback.
+ *
+ * AT MODULE SCOPE, and that placement is the guard. It used to be a function each script called for
+ * itself, which made it a convention: three of the eleven scripts here called it and the other
+ * eight did not, and nothing could tell the difference between a script that had considered the
+ * question and one that had never heard of it. Importing this module now answers it, so the next
+ * script inherits the refusal by existing rather than by remembering.
+ *
+ * These scripts write. They seed ledger rows, delete residue, and drive races to completion, and
+ * every one of those is indistinguishable from real data afterwards or has no application path that
+ * could undo it. A pasted connection string is an ordinary mistake; this is what makes it a stopped
+ * run rather than a discovered one.
+ */
+const assertLocalInfrastructure = (): void => {
+  const banner = [["DATABASE_URL", databaseUrl] as const, ["REDIS_URL", redisUrl] as const].map(
+    ([key, url]) => {
+      const host = url === null ? "unset" : (parseDatabaseHost(url) ?? "<unparseable>");
+      return `  ${key.padEnd(13)} host=${host.padEnd(24)} from ${sourceOf(key)}`;
+    },
+  );
+
+  // PRINTED BEFORE THE VERDICT, and on every run rather than only on refusal. A run that connects
+  // to the wrong local database is not refused by anything below — the point of showing the host is
+  // that someone reading the output can see where the writes went.
+  console.log("live-harness resolved:");
+  for (const line of banner) console.log(line);
+
+  const remote = [["DATABASE_URL", databaseUrl] as const, ["REDIS_URL", redisUrl] as const].filter(
+    ([, url]) => url !== null && !isLoopbackUrl(url),
+  );
+
+  if (remote.length === 0) return;
+
+  const named = remote
+    .map(([key, url]) => `${key} at "${parseDatabaseHost(url as string) ?? "<unparseable>"}"`)
+    .join(", ");
+
+  throw new Error(
+    `live-harness refuses to run against non-local infrastructure: ${named}. Every script built ` +
+      "on this harness writes, and it is restricted to local development services",
+  );
+};
+
+assertLocalInfrastructure();
 
 // Wide enough that concurrent transactions land on SEPARATE backends and genuinely contend. With
 // max:1 the racers serialize on the connection itself and the script proves nothing while passing.

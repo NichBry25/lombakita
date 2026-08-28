@@ -56,9 +56,8 @@ const TEAM_SIZE = 3;
 
 const main = async (): Promise<void> => {
   const { client, db } = await openPool();
-  const { createIndividualRegistration } = await import(
-    "@/server/registrations/registration-service"
-  );
+  const { createIndividualRegistration } =
+    await import("@/server/registrations/registration-service");
   const { submitTeamRegistration } = await import("@/server/teams/team-registration-service");
   const { cancelCompetitionForInsufficientParticipation, confirmCompetitionWillProceed } =
     await import("@/server/competitions/competition-participation-service");
@@ -94,11 +93,14 @@ const main = async (): Promise<void> => {
     const organizerId = await seedUser("org");
     const tag = organizerId.slice(0, 8);
 
-    const institution = oneRow(await client<{ id: string }[]>`
+    const institution = oneRow(
+      await client<{ id: string }[]>`
       INSERT INTO institutions (display_name, slug, institution_type)
       VALUES (${`Part Conc ${tag}`}, ${`partconc-${tag}`}, 'company')
       RETURNING id
-    `, "institution");
+    `,
+      "institution",
+    );
     createdInstitutionIds.push(institution.id);
 
     await client`
@@ -113,7 +115,8 @@ const main = async (): Promise<void> => {
     // Timestamps go in as ISO strings: postgres.js cannot infer a parameter type for a Date in an
     // INSERT with `prepare: false`, and fails serializing it.
     const at = (offsetMs: number): string => new Date(boundaryMs + offsetMs).toISOString();
-    const competition = oneRow(await client<{ id: string }[]>`
+    const competition = oneRow(
+      await client<{ id: string }[]>`
       INSERT INTO competitions (
         institution_id, created_by_user_id, slug, title, status, mode,
         min_team_size, max_team_size,
@@ -128,16 +131,21 @@ const main = async (): Promise<void> => {
         ${99}, ${at(0)}, ${at(-30 * DAY_MS)}
       )
       RETURNING id
-    `, "competition");
+    `,
+      "competition",
+    );
 
     const registrationIds: string[] = [];
     for (let index = 0; index < options.existingRegistrations; index += 1) {
       const candidateId = await seedUser("cand");
-      const registration = oneRow(await client<{ id: string }[]>`
+      const registration = oneRow(
+        await client<{ id: string }[]>`
         INSERT INTO competition_registrations (competition_id, student_id, registration_type, status)
         VALUES (${competition.id}, ${candidateId}, 'individual', 'confirmed')
         RETURNING id
-      `, "registration");
+      `,
+        "registration",
+      );
       registrationIds.push(registration.id);
     }
 
@@ -153,11 +161,14 @@ const main = async (): Promise<void> => {
 
   const seedFormingTeam = async (competitionId: string): Promise<string> => {
     const captainId = await seedUser("capt");
-    const team = oneRow(await client<{ id: string }[]>`
+    const team = oneRow(
+      await client<{ id: string }[]>`
       INSERT INTO teams (competition_id, name, captain_id, status)
       VALUES (${competitionId}, ${`Tim ${captainId.slice(0, 6)}`}, ${captainId}, 'forming')
       RETURNING id
-    `, "team");
+    `,
+      "team",
+    );
     await client`
       INSERT INTO team_memberships (team_id, user_id, role, status)
       VALUES (${team.id}, ${captainId}, 'captain', 'active')
@@ -180,15 +191,21 @@ const main = async (): Promise<void> => {
   };
 
   const readCompetitionState = async (competitionId: string): Promise<CompetitionState> => {
-    const competition = oneRow(await client<{ cancelled_at: Date | null; participation_confirmed_at: Date | null }[]>`
+    const competition = oneRow(
+      await client<{ cancelled_at: Date | null; participation_confirmed_at: Date | null }[]>`
       SELECT cancelled_at, participation_confirmed_at FROM competitions WHERE id = ${competitionId}
-    `, "competition");
-    const counts = oneRow(await client<{ live: number; cancelled: number }[]>`
+    `,
+      "competition",
+    );
+    const counts = oneRow(
+      await client<{ live: number; cancelled: number }[]>`
       SELECT
         COUNT(*) FILTER (WHERE status <> 'cancelled')::int AS live,
         COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancelled
       FROM competition_registrations WHERE competition_id = ${competitionId}
-    `, "counts");
+    `,
+      "counts",
+    );
     return {
       cancelled: competition.cancelled_at !== null,
       confirmed: competition.participation_confirmed_at !== null,
@@ -240,7 +257,10 @@ const main = async (): Promise<void> => {
       `\n[individual] ${ITERATIONS} iterations, a registration landing as the organizer cancels`,
     );
     for (let i = 0; i < ITERATIONS; i += 1) {
-      const seeded = await seedDecidableCompetition({ mode: "individual", existingRegistrations: 2 });
+      const seeded = await seedDecidableCompetition({
+        mode: "individual",
+        existingRegistrations: 2,
+      });
       const newcomerId = await seedUser("newc");
 
       const outcome = await race(
@@ -276,9 +296,12 @@ const main = async (): Promise<void> => {
     for (let i = 0; i < ITERATIONS; i += 1) {
       const seeded = await seedDecidableCompetition({ mode: "team", existingRegistrations: 0 });
       const teamId = await seedFormingTeam(seeded.competitionId);
-      const captain = oneRow(await client<{ user_id: string }[]>`
+      const captain = oneRow(
+        await client<{ user_id: string }[]>`
         SELECT user_id FROM team_memberships WHERE team_id = ${teamId} AND role = 'captain'
-      `, "captain");
+      `,
+        "captain",
+      );
 
       const outcome = await race(
         () =>
@@ -312,7 +335,10 @@ const main = async (): Promise<void> => {
       `\n[decision] ${ITERATIONS} iterations, cancel-for-insufficient vs confirm-will-proceed`,
     );
     for (let i = 0; i < ITERATIONS; i += 1) {
-      const seeded = await seedDecidableCompetition({ mode: "individual", existingRegistrations: 2 });
+      const seeded = await seedDecidableCompetition({
+        mode: "individual",
+        existingRegistrations: 2,
+      });
 
       const outcome = await race(
         () =>
@@ -360,8 +386,14 @@ const main = async (): Promise<void> => {
       `\n[cross-competition] two DIFFERENT competitions decide simultaneously — both must succeed`,
     );
     for (let i = 0; i < ITERATIONS; i += 1) {
-      const first = await seedDecidableCompetition({ mode: "individual", existingRegistrations: 1 });
-      const second = await seedDecidableCompetition({ mode: "individual", existingRegistrations: 1 });
+      const first = await seedDecidableCompetition({
+        mode: "individual",
+        existingRegistrations: 1,
+      });
+      const second = await seedDecidableCompetition({
+        mode: "individual",
+        existingRegistrations: 1,
+      });
 
       const outcome = await race(
         () =>

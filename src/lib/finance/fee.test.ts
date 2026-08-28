@@ -84,7 +84,10 @@ describe("computePlatformFee", () => {
   });
 
   it("raises a fee below the configured minimum", () => {
-    const result = computePlatformFee(100_000, terms({ basisPoints: 100, minimumFeeAmount: 5_000 }));
+    const result = computePlatformFee(
+      100_000,
+      terms({ basisPoints: 100, minimumFeeAmount: 5_000 }),
+    );
 
     expect(result.platformFeeAmount).toBe(5_000);
   });

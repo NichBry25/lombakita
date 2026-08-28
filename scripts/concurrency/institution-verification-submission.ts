@@ -33,12 +33,10 @@ const ITERATIONS = 5;
 
 const main = async (): Promise<void> => {
   const { client, db } = await openPool();
-  const { createVerificationSubmission } = await import(
-    "@/server/institution-verification/submission-service"
-  );
-  const { getRequiredDocumentsForType } = await import(
-    "@/server/institution-verification/verification-requirements"
-  );
+  const { createVerificationSubmission } =
+    await import("@/server/institution-verification/submission-service");
+  const { getRequiredDocumentsForType } =
+    await import("@/server/institution-verification/verification-requirements");
   const { isR2Available } = await import("@/server/storage/r2.client");
 
   const { check, failureCount } = createChecker();
@@ -74,11 +72,14 @@ const main = async (): Promise<void> => {
     createdUserIds.push(userId);
 
     const slug = `ivconc-${tag}`;
-    const institution = oneRow(await client<{ id: string }[]>`
+    const institution = oneRow(
+      await client<{ id: string }[]>`
       INSERT INTO institutions (display_name, slug, institution_type)
       VALUES (${`Inst Verif Conc ${tag}`}, ${slug}, ${INSTITUTION_TYPE})
       RETURNING id
-    `, "institution");
+    `,
+      "institution",
+    );
     createdInstitutionIds.push(institution.id);
 
     await client`

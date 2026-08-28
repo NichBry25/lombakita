@@ -98,6 +98,23 @@ export const audit = async (page) =>
     const hex = ({ r, g, b }) =>
       `#${[r, g, b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
 
+    // The control a label points at, whether it wraps it or names it with `for`.
+    const controlOf = (label) => {
+      const inside = label.querySelector("input, select, textarea, button");
+      if (inside) return inside;
+      return label.htmlFor ? document.getElementById(label.htmlFor) : null;
+    };
+
+    const isDisabled = (el) => el.disabled === true || el.getAttribute("aria-disabled") === "true";
+
+    const isInactive = (el) => {
+      if (el.closest(":disabled, [aria-disabled='true']")) return true;
+      const label = el.closest("label");
+      if (!label) return false;
+      const control = controlOf(label);
+      return control !== null && isDisabled(control);
+    };
+
     const findings = new Map();
     for (const el of document.querySelectorAll("body *")) {
       // Only elements that own text directly — a wrapper inherits its child's problem and would
@@ -119,7 +136,13 @@ export const audit = async (page) =>
       // WCAG 1.4.3 exempts text in an inactive component, and the disabled tokens are muted on
       // purpose. Without this the disabled-CTA pattern reports on most of the app and buries the
       // findings that are real.
-      if (el.closest(":disabled, [aria-disabled='true']")) continue;
+      //
+      // `closest()` walks ANCESTORS, and the commonest inactive component in this app does not put
+      // its text inside the disabled element: a checkbox row is `<label><input disabled>Teks</label>`,
+      // where the label wraps the control rather than descending from it. The exemption missed every
+      // one of those, so the disabled checkbox rows were reported as real findings. A label is
+      // inactive when the control it labels is.
+      if (isInactive(el)) continue;
 
       const fg = parse(s.color);
       if (!fg || fg.a === 0) continue;

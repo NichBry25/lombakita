@@ -23,17 +23,23 @@ const only = process.argv[2] ? new RegExp(process.argv[2]) : null;
 const force = process.env.FORCE === "1";
 
 const loadState = () => {
-  try { return new Map(JSON.parse(readFileSync(STATE, "utf8")).map((r) => [r.id, r])); }
-  catch { return new Map(); }
+  try {
+    return new Map(JSON.parse(readFileSync(STATE, "utf8")).map((r) => [r.id, r]));
+  } catch {
+    return new Map();
+  }
 };
 
 const capturePage = async (browser, contexts, p) => {
   const key = p.as ?? "anon";
-  if (!contexts.has(key)) contexts.set(key, await contextFor(browser, p.as ? USERS[p.as].email : null));
+  if (!contexts.has(key))
+    contexts.set(key, await contextFor(browser, p.as ? USERS[p.as].email : null));
   const context = contexts.get(key);
   const page = await context.newPage();
   const consoleErrors = [];
-  page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text().slice(0, 200)); });
+  page.on("console", (m) => {
+    if (m.type() === "error") consoleErrors.push(m.text().slice(0, 200));
+  });
   page.on("pageerror", (e) => consoleErrors.push(`pageerror: ${String(e).slice(0, 200)}`));
 
   const dir = `${OUT}/${p.id}`;
@@ -53,7 +59,14 @@ const capturePage = async (browser, contexts, p) => {
 
     const base = p.path.split("?")[0];
     const redirected = Boolean(r.url) && !r.url.includes(base);
-    return { ...p, status: r.status, finalUrl: r.url, redirected, consoleErrors: [...new Set(consoleErrors)], error: null };
+    return {
+      ...p,
+      status: r.status,
+      finalUrl: r.url,
+      redirected,
+      consoleErrors: [...new Set(consoleErrors)],
+      error: null,
+    };
   } finally {
     await page.close().catch(() => {});
   }
@@ -102,7 +115,9 @@ const main = async () => {
     sinceRecycle += 1;
     state.set(p.id, row);
     writeFileSync(STATE, JSON.stringify([...state.values()], null, 2));
-    console.log(`${row.error ? "ERR " : "ok  "} ${p.id.padEnd(34)} ${String(row.status).padEnd(4)} ${row.redirected ? "→ " + row.finalUrl.replace("http://localhost:3000", "") : ""}${row.consoleErrors.length ? "  [console:" + row.consoleErrors.length + "]" : ""}${row.error ? "  " + row.error : ""}`);
+    console.log(
+      `${row.error ? "ERR " : "ok  "} ${p.id.padEnd(34)} ${String(row.status).padEnd(4)} ${row.redirected ? "→ " + row.finalUrl.replace("http://localhost:3000", "") : ""}${row.consoleErrors.length ? "  [console:" + row.consoleErrors.length + "]" : ""}${row.error ? "  " + row.error : ""}`,
+    );
   }
 
   await browser.close().catch(() => {});
@@ -118,21 +133,34 @@ const main = async () => {
     "| # | Page | As | HTTP | Shots | Notes |",
     "|---|---|---|---|---|---|",
     ...rows.map((r) => {
-      const shots = MODES.map((m) => `[${m.replace("desktop-", "D-").replace("mobile-", "M-")}](${r.id}/${m}.png)`).join(" · ");
+      const shots = MODES.map(
+        (m) => `[${m.replace("desktop-", "D-").replace("mobile-", "M-")}](${r.id}/${m}.png)`,
+      ).join(" · ");
       const notes = [
         r.redirected ? `redirected → \`${r.finalUrl.replace("http://localhost:3000", "")}\`` : "",
         r.consoleErrors.length ? `${r.consoleErrors.length} console error(s)` : "",
         r.error ? `CAPTURE ERROR: ${r.error}` : "",
-      ].filter(Boolean).join("; ");
+      ]
+        .filter(Boolean)
+        .join("; ");
       return `| ${r.id} | ${r.label}<br/>\`${r.path}\` | ${r.as ?? "signed out"} | ${r.status} | ${shots} | ${notes} |`;
     }),
     "",
     "## Console errors seen during capture",
     "",
-    ...rows.filter((r) => r.consoleErrors.length).flatMap((r) => [`**${r.id}** \`${r.path}\``, ...r.consoleErrors.map((e) => `- \`${e.replaceAll("|", "/")}\``), ""]),
+    ...rows
+      .filter((r) => r.consoleErrors.length)
+      .flatMap((r) => [
+        `**${r.id}** \`${r.path}\``,
+        ...r.consoleErrors.map((e) => `- \`${e.replaceAll("|", "/")}\``),
+        "",
+      ]),
   ].join("\n");
   writeFileSync(`${OUT}/index.md`, md);
   console.log(`\nGallery: ${rows.length} pages recorded → test-artifacts/gallery/index.md`);
 };
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

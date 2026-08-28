@@ -17,7 +17,9 @@ jobs:
   checks:
     name: lint, typecheck, test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Twenty was set before this job ran the guard probes, which spend most of their time invoking
+    # vitest once per probe.
+    timeout-minutes: 40
 
     # DEC-0142. Every database-backed suite in this repo is written so that deleting
     # its guard makes it FAIL — which was worth nothing, because none of them ever RAN here:
@@ -66,6 +68,17 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # `npm run format` has been the repo standard since the beginning and nothing enforced it,
+      # which is why files drift: twenty-eight under `src` were unclean when this gate was added,
+      # and thirty-three under `scripts/` were unclean when it was widened to cover them. It was
+      # deliberately NOT widened at first, on the belief that Prettier would reflow the runner
+      # scripts' tabular long lines into noise. That belief was never measured. When it was, by
+      # comparing the parsed shape of all thirty-three files before and after, nothing changed but
+      # whitespace, and the directory holding every gate in this repository had itself been the one
+      # directory the format gate could not see.
+      - name: Format
+        run: npm run format:check
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -84,8 +97,235 @@ jobs:
       - name: Test
         run: npm run test
 
+      # A static check over api-matrix's own assertions: none may pass for a reason other than the
+      # one its name gives. It found 57 that could, where the previous hand count — a grep for the
+      # explicit range form — had found 4.
+      - name: Assertion strength
+        run: npm run verify:assertion-strength
+
+      # THE PROBES, WHICH HAD NEVER RUN HERE. Every gate above is a claim that something fails when
+      # a guard is removed, and each claim was checked exactly once, by hand, by whoever wrote it.
+      # Deleting `getAliasedSymbol` from the assertion-strength checker left FIVE gates green,
+      # including the assertion-strength gate itself, so the only thing standing between that
+      # deletion and a silent full regression was a suite nothing invoked. A probe suite that is not
+      # run is the same kind of object as an audit that is not gating.
+      #
+      # These mutate tracked files and restore them from git, which is safe on a runner's own
+      # checkout and is why the harness refuses to run over anything that differs from HEAD.
+      - name: Guard probes
+        run: node scripts/testing/probes/config-gates.mjs
+
       # Build is intentionally NOT run here. `next build` requires runtime env
       # (DATABASE_URL / AUTH_SECRET, and a reachable DB for public-page
       # prerendering) that CI does not hold. The authoritative build gate is the
       # `vercel build` step in deploy-preview (real preview env), which runs on
       # every PR and reports as a PR check.
+
+  browser-audits:
+    name: browser audits
+    runs-on: ubuntu-latest
+    # 45 was set when the mobile audit walked the inventory once. It walks it three times now, one
+    # per width in MOBILE_VIEWPORTS, which took this job's longest step from about two minutes to
+    # about five on a laptop and more than that on a runner, and the browser probes run six audits
+    # of their own after it. A timed-out job reports a failure that says nothing about the app.
+    timeout-minutes: 75
+
+    # NO BROWSER AUDIT HAD EVER RUN HERE. `ui-states.mjs` is the only mechanism in the repo that
+    # verifies a withheld affordance stays withheld — eleven surfaces, three shipped anti-patterns
+    # caught — and it ran on one laptop, by hand, when someone remembered. `contrast-audit` is the
+    # only thing that can see a theme rendering dark-on-dark, and `mobile-audit` the only thing that
+    # measures a 44px target. All three now RUN on every pull request.
+    #
+    # RUNNING IS NOT GATING, and this comment said otherwise for as long as it existed. A job blocks
+    # a merge only while branch protection lists its display name in
+    # `required_status_checks.contexts`, and that list currently holds `lint, typecheck, test` and
+    # nothing else. So a pull request whose mobile audit exits 1 on a fresh overflow, whose contrast
+    # audit exits 1 on an unreadable pairing, or whose preflight exits 3 having measured nothing, is
+    # still mergeable. Adding `browser audits` to that list is a repository setting, not a change
+    # anything in this file can make.
+    #
+    # THE EMAIL HAZARD IS NOT THE ONE UAT2-D1 DESCRIBES, and this was checked rather than assumed.
+    # UAT2-D1 is about seeded fixtures against a PREVIEW deployment, where `APP_ENV=preview` makes
+    # Resend delivery real and every `@seed.lombakita.local` address hard-bounces. This job runs
+    # `APP_ENV=test` against a Postgres that exists only for this run. Two independent things stop a
+    # send: `test` never delivers (env.server.ts, and it cannot be flag-enabled), and no
+    # RESEND_API_KEY is set here at all, so the delivery boundary throws rather than sends. The
+    # audits are read-only navigations in any case.
+    #
+    # Every credential below is a literal, obviously-fake constant. Nothing here is a repository
+    # secret, so nothing real can reach a log, an artifact, or a failure message.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lombakita_audits
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      # Present so the listing runs its Meilisearch path rather than the DB fallback, which is what
+      # the local baseline was measured against. A page measured under a different search engine is
+      # a page whose findings cannot be compared with that baseline.
+      meilisearch:
+        image: getmeili/meilisearch:v1.11
+        env:
+          MEILI_MASTER_KEY: audits-only-master-key-not-a-real-key
+          MEILI_NO_ANALYTICS: "true"
+        ports:
+          - 7700:7700
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lombakita_audits
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lombakita_audits
+      APP_ENV: test
+      NEXT_PUBLIC_APP_ENV: test
+      APP_BASE_URL: http://localhost:3000
+      AUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:3000
+      AUTH_SECRET: audits-only-secret-not-used-for-signing-anything-real
+      AUTH_EMAIL_FROM: audits@localhost.invalid
+      REDIS_URL: redis://localhost:6379
+      MEILISEARCH_HOST: http://localhost:7700
+      MEILISEARCH_API_KEY: audits-only-master-key-not-a-real-key
+      # A fixed, deterministic 32-byte key, base64 of the ASCII above. The seeded MFA factors are
+      # encrypted with it so the harness can complete a real TOTP challenge. Never a real secret.
+      MFA_SECRET_ENCRYPTION_KEY: bG9tYmFraXRhLWNpLW1mYS1rZXktTk9ULUEtU0VDUkU=
+      # PLACEHOLDERS — presigning is a local signature computation over these values and reaches no
+      # network, which is what lets the payment-proof surfaces render. The URLs they produce point
+      # at a host that does not exist and are never fetched.
+      R2_ENDPOINT: https://placeholder.invalid
+      R2_REGION: auto
+      R2_BUCKET: placeholder
+      R2_ACCESS_KEY_ID: placeholder
+      R2_SECRET_ACCESS_KEY: placeholder
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Apply migrations
+        run: npm run db:migrate:guarded
+
+      # Every audit asserts against the seeded matrix by id. Without it the pages render empty and
+      # `ui-states` would report eleven surfaces missing text that was never seeded.
+      - name: Seed the test matrix
+        run: node --import tsx scripts/seed-test-matrix.ts
+
+      # AFTER the seed, not before: this script creates the index and backfills it from the
+      # database in one pass, so run against an unseeded database it would build an empty index and
+      # the search-filtered listing pages would measure a page with no results.
+      - name: Build the search index
+        run: node --import tsx scripts/setup-search-index.ts
+
+      - name: Build
+        run: npm run build
+
+      - name: Start the app
+        run: |
+          nohup npm run start > "${{ runner.temp }}/app.log" 2>&1 &
+          for i in $(seq 1 60); do
+            status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:3000/api/health || true)
+            if [ "$status" = "200" ] || [ "$status" = "503" ]; then
+              echo "app is serving (${status})"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "app never started serving; last 50 lines of its log:"
+          tail -50 "${{ runner.temp }}/app.log"
+          exit 1
+
+      # FIRST, because it is the cheapest and the one whose failure is unambiguous: a withheld
+      # control that came back is a product defect, not a measurement artifact.
+      - name: UI state assertions
+        run: node scripts/testing/ui-states.mjs
+
+      # `always()` on the two measuring audits, so ONE run reports everything it found rather than
+      # stopping at the first failure and leaving the next question unanswered until the fix lands.
+      - name: Mobile layout audit
+        if: always()
+        run: node scripts/testing/mobile-audit.mjs
+
+      - name: Text contrast and tone separation audit
+        if: always()
+        run: node scripts/testing/contrast-audit.mjs
+
+      # The other half of the probe suite. It lives here rather than beside the config gates because
+      # every one of its mutations is measured by running an audit against a served app, which only
+      # this job has.
+      - name: Guard probes — browser audit refusals
+        if: always()
+        run: node scripts/testing/probes/browser-audit-refusals.mjs
+
+      # THE BASELINE HAS TO COME FROM THE MACHINE THAT MEASURED IT. This runner and a macOS laptop
+      # do not render the same page — the three institution pages measure 400px of content here and
+      # 384 there — so a reading taken locally and filed as if it came from CI is the substitution
+      # this whole apparatus exists to prevent. When the audit refuses, this regenerates the
+      # baseline FROM THIS RUN and uploads it, which is the only honest way to curate one.
+      #
+      # It cannot weaken the gate above: the audit has already reported and set the job's outcome by
+      # the time this runs, and the file it writes lives in the artifact, never in a commit this job
+      # makes. If the regeneration writes nothing — a refusal of its own — the step fails and the
+      # upload does not run, because an artifact holding the committed baseline under this run's
+      # name would be a local guess wearing CI's clothes.
+      - name: Regenerate the mobile baseline from this run
+        id: recurate
+        if: failure()
+        run: |
+          UPDATE_BASELINE=1 node scripts/testing/mobile-audit.mjs
+          if git diff --quiet -- scripts/testing/baselines/mobile-audit.json; then
+            echo "the regeneration wrote nothing, so this run has no reading to hand back"
+            exit 1
+          fi
+          echo "wrote=1" >> "$GITHUB_OUTPUT"
+
+      # `always()` is load-bearing, not decoration. A step condition that names no status function
+      # gets an implicit `success() &&`, so without it this is skipped on exactly the runs it exists
+      # for — the audit has already failed by the time the regeneration runs.
+      - name: Upload the mobile baseline this run measured
+        if: always() && steps.recurate.outputs.wrote == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-audit-baseline-from-ci
+          path: scripts/testing/baselines/mobile-audit.json
+          retention-days: 7
+
+      # A page that could not be measured exits the audit 4, and the reason is almost always in the
+      # server's own log rather than in the browser's error. Uploaded only on failure, and it
+      # carries no credential: every value in this job is a literal fake.
+      - name: Upload the server log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-audits-app-log
+          path: ${{ runner.temp }}/app.log
+          retention-days: 7

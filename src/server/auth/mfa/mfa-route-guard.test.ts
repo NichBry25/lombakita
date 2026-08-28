@@ -111,9 +111,9 @@ describe("withMfaRouteAuth — lockout duration reaches the caller", () => {
 
   it("carries retryAfterSeconds and Retry-After on the invalid-code attempt that engaged the lock", async () => {
     requireAuthenticatedSession.mockResolvedValue(opsSession);
-    const handler = vi.fn().mockRejectedValue(
-      new MfaError("mfa_invalid_code", 401, "Invalid verification code", 900),
-    );
+    const handler = vi
+      .fn()
+      .mockRejectedValue(new MfaError("mfa_invalid_code", 401, "Invalid verification code", 900));
 
     const response = await withMfaRouteAuth(handler)(makeRequest());
     const body = await response.json();
@@ -128,9 +128,9 @@ describe("withMfaRouteAuth — lockout duration reaches the caller", () => {
 
   it("omits both when the refusal has nothing to do with a lockout", async () => {
     requireAuthenticatedSession.mockResolvedValue(opsSession);
-    const handler = vi.fn().mockRejectedValue(
-      new MfaError("mfa_invalid_code", 401, "Invalid verification code"),
-    );
+    const handler = vi
+      .fn()
+      .mockRejectedValue(new MfaError("mfa_invalid_code", 401, "Invalid verification code"));
 
     const response = await withMfaRouteAuth(handler)(makeRequest());
     const body = await response.json();

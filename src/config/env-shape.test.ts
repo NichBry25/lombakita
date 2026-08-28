@@ -201,9 +201,15 @@ describe("findDeployConfigProblems", () => {
   });
 
   it("catches an MFA_SECRET_ENCRYPTION_KEY that does not decode to 32 bytes", () => {
-    const env = { ...wellFormedEnv(), MFA_SECRET_ENCRYPTION_KEY: Buffer.alloc(16).toString("base64") };
+    const env = {
+      ...wellFormedEnv(),
+      MFA_SECRET_ENCRYPTION_KEY: Buffer.alloc(16).toString("base64"),
+    };
 
-    const problem = problemFor(findDeployConfigProblems(env, "production"), "MFA_SECRET_ENCRYPTION_KEY");
+    const problem = problemFor(
+      findDeployConfigProblems(env, "production"),
+      "MFA_SECRET_ENCRYPTION_KEY",
+    );
 
     expect(problem?.severity).toBe("error");
     expect(problem?.problem).toContain("32 raw bytes");

@@ -50,9 +50,7 @@ describe("base32Decode", () => {
   });
 
   it("round-trips a random 20-byte TOTP-sized secret", () => {
-    const secret = Buffer.from(
-      Array.from({ length: 20 }, (_, i) => (i * 37 + 11) % 256),
-    );
+    const secret = Buffer.from(Array.from({ length: 20 }, (_, i) => (i * 37 + 11) % 256));
 
     expect(base32Decode(base32Encode(secret))).toEqual(secret);
   });

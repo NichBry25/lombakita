@@ -17,7 +17,11 @@ assertServerOnly("server/auth/mfa/mfa-status");
 //                          and lands here — it must fail closed, never satisfied.
 //   satisfied             — a verified factor exists and the token's claim is at or after the live
 //                          invalidation stamp.
-export type MfaStatus = "not_applicable" | "enrolment_required" | "challenge_required" | "satisfied";
+export type MfaStatus =
+  | "not_applicable"
+  | "enrolment_required"
+  | "challenge_required"
+  | "satisfied";
 
 export const resolveMfaStatus = (params: {
   role: string | undefined;
@@ -31,7 +35,11 @@ export const resolveMfaStatus = (params: {
   // isAppRole here (not just the isSelfServiceRole negation) keeps this fold honest on its own,
   // without depending on that upstream rejection to avoid mislabelling an absent role as
   // "enrolment_required".
-  if (typeof params.role !== "string" || !isAppRole(params.role) || isSelfServiceRole(params.role)) {
+  if (
+    typeof params.role !== "string" ||
+    !isAppRole(params.role) ||
+    isSelfServiceRole(params.role)
+  ) {
     return "not_applicable";
   }
 

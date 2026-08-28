@@ -57,9 +57,8 @@ const pdfBytes = (): Buffer =>
 const main = async (): Promise<void> => {
   const { client, db } = await openPool();
 
-  const { generatePresignedPutUrl, isR2Available, listObjects, deleteObject } = await import(
-    "@/server/storage/r2.client"
-  );
+  const { generatePresignedPutUrl, isR2Available, listObjects, deleteObject } =
+    await import("@/server/storage/r2.client");
 
   if (!isR2Available()) {
     throw new Error(
@@ -70,17 +69,14 @@ const main = async (): Promise<void> => {
 
   const { buildCompetitionObjectPrefix, buildRequestObjectPrefix, DOCUMENT_RETENTION_GRACE_DAYS } =
     await import("@/server/registration-documents/registration-document-core");
-  const { listCompetitionsDueForDocumentPurge, purgeDocumentsForCompetition } = await import(
-    "@/server/registration-documents/registration-document-service"
-  );
-  const { buildSubmissionCompetitionPrefix, buildSubmissionRegistrationPrefix } = await import(
-    "@/server/submissions/submission-constants"
-  );
+  const { listCompetitionsDueForDocumentPurge, purgeDocumentsForCompetition } =
+    await import("@/server/registration-documents/registration-document-service");
+  const { buildSubmissionCompetitionPrefix, buildSubmissionRegistrationPrefix } =
+    await import("@/server/submissions/submission-constants");
   const { listCompetitionsDueForSubmissionPurge, purgeUnfinalizedSubmissionsForCompetition } =
     await import("@/server/submissions/submission-service");
-  const { sweepOrphanedSubmissionObjects } = await import(
-    "@/server/recruiter-verification/recruiter-verification-service"
-  );
+  const { sweepOrphanedSubmissionObjects } =
+    await import("@/server/recruiter-verification/recruiter-verification-service");
 
   const { check, failureCount } = createChecker();
   const createdUserIds: string[] = [];
@@ -159,7 +155,9 @@ const main = async (): Promise<void> => {
       headers: { "content-type": "application/pdf" },
     });
     if (!response.ok) {
-      throw new Error(`PUT ${key} failed with ${response.status}: ${(await response.text()).slice(0, 200)}`);
+      throw new Error(
+        `PUT ${key} failed with ${response.status}: ${(await response.text()).slice(0, 200)}`,
+      );
     }
     strayKeys.push(key);
     return key;
@@ -170,8 +168,12 @@ const main = async (): Promise<void> => {
 
   // ---- part A: participant document purge (DOCVERIF-T4) ----------------------------------------
 
-  console.log(`\n[documents] purge deletes every object under the competition prefix, keeps the request row`);
-  console.log(`  grace window = ${DOCUMENT_RETENTION_GRACE_DAYS} days; seeded event_end_at = ${LONG_PAST_DAYS} days ago`);
+  console.log(
+    `\n[documents] purge deletes every object under the competition prefix, keeps the request row`,
+  );
+  console.log(
+    `  grace window = ${DOCUMENT_RETENTION_GRACE_DAYS} days; seeded event_end_at = ${LONG_PAST_DAYS} days ago`,
+  );
 
   const agedDocComp = await seedCompetition("retdoc-aged", daysAgo(LONG_PAST_DAYS));
   const docRegistration = (await seedRegistration(agedDocComp.competitionId)).registrationId;
@@ -242,7 +244,10 @@ const main = async (): Promise<void> => {
   );
 
   const docKeysBefore = await keysUnder(buildCompetitionObjectPrefix(agedDocComp.competitionId));
-  check(docKeysBefore.length === 3, `DOC-R04  3 objects in the bucket before purge (got ${docKeysBefore.length})`);
+  check(
+    docKeysBefore.length === 3,
+    `DOC-R04  3 objects in the bucket before purge (got ${docKeysBefore.length})`,
+  );
 
   const docOutcome = await purgeDocumentsForCompetition(agedDocComp.competitionId, db);
   check(
@@ -265,7 +270,9 @@ const main = async (): Promise<void> => {
   );
 
   const survivingRequest = oneRow(
-    await client<{ status: string; reviewed_by_user_id: string | null; review_note: string | null }[]>`
+    await client<
+      { status: string; reviewed_by_user_id: string | null; review_note: string | null }[]
+    >`
       SELECT status, reviewed_by_user_id, review_note
       FROM competition_document_requests WHERE id = ${docRequest.id}
     `,
@@ -287,11 +294,16 @@ const main = async (): Promise<void> => {
   check(remainingFileRows.n === 0, `DOC-R10  file rows are gone (got ${remainingFileRows.n})`);
 
   const controlKeys = await keysUnder(buildCompetitionObjectPrefix(recentDocComp.competitionId));
-  check(controlKeys.length === 1, `DOC-R11  in-grace competition's object untouched (got ${controlKeys.length})`);
+  check(
+    controlKeys.length === 1,
+    `DOC-R11  in-grace competition's object untouched (got ${controlKeys.length})`,
+  );
 
   // ---- part B: unfinalized submission purge (SUBMISSION-T1) ------------------------------------
 
-  console.log(`\n[submissions] purge reclaims abandoned uploads and never touches a finalized entry`);
+  console.log(
+    `\n[submissions] purge reclaims abandoned uploads and never touches a finalized entry`,
+  );
 
   const agedSubComp = await seedCompetition("retsub-aged", daysAgo(LONG_PAST_DAYS));
   const finalized = await seedRegistration(agedSubComp.competitionId);
@@ -321,18 +333,32 @@ const main = async (): Promise<void> => {
   );
 
   const subsDue = await listCompetitionsDueForSubmissionPurge(90, db);
-  check(subsDue.includes(agedSubComp.competitionId), "SUB-R01  aged competition is due for submission purge");
+  check(
+    subsDue.includes(agedSubComp.competitionId),
+    "SUB-R01  aged competition is due for submission purge",
+  );
 
-  const subKeysBefore = await keysUnder(buildSubmissionCompetitionPrefix(agedSubComp.competitionId));
-  check(subKeysBefore.length === 3, `SUB-R02  3 objects before purge (got ${subKeysBefore.length})`);
+  const subKeysBefore = await keysUnder(
+    buildSubmissionCompetitionPrefix(agedSubComp.competitionId),
+  );
+  check(
+    subKeysBefore.length === 3,
+    `SUB-R02  3 objects before purge (got ${subKeysBefore.length})`,
+  );
 
   const subOutcome = await purgeUnfinalizedSubmissionsForCompetition(agedSubComp.competitionId, db);
-  check(subOutcome.finalizedKept === 1, `SUB-R03  1 finalized submission kept (got ${subOutcome.finalizedKept})`);
+  check(
+    subOutcome.finalizedKept === 1,
+    `SUB-R03  1 finalized submission kept (got ${subOutcome.finalizedKept})`,
+  );
   check(
     subOutcome.objectsDeleted === 2,
     `SUB-R04  2 objects deleted — the draft and the orphan (got ${subOutcome.objectsDeleted})`,
   );
-  check(subOutcome.rowsDeleted === 1, `SUB-R05  1 unfinalized row deleted (got ${subOutcome.rowsDeleted})`);
+  check(
+    subOutcome.rowsDeleted === 1,
+    `SUB-R05  1 unfinalized row deleted (got ${subOutcome.rowsDeleted})`,
+  );
 
   const subKeysAfter = await keysUnder(buildSubmissionCompetitionPrefix(agedSubComp.competitionId));
   check(
@@ -359,7 +385,9 @@ const main = async (): Promise<void> => {
 
   // ---- part C: recruiter-verification orphan sweep (RECRUITER-DOC-T1) --------------------------
 
-  console.log(`\n[recruiter verification] orphan sweep deletes abandoned uploads and respects the presign window`);
+  console.log(
+    `\n[recruiter verification] orphan sweep deletes abandoned uploads and respects the presign window`,
+  );
 
   const recruiterId = await seedUser("retrec");
   await client`UPDATE users SET recruiter_verified_at = now(), recruiter_verification_tier = 'minimal' WHERE id = ${recruiterId}`;
@@ -386,7 +414,12 @@ const main = async (): Promise<void> => {
 
   // Age-guarded first: both objects were just created, so the abandoned one is still inside its
   // presign window and must NOT be taken away from a user who may still be uploading.
-  await sweepOrphanedSubmissionObjects(recruiterId, verificationSubmission.id, { respectAge: true }, db);
+  await sweepOrphanedSubmissionObjects(
+    recruiterId,
+    verificationSubmission.id,
+    { respectAge: true },
+    db,
+  );
   const afterAgeGuarded = await keysUnder(verifPrefix);
   check(
     afterAgeGuarded.length === 2,
@@ -395,13 +428,21 @@ const main = async (): Promise<void> => {
 
   // Terminal sweep: the review has happened, nothing more is coming, so an unreferenced object is
   // unambiguously abandoned.
-  await sweepOrphanedSubmissionObjects(recruiterId, verificationSubmission.id, { respectAge: false }, db);
+  await sweepOrphanedSubmissionObjects(
+    recruiterId,
+    verificationSubmission.id,
+    { respectAge: false },
+    db,
+  );
   const afterTerminal = await keysUnder(verifPrefix);
   check(
     afterTerminal.length === 1 && afterTerminal[0] === referencedKey,
     `REC-R02  terminal sweep deletes ONLY the abandoned upload — read back from R2 (got ${afterTerminal.length}: ${afterTerminal.join(", ")})`,
   );
-  check(!afterTerminal.includes(abandonedKey), "REC-R03  the abandoned upload is gone from the bucket");
+  check(
+    !afterTerminal.includes(abandonedKey),
+    "REC-R03  the abandoned upload is gone from the bucket",
+  );
 
   const documentRows = oneRow(
     await client<{ n: number }[]>`

@@ -1751,7 +1751,10 @@ export type RecruiterVerificationDocumentRecord =
 
 export const financePaymentSubjectEnum = pgEnum("finance_payment_subject", PAYMENT_SUBJECT_TYPES);
 
-export const financePaymentEventTypeEnum = pgEnum("finance_payment_event_type", PAYMENT_EVENT_TYPES);
+export const financePaymentEventTypeEnum = pgEnum(
+  "finance_payment_event_type",
+  PAYMENT_EVENT_TYPES,
+);
 
 export const financePaymentEventActorEnum = pgEnum(
   "finance_payment_event_actor",
@@ -2367,10 +2370,7 @@ export const financeManualPaymentProofAttempts = pgTable(
       "finance_manual_payment_proof_attempts_attempt_number_chk",
       sql`${table.attemptNumber} >= 0`,
     ),
-    check(
-      "finance_manual_payment_proof_attempts_file_size_chk",
-      sql`${table.fileSizeBytes} > 0`,
-    ),
+    check("finance_manual_payment_proof_attempts_file_size_chk", sql`${table.fileSizeBytes} > 0`),
     // A refusal with no stated reason is not reviewable after the fact. Verification needs none:
     // accepting a transfer says everything it has to say.
     check(

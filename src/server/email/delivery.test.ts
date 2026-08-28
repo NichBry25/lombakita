@@ -123,4 +123,62 @@ describe("resolveEmailDelivery", () => {
 
     vi.doUnmock("@/lib/logger");
   });
+  // WHERE THE RESERVED-TLD REFUSAL SITS RELATIVE TO THE DELIVERY FLAG.
+  //
+  // Three outcomes, and the middle one is why the guard sits below the flag rather than at the
+  // entry. A reserved address is refused when a send was about to happen and SUPPRESSED when one
+  // was not: refusing in a process that would never have sent adds no safety and breaks every local
+  // flow that completes from the console, sixteen of seventeen of them invisibly.
+  it("refuses a reserved recipient when delivery is enabled", async () => {
+    const { resolveEmailDelivery } = await loadDelivery({});
+
+    // Asserted on the refusal's own fields rather than with `instanceof`. `vi.resetModules()` hands
+    // the module under test a FRESH copy of reserved-recipients, so an identity check compares two
+    // module registries and fails while the guard works.
+    expect(() =>
+      resolveEmailDelivery({
+        kind: "registration_confirmed",
+        to: "fixture-01@seed.lombakita.local",
+      }),
+    ).toThrow(/reserved TLD "\.local"/);
+
+    try {
+      resolveEmailDelivery({
+        kind: "registration_confirmed",
+        to: "fixture-01@seed.lombakita.local",
+      });
+      throw new Error("expected a refusal");
+    } catch (error) {
+      expect((error as Error).name).toBe("ReservedRecipientError");
+      expect((error as { tld: string }).tld).toBe("local");
+      expect((error as { kind: string }).kind).toBe("registration_confirmed");
+    }
+  });
+
+  it("SUPPRESSES a reserved recipient when delivery is disabled, rather than throwing", async () => {
+    const { resolveEmailDelivery } = await loadDelivery({
+      emailDeliveryEnabled: false,
+      appEnv: "local",
+    });
+
+    expect(
+      resolveEmailDelivery({
+        kind: "registration_verification",
+        to: "fixture-01@seed.lombakita.local",
+      }),
+    ).toBeNull();
+  });
+
+  it("refuses a reserved recipient only after the provider check", async () => {
+    // Order matters for the operator: an unconfigured provider is the more actionable fault, and it
+    // is reported even when the recipient would also have been refused.
+    const { resolveEmailDelivery } = await loadDelivery({ resendApiKey: undefined });
+
+    expect(() =>
+      resolveEmailDelivery({
+        kind: "registration_confirmed",
+        to: "fixture-01@seed.lombakita.local",
+      }),
+    ).toThrow(/not fully configured/);
+  });
 });

@@ -1,0 +1,379 @@
+{
+  "audit": "mobile-audit",
+  "takenAt": "2026-08-24T17:37:31.901Z",
+  "note": "360/375/390px viewports, 105 pages",
+  "findings": [
+    {
+      "key": "15-institution-public|360|overflow",
+      "class": "overflow",
+      "magnitude": 400,
+      "viewport": 360,
+      "occurrences": 1
+    },
+    {
+      "key": "15-institution-public|360|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 40,
+      "right": 400,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "15-institution-public|360|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 40,
+      "right": 400,
+      "left": 18,
+      "occurrences": 3
+    },
+    {
+      "key": "15-institution-public|375|overflow",
+      "class": "overflow",
+      "magnitude": 400,
+      "viewport": 375,
+      "occurrences": 1
+    },
+    {
+      "key": "15-institution-public|375|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 25,
+      "right": 400,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "15-institution-public|375|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 25,
+      "right": 400,
+      "left": 18,
+      "occurrences": 3
+    },
+    {
+      "key": "15-institution-public|390|overflow",
+      "class": "overflow",
+      "magnitude": 400,
+      "viewport": 390,
+      "occurrences": 1,
+      "seenIn": "ci"
+    },
+    {
+      "key": "15-institution-public|390|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 10,
+      "right": 400,
+      "left": 18,
+      "occurrences": 1,
+      "seenIn": "ci"
+    },
+    {
+      "key": "15-institution-public|390|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 10,
+      "right": 400,
+      "left": 18,
+      "occurrences": 3,
+      "seenIn": "ci"
+    },
+    {
+      "key": "43-institution-public-as-candidate|360|overflow",
+      "class": "overflow",
+      "magnitude": 400,
+      "viewport": 360,
+      "occurrences": 1
+    },
+    {
+      "key": "43-institution-public-as-candidate|360|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 40,
+      "right": 400,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "43-institution-public-as-candidate|360|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 40,
+      "right": 400,
+      "left": 18,
+      "occurrences": 3
+    },
+    {
+      "key": "43-institution-public-as-candidate|375|overflow",
+      "class": "overflow",
+      "magnitude": 400,
+      "viewport": 375,
+      "occurrences": 1
+    },
+    {
+      "key": "43-institution-public-as-candidate|375|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 25,
+      "right": 400,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "43-institution-public-as-candidate|375|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 25,
+      "right": 400,
+      "left": 18,
+      "occurrences": 3
+    },
+    {
+      "key": "43-institution-public-as-candidate|390|overflow",
+      "class": "overflow",
+      "magnitude": 400,
+      "viewport": 390,
+      "occurrences": 1,
+      "seenIn": "ci"
+    },
+    {
+      "key": "43-institution-public-as-candidate|390|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 10,
+      "right": 400,
+      "left": 18,
+      "occurrences": 1,
+      "seenIn": "ci"
+    },
+    {
+      "key": "43-institution-public-as-candidate|390|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 10,
+      "right": 400,
+      "left": 18,
+      "occurrences": 3,
+      "seenIn": "ci"
+    },
+    {
+      "key": "52-institution-public-preview|360|overflow",
+      "class": "overflow",
+      "magnitude": 400,
+      "viewport": 360,
+      "occurrences": 1
+    },
+    {
+      "key": "52-institution-public-preview|360|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 40,
+      "right": 400,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "52-institution-public-preview|360|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 40,
+      "right": 400,
+      "left": 18,
+      "occurrences": 3
+    },
+    {
+      "key": "52-institution-public-preview|375|overflow",
+      "class": "overflow",
+      "magnitude": 400,
+      "viewport": 375,
+      "occurrences": 1
+    },
+    {
+      "key": "52-institution-public-preview|375|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 25,
+      "right": 400,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "52-institution-public-preview|375|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 25,
+      "right": 400,
+      "left": 18,
+      "occurrences": 3
+    },
+    {
+      "key": "52-institution-public-preview|390|overflow",
+      "class": "overflow",
+      "magnitude": 400,
+      "viewport": 390,
+      "occurrences": 1,
+      "seenIn": "ci"
+    },
+    {
+      "key": "52-institution-public-preview|390|wide|article.pf-card",
+      "class": "wide",
+      "magnitude": 10,
+      "right": 400,
+      "left": 18,
+      "occurrences": 1,
+      "seenIn": "ci"
+    },
+    {
+      "key": "52-institution-public-preview|390|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 10,
+      "right": 400,
+      "left": 18,
+      "occurrences": 3,
+      "seenIn": "ci"
+    },
+    {
+      "key": "57-competition-edit-draft|360|overflow",
+      "class": "overflow",
+      "magnitude": 379,
+      "viewport": 360,
+      "occurrences": 1
+    },
+    {
+      "key": "57-competition-edit-draft|360|wide|header.page-heading",
+      "class": "wide",
+      "magnitude": 19,
+      "right": 379,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "57-competition-edit-draft|360|wide|form.competition-edit-form",
+      "class": "wide",
+      "magnitude": 19,
+      "right": 379,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "57-competition-edit-draft|360|wide|section.content-section.stack-md",
+      "class": "wide",
+      "magnitude": 19,
+      "right": 379,
+      "left": 18,
+      "occurrences": 4
+    },
+    {
+      "key": "57-competition-edit-draft|360|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 19,
+      "right": 379,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "57-competition-edit-draft|360|wide|div.form-action-bar.glass-chrome",
+      "class": "wide",
+      "magnitude": 19,
+      "right": 379,
+      "left": 18,
+      "occurrences": 1
+    },
+    {
+      "key": "57-competition-edit-draft|375|overflow",
+      "class": "overflow",
+      "magnitude": 379,
+      "viewport": 375,
+      "occurrences": 1,
+      "seenIn": "ci"
+    },
+    {
+      "key": "57-competition-edit-draft|375|wide|header.page-heading",
+      "class": "wide",
+      "magnitude": 4,
+      "right": 379,
+      "left": 18,
+      "occurrences": 1,
+      "seenIn": "ci"
+    },
+    {
+      "key": "57-competition-edit-draft|375|wide|form.competition-edit-form",
+      "class": "wide",
+      "magnitude": 4,
+      "right": 379,
+      "left": 18,
+      "occurrences": 1,
+      "seenIn": "ci"
+    },
+    {
+      "key": "57-competition-edit-draft|375|wide|section.content-section.stack-md",
+      "class": "wide",
+      "magnitude": 4,
+      "right": 379,
+      "left": 18,
+      "occurrences": 4,
+      "seenIn": "ci"
+    },
+    {
+      "key": "57-competition-edit-draft|375|wide|section.content-section",
+      "class": "wide",
+      "magnitude": 4,
+      "right": 379,
+      "left": 18,
+      "occurrences": 1,
+      "seenIn": "ci"
+    },
+    {
+      "key": "57-competition-edit-draft|375|wide|div.form-action-bar.glass-chrome",
+      "class": "wide",
+      "magnitude": 4,
+      "right": 379,
+      "left": 18,
+      "occurrences": 1,
+      "seenIn": "ci"
+    },
+    {
+      "key": "62-institution-team|360|overflow",
+      "class": "overflow",
+      "magnitude": 621,
+      "viewport": 360,
+      "occurrences": 1
+    },
+    {
+      "key": "62-institution-team|375|overflow",
+      "class": "overflow",
+      "magnitude": 621,
+      "viewport": 375,
+      "occurrences": 1
+    },
+    {
+      "key": "62-institution-team|390|overflow",
+      "class": "overflow",
+      "magnitude": 621,
+      "viewport": 390,
+      "occurrences": 1
+    },
+    {
+      "key": "91-mfa-challenge|360|overflow",
+      "class": "overflow",
+      "magnitude": 367,
+      "viewport": 360,
+      "occurrences": 1,
+      "seenIn": "ci"
+    },
+    {
+      "key": "91-mfa-challenge|360|wide|header.auth-entry-header",
+      "class": "wide",
+      "magnitude": 7,
+      "right": 367,
+      "left": 43,
+      "occurrences": 1,
+      "seenIn": "ci"
+    },
+    {
+      "key": "91-mfa-challenge|360|wide|div.form-field",
+      "class": "wide",
+      "magnitude": 7,
+      "right": 367,
+      "left": 43,
+      "occurrences": 1,
+      "seenIn": "ci"
+    },
+    {
+      "key": "91-mfa-challenge|360|wide|button.ui-button",
+      "class": "wide",
+      "magnitude": 7,
+      "right": 367,
+      "left": 43,
+      "occurrences": 2,
+      "seenIn": "ci"
+    }
+  ]
+}
