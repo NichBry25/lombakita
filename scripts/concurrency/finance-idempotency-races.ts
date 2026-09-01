@@ -324,16 +324,23 @@ const main = async (): Promise<void> => {
 
     // 250 bps of 1.000.000 = 25.000 fee, 975.000 net. Pinned literally so
     // finance_payments_split_balance_chk is satisfied by arithmetic this script states outright.
+    //
+    // origin is 'gateway' because the races below are gateway-event races: replayed webhook
+    // deliveries and refunds keyed by mintPlatformPaymentEventKey. It is also the only value this
+    // row can carry. finance_payments_manual_lane_no_split_chk requires a manual_transfer row to
+    // take no platform fee (platform_fee_amount = 0, institution_net_amount = gross_amount), and
+    // finance_payments_manual_due_at_chk requires it to carry a due_at, so a manual_transfer row
+    // with the split above is rejected twice over.
     const payment = oneRow(
       await client<{ id: string }[]>`
         INSERT INTO finance_payments (
           id, payer_user_id, receiving_institution_id, subject_type, competition_registration_id,
-          currency, gross_amount, fee_rule_id, fee_basis_points, fee_flat_amount,
+          origin, currency, gross_amount, fee_rule_id, fee_basis_points, fee_flat_amount,
           platform_fee_amount, institution_net_amount
         )
         VALUES (
           ${randomUUID()}, ${user.id}, ${institution.id}, 'competition_registration', ${registration.id},
-          'IDR', 1000000, ${feeRule.id}, 250, 0, 25000, 975000
+          'gateway', 'IDR', 1000000, ${feeRule.id}, 250, 0, 25000, 975000
         )
         RETURNING id
       `,
