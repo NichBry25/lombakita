@@ -86,6 +86,12 @@ jobs:
         # Every post-lock count and CAS in the codebase is reasoned about under READ COMMITTED. The
         # scripts assert this themselves and refuse to run otherwise; failing here just makes the
         # cause obvious in the log rather than buried in the first script's output.
+        #
+        # Also the readiness gate for every DB-backed step below. It is the last step that has to
+        # succeed for the database to be stood up, migrated and at the right isolation level, and a
+        # step that is skipped reports `skipped` rather than `success`, so requiring this one to
+        # have succeeded requires the migration above to have succeeded too.
+        id: database-ready
         run: |
           psql "$DATABASE_URL" -tAc "SELECT current_setting('default_transaction_isolation')" \
             | grep -qx 'read committed'
@@ -103,7 +109,16 @@ jobs:
       # that broke it, not the next morning. Kept here deliberately, because the two jobs fail
       # independently and this one also exercises the suite against a database that has just been
       # migrated from zero.
+      # Runs even when the race scripts above failed. The two subjects are independent, and by
+      # default a failed step skips every step after it, so one broken fixture in the race scripts
+      # silently took this suite out too and the job status could not show that it had.
+      #
+      # Scoped rather than `always()`, on two counts. A CANCELLED job must stop, not push on to
+      # another suite. And this suite cannot produce a meaningful result if the database itself
+      # never came up, so it is gated on the readiness step rather than run unconditionally: a
+      # failure here should mean the MFA constraints are broken, never that Postgres is missing.
       - name: Run MFA DB-backed constraint and lifecycle suite
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
         run: npx vitest run src/server/auth/mfa/mfa-schema-db.integration.test.ts
 
   contrast-selftest:
