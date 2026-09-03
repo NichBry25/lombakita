@@ -6186,6 +6186,21 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     padding-inline: var(--page-padding-mobile);
   }
 
+  /* The dropdown popup is anchored to its trigger and opens rightward from it. On a phone a
+     trigger sitting late in the row starts far enough across that a 12rem popup runs past the
+     viewport edge, and the page scrolls sideways. Anchoring to the toolbar instead, where the
+     row is already stacked full-width at this size, spans the popup across the toolbar and keeps
+     it on screen wherever its trigger happens to sit. */
+  .filter-dropdown {
+    position: static;
+  }
+
+  .filter-dropdown-menu {
+    left: 0;
+    right: 0;
+    min-width: 0;
+  }
+
   .admin-nav {
     width: calc(100% - (var(--page-padding-mobile) * 2));
   }
