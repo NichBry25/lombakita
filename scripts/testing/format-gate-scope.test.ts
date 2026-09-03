@@ -5,21 +5,24 @@
 // here with the reason each one is excluded, and pinned — both that the gate still lists them
 // nowhere, and that it still covers what it is for.
 //
-// The five below were REMOVED rather than kept, and they are NOT one case. Four of them no longer
-// exist anywhere — not in the checkout, not on the developer's disk, not in the working tree — so
-// there is nothing for the gate to read. README.md exists locally and cannot be committed at all
-// under DEC-0101, so it is absent from every environment the gate runs in.
+// These are not one case. Four of the entries below no longer exist anywhere — not in the
+// checkout, not on the developer's disk, not in the working tree — so there is nothing for the
+// gate to read. `tsconfig.json` exists and is tracked, but a build rewrites and reflows it, so the
+// gate would go red after every build rather than after a real formatting drift. `README.md`
+// exists and is tracked too, for a reason that has nothing to do with either of those: the gate's
+// patterns cover TypeScript, CSS, YAML and a fixed list of root configs, and markdown was never
+// one of them.
 //
-// A glob does not rescue either case, and this was measured rather than assumed: Prettier exits 2
-// on `.env*.example` with the same "No files matching the pattern were found" it gives an explicit
-// path. Zero matches is the error, not the spelling of the pattern. So the choice is not
-// "exclusion versus glob" — it is "exclusion versus a gate that can never pass", and the second is
-// what shipped on the first CI run.
+// A glob does not rescue the four deleted files, and this was measured rather than assumed:
+// Prettier exits 2 on `.env*.example` with the same "No files matching the pattern were found" it
+// gives an explicit path. Zero matches is the error, not the spelling of the pattern. So the
+// choice is not "exclusion versus glob" — it is "exclusion versus a gate that can never pass", and
+// the second is what shipped on the first CI run.
 //
-// This is a reduction in the gate's DECLARED subject and not in what it covers: no environment the
-// gate runs in contains any of these files. The "genuinely absent" test below is what keeps that
-// true — the day one of them comes back as a tracked file, the reason for its entry has gone and
-// the test goes red until the entry does.
+// The "genuinely absent" test below pins the deleted four only. `tsconfig.json` and `README.md`
+// are excluded from it, because their claim was never absence — the day one of the deleted four
+// comes back as a tracked file, the reason for its entry has gone and that test goes red until the
+// entry does.
 
 import { describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -34,7 +37,7 @@ const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json
 /** Path, and why the format gate cannot list it. One reason per path, not one reason for all. */
 const EXCLUDED_FROM_THE_GATE = {
   "README.md":
-    "gitignored under DEC-0101 and never committed, so it is on this disk and in no checkout",
+    "tracked, but the gate's patterns cover TypeScript, CSS, YAML and a fixed list of root configs — none of them markdown",
   ".env.example": "deleted from the repository; the file does not exist in any environment",
   ".env.preview.example": "deleted from the repository; the file does not exist in any environment",
   ".env.production.example":
@@ -92,19 +95,6 @@ const isIgnoredOrAbsent = (path: string): boolean => {
   }
 };
 
-/** Whether git has this path in its index, which is the same answer on every checkout. */
-const isTracked = (path: string): boolean => {
-  try {
-    execFileSync("git", ["ls-files", "--error-unmatch", "--", path], {
-      cwd: process.cwd(),
-      stdio: "ignore",
-    });
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 describe("format gate scope", () => {
   const formatCheck = packageJson.scripts["format:check"] ?? "";
   const formatWrite = packageJson.scripts["format"] ?? "";
@@ -114,14 +104,15 @@ describe("format gate scope", () => {
     expect(formatWrite).not.toContain(path);
   });
 
-  // The claim the exclusions rest on. If one of these ever becomes a tracked, present file, the
-  // reason for excluding it has gone and the entry should go with it.
-  it.each(Object.keys(EXCLUDED_FROM_THE_GATE).filter((p) => p !== "tsconfig.json"))(
-    "%s is genuinely absent from a clean checkout",
-    (path) => {
-      expect(isIgnoredOrAbsent(path), `${path} is tracked — the gate could list it`).toBe(true);
-    },
-  );
+  // The claim the deleted-file exclusions rest on. If one of these ever becomes a tracked, present
+  // file, the reason for excluding it has gone and the entry should go with it. `tsconfig.json` and
+  // `README.md` are excluded from this one: both are tracked and present on purpose, so "absent"
+  // was never their claim.
+  it.each(
+    Object.keys(EXCLUDED_FROM_THE_GATE).filter((p) => p !== "tsconfig.json" && p !== "README.md"),
+  )("%s is genuinely absent from a clean checkout", (path) => {
+    expect(isIgnoredOrAbsent(path), `${path} is tracked — the gate could list it`).toBe(true);
+  });
 
   it("still covers the application source and the workflows", () => {
     expect(formatCheck).toContain("src/**/*.{ts,tsx,css}");
@@ -150,17 +141,6 @@ describe("format gate scope", () => {
   // they are gone. Nothing on this machine or any other has them to format.
   it.each(DELETED_FROM_THE_REPOSITORY)("%s does not exist on disk at all", (path) => {
     expect(existsSync(resolve(process.cwd(), path))).toBe(false);
-  });
-
-  // README.md is the one exclusion whose FILE may or may not be on a given disk: it is on this one,
-  // and on no runner's. This asserted `existsSync(...) === true`, which is the accident rather than
-  // the rule — true here, false in CI, and red in the required job for three runs while every check
-  // I ran was local. That is the defect this whole step is about, written into a test whose own name
-  // said local success proves nothing. What holds on every machine is that no checkout contains it:
-  // gitignored under DEC-0101, and never in the index.
-  it("README.md is in no checkout, whether or not it is on this disk", () => {
-    expect(isTracked("README.md")).toBe(false);
-    expect(isIgnoredOrAbsent("README.md")).toBe(true);
   });
 
   // `format` and `format:check` must look at the same set, or `npm run format` leaves files the
