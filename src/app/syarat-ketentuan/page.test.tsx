@@ -54,12 +54,8 @@ describe("TermsPage", () => {
     it("carries clause 7's carve-out: clause 6 does not govern an organizer pulling the competition", () => {
       const html = renderToStaticMarkup(TermsPage());
 
-      expect(html).toContain(
-        "Keadaan ini berbeda dari bagian 6 dan tidak diatur olehnya",
-      );
-      expect(html).toContain(
-        "bagian 6 tidak dapat dipakai untuk",
-      );
+      expect(html).toContain("Keadaan ini berbeda dari bagian 6 dan tidak diatur olehnya");
+      expect(html).toContain("bagian 6 tidak dapat dipakai untuk");
     });
   });
 });

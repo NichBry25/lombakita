@@ -150,7 +150,10 @@ describe("listPublicCompetitions — DB path", () => {
   // only loses precision. The clamp is what stops it, not the finiteness check.
   it("clamps an absurdly large page to a bounded result instead of erroring", async () => {
     const db = makeDb([], 0);
-    const result = await listPublicCompetitions({ page: 99_999_999_999_999_999_999, limit: 20 }, db);
+    const result = await listPublicCompetitions(
+      { page: 99_999_999_999_999_999_999, limit: 20 },
+      db,
+    );
 
     expect(result.meta.page).toBe(100_000);
     expect(Number.isSafeInteger(result.meta.page)).toBe(true);
