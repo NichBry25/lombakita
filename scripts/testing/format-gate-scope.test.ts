@@ -7,8 +7,7 @@
 //
 // The five below were REMOVED rather than kept, and they are NOT one case. Four of them no longer
 // exist anywhere — not in the checkout, not on the developer's disk, not in the working tree — so
-// there is nothing for the gate to read. README.md exists locally and cannot be committed at all
-// under DEC-0101, so it is absent from every environment the gate runs in.
+// there is nothing for the gate to read.
 //
 // A glob does not rescue either case, and this was measured rather than assumed: Prettier exits 2
 // on `.env*.example` with the same "No files matching the pattern were found" it gives an explicit
@@ -33,8 +32,6 @@ const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json
 
 /** Path, and why the format gate cannot list it. One reason per path, not one reason for all. */
 const EXCLUDED_FROM_THE_GATE = {
-  "README.md":
-    "gitignored under DEC-0101 and never committed, so it is on this disk and in no checkout",
   ".env.example": "deleted from the repository; the file does not exist in any environment",
   ".env.preview.example": "deleted from the repository; the file does not exist in any environment",
   ".env.production.example":
@@ -92,19 +89,6 @@ const isIgnoredOrAbsent = (path: string): boolean => {
   }
 };
 
-/** Whether git has this path in its index, which is the same answer on every checkout. */
-const isTracked = (path: string): boolean => {
-  try {
-    execFileSync("git", ["ls-files", "--error-unmatch", "--", path], {
-      cwd: process.cwd(),
-      stdio: "ignore",
-    });
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 describe("format gate scope", () => {
   const formatCheck = packageJson.scripts["format:check"] ?? "";
   const formatWrite = packageJson.scripts["format"] ?? "";
@@ -150,17 +134,6 @@ describe("format gate scope", () => {
   // they are gone. Nothing on this machine or any other has them to format.
   it.each(DELETED_FROM_THE_REPOSITORY)("%s does not exist on disk at all", (path) => {
     expect(existsSync(resolve(process.cwd(), path))).toBe(false);
-  });
-
-  // README.md is the one exclusion whose FILE may or may not be on a given disk: it is on this one,
-  // and on no runner's. This asserted `existsSync(...) === true`, which is the accident rather than
-  // the rule — true here, false in CI, and red in the required job for three runs while every check
-  // I ran was local. That is the defect this whole step is about, written into a test whose own name
-  // said local success proves nothing. What holds on every machine is that no checkout contains it:
-  // gitignored under DEC-0101, and never in the index.
-  it("README.md is in no checkout, whether or not it is on this disk", () => {
-    expect(isTracked("README.md")).toBe(false);
-    expect(isIgnoredOrAbsent("README.md")).toBe(true);
   });
 
   // `format` and `format:check` must look at the same set, or `npm run format` leaves files the

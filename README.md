@@ -1,4 +1,4 @@
-# Lombakita.id
+# Lombakita
 
 [![CI](https://github.com/NichBry25/lombakita/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/NichBry25/lombakita/actions/workflows/ci.yml)
 [![Nightly verification](https://github.com/NichBry25/lombakita/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/NichBry25/lombakita/actions/workflows/verify.yml)
