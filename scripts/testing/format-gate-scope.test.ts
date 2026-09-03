@@ -5,20 +5,24 @@
 // here with the reason each one is excluded, and pinned — both that the gate still lists them
 // nowhere, and that it still covers what it is for.
 //
-// The five below were REMOVED rather than kept, and they are NOT one case. Four of them no longer
-// exist anywhere — not in the checkout, not on the developer's disk, not in the working tree — so
-// there is nothing for the gate to read.
+// These are not one case. Four of the entries below no longer exist anywhere — not in the
+// checkout, not on the developer's disk, not in the working tree — so there is nothing for the
+// gate to read. `tsconfig.json` exists and is tracked, but a build rewrites and reflows it, so the
+// gate would go red after every build rather than after a real formatting drift. `README.md`
+// exists and is tracked too, for a reason that has nothing to do with either of those: the gate's
+// patterns cover TypeScript, CSS, YAML and a fixed list of root configs, and markdown was never
+// one of them.
 //
-// A glob does not rescue either case, and this was measured rather than assumed: Prettier exits 2
-// on `.env*.example` with the same "No files matching the pattern were found" it gives an explicit
-// path. Zero matches is the error, not the spelling of the pattern. So the choice is not
-// "exclusion versus glob" — it is "exclusion versus a gate that can never pass", and the second is
-// what shipped on the first CI run.
+// A glob does not rescue the four deleted files, and this was measured rather than assumed:
+// Prettier exits 2 on `.env*.example` with the same "No files matching the pattern were found" it
+// gives an explicit path. Zero matches is the error, not the spelling of the pattern. So the
+// choice is not "exclusion versus glob" — it is "exclusion versus a gate that can never pass", and
+// the second is what shipped on the first CI run.
 //
-// This is a reduction in the gate's DECLARED subject and not in what it covers: no environment the
-// gate runs in contains any of these files. The "genuinely absent" test below is what keeps that
-// true — the day one of them comes back as a tracked file, the reason for its entry has gone and
-// the test goes red until the entry does.
+// The "genuinely absent" test below pins the deleted four only. `tsconfig.json` and `README.md`
+// are excluded from it, because their claim was never absence — the day one of the deleted four
+// comes back as a tracked file, the reason for its entry has gone and that test goes red until the
+// entry does.
 
 import { describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -32,6 +36,8 @@ const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), "package.json
 
 /** Path, and why the format gate cannot list it. One reason per path, not one reason for all. */
 const EXCLUDED_FROM_THE_GATE = {
+  "README.md":
+    "tracked, but the gate's patterns cover TypeScript, CSS, YAML and a fixed list of root configs — none of them markdown",
   ".env.example": "deleted from the repository; the file does not exist in any environment",
   ".env.preview.example": "deleted from the repository; the file does not exist in any environment",
   ".env.production.example":
@@ -98,14 +104,15 @@ describe("format gate scope", () => {
     expect(formatWrite).not.toContain(path);
   });
 
-  // The claim the exclusions rest on. If one of these ever becomes a tracked, present file, the
-  // reason for excluding it has gone and the entry should go with it.
-  it.each(Object.keys(EXCLUDED_FROM_THE_GATE).filter((p) => p !== "tsconfig.json"))(
-    "%s is genuinely absent from a clean checkout",
-    (path) => {
-      expect(isIgnoredOrAbsent(path), `${path} is tracked — the gate could list it`).toBe(true);
-    },
-  );
+  // The claim the deleted-file exclusions rest on. If one of these ever becomes a tracked, present
+  // file, the reason for excluding it has gone and the entry should go with it. `tsconfig.json` and
+  // `README.md` are excluded from this one: both are tracked and present on purpose, so "absent"
+  // was never their claim.
+  it.each(
+    Object.keys(EXCLUDED_FROM_THE_GATE).filter((p) => p !== "tsconfig.json" && p !== "README.md"),
+  )("%s is genuinely absent from a clean checkout", (path) => {
+    expect(isIgnoredOrAbsent(path), `${path} is tracked — the gate could list it`).toBe(true);
+  });
 
   it("still covers the application source and the workflows", () => {
     expect(formatCheck).toContain("src/**/*.{ts,tsx,css}");
