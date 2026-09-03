@@ -972,6 +972,24 @@ svg {
   color: var(--color-ink-soft);
 }
 
+/* The terms notice shown where an account is created or a payment is about to be sent. Sized like
+   help text because that is what it is, with its links underlined so they read as links at a size
+   where colour alone is a thin signal. */
+.assent-notice {
+  color: var(--color-ink-soft);
+  font-size: var(--text-meta);
+}
+
+.assent-notice p {
+  margin: var(--space-0);
+}
+
+.assent-notice a {
+  color: var(--color-link);
+  text-decoration: underline;
+  text-underline-offset: var(--space-1);
+}
+
 .form-error {
   color: var(--color-error-text);
 }
@@ -1868,6 +1886,58 @@ button.header-nav-link {
   max-width: var(--content-narrow);
   color: var(--brand-mist);
   font-size: var(--text-micro);
+}
+
+/* Company identity and the legal routes, as a bar under the two-column footer body rather than a
+   third column. The columns above are balanced against each other at every width already, and a
+   third one would have to be re-tuned at each breakpoint; a bar wraps on its own instead.
+
+   The rule is `--overlay-highlight`, not `--color-line-soft`. The page-level line tokens are tuned
+   for the page ground, and the footer sits on the brand surface, which is deep in BOTH themes. */
+.footer-legal {
+  border-block-start: var(--border-thin) solid var(--overlay-highlight);
+}
+
+.footer-legal-inner {
+  display: flex;
+  width: min(100%, var(--content-max));
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-6);
+  margin-inline: auto;
+  padding: var(--space-5) var(--page-padding);
+  color: var(--brand-mist);
+  font-size: var(--text-meta);
+}
+
+.footer-legal-entity {
+  margin: var(--space-0);
+  font-weight: 500;
+}
+
+.footer-legal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+}
+
+/* The bar's links are ordinary text links rather than controls, so they carry no 44px box of their
+   own. The vertical padding restores the target height without changing how the row reads. */
+.footer-legal-links a,
+.footer-legal-email {
+  display: inline-flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  text-decoration: underline;
+  text-underline-offset: var(--space-1);
+}
+
+@media (max-width: 760px) {
+  .footer-legal-inner {
+    justify-content: flex-start;
+    padding-inline: var(--page-padding-mobile);
+  }
 }
 
 /* Brand bands and procedural artwork */
@@ -3877,6 +3947,58 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   margin: var(--space-0);
   padding-inline-start: var(--space-5);
   color: var(--color-ink-soft);
+}
+
+/* Public documents: contact, terms, privacy. The hero is the suspension notice's band without its
+   icon column, so the three new pages open the same way the one existing public notice does. */
+.document-hero {
+  padding-block: var(--space-14);
+}
+
+.document-hero-inner {
+  display: grid;
+  max-width: var(--content-prose);
+  gap: var(--space-3);
+}
+
+.document-hero h1 {
+  font-size: var(--text-page-title);
+}
+
+.document-hero p {
+  margin: var(--space-0);
+  color: var(--brand-mist);
+  font-size: var(--text-lead);
+}
+
+.document-page {
+  display: grid;
+  width: min(100%, var(--content-prose));
+  gap: var(--grid-gap);
+}
+
+.document-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  color: var(--brand-mist);
+  font-family: var(--font-data);
+  font-size: var(--text-meta);
+}
+
+/* Clause bodies. The gap is what separates one paragraph from the next inside a clause, and the
+   list shares the paragraph colour so a clause set as a list does not read as a different voice
+   from the clause beside it set as prose. */
+.document-clause p,
+.document-clause li {
+  color: var(--color-ink-soft);
+}
+
+.document-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-0);
+  padding-inline-start: var(--space-5);
 }
 
 /* Shared modal and toast skins */

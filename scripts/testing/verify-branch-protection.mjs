@@ -26,12 +26,23 @@ const api = (path) =>
 
 const complaints = [];
 
-const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/ci.yml"), "utf8");
-const declaredButNotAJob = REQUIRED_CONTEXTS.filter((c) => !jobDisplayNames(workflow).includes(c));
+// Every workflow that runs on a pull request, because a required context can be reported by any of
+// them: `concurrency races` lives in verify.yml, not ci.yml, and reading only ci.yml would report
+// it as unreportable and fail on a correct configuration.
+const PULL_REQUEST_WORKFLOWS = ["ci.yml", "verify.yml"];
+
+const reportedNames = PULL_REQUEST_WORKFLOWS.flatMap((file) =>
+  jobDisplayNames(readFileSync(resolve(process.cwd(), ".github/workflows", file), "utf8")),
+);
+
+const declaredButNotAJob = REQUIRED_CONTEXTS.filter((c) => !reportedNames.includes(c));
 for (const context of declaredButNotAJob) {
   // A required context no job reports blocks every pull request forever, which reads as a broken
   // repository rather than as a misconfiguration, so it is worth naming before asking GitHub.
-  complaints.push(`"${context}" is required but no job in ci.yml reports under that name`);
+  complaints.push(
+    `"${context}" is required but no job in ${PULL_REQUEST_WORKFLOWS.join(" or ")} reports under ` +
+      `that name`,
+  );
 }
 
 const checks = api("/required_status_checks");

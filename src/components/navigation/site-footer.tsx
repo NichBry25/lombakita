@@ -1,3 +1,6 @@
+import Link from "next/link";
+import { COMPANY } from "@/config/company";
+
 /**
  * Browser versions the interface is built and verified against.
  *
@@ -20,6 +23,19 @@ const VERIFIED_BROWSERS = [
   { name: "Edge", minimumVersion: "117" },
   { name: "Firefox", minimumVersion: "121" },
   { name: "Safari", minimumVersion: "17.5" },
+] as const;
+
+/**
+ * The legal and identity routes every page has to reach.
+ *
+ * Kept beside the footer that renders them because this is the only navigation to them in the
+ * app: a reader looking for who operates the site, or for the terms they agreed to, looks at the
+ * bottom of whatever page they are on.
+ */
+const LEGAL_LINKS = [
+  { href: "/syarat-ketentuan", label: "Syarat & Ketentuan" },
+  { href: "/kebijakan-privasi", label: "Kebijakan Privasi" },
+  { href: "/kontak", label: "Kontak" },
 ] as const;
 
 export function SiteFooter() {
@@ -45,6 +61,22 @@ export function SiteFooter() {
           <p className="footer-support-note">
             Versi yang lebih lama tetap bisa dipakai — sebagian detail tampilan saja yang berbeda.
           </p>
+        </div>
+      </div>
+
+      <div className="footer-legal">
+        <div className="footer-legal-inner">
+          <p className="footer-legal-entity">{COMPANY.legalName}</p>
+          <nav className="footer-legal-links" aria-label="Informasi legal">
+            {LEGAL_LINKS.map((link) => (
+              <Link key={link.href} href={link.href}>
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+          <a className="footer-legal-email" href={`mailto:${COMPANY.supportEmail}`}>
+            {COMPANY.supportEmail}
+          </a>
         </div>
       </div>
     </footer>

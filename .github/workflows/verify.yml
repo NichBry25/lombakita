@@ -7,11 +7,22 @@ name: Nightly verification
 #
 # Deliberately NOT here: scripts/retention/ needs real R2 credentials, and scripts/session/ needs a
 # running app. Both stay on-demand until 6.5.INFRA provisions those in a managed environment.
+#
+# BOTH JOBS RUN ON PULL REQUESTS, and only `concurrency races` is required to merge. Nightly alone
+# meant a broken lock was found the morning after it merged, by a notification nobody opened. The
+# schedule stays because this workflow also proves the migrations apply from zero, which a pull
+# request against an already-migrated branch does not.
+#
+# There is ONE definition of each job. Copying `concurrency races` into ci.yml to make it gate would
+# leave two definitions to drift apart, which is the state DEBT-VERIFY-YML-UNPINNED describes, and
+# an `if:` skipping the self-test on pull requests would be a condition that silently never fires.
 
 on:
   schedule:
     # 19:00 UTC = 02:00 Asia/Jakarta, matching the retention job's off-peak slot.
     - cron: "0 19 * * *"
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -19,7 +30,9 @@ permissions:
 
 concurrency:
   group: verify-${{ github.ref }}
-  cancel-in-progress: false
+  # A superseded pull-request run is measuring code nobody will merge, and this job holds a Postgres
+  # service for up to 25 minutes. A scheduled run is never superseded and must always finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   concurrency-races:

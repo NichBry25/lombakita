@@ -1,6 +1,6 @@
 "use client";
 
-import { FilterDropdown, type FilterOption } from "@/components/ui";
+import { FilterDropdown, Spinner, type FilterOption } from "@/components/ui";
 import { COMPETITION_CATEGORY_OPTIONS } from "@/lib/competitions/categories";
 import { COMPETITION_MODE_OPTIONS } from "@/lib/competitions/modes";
 
@@ -45,6 +45,9 @@ type CompetitionFiltersProps = {
   status: string;
   teamSize: string;
   sort: string;
+  // A filter change navigates, and this row is the control that owns that navigation, so it
+  // carries the busy state and shows the spinner while the next result set is being fetched.
+  isPending?: boolean;
   onCategory: (value: string) => void;
   onMode: (value: string) => void;
   onStatus: (value: string) => void;
@@ -58,6 +61,7 @@ export function CompetitionFilters({
   status,
   teamSize,
   sort,
+  isPending = false,
   onCategory,
   onMode,
   onStatus,
@@ -65,7 +69,7 @@ export function CompetitionFilters({
   onSort,
 }: CompetitionFiltersProps) {
   return (
-    <div className="filter-toolbar-filters" aria-label="Filter kompetisi">
+    <div className="filter-toolbar-filters" aria-label="Filter kompetisi" aria-busy={isPending}>
       <FilterDropdown
         label="Kategori"
         options={CATEGORY_OPTIONS}
@@ -81,6 +85,7 @@ export function CompetitionFilters({
         onChange={onTeamSize}
       />
       <FilterDropdown label="Urutkan" options={SORT_OPTIONS} value={sort} onChange={onSort} />
+      {isPending ? <Spinner size="sm" /> : null}
     </div>
   );
 }

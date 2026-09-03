@@ -14,16 +14,26 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-// @ts-expect-error — a plain .mjs declaration, shared with the script that checks it against GitHub.
-import { REQUIRED_CONTEXTS, jobDisplayNames } from "../../scripts/testing/required-contexts.mjs";
+import {
+  REQUIRED_CONTEXTS,
+  NON_BLOCKING_CONTEXTS,
+  jobDisplayNames,
+  // @ts-expect-error — a plain .mjs declaration, shared with the script that checks it against GitHub.
+} from "../../scripts/testing/required-contexts.mjs";
 
-const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/ci.yml"), "utf8");
+const workflowText = (file: string) =>
+  readFileSync(resolve(process.cwd(), ".github/workflows", file), "utf8");
+
+const workflow = workflowText("ci.yml");
+const verifyWorkflow = workflowText("verify.yml");
 
 /** A `run:` line invoking exactly this command — not a mention of it in a comment. */
-const runsCommand = (command: string) =>
+const runsCommandIn = (source: string, command: string) =>
   new RegExp(`^\\s*run: ${command.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\s*$`, "m").test(
-    workflow,
+    source,
   );
+
+const runsCommand = (command: string) => runsCommandIn(workflow, command);
 
 describe("ci.yml", () => {
   it("runs on every pull request against main", () => {
@@ -35,6 +45,9 @@ describe("ci.yml", () => {
   });
 
   it.each([
+    // Every audit below drives a browser with JavaScript on, so none of them can see a page that
+    // renders nothing without it. This is the only check that reads the bytes the server sent.
+    ["the server-rendered listing check", "node scripts/testing/server-render.mjs"],
     ["ui state assertions", "node scripts/testing/ui-states.mjs"],
     ["the mobile layout audit", "node scripts/testing/mobile-audit.mjs"],
     ["the contrast and tone-separation audit", "node scripts/testing/contrast-audit.mjs"],
@@ -89,30 +102,92 @@ describe("ci.yml", () => {
   it("runs the audits under APP_ENV=test", () => {
     expect(workflow).toMatch(/^\s+APP_ENV: test$/m);
   });
+});
 
-  // WHICH OF THESE ACTUALLY BLOCKS A MERGE.
-  //
-  // Both jobs ran on every pull request for weeks while branch protection required one of them,
-  // so an audit could exit 1 on a fresh overflow and the pull request stayed mergeable. The list
-  // in `required-contexts.mjs` is the declaration; these two pins are the only part of it a test
-  // in this repository can prove. Whether GitHub agrees is checked by
-  // `npm run verify:branch-protection`, which needs a token this workflow does not carry.
-  describe("required contexts", () => {
-    const names = jobDisplayNames(workflow) as string[];
+// `verify.yml` runs the two things the unit suite structurally cannot check. The unit suite mocks
+// the database, so `tx.execute` is a no-op and deleting an advisory lock leaves every test green;
+// only the race scripts, against a real Postgres, can see that. Until this step the workflow ran
+// nightly and nothing pinned it, so any of its steps could be deleted in a pull request that went
+// green and merged, and the loss showed up the next morning in a notification nobody opened.
+describe("verify.yml", () => {
+  it("runs on every pull request against main", () => {
+    // The whole point of the change: a broken lock has to fail the pull request that broke it.
+    expect(verifyWorkflow).toMatch(/^\s+pull_request:\n\s+branches: \[main\]$/m);
+  });
 
-    it("requires every job the workflow declares", () => {
-      // Adding a gating job and not requiring it is the defect restated, one job later.
-      expect(names.length).toBeGreaterThan(0);
-      expect([...names].sort()).toEqual([...REQUIRED_CONTEXTS].sort());
-    });
+  it("keeps the nightly schedule", () => {
+    // A pull request runs against an already-migrated branch. The scheduled run is the only thing
+    // that applies the migrations from zero, so moving to pull requests must not replace it.
+    expect(verifyWorkflow).toMatch(/^\s+- cron: /m);
+  });
 
-    it("requires nothing no job reports", () => {
-      // Branch protection matches on the display name. A required context nothing reports under
-      // never resolves, so every pull request blocks forever and it reads as a broken repository
-      // rather than as the rename that caused it.
-      for (const context of REQUIRED_CONTEXTS as string[]) {
-        expect(names).toContain(context);
-      }
-    });
+  it("runs the concurrency race scripts", () => {
+    expect(runsCommandIn(verifyWorkflow, "npm run verify:concurrency")).toBe(true);
+  });
+
+  it("runs the MFA database-backed suite", () => {
+    expect(
+      runsCommandIn(
+        verifyWorkflow,
+        "npx vitest run src/server/auth/mfa/mfa-schema-db.integration.test.ts",
+      ),
+    ).toBe(true);
+  });
+
+  it("makes a database-backed suite that cannot see a database fail rather than skip", () => {
+    // Without REQUIRE_DB_TESTS the suite above SKIPS when DATABASE_URL is absent, and a skipped
+    // suite reports the same green tick as a passing one. Removing this line does not break the
+    // job; it makes the job stop testing anything while still looking healthy.
+    expect(verifyWorkflow).toMatch(/^\s+REQUIRE_DB_TESTS: "1"$/m);
+  });
+
+  it("runs the contrast auditor self-test unconditionally on pull requests", () => {
+    // An `if:` here would be a condition that silently never fires, which is the defect class this
+    // repository keeps rediscovering. The job is allowed not to gate; it is not allowed not to run.
+    const selfTest = verifyWorkflow.slice(verifyWorkflow.indexOf("contrast-selftest:"));
+
+    expect(runsCommandIn(selfTest, "npm run verify:contrast-selftest")).toBe(true);
+    expect(selfTest).not.toMatch(/^\s+if: /m);
+  });
+});
+
+// WHICH OF THESE ACTUALLY BLOCKS A MERGE.
+//
+// Both ci.yml jobs ran on every pull request for weeks while branch protection required one of
+// them, so an audit could exit 1 on a fresh overflow and the pull request stayed mergeable. The
+// list in `required-contexts.mjs` is the declaration; the pins below are the only part of it a test
+// in this repository can prove. Whether GitHub agrees is checked by
+// `npm run verify:branch-protection`, which needs a token this workflow does not carry.
+describe("required contexts", () => {
+  // Every workflow that reports a check on a pull request. A context can be reported by any of
+  // them — `concurrency races` is a verify.yml job — so reasoning about ci.yml alone would both
+  // miss jobs that gate and reject a context that is correctly required.
+  const names = [workflow, verifyWorkflow].flatMap((source) => jobDisplayNames(source) as string[]);
+
+  it("classifies every job that runs on a pull request", () => {
+    // Adding a gating job and not requiring it is the defect restated, one job later. A job is
+    // allowed not to gate, but only by being named in NON_BLOCKING_CONTEXTS with its reason: this
+    // is set equality, so a new job belongs to neither list and fails here until someone decides.
+    const classified = [...REQUIRED_CONTEXTS, ...NON_BLOCKING_CONTEXTS] as string[];
+
+    expect(names.length).toBeGreaterThan(0);
+    expect([...names].sort()).toEqual([...classified].sort());
+  });
+
+  it("never lists a job as both required and non-blocking", () => {
+    const bothWays = (REQUIRED_CONTEXTS as string[]).filter((context) =>
+      (NON_BLOCKING_CONTEXTS as string[]).includes(context),
+    );
+
+    expect(bothWays).toEqual([]);
+  });
+
+  it("requires nothing no job reports", () => {
+    // Branch protection matches on the display name. A required context nothing reports under
+    // never resolves, so every pull request blocks forever and it reads as a broken repository
+    // rather than as the rename that caused it.
+    for (const context of REQUIRED_CONTEXTS as string[]) {
+      expect(names).toContain(context);
+    }
   });
 });

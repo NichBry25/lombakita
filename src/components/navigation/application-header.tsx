@@ -70,7 +70,7 @@ export function ApplicationHeader() {
   return (
     <header className="site-header" data-scrolled={scrolled ? "true" : "false"}>
       <div className="header-inner">
-        <Link href="/" className="brand-lockup" aria-label="Lombakita.id, beranda">
+        <Link href="/" className="brand-lockup" aria-label="Lombakita, beranda">
           <span className="brand-wordmark brand-wordmark-primary" aria-hidden="true" />
           <span className="brand-wordmark brand-wordmark-reversed" aria-hidden="true" />
         </Link>

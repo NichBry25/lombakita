@@ -138,6 +138,24 @@ export const PAGES = [
     label: "UI primitives dev surface",
   },
 
+  // The public legal and identity surfaces. Nothing walks the route tree, so a page that is not
+  // listed here is never visited by the contrast audit, the mobile audit or the gallery, and passes
+  // every one of them by never being measured. The letter suffixes keep all three inside the one
+  // free slot left in the signed-out band rather than renumbering every id below.
+  { id: "28-kontak", as: null, path: "/kontak", label: "Company identity and contact" },
+  {
+    id: "28a-syarat-ketentuan",
+    as: null,
+    path: "/syarat-ketentuan",
+    label: "Terms of service",
+  },
+  {
+    id: "28b-kebijakan-privasi",
+    as: null,
+    path: "/kebijakan-privasi",
+    label: "Privacy policy",
+  },
+
   // ---------------------------------------------------------------- candidate
   {
     id: "30-candidate-dashboard",

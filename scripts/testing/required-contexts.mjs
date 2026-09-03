@@ -12,7 +12,30 @@
  * not cosmetic: renaming a job without renaming its context leaves a required check that can never
  * report, and a pull request that can never merge.
  */
-export const REQUIRED_CONTEXTS = ["lint, typecheck, test", "browser audits"];
+export const REQUIRED_CONTEXTS = [
+  "lint, typecheck, test",
+  "browser audits",
+  // `verify.yml`. The concurrency scripts are the only proof the advisory locks exist: the unit
+  // suite mocks the database, so `tx.execute` is a no-op and deleting a lock leaves it green.
+  // Running nightly meant that proof arrived the morning after the merge it should have blocked.
+  "concurrency races",
+];
+
+/**
+ * Jobs that run on every pull request WITHOUT being able to block one, each with the reason.
+ *
+ * This list exists so that no job can be neither required nor exempt. Every job either gates or is
+ * named here, and `src/config/ci-gates.test.ts` fails on a job that is in neither, so adding one
+ * is a decision rather than an omission.
+ */
+export const NON_BLOCKING_CONTEXTS = [
+  // A self-test of the contrast auditor, not of the product: it renders a fixture with
+  // `page.setContent()` and asserts the auditor still reports a pairing it should catch. A real
+  // contrast defect on a real page is caught by `contrast-audit.mjs` inside `browser audits`,
+  // which does gate. This job failing means the instrument needs attention, not that the branch
+  // is unsafe to merge.
+  "contrast auditor self-test",
+];
 
 /**
  * Every job's display name, in the order `ci.yml` declares them.

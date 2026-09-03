@@ -25,7 +25,7 @@ vi.mock("@/lib/logger", () => ({
   logger: { error: mockLoggerError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
-import HomePage from "@/app/page";
+import HomePage from "@/app/(home)/page";
 
 const NOW = new Date("2026-06-01T12:00:00.000Z");
 const FUTURE = new Date("2026-12-01T00:00:00.000Z");
