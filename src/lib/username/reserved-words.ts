@@ -42,6 +42,9 @@ export const RESERVED_WORDS: readonly string[] = [
   // Live top-level App Router segments added per the same-commit convention above.
   "invitations",
   "protected",
+  "kontak",
+  "syarat-ketentuan",
+  "kebijakan-privasi",
   // Static create-action segments under /institution/ that must never be claimed as an institution
   // slug, or the static route would shadow /institution/<slug> and make that institution
   // unreachable. Personal institutions share the flat /institution/<slug> namespace,

@@ -33,10 +33,19 @@ production build of the branch and a freshly seeded matrix. Running them locally
 see a failure quickly; it is no longer the only way they run.
 
 **Running is not gating.** A job blocks a merge only while branch protection lists its display name
-in `required_status_checks.contexts`. That list holds `lint, typecheck, test` and nothing else, so
-the browser audits currently report their findings without being able to fail a pull request on
-them. Making them block is a repository setting; until it is made, a red audit here is a signal to
-read, not a wall.
+in `required_status_checks.contexts`. That list is declared in `required-contexts.mjs` and holds
+three names: `lint, typecheck, test`, `browser audits`, and `concurrency races`. A red audit is
+therefore a wall, not just a signal.
+
+One job runs on every pull request without being able to block one: `contrast auditor self-test`,
+in `verify.yml`. It checks the instrument rather than the product — a real contrast defect on a real
+page is caught by `contrast-audit.mjs` inside `browser audits`, which does gate. It is listed in
+`NON_BLOCKING_CONTEXTS` with that reason, and `src/config/ci-gates.test.ts` fails on any job that is
+in neither list, so a new job cannot end up ungated by omission.
+
+The declaration is not the setting. `src/config/ci-gates.test.ts` proves the declared names match
+jobs that exist; only `npm run verify:branch-protection` can tell you whether GitHub agrees, and it
+needs an admin-scoped token no workflow here carries.
 
 ## Exit codes, shared by `contrast-audit` and `mobile-audit`
 

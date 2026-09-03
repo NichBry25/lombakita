@@ -5,6 +5,7 @@ import { signIn } from "next-auth/react";
 import { Button, SelectField, usePageTransition } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
+import { AssentNotice } from "@/components/legal/assent-notice";
 
 // Minimal-proof OAuth role picker. Reached after a brand-new Google user is routed to
 // /auth/login?oauth=<carrier> — the role picker lives on the single login page. The
@@ -204,6 +205,8 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
             </button>
           </div>
         ) : null}
+
+        {stage === "choose" ? <AssentNotice /> : null}
 
         {stage === "candidateOnboarding" ? (
           <form onSubmit={onSubmitCandidateOnboarding} className="auth-form">

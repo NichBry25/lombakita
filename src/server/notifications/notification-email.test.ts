@@ -5,8 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { serverEnv, sendEmailMock } = vi.hoisted(() => ({
   serverEnv: {
     resendApiKey: "re_test_key",
-    authEmailFrom: "noreply@lombakita.id",
-    authUrl: "https://lombakita.id",
+    authEmailFrom: "noreply@seed.lombakita.local",
+    authUrl: "https://lombakita.local",
     appBaseUrl: undefined as string | undefined,
     emailDeliveryEnabled: true,
     appEnv: "test",
@@ -15,7 +15,7 @@ const { serverEnv, sendEmailMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/config/env.server", () => ({ serverEnv }));
-vi.mock("@/config/env", () => ({ publicEnv: { appUrl: "https://lombakita.id" } }));
+vi.mock("@/config/env", () => ({ publicEnv: { appUrl: "https://lombakita.local" } }));
 vi.mock("@/lib/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("resend", () => ({
   Resend: vi.fn().mockImplementation(() => ({
@@ -52,7 +52,7 @@ describe("sendRegistrationConfirmedEmail", () => {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
     expect(call.to).toBe("candidate@example.com");
-    expect(call.from).toBe("noreply@lombakita.id");
+    expect(call.from).toBe("noreply@seed.lombakita.local");
     expect(call.subject).toContain("Lomba Teknologi 2026");
     expect(call.subject).toContain("Pendaftaran kamu berhasil");
     expect(call.text).toContain("Individu");
@@ -206,7 +206,7 @@ describe("sendPaymentProofSubmittedEmail", () => {
     expect(call.text).toContain("Rp 150.000");
     // An organiser who administers two institutions cannot act on a link to /institution.
     expect(call.text).toContain(
-      "https://lombakita.id/institution/seed-academy/competitions/seed-coding-league/payments",
+      "https://lombakita.local/institution/seed-academy/competitions/seed-coding-league/payments",
     );
   });
 

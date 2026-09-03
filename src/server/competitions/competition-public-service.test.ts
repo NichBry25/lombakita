@@ -142,6 +142,48 @@ describe("listPublicCompetitions — DB path", () => {
     expect(result.meta.page).toBe(3);
     expect(result.meta.totalPages).toBe(3);
   });
+
+  // A page number this large reached Postgres as an OFFSET past what bigint can hold and the
+  // public listing answered 500 — measured live at page=99999999999999999999 both here and on
+  // /api/v1/competitions, since both call through this same function. `Number.isFinite` does not
+  // catch it: `Number.parseInt("99999999999999999999", 10)` returns a huge but FINITE number, it
+  // only loses precision. The clamp is what stops it, not the finiteness check.
+  it("clamps an absurdly large page to a bounded result instead of erroring", async () => {
+    const db = makeDb([], 0);
+    const result = await listPublicCompetitions(
+      { page: 99_999_999_999_999_999_999, limit: 20 },
+      db,
+    );
+
+    expect(result.meta.page).toBe(100_000);
+    expect(Number.isSafeInteger(result.meta.page)).toBe(true);
+  });
+
+  it("keeps the offset passed to the database within a safe integer range for the same input", async () => {
+    const rowsChain = {
+      from: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      offset: vi.fn().mockResolvedValue([]),
+    };
+    const countChain = {
+      from: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
+      where: vi.fn().mockResolvedValue([{ count: 0 }]),
+    };
+    let callIdx = 0;
+    const db = {
+      select: vi.fn(() => (callIdx++ === 0 ? rowsChain : countChain)),
+    } as unknown as Database;
+
+    await listPublicCompetitions({ page: 99_999_999_999_999_999_999, limit: 50 }, db);
+
+    const offsetPassed = rowsChain.offset.mock.calls[0]?.[0];
+    expect(Number.isSafeInteger(offsetPassed)).toBe(true);
+    expect(offsetPassed).toBe((100_000 - 1) * 50);
+  });
 });
 
 describe("listPublicCompetitions — Meilisearch degradation", () => {

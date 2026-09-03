@@ -264,8 +264,16 @@ jobs:
           tail -50 "${{ runner.temp }}/app.log"
           exit 1
 
-      # FIRST, because it is the cheapest and the one whose failure is unambiguous: a withheld
-      # control that came back is a product defect, not a measurement artifact.
+      # BEFORE the browser audits, because it needs no browser and answers a question none of them
+      # asks: whether the public listing is IN the HTML the server sends. Every audit below drives a
+      # browser with JavaScript on, so all of them passed for as long as `/competitions` rendered
+      # six permanent skeleton cards to everyone who did not run scripts.
+      - name: Server-rendered listing content
+        run: node scripts/testing/server-render.mjs
+
+      # FIRST OF THE BROWSER AUDITS, because it is the cheapest and the one whose failure is
+      # unambiguous: a withheld control that came back is a product defect, not a measurement
+      # artifact.
       - name: UI state assertions
         run: node scripts/testing/ui-states.mjs
 

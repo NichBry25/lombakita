@@ -4,6 +4,7 @@ import { ChangeEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Card, Feedback, Icon } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import { AssentNotice } from "@/components/legal/assent-notice";
 import { sessionFetch } from "@/lib/session/session-fetch";
 import {
   PAYMENT_PROOF_ACCEPT_ATTRIBUTE,
@@ -264,6 +265,11 @@ export function CandidatePaymentPanel({
             aria-describedby={payment.instructions ? instructionsId : undefined}
           />
           <p className="form-help">{PAYMENT_PROOF_FORMAT_HINT} (maks. 10 MB).</p>
+          {/* ABOVE the send control, not below it. This is the last thing a candidate reads
+              before committing money they cannot get back on their own initiative, so it has to
+              be on screen at the moment they decide rather than under the button they already
+              pressed. */}
+          <AssentNotice withPaymentTerms />
           <Button
             type="button"
             disabled={!selectedFile}

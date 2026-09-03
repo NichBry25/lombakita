@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { Button, SelectField, usePageTransition } from "@/components/ui";
+import { AssentNotice } from "@/components/legal/assent-notice";
 import { useToast } from "@/components/ui/primitives";
 import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
 
@@ -600,6 +601,8 @@ export const AuthEntry = ({
               </button>
             ))}
           </div>
+
+          <AssentNotice />
 
           <Button type="button" onClick={backToEntry} variant="ghost" size="sm">
             Kembali

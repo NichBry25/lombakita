@@ -1,6 +1,7 @@
 import { ButtonLink, Icon } from "@/components/ui";
+import { COMPANY } from "@/config/company";
 
-const SUPPORT_EMAIL = "dukungan@lombakita.id";
+const SUPPORT_EMAIL = COMPANY.supportEmail;
 
 export default function SuspendedPage() {
   return (

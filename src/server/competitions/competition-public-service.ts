@@ -192,6 +192,14 @@ export type PublicListingResult = {
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
 
+// No listing this product will ever serve has enough rows to fill this many pages even at the
+// smallest page size — at MAX_PAGE_SIZE that is 5,000,000 rows. It exists purely to keep `offset`
+// (below) inside what both engines behind this function can accept: an unclamped page number
+// reached Postgres as an OFFSET past bigint range and Postgres answered with a 500 instead of an
+// empty page. `Number.isFinite` does not catch this — a huge but finite value like 1e20 survives
+// it and only loses precision, it does not become non-finite.
+const MAX_PAGE = 100_000;
+
 const resolveSort = (raw: string | undefined): PublicListingSort => {
   if (raw === "deadline_asc" || raw === "deadline_desc" || raw === "created_desc") return raw;
   return "created_desc";
@@ -204,7 +212,7 @@ const resolveLimit = (raw: number | undefined): number => {
 
 const resolvePage = (raw: number | undefined): number => {
   if (!raw || !Number.isFinite(raw) || raw < 1) return 1;
-  return Math.floor(raw);
+  return Math.min(Math.floor(raw), MAX_PAGE);
 };
 
 // What it means for a competition to be publicly visible, stated once. Every public read — the

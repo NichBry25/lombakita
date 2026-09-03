@@ -20,7 +20,11 @@ const youngSerif = Young_Serif({
 
 export const metadata: Metadata = {
   title: publicEnv.appName,
-  description: "Platform peluang mahasiswa Indonesia: kompetisi, beasiswa, dan magang.",
+  // Candidacy is open: there is no age band, no enrolment requirement and no eligibility gate
+  // anywhere in the product, so the description names everyone who can register rather than
+  // students alone.
+  description:
+    "Temukan kompetisi, beasiswa, dan magang di Indonesia. Terbuka untuk pelajar, mahasiswa, lulusan baru, dan profesional.",
 };
 
 export default function RootLayout({
