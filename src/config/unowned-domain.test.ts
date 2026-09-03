@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-// THE PLATFORM DOES NOT OWN `lombakita.id`. It owns `lombakita.com`.
+// THE PLATFORM DOES NOT OWN THE `.id` DOMAIN FOR THIS NAME. It owns `lombakita.com`.
 //
 // A support address nobody can receive mail at is worse than no address: it tells a suspended
 // user they have a way to appeal and then drops what they send. The suspension page carried one
@@ -18,6 +18,11 @@ import { describe, expect, it } from "vitest";
 // The needle is ASSEMBLED FROM PARTS rather than written out, so this file does not contain the
 // literal it searches for. That is what lets the check cover its own source along with everything
 // else, instead of carrying an exclusion that would also hide a real occurrence added here later.
+//
+// The constraint reaches THE PROSE ABOVE as well, which is not obvious and was learned the hard
+// way: this comment block named the domain outright, the check found it the moment the file was
+// first committed, and until then the suite had reported green over a file `git ls-files` did not
+// list. Describe the domain, never spell it.
 
 const UNOWNED_DOMAIN = ["lombakita", "id"].join(".");
 
@@ -36,6 +41,11 @@ const SCANNED_ROOTS = ["src", "scripts"] as const;
  * `git ls-files` rather than a directory walk: it resolves the same view of the repository that
  * `git add` does, so build output, `node_modules` and ignored paths are excluded by construction
  * rather than by an exclusion list here that would drift.
+ *
+ * The cost of that choice, stated because it is invisible otherwise: a file that has never been
+ * committed is not listed, so a new file can carry the domain and pass locally until it is added.
+ * CI always runs over committed work, so the gate itself has no gap; a local green on a worktree
+ * full of new files does.
  */
 const listTrackedFiles = (): string[] => {
   const result = spawnSync("git", ["ls-files", "--", ...SCANNED_ROOTS], {

@@ -143,7 +143,128 @@ const remoteUrlEscapedTheHarness = async () => {
 
 const vitest = (file) => fails("npx", ["vitest", "run", file]);
 
+// ASSEMBLED FROM PARTS, never written out, for the same reason the check itself does it: this file
+// sits under `scripts/`, which the check scans, so a literal here would make it permanently red and
+// the probe would be measuring its own text rather than the reintroduction it exists to catch.
+const UNOWNED_DOMAIN = ["lombakita", "id"].join(".");
+
 export const probes = [
+  {
+    name: "the unowned domain reintroduced into a user-facing string fails the run",
+    // CLASS D. The guard is a read-only instrument: it reads the repository and reports what it
+    // found, so there is no write to reorder and no move analogue. Its harmful move is not a
+    // deletion of the check but a REINTRODUCTION of the thing it looks for, and the only honest
+    // question is whether it still sees one. The detector reads the result.
+    //
+    // The mutation is the exact historical defect, restored: a hardcoded support address at the
+    // domain the platform does not own, on the page that carried one for months. Mail to it is
+    // never received, which is worse than showing no address at all, because it tells a suspended
+    // user they have a way to appeal.
+    klass: "D",
+    harmfulMove:
+      "hardcoding a support address at a domain the platform does not own, so an appeal is silently dropped",
+    files: ["src/app/suspended/page.tsx"],
+    appliedMarkers: [`dukungan@${UNOWNED_DOMAIN}`],
+    mutate: () =>
+      substituteOnce(
+        "src/app/suspended/page.tsx",
+        "const SUPPORT_EMAIL = COMPANY.supportEmail;",
+        `const SUPPORT_EMAIL = "dukungan@${UNOWNED_DOMAIN}";`,
+      ),
+    detect: async () => vitest("src/config/unowned-domain.test.ts"),
+  },
+  {
+    name: "verify.yml losing its pull_request trigger fails the run",
+    // CLASS C: a workflow gate. The harmful move is the one that looks like tidying — putting the
+    // concurrency proof back on the nightly schedule alone, where a broken advisory lock is found
+    // the morning AFTER it merged, in a notification nobody opens. Thirteen of fourteen went
+    // unread. Removing the trigger breaks nothing that runs, which is exactly why it needs a pin.
+    klass: "C",
+    harmfulMove:
+      "returning the concurrency proof to nightly-only, so a broken lock merges and is reported the next morning",
+    files: [".github/workflows/verify.yml"],
+    appliedMarkers: ["# probe: pull_request trigger removed"],
+    mutate: () =>
+      substituteOnce(
+        ".github/workflows/verify.yml",
+        "  pull_request:\n    branches: [main]\n",
+        "  # probe: pull_request trigger removed\n",
+      ),
+    detect: async () => vitest("src/config/ci-gates.test.ts"),
+  },
+  {
+    name: "verify.yml losing the concurrency race step fails the run",
+    // CLASS C. The scripts are the ONLY proof the advisory locks exist: the unit suite mocks the
+    // database, so `tx.execute` is a no-op and deleting a lock leaves every test green. Delete this
+    // step and the job still passes, faster, having proven nothing — the shape this repository has
+    // now met often enough to pin every instance of it.
+    klass: "C",
+    harmfulMove:
+      "deleting the only step that can observe an advisory lock, leaving a job that passes having tested nothing",
+    files: [".github/workflows/verify.yml"],
+    appliedMarkers: ["# probe: race scripts removed"],
+    mutate: () =>
+      substituteOnce(
+        ".github/workflows/verify.yml",
+        "        run: npm run verify:concurrency\n",
+        "        run: echo '# probe: race scripts removed'\n",
+      ),
+    detect: async () => vitest("src/config/ci-gates.test.ts"),
+  },
+  {
+    name: "verify.yml losing the MFA database-backed suite fails the run",
+    klass: "C",
+    harmfulMove:
+      "deleting the suite that exercises the MFA constraints against a database migrated from zero",
+    files: [".github/workflows/verify.yml"],
+    appliedMarkers: ["# probe: MFA suite removed"],
+    mutate: () =>
+      substituteOnce(
+        ".github/workflows/verify.yml",
+        "        run: npx vitest run src/server/auth/mfa/mfa-schema-db.integration.test.ts\n",
+        "        run: echo '# probe: MFA suite removed'\n",
+      ),
+    detect: async () => vitest("src/config/ci-gates.test.ts"),
+  },
+  {
+    name: "verify.yml losing REQUIRE_DB_TESTS fails the run",
+    // CLASS C, and the most dangerous of the four because it breaks nothing visible. A
+    // database-backed suite that cannot see a database SKIPS, and a skipped suite reports the same
+    // green tick as a passing one. Remove this line and the job stays green while testing nothing
+    // — which is the exact state DEC-0142 was raised to end.
+    klass: "C",
+    harmfulMove:
+      "letting a database-backed suite skip instead of fail, so the job reports green having measured nothing",
+    files: [".github/workflows/verify.yml"],
+    appliedMarkers: ["# probe: REQUIRE_DB_TESTS removed"],
+    mutate: () =>
+      substituteOnce(
+        ".github/workflows/verify.yml",
+        '      REQUIRE_DB_TESTS: "1"\n',
+        "      # probe: REQUIRE_DB_TESTS removed\n",
+      ),
+    detect: async () => vitest("src/config/ci-gates.test.ts"),
+  },
+  {
+    name: "a verify.yml job that is neither required nor declared non-blocking fails the run",
+    // CLASS C, and the reason the contexts assertion had to be rewritten rather than loosened when
+    // `concurrency races` moved onto the pull-request path. The old assertion compared
+    // REQUIRED_CONTEXTS against ci.yml's job names alone, so any job added to verify.yml — running
+    // on every pull request, gating nothing — was invisible to it. Set equality across both
+    // workflows is what makes an ungated job a decision instead of an omission.
+    klass: "C",
+    harmfulMove:
+      "adding a job that runs on every pull request and can block none of them, without anyone deciding that",
+    files: [".github/workflows/verify.yml"],
+    appliedMarkers: ["# probe: a job nobody classified"],
+    mutate: () =>
+      substituteOnce(
+        ".github/workflows/verify.yml",
+        "  contrast-selftest:\n",
+        "  probe-unclassified:\n    # probe: a job nobody classified\n    name: probe unclassified\n    runs-on: ubuntu-latest\n    steps:\n      - run: 'true'\n\n  contrast-selftest:\n",
+      ),
+    detect: async () => vitest("src/config/ci-gates.test.ts"),
+  },
   {
     name: "database-backed suites are required by default",
     // The tripwire throws at module load. There is no position inside the module at which it would
