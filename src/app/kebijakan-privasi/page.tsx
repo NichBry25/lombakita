@@ -193,10 +193,21 @@ export default function PrivacyPage() {
           <h2 className="section-title">9. Hak Anda</h2>
           <p>
             Anda dapat melihat dan mengubah sebagian besar data Anda sendiri melalui halaman profil.
+            Menghapus sebuah berkas di halaman profil akan menghilangkannya dari profil Anda;
+            salinan yang tersimpan pada penyimpanan kami dihapus melalui permintaan pada alamat di
+            bawah.
+          </p>
+          <p>
             Untuk meminta salinan data Anda, memperbaiki data yang keliru, atau meminta penghapusan
             akun beserta berkasnya, hubungi{" "}
             <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a> dari alamat email
             akun Anda, agar kami dapat memastikan permintaan itu datang dari pemilik akun.
+          </p>
+          <p>
+            Kami menyampaikan apa adanya: permintaan seperti ini ditangani secara manual oleh tim
+            kami, satu per satu. Belum ada tombol atau proses otomatis di dalam aplikasi untuk
+            menghapus akun, dan kami tidak menjanjikan batas waktu penyelesaian. Kami akan
+            memberitahu Anda apa yang kami lakukan atas permintaan Anda.
           </p>
         </section>
 

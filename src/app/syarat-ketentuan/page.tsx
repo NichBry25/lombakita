@@ -124,7 +124,9 @@ export default function TermsPage() {
         </section>
 
         <section className="surface-card card-padding-lg stack-md document-clause">
-          <h2 className="section-title">6. Pembayaran tidak dapat ditarik kembali</h2>
+          <h2 className="section-title">
+            6. Pembayaran tidak dapat ditarik kembali atas permintaan Anda
+          </h2>
           <p>
             Setelah Anda mengirim bukti transfer, pendaftaran berbayar tidak dapat Anda batalkan
             sendiri dan biaya yang sudah dibayarkan tidak dikembalikan atas permintaan Anda. Tombol
@@ -146,9 +148,19 @@ export default function TermsPage() {
           </p>
           <p>
             Kompetisi semacam itu hanya dapat dihentikan melalui tim operasional Lombakita, supaya
-            ada pihak yang mencatat dan menangani peserta yang sudah membayar. Jika sebuah kompetisi
-            yang Anda ikuti dihentikan dengan cara ini, penyelesaiannya ditangani bersama
-            penyelenggara.
+            ada pihak yang mencatat dan menangani peserta yang sudah membayar.
+          </p>
+          <p>
+            Keadaan ini berbeda dari bagian 6 dan tidak diatur olehnya. Bagian 6 berlaku ketika Anda
+            sendiri yang membatalkan; di sini Anda tidak membatalkan apa pun, melainkan kompetisi
+            yang Anda bayar tidak jadi berjalan. Karena itu bagian 6 tidak dapat dipakai untuk
+            menolak pengembalian biaya Anda dalam keadaan ini.
+          </p>
+          <p>
+            Uang pendaftaran ada pada penyelenggara, bukan pada Lombakita, sehingga penyelesaiannya
+            ditangani bersama penyelenggara melalui tim operasional kami. Kami menyampaikan apa
+            adanya: saat ini belum ada proses pengembalian dana otomatis di dalam aplikasi, jadi
+            penyelesaian dilakukan per kasus. Hubungi kami melalui jalur pada bagian 12.
           </p>
         </section>
 

@@ -230,8 +230,7 @@ export const probes = [
     name: "verify.yml losing REQUIRE_DB_TESTS fails the run",
     // CLASS C, and the most dangerous of the four because it breaks nothing visible. A
     // database-backed suite that cannot see a database SKIPS, and a skipped suite reports the same
-    // green tick as a passing one. Remove this line and the job stays green while testing nothing
-    // — which is the exact state DEC-0142 was raised to end.
+    // green tick as a passing one. Remove this line and the job stays green while testing nothing.
     klass: "C",
     harmfulMove:
       "letting a database-backed suite skip instead of fail, so the job reports green having measured nothing",

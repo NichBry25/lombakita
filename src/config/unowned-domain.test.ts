@@ -33,7 +33,12 @@ const UNOWNED_DOMAIN_PATTERN = new RegExp(
   "i",
 );
 
-const SCANNED_ROOTS = ["src", "scripts"] as const;
+// THE WHOLE TRACKED REPOSITORY, not just the application source. The address is as damaging in a
+// workflow file, a manifest or a redirect rule as it is in a page, and limiting the scan to `src`
+// and `scripts` left every root config file, `.github/`, `public/` and the migrations unwatched —
+// a check whose reach was narrower than its name. `git ls-files` does the excluding, so build
+// output and ignored paths stay out by construction.
+const SCANNED_ROOTS = ["."] as const;
 
 /**
  * Every committed file under the scanned roots.
@@ -46,6 +51,13 @@ const SCANNED_ROOTS = ["src", "scripts"] as const;
  * committed is not listed, so a new file can carry the domain and pass locally until it is added.
  * CI always runs over committed work, so the gate itself has no gap; a local green on a worktree
  * full of new files does.
+ *
+ * WHAT THIS CHECK CANNOT CATCH, stated rather than left to be discovered. It is a per-line text
+ * scan, so any SPLIT form defeats it: `"lombakita" + ".id"`, a template expression between the
+ * halves, or the two halves landing on different lines after a formatter wraps them. That is not
+ * an oversight to be fixed later — no text scan can close it — and this file uses the technique
+ * deliberately, three lines below, so that it does not match itself. It is also blind to the doc
+ * lane, which is a separate repository this one cannot see, and to anything not yet committed.
  */
 const listTrackedFiles = (): string[] => {
   const result = spawnSync("git", ["ls-files", "--", ...SCANNED_ROOTS], {
@@ -88,7 +100,7 @@ const findOccurrences = (files: string[]): string[] => {
   return hits;
 };
 
-describe(`no source or script references the unowned domain`, () => {
+describe(`no tracked file references the unowned domain`, () => {
   const files = listTrackedFiles();
 
   it("scanned a population large enough to be the real one", () => {
@@ -96,7 +108,7 @@ describe(`no source or script references the unowned domain`, () => {
     // assertion below pass over zero files and report the repository clean.
     expect(
       files.length,
-      "git ls-files returned almost nothing for src/ and scripts/, so the scan below would " +
+      "git ls-files returned almost nothing for the repository, so the scan below would " +
         "pass without having read the repository. Fix the invocation rather than the threshold.",
     ).toBeGreaterThan(100);
   });
@@ -113,7 +125,7 @@ describe(`no source or script references the unowned domain`, () => {
     expect(UNOWNED_DOMAIN_PATTERN.test("candidate-01@seed.lombakita.local")).toBe(false);
   });
 
-  it("references it nowhere under src/ or scripts/", () => {
+  it("references it nowhere in any tracked file", () => {
     const hits = findOccurrences(files);
 
     expect(

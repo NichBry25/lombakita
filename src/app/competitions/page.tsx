@@ -4,7 +4,11 @@ import { CompetitionCard } from "@/components/competitions/competition-card";
 import { listPublicCompetitions } from "@/server/competitions/competition-public-service";
 import { CompetitionFilterBar } from "./competition-filter-bar";
 import { CompetitionSearchForm } from "./competition-search-form";
-import { competitionsHref, type CompetitionSearchParams } from "./search-params";
+import {
+  competitionsHref,
+  readCompetitionSearchParams,
+  type RawCompetitionSearchParams,
+} from "./search-params";
 
 export const metadata: Metadata = {
   title: "Kompetisi · Lombakita",
@@ -35,9 +39,9 @@ export const metadata: Metadata = {
 export default async function PublicCompetitionsPage({
   searchParams,
 }: {
-  searchParams: Promise<CompetitionSearchParams>;
+  searchParams: Promise<RawCompetitionSearchParams>;
 }) {
-  const params = await searchParams;
+  const params = readCompetitionSearchParams(await searchParams);
   const page = params.page ? Number.parseInt(params.page, 10) : 1;
 
   const result = await listPublicCompetitions({
