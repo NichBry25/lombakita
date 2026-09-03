@@ -29,6 +29,8 @@ export const COMPANY = {
  */
 export const LEGAL_DOCUMENT = {
   version: "1.0",
-  effectiveDate: "2026-09-03",
-  effectiveDateLabel: "3 September 2026",
+  // Set to the intended production deploy date, not the drafting date (2026-09-03): a document
+  // that says it took effect before it was actually live to anyone would misstate its own history.
+  effectiveDate: "2026-10-01",
+  effectiveDateLabel: "1 Oktober 2026",
 } as const;
