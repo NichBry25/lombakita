@@ -2886,7 +2886,15 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 .form-action-bar .form-action-bar-end {
   margin-inline-start: auto;
   display: inline-flex;
+  /* A flex item's `min-width` defaults to `auto`, so this group could not shrink below the
+     combined width of its buttons, and `nowrap` meant it could not lay them out on two lines
+     either. At 360px it was 318px wide inside a 292px content box and simply hung out of the bar.
+     Wrapping is what the bar's own `flex-wrap` already assumes for its children. */
+  min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
+  /* Keeps a wrapped second line aligned with the bar's trailing edge rather than drifting left. */
+  justify-content: flex-end;
   gap: var(--space-3);
 }
 
