@@ -7,6 +7,7 @@ import { isInstitutionAdminBySlug } from "@/server/institution-members/member-se
 import { getCurrentSession } from "@/server/auth/session";
 import { resolveChargingReadiness } from "@/server/finance/charging-readiness";
 import { ChargingReadinessPanel } from "@/components/institution/charging-readiness-panel";
+import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
 import { getPublicInstitution } from "@/server/institution-workspace/institution-public-service";
@@ -34,10 +35,35 @@ export async function generateMetadata({ params }: InstitutionHubPageProps): Pro
   if (!institution) {
     return { title: "Institusi tidak ditemukan · Lombakita" };
   }
+
+  const title = `${institution.name} · Lombakita`;
+  const description =
+    institution.description ?? `Kompetisi yang diselenggarakan ${institution.name} di Lombakita.`;
+  const path = `/institution/${institutionSlug}`;
+
+  // A personal institution's public page redirects to the owner's profile, which is withheld from
+  // search (DEC-0196). Inviting a crawler to this URL would advertise a redirect into a page it
+  // may not index, so only a real organizer page opts in.
+  const isPublicOrganizerPage = !isPersonalInstitutionType(institution.institutionType);
+
   return {
-    title: `${institution.name} · Lombakita`,
-    description:
-      institution.description ?? `Kompetisi yang diselenggarakan ${institution.name} di Lombakita.`,
+    title,
+    description,
+    robots: isPublicOrganizerPage ? INDEXABLE_ROBOTS : undefined,
+    alternates: { canonical: path },
+    openGraph: {
+      title,
+      description,
+      url: path,
+      type: "profile",
+      siteName: "Lombakita",
+      images: institution.logoUrl ? [{ url: institution.logoUrl }] : undefined,
+    },
+    twitter: {
+      card: institution.logoUrl ? "summary_large_image" : "summary",
+      title,
+      description,
+    },
   };
 }
 

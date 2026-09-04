@@ -1,6 +1,8 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Button, ButtonLink, Icon } from "@/components/ui";
+import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { sessionHasRole } from "@/lib/access/roles";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
@@ -267,6 +269,76 @@ function CompetitionRail({ heading, items }: { heading: string; items: PublicCom
       </div>
     </section>
   );
+}
+
+// Long descriptions are organizer prose with no length discipline. Search results and link
+// previews both truncate around this point, so the cut happens here where a trailing ellipsis can
+// be added rather than mid-word in someone else's UI.
+const SHARE_DESCRIPTION_LIMIT = 200;
+
+const toShareDescription = (competition: PublicCompetitionDetail): string => {
+  const collapsed = competition.description.replace(/\s+/g, " ").trim();
+
+  const summary =
+    collapsed.length > SHARE_DESCRIPTION_LIMIT
+      ? `${collapsed.slice(0, SHARE_DESCRIPTION_LIMIT).trimEnd()}…`
+      : collapsed;
+
+  return summary.length > 0
+    ? summary
+    : `${competition.title}, diselenggarakan ${competition.organizer.name} di Lombakita.`;
+};
+
+/**
+ * Per-competition title, description and Open Graph tags.
+ *
+ * Without this the page inherited the root layout's site-wide title and description, so every
+ * competition ever shared looked like every other one: a crawler saw one page repeated, and a link
+ * pasted into WhatsApp — the channel this audience actually shares in, and one that reads Open
+ * Graph rather than the page — previewed as "Lombakita" instead of the competition.
+ *
+ * An unpublished, archived or withheld competition resolves to null here exactly as it does in the
+ * page body, and gets the root layout's withholding `robots` default rather than an invitation to
+ * index a page that will answer 404.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ institutionSlug: string; slug: string }>;
+}): Promise<Metadata> {
+  const { institutionSlug, slug } = await params;
+  const competition = await getPublicCompetitionDetail(institutionSlug, slug);
+
+  if (!competition) {
+    return { title: "Kompetisi tidak ditemukan · Lombakita" };
+  }
+
+  const title = `${competition.title} · ${competition.organizer.name} · Lombakita`;
+  const description = toShareDescription(competition);
+  const path = `/competitions/${institutionSlug}/${slug}`;
+
+  return {
+    title,
+    description,
+    robots: INDEXABLE_ROBOTS,
+    alternates: { canonical: path },
+    openGraph: {
+      title,
+      description,
+      url: path,
+      type: "article",
+      siteName: "Lombakita",
+      // The organizer's logo is the only image this page owns. Absent for an organizer who never
+      // uploaded one, in which case the preview falls back to a text-only card rather than to
+      // someone else's picture.
+      images: competition.organizer.logoUrl ? [{ url: competition.organizer.logoUrl }] : undefined,
+    },
+    twitter: {
+      card: competition.organizer.logoUrl ? "summary_large_image" : "summary",
+      title,
+      description,
+    },
+  };
 }
 
 export default async function CompetitionDetailPage({

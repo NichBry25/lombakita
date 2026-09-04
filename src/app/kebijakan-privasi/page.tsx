@@ -1,11 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { COMPANY, LEGAL_DOCUMENT } from "@/config/company";
+import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
+
+const TITLE = "Kebijakan Privasi · Lombakita";
+const DESCRIPTION =
+  "Data apa yang Lombakita simpan, berapa lama disimpan, pihak mana yang menerimanya, dan bagaimana cara meminta penghapusan.";
 
 export const metadata: Metadata = {
-  title: "Kebijakan Privasi · Lombakita",
-  description:
-    "Data apa yang Lombakita simpan, berapa lama disimpan, pihak mana yang menerimanya, dan bagaimana cara meminta penghapusan.",
+  title: TITLE,
+  description: DESCRIPTION,
+  robots: INDEXABLE_ROBOTS,
+  alternates: { canonical: "/kebijakan-privasi" },
+  openGraph: { title: TITLE, description: DESCRIPTION, url: "/kebijakan-privasi", type: "website" },
 };
 
 /**

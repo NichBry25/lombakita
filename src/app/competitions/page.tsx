@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ButtonLink, Icon, Pagination } from "@/components/ui";
 import { CompetitionCard } from "@/components/competitions/competition-card";
+import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { listPublicCompetitions } from "@/server/competitions/competition-public-service";
 import { CompetitionFilterBar } from "./competition-filter-bar";
 import { CompetitionSearchForm } from "./competition-search-form";
@@ -10,10 +11,18 @@ import {
   type RawCompetitionSearchParams,
 } from "./search-params";
 
+const TITLE = "Kompetisi · Lombakita";
+const DESCRIPTION =
+  "Jelajahi kompetisi yang sedang dibuka di Indonesia. Saring berdasarkan kategori, mode, status, dan ukuran tim.";
+
 export const metadata: Metadata = {
-  title: "Kompetisi · Lombakita",
-  description:
-    "Jelajahi kompetisi yang sedang dibuka di Indonesia. Saring berdasarkan kategori, mode, status, dan ukuran tim.",
+  title: TITLE,
+  description: DESCRIPTION,
+  robots: INDEXABLE_ROBOTS,
+  // Canonical without the query string: every filter and page of the listing is the same listing,
+  // and each filtered URL would otherwise compete with it as a separate near-duplicate page.
+  alternates: { canonical: "/competitions" },
+  openGraph: { title: TITLE, description: DESCRIPTION, url: "/competitions", type: "website" },
 };
 
 /**

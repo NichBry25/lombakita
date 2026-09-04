@@ -172,6 +172,12 @@ svg {
 
 .app-page {
   display: grid;
+  /* A grid item's `min-width` defaults to `auto`, which resolves to its min-content width and
+     outranks both `width: 100%` and `max-width` — so an implicit `1fr` track grows to the widest
+     item's intrinsic width and every child of this container is laid out wider than the container
+     itself. That is what pushed the institution page to a 384px scrollWidth inside a 360px
+     viewport. `minmax(0, ...)` restores the container as the upper bound. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-8);
 }
 
@@ -222,6 +228,9 @@ svg {
 
 .content-section {
   display: grid;
+  /* Same reason as `.app-page`: an implicit track grows to its widest item's min-content width, so
+     one unbreakable string inside a section drags the whole section past its container. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-5);
   padding: var(--space-6);
   border: var(--border-thin) solid var(--color-line);
@@ -4844,9 +4853,14 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 .pf-website {
   display: inline-flex;
   width: fit-content;
+  /* A website URL and an email address carry no spaces, so their min-content width is the whole
+     string. Without a ceiling and a break opportunity, `fit-content` sizes this to that string and
+     it reaches past the card on a narrow phone. */
+  max-width: 100%;
   min-height: var(--touch-target);
   align-items: center;
   gap: var(--space-2);
+  overflow-wrap: anywhere;
   color: var(--color-link);
   font-size: var(--text-body-sm);
   font-weight: 600;
@@ -4909,6 +4923,9 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
 .pf-entry-sub {
   margin: var(--space-0);
+  /* Carries organizer contact strings — an email address, a phone number — which have no spaces to
+     wrap at. */
+  overflow-wrap: anywhere;
   color: var(--color-ink-soft);
   font-size: var(--text-body-sm);
 }
