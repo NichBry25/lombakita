@@ -19,6 +19,5 @@ export default function robots(): MetadataRoute.Robots {
       disallow: [...DISALLOWED_PATH_PREFIXES],
     },
     sitemap: absoluteSiteUrl("/sitemap.xml"),
-    host: absoluteSiteUrl(""),
   };
 }
