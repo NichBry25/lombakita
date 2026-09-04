@@ -29,6 +29,7 @@
  * Needs the app served at BASE_URL (default http://localhost:3000) and the seeded test matrix.
  */
 import { BASE } from "./seeds.mjs";
+import { renderedMarkupOf } from "./lib-shell.mjs";
 
 // A published, registration-open competition in the seeded matrix. It carries a category and a
 // searchable title, so one fixture serves the plain, filtered and searched cases.
@@ -42,50 +43,6 @@ const SEEDED = {
 // A different competition_category enum member, used to prove the filter excludes as well as it
 // includes. Must stay a real category — see check 4.
 const EXCLUDING_CATEGORY = "business";
-
-/**
- * Removes each `<div hidden ...>` and everything up to its matching close tag.
- *
- * Depth-counted rather than matched with a regex, because these containers hold whole page
- * subtrees full of nested divs and a non-greedy match would stop at the first `</div>` inside
- * them, leaving most of the streamed content in place and defeating the strip.
- */
-const stripHiddenContainers = (html) => {
-  const opener = /<div\b[^>]*\bhidden\b[^>]*>/i;
-  let out = html;
-
-  for (;;) {
-    const start = out.search(opener);
-    if (start === -1) return out;
-
-    const openTag = out.slice(start).match(opener)[0];
-    let cursor = start + openTag.length;
-    let depth = 1;
-
-    while (depth > 0) {
-      const nextOpen = out.indexOf("<div", cursor);
-      const nextClose = out.indexOf("</div>", cursor);
-
-      // An unbalanced document would otherwise spin here. Dropping the remainder is the
-      // conservative move: it can only remove evidence, never invent it.
-      if (nextClose === -1) return out.slice(0, start);
-
-      if (nextOpen !== -1 && nextOpen < nextClose) {
-        depth += 1;
-        cursor = nextOpen + 4;
-      } else {
-        depth -= 1;
-        cursor = nextClose + 6;
-      }
-    }
-
-    out = out.slice(0, start) + out.slice(cursor);
-  }
-};
-
-/** What a scripting-disabled client actually paints: no script payloads, no hidden stream targets. */
-const renderedMarkupOf = (html) =>
-  stripHiddenContainers(html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ""));
 
 const fetchRendered = async (path) => {
   const response = await fetch(`${BASE}${path}`, {

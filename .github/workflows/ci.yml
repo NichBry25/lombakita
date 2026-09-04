@@ -271,6 +271,15 @@ jobs:
       - name: Server-rendered listing content
         run: node scripts/testing/server-render.mjs
 
+      # THE SAME QUESTION, ASKED OF EVERY INDEXABLE ROUTE. The check above covers `/competitions`
+      # alone, because that is the page whose defect prompted it — and the two detail routes then
+      # shipped the identical defect and kept it, serving header and footer chrome and nothing else
+      # to anyone who does not run JavaScript. This measures how much of each public page is in the
+      # initial shell, and both legal pages were found streaming here, having crossed React's flush
+      # threshold by growing rather than by any edit to the machinery.
+      - name: Indexable routes serve their content in the shell
+        run: npm run verify:shell-content
+
       # FIRST OF THE BROWSER AUDITS, because it is the cheapest and the one whose failure is
       # unambiguous: a withheld control that came back is a product defect, not a measurement
       # artifact.
@@ -326,6 +335,14 @@ jobs:
           name: mobile-audit-baseline-from-ci
           path: scripts/testing/baselines/mobile-audit.json
           retention-days: 7
+
+      # LAST IN THE JOB, because it is the only step that rebuilds. It serves the mutated build on
+      # its own port so nothing on 3000 is disturbed, then rebuilds from the restored source — but
+      # a step added after this one would still be measuring a `.next` this step wrote, which is
+      # the TRUST-D16 trap. Keep it last.
+      - name: Guard probe — shell-content refusal
+        if: always()
+        run: npm run verify:shell-probe
 
       # A page that could not be measured exits the audit 4, and the reason is almost always in the
       # server's own log rather than in the browser's error. Uploaded only on failure, and it

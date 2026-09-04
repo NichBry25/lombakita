@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { ButtonLink, PageHeader } from "@/components/ui";
 import { assertAuthenticatedSession, buildAccessContext } from "@/server/auth/access-core";
@@ -7,11 +7,18 @@ import { getCurrentSession } from "@/server/auth/session";
 import { getDb } from "@/server/db/client";
 import { users } from "@/server/db/schema";
 
-// Minimal-proof surface.
-// Renders the current session, the user's user-level role, and the per-role verification flags
-// (candidateVerifiedAt / recruiterVerifiedAt) so the candidate-only vs recruiter-only state is
-// visibly distinguishable in the browser. Pre-existing /protected behaviour preserved.
+// Development diagnostic. Renders the current session, the user's user-level role, and the
+// per-role verification flags (candidateVerifiedAt / recruiterVerifiedAt) so the candidate-only vs
+// recruiter-only state is visibly distinguishable in the browser.
+//
+// It does not exist in production, for any role: the page prints a signed-in user's id, email and
+// verification timestamps as raw JSON, which is diagnostic output rather than a product surface.
+// The check runs before the session is read so no query is made for a page that will not render.
 export default async function ProtectedPage() {
+  if (process.env.NODE_ENV === "production") {
+    notFound();
+  }
+
   const session = await getCurrentSession();
 
   if (!session?.user?.id) {

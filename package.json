@@ -1,5 +1,5 @@
 {
-  "name": "lombakitaid",
+  "name": "lombakita",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -33,6 +33,8 @@
     "verify:contrast-selftest": "node scripts/testing/contrast-audit-selftest.mjs",
     "verify:guard-probes": "node scripts/testing/probes/config-gates.mjs",
     "verify:audit-probes": "node scripts/testing/probes/browser-audit-refusals.mjs",
+    "verify:shell-content": "node scripts/testing/shell-content.mjs",
+    "verify:shell-probe": "node scripts/testing/probes/shell-content.mjs",
     "verify:deploy-env": "node --import tsx src/server/scripts/verify-deploy-env.ts",
     "verify:deploy-smoke": "node scripts/deploy/smoke.mjs"
   },

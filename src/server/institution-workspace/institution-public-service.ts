@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/institution-workspace/institution-public-service");
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import {
   institutionSocialLinks,
@@ -128,4 +128,37 @@ export const getPublicInstitution = async (
     socialLinks,
     personalOwnerUsername: null,
   };
+};
+
+/** One organizer page in the sitemap. */
+export type SitemapInstitutionEntry = {
+  slug: string;
+  updatedAt: Date;
+};
+
+/**
+ * Every institution whose public page a crawler is invited to fetch.
+ *
+ * Both exclusions are applied in the WHERE clause rather than by filtering the result, so a
+ * suspended organizer cannot be advertised by a query that simply returned more rows than the
+ * caller remembered to drop.
+ *
+ * A personal institution has no public page of its own — `/institution/<slug>` redirects to the
+ * owner's `/[username]` profile, which is deliberately withheld from search (DEC-0196). Listing it
+ * would advertise a URL whose only purpose is to bounce a crawler at a page it may not index.
+ */
+export const listSitemapInstitutions = async (
+  db: Database = getDb(),
+): Promise<SitemapInstitutionEntry[]> => {
+  const rows = await db
+    .select({ slug: institutions.slug, updatedAt: institutions.updatedAt })
+    .from(institutions)
+    .where(
+      and(
+        isNull(institutions.suspendedAt),
+        ne(institutions.institutionType, "personal" satisfies InstitutionType),
+      ),
+    );
+
+  return rows.map((row) => ({ slug: row.slug, updatedAt: row.updatedAt }));
 };
