@@ -135,7 +135,7 @@ const institutionSlugsIn = async (tx: Tx): Promise<string[]> =>
 // below is made about a shape that does not exist. This is the only column where the schema default
 // and the service disagree, and it is asserted rather than merely written so a future change to
 // either side fails here instead of quietly restoring the divergence.
-describe.skipIf(skipWithoutDatabase)("the institution fixture matches what production creates", () => {
+describe.skipIf(skipWithoutDatabase)("the institution fixture matches production", () => {
   it("writes the status the creation service writes, not the column default", async () => {
     await inRollback(async (tx) => {
       const seeded = await seedInstitution(tx);
