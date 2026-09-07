@@ -54,7 +54,16 @@ import { resolveInstitutionMediaUrls } from "@/server/institution-workspace/inst
 import { acquireOwnerCapLock } from "@/server/institution-workspace/owner-cap-lock";
 
 const MAX_SLUG_ATTEMPTS = 20;
-const NEW_INSTITUTION_DEFAULT_STATUS = "inactive";
+/**
+ * The `institutions.status` every created institution carries.
+ *
+ * Exported so a test fixture can write the value production writes rather than the column's schema
+ * default, which is `active` and which no institution this service creates has ever held. A fixture
+ * that inserts directly and takes the default is describing a row shape that does not exist: a
+ * change filtering on `status = 'active'` would empty a public read in production while every test
+ * seeded through the default stayed green.
+ */
+export const NEW_INSTITUTION_DEFAULT_STATUS = "inactive";
 const OWNER_ROLE = "institution_owner";
 const STAFF_ROLE = "institution_staff";
 const ACTIVE_MEMBERSHIP_STATUS = "active";

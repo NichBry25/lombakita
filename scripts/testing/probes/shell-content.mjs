@@ -107,31 +107,36 @@ const measureMutatedBuild = async () => {
 };
 
 /**
- * Upgrades "the check went red" to "the check went red for THIS route and nothing else".
+ * Upgrades "the check went red" to "the check went red for THIS subject and nothing else".
  *
  * Without it, a check that had become red for everything — a bad BASE_URL, a server serving error
  * pages, a needle table gone stale — satisfies an exit-code assertion while measuring nothing, and
- * reports itself PROVEN. Six is the count of indexable routes the mutation does not touch.
+ * reports itself PROVEN.
+ *
+ * `expected` is passed rather than derived, because what SHOULD survive differs per mutation and a
+ * single constant silently stopped matching the moment the check grew its sampling pass. The check
+ * prints one `ok` line per named route and one per sitemap family.
  */
-const OTHER_ROUTES = INDEXABLE_SHELL_ROUTES.length - 1;
+const NAMED_ROUTES = INDEXABLE_SHELL_ROUTES.length;
+const SITEMAP_FAMILIES = 2;
 
-const onlyTheMutatedRouteFailed = (result, verdict) => {
+const onlyTheMutatedSubjectFailed = (result, verdict, expected) => {
   const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
   const stillPassing = output.split("\n").filter((line) => /^ {2}ok /.test(line)).length;
 
-  if (stillPassing !== OTHER_ROUTES) {
+  if (stillPassing !== expected) {
     return {
       refused: false,
       evidence:
-        `shell-content went red, but ${stillPassing} of the other routes passed rather than ` +
-        `${OTHER_ROUTES}. It failed for something broader than the mutation, so this proves ` +
-        `nothing about the guard.`,
+        `shell-content went red, but ${stillPassing} of its other subjects passed rather than ` +
+        `${expected}. It failed for something broader than the mutation, so this proves nothing ` +
+        `about the guard.`,
     };
   }
 
   return {
     refused: true,
-    evidence: `${verdict.evidence} — and the other ${OTHER_ROUTES} indexable routes still passed`,
+    evidence: `${verdict.evidence} — and its other ${expected} subjects still passed`,
   };
 };
 
@@ -187,7 +192,8 @@ async function StreamedCompetitionDetail({
 
       if (!verdict.refused) return verdict;
 
-      return onlyTheMutatedRouteFailed(result, verdict);
+      // One named route fails; the other six and both sitemap families survive.
+      return onlyTheMutatedSubjectFailed(result, verdict, NAMED_ROUTES - 1 + SITEMAP_FAMILIES);
     },
   },
 
@@ -238,7 +244,60 @@ async function StreamedCompetitionDetail({
 
       if (!verdict.refused) return verdict;
 
-      return onlyTheMutatedRouteFailed(result, verdict);
+      // Same shape as above: one named route fails, both sitemap families survive.
+      return onlyTheMutatedSubjectFailed(result, verdict, NAMED_ROUTES - 1 + SITEMAP_FAMILIES);
+    },
+  },
+
+  /*
+   * THE ROW, NOT THE FIXTURE. The probe above proves the robots assertion works on a page the check
+   * fetches by name. It says nothing about the 27 competitions and 14 organizers the SITEMAP
+   * enumerates, which the check used to represent with one fixture each — and a per-row branch that
+   * spared exactly that fixture left the check green while 26 advertised pages served
+   * `noindex, nofollow`. That was found by attempting to break the check, not by reading it.
+   *
+   * THE HARMFUL MOVE, named before the detector: `generateMetadata` gains a per-row condition that
+   * withholds `INDEXABLE_ROBOTS` from every competition except the seeded fixture, while
+   * `listSitemapCompetitions` goes on advertising all of them.
+   *
+   * Class D — read-only instrument, so the detector is its result's content: exit 1, a sampled URL
+   * named as a ROBOTS failure, and the seven named routes still passing (the fixture is spared by
+   * the mutation, so a check that had gone red for everything would be measuring something else).
+   */
+  {
+    name: "shell-content refuses a sitemap row that withholds indexing, not only a named fixture",
+    harmfulMove:
+      "a per-row branch in the competition detail generateMetadata withholds INDEXABLE_ROBOTS from " +
+      "every row but the seeded fixture, while the sitemap keeps advertising all of them",
+    klass: "D",
+    files: [DETAIL_PAGE],
+    mutate: () => {
+      substituteOnce(
+        DETAIL_PAGE,
+        'import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";',
+        'import { INDEXABLE_ROBOTS, NON_INDEXABLE_ROBOTS } from "@/config/indexable-routes";',
+      );
+      substituteOnce(
+        DETAIL_PAGE,
+        "    robots: INDEXABLE_ROBOTS,",
+        '    robots: slug === "seed-open" ? INDEXABLE_ROBOTS : NON_INDEXABLE_ROBOTS,',
+      );
+    },
+    appliedMarkers: ['slug === "seed-open" ? INDEXABLE_ROBOTS : NON_INDEXABLE_ROBOTS'],
+    detect: async () => {
+      const result = await measureMutatedBuild();
+
+      const verdict = refusedWhen(result, {
+        status: 1,
+        reached: /FAIL \/competitions\/[^\s]+ is advertised in the sitemap while serving/,
+        label: "shell-content",
+      });
+
+      if (!verdict.refused) return verdict;
+
+      // Every named route survives — the mutation spares the fixture on purpose — and so does
+      // the organizer family. Only the competition family may fail.
+      return onlyTheMutatedSubjectFailed(result, verdict, NAMED_ROUTES + SITEMAP_FAMILIES - 1);
     },
   },
 ];

@@ -25,6 +25,7 @@ import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { TransactionRollbackError } from "drizzle-orm";
 import postgres from "postgres";
 import { competitions, institutions } from "@/server/db/schema";
+import { NEW_INSTITUTION_DEFAULT_STATUS } from "@/server/institution-workspace/institution-service";
 import type { Database } from "@/server/db/client";
 import { listSitemapCompetitions } from "@/server/competitions/competition-public-service";
 import {
@@ -70,7 +71,7 @@ type InstitutionOptions = {
 const seedInstitution = async (
   tx: Tx,
   options: InstitutionOptions = {},
-): Promise<{ id: string; slug: string }> => {
+): Promise<{ id: string; slug: string; status: string }> => {
   const id = uniqueSuffix();
   const personal = options.personal ?? false;
 
@@ -81,9 +82,15 @@ const seedInstitution = async (
       institutionType: personal ? "personal" : "company",
       // institutions_display_name_type_chk allows a null display name only for `personal`.
       displayName: personal ? null : `Sitemap Fixture ${id}`,
+      // The value the production creation path writes, not the column's schema default.
+      // `institutions.status` defaults to `active` and `createInstitutionWorkspaceForUser` writes
+      // `inactive`, so a fixture that omitted it described a row shape no institution has. Found by
+      // probing this suite: adding `status = 'active'` to the sitemap query alone left every test
+      // green while it would have emptied the sitemap in production.
+      status: NEW_INSTITUTION_DEFAULT_STATUS,
       suspendedAt: options.suspended ? new Date() : null,
     })
-    .returning({ id: institutions.id, slug: institutions.slug });
+    .returning({ id: institutions.id, slug: institutions.slug, status: institutions.status });
 
   return row!;
 };
@@ -123,6 +130,21 @@ const competitionSlugsIn = async (tx: Tx): Promise<string[]> =>
 
 const institutionSlugsIn = async (tx: Tx): Promise<string[]> =>
   (await listSitemapInstitutions(tx as unknown as Database)).map((entry) => entry.slug);
+
+// The fixture and the production creation path must describe the same row, or every assertion
+// below is made about a shape that does not exist. This is the only column where the schema default
+// and the service disagree, and it is asserted rather than merely written so a future change to
+// either side fails here instead of quietly restoring the divergence.
+describe.skipIf(skipWithoutDatabase)("the institution fixture matches what production creates", () => {
+  it("writes the status the creation service writes, not the column default", async () => {
+    await inRollback(async (tx) => {
+      const seeded = await seedInstitution(tx);
+
+      expect(seeded.status).toBe(NEW_INSTITUTION_DEFAULT_STATUS);
+      expect(seeded.status).not.toBe("active");
+    });
+  });
+});
 
 describe.skipIf(skipWithoutDatabase)("sitemap competition entries", () => {
   it("advertises a published competition", async () => {

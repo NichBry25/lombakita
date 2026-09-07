@@ -36,6 +36,14 @@
  * against the page as served — the only place the composition of layout default, page declaration
  * and sitemap entry is actually observable.
  *
+ * AND THE FOURTH, because the third asserted a FIXTURE where the sitemap enumerates ROWS. The
+ * static set is five fixed paths and is covered exactly; the two dynamic families are 27
+ * competitions and 14 organizers, and the check measured one of each. Proven insufficient: a
+ * per-row branch in the competition detail's `generateMetadata` made every competition except the
+ * fixture serve `noindex, nofollow` while the sitemap advertised all 27, and the check stayed
+ * green. The sampling pass below reads the sitemap the app actually publishes and asserts the
+ * directive on a spread of rows from each family.
+ *
  * Usage: node scripts/testing/shell-content.mjs
  * Needs the app served at BASE_URL (default http://localhost:3000) and the seeded test matrix.
  */
@@ -64,6 +72,32 @@ const robotsDirectiveOf = (html) => {
   const tag = html.match(/<meta[^>]*\bname=["']robots["'][^>]*>/i)?.[0];
   if (!tag) return null;
   return tag.match(/\bcontent=["']([^"']*)["']/i)?.[1] ?? null;
+};
+
+/**
+ * The failure text for a page whose robots directive does not invite indexing, or null when it
+ * does. Shared by the fixture pass and the sitemap sampling pass so the two cannot drift into
+ * disagreeing about what an acceptable directive is.
+ */
+const robotsProblemFor = (path, directive) => {
+  if (directive === null) {
+    return (
+      `${path} is in the sitemap but serves no robots meta tag at all. The root layout withholds ` +
+      `indexing by default and every indexable page opts back in, so a page with no directive ` +
+      `means the layout default stopped applying — which withholds far more than this page.`
+    );
+  }
+
+  if (!/\bindex\b/.test(directive) || /\bnoindex\b/.test(directive)) {
+    return (
+      `${path} is advertised in the sitemap while serving ` +
+      `<meta name="robots" content="${directive}">. The sitemap invites a crawler to a page that ` +
+      `then tells it not to index. The usual cause is a page whose own metadata never declared ` +
+      `INDEXABLE_ROBOTS, or a per-row branch that withholds it.`
+    );
+  }
+
+  return null;
 };
 
 const failures = [];
@@ -104,21 +138,8 @@ for (const { path, needle, label } of INDEXABLE_SHELL_ROUTES) {
   }
 
   const robotsDirective = robotsDirectiveOf(html);
-
-  if (robotsDirective === null) {
-    failures.push(
-      `${path} is in the sitemap but serves no robots meta tag at all. The root layout withholds ` +
-        `indexing by default and every indexable page opts back in, so a page with no directive ` +
-        `means the layout default stopped applying — which withholds far more than this page.`,
-    );
-  } else if (!/\bindex\b/.test(robotsDirective) || /\bnoindex\b/.test(robotsDirective)) {
-    failures.push(
-      `${path} is advertised in the sitemap while serving ` +
-        `<meta name="robots" content="${robotsDirective}">. The sitemap invites a crawler to a ` +
-        `page that then tells it not to index. The usual cause is a page added to ` +
-        `STATIC_INDEXABLE_PATHS whose own metadata never declared INDEXABLE_ROBOTS.`,
-    );
-  }
+  const robotsProblem = robotsProblemFor(path, robotsDirective);
+  if (robotsProblem) failures.push(robotsProblem);
 
   if (markup.includes("skeleton")) {
     failures.push(
@@ -134,6 +155,85 @@ for (const { path, needle, label } of INDEXABLE_SHELL_ROUTES) {
   );
 }
 
+/*
+ * THE SAMPLING PASS: the rows the sitemap actually advertises, not a fixture standing in for them.
+ *
+ * THE RULE, stated so a failure is reproducible: take the family's URLs from the published
+ * sitemap, sort them lexicographically, and pick SAMPLES_PER_FAMILY evenly spaced indices
+ * INCLUDING the first and the last. Same sitemap in, same URLs sampled — a red run names a URL
+ * anyone can re-fetch. Deliberately not random and not "the first N": random is unreproducible,
+ * and a prefix samples whichever organizer sorts earliest every single time.
+ *
+ * IT REWRITES THE ORIGIN. The sitemap emits absolute URLs built from APP_BASE_URL, which is NOT
+ * necessarily the host this check was pointed at — and a probe of this very check fetched the
+ * unmutated server on port 3000 that way, reported the guard sound, and measured nothing. Rewriting
+ * here means no caller can repeat that.
+ */
+const SAMPLES_PER_FAMILY = 5;
+
+const FAMILIES = [
+  { name: "competition detail", matches: (path) => /^\/competitions\/[^/]+\/[^/]+$/.test(path) },
+  { name: "organizer page", matches: (path) => /^\/institution\/[^/]+$/.test(path) },
+];
+
+/** Evenly spaced indices across `length`, first and last included. */
+const spreadIndices = (length, count) => {
+  if (length <= count) return [...Array(length).keys()];
+  if (count === 1) return [0];
+  const step = (length - 1) / (count - 1);
+  return [...new Set([...Array(count).keys()].map((i) => Math.round(i * step)))];
+};
+
+const sitemapResponse = await fetch(`${BASE}/sitemap.xml`);
+const sitemapXml = await sitemapResponse.text();
+const sitemapPaths = [...sitemapXml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => {
+  try {
+    return new URL(match[1]).pathname;
+  } catch {
+    return match[1];
+  }
+});
+
+if (sitemapPaths.length === 0) {
+  failures.push(
+    `the sitemap at ${BASE}/sitemap.xml carried no <loc> entries (HTTP ${sitemapResponse.status}). ` +
+      `A sampling pass over an empty list asserts nothing while reporting success, so this is a ` +
+      `refusal rather than a pass.`,
+  );
+}
+
+for (const family of FAMILIES) {
+  const paths = sitemapPaths.filter(family.matches).sort();
+
+  // Rule 38: an instrument declares its subject and refuses what it cannot classify. A family that
+  // matched nothing means the sitemap changed shape, and sampling zero rows would report green.
+  if (paths.length === 0) {
+    failures.push(
+      `the sitemap advertises no ${family.name} URLs at all, so this family was sampled zero ` +
+        `times. Either the sitemap stopped emitting them or this check's family pattern is stale; ` +
+        `both leave the family unmeasured.`,
+    );
+    continue;
+  }
+
+  const sampled = spreadIndices(paths.length, SAMPLES_PER_FAMILY).map((index) => paths[index]);
+  const problems = [];
+
+  for (const path of sampled) {
+    const html = await (await fetch(`${BASE}${path}`)).text();
+    const problem = robotsProblemFor(path, robotsDirectiveOf(html));
+    if (problem) {
+      problems.push(problem);
+      failures.push(problem);
+    }
+  }
+
+  console.log(
+    `  ${problems.length === 0 ? "ok  " : "FAIL"} ${family.name} — ${sampled.length} of ` +
+      `${paths.length} advertised URLs sampled, ${problems.length} refusing indexing`,
+  );
+}
+
 if (failures.length > 0) {
   for (const failure of failures) console.error(`\nFAIL ${failure}`);
   console.error(`\n${failures.length} shell-content check(s) failed.`);
@@ -141,5 +241,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `\n${INDEXABLE_SHELL_ROUTES.length}/${INDEXABLE_SHELL_ROUTES.length} indexable routes serve their content in the initial shell and declare themselves indexable.`,
+  `\n${INDEXABLE_SHELL_ROUTES.length}/${INDEXABLE_SHELL_ROUTES.length} indexable routes serve their content in the initial shell, and every sampled sitemap URL declares itself indexable.`,
 );
