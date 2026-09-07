@@ -124,9 +124,21 @@ function CTANavLink({
     );
   }
 
+  // "Pendaftaran belum dibuka" sits exactly on the §9 24-character cap. The visible label
+  // shortens to "Belum dibuka" so it reads as a status rather than a sentence; the accessible name
+  // keeps the full phrase, because someone reaching this control by screen reader has no visual
+  // "Daftar kompetisi" heading above it to supply the missing subject.
+  if (ctaState === "not_yet_open") {
+    return (
+      <Button disabled size="lg" fullWidth aria-label="Pendaftaran belum dibuka">
+        Belum dibuka
+      </Button>
+    );
+  }
+
   return (
     <Button disabled size="lg" fullWidth>
-      {ctaState === "not_yet_open" ? "Pendaftaran belum dibuka" : "Pendaftaran ditutup"}
+      Pendaftaran ditutup
     </Button>
   );
 }

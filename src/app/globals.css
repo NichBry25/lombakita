@@ -5977,6 +5977,32 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   line-height: var(--leading-body);
 }
 
+/* A text link standing in for a button whose label is a sentence, not a label (§9's own escape
+   hatch: "use a text link instead"). Deliberately a plain button, not `.ui-button` — that class is
+   `white-space: nowrap`, which is the rule that widened this exact control before. Left unset here,
+   `white-space` defaults to `normal`, so a two-line question wraps instead of stretching its
+   container. `min-height` alone holds the 44px target on the wrapped two-line case; width is not
+   constrained, since the control already spans a full form row. */
+.mfa-recovery-link {
+  display: flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  padding: var(--space-1) 0;
+  border: none;
+  background: none;
+  color: var(--color-link);
+  font-size: var(--text-body-sm);
+  font-weight: 600;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: var(--space-1);
+  cursor: pointer;
+}
+
+.mfa-recovery-link:hover {
+  color: var(--color-link-hover);
+}
+
 /* The key and its copy control on one line, so the control belongs to the value it copies rather
    than floating beneath the container as a separate decision. */
 .mfa-key {
