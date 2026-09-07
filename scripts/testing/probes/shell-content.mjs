@@ -37,7 +37,7 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
-import { INDEXABLE_SHELL_ROUTES } from "../indexable-shell-routes.mjs";
+import { INDEXABLE_SHELL_ROUTES, SITEMAP_URL_FAMILIES } from "../indexable-shell-routes.mjs";
 import { refusedWhen } from "./detectors.mjs";
 
 const DETAIL_PAGE = "src/app/competitions/[institutionSlug]/[slug]/page.tsx";
@@ -118,7 +118,7 @@ const measureMutatedBuild = async () => {
  * prints one `ok` line per named route and one per sitemap family.
  */
 const NAMED_ROUTES = INDEXABLE_SHELL_ROUTES.length;
-const SITEMAP_FAMILIES = 2;
+const SITEMAP_FAMILIES = SITEMAP_URL_FAMILIES.length;
 
 const onlyTheMutatedSubjectFailed = (result, verdict, expected) => {
   const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;

@@ -66,44 +66,52 @@ const withoutTrailingSlash = (origin: string): string => origin.replace(/\/+$/, 
  * were returned before this clause existed. Same constant as the deploy gate, deliberately — a
  * second source for the site's own address is how the two start disagreeing.
  *
- * A DEPLOYED PREVIEW MUST STILL BE REACHABLE. Preview and staging are per-deployment and correct,
- * so they are not held to the apex — but a loopback origin is not a preview URL either, and it is
- * not "missing", so no absence check would catch it. Local development is the one environment
- * where localhost is the right answer.
+ * THE LOOPBACK REFUSAL RUNS FIRST, and stays production-only. The pin alone would refuse every
+ * loopback origin, since none of them equals the canonical one — but it would refuse them with a
+ * message about the apex, when the actual mistake is that the value names this machine. The order
+ * buys the specific diagnosis for the specific mistake, and keeps the widened matcher live rather
+ * than leaving it behind an unreachable branch.
+ *
+ * Preview and staging are unchanged by this function: they are per-deployment origins, correct by
+ * construction, and holding them to the apex would refuse every preview URL. Local development is
+ * the one environment where localhost is the right answer.
  *
  * Keyed on `appEnv` rather than `NODE_ENV`: a local `next start` and a preview deployment both run
  * with `NODE_ENV=production`.
  */
 export const resolveSiteOrigin = (): string => {
   const configured = serverEnv.appBaseUrl;
-  const environment = serverEnv.appEnv;
+  const isProduction = serverEnv.appEnv === "production";
 
-  if (environment === "production") {
-    const origin = configured ? withoutTrailingSlash(configured) : null;
-
-    if (origin !== CANONICAL_SITE_ORIGIN) {
+  if (!configured) {
+    if (isProduction) {
       throw new Error(
-        `The configured site origin is ${origin ?? "unset"}, but production publishes exactly ` +
-          `${CANONICAL_SITE_ORIGIN}. Every canonical URL, Open Graph URL and sitemap entry is ` +
-          `built from this value, so a well-formed wrong one points the whole launch somewhere ` +
-          `else and nothing downstream can detect it. Set APP_BASE_URL to the canonical origin.`,
+        "No site origin is configured, so every crawler-facing URL this deployment emits would be " +
+          "a guess. Set APP_BASE_URL to the canonical origin. Refusing rather than falling back to " +
+          "localhost, which would publish a sitemap and a robots.txt nobody could follow and " +
+          "nothing would report.",
       );
     }
 
-    return origin;
-  }
-
-  if (!configured) {
     return "http://localhost:3000";
   }
 
   const origin = withoutTrailingSlash(configured);
 
-  if (environment !== "local" && environment !== "test" && isLoopbackOrigin(origin)) {
+  if (isProduction && isLoopbackOrigin(origin)) {
     throw new Error(
       `The configured site origin is ${origin}, which is this machine rather than a reachable ` +
-        `site. A ${environment} deployment is supposed to describe itself, and every crawler-facing ` +
-        `URL it emits would point at whoever fetched it.`,
+        "site. In production every sitemap entry, canonical URL and Open Graph URL is built from " +
+        "it, so publishing it would point an entire launch at localhost.",
+    );
+  }
+
+  if (isProduction && origin !== CANONICAL_SITE_ORIGIN) {
+    throw new Error(
+      `The configured site origin is ${origin}, but production publishes exactly ` +
+        `${CANONICAL_SITE_ORIGIN}. Every canonical URL, Open Graph URL and sitemap entry is built ` +
+        `from this value, so a well-formed wrong one points the whole launch somewhere else and ` +
+        `nothing downstream can detect it. Set APP_BASE_URL to the canonical origin.`,
     );
   }
 

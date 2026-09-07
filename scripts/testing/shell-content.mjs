@@ -49,7 +49,7 @@
  */
 import { BASE } from "./seeds.mjs";
 import { measureShell } from "./lib-shell.mjs";
-import { INDEXABLE_SHELL_ROUTES } from "./indexable-shell-routes.mjs";
+import { INDEXABLE_SHELL_ROUTES, SITEMAP_URL_FAMILIES } from "./indexable-shell-routes.mjs";
 
 /*
  * A page in the shell scores ~0.997 and a streaming one ~0.13 to ~0.42, measured across all seven
@@ -171,11 +171,6 @@ for (const { path, needle, label } of INDEXABLE_SHELL_ROUTES) {
  */
 const SAMPLES_PER_FAMILY = 5;
 
-const FAMILIES = [
-  { name: "competition detail", matches: (path) => /^\/competitions\/[^/]+\/[^/]+$/.test(path) },
-  { name: "organizer page", matches: (path) => /^\/institution\/[^/]+$/.test(path) },
-];
-
 /** Evenly spaced indices across `length`, first and last included. */
 const spreadIndices = (length, count) => {
   if (length <= count) return [...Array(length).keys()];
@@ -202,7 +197,7 @@ if (sitemapPaths.length === 0) {
   );
 }
 
-for (const family of FAMILIES) {
+for (const family of SITEMAP_URL_FAMILIES) {
   const paths = sitemapPaths.filter(family.matches).sort();
 
   // Rule 38: an instrument declares its subject and refuses what it cannot classify. A family that
@@ -213,6 +208,10 @@ for (const family of FAMILIES) {
         `times. Either the sitemap stopped emitting them or this check's family pattern is stale; ` +
         `both leave the family unmeasured.`,
     );
+    // Printed before continuing, so this family still reports one line like every other. Silence
+    // here would make the check emit fewer lines exactly when it is most broken, and the Rule 36
+    // probe counts those lines to tell "the mutation failed" from "everything failed".
+    console.log(`  FAIL ${family.name} — 0 advertised URLs, so nothing was sampled`);
     continue;
   }
 

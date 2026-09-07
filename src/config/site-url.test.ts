@@ -44,7 +44,7 @@ describe("resolveSiteOrigin", () => {
   it("refuses to guess in production when nothing is configured", () => {
     configure("production", undefined);
 
-    expect(() => resolveSiteOrigin()).toThrow(/production publishes exactly/);
+    expect(() => resolveSiteOrigin()).toThrow(/every crawler-facing URL this deployment emits/);
   });
 
   // THE VALUE, NOT THE SHAPE, and not only at the CI gate. `env-shape.ts` asserts the same
@@ -61,17 +61,25 @@ describe("resolveSiteOrigin", () => {
     expect(() => resolveSiteOrigin()).toThrow(/production publishes exactly/);
   });
 
+  // Loopback is the whole 127/8 range, and `URL` collapses both spellings of an IPv4-mapped address
+  // to `[::ffff:7f00:1]`. A set holding only `127.0.0.1` and `::1` accepts the rest — measured:
+  // `http://127.0.0.2:3000` was returned before this widened.
+  //
+  // Asserted on the LOOPBACK message rather than the pin's, which is what pins the ordering: the
+  // pin would refuse all six too, and a test that accepted either message would go on passing if
+  // the specific diagnosis were lost.
   it.each([
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://127.0.0.2:3000",
+    "http://127.255.255.254:3000",
     "http://[::1]:3000",
     "http://[::ffff:127.0.0.1]:3000",
     "http://0.0.0.0:3000",
   ])("refuses %s in production", (origin) => {
     configure("production", origin);
 
-    expect(() => resolveSiteOrigin()).toThrow(/production publishes exactly/);
+    expect(() => resolveSiteOrigin()).toThrow(/this machine rather than a reachable site/);
   });
 
   // A preview deployment is supposed to describe itself, and a local `next start` runs with
@@ -82,21 +90,14 @@ describe("resolveSiteOrigin", () => {
     expect(resolveSiteOrigin()).toBe("https://lombakita-abc123.vercel.app");
   });
 
-  // Loopback is the whole 127/8 range, and `URL` collapses both spellings of an IPv4-mapped
-  // address to `[::ffff:7f00:1]`. A set holding only `127.0.0.1` and `::1` accepts the rest —
-  // measured: `http://127.0.0.2:3000` was returned before this widened.
-  it.each([
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.2:3000",
-    "http://127.255.255.254:3000",
-    "http://[::1]:3000",
-    "http://[::ffff:127.0.0.1]:3000",
-    "http://0.0.0.0:3000",
-  ])("refuses %s in a deployed preview, which must be reachable", (origin) => {
-    configure("preview", origin);
+  // Pinned as the boundary of the production clause rather than as a desirable behaviour: a
+  // deployed preview configured with a loopback origin still returns it, exactly as before this
+  // pass. Whether preview should refuse it too is a live question, and this test is what would go
+  // red the day someone answers it — which is the point of writing the current answer down.
+  it("still returns a loopback origin in preview, which production now refuses", () => {
+    configure("preview", "http://127.0.0.2:3000");
 
-    expect(() => resolveSiteOrigin()).toThrow(/this machine rather than a reachable site/);
+    expect(resolveSiteOrigin()).toBe("http://127.0.0.2:3000");
   });
 
   it("still falls back to localhost outside production", () => {

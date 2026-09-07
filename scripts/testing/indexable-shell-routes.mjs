@@ -76,3 +76,16 @@ export const DYNAMIC_FAMILY_FIXTURES = {
   "/competitions/[institutionSlug]/[slug]": "/competitions/seed-academy/seed-open",
   "/institution/[institutionSlug]": "/institution/seed-academy",
 };
+
+/**
+ * The dynamic families `shell-content.mjs` samples out of the published sitemap.
+ *
+ * Here rather than in the check because the probe has to know HOW MANY families the check reports
+ * on: its "only the mutated subject failed" arithmetic counts the check's `ok` lines, and a
+ * hand-maintained copy of that number desyncs the moment a third family is added — silently, and
+ * in the direction that makes every probe report NOT PROVEN.
+ */
+export const SITEMAP_URL_FAMILIES = [
+  { name: "competition detail", matches: (path) => /^\/competitions\/[^/]+\/[^/]+$/.test(path) },
+  { name: "organizer page", matches: (path) => /^\/institution\/[^/]+$/.test(path) },
+];
