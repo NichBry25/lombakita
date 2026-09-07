@@ -7,6 +7,7 @@ import { isInstitutionAdminBySlug } from "@/server/institution-members/member-se
 import { getCurrentSession } from "@/server/auth/session";
 import { resolveChargingReadiness } from "@/server/finance/charging-readiness";
 import { ChargingReadinessPanel } from "@/components/institution/charging-readiness-panel";
+import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
 import { getPublicInstitution } from "@/server/institution-workspace/institution-public-service";
@@ -34,10 +35,39 @@ export async function generateMetadata({ params }: InstitutionHubPageProps): Pro
   if (!institution) {
     return { title: "Institusi tidak ditemukan · Lombakita" };
   }
+
+  const title = `${institution.name} · Lombakita`;
+  const description =
+    institution.description ?? `Kompetisi yang diselenggarakan ${institution.name} di Lombakita.`;
+  const path = `/institution/${institutionSlug}`;
+
+  // A personal institution's public page is a redirect to the owner's profile, which is withheld
+  // from search (DEC-0196). It gets a title and nothing else: no `robots` (so it inherits the root
+  // layout's withholding default), and — the part that was wrong — no canonical and no Open Graph
+  // either. Those describe a URL that only ever bounces, and a canonical is a positive claim that
+  // this address is the right one to index, which is the opposite of what is meant here.
+  if (isPersonalInstitutionType(institution.institutionType)) {
+    return { title, description };
+  }
+
   return {
-    title: `${institution.name} · Lombakita`,
-    description:
-      institution.description ?? `Kompetisi yang diselenggarakan ${institution.name} di Lombakita.`,
+    title,
+    description,
+    robots: INDEXABLE_ROBOTS,
+    alternates: { canonical: path },
+    openGraph: {
+      title,
+      description,
+      url: path,
+      type: "profile",
+      siteName: "Lombakita",
+      images: institution.logoUrl ? [{ url: institution.logoUrl }] : undefined,
+    },
+    twitter: {
+      card: institution.logoUrl ? "summary_large_image" : "summary",
+      title,
+      description,
+    },
   };
 }
 

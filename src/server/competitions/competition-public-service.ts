@@ -868,3 +868,39 @@ export const getPublicCompetitionDetail = async (
     }),
   };
 };
+
+/** One competition detail page in the sitemap. */
+export type SitemapCompetitionEntry = {
+  institutionSlug: string;
+  slug: string;
+  updatedAt: Date;
+};
+
+/**
+ * Every competition detail page a crawler is invited to fetch.
+ *
+ * Publication state is decided by `buildPublicVisibilityCondition`, the same predicate the listing
+ * and the detail page use — so a draft, an archived competition, a soft-deleted one and anything
+ * belonging to a suspended organizer are excluded by the WHERE clause, not by a filter applied to
+ * rows the query already returned. Reusing it is what stops the sitemap and the page it points at
+ * from disagreeing about what "published" means.
+ */
+export const listSitemapCompetitions = async (
+  db: Database = getDb(),
+): Promise<SitemapCompetitionEntry[]> => {
+  const rows = await db
+    .select({
+      institutionSlug: institutions.slug,
+      slug: competitions.slug,
+      updatedAt: competitions.updatedAt,
+    })
+    .from(competitions)
+    .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
+    .where(buildPublicVisibilityCondition());
+
+  return rows.map((row) => ({
+    institutionSlug: row.institutionSlug,
+    slug: row.slug,
+    updatedAt: row.updatedAt,
+  }));
+};

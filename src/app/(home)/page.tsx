@@ -1,5 +1,7 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { ButtonLink, Icon } from "@/components/ui";
+import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { MemphisHeroArt } from "@/components/home/memphis-hero-art";
 import { FeaturedCarousel } from "@/components/home/featured-carousel";
 import { listFeaturedCompetitions } from "@/server/competitions/competition-public-service";
@@ -11,6 +13,21 @@ import type { PublicCompetitionItem } from "@/server/competitions/competition-pu
 // page. The render has no session-dependent content, so caching it
 // is safe: identical HTML for every visitor.
 export const revalidate = 300;
+
+// Title and description come from the root layout, which already states what Lombakita is for the
+// landing page's benefit. Declared here only to opt the page into indexing and to give the link
+// preview an explicit subject.
+export const metadata: Metadata = {
+  robots: INDEXABLE_ROBOTS,
+  alternates: { canonical: "/" },
+  openGraph: {
+    title: "Lombakita",
+    description:
+      "Temukan kompetisi, beasiswa, dan magang di Indonesia. Terbuka untuk pelajar, mahasiswa, lulusan baru, dan profesional.",
+    url: "/",
+    type: "website",
+  },
+};
 
 const DISCOVERY_CATEGORIES = [
   {

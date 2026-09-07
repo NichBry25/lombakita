@@ -21,6 +21,12 @@ export { Skeleton, SkeletonCard } from "./skeleton";
 export type { SkeletonVariant, SkeletonWidth } from "./skeleton";
 export { Spinner } from "./spinner";
 export type { SpinnerSize } from "./spinner";
+// Exported because §14's "page change only" signal is the route skeleton, and an indexable route
+// cannot have one — a `loading.tsx` puts a Suspense boundary on the segment, which makes the page
+// stream into a hidden container and serve chrome to a crawler. The signal moves to the entering
+// link, and this is the primitive that carries it there. It was internal to ButtonLink, which was
+// no use to the plain `<Link>`s that navigate into those routes.
+export { LinkPendingSlot } from "./link-pending";
 export {
   DashboardPageSkeleton,
   DetailPageSkeleton,

@@ -178,17 +178,40 @@ export function MfaChallengeForm({ callbackUrl }: MfaChallengeFormProps) {
         {mode === "totp" ? "Verifikasi" : "Gunakan kode pemulihan"}
       </Button>
 
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={() => {
-          setMode(mode === "totp" ? "recovery" : "totp");
-          setCode("");
-        }}
-      >
-        {mode === "totp" ? "Tidak bisa mengakses aplikasi autentikator?" : "Kembali"}
-      </Button>
+      {mode === "totp" ? (
+        // A text link, not a `.ui-button`: the label is a 43-character question, over the
+        // §9 button cap, and `.ui-button > span` is `white-space: nowrap`, so a button carrying it
+        // would widen instead of wrap and push the form past the card at 360px. A plain button
+        // wraps by default, which fixes the cause instead of trimming the sentence.
+        //
+        // The question form, not an instruction, on purpose: this is a secondary escape hatch on
+        // the one surface where a locked-out operator's last resort is the documented SQL
+        // break-glass procedure. Someone who has forgotten they even have recovery codes is better
+        // served by a question that helps them recognise their situation than by a label assuming
+        // they already know what one is.
+        <button
+          type="button"
+          className="mfa-recovery-link"
+          onClick={() => {
+            setMode("recovery");
+            setCode("");
+          }}
+        >
+          Tidak bisa mengakses aplikasi autentikator?
+        </button>
+      ) : (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setMode("totp");
+            setCode("");
+          }}
+        >
+          Kembali
+        </Button>
+      )}
     </form>
   );
 }

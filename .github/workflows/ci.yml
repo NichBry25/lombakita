@@ -136,13 +136,16 @@ jobs:
     # only thing that can see a theme rendering dark-on-dark, and `mobile-audit` the only thing that
     # measures a 44px target. All three now RUN on every pull request.
     #
-    # RUNNING IS NOT GATING, and this comment said otherwise for as long as it existed. A job blocks
-    # a merge only while branch protection lists its display name in
-    # `required_status_checks.contexts`, and that list currently holds `lint, typecheck, test` and
-    # nothing else. So a pull request whose mobile audit exits 1 on a fresh overflow, whose contrast
-    # audit exits 1 on an unreadable pairing, or whose preflight exits 3 having measured nothing, is
-    # still mergeable. Adding `browser audits` to that list is a repository setting, not a change
-    # anything in this file can make.
+    # THIS JOB NOW GATES. A job blocks a merge only while branch protection lists its display name
+    # in `required_status_checks.contexts`, and that list holds three: `lint, typecheck, test`,
+    # `browser audits`, and `concurrency races`, with `strict` and `enforce_admins` both on. So a
+    # pull request whose mobile audit exits 1 on a fresh overflow, whose contrast audit exits 1 on
+    # an unreadable pairing, or whose preflight exits 3 having measured nothing, is NOT mergeable.
+    #
+    # This comment said the opposite for as long as it existed, and was still saying it after the
+    # setting changed — a note claiming a job is advisory, sitting above a job that blocks merge, is
+    # the kind of thing a later reader acts on. `npm run verify:branch-protection` reads the live
+    # setting; that command is the authority here, not this paragraph.
     #
     # THE EMAIL HAZARD IS NOT THE ONE UAT2-D1 DESCRIBES, and this was checked rather than assumed.
     # UAT2-D1 is about seeded fixtures against a PREVIEW deployment, where `APP_ENV=preview` makes
@@ -271,6 +274,15 @@ jobs:
       - name: Server-rendered listing content
         run: node scripts/testing/server-render.mjs
 
+      # THE SAME QUESTION, ASKED OF EVERY INDEXABLE ROUTE. The check above covers `/competitions`
+      # alone, because that is the page whose defect prompted it — and the two detail routes then
+      # shipped the identical defect and kept it, serving header and footer chrome and nothing else
+      # to anyone who does not run JavaScript. This measures how much of each public page is in the
+      # initial shell, and both legal pages were found streaming here, having crossed React's flush
+      # threshold by growing rather than by any edit to the machinery.
+      - name: Indexable routes serve their content in the shell
+        run: npm run verify:shell-content
+
       # FIRST OF THE BROWSER AUDITS, because it is the cheapest and the one whose failure is
       # unambiguous: a withheld control that came back is a product defect, not a measurement
       # artifact.
@@ -326,6 +338,14 @@ jobs:
           name: mobile-audit-baseline-from-ci
           path: scripts/testing/baselines/mobile-audit.json
           retention-days: 7
+
+      # LAST IN THE JOB, because it is the only step that rebuilds. It serves the mutated build on
+      # its own port so nothing on 3000 is disturbed, then rebuilds from the restored source — but
+      # a step added after this one would still be measuring a `.next` this step wrote, which is
+      # the TRUST-D16 trap. Keep it last.
+      - name: Guard probe — shell-content refusal
+        if: always()
+        run: npm run verify:shell-probe
 
       # A page that could not be measured exits the audit 4, and the reason is almost always in the
       # server's own log rather than in the browser's error. Uploaded only on failure, and it

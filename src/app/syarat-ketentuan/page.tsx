@@ -1,11 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { COMPANY, LEGAL_DOCUMENT } from "@/config/company";
+import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
+
+const TITLE = "Syarat & Ketentuan · Lombakita";
+const DESCRIPTION =
+  "Ketentuan penggunaan Lombakita: siapa yang dapat mendaftar, bagaimana biaya pendaftaran bekerja, dan apa yang menjadi tanggung jawab penyelenggara kompetisi.";
 
 export const metadata: Metadata = {
-  title: "Syarat & Ketentuan · Lombakita",
-  description:
-    "Ketentuan penggunaan Lombakita: siapa yang dapat mendaftar, bagaimana biaya pendaftaran bekerja, dan apa yang menjadi tanggung jawab penyelenggara kompetisi.",
+  title: TITLE,
+  description: DESCRIPTION,
+  robots: INDEXABLE_ROBOTS,
+  alternates: { canonical: "/syarat-ketentuan" },
+  openGraph: { title: TITLE, description: DESCRIPTION, url: "/syarat-ketentuan", type: "website" },
 };
 
 /**

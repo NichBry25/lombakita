@@ -14,6 +14,8 @@
  * Pure and dependency-free so it can be unit-tested against fixture records.
  */
 
+import { CANONICAL_SITE_ORIGIN } from "@/config/company";
+
 export type DeployEnvironment = "preview" | "production";
 
 export type DeployConfigSeverity = "error" | "warning";
@@ -27,7 +29,12 @@ export type DeployConfigProblem = {
 type ValueRule = {
   /** Human-readable form the value is expected to take, quoted back in the failure message. */
   expectation: string;
-  accepts: (value: string) => boolean;
+  /**
+   * `environment` is passed because one rule is genuinely environment-dependent: a preview
+   * deployment's base URL is per-deployment and correct, while production's is a single known
+   * address. Every other rule ignores it.
+   */
+  accepts: (value: string, environment: DeployEnvironment) => boolean;
 };
 
 type DeployKeySpec = {
@@ -175,10 +182,23 @@ export const DEPLOY_ENV_KEY_SPECS: readonly DeployKeySpec[] = [
   },
   // Preview derives its base URL from VERCEL_URL per deployment, so an absent value there is
   // correct rather than missing. Production pins the canonical apex.
+  //
+  // PRODUCTION ASSERTS THE VALUE, NOT THE SHAPE, and it is the only key here that does. Every
+  // crawler-facing URL the platform emits — robots.txt's sitemap pointer, all 46 sitemap entries,
+  // every canonical and Open Graph URL — is built from this one string. `https://example.com` is a
+  // flawless https origin and would have sent an entire launch to someone else's domain, with no
+  // check anywhere in the repository able to see it. Compared against CANONICAL_SITE_ORIGIN so the
+  // address lives in one place beside the rest of the company's stated identity.
   {
     key: "APP_BASE_URL",
     requiredIn: PRODUCTION_ONLY,
-    rule: { expectation: "an https origin with no path", accepts: isHttpsOrigin },
+    rule: {
+      expectation: `an https origin with no path (in production, exactly ${CANONICAL_SITE_ORIGIN})`,
+      accepts: (value, environment) =>
+        environment === "production"
+          ? value.replace(/\/+$/, "") === CANONICAL_SITE_ORIGIN
+          : isHttpsOrigin(value),
+    },
   },
   {
     key: "AUTH_URL",
@@ -310,7 +330,7 @@ const findProblemForSpec = (
     return { key: spec.key, severity: "error", problem: genericProblem };
   }
 
-  if (spec.rule && !spec.rule.accepts(value)) {
+  if (spec.rule && !spec.rule.accepts(value, environment)) {
     return {
       key: spec.key,
       severity: "error",

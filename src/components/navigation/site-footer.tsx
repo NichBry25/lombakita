@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LinkPendingSlot } from "@/components/ui";
 import { COMPANY } from "@/config/company";
 
 /**
@@ -68,9 +69,13 @@ export function SiteFooter() {
         <div className="footer-legal-inner">
           <p className="footer-legal-entity">{COMPANY.legalName}</p>
           <nav className="footer-legal-links" aria-label="Informasi legal">
+            {/* All three legal routes are indexable and so have no `loading.tsx` — the Suspense
+                boundary one creates strands their content outside the initial shell, which is the
+                defect that removed them. Their navigation is acknowledged at the link instead. */}
             {LEGAL_LINKS.map((link) => (
               <Link key={link.href} href={link.href}>
                 {link.label}
+                <LinkPendingSlot />
               </Link>
             ))}
           </nav>

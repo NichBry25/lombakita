@@ -1,11 +1,18 @@
 import type { Metadata } from "next";
 import { ButtonLink } from "@/components/ui";
 import { COMPANY } from "@/config/company";
+import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
+
+const TITLE = "Kontak · Lombakita";
+const DESCRIPTION =
+  "Identitas badan usaha, alamat, email, dan nomor telepon resmi yang mengoperasikan Lombakita.";
 
 export const metadata: Metadata = {
-  title: "Kontak · Lombakita",
-  description:
-    "Identitas badan usaha, alamat, email, dan nomor telepon resmi yang mengoperasikan Lombakita.",
+  title: TITLE,
+  description: DESCRIPTION,
+  robots: INDEXABLE_ROBOTS,
+  alternates: { canonical: "/kontak" },
+  openGraph: { title: TITLE, description: DESCRIPTION, url: "/kontak", type: "website" },
 };
 
 /**
