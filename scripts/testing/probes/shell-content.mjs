@@ -41,11 +41,11 @@ import { INDEXABLE_SHELL_ROUTES } from "../indexable-shell-routes.mjs";
 import { refusedWhen } from "./detectors.mjs";
 
 const DETAIL_PAGE = "src/app/competitions/[institutionSlug]/[slug]/page.tsx";
-const CONTACT_PAGE = "src/app/kontak/page.tsx";
+const TERMS_PAGE = "src/app/syarat-ketentuan/page.tsx";
 const PROBE_PORT = 3100;
 const PROBE_BASE = `http://localhost:${PROBE_PORT}`;
 const STREAMED_ROUTE = "/competitions/seed-academy/seed-open";
-const UNDECLARED_ROUTE = "/kontak";
+const UNDECLARED_ROUTE = "/syarat-ketentuan";
 
 // A build plus a boot. Generous, because a timeout here reports NOT PROVEN for a probe that was
 // only slow, and that is a worse outcome than waiting.
@@ -214,14 +214,14 @@ async function StreamedCompetitionDetail({
       "an indexable page's own robots declaration is dropped, so it inherits the layout's " +
       "noindex default while the sitemap goes on advertising it",
     klass: "D",
-    files: [CONTACT_PAGE],
+    files: [TERMS_PAGE],
     mutate: () => {
       substituteOnce(
-        CONTACT_PAGE,
+        TERMS_PAGE,
         'import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";\n',
         "",
       );
-      substituteOnce(CONTACT_PAGE, "  robots: INDEXABLE_ROBOTS,\n", "");
+      substituteOnce(TERMS_PAGE, "  robots: INDEXABLE_ROBOTS,\n", "");
     },
     appliedMarkers: ["  description: DESCRIPTION,\n  alternates:"],
     detect: async () => {
