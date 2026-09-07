@@ -26,27 +26,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     listSitemapInstitutions(),
   ]);
 
+  // NO `changeFrequency` OR `priority`. Both were invented here — nobody measured how often a
+  // competition page changes, and the priorities were a guess at relative importance. Google
+  // ignores both outright, so they added nothing a crawler could use while reading, to anyone
+  // opening this file later, as decisions someone had made. `lastModified` stays because it is a
+  // fact: it comes from the row's own `updated_at`.
   const staticEntries = STATIC_INDEXABLE_PATHS.map((path) => ({
     url: absoluteSiteUrl(path),
-    // The landing page and the listing are the two entry points a crawler should return to most.
-    changeFrequency: (path === "/" || path === "/competitions" ? "daily" : "monthly") as
-      | "daily"
-      | "monthly",
-    priority: path === "/" ? 1 : path === "/competitions" ? 0.9 : 0.3,
   }));
 
   const competitionEntries = competitions.map((competition) => ({
     url: absoluteSiteUrl(`/competitions/${competition.institutionSlug}/${competition.slug}`),
     lastModified: competition.updatedAt,
-    changeFrequency: "weekly" as const,
-    priority: 0.8,
   }));
 
   const institutionEntries = institutions.map((institution) => ({
     url: absoluteSiteUrl(`/institution/${institution.slug}`),
     lastModified: institution.updatedAt,
-    changeFrequency: "weekly" as const,
-    priority: 0.6,
   }));
 
   return [...staticEntries, ...competitionEntries, ...institutionEntries];

@@ -41,15 +41,19 @@ export async function generateMetadata({ params }: InstitutionHubPageProps): Pro
     institution.description ?? `Kompetisi yang diselenggarakan ${institution.name} di Lombakita.`;
   const path = `/institution/${institutionSlug}`;
 
-  // A personal institution's public page redirects to the owner's profile, which is withheld from
-  // search (DEC-0196). Inviting a crawler to this URL would advertise a redirect into a page it
-  // may not index, so only a real organizer page opts in.
-  const isPublicOrganizerPage = !isPersonalInstitutionType(institution.institutionType);
+  // A personal institution's public page is a redirect to the owner's profile, which is withheld
+  // from search (DEC-0196). It gets a title and nothing else: no `robots` (so it inherits the root
+  // layout's withholding default), and — the part that was wrong — no canonical and no Open Graph
+  // either. Those describe a URL that only ever bounces, and a canonical is a positive claim that
+  // this address is the right one to index, which is the opposite of what is meant here.
+  if (isPersonalInstitutionType(institution.institutionType)) {
+    return { title, description };
+  }
 
   return {
     title,
     description,
-    robots: isPublicOrganizerPage ? INDEXABLE_ROBOTS : undefined,
+    robots: INDEXABLE_ROBOTS,
     alternates: { canonical: path },
     openGraph: {
       title,

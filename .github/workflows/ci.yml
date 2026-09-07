@@ -136,13 +136,16 @@ jobs:
     # only thing that can see a theme rendering dark-on-dark, and `mobile-audit` the only thing that
     # measures a 44px target. All three now RUN on every pull request.
     #
-    # RUNNING IS NOT GATING, and this comment said otherwise for as long as it existed. A job blocks
-    # a merge only while branch protection lists its display name in
-    # `required_status_checks.contexts`, and that list currently holds `lint, typecheck, test` and
-    # nothing else. So a pull request whose mobile audit exits 1 on a fresh overflow, whose contrast
-    # audit exits 1 on an unreadable pairing, or whose preflight exits 3 having measured nothing, is
-    # still mergeable. Adding `browser audits` to that list is a repository setting, not a change
-    # anything in this file can make.
+    # THIS JOB NOW GATES. A job blocks a merge only while branch protection lists its display name
+    # in `required_status_checks.contexts`, and that list holds three: `lint, typecheck, test`,
+    # `browser audits`, and `concurrency races`, with `strict` and `enforce_admins` both on. So a
+    # pull request whose mobile audit exits 1 on a fresh overflow, whose contrast audit exits 1 on
+    # an unreadable pairing, or whose preflight exits 3 having measured nothing, is NOT mergeable.
+    #
+    # This comment said the opposite for as long as it existed, and was still saying it after the
+    # setting changed — a note claiming a job is advisory, sitting above a job that blocks merge, is
+    # the kind of thing a later reader acts on. `npm run verify:branch-protection` reads the live
+    # setting; that command is the authority here, not this paragraph.
     #
     # THE EMAIL HAZARD IS NOT THE ONE UAT2-D1 DESCRIBES, and this was checked rather than assumed.
     # UAT2-D1 is about seeded fixtures against a PREVIEW deployment, where `APP_ENV=preview` makes

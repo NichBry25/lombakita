@@ -187,7 +187,11 @@ export function MfaChallengeForm({ callbackUrl }: MfaChallengeFormProps) {
           setCode("");
         }}
       >
-        {mode === "totp" ? "Tidak bisa mengakses aplikasi autentikator?" : "Kembali"}
+        {/* Under the 24-character button-label cap (ui-preferences §9). The previous label ran to
+            43, and because `.ui-button` is `white-space: nowrap` an over-long label does not wrap —
+            it widens the button, which then widened this form's grid track and pushed the heading,
+            the code field and both buttons past the card at 360px. */}
+        {mode === "totp" ? "Pakai kode pemulihan" : "Kembali"}
       </Button>
     </form>
   );

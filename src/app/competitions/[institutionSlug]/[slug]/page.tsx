@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Button, ButtonLink, Icon } from "@/components/ui";
+import { Button, ButtonLink, Icon, LinkPendingSlot } from "@/components/ui";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { sessionHasRole } from "@/lib/access/roles";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
@@ -238,7 +238,7 @@ function CompetitionRail({ heading, items }: { heading: string; items: PublicCom
                 aria-label={`Buka ${item.title}`}
               >
                 <span className="competition-cover-icon" aria-hidden="true">
-                  <Icon name="trophy" size="lg" />
+                  <LinkPendingSlot leadingIcon={<Icon name="trophy" size="lg" />} />
                 </span>
                 <span className="competition-cover-label">
                   {item.category ? getCompetitionCategoryLabel(item.category) : "Kompetisi"}
@@ -253,6 +253,7 @@ function CompetitionRail({ heading, items }: { heading: string; items: PublicCom
                 <div className="stack-xs">
                   <Link href={detailPath} className="competition-title-link">
                     {item.title}
+                    <LinkPendingSlot />
                   </Link>
                   <p className="competition-organizer">{item.institutionName}</p>
                 </div>

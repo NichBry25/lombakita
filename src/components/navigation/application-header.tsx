@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { signOut, useSession } from "next-auth/react";
 import { isSelfServiceRole } from "@/lib/access/roles";
 import { NotificationBell } from "@/app/notification-bell";
-import { ButtonLink, IconButton, IconButtonLink } from "@/components/ui";
+import { ButtonLink, IconButton, IconButtonLink, LinkPendingSlot } from "@/components/ui";
 import { HeaderDashboardMenu } from "@/components/navigation/header-dashboard-menu";
 
 const HEADER_SCROLL_THRESHOLD_PX = 8;
@@ -70,9 +70,13 @@ export function ApplicationHeader() {
   return (
     <header className="site-header" data-scrolled={scrolled ? "true" : "false"}>
       <div className="header-inner">
+        {/* The landing page is the slowest indexable route to first byte and has no `loading.tsx`
+            — an indexable route cannot have one — so the wordmark acknowledges its own click here
+            (§14). The slot renders nothing until the navigation is in flight. */}
         <Link href="/" className="brand-lockup" aria-label="Lombakita, beranda">
           <span className="brand-wordmark brand-wordmark-primary" aria-hidden="true" />
           <span className="brand-wordmark brand-wordmark-reversed" aria-hidden="true" />
+          <LinkPendingSlot />
         </Link>
 
         <nav className="desktop-nav" aria-label="Navigasi utama">

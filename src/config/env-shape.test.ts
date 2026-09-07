@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
+import { CANONICAL_SITE_ORIGIN } from "@/config/company";
 import {
   DEPLOY_ENV_KEY_SPECS,
   findDeployConfigProblems,
@@ -216,6 +217,71 @@ describe("findDeployConfigProblems", () => {
   });
 
   // A gate that inspects nothing passes everything. This pins the inspected set so a spec deleted
+
+  // THE VALUE, NOT THE SHAPE. `https://example.com` is a flawless https origin, so every check in
+  // this repository accepted it, and it would have pointed robots.txt, all 46 sitemap entries and
+  // every canonical and Open Graph URL at someone else's domain. This is the one key whose exact
+  // value is asserted, and only in production.
+  describe("APP_BASE_URL in production", () => {
+    it.each([
+      ["a plausible but unrelated domain", "https://example.com"],
+      ["the deployment host rather than the apex", "https://lombakita.vercel.app"],
+      ["a domain the platform does not own", "https://lombakita.co.id"],
+      ["a neighbouring subdomain", "https://www.lombakita.com"],
+    ])("refuses %s", (_label, value) => {
+      const problem = problemFor(
+        findDeployConfigProblems({ ...wellFormedEnv(), APP_BASE_URL: value }, "production"),
+        "APP_BASE_URL",
+      );
+
+      expect(problem?.severity).toBe("error");
+      expect(problem?.problem).toContain(CANONICAL_SITE_ORIGIN);
+    });
+
+    it("accepts the canonical origin", () => {
+      expect(
+        problemFor(
+          findDeployConfigProblems(
+            { ...wellFormedEnv(), APP_BASE_URL: CANONICAL_SITE_ORIGIN },
+            "production",
+          ),
+          "APP_BASE_URL",
+        ),
+      ).toBeUndefined();
+    });
+
+    it("accepts the canonical origin with a trailing slash, which is the same address", () => {
+      expect(
+        problemFor(
+          findDeployConfigProblems(
+            { ...wellFormedEnv(), APP_BASE_URL: `${CANONICAL_SITE_ORIGIN}/` },
+            "production",
+          ),
+          "APP_BASE_URL",
+        ),
+      ).toBeUndefined();
+    });
+
+    // A preview deployment is supposed to describe itself, so the equality rule must not reach it.
+    it("still accepts a per-deployment origin in preview", () => {
+      expect(
+        problemFor(
+          findDeployConfigProblems(
+            { ...wellFormedEnv(), APP_BASE_URL: "https://lombakita-abc123.vercel.app" },
+            "preview",
+          ),
+          "APP_BASE_URL",
+        ),
+      ).toBeUndefined();
+    });
+  });
+
+  // Pinned so a doc-only edit to the canonical address cannot silently move where production
+  // points. Changing this is changing the site's address, and it should read like it.
+  it("compares production against the stated company address", () => {
+    expect(CANONICAL_SITE_ORIGIN).toBe("https://lombakita.com");
+  });
+
   // by accident fails here rather than silently narrowing the gate.
   it("inspects every key the deployed web runtime depends on", () => {
     expect(DEPLOY_ENV_KEY_SPECS.map((spec) => spec.key)).toEqual([

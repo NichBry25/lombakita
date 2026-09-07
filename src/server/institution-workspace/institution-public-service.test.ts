@@ -1,6 +1,10 @@
 // @vitest-environment node
 
 import { describe, expect, it, vi } from "vitest";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import type { SQL } from "drizzle-orm";
+import { institutions } from "@/server/db/schema";
 import type { Database } from "@/server/db/client";
 import { getPublicInstitution } from "@/server/institution-workspace/institution-public-service";
 
@@ -30,18 +34,38 @@ const institutionRow = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+// Records every predicate handed to `.where()`, because this fake resolves the rows the fixture
+// gave it whatever the query says. That is fine for shaping assertions and useless for filtering
+// ones — see the suspension test below.
+const wherePredicates: SQL[] = [];
+
 const makeDb = (selectResults: unknown[][]) => {
+  wherePredicates.length = 0;
   let idx = 0;
   const node = (): Record<string, unknown> => {
     const n: Record<string, unknown> = {};
-    for (const m of ["from", "innerJoin", "leftJoin", "where", "limit"]) {
+    for (const m of ["from", "innerJoin", "leftJoin", "limit"]) {
       n[m] = () => node();
     }
+    n.where = (predicate: SQL) => {
+      wherePredicates.push(predicate);
+      return node();
+    };
     n.then = (resolve: (v: unknown) => void) => resolve(selectResults[idx++] ?? []);
     return n;
   };
   return { select: () => node() } as unknown as Database;
 };
+
+// Drizzle compiles a query without opening a connection and `.toSQL()` never executes, so a
+// captured predicate can be read back as SQL with no database. Same mechanism as
+// competitions/public-visibility-predicate.test.ts.
+const compiledSql = (predicate: SQL): string =>
+  drizzle(postgres("postgres://user:pass@127.0.0.1:1/unused", { max: 1 }))
+    .select()
+    .from(institutions)
+    .where(predicate)
+    .toSQL().sql;
 
 describe("getPublicInstitution", () => {
   it("returns the public face of a full institution", async () => {
@@ -93,10 +117,17 @@ describe("getPublicInstitution", () => {
     expect(institution?.socialLinks).toEqual([]);
   });
 
-  it("withholds a suspended institution entirely", async () => {
-    const db = makeDb([[institutionRow({ suspendedAt: new Date("2026-07-01T00:00:00.000Z") })]]);
+  // Suspension used to be a JavaScript check on the returned row, and this asserted the returned
+  // value was null. It is now a WHERE clause, which this fake db ignores — so the old assertion
+  // could not fail however the filter were broken, and asserting the SQL is the only thing left
+  // that can. That the DATABASE then honours the clause is proven in
+  // src/app/sitemap-db.integration.test.ts against real Postgres, where the same suspended
+  // organizer is required to be absent from its own page and from the sitemap alike.
+  it("asks the database to withhold a suspended institution rather than filtering afterwards", async () => {
+    await getPublicInstitution("kampus-merdeka", makeDb([[institutionRow()], []]));
 
-    expect(await getPublicInstitution("kampus-merdeka", db)).toBeNull();
+    expect(wherePredicates).toHaveLength(2);
+    expect(compiledSql(wherePredicates[0]!)).toContain('"institutions"."suspended_at" is null');
   });
 
   it("returns null for an unknown slug", async () => {

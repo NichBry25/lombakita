@@ -25,6 +25,17 @@
  * enough: a page can stream 60% of itself and still carry its heading, and a page can score a high
  * ratio while the part a reader came for is the part that streamed.
  *
+ * AND THE THIRD SIGNAL, which is about a different failure: a page that serves its content
+ * perfectly and then tells the crawler not to index it. Indexing is opt-in — the root layout
+ * withholds by default and a page opts in by declaring `INDEXABLE_ROBOTS` — so a page can be added
+ * to `STATIC_INDEXABLE_PATHS`, appear in the sitemap, and still serve `noindex, nofollow` because
+ * nobody declared it. The sitemap then advertises a page that refuses. Reproduced: a route added to
+ * the indexable set and left undeclared was advertised in the sitemap while serving
+ * `<meta name="robots" content="noindex, nofollow">`. Four tests fired on that edit and all four
+ * were counts, which go green when someone updates the number. This asserts the property instead,
+ * against the page as served — the only place the composition of layout default, page declaration
+ * and sitemap entry is actually observable.
+ *
  * Usage: node scripts/testing/shell-content.mjs
  * Needs the app served at BASE_URL (default http://localhost:3000) and the seeded test matrix.
  */
@@ -42,11 +53,28 @@ import { INDEXABLE_SHELL_ROUTES } from "./indexable-shell-routes.mjs";
  */
 const MINIMUM_SHELL_RATIO = 0.9;
 
+/**
+ * The `content` of the page's own robots meta tag, or null when it emits none.
+ *
+ * Matched loosely on attribute order and quoting because this is Next's output, not ours: the
+ * assertion is about what the directive SAYS, and a check that only recognised one attribute
+ * ordering would report "no robots meta" for a page that has one.
+ */
+const robotsDirectiveOf = (html) => {
+  const tag = html.match(/<meta[^>]*\bname=["']robots["'][^>]*>/i)?.[0];
+  if (!tag) return null;
+  return tag.match(/\bcontent=["']([^"']*)["']/i)?.[1] ?? null;
+};
+
 const failures = [];
 
 for (const { path, needle, label } of INDEXABLE_SHELL_ROUTES) {
   const { html, markup, paintedBytes, readableBytes, shellRatio } = await measureShell(BASE, path);
   const ratio = shellRatio.toFixed(3);
+  // Read before this route's checks run, so the per-route line below reports whether THIS route
+  // passed rather than only whether its ratio cleared the threshold. A line reading `ok` above a
+  // route that failed a different signal is an instrument reporting a result it did not measure.
+  const failuresBefore = failures.length;
 
   if (shellRatio < MINIMUM_SHELL_RATIO) {
     failures.push(
@@ -75,6 +103,23 @@ for (const { path, needle, label } of INDEXABLE_SHELL_ROUTES) {
     );
   }
 
+  const robotsDirective = robotsDirectiveOf(html);
+
+  if (robotsDirective === null) {
+    failures.push(
+      `${path} is in the sitemap but serves no robots meta tag at all. The root layout withholds ` +
+        `indexing by default and every indexable page opts back in, so a page with no directive ` +
+        `means the layout default stopped applying — which withholds far more than this page.`,
+    );
+  } else if (!/\bindex\b/.test(robotsDirective) || /\bnoindex\b/.test(robotsDirective)) {
+    failures.push(
+      `${path} is advertised in the sitemap while serving ` +
+        `<meta name="robots" content="${robotsDirective}">. The sitemap invites a crawler to a ` +
+        `page that then tells it not to index. The usual cause is a page added to ` +
+        `STATIC_INDEXABLE_PATHS whose own metadata never declared INDEXABLE_ROBOTS.`,
+    );
+  }
+
   if (markup.includes("skeleton")) {
     failures.push(
       `${path} paints a skeleton placeholder with scripting disabled. A placeholder that no ` +
@@ -83,7 +128,10 @@ for (const { path, needle, label } of INDEXABLE_SHELL_ROUTES) {
     );
   }
 
-  console.log(`  ${shellRatio >= MINIMUM_SHELL_RATIO ? "ok  " : "FAIL"} ${path} — shell ${ratio}`);
+  const passed = failures.length === failuresBefore;
+  console.log(
+    `  ${passed ? "ok  " : "FAIL"} ${path} — shell ${ratio}, robots ${robotsDirective ?? "(none)"}`,
+  );
 }
 
 if (failures.length > 0) {
@@ -93,5 +141,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `\n${INDEXABLE_SHELL_ROUTES.length}/${INDEXABLE_SHELL_ROUTES.length} indexable routes serve their content in the initial shell.`,
+  `\n${INDEXABLE_SHELL_ROUTES.length}/${INDEXABLE_SHELL_ROUTES.length} indexable routes serve their content in the initial shell and declare themselves indexable.`,
 );

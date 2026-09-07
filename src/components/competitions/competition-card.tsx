@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Icon } from "@/components/ui";
+import { Icon, LinkPendingSlot } from "@/components/ui";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
 import {
@@ -88,8 +88,12 @@ export function CompetitionCard({
         data-category={competition.category ?? "other"}
         aria-label={`Buka ${competition.title}`}
       >
+        {/* The competition detail route has no `loading.tsx` — it cannot have one without
+            streaming its body out of the initial shell — so the pending signal for this navigation
+            lives here, on the control that starts it (§14). The trophy's slot is a fixed-size
+            centred grid cell, so the spinner replaces it with no layout shift. */}
         <span className="competition-cover-icon" aria-hidden="true">
-          <Icon name="trophy" size="lg" />
+          <LinkPendingSlot leadingIcon={<Icon name="trophy" size="lg" />} />
         </span>
         <span className="competition-cover-label">
           {competition.category ? getCompetitionCategoryLabel(competition.category) : "Kompetisi"}
@@ -109,8 +113,12 @@ export function CompetitionCard({
         </div>
 
         <div className="stack-xs">
+          {/* Its own signal rather than relying on the cover's: `useLinkStatus` reports only the
+              navigation its enclosing Link started, so a click on the title would otherwise
+              acknowledge nothing. */}
           <Link href={detailPath} className="competition-title-link">
             {competition.title}
+            <LinkPendingSlot />
           </Link>
           {showOrganizer ? (
             <p className="competition-organizer">{competition.institutionName}</p>

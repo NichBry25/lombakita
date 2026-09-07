@@ -37,12 +37,15 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
+import { INDEXABLE_SHELL_ROUTES } from "../indexable-shell-routes.mjs";
 import { refusedWhen } from "./detectors.mjs";
 
 const DETAIL_PAGE = "src/app/competitions/[institutionSlug]/[slug]/page.tsx";
+const CONTACT_PAGE = "src/app/kontak/page.tsx";
 const PROBE_PORT = 3100;
 const PROBE_BASE = `http://localhost:${PROBE_PORT}`;
 const STREAMED_ROUTE = "/competitions/seed-academy/seed-open";
+const UNDECLARED_ROUTE = "/kontak";
 
 // A build plus a boot. Generous, because a timeout here reports NOT PROVEN for a probe that was
 // only slow, and that is a worse outcome than waiting.
@@ -103,6 +106,35 @@ const measureMutatedBuild = async () => {
   }
 };
 
+/**
+ * Upgrades "the check went red" to "the check went red for THIS route and nothing else".
+ *
+ * Without it, a check that had become red for everything — a bad BASE_URL, a server serving error
+ * pages, a needle table gone stale — satisfies an exit-code assertion while measuring nothing, and
+ * reports itself PROVEN. Six is the count of indexable routes the mutation does not touch.
+ */
+const OTHER_ROUTES = INDEXABLE_SHELL_ROUTES.length - 1;
+
+const onlyTheMutatedRouteFailed = (result, verdict) => {
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  const stillPassing = output.split("\n").filter((line) => /^ {2}ok /.test(line)).length;
+
+  if (stillPassing !== OTHER_ROUTES) {
+    return {
+      refused: false,
+      evidence:
+        `shell-content went red, but ${stillPassing} of the other routes passed rather than ` +
+        `${OTHER_ROUTES}. It failed for something broader than the mutation, so this proves ` +
+        `nothing about the guard.`,
+    };
+  }
+
+  return {
+    refused: true,
+    evidence: `${verdict.evidence} — and the other ${OTHER_ROUTES} indexable routes still passed`,
+  };
+};
+
 export const probes = [
   {
     name: "shell-content refuses a route whose body moved out of the initial shell",
@@ -155,24 +187,58 @@ async function StreamedCompetitionDetail({
 
       if (!verdict.refused) return verdict;
 
-      // The other six routes must still pass. Without this, a check that had become red for
-      // everything — a bad BASE_URL, a server serving errors — would report itself PROVEN.
-      const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-      const stillPassing = output.split("\n").filter((line) => /^ {2}ok /.test(line)).length;
+      return onlyTheMutatedRouteFailed(result, verdict);
+    },
+  },
 
-      if (stillPassing !== 6) {
-        return {
-          refused: false,
-          evidence:
-            `shell-content went red, but ${stillPassing} of the other routes passed rather than 6. ` +
-            `It failed for something broader than the mutation, so this proves nothing about the guard.`,
-        };
-      }
+  /*
+   * THE SECOND FAILURE THE SAME PAGES CAN HAVE, and it is invisible to everything above: a page
+   * that serves all of its content, scores a perfect shell ratio, and then tells the crawler not
+   * to index it. Indexing is opt-in — the root layout withholds by default and each indexable page
+   * opts back in — so a page can join `STATIC_INDEXABLE_PATHS`, be advertised in the sitemap, and
+   * still serve `noindex, nofollow` because nobody declared it. Reproduced during review by adding
+   * one such route: the sitemap listed it and the page refused it, and the four tests that fired
+   * were all counts, which go green when someone updates the number.
+   *
+   * THE HARMFUL MOVE, named before the detector: an indexable page's own `robots` declaration is
+   * dropped, so it inherits the layout's withholding default while remaining in the sitemap. The
+   * mutation is made to a page git already tracks, because the harness restores from git and an
+   * added file has nothing to restore to — the end state is identical either way.
+   *
+   * Class D — read-only instrument, so the detector is the content of its result: the exit code,
+   * the route named as a ROBOTS failure specifically, and the other six routes still passing.
+   */
+  {
+    name: "shell-content refuses an indexable route that serves a withholding robots directive",
+    harmfulMove:
+      "an indexable page's own robots declaration is dropped, so it inherits the layout's " +
+      "noindex default while the sitemap goes on advertising it",
+    klass: "D",
+    files: [CONTACT_PAGE],
+    mutate: () => {
+      substituteOnce(
+        CONTACT_PAGE,
+        'import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";\n',
+        "",
+      );
+      substituteOnce(CONTACT_PAGE, "  robots: INDEXABLE_ROBOTS,\n", "");
+    },
+    appliedMarkers: ["  description: DESCRIPTION,\n  alternates:"],
+    detect: async () => {
+      const result = await measureMutatedBuild();
 
-      return {
-        refused: true,
-        evidence: `${verdict.evidence} — and the other 6 indexable routes still passed`,
-      };
+      // Named as a ROBOTS failure, not merely named. This page's ratio and needle are untouched by
+      // the mutation, so a `FAIL /kontak` that matched any reason would pass while measuring
+      // something else entirely.
+      const verdict = refusedWhen(result, {
+        status: 1,
+        reached: new RegExp(`FAIL ${UNDECLARED_ROUTE} is advertised in the sitemap while serving`),
+        label: "shell-content",
+      });
+
+      if (!verdict.refused) return verdict;
+
+      return onlyTheMutatedRouteFailed(result, verdict);
     },
   },
 ];

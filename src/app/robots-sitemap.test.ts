@@ -8,7 +8,7 @@
 // here rather than left to a reading of the two.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { isPathDisallowed } from "@/config/indexable-routes";
+import { STATIC_INDEXABLE_PATHS, isPathDisallowed } from "@/config/indexable-routes";
 
 const listSitemapCompetitions = vi.fn();
 const listSitemapInstitutions = vi.fn();
@@ -94,10 +94,20 @@ describe("sitemap.xml", () => {
   });
 
   it("advertises nothing beyond what the database and the static set hand it", async () => {
-    // Three fixtures in, eight entries out: the five static pages plus one of each dynamic family.
-    // A sitemap that invented an entry — a hardcoded auth page, a leftover diagnostic route —
-    // would change this count.
-    expect(await sitemap()).toHaveLength(7);
+    // Asserted as a SET against its own inputs rather than as a count. A count pin fires when a
+    // page joins the indexable set, but the way to make it green is to bump the number — which is
+    // exactly what someone does, and the number carries no opinion about whether the new page is
+    // one the sitemap should be advertising. This says the same thing in a form that cannot be
+    // satisfied that way: every entry traces to the static set or to a row a query returned.
+    const paths = (await sitemap()).map((entry) => pathOf(entry.url));
+
+    expect([...paths].sort()).toEqual(
+      [
+        ...STATIC_INDEXABLE_PATHS,
+        "/competitions/seed-academy/seed-open",
+        "/institution/seed-academy",
+      ].sort(),
+    );
   });
 
   it("carries the entity's own last-modified date, not the time the file was built", async () => {
@@ -113,7 +123,9 @@ describe("sitemap.xml", () => {
     listSitemapCompetitions.mockResolvedValue([]);
     listSitemapInstitutions.mockResolvedValue([]);
 
-    expect(await sitemap()).toHaveLength(5);
+    const paths = (await sitemap()).map((entry) => pathOf(entry.url));
+
+    expect([...paths].sort()).toEqual([...STATIC_INDEXABLE_PATHS].sort());
   });
 });
 

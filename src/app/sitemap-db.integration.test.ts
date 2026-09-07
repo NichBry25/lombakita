@@ -27,7 +27,10 @@ import postgres from "postgres";
 import { competitions, institutions } from "@/server/db/schema";
 import type { Database } from "@/server/db/client";
 import { listSitemapCompetitions } from "@/server/competitions/competition-public-service";
-import { listSitemapInstitutions } from "@/server/institution-workspace/institution-public-service";
+import {
+  getPublicInstitution,
+  listSitemapInstitutions,
+} from "@/server/institution-workspace/institution-public-service";
 
 const DATABASE_URL = TEST_DATABASE_URL;
 
@@ -53,7 +56,11 @@ const inRollback = async (body: (tx: Tx) => Promise<void>): Promise<void> => {
 };
 
 let seq = 0;
-const uniqueSuffix = (): string => `${Date.now()}_${seq++}`;
+// Hyphen-separated, not underscore-separated: an institution slug goes through
+// `normalizeInstitutionSlug` on the way in from a URL, which rewrites `_` to `-`. A fixture slug
+// carrying an underscore is one no route could ever address, so a lookup by that slug finds
+// nothing and the test measures the fixture rather than the query.
+const uniqueSuffix = (): string => `${Date.now()}-${seq++}`;
 
 type InstitutionOptions = {
   suspended?: boolean;
@@ -210,6 +217,52 @@ describe.skipIf(skipWithoutDatabase)("sitemap institution entries", () => {
       const slugs = await institutionSlugsIn(tx);
       expect(slugs).not.toContain(personal.slug);
       expect(slugs).toContain(organizer.slug);
+    });
+  });
+});
+
+// M7. Institution visibility used to be written twice — a JavaScript post-filter in
+// `getPublicInstitution` and a separately-authored WHERE clause in `listSitemapInstitutions` — so
+// the sitemap could start advertising organizers whose own page had stopped serving, and the
+// sitemap is the copy nobody opens. Both now consume `buildPublicInstitutionCondition`. Asserted as
+// PARITY on one row rather than as two independent facts: a test that checks each caller separately
+// passes when they drift, which is the whole failure this guards.
+describe.skipIf(skipWithoutDatabase)("institution visibility has one definition", () => {
+  it("hides a suspended organizer from the sitemap and from its own page alike", async () => {
+    await inRollback(async (tx) => {
+      const suspended = await seedInstitution(tx, { suspended: true });
+
+      const page = await getPublicInstitution(suspended.slug, tx as unknown as Database);
+      const sitemap = await institutionSlugsIn(tx);
+
+      expect(page).toBeNull();
+      expect(sitemap).not.toContain(suspended.slug);
+    });
+  });
+
+  it("shows an active organizer in the sitemap and on its own page alike", async () => {
+    await inRollback(async (tx) => {
+      const active = await seedInstitution(tx);
+
+      const page = await getPublicInstitution(active.slug, tx as unknown as Database);
+      const sitemap = await institutionSlugsIn(tx);
+
+      expect(page?.slug).toBe(active.slug);
+      expect(sitemap).toContain(active.slug);
+    });
+  });
+
+  // The one asymmetry, pinned so it reads as intended rather than as drift: a personal institution
+  // is VISIBLE (its page serves, then redirects) but is not SITEMAP-eligible.
+  it("serves a personal institution's page while keeping it out of the sitemap", async () => {
+    await inRollback(async (tx) => {
+      const personal = await seedInstitution(tx, { personal: true });
+
+      const page = await getPublicInstitution(personal.slug, tx as unknown as Database);
+      const sitemap = await institutionSlugsIn(tx);
+
+      expect(page?.slug).toBe(personal.slug);
+      expect(sitemap).not.toContain(personal.slug);
     });
   });
 });

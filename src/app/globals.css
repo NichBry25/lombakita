@@ -1617,6 +1617,10 @@ svg {
   display: inline-flex;
   flex: none;
   align-items: center;
+  /* Only ever between the wordmark and the navigation spinner: exactly one of the two wordmarks
+     is displayed at a time, and the spinner exists only while a navigation is in flight, so this
+     contributes nothing to the resting header. */
+  gap: var(--space-2);
   color: var(--color-ink);
   text-decoration: none;
 }
@@ -3716,11 +3720,13 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
 .auth-entry {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-5);
 }
 
 .auth-entry-header {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-1);
 }
 
@@ -3735,11 +3741,23 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   font-size: var(--text-body-sm);
 }
 
+/*
+ * `minmax(0, 1fr)` rather than the implicit track, on every auth column.
+ *
+ * An implicit track is sized by its widest item's min-content and then stretches, so ONE item
+ * wider than the card drags every sibling out with it — the header, the field and both buttons all
+ * end up at the same over-wide edge, and the page scrolls sideways. That is what `/auth/mfa/
+ * challenge` did: `.auth-form`'s track measured 312px inside a 274px card, and its four children
+ * were all 312px wide. Clamping the track at the container is the half of the fix that stops one
+ * over-long child becoming four wide elements; the other half is the child itself not being
+ * over-long, which is the §9 button-label cap.
+ */
 .auth-method-list,
 .auth-role-list,
 .auth-stage-panel,
 .auth-form {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
 }
 
