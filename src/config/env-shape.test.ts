@@ -216,8 +216,6 @@ describe("findDeployConfigProblems", () => {
     expect(problem?.problem).toContain("32 raw bytes");
   });
 
-  // A gate that inspects nothing passes everything. This pins the inspected set so a spec deleted
-
   // THE VALUE, NOT THE SHAPE. `https://example.com` is a flawless https origin, so every check in
   // this repository accepted it, and it would have pointed robots.txt, all 46 sitemap entries and
   // every canonical and Open Graph URL at someone else's domain. This is the one key whose exact
@@ -282,6 +280,7 @@ describe("findDeployConfigProblems", () => {
     expect(CANONICAL_SITE_ORIGIN).toBe("https://lombakita.com");
   });
 
+  // A gate that inspects nothing passes everything. This pins the inspected set so a spec deleted
   // by accident fails here rather than silently narrowing the gate.
   it("inspects every key the deployed web runtime depends on", () => {
     expect(DEPLOY_ENV_KEY_SPECS.map((spec) => spec.key)).toEqual([

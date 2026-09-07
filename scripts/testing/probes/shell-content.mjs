@@ -228,7 +228,7 @@ async function StreamedCompetitionDetail({
       const result = await measureMutatedBuild();
 
       // Named as a ROBOTS failure, not merely named. This page's ratio and needle are untouched by
-      // the mutation, so a `FAIL /kontak` that matched any reason would pass while measuring
+      // the mutation, so a bare `FAIL <route>` that matched any reason would pass while measuring
       // something else entirely.
       const verdict = refusedWhen(result, {
         status: 1,

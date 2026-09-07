@@ -3537,8 +3537,21 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   color: var(--color-action-ink);
 }
 
+/*
+ * The explicit track changes nothing today, and is here so it goes on changing nothing.
+ *
+ * `.detail-phase-summary` measures 24px past this element's content box on both edges at every
+ * width — but that is its own `margin-inline: calc(var(--space-6) * -1)`, which pulls it out to
+ * `.detail-cta-rail`'s padding edge so the banner bleeds to the card's rounded corners. Measured
+ * with and without `minmax(0, 1fr)` at 360px: the track was already 274px, the summary 43→317 and
+ * the banner 19→341 in both readings, against a rail border box of 18→342. Byte-identical, because
+ * a negative margin is not track sizing. The declaration stays anyway: it makes the track DEFINITE,
+ * so a future child with a wide min-content cannot start dragging its siblings out the way an
+ * over-long button label did on the auth form.
+ */
 .detail-rail-summary {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
 }
 
