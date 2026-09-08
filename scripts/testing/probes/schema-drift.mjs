@@ -36,13 +36,15 @@ export const probes = [
       "property it was built to replace — which passes for a history whose middle rows belong to " +
       "a different checkout",
     files: [DRIFT],
-    // Keeps both sides read, so the mutation compiles and only the comparison stops deciding.
-    appliedMarkers: ["if (declared.hash !== found.hash && false)"],
+    // Compares the declared hash with itself: always false at run time, but not STATICALLY false,
+    // so the branch stays reachable and the narrowing inside it still type-checks. `&& false` does
+    // not work here — it makes the block dead code and TypeScript stops narrowing `exception`.
+    appliedMarkers: ["if (declared.hash !== declared.hash)"],
     mutate: () =>
       substituteOnce(
         DRIFT,
         "if (declared.hash !== found.hash) {",
-        "if (declared.hash !== found.hash && false) {",
+        "if (declared.hash !== declared.hash) {",
       ),
     detect: async () =>
       fails("npx", ["vitest", "run", TEST], /× .*catches a file edited after it was applied/),
@@ -70,12 +72,12 @@ export const probes = [
       "declared-but-unapplied migrations going unreported, which is the original defect: the " +
       "deployment ships code whose schema the database does not have",
     files: [DRIFT],
-    appliedMarkers: ["for (let index = shared; index < journal.length && false;"],
+    appliedMarkers: ["for (let index = shared; index < shared;"],
     mutate: () =>
       substituteOnce(
         DRIFT,
         "for (let index = shared; index < journal.length; index += 1) {",
-        "for (let index = shared; index < journal.length && false; index += 1) {",
+        "for (let index = shared; index < shared; index += 1) {",
       ),
     detect: async () =>
       fails("npx", ["vitest", "run", TEST], /× .*catches a database that is behind the checkout/),
