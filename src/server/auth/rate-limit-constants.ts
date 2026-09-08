@@ -30,9 +30,10 @@ export const LOGIN_FAILED_ATTEMPT_LIMIT = {
  * Fixed-window limiter on POST /api/v1/auth/register, keyed by client IP.
  *
  * Registration is unauthenticated account-creation that also bills a verification send, so an
- * unbounded endpoint is both a row-creation amplifier and an email amplifier at once. Keyed by IP
- * only: an email key would be useless here, because a repeat of the same address is already refused
- * by the unique constraint before any send happens.
+ * unbounded endpoint is both a row-creation amplifier and an email amplifier at once.
+ *
+ * This is the broad-sweep bound only. The per-address bound that stops a distributed caller mailing
+ * one person is VERIFICATION_EMAIL_ADDRESS_LIMIT below, which this endpoint also enforces.
  *
  * The ceiling is sized for a shared campus NAT rather than for one household, the same reasoning
  * that raised IDENTIFY_RATE_LIMIT to 60/60s. A genuine signup is one call.
@@ -57,21 +58,28 @@ export const REGISTRATION_RESEND_IP_LIMIT = {
 } as const;
 
 /**
- * Fixed-window limiter on the resend endpoint, keyed by the requested ADDRESS.
+ * Fixed-window limiter keyed by the ADDRESS a verification email is being requested for.
  *
  * This is the anti-amplification bound proper: without it, an attacker rotating IPs can have the
  * platform mail one person without limit, at the platform's own expense and against its sending
- * reputation. A real user needs one resend, occasionally two.
+ * reputation. A real user needs one signup and, occasionally, one resend.
+ *
+ * ONE BUDGET SHARED BY /register AND /register/resend, which is the only shape that bounds what it
+ * claims to. Both endpoints mail the same verification message to an address the caller names, and
+ * registering an existing-but-unverified address re-sends rather than being refused, so a separate
+ * counter per route would let a caller alternate the two and draw both allowances against one
+ * victim. The question the counter answers is "how many verification emails may this address be
+ * sent", and that question does not have a per-route answer.
  *
  * COUNTED BEFORE THE ADDRESS IS LOOKED UP, deliberately. A counter that only advanced when a send
  * actually happened would cap known addresses and never cap unknown ones, so reaching the cap would
- * itself disclose that an account exists — the enumeration leak the endpoint's uniform response is
- * written to avoid. Incrementing on every request keeps the over-limit signal identical either way.
+ * itself disclose that an account exists — the enumeration leak the uniform response is written to
+ * avoid. Incrementing on every request keeps the over-limit signal identical either way.
  */
-export const REGISTRATION_RESEND_EMAIL_LIMIT = {
+export const VERIFICATION_EMAIL_ADDRESS_LIMIT = {
   limit: 3,
   windowSeconds: 10 * 60,
-  keyPrefix: "rl:register-resend-addr:",
+  keyPrefix: "rl:verify-email-addr:",
 } as const;
 
 // Prefix for the single-use OAuth carrier nonce (auth-D2 / 6.5d-D2). The carrier's `jti` is appended

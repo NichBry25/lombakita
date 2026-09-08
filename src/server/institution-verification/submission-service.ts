@@ -529,11 +529,6 @@ export const reviewVerificationSubmission = async (
     throw new AccessError("forbidden", 403, "platform_ops access required");
   }
 
-  // Assigned inside the transaction but awaited after it commits. The send must not be awaited in
-  // the callback: that would hold the transaction open across a call to the email provider, and on
-  // pooled Postgres a connection held for a network round trip is the expensive kind of mistake.
-  let ownersEmailPromise: Promise<void> | null = null;
-
   const reviewed = await db.transaction(async (tx) => {
     // CAS guard: only pending_review submissions can be reviewed.
     const [sub] = await tx
@@ -655,49 +650,73 @@ export const reviewVerificationSubmission = async (
       reviewerUserId,
     });
 
-    // Owner notice. Started here, resolved after the commit below.
-    ownersEmailPromise = (async () => {
-      const [ownerRow] = await db
-        .select({ email: users.email, username: users.username })
-        .from(institutionMemberships)
-        .innerJoin(users, eq(users.id, institutionMemberships.userId))
-        .where(
-          and(
-            eq(institutionMemberships.institutionId, sub.institutionId),
-            eq(institutionMemberships.membershipRole, OWNER_ROLE),
-            eq(institutionMemberships.status, ACTIVE_MEMBERSHIP),
-          ),
-        )
-        .orderBy(asc(institutionMemberships.createdAt))
-        .limit(1);
-
-      if (ownerRow) {
-        // Verification never renames an institution, so the stored display name is the current one.
-        const resolvedName = getInstitutionDisplayName(
-          {
-            displayName: inst.displayName,
-            institutionType: inst.institutionType ?? null,
-          },
-          { username: ownerRow.username },
-        );
-        await sendInstitutionVerifiedEmail({
-          toEmail: ownerRow.email,
-          institutionDisplayName: resolvedName,
-        });
-      }
-    })();
-
-    return { submissionId, status: "approved" as const, institutionId: sub.institutionId };
+    // Verification never renames an institution, so the name read above is still the current one
+    // after the commit, and the owner notice can be composed from it without a second read.
+    return {
+      submissionId,
+      status: "approved" as const,
+      institutionId: sub.institutionId,
+      institutionDisplayName: inst.displayName,
+      institutionType: inst.institutionType ?? null,
+    };
   });
 
-  if (!ownersEmailPromise) {
+  if (reviewed.status !== "approved") {
     return { submissionId: reviewed.submissionId, status: reviewed.status, emailDelivery: null };
   }
 
-  const emailDelivery = await awaitDeliveryAndReportFailure(ownersEmailPromise, {
-    event: "institution.verification.submission.approved",
-    institutionId: reviewed.institutionId,
-  });
+  // Post-commit email dispatch — non-fatal, and awaited so the caller can be told the truth about
+  // it. Composed and awaited in one block after the transaction has committed: the send must not
+  // run inside the callback, which would hold a pooled Postgres connection open across a call to
+  // the email provider, and a promise created inside the callback would be left unhandled if the
+  // COMMIT itself failed.
+  //
+  // The owner lookup is wrapped with the send so a database error here cannot produce a 500 that
+  // makes the caller think the approval failed. Stays null when there is no owner to notify, which
+  // keeps "not attempted" distinguishable from "attempted and succeeded".
+  let emailDelivery: EmailDeliveryOutcome | null = null;
+
+  try {
+    const [ownerRow] = await db
+      .select({ email: users.email, username: users.username })
+      .from(institutionMemberships)
+      .innerJoin(users, eq(users.id, institutionMemberships.userId))
+      .where(
+        and(
+          eq(institutionMemberships.institutionId, reviewed.institutionId),
+          eq(institutionMemberships.membershipRole, OWNER_ROLE),
+          eq(institutionMemberships.status, ACTIVE_MEMBERSHIP),
+        ),
+      )
+      .orderBy(asc(institutionMemberships.createdAt))
+      .limit(1);
+
+    if (ownerRow) {
+      const resolvedName = getInstitutionDisplayName(
+        {
+          displayName: reviewed.institutionDisplayName,
+          institutionType: reviewed.institutionType,
+        },
+        { username: ownerRow.username },
+      );
+
+      const emailTask = sendInstitutionVerifiedEmail({
+        toEmail: ownerRow.email,
+        institutionDisplayName: resolvedName,
+      });
+
+      emailDelivery = await awaitDeliveryAndReportFailure(emailTask, {
+        event: "institution.verification.submission.approved",
+        institutionId: reviewed.institutionId,
+      });
+    }
+  } catch (err: unknown) {
+    logger.error("institution.verification.submission.post_commit_lookup_failed", {
+      submissionId: reviewed.submissionId,
+      institutionId: reviewed.institutionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   return { submissionId: reviewed.submissionId, status: reviewed.status, emailDelivery };
 };

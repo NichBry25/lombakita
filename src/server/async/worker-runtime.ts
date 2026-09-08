@@ -19,7 +19,7 @@ import {
   logProcessSucceeded,
   toSafeErrorMessage,
 } from "@/server/async/observability";
-import { describeEmailFailure } from "@/server/email/send-failure";
+import { emailFailureClassOf } from "@/server/email/send-failure";
 import { getQueueRegistrations, getRegisteredQueueNames } from "@/server/async/registry";
 import { registerRetentionPurgeSchedule } from "@/server/async/retention-scheduler";
 import { registerPaymentExpirySchedule } from "@/server/async/payment-expiry-scheduler";
@@ -134,7 +134,15 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
       }
 
       const errorMessage = toSafeErrorMessage(error);
-      const failure = describeEmailFailure(error);
+      // Left unset when the failure did not come from a send. Every job failure reaching this
+      // handler used to be labelled, so a database timeout was recorded as a transient email
+      // failure and the field stopped meaning what its declaration says it means.
+      const emailFailureClass = emailFailureClassOf(error);
+      // A send that will be refused identically on every attempt. Both halves are required: an
+      // undefined class means no send was involved at all, and treating that as "not transient"
+      // would report every unrelated job failure as a permanent email fault.
+      const permanentEmailFailure =
+        emailFailureClass !== undefined && emailFailureClass !== "transient";
 
       logProcessFailed({
         queueName,
@@ -143,7 +151,7 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
         attemptsMade: job.attemptsMade,
         attemptsPlanned: resolvePlannedAttempts(job),
         errorMessage,
-        emailFailureClass: failure.failureClass,
+        emailFailureClass,
       });
 
       if (resolveRetryPending(job)) {
@@ -154,13 +162,13 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
           attemptsMade: job.attemptsMade,
           attemptsPlanned: resolvePlannedAttempts(job),
           errorMessage,
-          emailFailureClass: failure.failureClass,
+          emailFailureClass,
         });
 
         // A rejected credential or sending identity answers the same way on every attempt, so
         // waiting out the retry budget only delays the report. Captured on the first attempt alone,
         // because the exhaustion path below still reports it once the retries are spent.
-        if (failure.failureClass !== "transient" && job.attemptsMade <= 1) {
+        if (permanentEmailFailure && job.attemptsMade <= 1) {
           captureWorkerJobFailure({
             queueName,
             jobName: toAsyncJobName(job.name),
@@ -168,7 +176,7 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
             attemptsMade: job.attemptsMade,
             attemptsPlanned: resolvePlannedAttempts(job),
             error,
-            emailFailureClass: failure.failureClass,
+            emailFailureClass,
           });
         }
 
@@ -182,7 +190,7 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
         attemptsMade: job.attemptsMade,
         attemptsPlanned: resolvePlannedAttempts(job),
         error,
-        emailFailureClass: failure.failureClass,
+        emailFailureClass,
       });
     });
 

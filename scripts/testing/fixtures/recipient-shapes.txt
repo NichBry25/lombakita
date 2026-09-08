@@ -11,3 +11,7 @@ A connection string, whose credentials match the address shape but are not a rec
 
 A routable recipient, which the gate must report:
   real.person@gmail.com
+
+A connection string and a recipient on ONE line. The scheme belongs to the token it is part of, so
+it must not excuse the address beside it:
+  postgres://appuser:secret@db.internal/lombakita then mail second.person@gmail.com

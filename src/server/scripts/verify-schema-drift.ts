@@ -25,6 +25,7 @@ import {
   readJournalMigrations,
   type AppliedMigration,
 } from "@/server/db/schema-drift";
+import { resolveDatabaseSslOption } from "@/server/db/ssl-options";
 import {
   ENV_PATH_FLAG,
   assertEnvFileLoaded,
@@ -38,9 +39,20 @@ const DRIZZLE_DIR = "drizzle";
 
 const argv = process.argv.slice(2);
 
+/**
+ * A failed check, already reported. Distinguished from an unexpected throw so `main`'s catch does
+ * not print a second, differently worded line over a message that was written for the deploy log.
+ */
+class CheckFailed extends Error {}
+
+/**
+ * Reports the failure and unwinds. It THROWS rather than calling `process.exit`, which returns
+ * `never` by terminating and so skips the `finally` that closes the database connection — the
+ * teardown guarantee Rule 35 asks of anything that opens one.
+ */
 const fail = (message: string): never => {
   console.error(`FAIL: ${message}`);
-  process.exit(1);
+  throw new CheckFailed(message);
 };
 
 /**
@@ -90,12 +102,13 @@ const main = async (): Promise<void> => {
   }
 
   const journal = readJournalMigrations(DRIZZLE_DIR);
+  const ssl = resolveDatabaseSslOption();
   const sql = postgres(url, {
     max: 1,
     idle_timeout: 5,
     connect_timeout: 15,
     prepare: false,
-    ssl: "require",
+    ...(ssl !== undefined ? { ssl } : {}),
   });
 
   try {
@@ -163,8 +176,11 @@ const main = async (): Promise<void> => {
 // Message only, no stack: every throw on this path is an operational message written for whoever
 // is reading a failed deploy log, and a stack trace buries it.
 main().catch((error: unknown) => {
-  console.error(
-    `\nSchema drift check failed: ${error instanceof Error ? error.message : String(error)}`,
-  );
+  if (!(error instanceof CheckFailed)) {
+    console.error(
+      `\nSchema drift check failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
   process.exitCode = 1;
 });

@@ -93,6 +93,43 @@ export const classifyEmailFailure = (error: unknown): EmailFailureClass => {
 };
 
 /**
+ * The class of a failure that CAME FROM a send, or undefined when the failure was something else.
+ *
+ * `classifyEmailFailure` answers `transient` for every input it does not recognise, which is right
+ * for a send site — the send failed and a retry is meaningful — and wrong for a caller deciding
+ * whether an email was involved at all. A job that timed out against Postgres is not a transient
+ * email failure, and labelling it one puts an `emailFailureClass` on records that have no send in
+ * them.
+ */
+export const emailFailureClassOf = (error: unknown): EmailFailureClass | undefined => {
+  if (error instanceof ReservedRecipientError || error instanceof EmailSendError) {
+    return classifyEmailFailure(error);
+  }
+
+  return undefined;
+};
+
+/**
+ * Whether a failure is positively an authorization refusal, as opposed to merely permanent.
+ *
+ * The distinction matters wherever the failure is rendered as a claim about configuration. On the
+ * HTTP path `forbidden` is only ever reached through a 403 or a named credential code, so it is
+ * already positive evidence. On the SMTP path it is also reached from any 5xx reply, and RFC 5321
+ * 5xx covers a refused recipient and an oversized message as well as a rejected identity — so a
+ * bare 5xx says the attempt will never succeed, not why.
+ */
+export const isAuthorizationRefusal = (
+  providerCode: string | null,
+  statusCode: number | null,
+): boolean => {
+  if (statusCode === 403) return true;
+  if (providerCode === null) return false;
+
+  // Nodemailer's code for a credential the SMTP server rejected outright.
+  return providerCode === "EAUTH" || FORBIDDEN_PROVIDER_CODES.has(providerCode);
+};
+
+/**
  * Raises the provider's failure with its verdict intact.
  *
  * Every send site calls this instead of building an `Error` from the message alone, which is what

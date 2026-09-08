@@ -4,8 +4,7 @@ import { COMPANY } from "@/config/company";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 
 const TITLE = "Kontak · Lombakita";
-const DESCRIPTION =
-  "Identitas badan usaha, alamat, dan email resmi yang mengoperasikan Lombakita.";
+const DESCRIPTION = "Identitas badan usaha, alamat, dan email resmi yang mengoperasikan Lombakita.";
 
 export const metadata: Metadata = {
   title: TITLE,

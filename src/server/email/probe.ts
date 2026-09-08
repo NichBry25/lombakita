@@ -32,6 +32,7 @@ import { serverEnv } from "@/config/env.server";
 import { resolveEmailDelivery } from "@/server/email/delivery";
 import {
   describeEmailFailure,
+  isAuthorizationRefusal,
   rethrowSmtpSendFailure,
   throwEmailSendFailure,
 } from "@/server/email/send-failure";
@@ -120,15 +121,21 @@ const sendProbeOverSmtp = async (): Promise<void> => {
 };
 
 /**
- * The operator-facing reason, which has to separate the two things a failed send can mean.
+ * The operator-facing reason, which has to separate the three things a failed send can mean.
  *
- * A `forbidden` class is a configuration fact that no retry changes; anything else is a failure to
- * reach a verdict, and saying "not authorized" there would report a network blip as a misconfigured
- * identity.
+ * A retryable failure is not a verdict at all, and saying "not authorized" there would report a
+ * network blip as a misconfigured identity.
+ *
+ * A permanent failure is not automatically an authorization one either. The SMTP classifier reaches
+ * `forbidden` from any 5xx reply, and 5xx also covers a refused recipient and an oversized message,
+ * so a bare 5xx establishes that the attempt will never succeed without establishing why. Naming
+ * the key there would send an operator to rotate a credential that was never the problem, so the
+ * claim is only made on the evidence that supports it.
  */
 const describeProbeFailure = (transport: string, error: unknown): string => {
   const sender = serverEnv.authEmailFrom ?? "(unset)";
   const { failureClass, providerCode, statusCode, detail } = describeEmailFailure(error);
+  const codes = `(code ${providerCode ?? "none"}, status ${statusCode ?? "none"})`;
 
   if (failureClass !== "forbidden") {
     return (
@@ -137,11 +144,19 @@ const describeProbeFailure = (transport: string, error: unknown): string => {
     );
   }
 
+  if (!isAuthorizationRefusal(providerCode, statusCode)) {
+    return (
+      `sender "${sender}" could not be proven authorized over ${transport}: the send was refused ` +
+      `permanently ${codes}, but the reply does not say the credential or the sending identity ` +
+      "was the reason. Read the detail before changing any key. " +
+      detail
+    );
+  }
+
   return (
     `sender "${sender}" is NOT AUTHORIZED for the configured RESEND_API_KEY over ${transport} ` +
-    `(code ${providerCode ?? "none"}, status ${statusCode ?? "none"}). This does not say whether ` +
-    "the domain is verified: a key not scoped to a verified domain and a domain that was never " +
-    `verified are refused identically. ${detail}`
+    `${codes}. This does not say whether the domain is verified: a key not scoped to a verified ` +
+    `domain and a domain that was never verified are refused identically. ${detail}`
   );
 };
 

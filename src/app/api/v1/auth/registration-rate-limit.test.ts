@@ -31,8 +31,8 @@ import { POST as registerPost } from "@/app/api/v1/auth/register/route";
 import { POST as resendPost } from "@/app/api/v1/auth/register/resend/route";
 import {
   REGISTRATION_RATE_LIMIT,
-  REGISTRATION_RESEND_EMAIL_LIMIT,
   REGISTRATION_RESEND_IP_LIMIT,
+  VERIFICATION_EMAIL_ADDRESS_LIMIT,
 } from "@/server/auth/rate-limit-constants";
 
 const ALLOWED = { allowed: true, retryAfterSeconds: 0 };
@@ -66,14 +66,20 @@ afterEach(() => {
 });
 
 describe("POST /api/v1/auth/register", () => {
-  it("is bounded per client IP", async () => {
+  it("is bounded by client IP and by the address being mailed", async () => {
     await registerPost(registerRequest({ email: "baru@seed.lombakita.local" }));
 
-    expect(keysChecked()).toEqual([`${REGISTRATION_RATE_LIMIT.keyPrefix}203.0.113.9`]);
+    expect(keysChecked()).toEqual([
+      `${REGISTRATION_RATE_LIMIT.keyPrefix}203.0.113.9`,
+      `${VERIFICATION_EMAIL_ADDRESS_LIMIT.keyPrefix}baru@seed.lombakita.local`,
+    ]);
   });
 
-  it("refuses over the limit WITHOUT creating the account or billing a send", async () => {
-    checkFixedWindowLimit.mockResolvedValue(REFUSED);
+  it("refuses on the IP bound without creating the account", async () => {
+    // ONLY the IP bound refuses; the address bound allows. Refusing both would let the address
+    // check mask the IP check, and a probe that removed the IP refusal would still see a 429 and
+    // an uncalled service — passing over a bound that had stopped working.
+    checkFixedWindowLimit.mockResolvedValueOnce(REFUSED);
 
     const response = await registerPost(registerRequest({ email: "baru@seed.lombakita.local" }));
 
@@ -81,6 +87,34 @@ describe("POST /api/v1/auth/register", () => {
     expect(response.headers.get("Retry-After")).toBe("42");
     // The gate's whole point: the work does not happen.
     expect(registerUserWithCredentials).not.toHaveBeenCalled();
+  });
+
+  it("refuses on the address bound without creating the account", async () => {
+    // IP allowed, address refused: the distributed-attacker case the IP key cannot see, and the
+    // reason /register needs an address bound of its own rather than the IP bound alone.
+    checkFixedWindowLimit.mockResolvedValueOnce(ALLOWED).mockResolvedValueOnce(REFUSED);
+
+    const response = await registerPost(registerRequest({ email: "korban@seed.lombakita.local" }));
+
+    expect(response.status).toBe(429);
+    expect(registerUserWithCredentials).not.toHaveBeenCalled();
+  });
+
+  it("skips the IP bound when the client IP cannot be resolved", async () => {
+    // An unresolvable IP collapses every caller into one bucket. Sharing it would take signup
+    // offline for everybody the moment a forwarded header went missing, so the IP bound is skipped
+    // and the address bound carries the request on its own.
+    const request = new Request("http://localhost/api/v1/auth/register?as=candidate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "baru@seed.lombakita.local" }),
+    });
+
+    await registerPost(request);
+
+    expect(keysChecked()).toEqual([
+      `${VERIFICATION_EMAIL_ADDRESS_LIMIT.keyPrefix}baru@seed.lombakita.local`,
+    ]);
   });
 
   it("lets a request through under the limit", async () => {
@@ -91,13 +125,32 @@ describe("POST /api/v1/auth/register", () => {
   });
 });
 
+describe("the per-address budget", () => {
+  it("is one bucket shared by register and resend, so alternating them draws from the same one", async () => {
+    // The property that makes the bound mean what it says. Two counters would let a caller
+    // alternate the endpoints and collect both allowances against one victim, and each endpoint
+    // would report a bound it was not really enforcing.
+    await registerPost(registerRequest({ email: "korban@seed.lombakita.local" }));
+    await resendPost(resendRequest({ email: "korban@seed.lombakita.local" }));
+
+    const addressKeys = keysChecked().filter((key) =>
+      key.startsWith(VERIFICATION_EMAIL_ADDRESS_LIMIT.keyPrefix),
+    );
+
+    expect(addressKeys).toEqual([
+      `${VERIFICATION_EMAIL_ADDRESS_LIMIT.keyPrefix}korban@seed.lombakita.local`,
+      `${VERIFICATION_EMAIL_ADDRESS_LIMIT.keyPrefix}korban@seed.lombakita.local`,
+    ]);
+  });
+});
+
 describe("POST /api/v1/auth/register/resend", () => {
   it("is bounded by client IP and by the address being mailed", async () => {
     await resendPost(resendRequest({ email: "orang@seed.lombakita.local" }));
 
     expect(keysChecked()).toEqual([
       `${REGISTRATION_RESEND_IP_LIMIT.keyPrefix}203.0.113.9`,
-      `${REGISTRATION_RESEND_EMAIL_LIMIT.keyPrefix}orang@seed.lombakita.local`,
+      `${VERIFICATION_EMAIL_ADDRESS_LIMIT.keyPrefix}orang@seed.lombakita.local`,
     ]);
   });
 
@@ -128,7 +181,7 @@ describe("POST /api/v1/auth/register/resend", () => {
     await resendPost(resendRequest({ email: "  ORANG@Seed.Lombakita.Local  " }));
 
     expect(keysChecked()).toContain(
-      `${REGISTRATION_RESEND_EMAIL_LIMIT.keyPrefix}orang@seed.lombakita.local`,
+      `${VERIFICATION_EMAIL_ADDRESS_LIMIT.keyPrefix}orang@seed.lombakita.local`,
     );
   });
 
@@ -142,7 +195,7 @@ describe("POST /api/v1/auth/register/resend", () => {
     await resendPost(resendRequest({ email: "tidak.ada@seed.lombakita.local" })).catch(() => {});
 
     expect(keysChecked()).toContain(
-      `${REGISTRATION_RESEND_EMAIL_LIMIT.keyPrefix}tidak.ada@seed.lombakita.local`,
+      `${VERIFICATION_EMAIL_ADDRESS_LIMIT.keyPrefix}tidak.ada@seed.lombakita.local`,
     );
   });
 });

@@ -6,28 +6,12 @@ import {
 import { toCredentialsAuthErrorResponse } from "@/server/auth/credentials-auth-api";
 import { extractClientIp } from "@/server/auth/client-ip";
 import {
-  REGISTRATION_RESEND_EMAIL_LIMIT,
   REGISTRATION_RESEND_IP_LIMIT,
+  VERIFICATION_EMAIL_ADDRESS_LIMIT,
 } from "@/server/auth/rate-limit-constants";
-import { rateLimitedResponse } from "@/server/auth/rate-limit-response";
+import { checkClientIpBound, rateLimitedResponse } from "@/server/auth/rate-limit-response";
+import { verificationEmailTargetOf } from "@/server/auth/verification-email-target";
 import { checkFixedWindowLimit } from "@/server/redis/rate-limit";
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-};
-
-/**
- * The address a request is asking to mail, normalised for use as a counter key.
- *
- * Lower-cased and trimmed so `A@x.com ` and `a@x.com` share one bucket; without that, an attacker
- * varies the case and gets a fresh allowance per spelling.
- */
-const resendTargetOf = (payload: unknown): string | null => {
-  if (!isRecord(payload)) return null;
-  const email = payload.email;
-
-  return typeof email === "string" && email.trim() !== "" ? email.trim().toLowerCase() : null;
-};
 
 /**
  * Resends a registration verification email.
@@ -37,6 +21,9 @@ const resendTargetOf = (payload: unknown): string | null => {
  * shapes of the abuse: the IP key stops a single host sweeping the endpoint, and the address key
  * stops a distributed caller having the platform mail one person indefinitely.
  *
+ * The address budget is the one /register also draws from, so alternating the two endpoints cannot
+ * collect both allowances against one victim.
+ *
  * Both are FAIL-OPEN, matching identify and credentials login (DEC-0098). A Redis outage that
  * blocked every verification resend would lock out exactly the users who cannot get in yet, which
  * is a worse and likelier harm than the abuse being bounded. The MFA routes fail closed instead
@@ -44,28 +31,28 @@ const resendTargetOf = (payload: unknown): string | null => {
  * applies here.
  */
 export async function POST(request: Request): Promise<Response> {
+  // An unresolvable client IP collapses every caller into one bucket, which would take the endpoint
+  // offline for everybody the moment a forwarded header goes missing. Skipped rather than shared,
+  // the same trade the credentials login path makes. The address bound below still applies.
   const clientIp = extractClientIp((name) => request.headers.get(name));
-  const ipRate = await checkFixedWindowLimit({
-    key: `${REGISTRATION_RESEND_IP_LIMIT.keyPrefix}${clientIp}`,
-    limit: REGISTRATION_RESEND_IP_LIMIT.limit,
-    windowSeconds: REGISTRATION_RESEND_IP_LIMIT.windowSeconds,
-  });
+  const ipRate = await checkClientIpBound(clientIp, REGISTRATION_RESEND_IP_LIMIT);
+
   if (!ipRate.allowed) {
     return rateLimitedResponse(ipRate.retryAfterSeconds);
   }
 
   try {
     const payload = await request.json();
-    const target = resendTargetOf(payload);
+    const target = verificationEmailTargetOf(payload);
 
     if (target) {
       // COUNTED BEFORE THE LOOKUP, so the cap is reached at the same rate whether or not the
       // address has an account. A counter advanced only by real sends would cap known addresses
       // alone, making the 429 itself an existence oracle.
       const addressRate = await checkFixedWindowLimit({
-        key: `${REGISTRATION_RESEND_EMAIL_LIMIT.keyPrefix}${target}`,
-        limit: REGISTRATION_RESEND_EMAIL_LIMIT.limit,
-        windowSeconds: REGISTRATION_RESEND_EMAIL_LIMIT.windowSeconds,
+        key: `${VERIFICATION_EMAIL_ADDRESS_LIMIT.keyPrefix}${target}`,
+        limit: VERIFICATION_EMAIL_ADDRESS_LIMIT.limit,
+        windowSeconds: VERIFICATION_EMAIL_ADDRESS_LIMIT.windowSeconds,
       });
       if (!addressRate.allowed) {
         return rateLimitedResponse(addressRate.retryAfterSeconds);

@@ -6,8 +6,12 @@ import {
 } from "@/server/auth/credentials-auth";
 import { toCredentialsAuthErrorResponse } from "@/server/auth/credentials-auth-api";
 import { extractClientIp } from "@/server/auth/client-ip";
-import { REGISTRATION_RATE_LIMIT } from "@/server/auth/rate-limit-constants";
-import { rateLimitedResponse } from "@/server/auth/rate-limit-response";
+import {
+  REGISTRATION_RATE_LIMIT,
+  VERIFICATION_EMAIL_ADDRESS_LIMIT,
+} from "@/server/auth/rate-limit-constants";
+import { checkClientIpBound, rateLimitedResponse } from "@/server/auth/rate-limit-response";
+import { verificationEmailTargetOf } from "@/server/auth/verification-email-target";
 import { checkFixedWindowLimit } from "@/server/redis/rate-limit";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -18,17 +22,18 @@ export async function POST(request: Request): Promise<Response> {
   // BEFORE the body is parsed and before any row is written: registration is unauthenticated
   // account-creation that also bills a verification send, so an unbounded endpoint amplifies both.
   //
+  // An unresolvable client IP collapses every caller into one bucket, which would take signup
+  // offline for everybody the moment a forwarded header goes missing. Skipped rather than shared,
+  // the same trade the credentials login path makes. The address bound below still applies.
+  //
   // FAIL-OPEN (checkFixedWindowLimit), matching identify and credentials login. A Redis outage
   // taking every new signup offline is a larger and far likelier harm than the abuse this bounds,
   // and unlike the MFA routes there is no account under attack here to justify the opposite trade.
   const clientIp = extractClientIp((name) => request.headers.get(name));
-  const rate = await checkFixedWindowLimit({
-    key: `${REGISTRATION_RATE_LIMIT.keyPrefix}${clientIp}`,
-    limit: REGISTRATION_RATE_LIMIT.limit,
-    windowSeconds: REGISTRATION_RATE_LIMIT.windowSeconds,
-  });
-  if (!rate.allowed) {
-    return rateLimitedResponse(rate.retryAfterSeconds);
+  const ipRate = await checkClientIpBound(clientIp, REGISTRATION_RATE_LIMIT);
+
+  if (!ipRate.allowed) {
+    return rateLimitedResponse(ipRate.retryAfterSeconds);
   }
 
   try {
@@ -52,6 +57,24 @@ export async function POST(request: Request): Promise<Response> {
             "Signup role declaration is required: use ?as=candidate or ?as=recruiter",
           ),
         );
+      }
+    }
+
+    // The per-address budget, shared with /register/resend. Registering an address that already
+    // exists but is unverified re-sends the verification email rather than being refused, so this
+    // endpoint mails a caller-named address exactly as the resend endpoint does and has to draw
+    // from the same allowance. Counted before the address is looked up, so the 429 arrives at the
+    // same point whether or not an account exists.
+    const target = verificationEmailTargetOf(payload);
+
+    if (target) {
+      const addressRate = await checkFixedWindowLimit({
+        key: `${VERIFICATION_EMAIL_ADDRESS_LIMIT.keyPrefix}${target}`,
+        limit: VERIFICATION_EMAIL_ADDRESS_LIMIT.limit,
+        windowSeconds: VERIFICATION_EMAIL_ADDRESS_LIMIT.windowSeconds,
+      });
+      if (!addressRate.allowed) {
+        return rateLimitedResponse(addressRate.retryAfterSeconds);
       }
     }
 

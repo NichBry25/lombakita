@@ -21,6 +21,7 @@
 import postgres from "postgres";
 import { serverEnv } from "@/config/env.server";
 import { CANONICAL_DATABASE_NAME, type DeployEnvironment } from "@/config/env-shape";
+import { resolveDatabaseSslOption } from "@/server/db/ssl-options";
 
 export const isMigrationDatabaseConfigured = (): boolean => {
   return Boolean(process.env.MIGRATION_DATABASE_URL);
@@ -54,12 +55,13 @@ export const probeMigrationDatabase = async (): Promise<void> => {
   }
 
   const expected = CANONICAL_DATABASE_NAME[environment];
+  const ssl = resolveDatabaseSslOption();
   const sql = postgres(url, {
     max: 1,
     idle_timeout: 5,
     connect_timeout: 15,
     prepare: false,
-    ssl: "require",
+    ...(ssl !== undefined ? { ssl } : {}),
   });
 
   try {
