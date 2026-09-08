@@ -10,9 +10,12 @@ import {
   REGISTRATION_RATE_LIMIT,
   VERIFICATION_EMAIL_ADDRESS_LIMIT,
 } from "@/server/auth/rate-limit-constants";
-import { checkClientIpBound, rateLimitedResponse } from "@/server/auth/rate-limit-response";
+import {
+  checkClientIpBound,
+  checkOptionalBound,
+  rateLimitedResponse,
+} from "@/server/auth/rate-limit-response";
 import { verificationEmailTargetOf } from "@/server/auth/verification-email-target";
-import { checkFixedWindowLimit } from "@/server/redis/rate-limit";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -66,16 +69,10 @@ export async function POST(request: Request): Promise<Response> {
     // from the same allowance. Counted before the address is looked up, so the 429 arrives at the
     // same point whether or not an account exists.
     const target = verificationEmailTargetOf(payload);
+    const addressRate = await checkOptionalBound(target, VERIFICATION_EMAIL_ADDRESS_LIMIT);
 
-    if (target) {
-      const addressRate = await checkFixedWindowLimit({
-        key: `${VERIFICATION_EMAIL_ADDRESS_LIMIT.keyPrefix}${target}`,
-        limit: VERIFICATION_EMAIL_ADDRESS_LIMIT.limit,
-        windowSeconds: VERIFICATION_EMAIL_ADDRESS_LIMIT.windowSeconds,
-      });
-      if (!addressRate.allowed) {
-        return rateLimitedResponse(addressRate.retryAfterSeconds);
-      }
+    if (!addressRate.allowed) {
+      return rateLimitedResponse(addressRate.retryAfterSeconds);
     }
 
     const result = await registerUserWithCredentials(payload);

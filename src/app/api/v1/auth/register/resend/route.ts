@@ -9,9 +9,12 @@ import {
   REGISTRATION_RESEND_IP_LIMIT,
   VERIFICATION_EMAIL_ADDRESS_LIMIT,
 } from "@/server/auth/rate-limit-constants";
-import { checkClientIpBound, rateLimitedResponse } from "@/server/auth/rate-limit-response";
+import {
+  checkClientIpBound,
+  checkOptionalBound,
+  rateLimitedResponse,
+} from "@/server/auth/rate-limit-response";
 import { verificationEmailTargetOf } from "@/server/auth/verification-email-target";
-import { checkFixedWindowLimit } from "@/server/redis/rate-limit";
 
 /**
  * Resends a registration verification email.
@@ -43,20 +46,14 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const payload = await request.json();
+    // COUNTED BEFORE THE LOOKUP, so the cap is reached at the same rate whether or not the address
+    // has an account. A counter advanced only by real sends would cap known addresses alone, making
+    // the 429 itself an existence oracle.
     const target = verificationEmailTargetOf(payload);
+    const addressRate = await checkOptionalBound(target, VERIFICATION_EMAIL_ADDRESS_LIMIT);
 
-    if (target) {
-      // COUNTED BEFORE THE LOOKUP, so the cap is reached at the same rate whether or not the
-      // address has an account. A counter advanced only by real sends would cap known addresses
-      // alone, making the 429 itself an existence oracle.
-      const addressRate = await checkFixedWindowLimit({
-        key: `${VERIFICATION_EMAIL_ADDRESS_LIMIT.keyPrefix}${target}`,
-        limit: VERIFICATION_EMAIL_ADDRESS_LIMIT.limit,
-        windowSeconds: VERIFICATION_EMAIL_ADDRESS_LIMIT.windowSeconds,
-      });
-      if (!addressRate.allowed) {
-        return rateLimitedResponse(addressRate.retryAfterSeconds);
-      }
+    if (!addressRate.allowed) {
+      return rateLimitedResponse(addressRate.retryAfterSeconds);
     }
 
     const result = await resendRegistrationVerification(payload);
