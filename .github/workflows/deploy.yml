@@ -87,6 +87,21 @@ jobs:
           APP_BASE_URL: https://connector-probe.invalid
         run: npm run connectors:status:live -- --environment=preview --require-env-file
 
+      # ── SCHEMA GATE ──
+      # BLOCKING, and deliberately before the build: a checkout whose migration history the
+      # database does not share must not produce a deployment. A warning would not do — this
+      # register's history is that warnings read as green.
+      #
+      # It runs NO migrations. A migration failing part way with a deploy in flight is a worse
+      # failure than the one being closed, and the destructive casts stay under human control per
+      # docs/operations.
+      #
+      # It asserts current_database() in band and refuses on mismatch, so a credential whose name
+      # and host claim one database while reaching another cannot be reported on as if it were the
+      # right one.
+      - name: Verify schema matches this checkout
+        run: npm run verify:schema-drift -- --environment=preview --require-env-file
+
       # `vercel build` runs here, not on Vercel, so Vercel's system variables
       # are absent — including VERCEL_URL, which is what resolves the base URL
       # on a preview deployment. Preview has no stable URL to hardcode (deriving
@@ -147,6 +162,10 @@ jobs:
   # Database migrations are intentionally NOT run here — they remain a manual
   # operator step per docs/operations (AUTH_SECRET-rotation ordering and
   # destructive casts must stay under human control). This job deploys code only.
+  #
+  # It does, however, now REFUSE TO DEPLOY against a database whose migration history differs from
+  # this checkout's ("Verify schema matches this checkout"). Not running migrations and not noticing
+  # that they are missing are two different things, and only the first was ever intended.
   deploy-production:
     name: Deploy to production
     if: github.event_name != 'pull_request'
@@ -204,6 +223,12 @@ jobs:
       # one would override the real value in the probe process and hide that.
       - name: Verify connectors are reachable
         run: npm run connectors:status:live -- --environment=production --require-env-file
+
+      # ── SCHEMA GATE ──
+      # See the preview job's copy for why this blocks, why it runs no migrations, and why it
+      # asserts the database's own identity rather than trusting the connection string's name.
+      - name: Verify schema matches this checkout
+        run: npm run verify:schema-drift -- --environment=production --require-env-file
 
       - name: Build (prebuilt output)
         run: vercel build --prod

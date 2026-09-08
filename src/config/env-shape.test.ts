@@ -12,6 +12,8 @@ const ACCOUNT_ID = "a".repeat(32);
 
 const wellFormedEnv = (): Record<string, string> => ({
   DATABASE_URL: "postgresql://user:pass@ep-cool-1.ap-southeast-1.aws.neon.tech/lombakita",
+  MIGRATION_DATABASE_URL:
+    "postgresql://migrate:pass@ep-cool-1.ap-southeast-1.aws.neon.tech/lombakita",
   AUTH_SECRET: "x".repeat(44),
   REDIS_URL: "redis://default:secret@caboose.proxy.rlwy.net:29765",
   MEILISEARCH_HOST: "https://meilisearch-production.up.railway.app",
@@ -285,6 +287,7 @@ describe("findDeployConfigProblems", () => {
   it("inspects every key the deployed web runtime depends on", () => {
     expect(DEPLOY_ENV_KEY_SPECS.map((spec) => spec.key)).toEqual([
       "DATABASE_URL",
+      "MIGRATION_DATABASE_URL",
       "AUTH_SECRET",
       "REDIS_URL",
       "MEILISEARCH_HOST",

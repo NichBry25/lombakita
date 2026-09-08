@@ -9,6 +9,10 @@ import {
 } from "@/server/auth/mfa/mfa-encryption-probe";
 import { runConnectorProbe, type ConnectorReadiness } from "@/server/connectors/shared";
 import { isDatabaseConfigured, probeDatabase } from "@/server/db/probe";
+import {
+  isMigrationDatabaseConfigured,
+  probeMigrationDatabase,
+} from "@/server/db/migration-database-probe";
 import { isResendConfigured, probeResend } from "@/server/email/probe";
 import { isSentryConfigured, probeSentry } from "@/server/observability/probe";
 import { isRedisConfigured, probeRedis } from "@/server/redis/probe";
@@ -49,6 +53,18 @@ export const getConnectorStatusPayload = async (
       // The only connector that scales to zero, so the first connection after an idle period can
       // exceed the client's 10s connect timeout while the compute wakes. A second attempt finds it
       // awake. See the retries note on runConnectorProbe for the dual-stack half of the reason.
+      retries: 1,
+    }),
+    // Separate from "postgres" because it is a different credential reaching a different role, and
+    // the fault it catches is invisible to the app's own connection: production's migration
+    // credential pointed at the staging database while DATABASE_URL was correct, so probing one
+    // said nothing about the other.
+    runConnectorProbe({
+      name: "migration-database",
+      configured: isMigrationDatabaseConfigured(),
+      includeLiveChecks,
+      probe: probeMigrationDatabase,
+      // Same scale-to-zero wake as the app's connection, and a separate endpoint to wake.
       retries: 1,
     }),
     runConnectorProbe({

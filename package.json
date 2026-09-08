@@ -38,6 +38,7 @@
     "verify:secrets": "node --import tsx scripts/testing/secret-scan.ts",
     "verify:secrets:history": "node --import tsx scripts/testing/secret-scan.ts --history",
     "verify:deploy-env": "node --import tsx src/server/scripts/verify-deploy-env.ts",
+    "verify:schema-drift": "node --import tsx src/server/scripts/verify-schema-drift.ts",
     "verify:deploy-smoke": "node scripts/deploy/smoke.mjs"
   },
   "dependencies": {
