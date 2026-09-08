@@ -24,8 +24,17 @@ const RESEND = "src/app/api/v1/auth/register/resend/route.ts";
 
 const TEST = "src/app/api/v1/auth/registration-rate-limit.test.ts";
 
-/** Names the service-not-called cases, so a renamed file cannot report itself as proof. */
-const REACHED = /WITHOUT creating the account|without billing a send/;
+/**
+ * One pattern per probe, each naming the single case that probe claims to break.
+ *
+ * A shared pattern across all four was wrong twice over: it let a probe cite a line belonging to a
+ * different route's case, and — because `refusedWhen` reports the FIRST matching line — one probe
+ * printed a PASSING case as its evidence. A detector that cannot say which assertion failed has not
+ * met clause 3, whatever exit code it read.
+ */
+const REACHED_REGISTER = /× .*refuses over the limit WITHOUT creating the account/;
+const REACHED_RESEND_IP = /× .*refuses on the IP bound without billing a send/;
+const REACHED_RESEND_ADDRESS = /× .*refuses on the address bound without billing a send/;
 
 export const probes = [
   {
@@ -39,7 +48,7 @@ export const probes = [
     // Keeps `rate` read, so the mutation compiles and only the refusal is removed.
     mutate: () =>
       substituteOnce(REGISTER, "if (!rate.allowed) {", "if (rate.allowed && !rate.allowed) {"),
-    detect: async () => fails("npx", ["vitest", "run", TEST], REACHED),
+    detect: async () => fails("npx", ["vitest", "run", TEST], REACHED_REGISTER),
   },
   {
     name: "register: the bound refuses BEFORE the account is created",
@@ -70,7 +79,7 @@ export const probes = [
     }`,
       );
     },
-    detect: async () => fails("npx", ["vitest", "run", TEST], REACHED),
+    detect: async () => fails("npx", ["vitest", "run", TEST], REACHED_REGISTER),
   },
   {
     name: "resend: the address bound is what refuses",
@@ -86,7 +95,7 @@ export const probes = [
         "if (!addressRate.allowed) {",
         "if (addressRate.allowed && !addressRate.allowed) {",
       ),
-    detect: async () => fails("npx", ["vitest", "run", TEST], REACHED),
+    detect: async () => fails("npx", ["vitest", "run", TEST], REACHED_RESEND_ADDRESS),
   },
   {
     name: "resend: the bound refuses BEFORE the send is billed",
@@ -116,7 +125,7 @@ export const probes = [
     }`,
       );
     },
-    detect: async () => fails("npx", ["vitest", "run", TEST], REACHED),
+    detect: async () => fails("npx", ["vitest", "run", TEST], REACHED_RESEND_IP),
   },
 ];
 

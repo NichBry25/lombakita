@@ -102,7 +102,10 @@ describe("POST /api/v1/auth/register/resend", () => {
   });
 
   it("refuses on the IP bound without billing a send", async () => {
-    checkFixedWindowLimit.mockResolvedValue(REFUSED);
+    // ONLY the IP bound refuses; the address bound allows. Refusing both would let the address
+    // check mask the IP check's position, and the probe that moves the IP check below the send
+    // would then pass while the send was being billed.
+    checkFixedWindowLimit.mockResolvedValueOnce(REFUSED);
 
     const response = await resendPost(resendRequest({ email: "orang@seed.lombakita.local" }));
 
