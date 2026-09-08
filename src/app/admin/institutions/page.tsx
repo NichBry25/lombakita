@@ -11,6 +11,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
+import { emailDeliveryWarning } from "@/lib/email/delivery-notice";
 
 type VerificationStatus = "pending_verification" | "under_review" | "verified" | "rejected";
 
@@ -107,6 +108,13 @@ function RejectInstitutionForm({
         addToast({ type: "error", message: data?.error?.message ?? `Error ${res.status}` });
         return;
       }
+
+      // The status change is committed either way, so a failed notice is a warning on a success.
+      const deliveryWarning = emailDeliveryWarning(data?.emailDelivery);
+      if (deliveryWarning) {
+        addToast({ type: "warning", message: deliveryWarning, duration: 0 });
+      }
+
       onClose();
       onSuccess();
     } catch {
@@ -216,7 +224,7 @@ export default function AdminInstitutionsPage() {
       if (!res.ok) {
         return { ok: false, message: data?.error?.message ?? `Error ${res.status}` };
       }
-      return { ok: true };
+      return { ok: true, deliveryWarning: emailDeliveryWarning(data?.emailDelivery) };
     } finally {
       setActionLoading(false);
     }
@@ -229,6 +237,9 @@ export default function AdminInstitutionsPage() {
     if (!result.ok) {
       addToast({ type: "error", message: `Gagal: ${result.message}` });
       return;
+    }
+    if (result.deliveryWarning) {
+      addToast({ type: "warning", message: result.deliveryWarning, duration: 0 });
     }
     await fetchInstitutions();
   };

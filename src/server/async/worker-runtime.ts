@@ -19,6 +19,7 @@ import {
   logProcessSucceeded,
   toSafeErrorMessage,
 } from "@/server/async/observability";
+import { describeEmailFailure } from "@/server/email/send-failure";
 import { getQueueRegistrations, getRegisteredQueueNames } from "@/server/async/registry";
 import { registerRetentionPurgeSchedule } from "@/server/async/retention-scheduler";
 import { registerPaymentExpirySchedule } from "@/server/async/payment-expiry-scheduler";
@@ -133,6 +134,7 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
       }
 
       const errorMessage = toSafeErrorMessage(error);
+      const failure = describeEmailFailure(error);
 
       logProcessFailed({
         queueName,
@@ -141,6 +143,7 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
         attemptsMade: job.attemptsMade,
         attemptsPlanned: resolvePlannedAttempts(job),
         errorMessage,
+        emailFailureClass: failure.failureClass,
       });
 
       if (resolveRetryPending(job)) {
@@ -151,7 +154,23 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
           attemptsMade: job.attemptsMade,
           attemptsPlanned: resolvePlannedAttempts(job),
           errorMessage,
+          emailFailureClass: failure.failureClass,
         });
+
+        // A rejected credential or sending identity answers the same way on every attempt, so
+        // waiting out the retry budget only delays the report. Captured on the first attempt alone,
+        // because the exhaustion path below still reports it once the retries are spent.
+        if (failure.failureClass !== "transient" && job.attemptsMade <= 1) {
+          captureWorkerJobFailure({
+            queueName,
+            jobName: toAsyncJobName(job.name),
+            jobId: job.id,
+            attemptsMade: job.attemptsMade,
+            attemptsPlanned: resolvePlannedAttempts(job),
+            error,
+            emailFailureClass: failure.failureClass,
+          });
+        }
 
         return;
       }
@@ -163,6 +182,7 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
         attemptsMade: job.attemptsMade,
         attemptsPlanned: resolvePlannedAttempts(job),
         error,
+        emailFailureClass: failure.failureClass,
       });
     });
 

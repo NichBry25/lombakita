@@ -19,6 +19,7 @@ import * as Sentry from "@sentry/node";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
 import type { AsyncJobName, AsyncQueueName } from "@/server/async/contracts";
+import type { EmailFailureClass } from "@/server/email/send-failure";
 
 export const initializeWorkerSentry = (): void => {
   const dsn = serverEnv.sentryDsn;
@@ -44,6 +45,7 @@ type WorkerJobFailure = {
   attemptsMade: number;
   attemptsPlanned: number;
   error: unknown;
+  emailFailureClass?: EmailFailureClass;
 };
 
 /**
@@ -63,6 +65,9 @@ export const captureWorkerJobFailure = (failure: WorkerJobFailure): void => {
     tags: {
       queueName: failure.queueName,
       jobName: failure.jobName,
+      // A tag rather than an extra, so an operator can filter the alert stream down to the
+      // failures that no retry will clear.
+      ...(failure.emailFailureClass ? { emailFailureClass: failure.emailFailureClass } : {}),
     },
     extra: {
       jobId: failure.jobId,

@@ -10,6 +10,10 @@ import {
   type InstitutionVerificationStatus,
 } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
+import {
+  awaitDeliveryAndReportFailure,
+  type EmailDeliveryOutcome,
+} from "@/server/email/delivery-outcome";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import {
   getInstitutionDisplayName,
@@ -62,6 +66,8 @@ export type VerifyResult = {
     rejectionReason: string | null;
   };
   auditEntry: VerificationAuditEntry;
+  // null when no notice was due; otherwise whether it actually went out.
+  emailDelivery: EmailDeliveryOutcome | null;
 };
 
 const PAGE_SIZE = 20;
@@ -317,9 +323,15 @@ export const verifyInstitution = async (options: {
     reason: options.reason,
   });
 
-  // Post-commit email dispatch — non-blocking and non-fatal.
+  // Post-commit email dispatch — non-fatal, and awaited so the caller can be told the truth about
+  // it. The transition is already committed above; a failed notice never unwinds it.
   // adminRow lookup runs after the committed transaction; wrap in try/catch so a DB error
   // here does not produce a 500 response that makes the caller think the transition failed.
+  //
+  // Stays null when there was nothing to send (no owner, or a status that notifies nobody), which
+  // is what keeps "not attempted" distinguishable from "attempted and succeeded".
+  let emailDelivery: EmailDeliveryOutcome | null = null;
+
   if (options.targetStatus === "verified" || options.targetStatus === "rejected") {
     try {
       const [adminRow] = await db
@@ -369,12 +381,9 @@ export const verifyInstitution = async (options: {
           });
         }
 
-        emailTask.catch((err: unknown) => {
-          logger.error("institution.verification.email_failed", {
-            institutionId: options.institutionId,
-            targetStatus: options.targetStatus,
-            error: err instanceof Error ? err.message : String(err),
-          });
+        emailDelivery = await awaitDeliveryAndReportFailure(emailTask, {
+          event: `institution.verification.${options.targetStatus}`,
+          institutionId: options.institutionId,
         });
       }
     } catch (err: unknown) {
@@ -389,5 +398,6 @@ export const verifyInstitution = async (options: {
   return {
     institution: institutionSnapshot!,
     auditEntry: auditEntry!,
+    emailDelivery,
   };
 };

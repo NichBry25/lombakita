@@ -4,6 +4,7 @@ assertServerOnly("server/async/observability");
 
 import { logger } from "@/lib/logger";
 import type { AsyncJobName, AsyncQueueName } from "@/server/async/contracts";
+import type { EmailFailureClass } from "@/server/email/send-failure";
 
 export type AsyncJobLifecycleEvent =
   | "enqueue.requested"
@@ -23,6 +24,9 @@ type AsyncJobLifecycleContext = {
   duplicate?: boolean;
   durationMs?: number;
   errorMessage?: string;
+  // Set only on a failure whose cause was an outbound email. It separates a rejected credential or
+  // sending identity, which every retry will reproduce, from a failure worth retrying.
+  emailFailureClass?: EmailFailureClass;
 };
 
 const writeLifecycleLog = (
@@ -40,6 +44,7 @@ const writeLifecycleLog = (
     duplicate: context.duplicate,
     durationMs: context.durationMs,
     errorMessage: context.errorMessage,
+    emailFailureClass: context.emailFailureClass,
   };
 
   if (event === "process.failed") {

@@ -3,6 +3,7 @@ import { publicEnv } from "@/config/env";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
 import { resolveEmailDelivery } from "@/server/email/delivery";
+import { throwEmailSendFailure } from "@/server/email/send-failure";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/institution-invitations/invitation-email");
@@ -114,7 +115,7 @@ export const sendInstitutionInvitationEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(`Resend email dispatch failed: ${error.message}`);
+    throwEmailSendFailure("institution_invitation", error);
   }
 
   logger.info("invitation.email_sent", {

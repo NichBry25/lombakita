@@ -1,6 +1,10 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { AccessError } from "@/server/auth/access-core";
+import {
+  awaitDeliveryAndReportFailure,
+  type EmailDeliveryOutcome,
+} from "@/server/email/delivery-outcome";
 import { getDb, type Database } from "@/server/db/client";
 import {
   institutionMemberships,
@@ -516,12 +520,21 @@ export const reviewVerificationSubmission = async (
   reviewerUserId: string,
   actorRole: string,
   db: Database = getDb(),
-): Promise<{ submissionId: string; status: VerificationSubmissionStatus }> => {
+): Promise<{
+  submissionId: string;
+  status: VerificationSubmissionStatus;
+  emailDelivery: EmailDeliveryOutcome | null;
+}> => {
   if (actorRole !== "platform_ops") {
     throw new AccessError("forbidden", 403, "platform_ops access required");
   }
 
-  return db.transaction(async (tx) => {
+  // Assigned inside the transaction but awaited after it commits. The send must not be awaited in
+  // the callback: that would hold the transaction open across a call to the email provider, and on
+  // pooled Postgres a connection held for a network round trip is the expensive kind of mistake.
+  let ownersEmailPromise: Promise<void> | null = null;
+
+  const reviewed = await db.transaction(async (tx) => {
     // CAS guard: only pending_review submissions can be reviewed.
     const [sub] = await tx
       .select({
@@ -587,7 +600,7 @@ export const reviewVerificationSubmission = async (
         reviewerUserId,
       });
 
-      return { submissionId, status: "rejected" };
+      return { submissionId, status: "rejected" as const, institutionId: sub.institutionId };
     }
 
     // Approval path. Verification confirms an institution's documents; it never changes the
@@ -642,8 +655,8 @@ export const reviewVerificationSubmission = async (
       reviewerUserId,
     });
 
-    // Post-commit email (non-blocking, best-effort).
-    const ownersEmailPromise = (async () => {
+    // Owner notice. Started here, resolved after the commit below.
+    ownersEmailPromise = (async () => {
       const [ownerRow] = await db
         .select({ email: users.email, username: users.username })
         .from(institutionMemberships)
@@ -674,14 +687,17 @@ export const reviewVerificationSubmission = async (
       }
     })();
 
-    ownersEmailPromise.catch((err: unknown) => {
-      logger.error("institution.verification.submission.email_failed", {
-        submissionId,
-        institutionId: sub.institutionId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-
-    return { submissionId, status: "approved" };
+    return { submissionId, status: "approved" as const, institutionId: sub.institutionId };
   });
+
+  if (!ownersEmailPromise) {
+    return { submissionId: reviewed.submissionId, status: reviewed.status, emailDelivery: null };
+  }
+
+  const emailDelivery = await awaitDeliveryAndReportFailure(ownersEmailPromise, {
+    event: "institution.verification.submission.approved",
+    institutionId: reviewed.institutionId,
+  });
+
+  return { submissionId: reviewed.submissionId, status: reviewed.status, emailDelivery };
 };

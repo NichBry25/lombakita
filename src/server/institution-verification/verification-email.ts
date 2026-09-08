@@ -2,6 +2,7 @@ import { Resend } from "resend";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
 import { resolveEmailDelivery } from "@/server/email/delivery";
+import { throwEmailSendFailure } from "@/server/email/send-failure";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/institution-verification/verification-email");
@@ -69,7 +70,7 @@ export const sendInstitutionVerifiedEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(`Resend verified email dispatch failed: ${error.message}`);
+    throwEmailSendFailure("institution_verified", error);
   }
 
   logger.info("institution.verified.email_sent", {
@@ -137,7 +138,7 @@ export const sendInstitutionVerificationRevokedEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(`Resend revoked email dispatch failed: ${error.message}`);
+    throwEmailSendFailure("institution_verification_revoked", error);
   }
 
   logger.info("institution.verification_revoked.email_sent", {
@@ -200,7 +201,7 @@ export const sendInstitutionRejectedEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(`Resend rejected email dispatch failed: ${error.message}`);
+    throwEmailSendFailure("institution_verification_rejected", error);
   }
 
   logger.info("institution.rejected.email_sent", {
