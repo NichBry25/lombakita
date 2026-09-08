@@ -4,6 +4,7 @@ import { toCredentialsAuthErrorResponse } from "@/server/auth/credentials-auth-a
 import { extractClientIp } from "@/server/auth/client-ip";
 import { IDENTIFY_RATE_LIMIT } from "@/server/auth/rate-limit-constants";
 import { checkFixedWindowLimit } from "@/server/redis/rate-limit";
+import { rateLimitedResponse } from "@/server/auth/rate-limit-response";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -26,15 +27,7 @@ export async function POST(request: Request): Promise<Response> {
     windowSeconds: IDENTIFY_RATE_LIMIT.windowSeconds,
   });
   if (!rate.allowed) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "rate_limited",
-          message: "Terlalu banyak percobaan. Coba lagi beberapa saat.",
-        },
-      },
-      { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } },
-    );
+    return rateLimitedResponse(rate.retryAfterSeconds);
   }
 
   try {

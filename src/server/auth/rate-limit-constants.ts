@@ -26,6 +26,54 @@ export const LOGIN_FAILED_ATTEMPT_LIMIT = {
   keyPrefix: "rl:login-fail:",
 } as const;
 
+/**
+ * Fixed-window limiter on POST /api/v1/auth/register, keyed by client IP.
+ *
+ * Registration is unauthenticated account-creation that also bills a verification send, so an
+ * unbounded endpoint is both a row-creation amplifier and an email amplifier at once. Keyed by IP
+ * only: an email key would be useless here, because a repeat of the same address is already refused
+ * by the unique constraint before any send happens.
+ *
+ * The ceiling is sized for a shared campus NAT rather than for one household, the same reasoning
+ * that raised IDENTIFY_RATE_LIMIT to 60/60s. A genuine signup is one call.
+ */
+export const REGISTRATION_RATE_LIMIT = {
+  limit: 30,
+  windowSeconds: 10 * 60,
+  keyPrefix: "rl:register:",
+} as const;
+
+/**
+ * Fixed-window limiter on POST /api/v1/auth/register/resend, keyed by client IP.
+ *
+ * The broad-sweep bound. Stops one host from driving the endpoint at scale; it does NOT stop a
+ * distributed attacker from mailing one victim repeatedly, which is what the per-address limiter
+ * below is for. Neither key covers the other's case, which is why both exist.
+ */
+export const REGISTRATION_RESEND_IP_LIMIT = {
+  limit: 20,
+  windowSeconds: 10 * 60,
+  keyPrefix: "rl:register-resend-ip:",
+} as const;
+
+/**
+ * Fixed-window limiter on the resend endpoint, keyed by the requested ADDRESS.
+ *
+ * This is the anti-amplification bound proper: without it, an attacker rotating IPs can have the
+ * platform mail one person without limit, at the platform's own expense and against its sending
+ * reputation. A real user needs one resend, occasionally two.
+ *
+ * COUNTED BEFORE THE ADDRESS IS LOOKED UP, deliberately. A counter that only advanced when a send
+ * actually happened would cap known addresses and never cap unknown ones, so reaching the cap would
+ * itself disclose that an account exists — the enumeration leak the endpoint's uniform response is
+ * written to avoid. Incrementing on every request keeps the over-limit signal identical either way.
+ */
+export const REGISTRATION_RESEND_EMAIL_LIMIT = {
+  limit: 3,
+  windowSeconds: 10 * 60,
+  keyPrefix: "rl:register-resend-addr:",
+} as const;
+
 // Prefix for the single-use OAuth carrier nonce (auth-D2 / 6.5d-D2). The carrier's `jti` is appended
 // and consumed via an atomic SET NX at finalize so a captured /auth/login?oauth=<carrier> URL cannot
 // be redeemed a second time inside its 15-minute TTL.

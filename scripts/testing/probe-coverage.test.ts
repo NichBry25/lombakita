@@ -24,6 +24,7 @@ import { probes as browserAuditProbes } from "./probes/browser-audit-refusals.mj
 import { probes as shellContentProbes } from "./probes/shell-content.mjs";
 import { probes as emailFailureProbes } from "./probes/email-failure-visibility.mjs";
 import { probes as fixtureRecipientProbes } from "./probes/fixture-recipients.mjs";
+import { probes as registrationRateLimitProbes } from "./probes/registration-rate-limit.mjs";
 
 const SUITES: Record<string, Probe[]> = {
   "config-gates": configGateProbes,
@@ -31,6 +32,7 @@ const SUITES: Record<string, Probe[]> = {
   "shell-content": shellContentProbes,
   "email-failure-visibility": emailFailureProbes,
   "fixture-recipients": fixtureRecipientProbes,
+  "registration-rate-limit": registrationRateLimitProbes,
 };
 
 const everyProbe: [string, Probe][] = Object.entries(SUITES).flatMap(([suite, probes]) =>

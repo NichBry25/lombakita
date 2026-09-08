@@ -765,8 +765,12 @@ export const verifyRegistrationEmailToken = async (
 // Enumeration note (flagged for security review): branching existing-vs-new inherently reveals
 // whether an email has an account — this is intrinsic to the owner-approved method-first UX. It
 // exposes nothing the existing register endpoint does not already leak (register returns 409
-// `email_exists` for a taken, verified email). Server-side rate-limiting is handled at the
-// route layer, not here.
+// `email_exists` for a taken, verified email).
+//
+// Rate limiting for THIS function is applied by its route (POST /api/v1/auth/identify), before the
+// classification runs. That is a statement about this classifier only, not about the file: the
+// registration and resend paths this module also exports are limited by their own routes, with
+// their own keys and ceilings, and none of the three shares a bucket with another.
 export type EmailLoginState = "none" | "unverified" | "verified";
 
 export const classifyEmailForLogin = async (
