@@ -6,7 +6,10 @@ import { buildServerEnv } from "@/config/env.server";
 const baseEnv = (overrides: Partial<NodeJS.ProcessEnv> = {}): NodeJS.ProcessEnv => ({
   NODE_ENV: "test",
   RESEND_API_KEY: "resend_key",
-  AUTH_EMAIL_FROM: "auth@lombakita.com",
+  // The verified sending subdomain, never the apex: the apex carries the support mailbox's
+  // receiving records, and a fixture that spells it as a sender normalises the one shape
+  // DEC-0204 forbids.
+  AUTH_EMAIL_FROM: "noreply@mail.lombakita.com",
   ...overrides,
 });
 
