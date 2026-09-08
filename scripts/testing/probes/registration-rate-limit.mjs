@@ -55,9 +55,9 @@ const IP_REFUSAL = `  if (!ipRate.allowed) {
     return rateLimitedResponse(ipRate.retryAfterSeconds);
   }`;
 
-const ADDRESS_REFUSAL = `  if (!addressRate.allowed) {
-    return rateLimitedResponse(addressRate.retryAfterSeconds);
-  }`;
+const ADDRESS_REFUSAL = `    if (!addressRate.allowed) {
+      return rateLimitedResponse(addressRate.retryAfterSeconds);
+    }`;
 
 const REGISTER_SERVICE = "    const result = await registerUserWithCredentials(payload);";
 const RESEND_SERVICE = "    const result = await resendRegistrationVerification(payload);";
@@ -128,7 +128,7 @@ export const probes = [
       "and the account written before the caller is told the address was over its budget",
     files: [REGISTER],
     appliedMarkers: [
-      "const result = await registerUserWithCredentials(payload);\n  if (!addressRate.allowed)",
+      "const result = await registerUserWithCredentials(payload);\n    if (!addressRate.allowed)",
     ],
     mutate: () => moveRefusalBelow(REGISTER, ADDRESS_REFUSAL, REGISTER_SERVICE),
     detect: async () => fails("npx", ["vitest", "run", TEST], REACHED_REGISTER_ADDRESS),
@@ -182,7 +182,7 @@ export const probes = [
       "the mail the bound exists to stop and the caller is told it was refused",
     files: [RESEND],
     appliedMarkers: [
-      "const result = await resendRegistrationVerification(payload);\n  if (!addressRate.allowed)",
+      "const result = await resendRegistrationVerification(payload);\n    if (!addressRate.allowed)",
     ],
     mutate: () => moveRefusalBelow(RESEND, ADDRESS_REFUSAL, RESEND_SERVICE),
     detect: async () => fails("npx", ["vitest", "run", TEST], REACHED_RESEND_ADDRESS),
