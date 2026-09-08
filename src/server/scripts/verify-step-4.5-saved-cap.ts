@@ -5,7 +5,7 @@
  * for the candidate named by SEED_USER_EMAIL even though 6 saves exist, and that calling with
  * { limit: 100 } returns all 6.
  *
- * Run with: SEED_USER_EMAIL=someone@example.com node --import tsx src/server/scripts/verify-step-4.5-saved-cap.ts
+ * Run with: SEED_USER_EMAIL=someone@seed.lombakita.local node --import tsx src/server/scripts/verify-step-4.5-saved-cap.ts
  */
 
 import { existsSync } from "node:fs";

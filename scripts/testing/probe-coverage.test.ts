@@ -23,12 +23,14 @@ import { probes as configGateProbes } from "./probes/config-gates.mjs";
 import { probes as browserAuditProbes } from "./probes/browser-audit-refusals.mjs";
 import { probes as shellContentProbes } from "./probes/shell-content.mjs";
 import { probes as emailFailureProbes } from "./probes/email-failure-visibility.mjs";
+import { probes as fixtureRecipientProbes } from "./probes/fixture-recipients.mjs";
 
 const SUITES: Record<string, Probe[]> = {
   "config-gates": configGateProbes,
   "browser-audit-refusals": browserAuditProbes,
   "shell-content": shellContentProbes,
   "email-failure-visibility": emailFailureProbes,
+  "fixture-recipients": fixtureRecipientProbes,
 };
 
 const everyProbe: [string, Probe][] = Object.entries(SUITES).flatMap(([suite, probes]) =>

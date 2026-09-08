@@ -1,0 +1,13 @@
+Fixture for the recipient classifier. Each line is one shape the scanner must get right.
+
+A reserved recipient, refused at the send boundary:
+  seed.person@seed.lombakita.local
+
+A simulator recipient, routed to the provider on purpose:
+  delivered@resend.dev
+
+A connection string, whose credentials match the address shape but are not a recipient:
+  postgres://appuser:secret@ep-example.ap-southeast-1.aws.neon.tech/lombakita
+
+A routable recipient, which the gate must report:
+  real.person@gmail.com
