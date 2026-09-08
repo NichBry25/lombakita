@@ -30,8 +30,8 @@ const NOTICE = "src/lib/email/delivery-notice.ts";
 const collapseClassifier = () =>
   substituteOnce(
     CLASSIFIER,
-    'error.statusCode === 403 || FORBIDDEN_PROVIDER_CODES.has(error.name) ? "forbidden" : "transient"',
-    '"transient"',
+    "error.statusCode === 403 || FORBIDDEN_PROVIDER_CODES.has(error.name)",
+    "error.statusCode === 999999 && FORBIDDEN_PROVIDER_CODES.has(error.name)",
   );
 
 /**
@@ -44,11 +44,10 @@ const collapseClassifier = () =>
 const collapseNotices = () =>
   substituteOnce(
     NOTICE,
-    `const WARNING_BY_CLASS: Record<string, string> = {`,
-    `const WARNING_BY_CLASS: Record<string, string> = {
-  forbidden: FALLBACK_WARNING,
-  reserved_recipient: FALLBACK_WARNING,
-  __unused_original: "",`,
+    `  forbidden:
+    "Tindakan berhasil, tetapi email pemberitahuan tidak terkirim karena identitas pengirim " +
+    "ditolak. Laporkan ke tim teknis, mencoba lagi tidak akan membantu.",`,
+    `  forbidden: FALLBACK_WARNING,`,
   );
 
 export const probes = [
@@ -59,7 +58,7 @@ export const probes = [
       "the classifier reporting every provider failure as transient, so a rejected sending " +
       "identity is retried forever and reported as a blip",
     files: [CLASSIFIER],
-    appliedMarkers: ['(error: ProviderErrorShape): EmailFailureClass =>\n  "transient"'],
+    appliedMarkers: ["error.statusCode === 999999"],
     mutate: collapseClassifier,
     detect: async () =>
       fails(
@@ -76,7 +75,7 @@ export const probes = [
       "every class rendering the same sentence, so the operator is told to retry a " +
       "misconfiguration that no retry can clear",
     files: [NOTICE],
-    appliedMarkers: ["__unused_original"],
+    appliedMarkers: ["forbidden: FALLBACK_WARNING"],
     mutate: collapseNotices,
     detect: async () =>
       fails(
