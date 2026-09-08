@@ -56,10 +56,19 @@ const PROBE_BODY = [
 /**
  * Delivery suppressed means the probe cannot send, and a probe that cannot run its assertion must
  * refuse rather than pass. Deployed environments always deliver, so this fires only locally.
+ *
+ * The wording carries the whole explanation because the reader is a developer seeing a red line on
+ * their own machine. A message that only says the check failed teaches them to ignore this line,
+ * and an ignored line is worth less than no line at all.
  */
+class DeliverySuppressedError extends Error {}
+
 const deliverySuppressed = (): Error =>
-  new Error(
-    "email delivery is disabled in this environment, so sender authorization cannot be proven",
+  new DeliverySuppressedError(
+    "not measured. Email delivery is suppressed outside deployed environments, so there is no " +
+      "send to check a sender against. This is expected on a local machine and is not a broken " +
+      "connector. Sender authorization is checked in preview and production, where delivery is " +
+      "always on.",
   );
 
 const sendProbeOverHttp = async (): Promise<void> => {
@@ -140,6 +149,13 @@ const probeTransport = async (transport: string, send: () => Promise<void>): Pro
   try {
     await send();
   } catch (error: unknown) {
+    // A suppression refusal already explains itself and is not a failed send, so it travels
+    // unchanged. Wrapping it produced "the attempt failed for an unrelated reason (transient)" in
+    // front of the explanation, which is the reading this message exists to prevent.
+    if (error instanceof DeliverySuppressedError) {
+      throw error;
+    }
+
     throw new Error(describeProbeFailure(transport, error));
   }
 };
