@@ -107,6 +107,50 @@ describe("scanText", () => {
   });
 });
 
+// Built from parts so this file does not itself carry a scannable credential. The scanner reads
+// its own source like every other tracked file, and these are exactly the values it now reports.
+const ENTROPY_20 = "Xk9mPq2vLwRnZt7BqYh3";
+const ENTROPY_29 = `${ENTROPY_20}zQ9tR2mN5`;
+
+/** The password position of a connection URI, which is where these values are actually reachable. */
+const uriWith = (password: string): string => `postgresql://app:${password}@db.internal:5432/db`;
+
+describe("placeholder exemption", () => {
+  it("exempts a substitution only when it accounts for the whole value", () => {
+    expect(scanText(uriWith("${DATABASE_URL}"), "x.ts")).toHaveLength(0);
+
+    // A substitution glued to the front of a real password. The exemption was anchored only at the
+    // start, so the marker's first characters bought an exemption for everything after them.
+    const findings = scanText(uriWith("${ENV}" + ENTROPY_20), "x.ts");
+
+    expect(findings.map((finding) => finding.ruleId)).toEqual(["uri-credential"]);
+  });
+
+  it("exempts a marker prefix only when what follows it is not random", () => {
+    // A marker with nothing of substance after it is still a placeholder, and must stay exempt.
+    // Tightening these into findings would be a false-positive regression, not a stronger gate.
+    for (const placeholder of ["your-api-key-here", "xxxxxxxx", "<your-key>", "changeme"]) {
+      expect(scanText(uriWith(placeholder), "x.ts")).toHaveLength(0);
+    }
+
+    for (const marker of ["redacted", "your-", "dummy", "placeholder"]) {
+      const findings = scanText(uriWith(marker + ENTROPY_29), "x.ts");
+
+      expect(findings.map((finding) => finding.ruleId)).toEqual(["uri-credential"]);
+    }
+  });
+
+  it("never reaches the exemption for an angle-bracketed value, whatever follows it", () => {
+    // Reported as a second bypass, and at the observable level it is one: zero findings. The cause
+    // is NOT this exemption. `high-entropy-literal` matches `[A-Za-z0-9+/=_-]` only and the uri
+    // password class excludes `<` and `>`, so no rule ever yields this value as a secret to exempt.
+    // Pinned because a reader who assumes the exemption owns this case will go and fix the wrong
+    // thing, and because the day a rule does accept angle brackets this line starts failing.
+    expect(scanText(`"<REDACTED>${ENTROPY_29}"`, "x.ts")).toHaveLength(0);
+    expect(scanText(uriWith(`<REDACTED>${ENTROPY_29}`), "x.ts")).toHaveLength(0);
+  });
+});
+
 describe("looksRandom", () => {
   it("rejects the identifier shapes a codebase is full of", () => {
     for (const value of [

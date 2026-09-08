@@ -149,10 +149,42 @@ const CONVENTIONAL_FIXTURE_PASSWORDS = new Set([
   "changeme",
 ]);
 
-const isPlaceholderValue = (value: string): boolean =>
-  /^(<.*>|\$\{.*\}|\.\.\.|x{3,}|replace-with|your-|placeholder|dummy|redacted|changeme)/i.test(
-    value,
-  );
+/**
+ * Stand-in values that carry no credential.
+ *
+ * The distinction is whether the marker ACCOUNTS FOR THE WHOLE VALUE or merely opens it. A
+ * start-anchored test cannot see that difference, so it exempted `${ENV}Xk9mPq2vLwRnZt7BqYh3` and
+ * `redactedXk9mPq2vLwRnZt7BqYh3zQ9tR2mN5` on the strength of their first few characters, which is a
+ * real password with a marker glued to the front. The two families below are separated because a
+ * uniform anchor cannot serve both: `your-api-key-here` is a genuine placeholder that has to stay
+ * exempt, so its family is decided by what FOLLOWS the marker rather than by where the value ends.
+ */
+
+/**
+ * Substitution syntax. The marker must consume the entire value.
+ *
+ * A character class rather than `.*`, so a value carrying a closing delimiter part way along
+ * cannot satisfy it: `.*` is greedy and would let `${A}${B}` pass by matching to the final brace.
+ */
+const WHOLE_VALUE_PLACEHOLDERS: readonly RegExp[] = [/^\$\{[^}]*\}$/, /^<[^>]*>$/];
+
+/**
+ * Conventional stand-in words, which legitimately appear as a prefix on a longer placeholder.
+ * `your-api-key-here` is one value, not a marker plus a secret, so the remainder decides.
+ */
+const PLACEHOLDER_PREFIX =
+  /^(?:\.\.\.|x{3,}|replace-with|your-|placeholder|dummy|redacted|changeme)/i;
+
+const isPlaceholderValue = (value: string): boolean => {
+  if (WHOLE_VALUE_PLACEHOLDERS.some((pattern) => pattern.test(value))) return true;
+
+  const marker = PLACEHOLDER_PREFIX.exec(value);
+  if (marker === null) return false;
+
+  // A marker followed by real entropy is a credential wearing a prefix. `looksRandom` is the same
+  // test the entropy rule is built on, so the two agree by construction on what counts as random.
+  return !looksRandom(value.slice(marker[0].length));
+};
 
 export const SECRET_RULES: readonly SecretRule[] = [
   {
