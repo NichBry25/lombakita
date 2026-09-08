@@ -56,12 +56,16 @@ export const probes = [
       "treating a declared exception as a hole: the two migrations most likely to be edited " +
       "again become permanently unwatchable, and any third hash in those positions passes",
     files: [DRIFT],
-    appliedMarkers: ["if (exception) {\n        continue;"],
+    // Inverted rather than dropped. Dropping the hash half (`if (exception)`) narrows `exception`
+    // to `never` below and stops the file compiling, so it never reaches the assertion. Inverting
+    // keeps every type the same and produces the harmful behaviour exactly: the pinned hash is
+    // reported as drift, and a third, unknown hash is waved through.
+    appliedMarkers: ["found.hash !== exception.legacyHash"],
     mutate: () =>
       substituteOnce(
         DRIFT,
         "if (exception && found.hash === exception.legacyHash) {",
-        "if (exception) {",
+        "if (exception && found.hash !== exception.legacyHash) {",
       ),
     detect: async () => fails("npx", ["vitest", "run", TEST], /× .*STILL FAILS on a third hash/),
   },
