@@ -65,6 +65,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # A production database password sat in a tracked source file on `main`, in a PUBLIC
+      # repository, for 101 days. Every gate in this job ran over it the whole time and none could
+      # have seen it: they all ask whether code MISBEHAVES WHEN IT RUNS, and the file holding it is
+      # imported by nothing, is in no npm script, and is bundled by no build, so it executed in
+      # none of them while remaining fully public as text. Lint could not see it either, because
+      # eslint-config-next has no rule about the CONTENT of a string.
+      #
+      # It also survived a scan that was looking for exactly this, twice, because both passes keyed
+      # on the variable name `DATABASE_URL` and the line read `const DB_URL = ...`. The rules behind
+      # this step key on the shape of the VALUE, never the name of the variable holding it.
+      #
+      # First so it fails in seconds. A leaked credential is compromised the moment it is pushed,
+      # and nothing later in this job changes that.
+      - name: Secret scan
+        run: npm run verify:secrets
+
       - name: Lint
         run: npm run lint
 

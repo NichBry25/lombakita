@@ -1,20 +1,41 @@
 /**
- * Manual test seed — saved competitions preview cap.
- * Creates 6 published competitions under Universitas Indonesia and saves all 6
- * for nicholasbryan250@gmail.com so the dashboard preview shows exactly 5.
+ * Manual test seed for the saved competitions preview cap.
+ * Creates 6 published competitions under Universitas Indonesia and saves all 6 for the named
+ * candidate so the dashboard preview shows exactly 5.
  *
- * Run: npx tsx src/server/scripts/seed-step-4.5-saves.ts
+ * The connection string and the candidate address are read from the environment, matching
+ * verify-step-4.5-saved-cap.ts. Both were literals here, and the connection string carried a
+ * password that is valid against production, in a public repository, for 101 days.
+ *
+ * Run: SEED_USER_EMAIL=someone@example.com npx tsx src/server/scripts/seed-step-4.5-saves.ts
  */
+
+import { existsSync } from "node:fs";
 
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { and, eq, isNull } from "drizzle-orm";
 import { competitions, competitionSaves, institutions, users } from "../db/schema";
 
-const DB_URL = "postgresql://lombakita_app:LombakitaAppNBT01%21@localhost:5432/lombakita";
+const loadLocalEnvFiles = (): void => {
+  for (const file of [".env.local", ".env"]) {
+    if (!existsSync(file)) continue;
+    process.loadEnvFile(file);
+  }
+};
+
+const requireEnv = (name: string): string => {
+  const value = process.env[name];
+  if (value === undefined || value.length === 0) {
+    throw new Error(
+      `${name} is required. Set it in .env.local or pass it when invoking this script.`,
+    );
+  }
+
+  return value;
+};
 
 const INSTITUTION_SLUG = "universitas-indonesia";
-const USER_EMAIL = "nicholasbryan250@gmail.com";
 
 const COMPETITION_SEEDS = [
   { slug: "lomba-desain-ui-2026", title: "Lomba Desain UI 2026" },
@@ -31,6 +52,11 @@ const EVENT_START = new Date("2027-01-15T00:00:00.000Z");
 const EVENT_END = new Date("2027-01-16T00:00:00.000Z");
 
 async function seed() {
+  loadLocalEnvFiles();
+
+  const DB_URL = requireEnv("DATABASE_URL");
+  const USER_EMAIL = requireEnv("SEED_USER_EMAIL");
+
   const sql = postgres(DB_URL, { max: 1 });
   const db = drizzle(sql);
 

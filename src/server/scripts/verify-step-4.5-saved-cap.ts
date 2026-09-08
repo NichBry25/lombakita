@@ -2,10 +2,10 @@
  * Verification — saved competitions preview cap (step 6 of the manual checklist).
  *
  * Verifies that listSavedCompetitions called with { limit: 5 } returns exactly 5 items
- * for nicholasbryan250@gmail.com even though 6 saves exist, and that calling with
+ * for the candidate named by SEED_USER_EMAIL even though 6 saves exist, and that calling with
  * { limit: 100 } returns all 6.
  *
- * Run with: node --import tsx src/server/scripts/verify-step-4.5-saved-cap.ts
+ * Run with: SEED_USER_EMAIL=someone@example.com node --import tsx src/server/scripts/verify-step-4.5-saved-cap.ts
  */
 
 import { existsSync } from "node:fs";
@@ -43,13 +43,20 @@ const run = async (): Promise<void> => {
   };
 
   // ── Resolve user ────────────────────────────────────────────────────────────
+  const seedUserEmail = process.env.SEED_USER_EMAIL;
+  if (seedUserEmail === undefined || seedUserEmail.length === 0) {
+    throw new Error(
+      "SEED_USER_EMAIL is required. Set it in .env.local or pass it when invoking this script.",
+    );
+  }
+
   const [user] = await db
     .select({ id: users.id, email: users.email })
     .from(users)
-    .where(eq(users.email, "nicholasbryan250@gmail.com"))
+    .where(eq(users.email, seedUserEmail))
     .limit(1);
 
-  if (!user) throw new Error("User nicholasbryan250@gmail.com not found");
+  if (!user) throw new Error(`User ${seedUserEmail} not found`);
 
   console.log(`\nUser: ${user.email} (${user.id})\n`);
   console.log("─────────────────────────────────────────────────────");
