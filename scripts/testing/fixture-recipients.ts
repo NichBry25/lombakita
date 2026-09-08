@@ -21,7 +21,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { RESERVED_RECIPIENT_TLDS } from "../../src/server/email/reserved-recipients";
+import { reservedRecipientSuffixOf } from "../../src/server/email/reserved-recipients";
 
 /**
  * Resend's simulator mailboxes.
@@ -73,21 +73,6 @@ export type FixtureRecipient = {
 };
 
 /**
- * The reserved TLD an address sits under, or null when it routes.
- *
- * Mirrors the production `reservedTldOf` deliberately rather than importing it: that one is the
- * runtime guard and takes a single address at the send boundary, while this reads text that may not
- * be an address at all. Keeping the traversal here lets the gate stay a pure text instrument, and
- * the LIST both consult is the shared thing that matters.
- */
-const reservedTldOf = (address: string): string | null => {
-  const domain = address.slice(address.lastIndexOf("@") + 1).toLowerCase();
-  const tld = domain.slice(domain.lastIndexOf(".") + 1);
-
-  return (RESERVED_RECIPIENT_TLDS as readonly string[]).includes(tld) ? tld : null;
-};
-
-/**
  * Whether a match is a connection string's credentials rather than a recipient.
  *
  * `postgres://user:pass@host/db` matches the same shape as an address. This is a CLASSIFICATION, not
@@ -109,7 +94,9 @@ export const scanFixtureFile = (file: string): FixtureRecipient[] => {
 
       const verdict = (SIMULATOR_RECIPIENTS as readonly string[]).includes(address.toLowerCase())
         ? "simulator"
-        : reservedTldOf(address) !== null
+        : // The production guard itself, not a copy of it. An earlier copy here restated only the
+          // TLD half and would have gone on calling example.com routable after the guard stopped.
+          reservedRecipientSuffixOf(address) !== null
           ? "reserved"
           : "routable";
 

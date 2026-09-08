@@ -183,7 +183,7 @@ describe("a real send site, driven end to end", () => {
     });
 
     const attempt = sendRegistrationConfirmedEmail({
-      toEmail: "candidate@example.com",
+      toEmail: "candidate@gmail.com",
       recipientId: "user_1",
       competitionTitle: "Lomba Teknologi 2026",
       registrationType: "individual",
@@ -206,7 +206,7 @@ describe("a real send site, driven end to end", () => {
 
     await expect(
       sendRegistrationConfirmedEmail({
-        toEmail: "candidate@example.com",
+        toEmail: "candidate@gmail.com",
         recipientId: "user_1",
         competitionTitle: "Lomba Teknologi 2026",
         registrationType: "individual",

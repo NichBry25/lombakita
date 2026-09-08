@@ -41,7 +41,7 @@ describe("sendRegistrationConfirmedEmail", () => {
 
   it("sends email to correct recipient with competition title in subject", async () => {
     await sendRegistrationConfirmedEmail({
-      toEmail: "candidate@example.com",
+      toEmail: "candidate@gmail.com",
       recipientId: "user_1",
       competitionTitle: "Lomba Teknologi 2026",
       registrationType: "individual",
@@ -51,7 +51,7 @@ describe("sendRegistrationConfirmedEmail", () => {
     expect(sendEmailMock).toHaveBeenCalledOnce();
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
-    expect(call.to).toBe("candidate@example.com");
+    expect(call.to).toBe("candidate@gmail.com");
     expect(call.from).toBe("noreply@seed.lombakita.local");
     expect(call.subject).toContain("Lomba Teknologi 2026");
     expect(call.subject).toContain("Pendaftaran kamu berhasil");
@@ -60,7 +60,7 @@ describe("sendRegistrationConfirmedEmail", () => {
 
   it("includes team type label for team registration", async () => {
     await sendRegistrationConfirmedEmail({
-      toEmail: "captain@example.com",
+      toEmail: "captain@gmail.com",
       recipientId: "user_2",
       competitionTitle: "Kompetisi Tim 2026",
       registrationType: "team",
@@ -77,7 +77,7 @@ describe("sendRegistrationConfirmedEmail", () => {
 
     await expect(
       sendRegistrationConfirmedEmail({
-        toEmail: "candidate@example.com",
+        toEmail: "candidate@gmail.com",
         recipientId: "user_1",
         competitionTitle: "Lomba X",
         registrationType: "individual",
@@ -91,7 +91,7 @@ describe("sendRegistrationConfirmedEmail", () => {
 
     await expect(
       sendRegistrationConfirmedEmail({
-        toEmail: "candidate@example.com",
+        toEmail: "candidate@gmail.com",
         recipientId: "user_1",
         competitionTitle: "Lomba X",
         registrationType: "individual",
@@ -111,7 +111,7 @@ describe("sendRegistrationCancelledEmail", () => {
 
   it("sends email with cancellation subject containing competition title", async () => {
     await sendRegistrationCancelledEmail({
-      toEmail: "candidate@example.com",
+      toEmail: "candidate@gmail.com",
       recipientId: "user_1",
       competitionTitle: "Lomba Sains 2026",
       registrationType: "individual",
@@ -119,7 +119,7 @@ describe("sendRegistrationCancelledEmail", () => {
 
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
-    expect(call.to).toBe("candidate@example.com");
+    expect(call.to).toBe("candidate@gmail.com");
     expect(call.subject).toContain("Lomba Sains 2026");
     expect(call.subject).toContain("dibatalkan");
   });
@@ -133,7 +133,7 @@ describe("sendSubmissionFinalizedEmail", () => {
 
   it("sends email with finalized subject and finalization timestamp in body", async () => {
     await sendSubmissionFinalizedEmail({
-      toEmail: "candidate@example.com",
+      toEmail: "candidate@gmail.com",
       recipientId: "user_1",
       competitionTitle: "Hackathon 2026",
       finalizedAt: new Date("2026-06-10T14:30:00Z"),
@@ -141,7 +141,7 @@ describe("sendSubmissionFinalizedEmail", () => {
 
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const call = sendEmailMock.mock.calls[0]![0] as Record<string, string>;
-    expect(call.to).toBe("candidate@example.com");
+    expect(call.to).toBe("candidate@gmail.com");
     expect(call.subject).toContain("Hackathon 2026");
     expect(call.subject).toContain("dikunci");
     expect(call.text).toContain("Hackathon 2026");
@@ -156,7 +156,7 @@ describe("sendResultPublishedEmail", () => {
 
   it("personalizes greeting with displayName when provided", async () => {
     await sendResultPublishedEmail({
-      toEmail: "candidate@example.com",
+      toEmail: "candidate@gmail.com",
       recipientId: "user_1",
       displayName: "Budi Santoso",
       competitionTitle: "Lomba Desain 2026",
@@ -171,7 +171,7 @@ describe("sendResultPublishedEmail", () => {
 
   it("uses fallback greeting when displayName is null", async () => {
     await sendResultPublishedEmail({
-      toEmail: "candidate@example.com",
+      toEmail: "candidate@gmail.com",
       recipientId: "user_1",
       displayName: null,
       competitionTitle: "Lomba Desain 2026",
@@ -191,7 +191,7 @@ describe("sendPaymentProofSubmittedEmail", () => {
 
   it("links to the review queue itself, not to a chooser", async () => {
     await sendPaymentProofSubmittedEmail({
-      toEmail: "owner@example.com",
+      toEmail: "owner@gmail.com",
       recipientId: "user_1",
       competitionTitle: "Seed Coding League",
       institutionSlug: "seed-academy",
@@ -212,7 +212,7 @@ describe("sendPaymentProofSubmittedEmail", () => {
 
   it("repeats that the money never reached Lombakita", async () => {
     await sendPaymentProofSubmittedEmail({
-      toEmail: "owner@example.com",
+      toEmail: "owner@gmail.com",
       recipientId: "user_1",
       competitionTitle: "Seed Coding League",
       institutionSlug: "seed-academy",
@@ -240,7 +240,7 @@ describe("sendPaymentOutcomeEmail", () => {
     extra: { rejectionReason?: string | null; resubmissionAllowed?: boolean | null } = {},
   ) =>
     sendPaymentOutcomeEmail({
-      toEmail: "payer@example.com",
+      toEmail: "payer@gmail.com",
       recipientId: "user_1",
       competitionTitle: "Seed Coding League",
       outcome,
@@ -310,7 +310,7 @@ describe("sendCompetitionCancelledEmail: the refund sentence", () => {
 
   it("tells a payer where their money actually is", async () => {
     await sendCompetitionCancelledEmail({
-      toEmail: "payer@example.com",
+      toEmail: "payer@gmail.com",
       recipientId: "user_1",
       competitionTitle: "Seed Coding League",
       transferRefundNotice: true,
@@ -330,7 +330,7 @@ describe("sendCompetitionCancelledEmail: the refund sentence", () => {
     // Paired with the case above. A free registrant told to chase a refund is being invented a
     // transfer they never made.
     await sendCompetitionCancelledEmail({
-      toEmail: "free@example.com",
+      toEmail: "free@gmail.com",
       recipientId: "user_2",
       competitionTitle: "Seed Coding League",
     });
