@@ -11,9 +11,10 @@
  *   - it is one of Resend's simulator addresses, which route to the provider on purpose and produce
  *     a known outcome without touching a person.
  *
- * The reserved list is IMPORTED from the production guard rather than restated. If a TLD is ever
- * added or removed there, this gate follows it; a second copy would drift and start disagreeing with
- * the thing it is supposed to describe.
+ * Both lists are IMPORTED from production rather than restated. The reserved names come from the
+ * send guard, and the simulator addresses from the module the connector probe also sends to. If
+ * either set changes there, this gate follows it; a second copy would drift and start disagreeing
+ * with the thing it is supposed to describe.
  *
  * Rule 38: this refuses what it cannot classify. An address that is neither reserved nor a simulator
  * fails the gate even if it is obviously harmless, because "obviously harmless" is a judgement the
@@ -22,18 +23,9 @@
 
 import { readFileSync } from "node:fs";
 import { reservedRecipientSuffixOf } from "../../src/server/email/reserved-recipients";
+import { SIMULATOR_RECIPIENTS } from "../../src/server/email/simulator-recipients";
 
-/**
- * Resend's simulator mailboxes.
- *
- * `delivered@` and `bounced@` ONLY. `complained@resend.dev` is deliberately absent: a complaint is
- * recorded against the sending domain's reputation the same way a real one is, which is the exact
- * harm this whole line of work exists to prevent.
- */
-export const SIMULATOR_RECIPIENTS = Object.freeze([
-  "delivered@resend.dev",
-  "bounced@resend.dev",
-] as const);
+export { SIMULATOR_RECIPIENTS };
 
 /**
  * The files whose recipients this gate governs.

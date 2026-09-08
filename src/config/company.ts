@@ -6,17 +6,16 @@
  * defect this module exists to prevent, because the copy that nobody remembers to update is the
  * one a reader eventually finds.
  *
- * The phone number is kept as two fields on purpose. The dialable form carries no spaces or
- * dashes so `tel:` hands the dialer something it can use, and the printed form is grouped so a
- * person can read it back over a call.
+ * There is deliberately no telephone field. `supportEmail` is the only contact channel the
+ * platform publishes, so support arrives in writing on an address the company owns. A personal
+ * mobile number is not a company channel: it reaches one individual, it cannot be handed over, and
+ * it stays reachable long after that person stops answering for the company.
  */
 export const COMPANY = {
   legalName: "KARYA TALENTA NUSANTARA",
   address:
     "Jl. Raya Satelit Utara KN-8, RT 088 / RW 03, Tanjungsari, Sukomanunggal, Kota Surabaya, Jawa Timur 60187",
   supportEmail: "dukungan@lombakita.com",
-  phoneDisplay: "+62 813-5773-4540",
-  phoneDial: "+6281357734540",
   nib: "2008260000397",
 } as const;
 

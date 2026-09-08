@@ -53,7 +53,9 @@ describe("the classifier the gate depends on", () => {
     // resend.dev IS routable, deliberately. Without this branch the gate would forbid the very
     // addresses it is supposed to steer people towards.
     for (const address of SIMULATOR_RECIPIENTS) {
-      const [found] = scanFixtureFile("scripts/testing/fixture-recipients.ts").filter(
+      // The module that DECLARES them, which is where the literals live now that the connector
+      // probe sends to the same constant from production code.
+      const [found] = scanFixtureFile("src/server/email/simulator-recipients.ts").filter(
         (candidate) => candidate.address === address,
       );
       expect(found?.verdict, `${address} misclassified`).toBe("simulator");

@@ -1,9 +1,9 @@
-import nodemailer from "nodemailer";
 import { publicEnv } from "@/config/env";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
 import { resolveEmailDelivery } from "@/server/email/delivery";
 import { rethrowSmtpSendFailure } from "@/server/email/send-failure";
+import { buildResendSmtpTransport } from "@/server/email/smtp-transport";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/auth/email-verification");
@@ -18,17 +18,6 @@ const buildVerificationUrl = (rawToken: string): string => {
   url.searchParams.set("token", rawToken);
 
   return url.toString();
-};
-
-const buildTransport = (apiKey: string) => {
-  return nodemailer.createTransport({
-    host: "smtp.resend.com",
-    port: 587,
-    auth: {
-      user: "resend",
-      pass: apiKey,
-    },
-  });
 };
 
 export const sendRegistrationVerificationEmail = async (options: {
@@ -48,7 +37,7 @@ export const sendRegistrationVerificationEmail = async (options: {
     return;
   }
 
-  const transporter = buildTransport(delivery.apiKey);
+  const transporter = buildResendSmtpTransport(delivery.apiKey);
 
   // The recipient stays inline at the send call rather than hoisted into a variable: the send-site
   // census resolves the address argument off the call expression, and a hoisted object hides it.
