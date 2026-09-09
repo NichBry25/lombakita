@@ -5567,6 +5567,14 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   overflow-wrap: anywhere;
 }
 
+/* A mailto/tel link here is a tap target, not inline prose, so it holds the same minimum
+   touch-target height as any other interactive control. */
+.detail-grid dd a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target);
+}
+
 .lifecycle-card {
   border-color: var(--color-accent);
 }
