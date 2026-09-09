@@ -29,27 +29,45 @@ export const RESERVED_RECIPIENT_TLDS = Object.freeze([
   "localhost",
 ] as const);
 
+// RFC 2606 §3 reserves these three as SECOND-LEVEL names, which a top-level check cannot see:
+// `example.com` ends in `.com` like any deliverable address, so a TLD-only guard read it as
+// routable and would have handed it to the provider to bounce against the sending domain. They are
+// the addresses documentation reaches for by default, which is exactly why they turn up in fixtures.
+//
+// Subdomains count too: nothing under `example.com` resolves either, so `mail.example.com` is the
+// same fact one label further down.
+export const RESERVED_RECIPIENT_DOMAINS = Object.freeze([
+  "example.com",
+  "example.net",
+  "example.org",
+] as const);
+
 export class ReservedRecipientError extends Error {
-  readonly tld: string;
+  readonly reservedSuffix: string;
   readonly kind: string;
 
-  constructor(tld: string, kind: string) {
+  constructor(reservedSuffix: string, kind: string) {
     super(
-      `Refusing to send "${kind}" to a recipient at reserved TLD ".${tld}". Addresses there are ` +
-        "never routable, so the send can only produce a hard bounce against this sending domain",
+      `Refusing to send "${kind}" to a recipient under reserved name "${reservedSuffix}". ` +
+        "Addresses there are never routable, so the send can only produce a hard bounce against " +
+        "this sending domain",
     );
     this.name = "ReservedRecipientError";
-    this.tld = tld;
+    this.reservedSuffix = reservedSuffix;
     this.kind = kind;
   }
 }
 
 /**
- * The reserved TLD an address sits under, or null when it is routable.
+ * The reserved name an address sits under, or null when it is routable.
+ *
+ * Returns whichever reservation matched — a TLD (`local`) or a second-level domain
+ * (`example.com`) — so the refusal can quote the actual reason. Named for what it returns rather
+ * than for the TLD case alone, because it stopped being only that.
  *
  * A bare `user@localhost` carries no dot at all, so the whole domain is the label to compare.
  */
-export const reservedTldOf = (address: string): string | null => {
+export const reservedRecipientSuffixOf = (address: string): string | null => {
   const at = address.lastIndexOf("@");
   if (at === -1) return null;
 
@@ -60,6 +78,13 @@ export const reservedTldOf = (address: string): string | null => {
     .replace(/\.$/, "");
   if (!domain) return null;
 
+  // Second-level reservations first: `example.com` ends in a perfectly deliverable TLD, so the
+  // check below would pass it. Subdomains match too, since nothing beneath them resolves either.
+  const reservedDomain = RESERVED_RECIPIENT_DOMAINS.find(
+    (candidate) => domain === candidate || domain.endsWith(`.${candidate}`),
+  );
+  if (reservedDomain) return reservedDomain;
+
   const lastDot = domain.lastIndexOf(".");
   const tld = lastDot === -1 ? domain : domain.slice(lastDot + 1);
 
@@ -69,8 +94,8 @@ export const reservedTldOf = (address: string): string | null => {
 };
 
 export const assertRecipientIsRoutable = (address: string, kind: string): void => {
-  const tld = reservedTldOf(address);
-  if (tld === null) return;
+  const reservedSuffix = reservedRecipientSuffixOf(address);
+  if (reservedSuffix === null) return;
 
-  throw new ReservedRecipientError(tld, kind);
+  throw new ReservedRecipientError(reservedSuffix, kind);
 };

@@ -29,9 +29,19 @@ describe("ContactPage", () => {
     expect(html).toContain(COMPANY.address);
     expect(html).toContain(COMPANY.supportEmail);
     expect(html).toContain(`mailto:${COMPANY.supportEmail}`);
-    expect(html).toContain(COMPANY.phoneDisplay);
-    expect(html).toContain(`tel:${COMPANY.phoneDial}`);
     expect(html).toContain(COMPANY.nib);
+  });
+
+  // The published contact channel is the company's email and nothing else. A personal mobile
+  // number reaches one individual rather than the company, so it is checked for the same way the
+  // NPWP is below: by the dial link, and by the shape of an Indonesian mobile number written
+  // without one.
+  it("never renders a telephone number, by link or by shape", () => {
+    const html = renderToStaticMarkup(ContactPage());
+
+    expect(html).not.toContain("tel:");
+    expect(html).not.toMatch(/telepon/i);
+    expect(html).not.toMatch(/(?:\+62|\b0)8\d{1,2}[\s-]?\d{3,4}[\s-]?\d{3,4}/);
   });
 
   it("names no PT prefix or Perseroan/Perorangan suffix on the entity name", () => {

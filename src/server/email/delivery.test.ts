@@ -140,7 +140,7 @@ describe("resolveEmailDelivery", () => {
         kind: "registration_confirmed",
         to: "fixture-01@seed.lombakita.local",
       }),
-    ).toThrow(/reserved TLD "\.local"/);
+    ).toThrow(/reserved name "local"/);
 
     try {
       resolveEmailDelivery({
@@ -150,7 +150,7 @@ describe("resolveEmailDelivery", () => {
       throw new Error("expected a refusal");
     } catch (error) {
       expect((error as Error).name).toBe("ReservedRecipientError");
-      expect((error as { tld: string }).tld).toBe("local");
+      expect((error as { reservedSuffix: string }).reservedSuffix).toBe("local");
       expect((error as { kind: string }).kind).toBe("registration_confirmed");
     }
   });

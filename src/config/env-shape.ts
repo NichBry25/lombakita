@@ -103,9 +103,39 @@ const R2_ENDPOINT_RULE: ValueRule = {
   accepts: (value) => /^https:\/\/[0-9a-f]{32}\.r2\.cloudflarestorage\.com\/?$/.test(value),
 };
 
+/**
+ * The database each deployed environment is supposed to be talking to, stated here rather than
+ * inferred from a connection string.
+ *
+ * A connection string's own path segment is the claim under test, not the evidence: Railway
+ * production carried a `MIGRATION_DATABASE_URL` whose name and host both said staging, and every
+ * check in the repository agreed with it because none of them asked the server. The value here is
+ * what `current_database()` is compared against, so the comparison has an independent side.
+ */
+export const CANONICAL_DATABASE_NAME: Readonly<Record<DeployEnvironment, string>> = Object.freeze({
+  preview: "lombakita_staging",
+  production: "lombakita_production",
+});
+
 export const DEPLOY_ENV_KEY_SPECS: readonly DeployKeySpec[] = [
   {
     key: "DATABASE_URL",
+    requiredIn: BOTH,
+    rule: {
+      expectation: "postgres://user:password@host/database",
+      accepts: isPostgresConnectionUrl,
+    },
+  },
+  // The migration role's connection, and the key whose absence from this list is why LAUNCH-D24
+  // survived: the gate inspected DATABASE_URL and never looked at this one, so production's
+  // migration credential pointed at the staging database and nothing in three layers could see it.
+  //
+  // THE SHAPE IS ALL THIS RULE CAN CATCH, and it is not the interesting half. A string naming
+  // `lombakita_production` is accepted here whatever database it actually reaches; proving where it
+  // lands needs a connection, which is the `migration-database` probe in connectors/status.ts.
+  // Registering it here without that probe would restate the same false confidence one layer up.
+  {
+    key: "MIGRATION_DATABASE_URL",
     requiredIn: BOTH,
     rule: {
       expectation: "postgres://user:password@host/database",

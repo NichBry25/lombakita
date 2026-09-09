@@ -86,7 +86,7 @@ describe("registerUserWithCredentials — M1 account-takeover guard", () => {
       registerUserWithCredentials(
         {
           name: "Attacker",
-          email: "victim@gmail.com",
+          email: "victim@seed.lombakita.local",
           password: "attacker-password",
           signupRole: "recruiter",
           fullName: "Rendra Wijaya",

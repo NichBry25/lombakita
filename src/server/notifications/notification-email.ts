@@ -8,6 +8,7 @@ import { publicEnv } from "@/config/env";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
 import { resolveEmailDelivery, type EmailDelivery } from "@/server/email/delivery";
+import { throwEmailSendFailure } from "@/server/email/send-failure";
 
 // A deadline carried on a job payload travels as an ISO string. Rendered in Indonesian long form
 // to match the registration-confirmation email, and with the time included because a document
@@ -66,7 +67,7 @@ export const sendRegistrationConfirmedEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(`Resend registration confirmed email dispatch failed: ${error.message}`);
+    throwEmailSendFailure("registration_confirmed", error);
   }
 
   logger.info("notification.sent", {
@@ -103,7 +104,7 @@ export const sendRegistrationCancelledEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(`Resend registration cancelled email dispatch failed: ${error.message}`);
+    throwEmailSendFailure("registration_cancelled", error);
   }
 
   logger.info("notification.sent", {
@@ -149,7 +150,7 @@ export const sendSubmissionFinalizedEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(`Resend submission finalized email dispatch failed: ${error.message}`);
+    throwEmailSendFailure("submission_finalized", error);
   }
 
   logger.info("notification.sent", {
@@ -188,7 +189,7 @@ export const sendResultPublishedEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(`Resend result published email dispatch failed: ${error.message}`);
+    throwEmailSendFailure("result_published", error);
   }
 
   logger.info("notification.sent", {
@@ -236,7 +237,7 @@ export const sendCompetitionEditedEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(`Resend competition edited email dispatch failed: ${error.message}`);
+    throwEmailSendFailure("competition_edited", error);
   }
 
   logger.info("notification.sent", {
@@ -294,7 +295,7 @@ export const sendCompetitionCancelledEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(`Resend competition cancelled email dispatch failed: ${error.message}`);
+    throwEmailSendFailure("competition_cancelled", error);
   }
 
   logger.info("notification.sent", {
@@ -338,9 +339,7 @@ export const sendRecruiterVerificationRejectedEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(
-      `Resend recruiter verification rejected email dispatch failed: ${error.message}`,
-    );
+    throwEmailSendFailure("recruiter_verification_rejected", error);
   }
 
   logger.info("notification.sent", {
@@ -388,7 +387,7 @@ export const sendRegistrationDocumentRequestedEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(`Resend document requested email dispatch failed: ${error.message}`);
+    throwEmailSendFailure("registration_document_requested", error);
   }
 };
 
@@ -447,7 +446,7 @@ export const sendRegistrationDocumentReviewedEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(`Resend document reviewed email dispatch failed: ${error.message}`);
+    throwEmailSendFailure("registration_document_reviewed", error);
   }
 };
 
@@ -494,7 +493,7 @@ export const sendPaymentProofSubmittedEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(`Resend payment proof submitted email dispatch failed: ${error.message}`);
+    throwEmailSendFailure("payment_proof_submitted", error);
   }
 };
 
@@ -605,6 +604,6 @@ export const sendPaymentOutcomeEmail = async (options: {
   });
 
   if (error) {
-    throw new Error(`Resend payment outcome email dispatch failed: ${error.message}`);
+    throwEmailSendFailure("payment_outcome", error);
   }
 };

@@ -7,7 +7,7 @@
  * verify-step-4.5-saved-cap.ts. Both were literals here, and the connection string carried a
  * password that is valid against production, in a public repository, for 101 days.
  *
- * Run: SEED_USER_EMAIL=someone@example.com npx tsx src/server/scripts/seed-step-4.5-saves.ts
+ * Run: SEED_USER_EMAIL=someone@seed.lombakita.local npx tsx src/server/scripts/seed-step-4.5-saves.ts
  */
 
 import { existsSync } from "node:fs";

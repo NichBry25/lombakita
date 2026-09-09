@@ -6,6 +6,7 @@ import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 import { DOCUMENT_TYPE_LABELS } from "@/server/institution-verification/verification-requirements";
 import type { InstitutionType } from "@/server/db/schema";
 import { formatDisplayToken } from "@/lib/text/capitalize";
+import { emailDeliveryWarning, type EmailDeliveryPayload } from "@/lib/email/delivery-notice";
 
 type SubmissionStatus = "pending_review" | "approved" | "rejected";
 
@@ -74,11 +75,22 @@ function ReviewPanelBody({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decision, reviewerNotes: notes.trim() || null }),
       });
-      const data = (await res.json()) as { error?: { message?: string } };
+      const data = (await res.json()) as {
+        error?: { message?: string };
+        emailDelivery?: EmailDeliveryPayload;
+      };
       if (!res.ok) {
         addToast({ type: "error", message: data.error?.message ?? `Error ${res.status}` });
         return;
       }
+
+      // The decision is committed either way, so a failed notice is a warning on a success, never
+      // an error that would suggest the review did not land.
+      const deliveryWarning = emailDeliveryWarning(data.emailDelivery);
+      if (deliveryWarning) {
+        addToast({ type: "warning", message: deliveryWarning, duration: 0 });
+      }
+
       closeModal();
       onReviewed();
     } catch {

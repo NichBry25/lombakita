@@ -22,11 +22,19 @@ import type { Probe } from "./guard-probe.mjs";
 import { probes as configGateProbes } from "./probes/config-gates.mjs";
 import { probes as browserAuditProbes } from "./probes/browser-audit-refusals.mjs";
 import { probes as shellContentProbes } from "./probes/shell-content.mjs";
+import { probes as emailFailureProbes } from "./probes/email-failure-visibility.mjs";
+import { probes as fixtureRecipientProbes } from "./probes/fixture-recipients.mjs";
+import { probes as registrationRateLimitProbes } from "./probes/registration-rate-limit.mjs";
+import { probes as schemaDriftProbes } from "./probes/schema-drift.mjs";
 
 const SUITES: Record<string, Probe[]> = {
   "config-gates": configGateProbes,
   "browser-audit-refusals": browserAuditProbes,
   "shell-content": shellContentProbes,
+  "email-failure-visibility": emailFailureProbes,
+  "fixture-recipients": fixtureRecipientProbes,
+  "registration-rate-limit": registrationRateLimitProbes,
+  "schema-drift": schemaDriftProbes,
 };
 
 const everyProbe: [string, Probe][] = Object.entries(SUITES).flatMap(([suite, probes]) =>
