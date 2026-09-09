@@ -15,3 +15,12 @@ A routable recipient, which the gate must report:
 A connection string and a recipient on ONE line. The scheme belongs to the token it is part of, so
 it must not excuse the address beside it:
   postgres://appuser:secret@db.internal/lombakita then mail second.person@gmail.com
+
+A recipient in a URL's QUERY, which is one token with the scheme but is not the authority:
+  https://api.example.net/v1/send?to=third.person@gmail.com
+
+A recipient in a URL's PATH, same reasoning one separator earlier:
+  https://host.tld/path/fourth.person@gmail.com
+
+A recipient after a URL FRAGMENT:
+  https://host.tld/#mail=fifth.person@gmail.com

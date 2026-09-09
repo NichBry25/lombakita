@@ -49,8 +49,14 @@ class CheckFailed extends Error {}
  * Reports the failure and unwinds. It THROWS rather than calling `process.exit`, which returns
  * `never` by terminating and so skips the `finally` that closes the database connection — the
  * teardown guarantee Rule 35 asks of anything that opens one.
+ *
+ * The type annotation sits on the CONST, not only on the arrow. TypeScript treats a call as
+ * never-returning for control-flow purposes only when the callee is a const carrying an explicit
+ * type, so with the annotation on the arrow alone every `fail(...)` still had to be followed by a
+ * `return` to narrow anything, and those returns then read as dead code that was actually holding
+ * the analysis up.
  */
-const fail = (message: string): never => {
+const fail: (message: string) => never = (message) => {
   console.error(`FAIL: ${message}`);
   throw new CheckFailed(message);
 };
@@ -98,7 +104,6 @@ const main = async (): Promise<void> => {
 
   if (!url) {
     fail("MIGRATION_DATABASE_URL is not set, so there is no schema to compare.");
-    return;
   }
 
   const journal = readJournalMigrations(DRIZZLE_DIR);
@@ -118,7 +123,6 @@ const main = async (): Promise<void> => {
 
     if (!identity) {
       fail("Connected but the server returned no identity row.");
-      return;
     }
 
     // THE ASSERTION THIS CHECK IS BUILT AROUND. Answered by the server, so the connection string
@@ -129,7 +133,6 @@ const main = async (): Promise<void> => {
           `checked against "${expectedDatabase}". Refusing to report on a database this is not ` +
           "for. Fix MIGRATION_DATABASE_URL rather than this check.",
       );
-      return;
     }
 
     console.log(
@@ -162,7 +165,6 @@ const main = async (): Promise<void> => {
           "Deploying a checkout whose schema history the database does not share is what this " +
           "gate exists to stop.",
       );
-      return;
     }
 
     console.log(

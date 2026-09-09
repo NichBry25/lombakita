@@ -20,12 +20,13 @@
  * fails the gate even if it is obviously harmless, because "obviously harmless" is a judgement the
  * gate is not able to make and skipping it is how the population silently stops being covered.
  *
- * TWO POPULATIONS, EACH COMPLETE, EACH WITH ITS OWN RULE. Send-capable programs are declared in
- * `GOVERNED_FIXTURE_FILES` and discovered against `SEND_CAPABLE_PATTERNS`, so a file that is neither
- * governed nor exempted fails. Unit tests are discovered by pattern alone and hold their routable
- * addresses on a pinned per-file list that can only shrink. Asking a single question of both would have meant
- * either forcing rewrites that invert what a classifier test measures, or the state this replaces,
- * where the whole test tree was outside the gate and nothing said so.
+ * TWO POPULATIONS, EACH COMPLETE, EACH WITH ITS OWN RULE. Both come from ONE walk of the repository
+ * with an explicit deny list, so a file cannot fall between them and no directory is in scope only
+ * because somebody remembered to name it. Send-capable programs must each be governed or exempted,
+ * and the reverse check proves the walk still reaches everything already governed. Unit tests pin
+ * their routable addresses per file under a total-count ratchet. Asking a single question of both
+ * would have meant either forcing rewrites that invert what a classifier test measures, or the
+ * state this replaces, where the whole test tree was outside the gate and nothing said so.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -68,20 +69,48 @@ export const GOVERNED_FIXTURE_FILES = Object.freeze([
 ] as const);
 
 /**
- * Where a file that can hand an address to the provider is allowed to live.
+ * Directories the walk does not enter, and the reason each is out of the population.
  *
- * These are programs that RUN: seeds, harnesses, concurrency drivers, one-off scripts. A unit test
- * is a different population with a different rule, declared further down.
+ * A DENY LIST WALKED FROM THE REPOSITORY ROOT, not an allow list of roots. The previous version
+ * named `scripts` and `src/server/scripts` and so had exactly the defect it was written to close,
+ * one level up: the roots were themselves an undeclared list, and a seed placed in any other
+ * directory was invisible. That was demonstrated — a file at `src/server/seeds/` carrying a real
+ * routable address passed the whole gate green.
+ *
+ * Everything not denied is in scope, so adding a directory to the repository adds it to the
+ * population automatically. Removing one from the population is an edit here, with a reason, in a
+ * diff — which is the property an allow list cannot have.
  */
-export type FilePattern = {
-  root: string;
-  suffix: string;
-};
+export const WALK_DENIED_DIRECTORIES: readonly DeclaredExemption[] = Object.freeze([
+  { file: "node_modules", reason: "dependencies, not this repository's code" },
+  { file: ".git", reason: "object store" },
+  { file: ".next", reason: "build output" },
+  { file: ".vercel", reason: "build output" },
+  { file: "coverage", reason: "test output" },
+  { file: "dist", reason: "build output" },
+  { file: "build", reason: "build output" },
+  {
+    file: "docs",
+    reason:
+      "a separate git repository (DEC-0101) holding prose, not programs. Nothing under it is " +
+      "imported or executed by the application",
+  },
+] as const);
 
-export const SEND_CAPABLE_PATTERNS: readonly FilePattern[] = Object.freeze([
-  { root: "scripts", suffix: ".ts" },
-  { root: "scripts", suffix: ".mjs" },
-  { root: "src/server/scripts", suffix: ".ts" },
+/**
+ * File extensions that can execute a send in this repository.
+ *
+ * The one remaining allow list, and it is on a different axis from the roots that were removed: a
+ * `.md` or a `.json` cannot call the provider. `.test.ts` is excluded from THIS population because
+ * it belongs to the unit-test population below, which has its own rule.
+ */
+export const SEND_CAPABLE_EXTENSIONS: readonly string[] = Object.freeze([
+  ".ts",
+  ".mts",
+  ".cts",
+  ".js",
+  ".mjs",
+  ".cjs",
 ] as const);
 
 export type DeclaredExemption = {
@@ -105,6 +134,18 @@ export const EXEMPT_SEND_CAPABLE_FILES: readonly DeclaredExemption[] = Object.fr
       "address-bearing by construction and sends nothing",
   },
   {
+    file: "src/server/email/simulator-recipients.ts",
+    reason:
+      "the simulator declaration. It names complained@resend.dev in prose precisely to record that " +
+      "it is EXCLUDED, so the one routable address in the file is there to keep it out of use",
+  },
+  {
+    file: "src/config/company.ts",
+    reason:
+      "the platform's own support address, which is a contact shown to users and a sender, never " +
+      "a recipient a fixture hands to the provider. It is routable on purpose",
+  },
+  {
     file: "scripts/testing/probes/fixture-recipients.mjs",
     reason:
       "the Rule 36 probe for this gate. It plants a routable address in a governed file to show " +
@@ -124,22 +165,38 @@ export type FixtureRecipient = {
 
 /**
  * Characters that end an address-shaped token. Everything between two of these is one token, which
- * is the unit a URL scheme can belong to.
+ * is the unit a URL can occupy.
  */
 const TOKEN_BOUNDARY = /[\s"'`,;()[\]{}<>\\]/;
 
+/** What ends a URL's authority and begins its path, query or fragment (RFC 3986 §3.2). */
+const AUTHORITY_END = /[/?#]/;
+
 /**
- * Whether a match is a connection string's credentials rather than a recipient.
+ * Whether a match is a URL's credentials rather than a recipient.
  *
  * `postgres://user:pass@host/db` matches the same shape as an address. This is a CLASSIFICATION and
  * never a skip: the caller records the verdict, so a URL authority stays visible in the scan output
  * instead of vanishing from it. A token that is not identified as one is still held to the
  * recipient rule.
  *
- * SCOPED TO THE TOKEN, not to the line. Asking whether `://` appears anywhere earlier on the line
- * meant one connection string excused every address after it, so a line carrying a database URL and
- * a real recipient reported only the URL and passed. The scheme is only this token's if it sits
- * inside this token, which is what walking back to the nearest boundary establishes.
+ * SCOPED TO THE AUTHORITY, not to the token and not to the line. Two earlier versions were wrong in
+ * the same direction, each excusing more than it should:
+ *   - asking whether `://` appeared anywhere earlier on the LINE let one connection string excuse
+ *     every address after it, so a line carrying a database URL and a real recipient reported the
+ *     URL alone;
+ *   - asking whether `://` appeared anywhere earlier in the TOKEN still excused
+ *     `https://host/send?to=victim@gmail.com`, because the query is part of the same token.
+ *
+ * A URL's authority ends at the first `/`, `?` or `#`. An address after that point is in the path
+ * or the query — it is an address that happens to sit inside a URL, not the URL's own credentials,
+ * and it is exactly the shape a webhook or an API call puts a real recipient into.
+ *
+ * Widening TOKEN_BOUNDARY to include `/ ? # = & :` looks like the same fix and is not: `:` sits
+ * immediately before the password in `scheme://user:pass@host`, so the walk back terminates before
+ * it ever reaches `://` and EVERY connection string reclassifies as a routable recipient. That
+ * turns every seed's credentials into a finding and invites someone to pin them as accepted
+ * addresses.
  */
 const isUrlAuthority = (line: string, index: number): boolean => {
   let start = index;
@@ -148,7 +205,14 @@ const isUrlAuthority = (line: string, index: number): boolean => {
     start -= 1;
   }
 
-  return line.slice(start, index).includes("://");
+  const token = line.slice(start, index);
+  const scheme = token.lastIndexOf("://");
+
+  if (scheme === -1) {
+    return false;
+  }
+
+  return !AUTHORITY_END.test(token.slice(scheme + 3));
 };
 
 /** Every address-shaped token in one file, each with its verdict. */
@@ -177,20 +241,56 @@ export const scanFixtureFile = (file: string): FixtureRecipient[] => {
   return found;
 };
 
+const TEST_SUFFIX = ".test.ts";
+
+const DENIED_DIRECTORY_NAMES: ReadonlySet<string> = new Set(
+  WALK_DENIED_DIRECTORIES.map((entry) => entry.file),
+);
+
 /**
- * The unit-test population. Discovered by pattern, so it is complete by construction.
+ * Every file under `directory`, recursively, skipping the denied directories.
  *
- * These files were outside the gate entirely until now, which is how nineteen addresses at a real
- * consumer mail domain sat in them unreported. A unit test mocks the provider and mails nobody, so
- * the rule here is weaker than the send-capable one — but "weaker" has to mean a declared list that
- * can only shrink, not an absent one.
+ * Pruned DURING the walk rather than filtered after it: `node_modules` is large enough that
+ * descending into it and discarding the result afterwards is the difference between a gate that
+ * runs in CI and one nobody waits for.
  */
-export const GOVERNED_TEST_PATTERNS: readonly FilePattern[] = Object.freeze([
-  { root: "src", suffix: ".test.ts" },
-  // The send-capable discovery skips `.test.ts`, so without this pattern a test file under
-  // scripts/ would sit between the two populations and be governed by neither.
-  { root: "scripts", suffix: ".test.ts" },
-] as const);
+const walkRepository = (directory: string): string[] => {
+  const found: string[] = [];
+
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (DENIED_DIRECTORY_NAMES.has(entry.name)) continue;
+      found.push(...walkRepository(join(directory, entry.name)));
+      continue;
+    }
+
+    if (entry.isFile()) {
+      found.push(join(directory, entry.name));
+    }
+  }
+
+  return found;
+};
+
+/** Repository-relative paths of every file the walk reaches, in sorted order. */
+export const walkRepositoryFiles = (): string[] =>
+  walkRepository(".")
+    .map((file) => (file.startsWith("./") ? file.slice(2) : file))
+    .sort();
+
+/** The two populations, split out of one walk so no file can fall between them. */
+export const partitionWalkedFiles = (
+  files: readonly string[],
+): { sendCapable: string[]; tests: string[] } => {
+  const candidates = files.filter((file) =>
+    SEND_CAPABLE_EXTENSIONS.some((extension) => file.endsWith(extension)),
+  );
+
+  return {
+    sendCapable: candidates.filter((file) => !file.endsWith(TEST_SUFFIX)),
+    tests: candidates.filter((file) => file.endsWith(TEST_SUFFIX)),
+  };
+};
 
 /**
  * Why a routable address in a test file is accepted. Two reasons and no third.
@@ -215,8 +315,9 @@ export type AcceptedRoutableTestFile = {
  *
  * PINNED RATHER THAN SKIPPED, the same shape as ACCEPTED_DIVERGENCES in the drift check. A file on
  * this list is still scanned and still has to present exactly these addresses; a new one is a
- * failure. The list is a debt register that can only shrink, and a file that leaves it cannot come
- * back without a review.
+ * failure. Its total size is held against PINNED_ADDRESS_CEILING below, so accepting one more
+ * address is an edit to a stated number rather than a line added inside an entry, and paying debt
+ * down forces that number lower in the same commit.
  */
 export const ACCEPTED_ROUTABLE_TEST_ADDRESSES: readonly AcceptedRoutableTestFile[] = Object.freeze([
   {
@@ -225,8 +326,11 @@ export const ACCEPTED_ROUTABLE_TEST_ADDRESSES: readonly AcceptedRoutableTestFile
     file: "scripts/testing/fixture-recipients.test.ts",
     addresses: [
       "complained@resend.dev",
+      "fifth.person@gmail.com",
+      "fourth.person@gmail.com",
       "real.person@gmail.com",
       "second.person@gmail.com",
+      "third.person@gmail.com",
       "secret@db.internal",
       "secret@ep-example.ap-southeast-1.aws.neon.tech",
     ],
@@ -437,31 +541,56 @@ export const ACCEPTED_ROUTABLE_TEST_ADDRESSES: readonly AcceptedRoutableTestFile
 ] as const);
 
 /**
- * Every file under `root` whose name ends in `suffix`, walked recursively.
+ * Which of `files` carry at least one ROUTABLE address.
  *
- * A walk rather than a shell glob so the discovery runs identically under vitest, under node and on
- * whatever CI image is current. What it finds is never trusted as the declaration — it is the thing
- * the declaration is checked against.
+ * Routable specifically, not address-bearing generally. A file whose only addresses are reserved or
+ * simulator ones already satisfies the recipient rule, so demanding a declaration for it would add
+ * no safety and a great deal of noise — and a list nobody reads is a list that gets rubber-stamped.
+ * The moment such a file gains a routable address it becomes undeclared and the gate fails, which is
+ * the trigger that matters.
+ *
+ * What discovery finds is never trusted as the declaration — it is the thing the declaration is
+ * checked against.
  */
-const filesMatching = (pattern: FilePattern): string[] =>
-  readdirSync(pattern.root, { recursive: true, encoding: "utf8" })
-    .filter((entry) => entry.endsWith(pattern.suffix))
-    .map((entry) => join(pattern.root, entry));
+export const carryingRoutableAddress = (files: readonly string[]): string[] =>
+  files.filter((file) => scanFixtureFile(file).some((found) => found.verdict === "routable"));
 
-/** Every address-bearing file matched by a pattern set, in sorted order. */
-export const discoverAddressBearingFiles = (patterns: readonly FilePattern[]): string[] => {
-  const files = [...new Set(patterns.flatMap(filesMatching))].sort();
+/** Every send-capable file in the repository carrying a routable address, found by walking it. */
+export const discoverSendCapableFiles = (): string[] =>
+  carryingRoutableAddress(partitionWalkedFiles(walkRepositoryFiles()).sendCapable);
 
-  return files.filter((file) =>
-    scanFixtureFile(file).some((found) => found.verdict !== "url_authority"),
-  );
-};
+/** Every test file in the repository carrying a routable address, found by the same walk. */
+export const discoverTestFiles = (): string[] =>
+  carryingRoutableAddress(partitionWalkedFiles(walkRepositoryFiles()).tests);
 
 /** Every routable address in the governed unit-test population. */
 export const scanGovernedTestFiles = (): FixtureRecipient[] =>
-  discoverAddressBearingFiles(GOVERNED_TEST_PATTERNS).flatMap((file) =>
+  discoverTestFiles().flatMap((file) =>
     scanFixtureFile(file).filter((found) => found.verdict === "routable"),
   );
+
+/**
+ * The ratchet. Total pinned addresses across every entry, which may go DOWN and never up.
+ *
+ * A per-entry list makes a new pin invisible: an address added to an existing `addresses` array
+ * satisfies both the "no unpinned address" and the "no stale pin" assertions, so the register grew
+ * silently. That was demonstrated — adding one address to one entry passed all eleven checks.
+ *
+ * WHAT THIS DOES AND DOES NOT ENFORCE, stated plainly because the previous wording did not. It
+ * cannot make growth impossible: the number below is editable like any other. What it does is move
+ * growth out of a fifty-entry array and onto a single line that says how much debt exists, so
+ * raising it is a deliberate one-line act a reviewer sees, and paying debt down forces it lower.
+ * The exact-equality assertion is what forces the second half.
+ *
+ * A LITERAL, NOT A SUM OVER THE REGISTER. Deriving it from the thing it bounds would make the
+ * assertion true by construction and measure nothing, which is the defect this whole gate exists
+ * to avoid shipping.
+ */
+export const PINNED_ADDRESS_CEILING = 83;
+
+/** What the register actually holds right now. Compared against the literal above. */
+export const pinnedAddressTotal = (): number =>
+  ACCEPTED_ROUTABLE_TEST_ADDRESSES.reduce((total, entry) => total + entry.addresses.length, 0);
 
 /** Every governed file's recipients, in one list. */
 export const scanGovernedFixtures = (): FixtureRecipient[] =>

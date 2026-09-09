@@ -7,10 +7,15 @@
  * their own `ssl: "require"` literal instead.
  *
  * `ssl: "require"` is not the tightening it reads as. postgres.js treats the strings `require`,
- * `allow` and `prefer` as "encrypt but do not check who you are talking to" — it sets
- * `rejectUnauthorized = false` for all three — so a literal `require` encrypts the session while
- * accepting any certificate presented. Resolving the option here instead means those clients get
- * certificate verification by default and honour `DB_SSL_MODE` like everything else.
+ * `allow` and `prefer` as "encrypt but do not check who you are talking to": it sets
+ * `rejectUnauthorized = false` for all three, so a literal `require` encrypts the session while
+ * accepting any certificate presented.
+ *
+ * WHAT ONE POLICY BUYS, PRECISELY. Every client answers to `DB_SSL_MODE` instead of to a literal
+ * of its own. It does NOT follow that they verify their peer: the default mode is `inherit`, under
+ * which this returns `undefined` and the connection string's own `sslmode` governs, and a Neon URL
+ * carries `sslmode=require`, which is the unverified case above. Verification happens only where
+ * `DB_SSL_MODE` is provisioned with a verifying value in the environment that runs these programs.
  */
 
 import type postgres from "postgres";

@@ -6,10 +6,12 @@
 // bounces, and a run of hard bounces is what costs a sending domain its reputation.
 //
 // The gate refuses anything it cannot classify (Rule 38), across two populations that are each
-// proved complete. Send-capable programs are named in an explicit list, so a rename fails loudly
-// rather than quietly leaving the population — and a discovery pass then checks that list covers
-// every address-bearing file in the class, because an explicit list on its own says nothing about
-// what it omits. Unit tests are discovered by pattern and pin their routable addresses per file.
+// proved complete. ONE walk of the repository with an explicit deny list feeds both, so no file
+// falls between them and no directory is in scope only because somebody remembered to name it.
+// Send-capable programs must each be governed or exempted, and a reverse check proves the walk
+// still reaches everything already governed — narrowing the walk makes the forward check pass more
+// easily, so the forward check alone is not enough. Unit tests pin their routable addresses per
+// file under a total-count ratchet, because a per-entry list lets the register grow invisibly.
 
 import { describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
@@ -17,13 +19,17 @@ import {
   ACCEPTED_ROUTABLE_TEST_ADDRESSES,
   EXEMPT_SEND_CAPABLE_FILES,
   GOVERNED_FIXTURE_FILES,
-  GOVERNED_TEST_PATTERNS,
-  SEND_CAPABLE_PATTERNS,
+  PINNED_ADDRESS_CEILING,
   SIMULATOR_RECIPIENTS,
-  discoverAddressBearingFiles,
+  WALK_DENIED_DIRECTORIES,
+  discoverSendCapableFiles,
+  discoverTestFiles,
+  partitionWalkedFiles,
+  pinnedAddressTotal,
   scanFixtureFile,
   scanGovernedFixtures,
   scanGovernedTestFiles,
+  walkRepositoryFiles,
 } from "./fixture-recipients";
 
 describe("the governed fixture population", () => {
@@ -48,9 +54,7 @@ describe("the governed fixture population", () => {
       ...EXEMPT_SEND_CAPABLE_FILES.map((entry) => entry.file),
     ]);
 
-    const undeclared = discoverAddressBearingFiles(SEND_CAPABLE_PATTERNS).filter(
-      (file) => !declared.has(file) && !file.endsWith(".test.ts"),
-    );
+    const undeclared = discoverSendCapableFiles().filter((file) => !declared.has(file));
 
     expect(
       undeclared,
@@ -59,6 +63,31 @@ describe("the governed fixture population", () => {
         "the reason on the row. Leaving one undeclared is the fail-open this assertion exists " +
         "to stop.",
     ).toEqual([]);
+  });
+
+  // THE OTHER HALF OF COMPLETENESS, and the one that makes the deny list itself checked. The
+  // assertion above only asks whether what discovery FINDS is declared, so narrowing the walk makes
+  // it pass more easily — a deny list that swallowed half the repository would look like success.
+  // This asks the reverse: everything already governed must still be reachable by the walk.
+  it("walks every file it already governs, so the deny list cannot hide one", () => {
+    const walked = new Set(partitionWalkedFiles(walkRepositoryFiles()).sendCapable);
+
+    const unreachable = GOVERNED_FIXTURE_FILES.filter((file) => !walked.has(file));
+
+    expect(
+      unreachable,
+      "These files are governed but the repository walk no longer reaches them, so the " +
+        "completeness assertion above has stopped covering them. A denied directory or a " +
+        "narrowed extension list is the usual cause.",
+    ).toEqual([]);
+  });
+
+  it("denies directories by name only, each with a reason", () => {
+    // A path here would silently match nothing, because the walk compares directory NAMES.
+    for (const entry of WALK_DENIED_DIRECTORIES) {
+      expect(entry.file, `${entry.file} is a path, not a directory name`).not.toContain("/");
+      expect(entry.reason.length, `${entry.file} is denied without a reason`).toBeGreaterThan(10);
+    }
   });
 
   it("names exemptions that all still exist, so a rename cannot retire one silently", () => {
@@ -72,11 +101,15 @@ describe("the governed fixture population", () => {
 describe("the unit-test population", () => {
   const routableInTests = scanGovernedTestFiles();
 
-  it("is discovered by pattern, so a new test file is covered without being declared", () => {
-    // The property that makes this population complete. If discovery stopped matching, every
-    // assertion below would pass over nothing, so the scan is proved non-empty first.
-    expect(GOVERNED_TEST_PATTERNS.length).toBeGreaterThan(0);
-    expect(discoverAddressBearingFiles(GOVERNED_TEST_PATTERNS).length).toBeGreaterThan(50);
+  it("is discovered by walking the repository, so a new test file is covered without being declared", () => {
+    // BREADTH FIRST, then depth. If the walk collapsed — a denied directory too broad, an
+    // extension list narrowed — every assertion below would pass over almost nothing and read as
+    // success, so the population's size is asserted before anything is concluded from its contents.
+    const { sendCapable, tests } = partitionWalkedFiles(walkRepositoryFiles());
+
+    expect(sendCapable.length, "send-capable candidates").toBeGreaterThan(300);
+    expect(tests.length, "test candidates").toBeGreaterThan(200);
+    expect(discoverTestFiles().length, "tests carrying a routable address").toBeGreaterThan(25);
   });
 
   it("carries no routable address that is not pinned for its file", () => {
@@ -96,7 +129,7 @@ describe("the unit-test population", () => {
     ).toEqual([]);
   });
 
-  it("pins nothing that has already been cleaned up, so the list can only shrink", () => {
+  it("pins nothing that has already been cleaned up", () => {
     // Without this the register rots: an address converted to a reserved one would leave its pin
     // behind, and the pin would go on excusing that address if it ever came back.
     const live = new Set(routableInTests.map((found) => `${found.file} ${found.address}`));
@@ -108,6 +141,19 @@ describe("the unit-test population", () => {
     );
 
     expect(stale, "Pinned but no longer present. Remove the entry.").toEqual([]);
+  });
+
+  // THE RATCHET. The two assertions above are each satisfied by an address added to an existing
+  // entry — it is pinned, so not unpinned; it is live, so not stale — which is how the register
+  // grew silently by one edit. This is the only check that sees the register's SIZE.
+  it("holds exactly the debt the ceiling declares, so growth cannot hide inside an entry", () => {
+    expect(
+      pinnedAddressTotal(),
+      `The pinned register holds ${pinnedAddressTotal()} addresses but PINNED_ADDRESS_CEILING ` +
+        `says ${PINNED_ADDRESS_CEILING}. Going UP means a new routable fixture was accepted: ` +
+        "prefer converting it to @seed.lombakita.local or a simulator address. Going DOWN means " +
+        "debt was paid — lower the ceiling in the same commit so it can never come back.",
+    ).toBe(PINNED_ADDRESS_CEILING);
   });
 });
 
@@ -149,9 +195,13 @@ describe("the classifier the gate depends on", () => {
     // and the verdict is RECORDED: the authority appears in the output rather than disappearing
     // from it, so a reader can see what the scanner decided instead of inferring it from a gap.
     //
-    // The last two rows are the line-scope regression. Asking whether `://` appeared anywhere
-    // earlier on the line let one connection string excuse every address after it, so this line
-    // reported the URL alone and the recipient beside it was never classified.
+    // Rows 5-6 are the line-scope regression: asking whether `://` appeared anywhere earlier on the
+    // line let one connection string excuse every address after it.
+    //
+    // Rows 7-9 are the token-scope regression that replaced it. A URL's query, path and fragment
+    // are all part of the same whitespace-delimited token as its scheme, so scoping to the token
+    // still excused a real recipient sitting in any of them — the shape a webhook URL has. Only the
+    // AUTHORITY belongs to the URL's credentials, and it ends at the first / ? or #.
     const found = scanFixtureFile("scripts/testing/fixtures/recipient-shapes.txt");
 
     expect(found.map((f) => `${f.address}:${f.verdict}`)).toEqual([
@@ -161,6 +211,9 @@ describe("the classifier the gate depends on", () => {
       "real.person@gmail.com:routable",
       "secret@db.internal:url_authority",
       "second.person@gmail.com:routable",
+      "third.person@gmail.com:routable",
+      "fourth.person@gmail.com:routable",
+      "fifth.person@gmail.com:routable",
     ]);
   });
 });

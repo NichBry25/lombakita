@@ -101,6 +101,39 @@ const installSignalTeardown = (key, teardown) => {
 export const readFile = (path) => readFileSync(path, "utf8");
 
 /**
+ * What the mutation did to the tree, read out of git rather than taken from the probe's own name.
+ *
+ * A removal/move pair names the same guard twice, so the case name alone cannot say which of the
+ * two ran, and the evidence line for the pair reads as one result printed twice. The diff separates
+ * them without anyone having to describe it: a removal only takes lines away, a move takes the same
+ * lines away and puts them back somewhere else, so the counts differ and the added line is there to
+ * read. Captured while the file is still mutated, which is the only moment it exists.
+ */
+const mutationIdentity = (files) => {
+  const diff = git(["diff", "--unified=0", "HEAD", "--", ...files]);
+
+  const removed = [];
+  const added = [];
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("---") || line.startsWith("+++") || line.startsWith("@@")) continue;
+    if (line.startsWith("-")) removed.push(line.slice(1).trim());
+    else if (line.startsWith("+")) added.push(line.slice(1).trim());
+  }
+
+  const firstReal = (lines) => lines.find((line) => line !== "");
+  const excerpt = (lines) => {
+    const line = firstReal(lines);
+    return line === undefined ? "(nothing)" : JSON.stringify(line.slice(0, 64));
+  };
+
+  return (
+    `mutation -${removed.length}/+${added.length} lines` +
+    `  first removed ${excerpt(removed)}` +
+    `  first added ${excerpt(added)}`
+  );
+};
+
+/**
  * Replaces `find` with `replace` in `path`, once, failing loudly when the anchor is not there.
  *
  * A mutation whose anchor has drifted writes nothing and the probe then measures an unmutated
@@ -220,6 +253,7 @@ export const runProbe = async (spec) => {
   installSignalTeardown(name, teardown);
 
   let detail = "";
+  let identity = "";
   let ok = false;
   try {
     await mutate();
@@ -236,6 +270,8 @@ export const runProbe = async (spec) => {
         throw new Error(`${name}: mutation marker absent after mutating: ${marker.slice(0, 80)}`);
       }
     }
+
+    identity = mutationIdentity(files);
 
     // CLAUSE 1 — compiles. NOT optional for a code file, because most detectors here are `vitest`
     // or `tsc`, which fail identically on a syntax error and on a guard holding: a probe whose
@@ -267,10 +303,11 @@ export const runProbe = async (spec) => {
   console.log(
     `${ok ? "RED  " : "GREEN"}  ${name}\n` +
       `        class ${klass} — harmful move: ${harmfulMove}\n` +
+      `        ${identity}\n` +
       `        ${detail}\n` +
       `        RESTORE OK (${files.length} file(s) match HEAD)`,
   );
-  return { name, ok, detail };
+  return { name, ok, detail, identity };
 };
 
 /**

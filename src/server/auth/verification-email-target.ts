@@ -10,7 +10,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
  * Shared by /register and /register/resend because they share one per-address budget, and a budget
  * is only shared if both sides derive the same key from the same address. Normalisation goes
  * through `normalizeEmail`, the same function the signup transaction uses to decide which row an
- * address belongs to, so `A@x.com ` and `a@x.com` cannot hold separate allowances while resolving
+ * address belongs to, so `A@Seed.Lombakita.Local ` and `a@seed.lombakita.local` cannot hold separate allowances while resolving
  * to one account.
  *
  * Returns null when the payload names no address. The caller counts only what it can key.
