@@ -38,6 +38,21 @@ const step = (number: number, title: string): void => {
 };
 
 /**
+ * An unset OR EMPTY variable is absent, not a value.
+ *
+ * `process.env.REDIS_URL ?? null` yields `""` for a variable that is set to nothing, and `""` is
+ * not a URL — the host layer could not parse it and refused the whole reset for a Redis that was
+ * never configured. Found by the probe suite rather than by reading: two probes run the reset with
+ * Redis deliberately blanked, and both stopped at a refusal that had nothing to do with what they
+ * were measuring.
+ */
+const optionalUrl = (value: string | undefined): string | null => {
+  const trimmed = value?.trim();
+
+  return trimmed ? trimmed : null;
+};
+
+/**
  * Drops everything the migrations create, including the ledger that records they ran.
  *
  * OBJECT BY OBJECT, NOT `DROP SCHEMA public`. The reset connects as the migration role, and that
@@ -247,7 +262,7 @@ const verifyLedgerRebuiltFromZero = async (sql: postgres.Sql): Promise<void> => 
 };
 
 const rebuildSearchIndex = (): void => {
-  if (!process.env.MEILISEARCH_HOST) {
+  if (!optionalUrl(process.env.MEILISEARCH_HOST)) {
     console.log(
       "  MEILISEARCH_HOST is not set — skipping. Search will return nothing until it is.",
     );
@@ -269,13 +284,15 @@ const rebuildSearchIndex = (): void => {
  * same server alone.
  */
 const flushRedis = async (): Promise<void> => {
-  if (!process.env.REDIS_URL) {
+  const url = optionalUrl(process.env.REDIS_URL);
+
+  if (!url) {
     console.log("  REDIS_URL is not set — skipping.");
     return;
   }
 
   const { default: Redis } = await import("ioredis");
-  const redis = new Redis(process.env.REDIS_URL, {
+  const redis = new Redis(url, {
     lazyConnect: true,
     maxRetriesPerRequest: 1,
     enableOfflineQueue: false,
@@ -349,7 +366,7 @@ const main = async (): Promise<void> => {
     await assertResetTargetIsDisposable(sql, {
       appEnv,
       databaseUrl: target,
-      redisUrl: process.env.REDIS_URL ?? null,
+      redisUrl: optionalUrl(process.env.REDIS_URL),
     });
 
     step(2, "Dropping every migrated object");

@@ -170,7 +170,7 @@ const GUARD_CALL =
   "    await assertResetTargetIsDisposable(sql, {\n" +
   "      appEnv,\n" +
   "      databaseUrl: target,\n" +
-  "      redisUrl: process.env.REDIS_URL ?? null,\n" +
+  "      redisUrl: optionalUrl(process.env.REDIS_URL),\n" +
   "    });\n";
 
 export const probes = [
