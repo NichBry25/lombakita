@@ -40,20 +40,24 @@ try {
 
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { MeiliSearch } from "meilisearch";
 import { competitions, institutions } from "../src/server/db/schema";
 import {
   COMPETITION_INDEX_NAME,
-  COMPETITION_INDEX_FILTERABLE_ATTRIBUTES,
-  COMPETITION_INDEX_SORTABLE_ATTRIBUTES,
-  COMPETITION_INDEX_SEARCHABLE_ATTRIBUTES,
   type CompetitionIndexDocument,
 } from "../src/server/search/competition-index";
 import {
-  getInstitutionDisplayName,
-  institutionOwnerUsernameSql,
-} from "../src/server/institution-workspace/institution-display-name";
+  COMPETITION_INDEX_COLUMNS,
+  publishedCompetitionsFilter,
+  toCompetitionIndexDocument,
+  type CompetitionIndexRow,
+} from "../src/server/search/competition-index-documents";
+import {
+  applyCompetitionIndexSettings,
+  ensureCompetitionIndexExists,
+  waitForTask,
+} from "./lib/competition-index-admin";
 
 const db_url = process.env.DATABASE_URL;
 const meili_host = process.env.MEILISEARCH_HOST;
@@ -69,106 +73,34 @@ const sql = postgres(db_url, { max: 1 });
 const db = drizzle(sql);
 const client = new MeiliSearch({ host: meili_host, apiKey: meili_key });
 
-async function waitForTask(taskUid: number, label: string): Promise<void> {
-  const task = await client.tasks.waitForTask(taskUid, { timeout: 30_000, interval: 500 });
-  if (task.status === "failed") {
-    throw new Error(`Task "${label}" failed: ${JSON.stringify(task.error)}`);
-  }
-  console.log(`  ✓ ${label}`);
-}
-
 async function main() {
   // ── 1. Create index (idempotent) ───────────────────────────────────────────
   console.log("\n[1/3] Creating index...");
-  const createTask = await client.createIndex(COMPETITION_INDEX_NAME, { primaryKey: "id" });
-  const createdResult = await client.tasks.waitForTask(createTask.taskUid, {
-    timeout: 30_000,
-    interval: 500,
-  });
-  if (createdResult.status === "failed") {
-    if (createdResult.error?.code === "index_already_exists") {
-      console.log(`  ✓ index '${COMPETITION_INDEX_NAME}' already exists — skipping`);
-    } else {
-      throw new Error(`Task "create index" failed: ${JSON.stringify(createdResult.error)}`);
-    }
-  } else {
-    console.log(`  ✓ index '${COMPETITION_INDEX_NAME}' created`);
-  }
+  await ensureCompetitionIndexExists(client);
 
   const index = client.index<CompetitionIndexDocument>(COMPETITION_INDEX_NAME);
 
   // ── 2. Configure settings ──────────────────────────────────────────────────
   console.log("\n[2/3] Configuring index settings...");
-
-  const filterTask = await index.updateFilterableAttributes([
-    ...COMPETITION_INDEX_FILTERABLE_ATTRIBUTES,
-  ]);
-  await waitForTask(
-    filterTask.taskUid,
-    `filterable attributes: ${COMPETITION_INDEX_FILTERABLE_ATTRIBUTES.join(", ")}`,
-  );
-
-  const sortTask = await index.updateSortableAttributes([...COMPETITION_INDEX_SORTABLE_ATTRIBUTES]);
-  await waitForTask(
-    sortTask.taskUid,
-    `sortable attributes: ${COMPETITION_INDEX_SORTABLE_ATTRIBUTES.join(", ")}`,
-  );
-
-  const searchTask = await index.updateSearchableAttributes([
-    ...COMPETITION_INDEX_SEARCHABLE_ATTRIBUTES,
-  ]);
-  await waitForTask(
-    searchTask.taskUid,
-    `searchable attributes: ${COMPETITION_INDEX_SEARCHABLE_ATTRIBUTES.join(", ")}`,
-  );
+  await applyCompetitionIndexSettings(client);
 
   // ── 3. Backfill documents ──────────────────────────────────────────────────
+  // UPSERT ONLY, never removing. That is what makes this safe to run against production and what
+  // makes it the wrong tool after a database reset — use `npm run search:reindex` for that.
   console.log("\n[3/3] Backfilling published competitions...");
 
-  const rows = await db
-    .select({
-      id: competitions.id,
-      title: competitions.title,
-      slug: competitions.slug,
-      category: competitions.category,
-      mode: competitions.mode,
-      registrationEndAt: competitions.registrationEndAt,
-      createdAt: competitions.createdAt,
-      isFeatured: competitions.isFeatured,
-      featuredOrder: competitions.featuredOrder,
-      institutionSlug: institutions.slug,
-      institutionDisplayName: institutions.displayName,
-      institutionType: institutions.institutionType,
-      institutionOwnerUsername: institutionOwnerUsernameSql,
-    })
+  const rows = (await db
+    .select(COMPETITION_INDEX_COLUMNS)
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
-    .where(and(eq(competitions.status, "published"), isNull(competitions.deletedAt)));
+    .where(publishedCompetitionsFilter())) as CompetitionIndexRow[];
 
   if (rows.length === 0) {
     console.log("  No published competitions found — index is empty but ready.");
   } else {
-    const documents: CompetitionIndexDocument[] = rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      slug: r.slug,
-      category: r.category ?? null,
-      mode: r.mode ?? null,
-      deadline: r.registrationEndAt ? Math.floor(r.registrationEndAt.getTime() / 1000) : null,
-      createdAt: r.createdAt.toISOString(),
-      isFeatured: r.isFeatured,
-      featuredOrder: r.featuredOrder ?? null,
-      institutionSlug: r.institutionSlug,
-      // Personal institutions store NULL display_name and derive their name from the owner username.
-      institutionName: getInstitutionDisplayName(
-        { displayName: r.institutionDisplayName, institutionType: r.institutionType },
-        { username: r.institutionOwnerUsername },
-      ),
-      status: "published",
-    }));
-
+    const documents = rows.map(toCompetitionIndexDocument);
     const upsertTask = await index.addDocuments(documents, { primaryKey: "id" });
-    await waitForTask(upsertTask.taskUid, `upserted ${documents.length} document(s)`);
+    await waitForTask(client, upsertTask.taskUid, `upserted ${documents.length} document(s)`);
   }
 
   await sql.end();

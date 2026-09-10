@@ -30,7 +30,7 @@ try {
 
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { MeiliSearch } from "meilisearch";
 import { competitions, institutions } from "../src/server/db/schema";
 import {
@@ -38,9 +38,11 @@ import {
   type CompetitionIndexDocument,
 } from "../src/server/search/competition-index";
 import {
-  getInstitutionDisplayName,
-  institutionOwnerUsernameSql,
-} from "../src/server/institution-workspace/institution-display-name";
+  COMPETITION_INDEX_COLUMNS,
+  publishedCompetitionsFilter,
+  toCompetitionIndexDocument,
+  type CompetitionIndexRow,
+} from "../src/server/search/competition-index-documents";
 
 const db_url = process.env.DATABASE_URL;
 const meili_host = process.env.MEILISEARCH_HOST;
@@ -56,44 +58,13 @@ const client = new MeiliSearch({ host: meili_host, apiKey: meili_key });
 const index = client.index<CompetitionIndexDocument>(COMPETITION_INDEX_NAME);
 
 async function main() {
-  const rows = await db
-    .select({
-      id: competitions.id,
-      title: competitions.title,
-      slug: competitions.slug,
-      category: competitions.category,
-      mode: competitions.mode,
-      registrationEndAt: competitions.registrationEndAt,
-      createdAt: competitions.createdAt,
-      isFeatured: competitions.isFeatured,
-      featuredOrder: competitions.featuredOrder,
-      institutionSlug: institutions.slug,
-      institutionDisplayName: institutions.displayName,
-      institutionType: institutions.institutionType,
-      institutionOwnerUsername: institutionOwnerUsernameSql,
-    })
+  const rows = (await db
+    .select(COMPETITION_INDEX_COLUMNS)
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
-    .where(and(eq(competitions.status, "published"), isNull(competitions.deletedAt)));
+    .where(publishedCompetitionsFilter())) as CompetitionIndexRow[];
 
-  const documents: CompetitionIndexDocument[] = rows.map((r) => ({
-    id: r.id,
-    title: r.title,
-    slug: r.slug,
-    category: r.category ?? null,
-    mode: r.mode ?? null,
-    deadline: r.registrationEndAt ? Math.floor(r.registrationEndAt.getTime() / 1000) : null,
-    createdAt: r.createdAt.toISOString(),
-    isFeatured: r.isFeatured,
-    featuredOrder: r.featuredOrder ?? null,
-    institutionSlug: r.institutionSlug,
-    // Personal institutions store NULL display_name and derive their name from the owner username.
-    institutionName: getInstitutionDisplayName(
-      { displayName: r.institutionDisplayName, institutionType: r.institutionType },
-      { username: r.institutionOwnerUsername },
-    ),
-    status: "published",
-  }));
+  const documents: CompetitionIndexDocument[] = rows.map(toCompetitionIndexDocument);
 
   if (documents.length === 0) {
     console.log("No published competitions found — nothing to upsert.");

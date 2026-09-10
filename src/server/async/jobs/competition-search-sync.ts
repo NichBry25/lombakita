@@ -2,7 +2,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/async/jobs/competition-search-sync");
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Job } from "bullmq";
 import { getDb } from "@/server/db/client";
 import { competitions, institutions } from "@/server/db/schema";
@@ -13,11 +13,13 @@ import {
   COMPETITION_INDEX_NAME,
   type CompetitionIndexDocument,
 } from "@/server/search/competition-index";
-import { ASYNC_JOB_NAMES, type CompetitionSearchSyncPayload } from "@/server/async/contracts";
 import {
-  getInstitutionDisplayName,
-  institutionOwnerUsernameSql,
-} from "@/server/institution-workspace/institution-display-name";
+  COMPETITION_INDEX_COLUMNS,
+  publishedCompetitionsFilter,
+  toCompetitionIndexDocument,
+  type CompetitionIndexRow,
+} from "@/server/search/competition-index-documents";
+import { ASYNC_JOB_NAMES, type CompetitionSearchSyncPayload } from "@/server/async/contracts";
 
 export type CompetitionSearchSyncJob = Job<
   CompetitionSearchSyncPayload,
@@ -29,56 +31,19 @@ const loadPublishedCompetitionForIndex = async (
   competitionId: string,
 ): Promise<CompetitionIndexDocument | null> => {
   const db = getDb();
-  const [row] = await db
-    .select({
-      id: competitions.id,
-      title: competitions.title,
-      slug: competitions.slug,
-      category: competitions.category,
-      mode: competitions.mode,
-      registrationEndAt: competitions.registrationEndAt,
-      createdAt: competitions.createdAt,
-      isFeatured: competitions.isFeatured,
-      featuredOrder: competitions.featuredOrder,
-      institutionSlug: institutions.slug,
-      institutionDisplayName: institutions.displayName,
-      institutionType: institutions.institutionType,
-      institutionOwnerUsername: institutionOwnerUsernameSql,
-    })
+  const [row] = (await db
+    .select(COMPETITION_INDEX_COLUMNS)
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
-    .where(
-      and(
-        eq(competitions.id, competitionId),
-        eq(competitions.status, "published"),
-        isNull(competitions.deletedAt),
-      ),
-    )
-    .limit(1);
+    .where(and(eq(competitions.id, competitionId), publishedCompetitionsFilter()))
+    .limit(1)) as CompetitionIndexRow[];
 
   if (!row) return null;
 
-  return {
-    id: row.id,
-    title: row.title,
-    slug: row.slug,
-    category: row.category ?? null,
-    mode: row.mode ?? null,
-    deadline: row.registrationEndAt ? Math.floor(row.registrationEndAt.getTime() / 1000) : null,
-    createdAt: row.createdAt.toISOString(),
-    isFeatured: row.isFeatured,
-    featuredOrder: row.featuredOrder ?? null,
-    institutionSlug: row.institutionSlug,
-    // Resolve the institution name (personal institutions store NULL and derive from the owner
-    // username). The index document carries the name resolved at sync time; a later username change
-    // re-stales it until the competition is re-synced (parallels existing index staleness — see
-    // 6.5f.1-Amendment-D1 debt).
-    institutionName: getInstitutionDisplayName(
-      { displayName: row.institutionDisplayName, institutionType: row.institutionType },
-      { username: row.institutionOwnerUsername },
-    ),
-    status: "published",
-  };
+  // The document carries the institution name resolved at sync time; a later username change
+  // re-stales it until the competition is re-synced (parallels existing index staleness — see
+  // 6.5f.1-Amendment-D1 debt).
+  return toCompetitionIndexDocument(row);
 };
 
 export const processCompetitionSearchSyncJob = async (

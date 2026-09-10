@@ -131,6 +131,14 @@ jobs:
       - name: Guard probes
         run: node scripts/testing/probes/config-gates.mjs
 
+      # Separate from the step above because these need a database they may CREATE and DROP: each
+      # one builds a throwaway database, points the real `npm run db:reset` at it, and reads whether
+      # the drop happened. The job's own `lombakita_ci` is never the subject. Nothing here can reach
+      # a deployed database — the probes construct their targets from this job's local
+      # `DATABASE_URL`, and the guard under test is what refuses anything else.
+      - name: Reset guard probes
+        run: node scripts/testing/probes/reset-guard.mjs
+
       # Build is intentionally NOT run here. `next build` requires runtime env
       # (DATABASE_URL / AUTH_SECRET, and a reachable DB for public-page
       # prerendering) that CI does not hold. The authoritative build gate is the
