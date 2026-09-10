@@ -330,6 +330,17 @@ jobs:
         if: always()
         run: node scripts/testing/probes/browser-audit-refusals.mjs
 
+      # HERE FOR THE SAME REASON as the step above: its mutations are measured against a real
+      # Meilisearch, which only this job has. The reset probes in the other job cover a DIFFERENT
+      # call site in front of a different destructive operation, and Rule 32 does not let one stand
+      # in for the other.
+      #
+      # It empties the competitions index while measuring and rebuilds it from this job's database
+      # in its teardown, so it runs AFTER every audit that reads the index rather than before one.
+      - name: Guard probes — reindex refusals
+        if: always()
+        run: node scripts/testing/probes/reindex-guard.mjs
+
       # THE BASELINE HAS TO COME FROM THE MACHINE THAT MEASURED IT. This runner and a macOS laptop
       # do not render the same page — the three institution pages measure 400px of content here and
       # 384 there — so a reading taken locally and filed as if it came from CI is the substitution

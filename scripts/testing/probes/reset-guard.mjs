@@ -26,14 +26,18 @@
  */
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
-import postgres from "postgres";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
+import {
+  MARKER_TABLE,
+  baseDatabaseUrl,
+  createProbeDatabase,
+  dropProbeDatabase,
+  markerSurvives,
+  withDatabase,
+} from "./throwaway-database.mjs";
 
 const RESET = "scripts/reset/reset-local.ts";
 const GUARD = "scripts/reset/reset-guard.ts";
-
-/** The marker whose survival IS the measurement. */
-const MARKER_TABLE = "reset_probe_marker";
 
 /** Printed by the reset when it reaches the drop. Its absence means the run measured nothing. */
 const REACHED_THE_DROP = "[2/6] Dropping every migrated object";
@@ -44,76 +48,8 @@ try {
   // Absent in CI, where these come from the workflow environment instead.
 }
 
-const BASE_URL = process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
-
-if (!BASE_URL) {
-  throw new Error(
-    "these probes destroy and rebuild real databases, so DATABASE_URL (or " +
-      "MIGRATION_DATABASE_URL) must point at a local Postgres before they can measure anything",
-  );
-}
-
-/** The same connection string, aimed at a different database on the same server. */
-const withDatabase = (url, databaseName) => {
-  const parsed = new URL(url);
-  parsed.pathname = `/${databaseName}`;
-
-  return parsed.toString();
-};
-
-/**
- * Refuses a name that is not a bare identifier.
- *
- * These names are literals in this file rather than input, but they are interpolated into DDL that
- * cannot be parameterised, and a probe that could be talked into running arbitrary DDL is not one
- * to leave lying in a repository.
- */
-const assertPlainIdentifier = (name) => {
-  if (!/^[a-z][a-z0-9_]*$/.test(name)) {
-    throw new Error(`refusing to interpolate ${JSON.stringify(name)} into DDL`);
-  }
-};
-
-const onDatabase = async (databaseName, work) => {
-  const sql = postgres(withDatabase(BASE_URL, databaseName), { max: 1, prepare: false });
-
-  try {
-    return await work(sql);
-  } finally {
-    await sql.end({ timeout: 5 });
-  }
-};
-
-/** A database that exists only for one probe, carrying one table whose survival is the verdict. */
-const createProbeDatabase = async (databaseName) => {
-  assertPlainIdentifier(databaseName);
-
-  // `with (force)` terminates any connection still holding the database open, so a previous
-  // interrupted probe cannot leave a name that can never be reused.
-  await onDatabase("postgres", async (sql) => {
-    await sql.unsafe(`drop database if exists ${databaseName} with (force)`);
-    await sql.unsafe(`create database ${databaseName}`);
-  });
-
-  await onDatabase(databaseName, async (sql) => {
-    await sql.unsafe(`create table ${MARKER_TABLE} (id integer)`);
-  });
-};
-
-const dropProbeDatabase = async (databaseName) => {
-  assertPlainIdentifier(databaseName);
-
-  await onDatabase("postgres", async (sql) => {
-    await sql.unsafe(`drop database if exists ${databaseName} with (force)`);
-  });
-};
-
-const markerSurvives = async (databaseName) =>
-  onDatabase(databaseName, async (sql) => {
-    const [row] = await sql`select to_regclass(${`public.${MARKER_TABLE}`}) is not null as present`;
-
-    return row.present === true;
-  });
+// Resolved per run, not at import: `probe-coverage.test.ts` imports every suite as data, and a
+// module-scope throw would fail that test rather than this suite.
 
 /**
  * Runs the real reset against a throwaway database and reports whether the drop happened.
@@ -126,6 +62,8 @@ const markerSurvives = async (databaseName) =>
  * failed, or threw.
  */
 const dropHappenedAgainst = async (databaseName, environment) => {
+  const baseUrl = baseDatabaseUrl();
+
   await createProbeDatabase(databaseName);
 
   try {
@@ -133,8 +71,8 @@ const dropHappenedAgainst = async (databaseName, environment) => {
       encoding: "utf8",
       env: {
         ...process.env,
-        MIGRATION_DATABASE_URL: withDatabase(BASE_URL, databaseName),
-        DATABASE_URL: withDatabase(BASE_URL, databaseName),
+        MIGRATION_DATABASE_URL: withDatabase(baseUrl, databaseName),
+        DATABASE_URL: withDatabase(baseUrl, databaseName),
         MEILISEARCH_HOST: "",
         REDIS_URL: "",
         ...environment,

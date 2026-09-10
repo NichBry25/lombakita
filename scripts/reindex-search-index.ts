@@ -31,7 +31,6 @@ import {
   COMPETITION_INDEX_COLUMNS,
   publishedCompetitionsFilter,
   toCompetitionIndexDocument,
-  type CompetitionIndexRow,
 } from "@/server/search/competition-index-documents";
 import {
   applyCompetitionIndexSettings,
@@ -81,11 +80,11 @@ const main = async (): Promise<void> => {
 
     console.log("\n[4/4] Rebuilding from the database");
     const db = drizzle(sql);
-    const rows = (await db
+    const rows = await db
       .select(COMPETITION_INDEX_COLUMNS)
       .from(competitions)
       .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
-      .where(publishedCompetitionsFilter())) as CompetitionIndexRow[];
+      .where(publishedCompetitionsFilter());
 
     if (rows.length === 0) {
       console.log("  ✓ no published competitions — the index is empty and correctly so");
@@ -98,17 +97,22 @@ const main = async (): Promise<void> => {
     // The point of the whole script, asserted rather than assumed: what the index holds is what the
     // database holds. A rebuild that enqueued documents Meilisearch then rejected would otherwise
     // print four ticks and leave the index wrong.
-    const { estimatedTotalHits } = await index.search("", { limit: 0 });
+    //
+    // `getStats().numberOfDocuments` rather than a search's `estimatedTotalHits`, which is
+    // ESTIMATED — the name is the specification. It is exact on a small index, so an equality
+    // assertion against it passes today and starts failing on a full catalogue, at which point it
+    // reads as a broken rebuild rather than as the wrong instrument.
+    const { numberOfDocuments } = await index.getStats();
 
-    if (estimatedTotalHits !== rows.length) {
+    if (numberOfDocuments !== rows.length) {
       throw new Error(
-        `the index reports ${estimatedTotalHits} document(s) but the database holds ${rows.length} ` +
+        `the index holds ${numberOfDocuments} document(s) but the database holds ${rows.length} ` +
           "published competition(s). The rebuild did not land.",
       );
     }
 
     console.log(
-      `\nDone. The index holds ${estimatedTotalHits} document(s), matching the database.\n`,
+      `\nDone. The index holds ${numberOfDocuments} document(s), matching the database.\n`,
     );
   } finally {
     await sql.end({ timeout: 5 });

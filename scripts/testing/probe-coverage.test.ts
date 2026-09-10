@@ -27,6 +27,7 @@ import { probes as fixtureRecipientProbes } from "./probes/fixture-recipients.mj
 import { probes as registrationRateLimitProbes } from "./probes/registration-rate-limit.mjs";
 import { probes as schemaDriftProbes } from "./probes/schema-drift.mjs";
 import { probes as resetGuardProbes } from "./probes/reset-guard.mjs";
+import { probes as reindexGuardProbes } from "./probes/reindex-guard.mjs";
 
 const SUITES: Record<string, Probe[]> = {
   "config-gates": configGateProbes,
@@ -37,6 +38,7 @@ const SUITES: Record<string, Probe[]> = {
   "registration-rate-limit": registrationRateLimitProbes,
   "schema-drift": schemaDriftProbes,
   "reset-guard": resetGuardProbes,
+  "reindex-guard": reindexGuardProbes,
 };
 
 const everyProbe: [string, Probe][] = Object.entries(SUITES).flatMap(([suite, probes]) =>

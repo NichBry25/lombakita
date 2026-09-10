@@ -51,7 +51,6 @@ import {
   COMPETITION_INDEX_COLUMNS,
   publishedCompetitionsFilter,
   toCompetitionIndexDocument,
-  type CompetitionIndexRow,
 } from "../src/server/search/competition-index-documents";
 import {
   applyCompetitionIndexSettings,
@@ -89,11 +88,11 @@ async function main() {
   // makes it the wrong tool after a database reset — use `npm run search:reindex` for that.
   console.log("\n[3/3] Backfilling published competitions...");
 
-  const rows = (await db
+  const rows = await db
     .select(COMPETITION_INDEX_COLUMNS)
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
-    .where(publishedCompetitionsFilter())) as CompetitionIndexRow[];
+    .where(publishedCompetitionsFilter());
 
   if (rows.length === 0) {
     console.log("  No published competitions found — index is empty but ready.");

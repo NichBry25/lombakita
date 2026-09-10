@@ -41,7 +41,6 @@ import {
   COMPETITION_INDEX_COLUMNS,
   publishedCompetitionsFilter,
   toCompetitionIndexDocument,
-  type CompetitionIndexRow,
 } from "../src/server/search/competition-index-documents";
 
 const db_url = process.env.DATABASE_URL;
@@ -58,11 +57,11 @@ const client = new MeiliSearch({ host: meili_host, apiKey: meili_key });
 const index = client.index<CompetitionIndexDocument>(COMPETITION_INDEX_NAME);
 
 async function main() {
-  const rows = (await db
+  const rows = await db
     .select(COMPETITION_INDEX_COLUMNS)
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
-    .where(publishedCompetitionsFilter())) as CompetitionIndexRow[];
+    .where(publishedCompetitionsFilter());
 
   const documents: CompetitionIndexDocument[] = rows.map(toCompetitionIndexDocument);
 

@@ -17,7 +17,6 @@ import {
   COMPETITION_INDEX_COLUMNS,
   publishedCompetitionsFilter,
   toCompetitionIndexDocument,
-  type CompetitionIndexRow,
 } from "@/server/search/competition-index-documents";
 import { ASYNC_JOB_NAMES, type CompetitionSearchSyncPayload } from "@/server/async/contracts";
 
@@ -31,12 +30,12 @@ const loadPublishedCompetitionForIndex = async (
   competitionId: string,
 ): Promise<CompetitionIndexDocument | null> => {
   const db = getDb();
-  const [row] = (await db
+  const [row] = await db
     .select(COMPETITION_INDEX_COLUMNS)
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
     .where(and(eq(competitions.id, competitionId), publishedCompetitionsFilter()))
-    .limit(1)) as CompetitionIndexRow[];
+    .limit(1);
 
   if (!row) return null;
 
