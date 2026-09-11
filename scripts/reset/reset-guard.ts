@@ -114,9 +114,30 @@ export class ResetRefused extends Error {
   }
 }
 
-/** The environment this process resolves to, read from configuration before anything mutates it. */
+/**
+ * An unset OR EMPTY environment variable is ABSENT, not a value.
+ *
+ * `??` treats `""` as present, so a variable set to nothing SHADOWS the fallback behind it instead
+ * of deferring to it. Every consumer of an optional variable in this path goes through here.
+ */
+export const presentOrUndefined = (value: string | undefined): string | undefined => {
+  const trimmed = value?.trim();
+
+  return trimmed ? trimmed : undefined;
+};
+
+/**
+ * The environment this process resolves to, read from configuration before anything mutates it.
+ *
+ * Both variables go through `presentOrUndefined` rather than `??`. With `??`, an APP_ENV set to the
+ * empty string shadowed a correctly set NEXT_PUBLIC_APP_ENV, `resolveAppEnvironment` then fell
+ * through to its own "local" default, and the environment layer PERMITTED a reset in a process
+ * whose only environment declaration said production.
+ */
 export const declaredAppEnvironment = (): AppEnvironment =>
-  resolveAppEnvironment(process.env.APP_ENV ?? process.env.NEXT_PUBLIC_APP_ENV);
+  resolveAppEnvironment(
+    presentOrUndefined(process.env.APP_ENV) ?? presentOrUndefined(process.env.NEXT_PUBLIC_APP_ENV),
+  );
 
 /**
  * A connection that can answer `current_database()`.

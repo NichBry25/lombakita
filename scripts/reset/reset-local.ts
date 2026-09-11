@@ -29,9 +29,25 @@ import { loadEnvFile, describeEnvFileLoad } from "@/server/scripts/env-file";
 import { readJournalMigrations, compareAppliedToJournal } from "@/server/db/schema-drift";
 import type { AppliedMigration } from "@/server/db/schema-drift";
 import { ACCEPTED_DIVERGENCES } from "@/server/db/schema-drift";
-import { ResetRefused, assertResetTargetIsDisposable, declaredAppEnvironment } from "./reset-guard";
+import {
+  ResetRefused,
+  assertResetTargetIsDisposable,
+  declaredAppEnvironment,
+  presentOrUndefined,
+} from "./reset-guard";
 
 const DRIZZLE_DIR = "drizzle";
+
+/**
+ * How long the drop waits for a lock before giving up.
+ *
+ * Without it the drop waits forever with no output. Anything holding a read lock on a table stops
+ * it dead: a dev-server request in flight, an open Drizzle Studio tab, a `psql` left mid
+ * transaction. The operator sees a command that has printed step 2 and then nothing, and the usual
+ * response is to interrupt it, which is the one input that used to leave the database wrecked.
+ * Failing in ten seconds with Postgres naming the lock is strictly better than waiting silently.
+ */
+const DROP_LOCK_TIMEOUT = "10s";
 
 const step = (number: number, title: string): void => {
   console.log(`\n[${number}/6] ${title}`);
@@ -46,11 +62,7 @@ const step = (number: number, title: string): void => {
  * Redis deliberately blanked, and both stopped at a refusal that had nothing to do with what they
  * were measuring.
  */
-const optionalUrl = (value: string | undefined): string | null => {
-  const trimmed = value?.trim();
-
-  return trimmed ? trimmed : null;
-};
+const optionalUrl = (value: string | undefined): string | null => presentOrUndefined(value) ?? null;
 
 /**
  * Drops everything the migrations create, including the ledger that records they ran.
@@ -72,30 +84,45 @@ const optionalUrl = (value: string | undefined): string | null => {
  *
  * pgcrypto is deliberately left installed. Migration 0002 creates it `IF NOT EXISTS`, so a database
  * that still has it and one that never did converge on the same schema.
+ *
+ * ONE TRANSACTION AROUND BOTH STATEMENTS, and the boundary is the point rather than an
+ * optimisation. The ledger and the objects it describes must go together or not at all. Dropping
+ * the drizzle schema on its own connection and the objects in a separate atomic block left a
+ * database that still held all 53 tables while claiming, by the absence of a ledger, to hold none.
+ * `db:migrate:guarded` cannot recover from that state: it recreates an empty ledger, replays
+ * migration 0000 into tables that already exist, and fails. Only another reset gets out of it.
+ *
+ * Making the transaction explicit rather than relying on the `DO` block's own atomicity also means
+ * a seventh statement added in this region is inside the boundary by default instead of silently
+ * outside it.
  */
 const dropEveryMigratedObject = async (sql: postgres.Sql): Promise<void> => {
   await assertEveryObjectIsDroppable(sql);
 
-  await sql.unsafe("drop schema if exists drizzle cascade");
+  await sql.begin(async (tx) => {
+    await tx.unsafe(`set local lock_timeout = '${DROP_LOCK_TIMEOUT}'`);
 
-  await sql.unsafe(`
-    do $$
-    declare item record;
-    begin
-      for item in select tablename from pg_tables where schemaname = 'public' loop
-        execute format('drop table if exists public.%I cascade', item.tablename);
-      end loop;
+    await tx.unsafe("drop schema if exists drizzle cascade");
 
-      for item in
-        select t.typname
-        from pg_type t
-        join pg_namespace n on n.oid = t.typnamespace
-        where n.nspname = 'public' and t.typtype = 'e'
-      loop
-        execute format('drop type if exists public.%I cascade', item.typname);
-      end loop;
-    end $$;
-  `);
+    await tx.unsafe(`
+      do $$
+      declare item record;
+      begin
+        for item in select tablename from pg_tables where schemaname = 'public' loop
+          execute format('drop table if exists public.%I cascade', item.tablename);
+        end loop;
+
+        for item in
+          select t.typname
+          from pg_type t
+          join pg_namespace n on n.oid = t.typnamespace
+          where n.nspname = 'public' and t.typtype = 'e'
+        loop
+          execute format('drop type if exists public.%I cascade', item.typname);
+        end loop;
+      end $$;
+    `);
+  });
 
   await assertPublicSchemaIsEmpty(sql);
 };
@@ -261,15 +288,18 @@ const verifyLedgerRebuiltFromZero = async (sql: postgres.Sql): Promise<void> => 
   console.log(`  ✓ all ${journal.length} migrations applied, matching row for row by hash`);
 };
 
-const rebuildSearchIndex = (): void => {
+/** Returns why the step did not run, or null when it did. */
+const rebuildSearchIndex = (): string | null => {
   if (!optionalUrl(process.env.MEILISEARCH_HOST)) {
-    console.log(
-      "  MEILISEARCH_HOST is not set — skipping. Search will return nothing until it is.",
-    );
-    return;
+    const reason = "MEILISEARCH_HOST is not set, so search will return nothing until it is";
+    console.log(`  skipped: ${reason}.`);
+
+    return reason;
   }
 
   execFileSync("npm", ["run", "search:reindex"], { stdio: "inherit" });
+
+  return null;
 };
 
 /**
@@ -283,12 +313,14 @@ const rebuildSearchIndex = (): void => {
  * FLUSHDB, not FLUSHALL: this empties the logical database the app uses and leaves any other on the
  * same server alone.
  */
-const flushRedis = async (): Promise<void> => {
+const flushRedis = async (): Promise<string | null> => {
   const url = optionalUrl(process.env.REDIS_URL);
 
   if (!url) {
-    console.log("  REDIS_URL is not set — skipping.");
-    return;
+    const reason = "REDIS_URL is not set, so any queued BullMQ jobs are untouched";
+    console.log(`  skipped: ${reason}.`);
+
+    return reason;
   }
 
   const { default: Redis } = await import("ioredis");
@@ -304,6 +336,8 @@ const flushRedis = async (): Promise<void> => {
     const before = await redis.dbsize();
     await redis.flushdb();
     console.log(`  ✓ flushed ${before} key(s), including any queued BullMQ jobs`);
+
+    return null;
   } finally {
     redis.disconnect();
   }
@@ -349,6 +383,32 @@ const resolveResetTarget = (): string => {
   return target;
 };
 
+/**
+ * Says what the run actually did, naming any step that did not run and why.
+ *
+ * A skip is legitimate here: a developer without Meilisearch or Redis should still get a working
+ * database out of this. A SILENT skip is not. An unqualified "Reset complete." over a run that
+ * rebuilt no search index reports a state the operator does not have, which is the same defect as
+ * an instrument reporting a result it did not measure.
+ */
+const reportOutcome = (steps: readonly { step: number; reason: string | null }[]): void => {
+  const skipped = steps.filter(
+    (entry): entry is { step: number; reason: string } => entry.reason !== null,
+  );
+
+  if (skipped.length === 0) {
+    console.log("\nReset complete. The database holds the schema and no rows.\n");
+    return;
+  }
+
+  const listed = skipped.map((entry) => `  step ${entry.step} skipped: ${entry.reason}`);
+
+  console.log(
+    `\nDatabase reset complete: it holds the schema and no rows. ${skipped.length} of 6 steps ` +
+      `did NOT run, so the rest of your local stack is not reset:\n${listed.join("\n")}\n`,
+  );
+};
+
 const main = async (): Promise<void> => {
   console.log(describeEnvFileLoad(loadEnvFile({})));
 
@@ -387,12 +447,15 @@ const main = async (): Promise<void> => {
   }
 
   step(5, "Rebuilding the Meilisearch competitions index");
-  rebuildSearchIndex();
+  const searchSkipped = rebuildSearchIndex();
 
   step(6, "Flushing Redis");
-  await flushRedis();
+  const redisSkipped = await flushRedis();
 
-  console.log("\nReset complete. The database holds the schema and no rows.\n");
+  reportOutcome([
+    { step: 5, reason: searchSkipped },
+    { step: 6, reason: redisSkipped },
+  ]);
 };
 
 main().catch((error: unknown) => {

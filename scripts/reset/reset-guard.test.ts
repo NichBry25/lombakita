@@ -4,19 +4,21 @@
  * These are unit tests over hand-constructed inputs, and Rule 33 says that proves the FUNCTION and
  * not the WIRING. The wiring is proven separately and deliberately:
  *   - `scripts/testing/probes/reset-guard.mjs` runs the real `npm run db:reset` against real local
- *     databases named `lombakita_production` and `lombakita_staging`, and proves the guard's
- *     POSITION by moving it below the drop and observing the drop happen.
+ *     databases named in `PROBE_DATABASES`, one per layer so that each layer is the only thing that
+ *     can refuse its own run, and proves the guard's POSITION by moving it below the drop and
+ *     observing the drop happen.
  *   - The identity layer cannot be unit-tested for the property that matters. Its whole claim is
  *     that the answer comes from the SERVER rather than from the string used to reach it, so a stub
  *     returning a name proves only that the code reads the field it says it reads. That the server
  *     is what answers is shown by the probes, against a database whose name is the refusal.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   PROTECTED_DATABASE_NAMES,
   ResetRefused,
   assertResetTargetIsDisposable,
+  declaredAppEnvironment,
   findConnectionHostRefusal,
   findDatabaseNameRefusal,
   findEnvironmentRefusal,
@@ -165,5 +167,73 @@ describe("assertResetTargetIsDisposable", () => {
 
     expect(refused).toBeInstanceOf(ResetRefused);
     expect((refused as ResetRefused).layer).toBe("environment");
+  });
+});
+
+/**
+ * Which environment the process believes it is in, read from two variables.
+ *
+ * The empty-string case is the one that matters and the one that was wrong. `??` treats "" as a
+ * value, so an APP_ENV set to nothing SHADOWED a correctly set NEXT_PUBLIC_APP_ENV, the resolver
+ * fell through to its own "local" default, and the environment layer permitted a reset in a process
+ * whose only environment declaration said production.
+ */
+describe("the declared environment", () => {
+  const original = { app: process.env.APP_ENV, publicApp: process.env.NEXT_PUBLIC_APP_ENV };
+
+  const withEnvironment = (app: string | undefined, publicApp: string | undefined) => {
+    if (app === undefined) {
+      delete process.env.APP_ENV;
+    } else {
+      process.env.APP_ENV = app;
+    }
+
+    if (publicApp === undefined) {
+      delete process.env.NEXT_PUBLIC_APP_ENV;
+    } else {
+      process.env.NEXT_PUBLIC_APP_ENV = publicApp;
+    }
+  };
+
+  afterEach(() => {
+    withEnvironment(original.app, original.publicApp);
+  });
+
+  it("reads APP_ENV when it carries a value", () => {
+    withEnvironment("production", undefined);
+
+    expect(declaredAppEnvironment()).toBe("production");
+  });
+
+  it("falls back to NEXT_PUBLIC_APP_ENV when APP_ENV is unset", () => {
+    withEnvironment(undefined, "production");
+
+    expect(declaredAppEnvironment()).toBe("production");
+  });
+
+  it("treats an EMPTY APP_ENV as absent rather than letting it shadow the fallback", () => {
+    withEnvironment("", "production");
+
+    expect(declaredAppEnvironment()).toBe("production");
+  });
+
+  it("treats a whitespace-only APP_ENV as absent too", () => {
+    withEnvironment("   ", "production");
+
+    expect(declaredAppEnvironment()).toBe("production");
+  });
+
+  // The consequence, stated as the thing that actually matters: whatever route the value arrives
+  // by, a process declaring production is refused.
+  it("refuses a reset in a process that declares production by either variable", () => {
+    for (const [app, publicApp] of [
+      ["production", undefined],
+      [undefined, "production"],
+      ["", "production"],
+    ] as const) {
+      withEnvironment(app, publicApp);
+
+      expect(findEnvironmentRefusal(declaredAppEnvironment())).not.toBeNull();
+    }
   });
 });

@@ -4,30 +4,15 @@
  * Its own module, deliberately: `live-harness.ts` reads `.env.local` and throws on a missing
  * `DATABASE_URL` at import time, so importing it to reach this predicate would make a pure unit test
  * depend on an environment it does not need. Nothing here has a side effect.
+ *
+ * The implementation lives in `loopback-host.mjs` because the probe harness is plain `.mjs` run
+ * under plain node and cannot import a `.ts` module. This file is the typed name for the same
+ * functions, not a second copy of them.
  */
 
-// `new URL(...).hostname` returns an IPv6 literal WITH its brackets: "[::1]", not "::1". Comparing
-// against the bare form alone silently never matches, which fails closed (a local IPv6 database is
-// refused as remote) and is therefore invisible until someone runs one.
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-
-export const parseDatabaseHost = (url: string): string | null => {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return null;
-  }
-};
-
-// An unparseable string is reported non-local: a caller uses this to decide whether it may write,
-// and a string this cannot read is not one to write through.
-export const isLoopbackUrl = (url: string): boolean => {
-  const host = parseDatabaseHost(url);
-
-  return host !== null && LOOPBACK_HOSTS.has(host);
-};
+export { isLoopbackUrl, parseDatabaseHost } from "./loopback-host.mjs";
 
 // The same predicate under the name its first caller gave it. Nothing about the check is specific
-// to Postgres — a redis:// URL parses identically — so the harness guard reads `isLoopbackUrl` for
+// to Postgres (a redis:// URL parses identically), so the harness guard reads `isLoopbackUrl` for
 // both of the connection strings it refuses, and the finance scripts keep the name they import.
-export const isLocalDatabaseHost = isLoopbackUrl;
+export { isLoopbackUrl as isLocalDatabaseHost } from "./loopback-host.mjs";

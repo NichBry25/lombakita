@@ -11,8 +11,31 @@
  */
 import postgres from "postgres";
 
+import { isLoopbackUrl, parseDatabaseHost } from "../../lib/loopback-host.mjs";
+
 /** The marker whose survival IS the measurement in the database-side probes. */
 export const MARKER_TABLE = "reset_probe_marker";
+
+/**
+ * Every database this harness is allowed to create and destroy, named in one place.
+ *
+ * DERIVED, NOT RESTATED. The probe suites read these keys instead of writing the names as literals,
+ * so a suite cannot reach a database the guard below has never heard of, and adding a probe means
+ * adding its throwaway here rather than discovering later that the allow-list lags the suites.
+ * Same construction as `PROTECTED_DATABASE_NAMES` deriving from `CANONICAL_DATABASE_NAME`.
+ */
+export const PROBE_DATABASES = Object.freeze({
+  /** A protected name, so the reset guard's identity layer is the thing that has to refuse. */
+  protectedTarget: "lombakita_production",
+  /** A name nothing protects, so the environment layer is the only thing that can refuse. */
+  unprotectedTarget: "lombakita_disposable",
+  /** Reached through a non-loopback address, so the host layer is the only thing that can refuse. */
+  hostProbeTarget: "lombakita_hostprobe",
+  /** Watched by the harness probes to see whether this guard let it be dropped. */
+  harnessWitness: "lombakita_loopback_witness",
+});
+
+const PROBE_DATABASE_NAMES = Object.freeze(Object.values(PROBE_DATABASES));
 
 export const baseDatabaseUrl = () => {
   const url = process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -48,6 +71,53 @@ const assertPlainIdentifier = (name) => {
   }
 };
 
+/**
+ * Refuses to destroy anything that is not one of this harness's own throwaways on this machine.
+ *
+ * THIS GUARD EXISTS BECAUSE THE HARNESS WAS THE MOST DANGEROUS CODE IN THE STEP. It issues
+ * `DROP DATABASE ... WITH (FORCE)`, which terminates live sessions first, against a name that is
+ * deliberately `lombakita_production` (the reset guard's identity layer can only be the thing that
+ * refuses if the target carries a protected name). It read `MIGRATION_DATABASE_URL ?? DATABASE_URL`
+ * and asked nothing else. A shell with a staging `MIGRATION_DATABASE_URL` exported, which is how
+ * `verify:schema-drift` and `connectors:status:live` are run, was one command away from a forced
+ * drop against that server. The reset path it exists to prove safe was guarded three ways; this was
+ * guarded none.
+ *
+ * TWO REFUSALS, and they do different jobs. The allow-list is the stronger: a loopback check alone
+ * still permits the harness to be aimed at a real database that happens to be reachable on
+ * localhost, which is exactly what an `ssh -L 5432:prod:5432` tunnel produces. The host check
+ * catches the case the allow-list cannot see, a throwaway NAME on a server that is not this one.
+ *
+ * `assertPlainIdentifier` is not a third layer. It refuses DDL injection and accepts
+ * `lombakita_production`, `postgres` and `template1` quite happily, which is correct for what it is
+ * and useless as an identity check.
+ *
+ * Deliberately a separate statement the callers make rather than something threaded through
+ * `baseDatabaseUrl`'s return value: this is a guard that must be shown refusing BEFORE the drop,
+ * and a guard whose relocation cannot be expressed cannot be probed for ordering.
+ */
+const assertProbeTargetIsDisposable = (databaseName) => {
+  assertPlainIdentifier(databaseName);
+
+  if (!PROBE_DATABASE_NAMES.includes(databaseName)) {
+    throw new Error(
+      `refusing to destroy "${databaseName}": this harness may only create and drop its own ` +
+        `throwaways (${PROBE_DATABASE_NAMES.join(", ")}). Add it to PROBE_DATABASES if a probe ` +
+        "genuinely needs it.",
+    );
+  }
+
+  const url = baseDatabaseUrl();
+
+  if (!isLoopbackUrl(url)) {
+    throw new Error(
+      `refusing to destroy "${databaseName}" on "${parseDatabaseHost(url) ?? "<unparseable>"}": ` +
+        "these probes drop databases outright, so they run against loopback and nothing else. " +
+        "Unset MIGRATION_DATABASE_URL and DATABASE_URL, or point them at your own Postgres.",
+    );
+  }
+};
+
 export const onDatabase = async (databaseName, work) => {
   const sql = postgres(withDatabase(baseDatabaseUrl(), databaseName), { max: 1, prepare: false });
 
@@ -65,7 +135,7 @@ export const onDatabase = async (databaseName, work) => {
  * interrupted probe cannot leave a name that can never be reused.
  */
 export const createProbeDatabase = async (databaseName) => {
-  assertPlainIdentifier(databaseName);
+  assertProbeTargetIsDisposable(databaseName);
 
   await onDatabase("postgres", async (sql) => {
     await sql.unsafe(`drop database if exists ${databaseName} with (force)`);
@@ -78,7 +148,7 @@ export const createProbeDatabase = async (databaseName) => {
 };
 
 export const dropProbeDatabase = async (databaseName) => {
-  assertPlainIdentifier(databaseName);
+  assertProbeTargetIsDisposable(databaseName);
 
   await onDatabase("postgres", async (sql) => {
     await sql.unsafe(`drop database if exists ${databaseName} with (force)`);

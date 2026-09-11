@@ -25,14 +25,21 @@
  */
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
+import postgres from "postgres";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
-import { createProbeDatabase, dropProbeDatabase, withDatabase } from "./throwaway-database.mjs";
+import {
+  PROBE_DATABASES,
+  baseDatabaseUrl,
+  createProbeDatabase,
+  dropProbeDatabase,
+  withDatabase,
+} from "./throwaway-database.mjs";
 
 const REINDEX = "scripts/reindex-search-index.ts";
 const GUARD = "scripts/reset/reset-guard.ts";
 
 /** A protected name, so the identity layer is what has to refuse. */
-const PROBE_DATABASE = "lombakita_production";
+const PROBE_DATABASE = PROBE_DATABASES.protectedTarget;
 
 /** Planted before each run; its absence afterwards is the whole verdict. */
 const PLANTED_ID = "00000000-0000-4000-8000-00000000feed";
@@ -122,15 +129,74 @@ const plantDocument = async () => {
   await settle();
 };
 
+/** Documents the index should hold: the rows a rebuild is supposed to put there. */
+const publishedCompetitionCount = async () => {
+  const sql = postgres(baseDatabaseUrl(), { max: 1, prepare: false });
+
+  try {
+    // Mirrors `publishedCompetitionsFilter()`. Pinned against drift by the unit test named in
+    // `competition-index-documents.test.ts`, because a teardown asserting the wrong predicate would
+    // report a restored index that is missing rows.
+    const [row] = await sql`
+      select count(*)::int as count
+      from competitions
+      where status = 'published' and deleted_at is null
+    `;
+
+    return row.count;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+};
+
+const indexedDocumentCount = async () => {
+  const response = await meili("/indexes/competitions/stats");
+
+  if (!response.ok) {
+    throw new Error(`could not read index stats to confirm the restore (HTTP ${response.status})`);
+  }
+
+  const stats = await response.json();
+
+  return stats.numberOfDocuments;
+};
+
 /**
- * Restores the index to agree with the real database.
+ * Restores the index to agree with the real database, and ASSERTS THAT IT DID.
  *
  * Rule 35: this probe empties a shared index, so teardown has to put it back, and the honest way to
  * do that is the tool whose whole job is making the index match the database. Run with the ambient
- * environment — the real database, not the throwaway one — so it rebuilds what was there.
+ * environment (the real database, not the throwaway one) so it rebuilds what was there.
+ *
+ * THE ASSERTION IS THE POINT. Dropping `spawnSync`'s return value made this a teardown that could
+ * not fail: a rebuild that emptied the index and then died before repopulating it left local search
+ * silently empty while the suite still printed that every probe went red as claimed. `waitForTask`
+ * times out after 30 seconds, so a catalogue large enough to index slowly reaches that on its own.
+ * A teardown inside a harness built to prove that checks can fail is the last place to put one that
+ * cannot.
  */
-const restoreIndex = () => {
-  spawnSync("npm", ["run", "search:reindex"], { encoding: "utf8" });
+const restoreIndex = async () => {
+  const result = spawnSync("npm", ["run", "search:reindex"], { encoding: "utf8" });
+
+  if (result.status !== 0) {
+    throw new Error(
+      "RESTORE FAILED: the index was emptied by this probe and the rebuild exited " +
+        `${result.status}, so local search is now empty. Re-run \`npm run search:reindex\`. ` +
+        `Tail of its output:\n${`${result.stdout ?? ""}${result.stderr ?? ""}`.slice(-800)}`,
+    );
+  }
+
+  const [indexed, expected] = await Promise.all([
+    indexedDocumentCount(),
+    publishedCompetitionCount(),
+  ]);
+
+  if (indexed !== expected) {
+    throw new Error(
+      `RESTORE FAILED: the rebuild reported success but the index holds ${indexed} document(s) ` +
+        `against ${expected} published competition(s) in the database.`,
+    );
+  }
 };
 
 /**
@@ -176,7 +242,7 @@ const indexWasEmptied = async () => {
   } finally {
     await meili(`/indexes/competitions/documents/${PLANTED_ID}`, { method: "DELETE" });
     await dropProbeDatabase(PROBE_DATABASE);
-    restoreIndex();
+    await restoreIndex();
   }
 };
 

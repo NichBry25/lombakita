@@ -13,12 +13,17 @@
  * there. Guarded, it is. Unguarded, the drop already happened and the refusal came too late to be
  * one.
  *
- * WHAT IS NOT PROBED HERE, stated rather than implied. The connection-host layer's removal has no
- * observable post-state on this machine: with it gone, a remote URL is still refused by the
- * identity layer, and demonstrating otherwise would need a real remote database to destroy. It is
- * covered by `reset-guard.test.ts` and by a live run against a non-loopback host, recorded in the
- * step's review artifact. Rule 36 asks for that to be said rather than for a probe that measures
- * nothing.
+ * ALL THREE LAYERS ARE PROBED. An earlier version of this header claimed the connection-host
+ * layer's removal had no observable post-state and that showing otherwise would need a real remote
+ * database to destroy. Both halves were wrong. The identity layer only refuses a CANONICALLY NAMED
+ * database, so a non-loopback address aimed at any other name reaches it unopposed; and the local
+ * server answers on `0.0.0.0` and on its LAN address as readily as on `localhost`, none of which
+ * `isLoopbackUrl` recognises. So a non-loopback STRING and a local throwaway DATABASE are the same
+ * server, and the probe costs nothing but the address it dials.
+ *
+ * Rule 32 permits a stated absence with a reason. It does not permit one with a wrong reason: an
+ * unexamined impossibility claim is the same defect as a probe reporting a result it never
+ * measured, one level up.
  *
  * Usage: node scripts/testing/probes/reset-guard.mjs
  * Requires a reachable local Postgres whose role may CREATE DATABASE.
@@ -29,6 +34,7 @@ import { spawnSync } from "node:child_process";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
 import {
   MARKER_TABLE,
+  PROBE_DATABASES,
   baseDatabaseUrl,
   createProbeDatabase,
   dropProbeDatabase,
@@ -52,6 +58,21 @@ try {
 // module-scope throw would fail that test rather than this suite.
 
 /**
+ * The same server, addressed in a way `isLoopbackUrl` does not recognise.
+ *
+ * `0.0.0.0` reaches a Postgres listening on all interfaces exactly as `localhost` does, so the
+ * connection-host probe destroys a throwaway on this machine rather than needing a remote database.
+ * The parent's own environment is untouched, so the harness guard still sees loopback and permits
+ * creating and dropping the throwaway; only the CHILD dials the unrecognised address.
+ */
+const atNonLoopbackAddress = (url) => {
+  const parsed = new URL(url);
+  parsed.hostname = "0.0.0.0";
+
+  return parsed.toString();
+};
+
+/**
  * Runs the real reset against a throwaway database and reports whether the drop happened.
  *
  * MEILISEARCH_HOST and REDIS_URL are blanked for the child on purpose: with the guard removed the
@@ -61,8 +82,12 @@ try {
  * Teardown is in a `finally` (Rule 35), and it drops the database whether the assertion passed,
  * failed, or threw.
  */
-const dropHappenedAgainst = async (databaseName, environment) => {
+const dropHappenedAgainst = async (databaseName, environment, { nonLoopback = false } = {}) => {
   const baseUrl = baseDatabaseUrl();
+  const childUrl = withDatabase(
+    nonLoopback ? atNonLoopbackAddress(baseUrl) : baseUrl,
+    databaseName,
+  );
 
   await createProbeDatabase(databaseName);
 
@@ -71,8 +96,8 @@ const dropHappenedAgainst = async (databaseName, environment) => {
       encoding: "utf8",
       env: {
         ...process.env,
-        MIGRATION_DATABASE_URL: withDatabase(baseUrl, databaseName),
-        DATABASE_URL: withDatabase(baseUrl, databaseName),
+        MIGRATION_DATABASE_URL: childUrl,
+        DATABASE_URL: childUrl,
         MEILISEARCH_HOST: "",
         REDIS_URL: "",
         ...environment,
@@ -120,7 +145,7 @@ export const probes = [
     files: [RESET],
     appliedMarkers: ["// probe: disposability check removed"],
     mutate: () => substituteOnce(RESET, GUARD_CALL, "    // probe: disposability check removed\n"),
-    detect: async () => dropHappenedAgainst("lombakita_production", {}),
+    detect: async () => dropHappenedAgainst(PROBE_DATABASES.protectedTarget, {}),
   },
   {
     name: "the reset refuses BEFORE dropping anything — GUARD MOVED",
@@ -146,7 +171,7 @@ export const probes = [
           GUARD_CALL,
       );
     },
-    detect: async () => dropHappenedAgainst("lombakita_production", {}),
+    detect: async () => dropHappenedAgainst(PROBE_DATABASES.protectedTarget, {}),
   },
   {
     name: "the database-identity layer is what refuses a protected name",
@@ -165,7 +190,7 @@ export const probes = [
         "  if (!PROTECTED_DATABASE_NAMES.includes(databaseName)) {\n    return null;\n  }",
         "  // probe: protected-name refusal removed\n  return null;\n  if (!PROTECTED_DATABASE_NAMES.includes(databaseName)) {\n    return null;\n  }",
       ),
-    detect: async () => dropHappenedAgainst("lombakita_production", {}),
+    detect: async () => dropHappenedAgainst(PROBE_DATABASES.protectedTarget, {}),
   },
   {
     name: "the environment layer is what refuses a production process",
@@ -184,7 +209,27 @@ export const probes = [
         "  if (DISPOSABLE_ENVIRONMENTS.includes(appEnv)) {\n    return null;\n  }",
         "  // probe: environment allow-list removed\n  return null;\n  if (DISPOSABLE_ENVIRONMENTS.includes(appEnv)) {\n    return null;\n  }",
       ),
-    detect: async () => dropHappenedAgainst("lombakita_disposable", { APP_ENV: "production" }),
+    detect: async () =>
+      dropHappenedAgainst(PROBE_DATABASES.unprotectedTarget, { APP_ENV: "production" }),
+  },
+  {
+    name: "the connection-host layer is what refuses a non-loopback address — GUARD REMOVED",
+    // The third layer, and the one whose probe was once declared impossible. The throwaway carries
+    // a name nothing protects and the environment resolves to local, so identity and environment
+    // both permit; the only thing standing between this run and the drop is the address it dialled.
+    klass: "B",
+    harmfulMove:
+      "deleting the host check, so a reset reaches a database through a tunnelled or remote address",
+    files: [GUARD],
+    appliedMarkers: ["// probe: connection-host refusal removed"],
+    mutate: () =>
+      substituteOnce(
+        GUARD,
+        '  refuseIf(findConnectionHostRefusal(context.databaseUrl, "DATABASE_URL"));\n',
+        "  // probe: connection-host refusal removed\n",
+      ),
+    detect: async () =>
+      dropHappenedAgainst(PROBE_DATABASES.hostProbeTarget, {}, { nonLoopback: true }),
   },
 ];
 
