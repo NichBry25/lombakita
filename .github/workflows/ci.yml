@@ -131,6 +131,21 @@ jobs:
       - name: Guard probes
         run: node scripts/testing/probes/config-gates.mjs
 
+      # Separate from the step above because these need a database they may CREATE and DROP: each
+      # one builds a throwaway database, points the real `npm run db:reset` at it, and reads whether
+      # the drop happened. The job's own `lombakita_ci` is never the subject. Nothing here can reach
+      # a deployed database — the probes construct their targets from this job's local
+      # `DATABASE_URL`, and the guard under test is what refuses anything else.
+      - name: Reset guard probes
+        run: node scripts/testing/probes/reset-guard.mjs
+
+      # The harness's own `DROP DATABASE ... WITH (FORCE)` is a destructive surface in its own
+      # right, and for one step it was the only one in this repository with no guard in front of
+      # it. These probe the refusal that now stands there: an allow-list of the harness's own
+      # throwaways, and a loopback check on the server it reaches them through.
+      - name: Probe harness guard probes
+        run: node scripts/testing/probes/harness-guard.mjs
+
       # Build is intentionally NOT run here. `next build` requires runtime env
       # (DATABASE_URL / AUTH_SECRET, and a reachable DB for public-page
       # prerendering) that CI does not hold. The authoritative build gate is the
@@ -321,6 +336,17 @@ jobs:
       - name: Guard probes — browser audit refusals
         if: always()
         run: node scripts/testing/probes/browser-audit-refusals.mjs
+
+      # HERE FOR THE SAME REASON as the step above: its mutations are measured against a real
+      # Meilisearch, which only this job has. The reset probes in the other job cover a DIFFERENT
+      # call site in front of a different destructive operation, and Rule 32 does not let one stand
+      # in for the other.
+      #
+      # It empties the competitions index while measuring and rebuilds it from this job's database
+      # in its teardown, so it runs AFTER every audit that reads the index rather than before one.
+      - name: Guard probes — reindex refusals
+        if: always()
+        run: node scripts/testing/probes/reindex-guard.mjs
 
       # THE BASELINE HAS TO COME FROM THE MACHINE THAT MEASURED IT. This runner and a macOS laptop
       # do not render the same page — the three institution pages measure 400px of content here and

@@ -22,6 +22,8 @@
     "worker:start": "RUNTIME_NAME=worker node --import tsx src/worker/index.ts",
     "jobs:probe:enqueue": "node --import tsx src/server/scripts/enqueue-probe-job.ts",
     "db:migrate:guarded": "node --import tsx src/server/scripts/migration-guard.ts && drizzle-kit migrate",
+    "db:reset": "node --import tsx scripts/reset/reset-local.ts",
+    "search:reindex": "node --import tsx scripts/reindex-search-index.ts",
     "env:check:web": "node --import tsx src/server/scripts/validate-env.ts --runtime=web",
     "env:check:worker": "node --import tsx src/server/scripts/validate-env.ts --runtime=worker",
     "env:check": "node --import tsx src/server/scripts/validate-env.ts --runtime=web",
