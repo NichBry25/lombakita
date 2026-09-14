@@ -53,11 +53,24 @@ const INDEX = "competitions";
 /** The primary key the probe gives the index, so the backfill's own declaration disagrees with it. */
 const CONFLICTING_PRIMARY_KEY = "slug";
 
-/** The line the backfill prints once it has documents in hand, repaired or not. */
-const REACHED_THE_BATCH = /Upserted \d+ document\(s\)/;
+/**
+ * Proof the run got as far as handing Meilisearch a batch.
+ *
+ * The document count, not the success line. The repaired script never reaches its own success line
+ * on a rejected batch — it throws first — so a marker keyed to that line would report every correct
+ * refusal as "nothing was measured". This one is emitted by both shapes: the repaired script's
+ * failure names the task by its label (`Task "upserted 15 document(s)" failed`), and the un-repaired
+ * one prints the label into its success line.
+ */
+const REACHED_THE_BATCH = /upserted \d+ document\(s\)/i;
 
-/** The line it printed whatever Meilisearch did with the batch. */
-const CLAIMED_SUCCESS = /Upserted \d+ document\(s\)/;
+/**
+ * The line the un-repaired script printed whatever Meilisearch did with the batch.
+ *
+ * Anchored to the uid, so it cannot be satisfied by the repaired script's read-back line or by the
+ * failure message, neither of which claims the batch landed.
+ */
+const CLAIMED_SUCCESS = /^Upserted \d+ document\(s\)\. Meilisearch task uid:/m;
 
 /** Meilisearch's own verdict, quoted so the detector names the refusal it observed. */
 const TASK_REFUSAL = "index_primary_key_already_exists";
