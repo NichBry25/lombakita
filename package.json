@@ -32,6 +32,8 @@
     "env:check": "node --import tsx src/server/scripts/validate-env.ts --runtime=web",
     "verify:concurrency": "for f in scripts/verify-owner-cap-concurrency.ts scripts/concurrency/*.ts; do case \"$f\" in *harness.ts) continue ;; esac; echo \"→ $f\"; node --import tsx \"$f\" || exit 1; done",
     "verify:finance": "node --import tsx scripts/finance/verify-payment-ledger.ts",
+    "verify:register": "node --import tsx scripts/project/verify-register.ts",
+    "verify:register-probe": "node scripts/testing/probes/register-gate.mjs",
     "verify:assertion-strength": "node --import tsx scripts/testing/assertion-strength.ts",
     "verify:branch-protection": "node scripts/testing/verify-branch-protection.mjs",
     "verify:reflow-only": "node --import tsx scripts/testing/prove-reflow-only.ts",

@@ -23,9 +23,48 @@
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { relative, sep } from "node:path";
 import { transform as parseCss } from "lightningcss";
 
-const git = (args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+/**
+ * Which repository a probe's files live in.
+ *
+ * `docs/` is a git repository in its own right (Rule 26), nested inside a product repository that
+ * ignores it (DEC-0101). A probe that mutates a register therefore cannot be restored by a git
+ * rooted at the product repository: `ls-files` does not know the file, `diff HEAD` reports it clean
+ * because it is ignored, and the `checkout` that follows fails — and that failure throws from the
+ * `finally`, which is the one place a throw leaves the mutation on disk.
+ *
+ * A probe declares its repository, and every git call and every file read resolves against it. The
+ * paths stay in ONE space — relative to the WORKING DIRECTORY, which is what a reader sees in the
+ * list — and are translated to the repository's own space only at the git boundary.
+ */
+const repoRelative = (repo, file) => {
+  if (repo === undefined) return file;
+  const within = relative(repo, file);
+  if (within === "" || within.startsWith("..") || within.includes(`..${sep}`)) {
+    throw new Error(
+      `this probe declares its repository as ${repo}, but lists ${file}, which is not inside it. ` +
+        `A path that git cannot address in that repository is a path the restore cannot undo.`,
+    );
+  }
+  return within;
+};
+
+/**
+ * Every git call in this file, so the repository decision lives in exactly one place.
+ *
+ * `encoding` and the trim serve the callers that READ output. A caller interested only in the exit
+ * status passes `stdio: "ignore"` and reads the throw — in that mode there is no captured stdout,
+ * so the null it returns is normalised here rather than at four call sites.
+ */
+const git = (args, repo, options = {}) => {
+  const stdout = execFileSync("git", repo === undefined ? args : ["-C", repo, ...args], {
+    encoding: "utf8",
+    ...options,
+  });
+  return stdout === null ? "" : stdout.trim();
+};
 
 /**
  * Every listed path is TRACKED.
@@ -36,10 +75,10 @@ const git = (args) => execFileSync("git", args, { encoding: "utf8" }).trim();
  * the probe that proves clause 1: its fixture was new, and the harness reported a git error where
  * the compile refusal should have been.
  */
-const assertTracked = (files) => {
+const assertTracked = (files, repo) => {
   const untracked = files.filter((file) => {
     try {
-      execFileSync("git", ["ls-files", "--error-unmatch", "--", file], { stdio: "ignore" });
+      git(["ls-files", "--error-unmatch", "--", repoRelative(repo, file)], repo, { stdio: "ignore" });
       return false;
     } catch {
       return true;
@@ -54,9 +93,11 @@ const assertTracked = (files) => {
 };
 
 /** True when the working tree matches HEAD for exactly these paths. */
-const pathsClean = (files) => {
+const pathsClean = (files, repo) => {
   try {
-    execFileSync("git", ["diff", "--quiet", "HEAD", "--", ...files], { stdio: "ignore" });
+    git(["diff", "--quiet", "HEAD", "--", ...files.map((file) => repoRelative(repo, file))], repo, {
+      stdio: "ignore",
+    });
     return true;
   } catch {
     return false;
@@ -70,8 +111,10 @@ const pathsClean = (files) => {
  * into an incident: it would discard every unrelated edit in the tree, and the probe would report
  * success while doing it.
  */
-const restoreFromGit = (files) => {
-  execFileSync("git", ["checkout", "HEAD", "--", ...files], { stdio: "ignore" });
+const restoreFromGit = (files, repo) => {
+  git(["checkout", "HEAD", "--", ...files.map((file) => repoRelative(repo, file))], repo, {
+    stdio: "ignore",
+  });
 };
 
 /** Registered so a Ctrl-C during measurement cannot leave a mutated file behind. */
@@ -109,8 +152,8 @@ export const readFile = (path) => readFileSync(path, "utf8");
  * lines away and puts them back somewhere else, so the counts differ and the added line is there to
  * read. Captured while the file is still mutated, which is the only moment it exists.
  */
-const mutationIdentity = (files) => {
-  const diff = git(["diff", "--unified=0", "HEAD", "--", ...files]);
+const mutationIdentity = (files, repo) => {
+  const diff = git(["diff", "--unified=0", "HEAD", "--", ...files.map((file) => repoRelative(repo, file))], repo);
 
   const removed = [];
   const added = [];
@@ -161,6 +204,8 @@ export const substituteOnce = (path, find, replace) => {
  * @param {string} spec.harmfulMove     the move the guard exists to stop, named BEFORE the detector
  * @param {"A1-in"|"A1-pre"|"A2"|"B"|"C"|"D"} spec.klass  guard class, per Rule 36
  * @param {string[]} spec.files         every file the mutation touches — explicit, never a glob
+ * @param {string} [spec.repo]          the git repository the files belong to, when it is not the
+ *                                      one the process is sitting in. See `repoRelative`.
  * @param {() => void|Promise<void>} spec.mutate      applies the harmful move
  * @param {string[]} spec.appliedMarkers text each mutated file must now contain
  * @param {() => void|Promise<void>} [spec.compiles]  parses/typechecks the mutated files
@@ -194,6 +239,21 @@ export const DATA_CHECKS = {
   ".json": (file) => JSON.parse(readFileSync(file, "utf8")),
   ".yml": () => undefined,
   ".yaml": () => undefined,
+  /**
+   * A register is prose that its reader parses STRUCTURALLY, and what "parses" means for it depends
+   * on which reader — the census in `scripts/project` for the two project registers, something else
+   * for any other markdown. This file is shared infrastructure and does not know what a given
+   * markdown file is for, so it does not pretend to decide that. The meaningful check is already
+   * mechanical one layer up: clause 3 requires the detector to NAME the assertion it reached, so a
+   * mutation that makes a register unclassifiable throws there instead of being read as a guard that
+   * held. What is checked here is the weaker property that still has to hold — the bytes are
+   * readable text, so a truncated or NUL-filled write is a refusal rather than a verdict.
+   */
+  ".md": (file) => {
+    const text = readFileSync(file, "utf8");
+    if (text.trim() === "") throw new Error(`${file} is empty`);
+    if (text.includes("\\u0000")) throw new Error(`${file} is not text`);
+  },
 };
 
 export const extensionOf = (file) => {
@@ -234,22 +294,22 @@ const defaultCompileCheckFor = (name, files) => async () => {
 };
 
 export const runProbe = async (spec) => {
-  const { name, harmfulMove, klass, files, mutate, appliedMarkers, compiles, detect } = spec;
+  const { name, harmfulMove, klass, files, repo, mutate, appliedMarkers, compiles, detect } = spec;
 
   if (!files?.length) throw new Error(`${name}: probe has no explicit file list`);
 
-  assertTracked(files);
+  assertTracked(files, repo);
 
   // CLAUSE 6 — committed work only. A restore is a destructive operation against these paths, and
   // it is only safe when HEAD already holds what is on disk.
-  if (!pathsClean(files)) {
+  if (!pathsClean(files, repo)) {
     throw new Error(
       `${name}: refusing to probe. These files differ from HEAD, and the restore afterwards would ` +
         `discard that work: ${files.join(", ")}. Commit or stash first.`,
     );
   }
 
-  const teardown = () => restoreFromGit(files);
+  const teardown = () => restoreFromGit(files, repo);
   installSignalTeardown(name, teardown);
 
   let detail = "";
@@ -261,7 +321,7 @@ export const runProbe = async (spec) => {
     // CLAUSE 2 — applied. Both halves: the tree must differ from HEAD, and each marker must be on
     // disk. The first alone passes on a whitespace edit; the second alone passes on a marker that
     // was already there.
-    if (pathsClean(files)) {
+    if (pathsClean(files, repo)) {
       throw new Error(`${name}: mutation left the tree identical to HEAD — nothing was probed`);
     }
     for (const marker of appliedMarkers) {
@@ -271,7 +331,7 @@ export const runProbe = async (spec) => {
       }
     }
 
-    identity = mutationIdentity(files);
+    identity = mutationIdentity(files, repo);
 
     // CLAUSE 1 — compiles. NOT optional for a code file, because most detectors here are `vitest`
     // or `tsc`, which fail identically on a syntax error and on a guard holding: a probe whose
@@ -292,7 +352,7 @@ export const runProbe = async (spec) => {
     // leave the mutation behind.
     onSignal.delete(name);
     teardown();
-    if (!pathsClean(files)) {
+    if (!pathsClean(files, repo)) {
       throw new Error(
         `${name}: RESTORE FAILED — ${files.join(", ")} still differ from HEAD after checkout. ` +
           `Fix the tree by hand before running anything else.`,

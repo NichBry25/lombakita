@@ -11,6 +11,12 @@ export interface Probe {
   klass: GuardClass;
   harmfulMove: string;
   files: string[];
+  /**
+   * The git repository `files` belong to, when it is not the one the process is sitting in. The
+   * registers live in `docs/`, which is a repository in its own right that the product repository
+   * ignores, so a probe over them has to say so or its restore cannot undo its mutation.
+   */
+  repo?: string;
   appliedMarkers: string[];
   mutate: () => void | Promise<void>;
   compiles?: () => void | Promise<void>;
@@ -23,8 +29,8 @@ export declare const extensionOf: (file: string) => string;
 export declare const isCodeFile: (file: string) => boolean;
 export declare const compileCheckFor: (file: string) => () => unknown;
 export declare const substituteOnce: (path: string, find: string, replace: string) => void;
-export declare const pathsClean: (files: string[]) => boolean;
+export declare const pathsClean: (files: string[], repo?: string) => boolean;
 export declare const runProbe: (
   spec: Probe,
-) => Promise<{ name: string; ok: boolean; detail: string }>;
+) => Promise<{ name: string; ok: boolean; detail: string; identity: string }>;
 export declare const runProbes: (probes: Probe[]) => Promise<void>;
