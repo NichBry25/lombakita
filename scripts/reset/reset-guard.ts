@@ -48,8 +48,22 @@ export const PROTECTED_DATABASE_NAMES: readonly string[] = Object.freeze(
 const DISPOSABLE_ENVIRONMENTS: readonly AppEnvironment[] = Object.freeze(["local", "test"]);
 
 export type ResetRefusal = {
-  /** Which layer refused, so a probe can assert it went red for the reason it claims. */
-  layer: "database-identity" | "environment" | "connection-host";
+  /**
+   * Which layer refused, so a probe can assert it went red for the reason it claims.
+   *
+   * The last two are not safety layers and are named separately for that reason. They decide WHICH
+   * database the three layers above will then be asked about, and a refusal from either one means
+   * the guarded question was never put. Reporting them under a safety layer's name is what produced
+   * a false reading: an operator pointing one variable at a protected target to exercise
+   * `database-identity` makes the two addresses disagree, `target-coherence` refuses first, and an
+   * unlabelled `REFUSED` reads as the identity layer having done its job.
+   */
+  layer:
+    | "database-identity"
+    | "environment"
+    | "connection-host"
+    | "target-configuration"
+    | "target-coherence";
   message: string;
 };
 
@@ -138,6 +152,69 @@ export const declaredAppEnvironment = (): AppEnvironment =>
   resolveAppEnvironment(
     presentOrUndefined(process.env.APP_ENV) ?? presentOrUndefined(process.env.NEXT_PUBLIC_APP_ENV),
   );
+
+/** Host, port and database name: the part of a connection string that says WHICH database. */
+const addressOf = (url: string): string => {
+  const parsed = new URL(url);
+
+  return `${parsed.hostname}:${parsed.port || "5432"}${parsed.pathname}`;
+};
+
+/**
+ * The database the reset drops, resolved EXACTLY as drizzle.config.ts resolves the one it migrates.
+ *
+ * If these two disagreed the reset would drop one database and migrate another, and the second
+ * would look like a successful run.
+ *
+ * Compared by ADDRESS, never as whole strings. The two URLs are expected to differ: locally they
+ * carry `lombakita_migrate` and `lombakita_app`, a DDL-capable role and the app's, which is the
+ * arrangement working correctly. A string comparison here would refuse every properly configured
+ * machine and be "fixed" by deleting the check.
+ *
+ * Lives beside the three safety layers because it now speaks their language (it throws
+ * `ResetRefused` with its own layer tag), and because a refusal that cannot be unit-tested is a
+ * refusal whose message nobody checks. `reset-local.ts` runs `main()` at module scope, so nothing
+ * can import from it to test.
+ */
+export const resolveResetTarget = (): string => {
+  // `presentOrUndefined`, never `??`. With `??` an empty MIGRATION_DATABASE_URL is a present value
+  // that shadows a correctly set DATABASE_URL, so the target resolved to "" and this refused with
+  // "must be set" while DATABASE_URL was set the whole time: fail-closed, but naming a cause the
+  // operator could not act on.
+  const migrationUrl = presentOrUndefined(process.env.MIGRATION_DATABASE_URL);
+  const databaseUrl = presentOrUndefined(process.env.DATABASE_URL);
+  const target = migrationUrl ?? databaseUrl;
+
+  if (!target) {
+    throw new ResetRefused({
+      layer: "target-configuration",
+      message:
+        "refusing to reset: neither DATABASE_URL nor MIGRATION_DATABASE_URL names a database, so " +
+        "there is nothing for the identity, environment and host layers to be asked about.",
+    });
+  }
+
+  // A coherence check, not a safety guard: dropping the migration database while the app reads a
+  // different one leaves a reset that reports success over an untouched application database.
+  //
+  // Tagged as its own layer because it is routinely mistaken for the identity layer. Pointing one
+  // variable at a protected database to exercise `database-identity` is exactly what makes the two
+  // addresses disagree, so this refuses first and the run never reaches the check being tested.
+  if (migrationUrl && databaseUrl && addressOf(migrationUrl) !== addressOf(databaseUrl)) {
+    throw new ResetRefused({
+      layer: "target-coherence",
+      message:
+        `refusing to reset: MIGRATION_DATABASE_URL points at ${addressOf(migrationUrl)} and ` +
+        `DATABASE_URL at ${addressOf(databaseUrl)}. The reset would drop one and leave the app ` +
+        "pointed at the other. Point them at the same database.\n" +
+        "This is the coherence check, NOT the database-identity layer. If you changed one variable " +
+        "to exercise identity, point both at that database instead; otherwise this refuses first " +
+        "and the identity layer is never reached.",
+    });
+  }
+
+  return target;
+};
 
 /**
  * A connection that can answer `current_database()`.

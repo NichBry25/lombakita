@@ -47,7 +47,7 @@ const main = async () => {
     // product defect. `lib-browser` has elevated its contexts since Step 7.1; this harness never
     // did, which is why every OPS/MOD/VERIF/FEAT operator case has been red or falsely green since.
     if (USERS[key].mfa === "satisfied") {
-      await elevateMfaSession(s.jar);
+      await elevateMfaSession(s.jar, USERS[key].id);
       sessions[key] = cookieHeader(s.jar);
     } else {
       sessions[key] = s.cookie;

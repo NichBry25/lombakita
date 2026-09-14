@@ -61,18 +61,23 @@ const HARNESS_FILES = [
  * last file that should have it: it is the most plausible place a "just fix this one row" ledger
  * edit gets written, precisely because it is already allowed to write finance rows.
  *
- *   scripts/seed-test-matrix.ts, finance_manual_payment_proof_attempts: the scratch reset. The
- *     seed deletes the proofs the AUTOMATED PASS created, and their attempt rows hold a foreign key
- *     to them, so the parent delete fails on the constraint and the whole reset aborts. Without
+ *   scripts/seed/manual-payment-lane.ts, finance_manual_payment_proof_attempts: the scratch reset.
+ *     The lane deletes the proofs the AUTOMATED PASS created, and their attempt rows hold a foreign
+ *     key to them, so the parent delete fails on the constraint and the whole reset aborts. Without
  *     this the local pipeline goes one-shot the moment any pass reaches a verdict. It removes only
  *     rows the automation itself created, on a scratch database, and touches no attempt belonging
  *     to a seeded proof.
+ *
+ *     The exception NAMES THE LANE RATHER THAN THE MATRIX SEED because the finance rows moved
+ *     there. Repointing it was not bookkeeping: this scan is one of the two things that failed when
+ *     the money lane was split out, which is the property the split exists to have: a finance
+ *     write cannot change address without something saying so.
  *
  * The attempts table stays OUT of `MUTABLE_FINANCE_TABLES`: it is append-only everywhere in the
  * application, and nothing under `src/` may delete from it.
  */
 const SCOPED_TABLE_EXCEPTIONS: Readonly<Record<string, readonly string[]>> = {
-  "scripts/seed-test-matrix.ts": ["finance_manual_payment_proof_attempts"],
+  "scripts/seed/manual-payment-lane.ts": ["finance_manual_payment_proof_attempts"],
 };
 
 /**
@@ -91,6 +96,11 @@ const MUTATION_PATTERNS = [
   // single most destructive statement that could be aimed at the ledger, and the scan did not
   // mention it.
   new RegExp(String.raw`\btruncate\s+(?:table\s+)?${RAW_TABLE}`, "gi"),
+  // An upsert. `INSERT … ON CONFLICT … DO UPDATE SET` rewrites the existing row, and the word
+  // `update` is followed by SET rather than by the table name, so none of the patterns above can
+  // see it. This was the form the seed lane used against `finance_payments` while every scan here
+  // reported the ledger untouched.
+  new RegExp(String.raw`\binsert\s+into\s+${RAW_TABLE}[^;]*?\bon\s+conflict\b[^;]*?\bdo\s+update`, "gi"),
 ];
 
 /**
@@ -235,7 +245,7 @@ describe("finance write surface", () => {
 
   it("pins the scoped exceptions, and proves each one is narrower than the file it names", () => {
     expect(SCOPED_TABLE_EXCEPTIONS).toEqual({
-      "scripts/seed-test-matrix.ts": ["finance_manual_payment_proof_attempts"],
+      "scripts/seed/manual-payment-lane.ts": ["finance_manual_payment_proof_attempts"],
     });
 
     for (const path of Object.keys(SCOPED_TABLE_EXCEPTIONS)) {
@@ -245,7 +255,7 @@ describe("finance write surface", () => {
     // THE POINT OF SCOPING IT. A whole-file exemption would let a ledger mutation into the same
     // file unnoticed; this asserts the exempted file is still scanned for everything else, by
     // running the real filter over a source that mutates a ledger table AND the excepted one.
-    const allowedHere = SCOPED_TABLE_EXCEPTIONS["scripts/seed-test-matrix.ts"]!;
+    const allowedHere = SCOPED_TABLE_EXCEPTIONS["scripts/seed/manual-payment-lane.ts"]!;
     const mixed = [
       "await sql`DELETE FROM finance_manual_payment_proof_attempts WHERE proof_id = $1`;",
       "await sql`DELETE FROM finance_payment_events WHERE payment_id = $1`;",
@@ -283,6 +293,9 @@ describe("finance write surface", () => {
       // Aliased forms, which read nothing like the bare statement.
       "await sql`update finance_payments AS p set gross_amount = 0 where p.id = 1`;",
       "await sql`delete from finance_fee_accruals a using x where a.id = x.id`;",
+      // An upsert rewrites the existing row and never says `update <table>`.
+      "await sql`INSERT INTO finance_payments (id, due_at) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET due_at = EXCLUDED.due_at`;",
+      "await sql`insert into finance_fee_rules (id) values ($1)\n  on conflict (id)\n  do update set basis_points = 1`;",
     ];
 
     for (const source of mutatesLedger) {
@@ -294,6 +307,10 @@ describe("finance write surface", () => {
       "await sql`update finance_manual_payment_proofs set status = 'verified'`;",
       "await db.select().from(financePayments);",
       "await db.insert(financeFeeAccruals).values(row);",
+      // An idempotent insert leaves the existing row untouched.
+      "await sql`INSERT INTO finance_payments (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`;",
+      // The mutable table may be upserted like any other write to it.
+      "await sql`INSERT INTO finance_manual_payment_proofs (id) VALUES ($1) ON CONFLICT (payment_id) DO UPDATE SET status = 'x'`;",
     ];
 
     for (const source of allowed) {

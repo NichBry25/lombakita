@@ -1159,8 +1159,10 @@ describe.skipIf(skipWithoutDatabase)("the accrual write is single-shot (real dat
   /**
    * THE SEEDED REVERSAL AND THE SERVICE WRITE THE SAME SHAPE.
    *
-   * `scripts/seed-test-matrix.ts` writes `seed-accrual-d-reversed` as raw SQL, because that file
-   * imports no application module at all and the house style is worth keeping. The cost is that the
+   * `scripts/seed/manual-payment-lane.ts` writes `seed-accrual-d-reversed` as raw SQL, and does so
+   * deliberately: the money lane is the one part of the seed Phase 2 does NOT route, because the
+   * ledger is append-only and several of these rows exist precisely because the service refuses
+   * them. The cost is unchanged and is the reason this comparison exists; the
    * fee statement's only browser coverage of a reversal renders a HAND-BUILT row: change
    * `recordFeeAccrualReversal` and the fixture stays behind while the ui-states case goes on
    * passing over a shape the service no longer produces. This is the page where that matters most:
@@ -1644,7 +1646,11 @@ describe.skipIf(skipWithoutDatabase)("the lane's write precondition", () => {
   });
 });
 
-const SEED_SCRIPT = "scripts/seed-test-matrix.ts";
+// The money lane moved out of the matrix seed: the matrix routes through production services and
+// the finance rows deliberately do not, so they live in their own module. This constant is how this
+// test finds the seeded rows it compares against, and it failed loudly when they moved, which is
+// the property the split was built to have.
+const SEED_SCRIPT = "scripts/seed/manual-payment-lane.ts";
 const SEED_ACCRUED_ID = "seed-accrual-d-settled";
 const SEED_REVERSED_ID = "seed-accrual-d-reversed";
 

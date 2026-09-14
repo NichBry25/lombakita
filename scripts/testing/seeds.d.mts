@@ -5,7 +5,8 @@
 
 export declare const BASE: string;
 export declare const PASSWORD: string;
-export declare const MFA_FACTOR_SECRET_HEX: string;
+export declare const OPERATOR_SECRETS_FILE: string;
+export declare const mfaSecretHexFor: (userId: string) => string;
 
 /** Which of the three operational MFA states an account is seeded into; absent for self-service. */
 export type SeedMfaState = "enrolment" | "challenge" | "satisfied";

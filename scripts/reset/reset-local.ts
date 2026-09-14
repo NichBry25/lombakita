@@ -12,8 +12,15 @@
  *   2. drops the public and drizzle schemas, so the migration ledger goes with the tables
  *   3. applies every migration from zero through `db:migrate:guarded`
  *   4. verifies the rebuilt ledger against the journal, including LAUNCH-D29's two pinned indices
- *   5. rebuilds the Meilisearch competitions index, which nothing else repopulates after a drop
- *   6. flushes Redis, because BullMQ jobs referencing dropped rows are worse than no jobs
+ *   5. seeds the testing matrix, so what comes out is a usable environment rather than bare schema
+ *   6. rebuilds the Meilisearch competitions index, which nothing else repopulates after a drop
+ *   7. flushes Redis, because BullMQ jobs referencing dropped rows are worse than no jobs
+ *
+ * THE SEED SITS BETWEEN THE LEDGER CHECK AND THE REINDEX, and the position is the point rather than
+ * an ordering preference. Before it existed this path ended at step 4 with an empty database, and
+ * the reindex that followed rebuilt an index from zero rows and asserted 0 == 0, an instrument
+ * that could not fail, over a database nobody could use. Seeding after the reindex would leave the
+ * same vacuous assertion with populated tables behind it, which is worse: it would look measured.
  *
  * THERE IS NO PRODUCTION MODE AND NO OVERRIDE FLAG. Not as a matter of policy but of construction:
  * nothing here accepts a "yes I am sure" value, so there is no argument anyone can pass to make it
@@ -34,6 +41,7 @@ import {
   assertResetTargetIsDisposable,
   declaredAppEnvironment,
   presentOrUndefined,
+  resolveResetTarget,
 } from "./reset-guard";
 
 const DRIZZLE_DIR = "drizzle";
@@ -49,8 +57,10 @@ const DRIZZLE_DIR = "drizzle";
  */
 const DROP_LOCK_TIMEOUT = "10s";
 
+const TOTAL_STEPS = 7;
+
 const step = (number: number, title: string): void => {
-  console.log(`\n[${number}/6] ${title}`);
+  console.log(`\n[${number}/${TOTAL_STEPS}] ${title}`);
 };
 
 /**
@@ -186,6 +196,14 @@ const assertEveryObjectIsDroppable = async (sql: postgres.Sql): Promise<void> =>
  *
  * Extension-owned routines are excluded because pgcrypto is intentionally left in place; a routine
  * belonging to no extension is not, and is named here rather than tolerated.
+ *
+ * WHAT IT DOES NOT INSPECT, said out loud in the success line rather than left to be inferred.
+ * Materialized views, standalone sequences, domains, composite types and non-`public` schemas are
+ * outside all five queries, and `pg_tables`/`pg_views` both exclude `relkind='m'`, so a matview is
+ * invisible to the drop loop AND to this check. None are reachable from the migrations in this
+ * checkout, which is why the coverage gap is tolerable; certifying the schema "empty" on the
+ * strength of five classes is not, because that is an instrument reporting a result it did not
+ * measure. The message therefore claims exactly the classes it looked at and names the rest.
  */
 const assertPublicSchemaIsEmpty = async (sql: postgres.Sql): Promise<void> => {
   const rows = await sql<{ kind: string; count: string }[]>`
@@ -218,7 +236,10 @@ const assertPublicSchemaIsEmpty = async (sql: postgres.Sql): Promise<void> => {
     );
   }
 
-  console.log("  ✓ no tables, enums, views, routines or migration ledger remain");
+  console.log(
+    "  ✓ no tables, enums, views, non-extension routines or migration ledger remain in public " +
+      "(not inspected: materialized views, sequences, domains, composite types, other schemas)",
+  );
 };
 
 const applyMigrationsFromZero = (): void => {
@@ -288,6 +309,22 @@ const verifyLedgerRebuiltFromZero = async (sql: postgres.Sql): Promise<void> => 
   console.log(`  ✓ all ${journal.length} migrations applied, matching row for row by hash`);
 };
 
+/**
+ * Fills the freshly migrated database with the testing matrix.
+ *
+ * NOT OPTIONAL AND NOT SKIPPABLE, unlike steps 6 and 7. Those two reach infrastructure a developer
+ * may legitimately not be running; this one needs nothing but the database the previous four steps
+ * just rebuilt. A reset that silently produced bare schema is the state this whole step exists to
+ * end, so there is no configuration under which it is allowed to quietly not happen.
+ *
+ * Shelled out rather than imported for the same reason `applyMigrationsFromZero` is: the seed reads
+ * its own environment, opens its own connection and enforces its own refusals at module scope, and
+ * importing it would run all of that inside a process that has already resolved a different target.
+ */
+const seedTestingMatrix = (): void => {
+  execFileSync("npm", ["run", "db:seed"], { stdio: "inherit" });
+};
+
 /** Returns why the step did not run, or null when it did. */
 const rebuildSearchIndex = (): string | null => {
   if (!optionalUrl(process.env.MEILISEARCH_HOST)) {
@@ -297,7 +334,11 @@ const rebuildSearchIndex = (): string | null => {
     return reason;
   }
 
-  execFileSync("npm", ["run", "search:reindex"], { stdio: "inherit" });
+  // `--expect-populated` because step 5 has just seeded. Without it the reindex would rebuild
+  // whatever it found and assert its count against itself, which is true for zero as readily as for
+  // any other number; the assertion that gives this step its meaning only has meaning once the
+  // caller has told it a number it must not be.
+  execFileSync("npm", ["run", "search:reindex", "--", "--expect-populated"], { stdio: "inherit" });
 
   return null;
 };
@@ -343,46 +384,6 @@ const flushRedis = async (): Promise<string | null> => {
   }
 };
 
-/** Host, port and database name — the part of a connection string that says WHICH database. */
-const addressOf = (url: string): string => {
-  const parsed = new URL(url);
-
-  return `${parsed.hostname}:${parsed.port || "5432"}${parsed.pathname}`;
-};
-
-/**
- * The database this drops, resolved EXACTLY as drizzle.config.ts resolves the one it migrates.
- *
- * If these two disagreed the reset would drop one database and migrate another, and the second
- * would look like a successful run.
- *
- * Compared by ADDRESS, never as whole strings. The two URLs are expected to differ: locally they
- * carry `lombakita_migrate` and `lombakita_app`, a DDL-capable role and the app's, which is the
- * arrangement working correctly. A string comparison here would refuse every properly configured
- * machine and be "fixed" by deleting the check.
- */
-const resolveResetTarget = (): string => {
-  const migrationUrl = process.env.MIGRATION_DATABASE_URL;
-  const databaseUrl = process.env.DATABASE_URL;
-  const target = migrationUrl ?? databaseUrl;
-
-  if (!target) {
-    throw new Error("DATABASE_URL or MIGRATION_DATABASE_URL must be set to reset anything");
-  }
-
-  // A coherence check, not a safety guard: dropping the migration database while the app reads a
-  // different one leaves a reset that reports success over an untouched application database.
-  if (migrationUrl && databaseUrl && addressOf(migrationUrl) !== addressOf(databaseUrl)) {
-    throw new Error(
-      `MIGRATION_DATABASE_URL points at ${addressOf(migrationUrl)} and DATABASE_URL at ` +
-        `${addressOf(databaseUrl)}. The reset would drop one and leave the app pointed at the ` +
-        "other. Point them at the same database.",
-    );
-  }
-
-  return target;
-};
-
 /**
  * Says what the run actually did, naming any step that did not run and why.
  *
@@ -397,15 +398,16 @@ const reportOutcome = (steps: readonly { step: number; reason: string | null }[]
   );
 
   if (skipped.length === 0) {
-    console.log("\nReset complete. The database holds the schema and no rows.\n");
+    console.log("\nReset complete. The database holds the schema and the seeded testing matrix.\n");
     return;
   }
 
   const listed = skipped.map((entry) => `  step ${entry.step} skipped: ${entry.reason}`);
 
   console.log(
-    `\nDatabase reset complete: it holds the schema and no rows. ${skipped.length} of 6 steps ` +
-      `did NOT run, so the rest of your local stack is not reset:\n${listed.join("\n")}\n`,
+    `\nDatabase reset complete: it holds the schema and the seeded testing matrix. ` +
+      `${skipped.length} of ${TOTAL_STEPS} steps did NOT run, so the rest of your local stack is ` +
+      `not reset:\n${listed.join("\n")}\n`,
   );
 };
 
@@ -446,15 +448,18 @@ const main = async (): Promise<void> => {
     await verifier.end({ timeout: 5 });
   }
 
-  step(5, "Rebuilding the Meilisearch competitions index");
+  step(5, "Seeding the testing matrix");
+  seedTestingMatrix();
+
+  step(6, "Rebuilding the Meilisearch competitions index");
   const searchSkipped = rebuildSearchIndex();
 
-  step(6, "Flushing Redis");
+  step(7, "Flushing Redis");
   const redisSkipped = await flushRedis();
 
   reportOutcome([
-    { step: 5, reason: searchSkipped },
-    { step: 6, reason: redisSkipped },
+    { step: 6, reason: searchSkipped },
+    { step: 7, reason: redisSkipped },
   ]);
 };
 

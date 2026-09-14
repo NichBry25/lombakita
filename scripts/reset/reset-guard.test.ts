@@ -22,6 +22,7 @@ import {
   findConnectionHostRefusal,
   findDatabaseNameRefusal,
   findEnvironmentRefusal,
+  resolveResetTarget,
 } from "./reset-guard";
 
 const LOCAL_URL = "postgres://user:pass@localhost:5432/lombakita";
@@ -37,6 +38,105 @@ const disposableContext = {
   databaseUrl: LOCAL_URL,
   redisUrl: "redis://localhost:6379",
 };
+
+/**
+ * Which database the reset resolves, and whether a refusal from here says so.
+ *
+ * The layer tags are the subject, not a detail. A refusal that does not name its layer is what
+ * produced Stage 9's false reading: an operator set `MIGRATION_DATABASE_URL` alone at a protected
+ * database to exercise the IDENTITY layer, the COHERENCE check refused first because that is
+ * exactly what changing one variable does, and an unlabelled `REFUSED` was read as the identity
+ * layer holding. These assert that the two refusals from this function are distinguishable from the
+ * three safety layers and from each other.
+ */
+describe("resolving which database the reset targets", () => {
+  const original = {
+    migration: process.env.MIGRATION_DATABASE_URL,
+    database: process.env.DATABASE_URL,
+  };
+
+  const withUrls = (migration: string | undefined, database: string | undefined): void => {
+    for (const [key, value] of [
+      ["MIGRATION_DATABASE_URL", migration],
+      ["DATABASE_URL", database],
+    ] as const) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  };
+
+  afterEach(() => {
+    withUrls(original.migration, original.database);
+  });
+
+  const refusalFrom = (migration: string | undefined, database: string | undefined): unknown => {
+    withUrls(migration, database);
+
+    try {
+      resolveResetTarget();
+    } catch (error: unknown) {
+      return error;
+    }
+
+    return null;
+  };
+
+  it("refuses as target-configuration when neither variable names a database", () => {
+    const refused = refusalFrom(undefined, undefined);
+
+    expect(refused).toBeInstanceOf(ResetRefused);
+    expect((refused as ResetRefused).layer).toBe("target-configuration");
+  });
+
+  // The coherence refusal must be TOLD APART from the identity layer, because the one way an
+  // operator reaches it is by trying to exercise the identity layer.
+  it("refuses as target-coherence, not database-identity, when the two addresses disagree", () => {
+    const refused = refusalFrom(REMOTE_URL, LOCAL_URL);
+
+    expect(refused).toBeInstanceOf(ResetRefused);
+    expect((refused as ResetRefused).layer).toBe("target-coherence");
+    expect((refused as ResetRefused).layer).not.toBe("database-identity");
+  });
+
+  // Not a message-shape assertion for its own sake: the operator who reaches this refusal believes
+  // they are testing something else, so the message has to say which check fired and what to do
+  // instead. Without this the layer tag is right and the human-readable half stays wrong.
+  it("tells the operator the identity layer was never reached", () => {
+    const refused = refusalFrom(REMOTE_URL, LOCAL_URL) as ResetRefused;
+
+    expect(refused.message).toMatch(/NOT the database-identity layer/);
+    expect(refused.message).toMatch(/point both at that database/);
+  });
+
+  // An EMPTY variable is absent, not a value. With `??` the empty migration URL shadowed a set
+  // DATABASE_URL, the target resolved to "", and this refused "must be set" while DATABASE_URL was
+  // set the whole time. Same class as the REDIS_URL fix, same fix.
+  it("treats an empty MIGRATION_DATABASE_URL as absent and falls back to DATABASE_URL", () => {
+    withUrls("", LOCAL_URL);
+
+    expect(resolveResetTarget()).toBe(LOCAL_URL);
+  });
+
+  it("treats an empty DATABASE_URL as absent and uses MIGRATION_DATABASE_URL", () => {
+    withUrls(LOCAL_URL, "");
+
+    expect(resolveResetTarget()).toBe(LOCAL_URL);
+  });
+
+  // Two roles against one database is the arrangement working correctly, not a disagreement. A
+  // whole-string comparison here would refuse every properly configured machine.
+  it("permits two different roles against the same address", () => {
+    withUrls(
+      "postgres://lombakita_migrate:pw@localhost:5432/lombakita",
+      "postgres://lombakita_app:pw@localhost:5432/lombakita",
+    );
+
+    expect(resolveResetTarget()).toContain("lombakita_migrate");
+  });
+});
 
 describe("the protected database list", () => {
   // Sourced from the deploy gate's own table rather than restated, so an environment added there

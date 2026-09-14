@@ -8,7 +8,10 @@ they drive the running app, assert behavior, and capture screenshots into `test-
 
 1. Docker services up (postgres 5432, redis 6379, meilisearch 7700).
 2. `npm run dev` and `npm run worker:start` running.
-3. The matrix seeded: `node --import tsx scripts/seed-test-matrix.ts`
+3. The matrix seeded: `npm run db:seed` (or `npm run db:reset`, which now seeds at step 5 and
+   gives you a database from zero). The manual payment lane is a SEPARATE, opt-in command,
+   `npm run db:seed:payments`, and is not part of either; run it only when testing that lane,
+   and know that what it writes is append-only and cannot be removed.
 4. **For the two browser scripts only** (`flows.mjs`, `gallery.mjs`): `npm i -D playwright`.
    Do **not** run `npx playwright install` on macOS 13 — Playwright 1.62 refuses to install
    Chromium on `mac13-arm64`. `lib-browser.mjs` points at the Chrome for Testing build already
@@ -18,7 +21,8 @@ they drive the running app, assert behavior, and capture screenshots into `test-
 ## Running
 
 ```bash
-node --import tsx scripts/seed-test-matrix.ts   # always first — also resets scratch state
+npm run db:seed                                 # always first; also resets scratch state
+npm run db:seed:payments                        # ONLY for the manual payment lane; append-only
 node scripts/testing/api-matrix.mjs             # 100 API, guard, and isolation assertions
 node scripts/testing/r2-flows.mjs               # 22 real-byte upload/validation assertions
 node scripts/testing/flows.mjs                  # UI flows + a screenshot of every reaction

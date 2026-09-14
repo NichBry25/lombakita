@@ -43,6 +43,16 @@ import {
   declaredAppEnvironment,
 } from "./reset/reset-guard";
 
+/**
+ * Whether the caller knows the database should hold published competitions.
+ *
+ * A flag rather than an inference. This script cannot tell an empty catalogue apart from a seed
+ * that failed to publish anything (both present as zero rows), so the distinction has to come from
+ * whoever invoked it. `npm run db:reset` passes it because it has just seeded; a developer running
+ * the reindex by hand does not, and an empty result stays a legitimate outcome for them.
+ */
+const expectPopulated = process.argv.includes("--expect-populated");
+
 const main = async (): Promise<void> => {
   console.log(describeEnvFileLoad(loadEnvFile({})));
 
@@ -85,6 +95,27 @@ const main = async (): Promise<void> => {
       .from(competitions)
       .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
       .where(publishedCompetitionsFilter());
+
+    // WHY A ZERO ROW COUNT CAN BE A FAILURE, and why it is only a failure when asked.
+    //
+    // The equality assertion below is the point of this script, and against an empty database it
+    // compares 0 to 0 and cannot fail. That was this script's whole situation until the reset
+    // learned to seed: it ran immediately after a drop, so every run rebuilt nothing and certified
+    // it. An instrument that cannot fail is not evidence, and four ticks over an empty index read
+    // exactly like four ticks over a correct one.
+    //
+    // Run standalone against a genuinely empty catalogue, zero is the right answer and must not be
+    // an error; a developer with no competitions has nothing wrong with their machine. So the
+    // caller that KNOWS rows should exist says so, and the reset is that caller: it seeds at step 5
+    // and reindexes at step 6, and between those two a zero means the seed did not land.
+    if (rows.length === 0 && expectPopulated) {
+      throw new Error(
+        "the database holds no published competitions, but this run was told to expect some. " +
+          "Rebuilding an index from zero rows always succeeds and always asserts 0 == 0, so this " +
+          "would have reported a healthy index over an empty one. Either the seed did not run or " +
+          "it published nothing.",
+      );
+    }
 
     if (rows.length === 0) {
       console.log("  ✓ no published competitions — the index is empty and correctly so");

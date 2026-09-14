@@ -54,8 +54,9 @@ export async function contextFor(browser, email) {
     // every guarded surface would redirect to /auth/mfa/challenge. Complete the challenge here for
     // the accounts seeded as "satisfied", and leave the other two in the gate on purpose — those
     // are the fixtures for the enrolment and challenge pages themselves.
-    if (Object.values(USERS).find((u) => u.email === email)?.mfa === "satisfied") {
-      await elevateMfaSession(s.jar);
+    const seededUser = Object.values(USERS).find((u) => u.email === email);
+    if (seededUser?.mfa === "satisfied") {
+      await elevateMfaSession(s.jar, seededUser.id);
     }
     const cookies = [...s.jar.entries()].map(([name, value]) => ({
       name,

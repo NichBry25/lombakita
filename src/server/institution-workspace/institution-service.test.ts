@@ -5,6 +5,7 @@ import { AccessError } from "@/server/auth/access-core";
 import type { Database } from "@/server/db/client";
 import { institutionMemberships, institutions } from "@/server/db/schema";
 import {
+  NEW_INSTITUTION_DEFAULT_STATUS,
   createInstitutionWorkspaceForUser,
   createPersonalInstitutionForUser,
   findOwnedPersonalInstitution,
@@ -218,6 +219,12 @@ const createDbMockWithNoOwnerMembership = () =>
   createDbMockWithMembershipStates({ hasAnyMembership: false });
 
 describe("institution-service", () => {
+  it("declares the same default status in the schema as every creation path writes", () => {
+    // Two spellings of one fact. The column default was `active` while every creation path wrote
+    // `inactive`, so a fixture that omitted the column got a state production could not produce.
+    expect(institutions.status.default).toBe(NEW_INSTITUTION_DEFAULT_STATUS);
+  });
+
   it("creates institution workspace with owner membership and slug retry on conflict", async () => {
     const { db, attemptedInstitutionSlugs, institutionRows, membershipRows } =
       createDbMockForCreation({
