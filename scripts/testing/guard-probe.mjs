@@ -252,7 +252,7 @@ export const DATA_CHECKS = {
   ".md": (file) => {
     const text = readFileSync(file, "utf8");
     if (text.trim() === "") throw new Error(`${file} is empty`);
-    if (text.includes("\\u0000")) throw new Error(`${file} is not text`);
+    if (text.includes("\0")) throw new Error(`${file} is not text`);
   },
 };
 
