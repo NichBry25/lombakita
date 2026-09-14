@@ -59,7 +59,9 @@ const migrate = (childUrl) => {
   if (result.status !== 0) {
     throw new Error(
       "could not migrate the probe database, so the seed would have had nothing to write into " +
-        `and the post-state would prove nothing:\n${(result.stdout ?? "") + (result.stderr ?? "")}`.slice(-1200),
+        `and the post-state would prove nothing:\n${(result.stdout ?? "") + (result.stderr ?? "")}`.slice(
+          -1200,
+        ),
     );
   }
 };

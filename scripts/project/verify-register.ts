@@ -89,7 +89,9 @@ const departure = (direction: RegisterBound, measured: number, bound: number): s
   const moved = Math.abs(measured - bound);
 
   if (direction === "floor") {
-    return up ? `  (up ${moved} — raise the bound to ${measured})` : `  (down ${moved} — below the floor of ${bound})`;
+    return up
+      ? `  (up ${moved} — raise the bound to ${measured})`
+      : `  (down ${moved} — below the floor of ${bound})`;
   }
   return up ? `  (up ${moved})` : `  (down ${moved} — lower the literal to ${measured})`;
 };
@@ -187,7 +189,9 @@ const main = (): void => {
   console.log(`  live ids          ${summary.live}  (${summary.liveEntries} entries)`);
   console.log(`  anchored live     ${summary.canonicalAnchoredLive}`);
   console.log(`  bare anchored     ${summary.bareAnchoredLive}`);
-  console.log(`  anchorless live   ${summary.anchorlessLive}  (${summary.anchorlessLiveEntries} entries)`);
+  console.log(
+    `  anchorless live   ${summary.anchorlessLive}  (${summary.anchorlessLiveEntries} entries)`,
+  );
   console.log(`  measured by       ${run}`);
 
   const before = censusDebtItemsFromText(baseline.text, REGISTER_IN_DOC_REPO);

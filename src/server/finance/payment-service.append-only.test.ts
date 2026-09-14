@@ -100,7 +100,10 @@ const MUTATION_PATTERNS = [
   // `update` is followed by SET rather than by the table name, so none of the patterns above can
   // see it. This was the form the seed lane used against `finance_payments` while every scan here
   // reported the ledger untouched.
-  new RegExp(String.raw`\binsert\s+into\s+${RAW_TABLE}[^;]*?\bon\s+conflict\b[^;]*?\bdo\s+update`, "gi"),
+  new RegExp(
+    String.raw`\binsert\s+into\s+${RAW_TABLE}[^;]*?\bon\s+conflict\b[^;]*?\bdo\s+update`,
+    "gi",
+  ),
 ];
 
 /**

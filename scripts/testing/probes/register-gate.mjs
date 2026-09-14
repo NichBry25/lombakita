@@ -161,8 +161,7 @@ export const probes = [
     files: [REGISTER],
     repo: DOC_LANE,
     appliedMarkers: ["- **LAUNCH-D47 [HIGH] → Block C2."],
-    mutate: () =>
-      substituteOnce(REGISTER, D47_ANCHORED, "- **LAUNCH-D47 [HIGH] → Block C2."),
+    mutate: () => substituteOnce(REGISTER, D47_ANCHORED, "- **LAUNCH-D47 [HIGH] → Block C2."),
     detect: () => gateRefused(/FAIL\s+no live item names a block without naming a step \(1\)/),
   },
   {
@@ -173,8 +172,7 @@ export const probes = [
     files: [REGISTER],
     repo: DOC_LANE,
     appliedMarkers: ["- **BETA-D29 [LOW]** → Step 7.7."],
-    mutate: () =>
-      substituteOnce(REGISTER, BETA_D29_MARKED, "- **BETA-D29 [LOW]** → Step 7.7."),
+    mutate: () => substituteOnce(REGISTER, BETA_D29_MARKED, "- **BETA-D29 [LOW]** → Step 7.7."),
     detect: () =>
       gateRefused(
         /FAIL\s+3\s+items a discharged section declares discharged whose anchor line carries no mark/,
@@ -207,7 +205,9 @@ export const probes = [
         "reversible via uninstall | n/a | probe |",
       ),
     detect: () =>
-      gateRefused(/FAIL\s+1\s+decision-log rows whose cells do not match their columns' declared count\s+\(up 1\)/),
+      gateRefused(
+        /FAIL\s+1\s+decision-log rows whose cells do not match their columns' declared count\s+\(up 1\)/,
+      ),
   },
   {
     name: "a blank line ending a table fails the close",
@@ -231,12 +231,15 @@ export const probes = [
     appliedMarkers: ["|| DEC-0125 |"],
     mutate: () => substituteOnce(DECISION_LOG, `\n${ROW_DEC_0125}`, ROW_DEC_0125),
     detect: () =>
-      gateRefused(/FAIL\s+2\s+decision-log rows written on another record's line instead of below it/),
+      gateRefused(
+        /FAIL\s+2\s+decision-log rows written on another record's line instead of below it/,
+      ),
   },
   {
     name: "a Date cell that does not hold a date fails the close",
     klass: "D",
-    harmfulMove: "putting a status token where the date belongs, so the row cannot be ordered in time",
+    harmfulMove:
+      "putting a status token where the date belongs, so the row cannot be ordered in time",
     files: [DECISION_LOG],
     repo: DOC_LANE,
     appliedMarkers: ["between 6.5h and 6.5.INFRA | accepted | accepted |"],
@@ -246,8 +249,7 @@ export const probes = [
         "between 6.5h and 6.5.INFRA | accepted | 2026-07-07 |",
         "between 6.5h and 6.5.INFRA | accepted | accepted |",
       ),
-    detect: () =>
-      gateRefused(/FAIL\s+2\s+decision-log rows whose Date cell does not hold a date/),
+    detect: () => gateRefused(/FAIL\s+2\s+decision-log rows whose Date cell does not hold a date/),
   },
   {
     name: "a supersede claim naming its own row fails the close",
@@ -257,8 +259,7 @@ export const probes = [
     files: [DECISION_LOG],
     repo: DOC_LANE,
     appliedMarkers: ["1759 tests passing. | DEC-0124 |"],
-    mutate: () =>
-      substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0124 |"),
+    mutate: () => substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0124 |"),
     detect: () =>
       gateRefused(/FAIL\s+1\s+decision-log supersede claims naming their own row\s+\(up 1\)/),
   },
@@ -270,8 +271,7 @@ export const probes = [
     files: [DECISION_LOG],
     repo: DOC_LANE,
     appliedMarkers: ["1759 tests passing. | DEC-0900 |"],
-    mutate: () =>
-      substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0900 |"),
+    mutate: () => substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0900 |"),
     detect: () =>
       gateRefused(
         /FAIL\s+1\s+decision-log supersede claims naming an id the log has no row for\s+\(up 1\)/,
@@ -285,8 +285,7 @@ export const probes = [
     files: [REGISTER],
     repo: DOC_LANE,
     appliedMarkers: ["- **LAUNCH-D40 [MEDIUM] → TBD.**"],
-    mutate: () =>
-      substituteOnce(REGISTER, D40_ANCHORED, "- **LAUNCH-D40 [MEDIUM] → TBD.**"),
+    mutate: () => substituteOnce(REGISTER, D40_ANCHORED, "- **LAUNCH-D40 [MEDIUM] → TBD.**"),
     detect: () =>
       gateRefused(
         /FAIL\s+20\s+live debt ids carrying an anchor that names a step and a block\s+\(down 1 — below the floor of 21\)/,
@@ -300,8 +299,7 @@ export const probes = [
     files: [REGISTER],
     repo: DOC_LANE,
     appliedMarkers: ["LAUNCH-D99X"],
-    mutate: () =>
-      substituteOnce(REGISTER, D47_ANCHORED, PLANTED_MISTYPED_ID + D47_ANCHORED),
+    mutate: () => substituteOnce(REGISTER, D47_ANCHORED, PLANTED_MISTYPED_ID + D47_ANCHORED),
     detect: () =>
       gateRefused(/FAIL\s+33\s+register bullets whose head id is not a register id\s+\(up 1\)/),
   },
@@ -313,8 +311,7 @@ export const probes = [
     files: [DECISION_LOG],
     repo: DOC_LANE,
     appliedMarkers: ["| Extends DEC-0153 |"],
-    mutate: () =>
-      substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0010, "| Extends DEC-0153 |"),
+    mutate: () => substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0010, "| Extends DEC-0153 |"),
     detect: () =>
       gateRefused(
         /FAIL\s+0\s+decision-log Supersedes cells holding nothing but an id\s+\(down 1 — below the floor of 1\)/,

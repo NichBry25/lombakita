@@ -248,7 +248,12 @@ function censusRegister(text: string, file: string): RegisterWalk {
     const remainder = flat.slice(remainderStart);
     const anchored = /^\s*→/.test(remainder);
     const arrow = anchored ? remainderStart + remainder.indexOf("→") : -1;
-    const anchor = anchored ? declared.slice(arrow, arrow + 80).replace(/\*\*/g, "").trim() : null;
+    const anchor = anchored
+      ? declared
+          .slice(arrow, arrow + 80)
+          .replace(/\*\*/g, "")
+          .trim()
+      : null;
 
     items.push({
       file,
@@ -322,9 +327,7 @@ export function canonicalAnchoredLiveIds(items: DebtItem[]): string[] {
   return [
     ...new Set(
       items
-        .filter(
-          (item) => item.live && item.anchor !== null && CANONICAL_ANCHOR.test(item.anchor),
-        )
+        .filter((item) => item.live && item.anchor !== null && CANONICAL_ANCHOR.test(item.anchor))
         .map((item) => item.id),
     ),
   ];
@@ -340,9 +343,7 @@ export function canonicalAnchoredLiveIds(items: DebtItem[]): string[] {
 export function newlyFiledWithoutStepAnchor(before: DebtItem[], after: DebtItem[]): DebtItem[] {
   const known = new Set(before.map((item) => item.id));
   const namesStep = new Set(after.filter((item) => item.anchorNamesStep).map((item) => item.id));
-  return after.filter(
-    (item) => item.live && !known.has(item.id) && !namesStep.has(item.id),
-  );
+  return after.filter((item) => item.live && !known.has(item.id) && !namesStep.has(item.id));
 }
 
 /**
@@ -653,10 +654,14 @@ export function supersedesFindings(records: DecisionRecord[]): SupersedesFinding
   for (const record of records) {
     const claimed = supersedeClaimOf(record);
     if (claimed === null) continue;
-    const kind = claimed === record.row.id ? "names-itself"
-      : !known.has(claimed) ? "names-no-row"
-      : decisionNumber(claimed) > decisionNumber(record.row.id) ? "names-newer"
-      : null;
+    const kind =
+      claimed === record.row.id
+        ? "names-itself"
+        : !known.has(claimed)
+          ? "names-no-row"
+          : decisionNumber(claimed) > decisionNumber(record.row.id)
+            ? "names-newer"
+            : null;
     if (kind !== null) findings.push({ row: record.row, referenced: claimed, kind });
   }
   return findings;
@@ -667,7 +672,10 @@ function decisionNumber(id: string): number {
 }
 
 /** How many claims of one kind the log declares, for an obligation that pins one kind. */
-export function supersedesOfKind(records: DecisionRecord[], kind: SupersedesFinding["kind"]): number {
+export function supersedesOfKind(
+  records: DecisionRecord[],
+  kind: SupersedesFinding["kind"],
+): number {
   return supersedesFindings(records).filter((finding) => finding.kind === kind).length;
 }
 

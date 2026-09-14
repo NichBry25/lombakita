@@ -231,7 +231,10 @@ describe("what the close gates on", () => {
   // Gate (a): an item the close UNDER PROCESSING files must carry a step anchor. The comparison is
   // against the register as it stood before, so pre-existing debt never fails the gate.
   it("finds a newly filed live item that carries no step anchor", () => {
-    const before = itemsOf("before.md", "## Known Debt (Step 1.1)\n\n### Open\n\n- **A-D1** Old.\n");
+    const before = itemsOf(
+      "before.md",
+      "## Known Debt (Step 1.1)\n\n### Open\n\n- **A-D1** Old.\n",
+    );
     const after = itemsOf(
       "after.md",
       "## Known Debt (Step 1.1)\n\n### Open\n\n- **A-D1** Old.\n\n- **A-D2 [HIGH]** New and bare.\n",
@@ -273,11 +276,21 @@ describe("what the close gates on", () => {
    */
   it("reads gate (a)'s baseline from the committed revision", () => {
     execFileSync("git", ["-C", repo, "init", "-q"]);
-    writeFileSync(join(repo, "open-debt.md"), "## Known Debt (Step 1.1)\n\n### Open\n\n- **A-D1** Old.\n");
+    writeFileSync(
+      join(repo, "open-debt.md"),
+      "## Known Debt (Step 1.1)\n\n### Open\n\n- **A-D1** Old.\n",
+    );
     execFileSync("git", ["-C", repo, "add", "open-debt.md"]);
     execFileSync("git", [
-      "-C", repo, "-c", "user.email=census@example.com", "-c", "user.name=Census",
-      "commit", "-qm", "before",
+      "-C",
+      repo,
+      "-c",
+      "user.email=census@example.com",
+      "-c",
+      "user.name=Census",
+      "commit",
+      "-qm",
+      "before",
     ]);
     writeFileSync(
       join(repo, "open-debt.md"),
@@ -445,9 +458,9 @@ describe("what the decision log reader covers", () => {
     );
 
     expect(supersedeClaimOf(records[1]!)).toBeNull();
-    expect(supersedesFindings(records).map((found) => [found.row.id, found.referenced, found.kind])).toEqual(
-      [["DEC-0001", "DEC-0002", "names-newer"]],
-    );
+    expect(
+      supersedesFindings(records).map((found) => [found.row.id, found.referenced, found.kind]),
+    ).toEqual([["DEC-0001", "DEC-0002", "names-newer"]]);
   });
 });
 

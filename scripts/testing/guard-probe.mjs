@@ -78,7 +78,9 @@ const git = (args, repo, options = {}) => {
 const assertTracked = (files, repo) => {
   const untracked = files.filter((file) => {
     try {
-      git(["ls-files", "--error-unmatch", "--", repoRelative(repo, file)], repo, { stdio: "ignore" });
+      git(["ls-files", "--error-unmatch", "--", repoRelative(repo, file)], repo, {
+        stdio: "ignore",
+      });
       return false;
     } catch {
       return true;
@@ -153,7 +155,10 @@ export const readFile = (path) => readFileSync(path, "utf8");
  * read. Captured while the file is still mutated, which is the only moment it exists.
  */
 const mutationIdentity = (files, repo) => {
-  const diff = git(["diff", "--unified=0", "HEAD", "--", ...files.map((file) => repoRelative(repo, file))], repo);
+  const diff = git(
+    ["diff", "--unified=0", "HEAD", "--", ...files.map((file) => repoRelative(repo, file))],
+    repo,
+  );
 
   const removed = [];
   const added = [];

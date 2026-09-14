@@ -112,7 +112,9 @@ const main = async (): Promise<void> => {
 
     console.log(`\nOperator accounts use password: ${SEED_PASSWORD}`);
     console.log(`Second factors for this run are in ${OPERATOR_SECRETS_FILE} (git-ignored).`);
-    console.log("Add an authenticator entry from the otpauthUri, or let the testing lane read the file.");
+    console.log(
+      "Add an authenticator entry from the otpauthUri, or let the testing lane read the file.",
+    );
   } finally {
     await sql.end();
     // The production services run against the application's own pooled connection rather than
