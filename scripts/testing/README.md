@@ -8,10 +8,15 @@ they drive the running app, assert behavior, and capture screenshots into `test-
 
 1. Docker services up (postgres 5432, redis 6379, meilisearch 7700).
 2. `npm run dev` and `npm run worker:start` running.
-3. The matrix seeded: `npm run db:seed` (or `npm run db:reset`, which now seeds at step 5 and
-   gives you a database from zero). The manual payment lane is a SEPARATE, opt-in command,
-   `npm run db:seed:payments`, and is not part of either; run it only when testing that lane,
-   and know that what it writes is append-only and cannot be removed.
+3. The matrix seeded, in order: `npm run db:reset` (a database from zero, seeded at step 5; or
+   `npm run db:seed` on its own), then `npm run db:seed:operators`. The operator step is separate
+   because it creates the `platform_ops` and `finance_ops` accounts, which no product path can,
+   and every operator act the matrix depends on: the MFA factors (minted fresh each run and written
+   to `test-artifacts/seed-operator-secrets.json`, git-ignored, which `lib-auth.mjs` reads) and the
+   two verification reviews that leave `seed-user-rec-elev` elevated. Without it there is no
+   operator login and the elevated recruiter is `minimal`. The manual payment lane is a THIRD,
+   opt-in command, `npm run db:seed:payments`; run it only when testing that lane, and know that
+   what it writes is append-only and cannot be removed.
 4. **For the two browser scripts only** (`flows.mjs`, `gallery.mjs`): `npm i -D playwright`.
    Do **not** run `npx playwright install` on macOS 13 — Playwright 1.62 refuses to install
    Chromium on `mac13-arm64`. `lib-browser.mjs` points at the Chrome for Testing build already
@@ -21,7 +26,8 @@ they drive the running app, assert behavior, and capture screenshots into `test-
 ## Running
 
 ```bash
-npm run db:seed                                 # always first; also resets scratch state
+npm run db:reset                                # always first; a database from zero, seeded
+npm run db:seed:operators                       # second; operator accounts, factors, reviews
 npm run db:seed:payments                        # ONLY for the manual payment lane; append-only
 node scripts/testing/api-matrix.mjs             # 100 API, guard, and isolation assertions
 node scripts/testing/r2-flows.mjs               # 22 real-byte upload/validation assertions

@@ -36,6 +36,12 @@ import {
   withDatabase,
 } from "./throwaway-database.mjs";
 
+try {
+  process.loadEnvFile(".env.local");
+} catch {
+  // Absent in CI, where these come from the workflow environment instead.
+}
+
 /** The step whose output proves the run reached the database rather than dying before it. */
 const REACHED_THE_REBUILD = "[4/4] Rebuilding from the database";
 
