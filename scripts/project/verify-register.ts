@@ -66,13 +66,28 @@ const listIds = (ids: string[]): void => {
   for (const id of ids) console.log(`          ${id}`);
 };
 
+/**
+ * One obligation, asserted or merely reported.
+ *
+ * A null ceiling means the register states this number rather than asserting it: the item is filed
+ * and no ruling has said which value is right, so a close must not be allowed to fail on it. It is
+ * still measured and still printed — a number the reader can see is the part that matters, and the
+ * reason it is not a pass or a fail is carried in the obligation itself.
+ */
 const reportObligation = ({ obligation, measured }: RegisterMeasurement): void => {
-  const direction =
-    measured === obligation.ceiling ? ""
-    : measured > obligation.ceiling ? `  (up ${measured - obligation.ceiling})`
-    : `  (down ${obligation.ceiling - measured} — lower the literal to ${measured})`;
+  const ceiling = obligation.ceiling;
 
-  check(measured === obligation.ceiling, `${measured}  ${obligation.what}${direction}`);
+  if (ceiling === null) {
+    console.log(`  INFO  ${measured}  ${obligation.what}  (filed, not asserted)`);
+    return;
+  }
+
+  const direction =
+    measured === ceiling ? ""
+    : measured > ceiling ? `  (up ${measured - ceiling})`
+    : `  (down ${ceiling - measured} — lower the literal to ${measured})`;
+
+  check(measured === ceiling, `${measured}  ${obligation.what}${direction}`);
 };
 
 const main = (): void => {

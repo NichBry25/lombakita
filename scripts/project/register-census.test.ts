@@ -460,6 +460,7 @@ describe("what the decision log reader covers", () => {
  */
 describe("the register ratchets", () => {
   for (const obligation of REGISTER_OBLIGATIONS) {
+    if (obligation.ceiling === null) continue;
     it(`${obligation.what} — exactly ${obligation.ceiling}`, () => {
       expect(measuredFor(obligation.what)).toBe(obligation.ceiling);
     });
@@ -469,6 +470,16 @@ describe("the register ratchets", () => {
   // rather than reporting zero, and this is the test that surfaces which one is unwired.
   it("wires a detector for every obligation it declares", () => {
     expect(measurements()).toHaveLength(REGISTER_OBLIGATIONS.length);
+  });
+
+  // A null ceiling is the one place an assertion can be removed without anything going red, so the
+  // set that carries one is named here. An assertion demoted to a report is a deliberate edit, not
+  // something a later change can do in passing, and this test is what makes that true.
+  it("reports exactly one obligation without asserting it, and names it", () => {
+    const reported = REGISTER_OBLIGATIONS.filter((obligation) => obligation.ceiling === null);
+    expect(reported.map((obligation) => obligation.what)).toEqual([
+      "decision-log supersede claims naming a newer decision than their own row",
+    ]);
   });
 });
 

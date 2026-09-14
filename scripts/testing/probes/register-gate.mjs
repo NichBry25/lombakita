@@ -1,7 +1,7 @@
 /*
  * Rule 36 probes for the register gate.
  *
- * WHY THIS FILE EXISTS. `npm run verify:register` asserts seven pinned literals over
+ * WHY THIS FILE EXISTS. `npm run verify:register` asserts eight pinned literals over
  * `open-debt.md` and `decision-log.md`. A pinned literal is a claim about what the file currently
  * contains, and the Phase 2 precedent is explicit: the census ratchet pinned at 40 was never
  * observed failing, and a ratchet that has never gone red is a literal nobody has tested — it could
@@ -85,6 +85,13 @@ const ROW_DEC_0114 =
  * direction defects where one is real. So a planted defect has to have the shape the detector
  * actually reads — prose naming a newer decision is an unpolished cell, not a false claim, and the
  * gate is right not to call it one.
+ *
+ * Both supersede probes below plant into THIS cell, and the two ids are chosen to land in different
+ * obligations from the same anchor: DEC-0124's own id is a claim on the row itself, and DEC-0900 is
+ * an id the log has no row for. Planting a NEWER id here — which is what this cell held as a probe
+ * before the split — now moves an obligation the gate reports rather than asserts, so it would make
+ * the gate print a larger number and exit zero. That probe is gone on purpose: a red run is the only
+ * thing this harness accepts as evidence, and there is no longer a guard for it to go red against.
  */
 const SUPERSEDES_CELL_OF_DEC_0124 =
   "Extends DEC-0123 (same session) with the post-event half of the lifecycle. Reuses the DEC-0121 " +
@@ -142,7 +149,7 @@ export const probes = [
     appliedMarkers: ["- **LAUNCH-D40 [MEDIUM].**"],
     mutate: () => substituteOnce(REGISTER, D40_ANCHORED, "- **LAUNCH-D40 [MEDIUM].**"),
     detect: () =>
-      gateRefused(/FAIL\s+51\s+distinct live debt items carrying no anchor at all\s+\(up 1\)/),
+      gateRefused(/FAIL\s+51\s+distinct live debt ids carrying no anchor at all\s+\(up 1\)/),
   },
   {
     name: "a row off its column count fails the close",
@@ -159,7 +166,7 @@ export const probes = [
         "reversible via uninstall | n/a | probe |",
       ),
     detect: () =>
-      gateRefused(/FAIL\s+7\s+decision-log rows whose cells do not match their columns' declared count/),
+      gateRefused(/FAIL\s+1\s+decision-log rows whose cells do not match their columns' declared count\s+\(up 1\)/),
   },
   {
     name: "a blank line ending a table fails the close",
@@ -202,17 +209,32 @@ export const probes = [
       gateRefused(/FAIL\s+2\s+decision-log rows whose Date cell does not hold a date/),
   },
   {
-    name: "a supersede claim that cannot be true fails the close",
+    name: "a supersede claim naming its own row fails the close",
     klass: "D",
     harmfulMove:
-      "naming a NEWER decision as superseded, which asserts the file contradicts its own ordering",
+      "writing a row's own id into its Supersedes cell, which states a relation the row cannot stand in",
     files: [DECISION_LOG],
     repo: DOC_LANE,
-    appliedMarkers: ["DEC-0200"],
+    appliedMarkers: ["1759 tests passing. | DEC-0124 |"],
     mutate: () =>
-      substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0200 |"),
+      substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0124 |"),
     detect: () =>
-      gateRefused(/FAIL\s+2\s+decision-log supersede claims that cannot be true/),
+      gateRefused(/FAIL\s+1\s+decision-log supersede claims naming their own row\s+\(up 1\)/),
+  },
+  {
+    name: "a supersede claim naming an id with no row fails the close",
+    klass: "D",
+    harmfulMove:
+      "naming an id the log has no record for, so the claim can never be checked against the row it names",
+    files: [DECISION_LOG],
+    repo: DOC_LANE,
+    appliedMarkers: ["1759 tests passing. | DEC-0900 |"],
+    mutate: () =>
+      substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0900 |"),
+    detect: () =>
+      gateRefused(
+        /FAIL\s+1\s+decision-log supersede claims naming an id the log has no row for\s+\(up 1\)/,
+      ),
   },
 ];
 
@@ -220,7 +242,7 @@ export const probes = [
  * Proves the gate was GREEN before the first probe touched anything.
  *
  * Without this the suite cannot distinguish "the mutation made it red" from "it was already red",
- * and nine probes would report themselves proven over a register that fails on its own.
+ * and every probe below would report itself proven over a register that fails on its own.
  */
 const requireGreenBeforeProbing = () => {
   const result = spawnSync("npm", VERIFY, { encoding: "utf8" });

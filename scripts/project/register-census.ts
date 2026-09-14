@@ -482,12 +482,12 @@ const BARE_DECISION_ID = /^DEC-\d{4}$/;
 /**
  * The id a Supersedes cell declares, or null when the cell declares none.
  *
- * The column is written as prose. Measured over the file: 62 cells read `N/A`, 85 are prose naming
- * no id, 53 are prose naming one or more ids in a sentence — "Extends DEC-0108's Trusted Recruiter
- * model", "Paired with DEC-0132", "Closes 6.5-DESIGN under DEC-0104" — and exactly ONE holds
- * nothing but an id. Reading every id out of a sentence invents supersede claims the sentence does
- * not make: an any-id reading of this column reports eight direction defects, and one of those eight
- * is real.
+ * The column is written as prose. Measured over the file's 204 Supersedes cells: 62 read `N/A`, 84
+ * are prose naming no id, 57 are prose naming one or more ids in a sentence — "Extends DEC-0108's
+ * Trusted Recruiter model", "Paired with DEC-0132", "Closes 6.5-DESIGN under DEC-0104" — and exactly
+ * ONE holds nothing but an id. Reading every id out of a sentence invents supersede claims the
+ * sentence does not make: an any-id reading of this column reports eight direction defects, and one
+ * of those eight is real.
  *
  * So the claim is read where it is unambiguous, and nowhere else. A cell holding only an id states
  * that the row supersedes that id, and that is checkable. A prose cell states no single classifiable
@@ -552,13 +552,18 @@ export type SupersedesFinding = {
 };
 
 /**
- * Declared supersede claims that cannot be true.
+ * Every declared supersede claim that does not read as a row naming something it supersedes, by kind.
  *
- * A row names what IT supersedes, so a claimed id is lower than the row's own — the direction the
- * column's prose follows throughout ("Supersedes the archive clauses of DEC-0019/0020",
- * "Extends DEC-0108's model"). A claim on a newer id has the direction reversed: it records being
- * superseded on the superseded row, which is the other row's business and is already written there.
- * A claim on the row's own id, and a claim on an id with no record, are wrong on their own terms.
+ * The three kinds are reported together and ASSERTED separately, because they are not the same
+ * claim. Naming the row's own id, and naming an id the log has no record for, are wrong on their
+ * own terms. Naming a NEWER id is the direction question: a row names what IT supersedes, so a
+ * claimed id is lower than the row's own — the direction the column's prose follows throughout
+ * ("Supersedes the archive clauses of DEC-0019/0020", "Extends DEC-0108's model") — and a claim on a
+ * newer id has that reversed: it records being superseded on the superseded row, which is the other
+ * row's business and is already written there. Whether the column is allowed to run that way is a
+ * ruling no one has made, so the caller files it rather than pinning a number to it.
+ *
+ * All three are read from the bare-id cells only, which is the limit stated in `supersedeClaimOf`.
  */
 export function supersedesFindings(records: DecisionRecord[]): SupersedesFinding[] {
   const known = new Set(records.map((record) => record.row.id));
@@ -578,6 +583,11 @@ export function supersedesFindings(records: DecisionRecord[]): SupersedesFinding
 
 function decisionNumber(id: string): number {
   return Number.parseInt(id.replace(/\D/g, ""), 10);
+}
+
+/** How many claims of one kind the log declares, for an obligation that pins one kind. */
+export function supersedesOfKind(records: DecisionRecord[], kind: SupersedesFinding["kind"]): number {
+  return supersedesFindings(records).filter((finding) => finding.kind === kind).length;
 }
 
 /** Records the log wrote on the same line as the record before them, rather than below it. */
@@ -607,8 +617,17 @@ export function rowsOffColumnCount(records: DecisionRecord[]): DecisionRecord[] 
 
 export type RegisterObligation = {
   what: string;
-  /** The most the register may hold. May go DOWN and never up. */
-  ceiling: number;
+  /**
+   * The number this obligation is asserted to hold EXACTLY, or null when the register reports the
+   * number without asserting it.
+   *
+   * Null is not headroom and not a number nobody got round to pinning. It records that no ruling
+   * says which value is right, so a close that failed on it would force whoever is closing to invent
+   * that ruling by editing a number until the gate went green. The measurement still runs and still
+   * prints either way — what null removes is the assertion, not the instrument. Filing the item is
+   * what turns one of these into a ceiling.
+   */
+  ceiling: number | null;
   /** The command that produced the number, so the next reader can re-measure rather than trust it. */
   measuredBy: string;
   reason: string;
@@ -627,7 +646,10 @@ export type RegisterObligation = {
  */
 export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze([
   {
-    what: "distinct live debt items carrying no anchor at all",
+    // The unit is IDS and the string says so. An item filed twice contributes two entries to one
+    // id, so a literal reading "50" is 50 of two different things depending on which the reader
+    // assumed, and the pair (50 ids / 53 entries) is reported together for that reason.
+    what: "distinct live debt ids carrying no anchor at all",
     ceiling: 50,
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
@@ -653,12 +675,15 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "decision-log rows whose cells do not match their columns' declared count",
-    ceiling: 6,
+    ceiling: 0,
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
-      "each row writes an unescaped pipe inside a cell — a SQL `||` concatenation, an enum " +
-      "alternation — so markdown ends the cell there and the rest of its prose never renders. " +
-      "Repairing a row means escaping the pipe, which lowers this by one",
+      "each row wrote an unescaped pipe inside a cell — a SQL `||` concatenation, an enum " +
+      "alternation — so markdown ended the cell there and every character after it never rendered. " +
+      "All six were repaired in the Block C Phase 3 close by escaping the pipe (`|` to `\\|`), " +
+      "which changes no character of the prose. This is a TRUE ZERO rather than a stock: a row whose " +
+      "cell count is not its columns' count is now a defect with no accepted instance, so a close " +
+      "that produces one fails",
   },
   {
     what: "decision-log rows a blank line left outside every table",
@@ -686,13 +711,45 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "date and the Index column that exists to carry one is empty",
   },
   {
-    what: "decision-log supersede claims that cannot be true",
-    ceiling: 1,
+    // Split out of one "supersede claims that cannot be true" obligation, because the three kinds
+    // are not the same claim. Naming your own row, and naming a row the log does not have, are
+    // wrong on their own terms and are asserted at zero. Naming a NEWER row is a question about
+    // which direction the column runs, no ruling has answered it, and it is filed instead.
+    what: "decision-log supersede claims naming their own row",
+    ceiling: 0,
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
-      "DEC-0010's Supersedes cell holds `DEC-0153`, a newer id, so the column's direction is " +
-      "reversed on that row: it records being superseded on the row that was superseded. The other " +
-      "404 cells state no single classifiable claim and are not read",
+      "a row that supersedes itself states a relation it cannot stand in. COVERAGE LIMIT, stated " +
+      "rather than hidden: the claim reading below examines only the cells that hold nothing but an " +
+      "id — one of the log's 204 Supersedes cells — so this asserts at zero over a population of " +
+      "one. A cell naming its own row inside prose is not classified as a claim and does not reach " +
+      "this obligation; that reading is where a self-reference is actually found, and it is filed " +
+      "as the direction item rather than asserted here",
+  },
+  {
+    what: "decision-log supersede claims naming an id the log has no row for",
+    ceiling: 0,
+    measuredBy: "node --import tsx scripts/project/verify-register.ts",
+    reason:
+      "the claim cannot be checked against the row it names, because there is no row to check it " +
+      "against — the id is either a typo or a decision that was never written down. Same coverage " +
+      "limit as the obligation above: the claim is read from a bare-id cell only, so a prose cell " +
+      "naming an absent id is unclassified rather than passing",
+  },
+  {
+    what: "decision-log supersede claims naming a newer decision than their own row",
+    ceiling: null,
+    measuredBy: "node --import tsx scripts/project/verify-register.ts",
+    reason:
+      "REPORTED, NOT ASSERTED, and the distinction is the whole finding. The claim reading finds " +
+      "exactly one row — DEC-0010's Supersedes cell holds `DEC-0153`, a newer id, while that row's " +
+      "own Status reads `superseded in part`. That is the column running as `superseded by` on this " +
+      "row and as `supersedes` on the others, and which direction it is meant to carry is a ruling " +
+      "nobody has made. A ceiling here would make the next close invent that ruling by lowering a " +
+      "number. Read over every cell rather than the bare-id ones, the same question returns EIGHT " +
+      "rows naming a newer id — five of them merely mentioning one (`Retention is DEC-0122`, " +
+      "`Paired with DEC-0132`) — which is a different population and is why neither number is " +
+      "pinned. Filed as its own item in open-debt.md, LOW, → Step 7.7 Block C",
   },
 ]);
 
@@ -748,7 +805,7 @@ export function measureRegister(
 
   const detect = (what: string): number => {
     switch (what) {
-      case "distinct live debt items carrying no anchor at all":
+      case "distinct live debt ids carrying no anchor at all":
         return anchorlessLiveIds(items).length;
       case "items a discharged section declares discharged whose anchor line carries no mark":
         return dischargedWithoutMark(items).length;
@@ -760,8 +817,12 @@ export function measureRegister(
         return gluedRecords(records).length;
       case "decision-log rows whose Date cell does not hold a date":
         return rowsWithNonDate(records).length;
-      case "decision-log supersede claims that cannot be true":
-        return supersedesFindings(records).length;
+      case "decision-log supersede claims naming their own row":
+        return supersedesOfKind(records, "names-itself");
+      case "decision-log supersede claims naming an id the log has no row for":
+        return supersedesOfKind(records, "names-no-row");
+      case "decision-log supersede claims naming a newer decision than their own row":
+        return supersedesOfKind(records, "names-newer");
       default:
         throw new Error(`no measurement is wired for the obligation ${JSON.stringify(what)}`);
     }
