@@ -1,23 +1,25 @@
 /*
  * Rule 36 probes for the register gate.
  *
- * WHY THIS FILE EXISTS. `npm run verify:register` asserts eight pinned literals over
- * `open-debt.md` and `decision-log.md`. A pinned literal is a claim about what the file currently
- * contains, and the Phase 2 precedent is explicit: the census ratchet pinned at 40 was never
- * observed failing, and a ratchet that has never gone red is a literal nobody has tested — it could
- * be asserting a number that no input can move. So each probe here breaks the file the way the
- * defect was actually found in it, and requires the gate to go red naming THAT obligation and THAT
- * measured number.
+ * WHY THIS FILE EXISTS. `npm run verify:register` asserts twelve obligations — eleven held at a
+ * number, nine of them exactly and two as floors, and one reported rather than asserted — over
+ * `open-debt.md`, `decision-log.md` and the close procedure that runs it. A pinned literal is a
+ * claim about what the file currently contains, and the Phase 2 precedent
+ * is explicit: the census
+ * ratchet pinned at 40 was never observed failing, and a ratchet that has never gone red is a
+ * literal nobody has tested — it could be asserting a number that no input can move. So each probe
+ * here breaks the file the way the defect was actually found in it, and requires the gate to go red
+ * naming THAT obligation and THAT measured number.
  *
  * THE CONTROL MATTERS AS MUCH AS THE PROBES. A gate that was already red before anything was
  * mutated would make every probe below report "red as claimed" while proving nothing about the
  * mutation. The entry point therefore requires the gate GREEN before the first probe runs, and
  * refuses the whole suite if it is not.
  *
- * CLASS D (Rule 36): the gate is a read-only instrument over two text files — there is no write to
+ * CLASS D (Rule 36): the gate is a read-only instrument over three text files — there is no write to
  * reorder and no transaction to roll back, so the detector is result content. Every probe's failure
- * mode is the same: the harm is an unrecorded item or a broken row, not a committed mutation, so
- * "what did it refuse and why" is the whole of the evidence.
+ * mode is the same: the harm is an unrecorded item, a broken row or a vacuous instrument, not a
+ * committed mutation, so "what did it refuse and why" is the whole of the evidence.
  *
  * WHERE THESE FILES LIVE. `docs/` is a git repository in its own right (Rule 26), nested inside a
  * product repository that ignores it (DEC-0101). The harness's `assertTracked`, `pathsClean` and
@@ -26,7 +28,7 @@
  * checkout from the `finally`, which is the one place a throw leaves the mutation on disk.
  *
  * Usage: npm run verify:register-probe
- * Runs only over committed work; the harness refuses if either register differs from HEAD.
+ * Runs only over committed work; the harness refuses if any register differs from HEAD.
  */
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -36,7 +38,16 @@ import { fails } from "./detectors.mjs";
 const REGISTER = "docs/project/open-debt.md";
 const DECISION_LOG = "docs/project/decision-log.md";
 
-/** The doc lane's own repository, which is where every git call about these two files belongs. */
+/**
+ * The close procedure, listed by the path git knows it by in the doc repository.
+ *
+ * `.claude/` at the repository root is a symlink into `docs/` (Rule 26), so this is one file with
+ * two spellings. The list has to use the one `repoRelative("docs", …)` can translate, or the
+ * harness refuses the probe rather than restoring it.
+ */
+const CLOSE_STEP = "docs/.claude/commands/close-step.md";
+
+/** The doc lane's own repository, which is where every git call about these files belongs. */
 const DOC_LANE = "docs";
 
 const VERIFY = ["run", "verify:register"];
@@ -56,6 +67,36 @@ const PLANTED_ITEM = "- **LAUNCH-D99 [HIGH]** filed by the register-gate probe w
 const D47_ANCHORED = "- **LAUNCH-D47 [HIGH] → Step 7.7 Block C2.";
 const D40_ANCHORED = "- **LAUNCH-D40 [MEDIUM] → Step 7.7 Block D.**";
 const BETA_D29_MARKED = "- **BETA-D29 [LOW]** → Step 7.7 · DISCHARGED 2026-09-09.";
+
+/**
+ * A bullet whose head token the head matcher reads and the id test then rejects.
+ *
+ * `LAUNCH-D99X` is the shape of the defect the skip count exists for: a trailing character past the
+ * digits, which is what a mistyped id looks like. The head matcher takes it as an id — and it is
+ * then dropped by the id test, so it appears in no population and in no grep for any id.
+ */
+const PLANTED_MISTYPED_ID = "- **LAUNCH-D99X [HIGH]** filed by the register-gate probe.\n";
+
+/**
+ * The close procedure's two steps as the file writes them, commands and all.
+ *
+ * The gate matches on these strings rather than on prose about them, so a probe that moves one has
+ * to move the real line. The block is removed whole — fence and all — and the command is put back
+ * below the commit, which is the wrong order and runnable.
+ */
+const CLOSE_STEP_GATE_BLOCK = "   ```\n   npm run verify:register\n   ```\n\n";
+const CLOSE_STEP_COMMIT_LINE =
+  '   cd docs && git add -A && git commit -m "<work unit>" && git push\n';
+
+/**
+ * The Supersedes cell of DEC-0010, which holds nothing but an id — the whole of the claim reading.
+ *
+ * The three supersede obligations examine this one cell of the column's 204, so this is the cell
+ * whose loss would leave them asserting over an empty population and still reporting green. The
+ * replacement is prose that names the same id, so the row's meaning is unchanged and only the
+ * reading loses it — which is exactly the shrinkage the floor is there to catch.
+ */
+const SUPERSEDES_CELL_OF_DEC_0010 = "| DEC-0153        |";
 
 /**
  * Row prefixes run as far as the `| owner |` cell on purpose.
@@ -234,6 +275,78 @@ export const probes = [
     detect: () =>
       gateRefused(
         /FAIL\s+1\s+decision-log supersede claims naming an id the log has no row for\s+\(up 1\)/,
+      ),
+  },
+  {
+    name: "an anchor rewritten to point nowhere fails the anchored floor",
+    klass: "D",
+    harmfulMove:
+      "rewriting an existing canonical anchor to `→ TBD`, which leaves the item anchored enough to satisfy every other instrument while its destination is gone — a degradation rather than a disappearance, and the one population no other check reads",
+    files: [REGISTER],
+    repo: DOC_LANE,
+    appliedMarkers: ["- **LAUNCH-D40 [MEDIUM] → TBD.**"],
+    mutate: () =>
+      substituteOnce(REGISTER, D40_ANCHORED, "- **LAUNCH-D40 [MEDIUM] → TBD.**"),
+    detect: () =>
+      gateRefused(
+        /FAIL\s+20\s+live debt ids carrying an anchor that names a step and a block\s+\(down 1 — below the floor of 21\)/,
+      ),
+  },
+  {
+    name: "a bullet filed with a mistyped id fails the skip count",
+    klass: "D",
+    harmfulMove:
+      "filing a bullet whose head token looks like a register id and is not one, so the census drops it silently and it appears in no population and in no grep for the id the author meant",
+    files: [REGISTER],
+    repo: DOC_LANE,
+    appliedMarkers: ["LAUNCH-D99X"],
+    mutate: () =>
+      substituteOnce(REGISTER, D47_ANCHORED, PLANTED_MISTYPED_ID + D47_ANCHORED),
+    detect: () =>
+      gateRefused(/FAIL\s+33\s+register bullets whose head id is not a register id\s+\(up 1\)/),
+  },
+  {
+    name: "the supersede reading cannot shrink to nothing",
+    klass: "D",
+    harmfulMove:
+      "turning the one Supersedes cell that holds nothing but an id into prose, which takes the three supersede obligations from asserting over one cell to asserting over none while they keep reporting green",
+    files: [DECISION_LOG],
+    repo: DOC_LANE,
+    appliedMarkers: ["| Extends DEC-0153 |"],
+    mutate: () =>
+      substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0010, "| Extends DEC-0153 |"),
+    detect: () =>
+      gateRefused(
+        /FAIL\s+0\s+decision-log Supersedes cells holding nothing but an id\s+\(down 1 — below the floor of 1\)/,
+      ),
+  },
+  {
+    // The running-order assertion is the ONLY instrument that catches this, and that is the finding
+    // rather than a coincidence: gate (a) compares the register against the doc lane's HEAD, and a
+    // gate that has already been run after the commit is comparing that commit to itself. Nothing
+    // else in the suite reads the close procedure at all, so without this assertion the wrong order
+    // would be caught by nothing — the probe says so because degrading rather than vanishing is the
+    // property worth pinning.
+    name: "moving the gate below the doc-lane commit fails the running order",
+    klass: "D",
+    harmfulMove:
+      "running the commit before the gate, which leaves the gate's baseline holding the very filing it exists to judge — it then finds nothing new and passes on an empty population, reporting a green close over the defect it was run to catch",
+    files: [CLOSE_STEP],
+    repo: DOC_LANE,
+    appliedMarkers: [
+      'cd docs && git add -A && git commit -m "<work unit>" && git push\n   npm run verify:register',
+    ],
+    mutate: () => {
+      substituteOnce(CLOSE_STEP, CLOSE_STEP_GATE_BLOCK, "");
+      substituteOnce(
+        CLOSE_STEP,
+        CLOSE_STEP_COMMIT_LINE,
+        CLOSE_STEP_COMMIT_LINE + "   npm run verify:register\n",
+      );
+    },
+    detect: () =>
+      gateRefused(
+        /FAIL\s+\.claude\/commands\/close-step\.md runs the gate at :\d+ before the doc-lane commit at :\d+/,
       ),
   },
 ];

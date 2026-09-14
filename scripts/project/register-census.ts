@@ -111,6 +111,27 @@ const BARE_BLOCK_ANCHOR = /^→\s*Block\s+[A-Z]\d*\b/;
 const NAMES_STEP = /^→\s*Step\s+[\d.]+\b/;
 
 /**
+ * A bullet the register files that the census cannot read as a debt item, with where it is.
+ *
+ * Not a curiosity to be tidied away: a bullet filed with a mistyped id is invisible to every grep
+ * for the id the author meant, which is the failure this whole module exists to catch. Whether each
+ * of these is a label that was never an id, or an id that was typed wrong, is a question about the
+ * register's conventions and not a question this census can settle. So it counts them and names
+ * them, and the count is asserted.
+ */
+export type SkippedBullet = {
+  /** The head token the census read, which is what failed to be a register id. */
+  id: string;
+  line: number;
+};
+
+/** What one walk of the register produced. */
+type RegisterWalk = {
+  items: DebtItem[];
+  skipped: SkippedBullet[];
+};
+
+/**
  * Reads every debt item in the register at `file`.
  *
  * Throws `RegisterRefusal` for a line it cannot classify. A missing file is refused too: this
@@ -118,19 +139,42 @@ const NAMES_STEP = /^→\s*Step\s+[\d.]+\b/;
  * read as "no debt".
  */
 export function censusDebtItems(file: string): DebtItem[] {
-  let text: string;
-  try {
-    text = readFileSync(file, "utf8");
-  } catch {
-    throw new RegisterRefusal(file, 0, "the register could not be read");
-  }
-  return censusDebtItemsFromText(text, file);
+  return censusRegister(readRegister(file), file).items;
 }
 
 /** The same census over text already in hand, for a caller comparing two revisions of one file. */
 export function censusDebtItemsFromText(text: string, file: string): DebtItem[] {
+  return censusRegister(text, file).items;
+}
+
+/**
+ * The bullets this census skips because their head token is not a register id.
+ *
+ * Skipping is fail-open, and refusing is not available here: the register as it stands heads 32
+ * bullets `- **C1**`, `- **M1 / M3**`, `- **TRAP-1: …`, `- **INCIDENT-2026-07-16 …**` and the
+ * like, so a census that refused them could not be green on the file it is written over. Counting
+ * them is the alternative to refusing them, and it is what turns a silent skip into a measured one.
+ *
+ * The walk is the SAME walk that produces the items, so this cannot drift from the population the
+ * census actually leaves out.
+ */
+export function censusSkippedBullets(file: string): SkippedBullet[] {
+  return censusRegister(readRegister(file), file).skipped;
+}
+
+/** The register's text, refusing rather than reporting an empty one. */
+function readRegister(file: string): string {
+  try {
+    return readFileSync(file, "utf8");
+  } catch {
+    throw new RegisterRefusal(file, 0, "the register could not be read");
+  }
+}
+
+function censusRegister(text: string, file: string): RegisterWalk {
   const lines = text.split("\n");
   const items: DebtItem[] = [];
+  const skipped: SkippedBullet[] = [];
   let block = "";
   let section = "";
   let index = 0;
@@ -168,7 +212,11 @@ export function censusDebtItemsFromText(text: string, file: string): DebtItem[] 
     const head = HEAD.exec(flat);
     if (head === null) continue;
     const [matched, id, severity] = head;
-    if (matched === undefined || id === undefined || !REGISTER_ID.test(id)) continue;
+    if (matched === undefined || id === undefined) continue;
+    if (!REGISTER_ID.test(id)) {
+      skipped.push({ id, line });
+      continue;
+    }
 
     const openedBracket = raw.indexOf("[", 2);
     if (openedBracket !== -1 && flat.indexOf("]", openedBracket) === -1) {
@@ -217,7 +265,7 @@ export function censusDebtItemsFromText(text: string, file: string): DebtItem[] 
     });
   }
 
-  return items;
+  return { items, skipped };
 }
 
 /**
@@ -260,6 +308,26 @@ export function bareAnchoredLiveIds(items: DebtItem[]): string[] {
 export function anchorlessLiveIds(items: DebtItem[]): string[] {
   const anchored = idsWithAnchor(items);
   return liveIds(items).filter((id) => !anchored.has(id));
+}
+
+/**
+ * The live items whose anchor names a step AND a block: the register's fully formed destinations.
+ *
+ * A set of IDS like every population here, so an item filed twice contributes one id whichever of
+ * its entries carries the anchor. Nothing is computed for this that the file view was not already
+ * printing — it is the register's practising half, and it RISES as anchors are canonicalised, which
+ * is why it is asserted as a floor: an improvement must not fail a close.
+ */
+export function canonicalAnchoredLiveIds(items: DebtItem[]): string[] {
+  return [
+    ...new Set(
+      items
+        .filter(
+          (item) => item.live && item.anchor !== null && CANONICAL_ANCHOR.test(item.anchor),
+        )
+        .map((item) => item.id),
+    ),
+  ];
 }
 
 /**
@@ -502,6 +570,19 @@ export function supersedeClaimOf(record: DecisionRecord): string | null {
 }
 
 /**
+ * The Supersedes cells this census reads a claim from — the bare-id cells, and no others.
+ *
+ * This is the COVERAGE of the three obligations that assert over supersede claims, measured so it
+ * can be stated rather than assumed: 1 cell of the log's 204. Raising the reading to the prose
+ * cells is parser work over a column whose direction is itself unruled, so it is not done here.
+ * Losing one of the cells a claim IS read from is the other direction, and it is asserted as a
+ * floor — a claim that stops being examined should fail a close rather than quietly stop counting.
+ */
+export function supersedeClaimCells(records: DecisionRecord[]): DecisionRecord[] {
+  return records.filter((record) => supersedeClaimOf(record) !== null);
+}
+
+/**
  * Records whose Date cell does not hold a date. A cell holding the row's own status instead is the
  * shape a copy-paste out of the Status column leaves behind.
  */
@@ -615,31 +696,64 @@ export function rowsOffColumnCount(records: DecisionRecord[]): DecisionRecord[] 
 // The ratchets
 // ---------------------------------------------------------------------------------------------
 
+/** How a bound is held: at the number exactly, or at or above it. */
+export type RegisterBound = "exact" | "floor";
+
 export type RegisterObligation = {
   what: string;
-  /**
-   * The number this obligation is asserted to hold EXACTLY, or null when the register reports the
-   * number without asserting it.
-   *
-   * Null is not headroom and not a number nobody got round to pinning. It records that no ruling
-   * says which value is right, so a close that failed on it would force whoever is closing to invent
-   * that ruling by editing a number until the gate went green. The measurement still runs and still
-   * prints either way — what null removes is the assertion, not the instrument. Filing the item is
-   * what turns one of these into a ceiling.
-   */
-  ceiling: number | null;
   /** The command that produced the number, so the next reader can re-measure rather than trust it. */
   measuredBy: string;
   reason: string;
-};
+} & (
+  | {
+      /**
+       * The number this obligation is held at.
+       *
+       * `exact` fails on any movement in either direction. `floor` fails only BELOW the number.
+       */
+      bound: number;
+      direction: RegisterBound;
+    }
+  | {
+      /**
+       * The register reports this number without asserting it.
+       *
+       * Null is not headroom and not a number nobody got round to pinning. It records that no ruling
+       * says which value is right, so a close that failed on it would force whoever is closing to
+       * invent that ruling by editing a number until the gate went green. The measurement still runs
+       * and still prints either way — what null removes is the assertion, not the instrument. Filing
+       * the item is what turns one of these into a bound. There is no direction to hold, so there is
+       * none to record.
+       */
+      bound: null;
+      direction: null;
+    }
+);
+
+/**
+ * ONE spelling, shared by the obligation table and the dispatcher.
+ *
+ * The dispatcher is keyed on the `what` string, so a second spelling would not fail to compile: the
+ * table would assert a number and the dispatcher would throw for an unwired obligation. Naming it
+ * once is what makes the two agree by construction rather than by a reader comparing them.
+ */
+const NON_REGISTER_ID_BULLETS = "register bullets whose head id is not a register id";
 
 /**
  * The ratchets.
  *
- * WHAT THESE DO AND DO NOT ENFORCE, stated plainly. A ceiling cannot make an anchorless item
+ * WHAT THESE DO AND DO NOT ENFORCE, stated plainly. A bound cannot make an anchorless item
  * impossible: the number is editable like any other. What it does is put the count on one line that
  * a reviewer reads in the diff, so that ADDING an anchorless live item is a deliberate edit to a
  * stated number, and ANCHORING one forces that number down in the same commit.
+ *
+ * TWO KINDS, and the difference is which direction the register moves as it improves:
+ *
+ *  - `exact` for a count of DEFECTS, where every instance is meant to be driven to zero and a fall
+ *    is a repair that must move the literal with it rather than leave headroom.
+ *  - `floor` for a count of something the register is trying to do MORE of — a canonicalised anchor
+ *    raises the anchored population, so pinning it exactly would fail a close for making things
+ *    better. A floor still fails on a FALL, which is the direction that loses coverage silently.
  *
  * These are LITERALS, not sums over the census. Deriving a bound from the thing it bounds makes the
  * assertion true by construction and measures nothing.
@@ -650,7 +764,8 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
     // id, so a literal reading "50" is 50 of two different things depending on which the reader
     // assumed, and the pair (50 ids / 53 entries) is reported together for that reason.
     what: "distinct live debt ids carrying no anchor at all",
-    ceiling: 50,
+    bound: 50,
+    direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "mostly the Step 7.1 and 6.5.INFRA sections, filed before anchoring was practised, plus the " +
@@ -659,8 +774,27 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "in a live section fails the close that files it, so the population should now only shrink",
   },
   {
+    what: "live debt ids carrying an anchor that names a step and a block",
+    bound: 21,
+    direction: "floor",
+    measuredBy: "node --import tsx scripts/project/verify-register.ts",
+    reason:
+      "THE ONE POPULATION THAT RISES AS THE REGISTER IMPROVES, so it is held as a floor rather " +
+      "than a pin. Twenty-one ids are anchored `→ Step 7.7 Block <X>`; eighteen more are anchored " +
+      "`→ Step 7.7.` with no block at all, which is why this number and the anchorless ratchet " +
+      "do not partition the live population. What the floor catches is the direction nothing " +
+      "else did: REWRITING an existing anchor to `→ TBD` leaves every other instrument at " +
+      "baseline — gate (a) compares id sets and an edit is not a filing, gate (b) reads bare " +
+      "block anchors only, and the anchorless ratchet accepts any non-null anchor, junk included. " +
+      "Measured 2026-09-14, proven red at 20 before it was trusted, and held at 19 for exactly as " +
+      "long as the register held nineteen: the two items this close filed with an anchor are in " +
+      "this population, so the floor follows them up or it leaves two anchors of slack in the " +
+      "one instrument that watches for an anchor degrading out of canonical form",
+  },
+  {
     what: "items a discharged section declares discharged whose anchor line carries no mark",
-    ceiling: 2,
+    bound: 2,
+    direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "PINNED AT TWO, NOT AT ZERO, and the two are a finding rather than a tolerance. BETA-D17 and " +
@@ -674,8 +808,25 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "expected to clear were unambiguous and are marked; these two were not",
   },
   {
+    what: NON_REGISTER_ID_BULLETS,
+    bound: 32,
+    direction: "exact",
+    measuredBy: "node --import tsx scripts/project/verify-register.ts",
+    reason:
+      "THE CENSUS'S FAIL-OPEN, MADE MEASURED. A bullet headed `- **C1**`, `- **M1 / M3**`, " +
+      "`- **TRAP-1: …` or `- **INCIDENT-2026-07-16 …` is read by the head matcher and then dropped " +
+      "because the token is not a `<name>-D<n>` or `<name>-T<n>` id, so a mistyped id vanishes from " +
+      "every population without saying so and this count is the only place it appears. Refusing is " +
+      "not available: these 32 are in the register as it stands, so a census that refused them " +
+      "could not be green on the file it is written over. A 33rd fails a close and names itself. " +
+      "Which of the 32 are review-finding labels that legitimately are not register ids, and which " +
+      "are ids typed wrong, is a real question and is filed separately in open-debt.md — this " +
+      "literal holds the count until that ruling lands, and moves with it when it does",
+  },
+  {
     what: "decision-log rows whose cells do not match their columns' declared count",
-    ceiling: 0,
+    bound: 0,
+    direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "each row wrote an unescaped pipe inside a cell — a SQL `||` concatenation, an enum " +
@@ -687,7 +838,8 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "decision-log rows a blank line left outside every table",
-    ceiling: 96,
+    bound: 96,
+    direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "one blank line at :369 ends the seeded-decisions table, so DEC-0115 onward stop rendering as " +
@@ -696,7 +848,8 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "decision-log rows written on another record's line instead of below it",
-    ceiling: 1,
+    bound: 1,
+    direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "DEC-0123 sits after DEC-0122 on the same line, separated by `||` where a line break belongs. " +
@@ -704,7 +857,8 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "decision-log rows whose Date cell does not hold a date",
-    ceiling: 1,
+    bound: 1,
+    direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "DEC-0095's Date cell holds `accepted`, copied out of the Status column. The row records no " +
@@ -716,7 +870,8 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
     // wrong on their own terms and are asserted at zero. Naming a NEWER row is a question about
     // which direction the column runs, no ruling has answered it, and it is filed instead.
     what: "decision-log supersede claims naming their own row",
-    ceiling: 0,
+    bound: 0,
+    direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "a row that supersedes itself states a relation it cannot stand in. COVERAGE LIMIT, stated " +
@@ -728,7 +883,8 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "decision-log supersede claims naming an id the log has no row for",
-    ceiling: 0,
+    bound: 0,
+    direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "the claim cannot be checked against the row it names, because there is no row to check it " +
@@ -737,15 +893,30 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "naming an absent id is unclassified rather than passing",
   },
   {
+    what: "decision-log Supersedes cells holding nothing but an id",
+    bound: 1,
+    direction: "floor",
+    measuredBy: "node --import tsx scripts/project/verify-register.ts",
+    reason:
+      "THE COVERAGE OF THE THREE OBLIGATIONS ABOVE, pinned so it cannot shrink unremarked: they " +
+      "examine 1 cell of the column's 204, so losing that cell would take them from asserting over " +
+      "a population of one to asserting over nothing, which is a green instrument watching an empty " +
+      "set. Extending the reading to the 203 prose cells is parser work over a column whose " +
+      "direction is itself unruled — building coverage before the direction is decided would make " +
+      "an instrument that enforces an ambiguity — so that happens when the direction ruling lands, " +
+      "and this floor is what holds the ground in the meantime",
+  },
+  {
     what: "decision-log supersede claims naming a newer decision than their own row",
-    ceiling: null,
+    bound: null,
+    direction: null,
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "REPORTED, NOT ASSERTED, and the distinction is the whole finding. The claim reading finds " +
       "exactly one row — DEC-0010's Supersedes cell holds `DEC-0153`, a newer id, while that row's " +
       "own Status reads `superseded in part`. That is the column running as `superseded by` on this " +
       "row and as `supersedes` on the others, and which direction it is meant to carry is a ruling " +
-      "nobody has made. A ceiling here would make the next close invent that ruling by lowering a " +
+      "nobody has made. A bound here would make the next close invent that ruling by lowering a " +
       "number. Read over every cell rather than the bare-id ones, the same question returns EIGHT " +
       "rows naming a newer id — five of them merely mentioning one (`Retention is DEC-0122`, " +
       "`Paired with DEC-0132`) — which is a different population and is why neither number is " +
@@ -784,12 +955,22 @@ export function committedRegister(
 export type RegisterMeasurement = {
   obligation: RegisterObligation;
   measured: number;
+  /**
+   * The members behind `measured`, where the count means nothing without them.
+   *
+   * Empty for every obligation whose subject is fully stated by its number. The skip population is
+   * the one that is not: "32" says nothing about WHICH bullets the census is leaving out, and the
+   * question the number exists to raise — which of these are labels and which are mistyped ids —
+   * cannot be asked without the list. So the subject travels as data (Rule 38) rather than as an
+   * artefact of whichever caller happened to print it.
+   */
+  members: readonly string[];
 };
 
 /**
  * Every obligation with the number its own detector produces.
  *
- * ONE DISPATCHER, so the ceiling can never be asserted against a detector that only one of the two
+ * ONE DISPATCHER, so the bound can never be asserted against a detector that only one of the two
  * callers runs. The test suite asserts these numbers exactly; the CLI prints them and refuses a
  * close that moves one the wrong way. An obligation with no detector THROWS rather than reporting
  * zero — a ratchet that measures nothing passes forever, which is the failure mode this whole
@@ -803,26 +984,43 @@ export function measureRegister(
   const log = readDecisionLog(decisionLogFile);
   const records = decisionRecords(log, decisionLogFile);
 
-  const detect = (what: string): number => {
+  /** A measurement whose number is its whole subject. */
+  const count = (measured: number): Omit<RegisterMeasurement, "obligation"> => ({
+    measured,
+    members: [],
+  });
+
+  const detect = (what: string): Omit<RegisterMeasurement, "obligation"> => {
     switch (what) {
       case "distinct live debt ids carrying no anchor at all":
-        return anchorlessLiveIds(items).length;
+        return count(anchorlessLiveIds(items).length);
+      case "live debt ids carrying an anchor that names a step and a block":
+        return count(canonicalAnchoredLiveIds(items).length);
       case "items a discharged section declares discharged whose anchor line carries no mark":
-        return dischargedWithoutMark(items).length;
+        return count(dischargedWithoutMark(items).length);
+      case NON_REGISTER_ID_BULLETS: {
+        const skipped = censusSkippedBullets(registerFile);
+        return {
+          measured: skipped.length,
+          members: skipped.map((bullet) => `${bullet.id}:${bullet.line}`),
+        };
+      }
       case "decision-log rows whose cells do not match their columns' declared count":
-        return rowsOffColumnCount(records).length;
+        return count(rowsOffColumnCount(records).length);
       case "decision-log rows a blank line left outside every table":
-        return orphanedDecisionRows(log, decisionLogFile).length;
+        return count(orphanedDecisionRows(log, decisionLogFile).length);
       case "decision-log rows written on another record's line instead of below it":
-        return gluedRecords(records).length;
+        return count(gluedRecords(records).length);
       case "decision-log rows whose Date cell does not hold a date":
-        return rowsWithNonDate(records).length;
+        return count(rowsWithNonDate(records).length);
       case "decision-log supersede claims naming their own row":
-        return supersedesOfKind(records, "names-itself");
+        return count(supersedesOfKind(records, "names-itself"));
       case "decision-log supersede claims naming an id the log has no row for":
-        return supersedesOfKind(records, "names-no-row");
+        return count(supersedesOfKind(records, "names-no-row"));
+      case "decision-log Supersedes cells holding nothing but an id":
+        return count(supersedeClaimCells(records).length);
       case "decision-log supersede claims naming a newer decision than their own row":
-        return supersedesOfKind(records, "names-newer");
+        return count(supersedesOfKind(records, "names-newer"));
       default:
         throw new Error(`no measurement is wired for the obligation ${JSON.stringify(what)}`);
     }
@@ -830,7 +1028,7 @@ export function measureRegister(
 
   return REGISTER_OBLIGATIONS.map((obligation) => ({
     obligation,
-    measured: detect(obligation.what),
+    ...detect(obligation.what),
   }));
 }
 
@@ -867,11 +1065,7 @@ export function summariseRegister(items: DebtItem[]): {
     liveEntries: live.length,
     anchorlessLive: anchorlessLiveIds(items).length,
     anchorlessLiveEntries: live.filter((item) => item.anchor === null).length,
-    canonicalAnchoredLive: new Set(
-      live
-        .filter((item) => item.anchor !== null && CANONICAL_ANCHOR.test(item.anchor))
-        .map((item) => item.id),
-    ).size,
+    canonicalAnchoredLive: canonicalAnchoredLiveIds(items).length,
     bareAnchoredLive: bareAnchoredLiveIds(items).length,
   };
 }

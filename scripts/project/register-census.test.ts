@@ -452,33 +452,61 @@ describe("what the decision log reader covers", () => {
 });
 
 /**
- * The ratchets, asserted EXACTLY rather than as an upper bound.
+ * The ratchets, asserted against the real registers.
  *
- * Exact equality forces both halves. A register that gains an item exceeds its ceiling and fails; a
- * register whose debt is paid down drops below it and ALSO fails, so paying the debt down forces the
- * number down in the same commit instead of quietly leaving headroom for new debt.
+ * EXACT bounds force both halves. A register that gains an item exceeds its literal and fails; a
+ * register whose debt is paid down drops below it and ALSO fails, so paying debt down forces the
+ * number down in the same commit instead of quietly leaving headroom for new debt. That is right
+ * for a count of DEFECTS, where every instance is meant to be driven to zero.
+ *
+ * FLOOR bounds are for a count that RISES as the register improves — a canonicalised anchor raises
+ * the anchored population, and a legitimate improvement must not fail a close. A floor fails only
+ * on a fall, which is the direction that loses coverage without saying so.
+ *
+ * The gate's CLI reads the same literals through the same dispatcher, so the test and the gate
+ * cannot drift.
  */
 describe("the register ratchets", () => {
   for (const obligation of REGISTER_OBLIGATIONS) {
-    if (obligation.ceiling === null) continue;
-    it(`${obligation.what} — exactly ${obligation.ceiling}`, () => {
-      expect(measuredFor(obligation.what)).toBe(obligation.ceiling);
+    if (obligation.bound === null) continue;
+    const bound = obligation.bound;
+
+    if (obligation.direction === "floor") {
+      it(`${obligation.what} — at least ${bound}`, () => {
+        expect(measuredFor(obligation.what)).toBeGreaterThanOrEqual(bound);
+      });
+      continue;
+    }
+
+    it(`${obligation.what} — exactly ${bound}`, () => {
+      expect(measuredFor(obligation.what)).toBe(bound);
     });
   }
 
-  // An obligation with no detector is a ceiling nothing measures. The dispatcher throws for it
+  // An obligation with no detector is a bound nothing measures. The dispatcher throws for it
   // rather than reporting zero, and this is the test that surfaces which one is unwired.
   it("wires a detector for every obligation it declares", () => {
     expect(measurements()).toHaveLength(REGISTER_OBLIGATIONS.length);
   });
 
-  // A null ceiling is the one place an assertion can be removed without anything going red, so the
+  // A null bound is the one place an assertion can be removed without anything going red, so the
   // set that carries one is named here. An assertion demoted to a report is a deliberate edit, not
   // something a later change can do in passing, and this test is what makes that true.
   it("reports exactly one obligation without asserting it, and names it", () => {
-    const reported = REGISTER_OBLIGATIONS.filter((obligation) => obligation.ceiling === null);
+    const reported = REGISTER_OBLIGATIONS.filter((obligation) => obligation.bound === null);
     expect(reported.map((obligation) => obligation.what)).toEqual([
       "decision-log supersede claims naming a newer decision than their own row",
+    ]);
+  });
+
+  // A floor is the one bound that can be loosened without anything going red, so the set that
+  // carries one is named for the same reason the reported obligation is: switching a pin to a
+  // floor has to be an edit to this list, not something a later change does in passing.
+  it("holds exactly two obligations as floors, and names them", () => {
+    const floors = REGISTER_OBLIGATIONS.filter((obligation) => obligation.direction === "floor");
+    expect(floors.map((obligation) => obligation.what)).toEqual([
+      "live debt ids carrying an anchor that names a step and a block",
+      "decision-log Supersedes cells holding nothing but an id",
     ]);
   });
 });
