@@ -42,6 +42,7 @@ import {
   publishedCompetitionsFilter,
   toCompetitionIndexDocument,
 } from "../src/server/search/competition-index-documents";
+import { waitForTask } from "./lib/competition-index-admin";
 
 const db_url = process.env.DATABASE_URL;
 const meili_host = process.env.MEILISEARCH_HOST;
@@ -67,15 +68,46 @@ async function main() {
 
   if (documents.length === 0) {
     console.log("No published competitions found — nothing to upsert.");
-  } else {
-    const task = await index.addDocuments(documents, { primaryKey: "id" });
-    console.log(`Upserted ${documents.length} document(s). Meilisearch task uid: ${task.taskUid}`);
+    return;
   }
 
-  await sql.end();
+  const task = await index.addDocuments(documents, { primaryKey: "id" });
+
+  // THE TASK IS ENQUEUED, NOT DONE. Meilisearch accepts a batch and reports the outcome
+  // asynchronously, so the uid this returns says only that the request was received. Without this
+  // wait, a batch where every document was rejected prints the same success line as a batch that
+  // landed — the script's own output asserts a count it never measured.
+  await waitForTask(client, task.taskUid, `upserted ${documents.length} document(s)`);
+
+  // AND "THE TASK SUCCEEDED" IS NOT "THESE DOCUMENTS ARE THERE". A task can succeed having written
+  // fewer documents than it was handed, so the files are read back by id and counted.
+  //
+  // By id rather than by the index's total, because this script only ever ADDS. An index left over
+  // from a previous database legitimately holds documents this run did not write, and the total
+  // would report that as a failed backfill. Total-count equality is `search:reindex`'s assertion:
+  // it empties the index first, which is what makes the comparison meaningful there. See
+  // `scripts/reindex-search-index.ts`.
+  const written = await index.getDocuments({
+    ids: documents.map((document) => document.id),
+    fields: ["id"],
+    limit: documents.length,
+  });
+
+  if (written.results.length !== documents.length) {
+    throw new Error(
+      `the index returned ${written.results.length} of the ${documents.length} document(s) this ` +
+        "run wrote. The batch was accepted and did not land.",
+    );
+  }
+
+  console.log(`Upserted ${documents.length} document(s) and read them back.`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// The connection is closed in a finally, so a rejected batch tearing the script down cannot also
+// leave the pool open and hang the process instead of exiting non-zero.
+main()
+  .catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  })
+  .finally(() => sql.end({ timeout: 5 }));

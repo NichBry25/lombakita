@@ -40,6 +40,7 @@
     "verify:contrast-selftest": "node scripts/testing/contrast-audit-selftest.mjs",
     "verify:guard-probes": "node scripts/testing/probes/config-gates.mjs",
     "verify:reindex-probe": "node scripts/testing/probes/reindex-expects-rows.mjs",
+    "verify:backfill-probe": "node scripts/testing/probes/backfill-rejected-batch.mjs",
     "verify:seed-probe": "node scripts/testing/probes/seed-guard.mjs",
     "verify:audit-probes": "node scripts/testing/probes/browser-audit-refusals.mjs",
     "verify:shell-content": "node scripts/testing/shell-content.mjs",
