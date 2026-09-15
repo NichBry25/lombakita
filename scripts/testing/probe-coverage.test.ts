@@ -9,7 +9,10 @@
 // This asserts the declaration covers the population: every file every probe mutates resolves to a
 // declared check, and every probe carries the rest of what Rule 36 asks for.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterEach, beforeEach } from "vitest";
+import { existsSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   CODE_CHECKS,
   DATA_CHECKS,
@@ -18,6 +21,7 @@ import {
   runProbe,
   substituteOnce,
 } from "./guard-probe.mjs";
+import { fails, refusedWhen, run } from "./probes/detectors.mjs";
 import type { Probe } from "./guard-probe.mjs";
 import { probes as configGateProbes } from "./probes/config-gates.mjs";
 import { probes as browserAuditProbes } from "./probes/browser-audit-refusals.mjs";
@@ -34,6 +38,7 @@ import { probes as registerGateProbes } from "./probes/register-gate.mjs";
 import { probes as backfillRejectedBatchProbes } from "./probes/backfill-rejected-batch.mjs";
 import { probes as priceClaimProbes } from "./probes/price-claim.mjs";
 import { probes as harnessPreconditionProbes } from "./probes/harness-preconditions.mjs";
+import { probes as decConformanceProbes } from "./probes/dec-conformance.mjs";
 
 const SUITES: Record<string, Probe[]> = {
   "config-gates": configGateProbes,
@@ -51,6 +56,7 @@ const SUITES: Record<string, Probe[]> = {
   "backfill-rejected-batch": backfillRejectedBatchProbes,
   "price-claim": priceClaimProbes,
   "harness-preconditions": harnessPreconditionProbes,
+  "dec-conformance": decConformanceProbes,
 };
 
 const everyProbe: [string, Probe][] = Object.entries(SUITES).flatMap(([suite, probes]) =>
@@ -160,5 +166,56 @@ describe("clause 1 runs whether or not a probe declares it", () => {
     ).rejects.toThrow(/--check/);
 
     expect(detectorRan, "the detector ran despite the mutation not parsing").toBe(false);
+  });
+});
+
+/**
+ * The retry on a runner that never started, red for the reason claimed.
+ *
+ * `vitest`'s orchestrator timing out on its own worker exits 1 while reporting no case at all — the
+ * same exit code and the same silence a mistyped test path produces. Reading that as a verdict in
+ * either direction is the clause-3 failure `detectors.mjs` exists to prevent, so it is retried once.
+ * A repair is a guard, and Rule 32 applies to it too: a retry nothing exercises is a claim, not an
+ * enforcement. These drive both of its paths against a real subprocess rather than a fake result,
+ * because the wiring being tested IS the call `fails` makes.
+ */
+describe("the retry on a runner that never started", () => {
+  const FLAKY_RUNNER = "scripts/testing/probes/fixtures/flaky-runner.mjs";
+  const marker = join(tmpdir(), `lombakita-flaky-runner-${process.pid}`);
+  const namedFailure = /× a fake case/;
+
+  beforeEach(() => {
+    if (existsSync(marker)) unlinkSync(marker);
+  });
+
+  afterEach(() => {
+    if (existsSync(marker)) unlinkSync(marker);
+  });
+
+  it("absorbs a worker timeout once the retry reaches a verdict", () => {
+    // `once`: the first run crashes with the worker timeout and writes the marker; the retry names a
+    // failing case. Without the retry this is the throw covered two tests below, so a pass here is
+    // the wiring in `fails` being live rather than the helper merely existing.
+    const verdict = fails("node", [FLAKY_RUNNER, marker, "once"], namedFailure);
+
+    expect(verdict.refused).toBe(true);
+    expect(verdict.evidence).toContain("a fake case");
+  });
+
+  it("still throws when the retry times out too", () => {
+    // `always`: every run crashes, so the flake is not converted into a verdict.
+    expect(() => fails("node", [FLAKY_RUNNER, marker, "always"], namedFailure)).toThrow(
+      /A run that crashed is not a guard that refused/,
+    );
+  });
+
+  it("leaves a caller that passes no retry throwing immediately", () => {
+    // Every other caller of `refusedWhen` is unchanged: a crash is still a crash for them.
+    expect(() =>
+      refusedWhen(run("node", [FLAKY_RUNNER, marker, "always"]), {
+        reached: namedFailure,
+        label: "no-retry caller",
+      }),
+    ).toThrow(/A run that crashed is not a guard that refused/);
   });
 });

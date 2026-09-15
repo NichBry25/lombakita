@@ -44,6 +44,7 @@
     "verify:seed-probe": "node scripts/testing/probes/seed-guard.mjs",
     "verify:price-claim-probe": "node scripts/testing/probes/price-claim.mjs",
     "verify:precondition-probe": "node scripts/testing/probes/harness-preconditions.mjs",
+    "verify:dec-conformance": "node scripts/testing/probes/dec-conformance.mjs",
     "verify:audit-probes": "node scripts/testing/probes/browser-audit-refusals.mjs",
     "verify:shell-content": "node scripts/testing/shell-content.mjs",
     "verify:shell-probe": "node scripts/testing/probes/shell-content.mjs",
