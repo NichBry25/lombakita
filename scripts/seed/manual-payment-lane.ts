@@ -18,10 +18,13 @@
  * reset holds no finance rows at all, which is the post-condition the reset asserts. Run this
  * separately when the manual-payment lane is what you are testing.
  *
- * The competition price UPDATEs travel with the block rather than staying behind. They write
- * `competitions`, not a finance table, but they are the lane's own setup (a payment cannot exist
- * against an unpriced competition), and splitting them would leave the matrix seed writing the one
- * part of the money lane that looks harmless.
+ * THE COMPETITION PRICES ARE NOT HERE. They belong to the fixtures and are written by the matrix
+ * seed's own competition INSERT, because a price is part of what a competition IS and not a step
+ * taken later against it. Keeping them here made a reset-seeded database hold three competitions
+ * whose descriptions called themselves paid and whose `fee_amount` was NULL, which left this lane
+ * unreachable against all three of them while the copy went on describing a lane that was not
+ * there. `assertSeededPricesMatchDescriptions` in the matrix seed refuses that state; this module
+ * is where the write was, not where it belongs.
  */
 
 import { Table, getTableName, is } from "drizzle-orm";
@@ -43,23 +46,10 @@ export const seedManualPaymentLane = async (
 
   // --------------------------------------------------------- manual payment lane
   // Everything the bukti transfer lane needs, in the three states a candidate can be in. Seeded
-  // as a block rather than scattered because the lane has an ORDER: a competition cannot be
-  // priced without a fee rule to resolve, and a priced payment cannot be created without the
-  // institution having published somewhere to send the money.
-  await sql`
-    UPDATE competitions
-    SET fee_amount = 150000, fee_currency = 'IDR', payment_window_days = 3, updated_at = now()
-    WHERE id = 'seed-comp-paid'
-  `;
-
-  // Priced, published, and owned by an institution with none of the three charging conditions
-  // met. Written directly because the service layer would refuse, and that refusal is the point.
-  await sql`
-    UPDATE competitions
-    SET fee_amount = 75000, fee_currency = 'IDR', payment_window_days = 3, updated_at = now()
-    WHERE id = 'seed-comp-b-unpayable'
-  `;
-
+  // as a block rather than scattered because the lane has an ORDER: a fee rule has to be in force
+  // before a payment can be created against it, and a payment cannot be created without the
+  // institution having published somewhere to send the money. The competitions themselves are
+  // already priced by the matrix seed.
   // SCOPED TO seed-inst-a, deliberately NOT a platform default (institution_id NULL).
   //
   // A platform-wide rule is a global fallback. It resolves for every institution in the
@@ -116,14 +106,9 @@ export const seedManualPaymentLane = async (
     `;
   }
 
-  // Institution D's own pricing, instructions and payment. A DIFFERENT account number on purpose:
+  // Institution D's own fee rule, instructions and payment. A DIFFERENT account number on purpose:
   // if a verdict or a read ever crosses the boundary, the wrong bank details are the visible
   // symptom, whereas two tenants sharing "1370012345678" would leak silently.
-  await sql`
-    UPDATE competitions
-    SET fee_amount = 90000, fee_currency = 'IDR', payment_window_days = 3, updated_at = now()
-    WHERE id = 'seed-comp-d-paid'
-  `;
   await sql`
     INSERT INTO finance_fee_rules (id, institution_id, currency, basis_points, flat_amount,
       effective_from)

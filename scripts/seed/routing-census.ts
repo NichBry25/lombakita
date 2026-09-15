@@ -355,14 +355,17 @@ export const SEED_FILE_OBLIGATIONS: readonly SeedFileObligation[] = Object.freez
   },
   {
     file: "scripts/seed/manual-payment-lane.ts",
-    rawCeiling: 26,
+    rawCeiling: 23,
     reason:
       "the money lane, DELIBERATELY UNROUTED and Phase 4's. DEC-0133 makes the payment, event " +
       "and accrual tables append-only so a routed re-runnable seed could not clean up after " +
       "itself, and several rows exist precisely BECAUSE the service refuses them " +
       "(`seed-comp-b-unpayable` is priced while its institution meets none of the charging " +
       "conditions, and that refusal is the fixture). This ceiling is not debt and is not " +
-      "expected to fall in Phase 2",
+      "expected to fall in Phase 2. It fell by three when the competition price writes moved " +
+      "back to the matrix seed, where the fixtures they price are declared: a price is part of " +
+      "what a competition is, and holding it here left three paid competitions unpriced after a " +
+      "reset while their copy went on claiming a price",
   },
   {
     file: "scripts/seed/operator-accounts.ts",

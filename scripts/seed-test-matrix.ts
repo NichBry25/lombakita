@@ -27,6 +27,7 @@ import {
 } from "./seed/manual-payment-lane";
 import { SEED_PASSWORD, hashSeedPassword } from "./seed/seed-credentials";
 import { assertSeedTargetIsDisposable, resolveSeedDatabaseUrl } from "./seed/seed-target";
+import { DEFAULT_PAYMENT_WINDOW_DAYS } from "@/lib/finance/payment-window";
 import type { Sql } from "postgres";
 
 /**
@@ -78,6 +79,11 @@ const HOUR = 60 * 60 * 1000;
 const now = Date.now();
 const d = (days: number): Date => new Date(now + days * DAY);
 const h = (hours: number): Date => new Date(now + hours * HOUR);
+
+// The currency every seeded price is denominated in. The platform supports exactly this one, and
+// `money.ts` is where that list lives; the seed names it rather than importing a one-element array
+// so a fixture's price reads as an amount of rupiah at its declaration.
+const SEED_FEE_CURRENCY = "IDR";
 
 const sha256 = (raw: string): string => createHash("sha256").update(raw).digest("hex");
 
@@ -606,6 +612,12 @@ const main = async (): Promise<void> => {
       // midpoint of that window.
       minEntries?: number | null;
       pca?: Date | null;
+      // The organiser's price, in the smallest unit of SEED_FEE_CURRENCY. A fixture whose copy
+      // tells the reader it is a paid competition DECLARES its price here, in the same literal
+      // that names it, so the row and the claim are written by one statement and cannot be
+      // separated by a later seed. Absent means free: `fee_amount` NULL and 0 both mean free
+      // (see isPaidCompetition), and only a price makes the manual lane reachable for a fixture.
+      feeAmount?: number;
     };
     const comps: CompSeed[] = [
       {
@@ -758,6 +770,7 @@ const main = async (): Promise<void> => {
         featured: false,
         featuredOrder: null,
         publishedAt: d(-6),
+        feeAmount: 150000,
       },
       {
         // Institution D's priced competition, the other side of the tenant boundary. Same shape as
@@ -786,6 +799,7 @@ const main = async (): Promise<void> => {
         featured: false,
         featuredOrder: null,
         publishedAt: d(-6),
+        feeAmount: 90000,
       },
       {
         // Team-capable, registration open, and deliberately EMPTY of registrations. Every other
@@ -1046,6 +1060,7 @@ const main = async (): Promise<void> => {
         featured: false,
         featuredOrder: null,
         publishedAt: d(-3),
+        feeAmount: 75000,
       },
       {
         id: "seed-comp-b-draft",
@@ -1081,18 +1096,25 @@ const main = async (): Promise<void> => {
             ? new Date(c.re.getTime() + (c.es.getTime() - c.re.getTime()) / 2)
             : null;
       const minEntries = c.minEntries ?? null;
+      // A stored amount is meaningless without the currency that says what its integer counts
+      // (competitions_fee_currency_required_chk), so the two are derived together and a fixture
+      // cannot declare a price without denominating it.
+      const feeAmount = c.feeAmount ?? null;
+      const feeCurrency = c.feeAmount ? SEED_FEE_CURRENCY : null;
       await sql`
         INSERT INTO competitions (id, institution_id, created_by_user_id, slug, title, description,
           status, category, mode, min_team_size, max_team_size,
           registration_start_at, registration_end_at, event_start_at, event_end_at,
           result_announcement_at, minimum_participant_entries, participant_confirmation_at,
           allow_cancellation, cancellation_cutoff_days,
-          eligibility_note, is_featured, featured_order, published_at)
+          eligibility_note, fee_amount, fee_currency, payment_window_days,
+          is_featured, featured_order, published_at)
         VALUES (${c.id}, ${c.inst}, ${c.createdBy}, ${c.slug}, ${c.title}, ${c.description},
           ${c.status}, ${c.category}, ${c.mode}, ${c.minTeam}, ${c.maxTeam},
           ${c.rs}, ${c.re}, ${c.es}, ${c.ee},
           ${c.ra}, ${minEntries}, ${pca}, ${c.allowCancel}, ${c.cutoffDays},
-          ${c.eligibilityNote}, ${c.featured}, ${c.featuredOrder}, ${c.publishedAt})
+          ${c.eligibilityNote}, ${feeAmount}, ${feeCurrency}, ${DEFAULT_PAYMENT_WINDOW_DAYS},
+          ${c.featured}, ${c.featuredOrder}, ${c.publishedAt})
         ON CONFLICT (id) DO UPDATE SET
           slug = EXCLUDED.slug, title = EXCLUDED.title, description = EXCLUDED.description,
           status = EXCLUDED.status, category = EXCLUDED.category, mode = EXCLUDED.mode,
@@ -1106,6 +1128,8 @@ const main = async (): Promise<void> => {
           allow_cancellation = EXCLUDED.allow_cancellation,
           cancellation_cutoff_days = EXCLUDED.cancellation_cutoff_days,
           eligibility_note = EXCLUDED.eligibility_note,
+          fee_amount = EXCLUDED.fee_amount, fee_currency = EXCLUDED.fee_currency,
+          payment_window_days = EXCLUDED.payment_window_days,
           is_featured = EXCLUDED.is_featured, featured_order = EXCLUDED.featured_order,
           published_at = EXCLUDED.published_at, deleted_at = NULL, updated_at = now()
       `;
@@ -1971,6 +1995,7 @@ const main = async (): Promise<void> => {
     for (const row of counts) console.log(`${row.label.padEnd(18)} ${row.n}`);
 
     await assertSeededInstitutionsMatchProduction(sql, NEW_INSTITUTION_DEFAULT_STATUS);
+    await assertSeededPricesMatchDescriptions(sql);
     assertMatrixSeedWroteNoFinanceRows(financeBefore, await snapshotFinanceTables(sql));
     console.log(
       "  ✓ no finance row was written or changed by this seed; the money lane is Phase 4's",
@@ -2027,6 +2052,76 @@ const assertSeededInstitutionsMatchProduction = async (
   console.log(
     `  ✓ every seeded institution carries status "${NEW_INSTITUTION_DEFAULT_STATUS}", which is ` +
       "what the production creation service writes",
+  );
+};
+
+/**
+ * The word a seeded competition's copy uses to tell a reader it charges a fee.
+ *
+ * THE POPULATION IS DERIVED FROM THE CLAIM, NOT LISTED. Three fixtures assert a price in their
+ * description and every case that reads a fee disclosure, a charging gate or a verdict state is
+ * calibrated against them; a hand-written list of ids would be a fourth place for those three to be
+ * named and a fourth place to drift. What this covers is exactly "seeded competitions whose copy
+ * contains this word", and what it does not cover is stated rather than implied: a fixture that
+ * claims a price without using this word is outside the population and nothing here reads its copy
+ * for meaning. Broadening the word does not broaden the check — a claim that is not made in words
+ * the instrument knows is a claim no instrument can see.
+ */
+const PAID_CLAIM_WORD = "berbayar";
+
+/**
+ * Refuses when a seeded competition's copy and its price disagree, in EITHER direction.
+ *
+ * A DESCRIPTION IS A CLAIM. This seed's copy is read by a human deciding what a surface is for, by a
+ * harness case asserting what a page says, and by whoever reads a fixture to explain a failure, and
+ * until now nothing checked it against the row it describes. The defect this closes was measured: a
+ * split moved the three price writes out of this file into the opt-in lane while the copy stayed
+ * here, so after `npm run db:reset` three competitions whose descriptions call themselves paid held
+ * `fee_amount = NULL`, the manual lane was unreachable against every one of them, and the only
+ * instrument that noticed was a harness reporting twelve surfaces as product defects.
+ *
+ * BOTH DIRECTIONS, because each is a different lie. A price the copy denies leaves a reader who
+ * trusts the copy unable to explain why a page shows a fee; a price the copy claims and the row
+ * lacks is the one that was actually shipped, and it makes the copy the only remaining description
+ * of a lane that does not exist.
+ *
+ * Classified in SQL rather than in JavaScript: `fee_amount` is a bigint, and reading it back to
+ * compare it in the driver would put the comparison one type-coercion away from the property being
+ * asserted. The database answers both halves and this function reads the disagreement.
+ */
+const assertSeededPricesMatchDescriptions = async (sql: Sql): Promise<void> => {
+  const disagreeing = await sql<{ id: string; claims: boolean; priced: boolean }[]>`
+    SELECT id,
+      description LIKE ${`%${PAID_CLAIM_WORD}%`} AS claims,
+      (fee_amount IS NOT NULL AND fee_amount > 0) AS priced
+    FROM competitions
+    WHERE id LIKE 'seed-comp-%'
+      AND description LIKE ${`%${PAID_CLAIM_WORD}%`}
+        <> (fee_amount IS NOT NULL AND fee_amount > 0)
+    ORDER BY id
+  `;
+
+  if (disagreeing.length > 0) {
+    const listed = disagreeing
+      .map((row) =>
+        row.claims
+          ? `${row.id} says it is paid but carries no price`
+          : `${row.id} carries a price but its copy does not say so`,
+      )
+      .join("\n  ");
+
+    throw new Error(
+      `${disagreeing.length} seeded competition(s) disagree with their own description:\n  ` +
+        `${listed}\n` +
+        "A fixture's copy and its price are one statement about one competition, and a database " +
+        "where they differ is a database that describes a lane it does not contain. Declare the " +
+        "price on the fixture (`feeAmount`), in the same literal that names it.",
+    );
+  }
+
+  console.log(
+    `  ✓ every seeded competition whose copy claims a price (${PAID_CLAIM_WORD}) carries one, and ` +
+      "every one that carries a price says so",
   );
 };
 
