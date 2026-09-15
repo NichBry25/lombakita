@@ -276,11 +276,7 @@ export const probes = [
     mutate: () => {
       substituteOnce(SEED, PRICE_DECLARATION, PRICE_DECLARATION_REMOVED);
       substituteOnce(SEED, GUARD_CALL, "");
-      substituteOnce(
-        SEED,
-        COMPETITIONS_WRITE,
-        GUARD_CALL_MOVED + GUARD_CALL + COMPETITIONS_WRITE,
-      );
+      substituteOnce(SEED, COMPETITIONS_WRITE, GUARD_CALL_MOVED + GUARD_CALL + COMPETITIONS_WRITE);
     },
     detect: async () => {
       const run = await seedAgainstAThrowaway(PROBE_DATABASES.priceClaimMoved);

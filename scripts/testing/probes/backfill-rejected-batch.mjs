@@ -76,7 +76,8 @@ const CLAIMED_SUCCESS = /^Upserted \d+ document\(s\)\. Meilisearch task uid:/m;
 const TASK_REFUSAL = "index_primary_key_already_exists";
 
 const READ_BACK_FROM = "  const written = await index.getDocuments({";
-const READ_BACK_TO = "  console.log(`Upserted ${documents.length} document(s) and read them back.`);";
+const READ_BACK_TO =
+  "  console.log(`Upserted ${documents.length} document(s) and read them back.`);";
 
 /** The line the outcome check replaced, restored by the probe to reproduce the defect. */
 const CLAIM_WITHOUT_MEASURING =
@@ -218,7 +219,10 @@ const restoreIndex = async () => {
     );
   }
 
-  const [indexed, expected] = await Promise.all([indexDocumentCount(), publishedCompetitionCount()]);
+  const [indexed, expected] = await Promise.all([
+    indexDocumentCount(),
+    publishedCompetitionCount(),
+  ]);
 
   if (indexed !== expected) {
     throw new Error(
