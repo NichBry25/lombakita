@@ -653,6 +653,21 @@ const demonstrateAll = async (
     `Cases run: **${cases.length}**. Committed: **${cases.filter((entry) => entry.run.committed).length}**.`,
     `Refused: **${cases.filter((entry) => !entry.run.committed).length}**.`,
     "",
+    "## What a zero in the residue file means",
+    "",
+    "Two separately filed findings compose, and neither is visible from inside the other.",
+    "",
+    "- **LAUNCH-D100 is a store the enumeration cannot see.** The census decides whether a table",
+    "  holds user data by the foreign keys that reach it, and `institutions` declares no FK to",
+    "  `users` at all — so a table nothing points at is ruled `holds-no-user-data`.",
+    "- **LAUNCH-D101 is a form the verifier cannot match.** The value sweep's identity set is four",
+    "  whole stored values, so a residue naming the person in any other string reports as zero.",
+    "",
+    'Together, **"zero residue" currently means "zero residue of four exact strings, in the stores',
+    'the FK graph knows about."** That is the sentence to hold in mind when reading',
+    "`docs/operations/account-deletion-residue.md`: a zero there is a statement about four literals",
+    "and about the graph, not a statement that nothing about the person remains.",
+    "",
   );
 
   writeFileSync(resolve(process.cwd(), out), `${lines.join("\n")}\n`, "utf8");
