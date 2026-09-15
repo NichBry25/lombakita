@@ -180,6 +180,13 @@ describe("the rulings cover the derived population", () => {
     // Pinned because these are the rows the policy's promise has to be read against. An email
     // address in `institution_invitations` and a payer pointer in `finance_payments` are the two
     // that cannot be removed by any procedure that respects DEC-0133.
+    //
+    // `competitions` and `institutions` are the two the demonstration added, and neither is a
+    // foreign key. Both were ruled `carries: []` until a seeded deletion was run and read back: the
+    // account went, and a published competition titled `Kuis Mingguan Rina` and the personal
+    // institution it was held under were still there. Nothing in the FK graph could have said so —
+    // `competitions.created_by_user_id` had already nulled, and `institutions` has no foreign key to
+    // `users` at all — which is why the free-text columns are the ones that have to be named.
     expect(survivals).toEqual([
       "finance_payments: payer_user_id",
       "finance_payment_events: actor_user_id, metadata",
@@ -187,8 +194,10 @@ describe("the rulings cover the derived population", () => {
       "finance_manual_payment_proofs: submitted_by_user_id, r2_key, original_file_name",
       "finance_manual_payment_proof_attempts: submitted_by_user_id, reviewer_user_id, r2_key, original_file_name",
       "platform_ops_audit_logs: actor_user_id, target_user_id, metadata",
+      "competitions: title, description, eligibility_note, cancellation_reason",
       "institution_audit_logs: metadata",
       "institution_invitations: invited_email",
+      "institutions: slug, description, about, contact_name, contact_email, contact_phone",
     ]);
   });
 });
@@ -246,6 +255,38 @@ describe("the stores outside Postgres", () => {
       "profile-certifications/{userId}/",
       "recruiter-verification/{userId}/{submissionId}/",
     ]);
+  });
+
+  it("pins the prefixes a deletion has to remove, as a set, not as a count", () => {
+    // This is the population the procedure's capture step is held against: every prefix marked here
+    // must appear in that step. A prefix arriving with no answer fails this, and one flipping its
+    // answer flips it visibly rather than shifting a number nobody reads.
+    const reached = R2_PREFIXES.filter((entry) => entry.reachedByDeletion).map(
+      (entry) => entry.prefix,
+    );
+    const notReached = R2_PREFIXES.filter((entry) => !entry.reachedByDeletion).map(
+      (entry) => entry.prefix,
+    );
+
+    expect(reached).toEqual([
+      "avatars/{userId}/",
+      "banners/{userId}/",
+      "resumes/{userId}/",
+      "profile-certifications/{userId}/",
+      "recruiter-verification/{userId}/{submissionId}/",
+      "submissions/{competitionId}/{registrationId}/",
+      "registration-documents/{competitionId}/{registrationId}/{requestId}/",
+    ]);
+    expect(notReached).toEqual([
+      "payment-proofs/{competitionId}/{paymentId}/",
+      "payment-instructions/{institutionId}/",
+      "institution-logos/{institutionId}/",
+      "institution-banners/{institutionId}/",
+      "verification/{institutionId}/{submissionId}/",
+    ]);
+
+    // The two sets partition the declared prefixes, so a prefix cannot be silently in neither.
+    expect(reached.length + notReached.length).toBe(R2_PREFIXES.length);
   });
 
   it("states the submission layout the code writes, not the one DEC-0066 documents", () => {

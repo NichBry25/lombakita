@@ -54,6 +54,13 @@ export type ForeignKey = {
   sourceTable: string;
   sourceColumns: readonly string[];
   targetTable: string;
+  /**
+   * The referenced columns on `targetTable`, positionally paired with `sourceColumns`.
+   *
+   * Carried because the residue verifier has to WRITE the join, not just read the edge: a count of
+   * what a deletion left behind is a join from `users` outwards, and a join needs both ends.
+   */
+  targetColumns: readonly string[];
   onDelete: ReferentialAction;
 };
 
@@ -61,7 +68,17 @@ export type ForeignKey = {
 export type SurvivalReason =
   /** Removed by the CASCADE closure from `users`. Not a survivor. */
   | "removed"
-  /** The row survives because the FK nulls rather than cascades. */
+  /**
+   * The row survives because its link to the deleted user is SEVERED rather than cascaded.
+   *
+   * Two shapes produce that, and they need different code to see. A foreign key that nulls is the
+   * obvious one. The other is a table with no foreign key to `users` at all, whose only path from
+   * `users` runs through an intermediate row the deletion removes — `institutions` is the worked
+   * case, anchored by `institution_memberships` and by nothing else. The FK graph can state the
+   * second shape (the path exists) but cannot state that it MATTERS, because the severing happens
+   * to a row the table does not reference. A survival ruling is therefore a judgement, and this
+   * category is where the judgement that a tenant outlives its last member belongs.
+   */
   | "detached"
   /** A NO ACTION/RESTRICT edge points here from a surviving row: the delete FAILS. */
   | "blocks-deletion"
@@ -128,6 +145,7 @@ export const schemaForeignKeys = (): ForeignKey[] => {
         sourceTable: config.name,
         sourceColumns: reference.columns.map((column) => column.name),
         targetTable,
+        targetColumns: reference.foreignColumns.map((column) => column.name),
         onDelete: (foreignKey.onDelete ?? "no action").toLowerCase() as ReferentialAction,
       });
     }
@@ -293,6 +311,18 @@ export type R2Prefix = {
    * lists afterwards has thrown away its own index of what to delete.
    */
   keyColumns: readonly string[];
+  /**
+   * Whether deleting a user requires these objects to be removed.
+   *
+   * `false` is not "unimportant" — it is "not the deletion's to remove", and the two reasons are
+   * opposite. Institution-scoped objects belong to a tenant that outlives the user. Payment proofs
+   * are the ledger's evidence, on rows DEC-0133 forbids deleting, so removing the image would
+   * destroy what the surviving row points at.
+   *
+   * Declared rather than derived from `scope`, because scope and this are different questions: the
+   * `payment-proofs` prefix is scoped to a competition and is still not reached.
+   */
+  reachedByDeletion: boolean;
   /** How a deletion reaches these objects, and what it costs to reach them too late. */
   reachedBy: string;
   reason: string;
@@ -310,6 +340,7 @@ export type R2Prefix = {
 export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
   {
     prefix: "avatars/{userId}/",
+    reachedByDeletion: true,
     scope: "user",
     module: "src/server/user-profile/profile-files-service.ts",
     keyColumns: ["user_profiles.avatar_r2_key"],
@@ -319,6 +350,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
   },
   {
     prefix: "banners/{userId}/",
+    reachedByDeletion: true,
     scope: "user",
     module: "src/server/user-profile/profile-files-service.ts",
     keyColumns: ["user_profiles.banner_r2_key"],
@@ -328,6 +360,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
   },
   {
     prefix: "resumes/{userId}/",
+    reachedByDeletion: true,
     scope: "user",
     module: "src/server/user-profile/profile-files-service.ts",
     keyColumns: ["user_profiles.resume_r2_key"],
@@ -336,6 +369,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
   },
   {
     prefix: "profile-certifications/{userId}/",
+    reachedByDeletion: true,
     scope: "user",
     module: "src/server/user-profile/profile-files-service.ts",
     keyColumns: ["profile_certifications.file_r2_key"],
@@ -345,6 +379,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
   },
   {
     prefix: "recruiter-verification/{userId}/{submissionId}/",
+    reachedByDeletion: true,
     scope: "user",
     module: "src/server/recruiter-verification/recruiter-verification-service.ts",
     keyColumns: ["recruiter_verification_documents.r2_key"],
@@ -354,6 +389,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
   },
   {
     prefix: "submissions/{competitionId}/{registrationId}/",
+    reachedByDeletion: true,
     scope: "registration",
     module: "src/server/submissions/submission-service.ts",
     keyColumns: ["competition_submissions.file_key"],
@@ -363,6 +399,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
   },
   {
     prefix: "registration-documents/{competitionId}/{registrationId}/{requestId}/",
+    reachedByDeletion: true,
     scope: "registration",
     module: "src/server/registration-documents/registration-document-service.ts",
     keyColumns: ["competition_document_request_files.r2_key"],
@@ -372,6 +409,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
   },
   {
     prefix: "payment-proofs/{competitionId}/{paymentId}/",
+    reachedByDeletion: false,
     scope: "competition",
     module: "src/server/finance/manual-payment-proof-service.ts",
     keyColumns: [
@@ -385,6 +423,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
   },
   {
     prefix: "payment-instructions/{institutionId}/",
+    reachedByDeletion: false,
     scope: "institution",
     module: "src/server/institutions/payment-instructions-service.ts",
     keyColumns: ["institution_payment_instructions.qris_r2_key"],
@@ -393,6 +432,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
   },
   {
     prefix: "institution-logos/{institutionId}/",
+    reachedByDeletion: false,
     scope: "institution",
     module: "src/server/institution-workspace/institution-media-service.ts",
     keyColumns: ["institutions.logo_r2_key"],
@@ -401,6 +441,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
   },
   {
     prefix: "institution-banners/{institutionId}/",
+    reachedByDeletion: false,
     scope: "institution",
     module: "src/server/institution-workspace/institution-media-service.ts",
     keyColumns: ["institutions.banner_r2_key"],
@@ -409,6 +450,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
   },
   {
     prefix: "verification/{institutionId}/{submissionId}/",
+    reachedByDeletion: false,
     scope: "institution",
     module: "src/server/institution-verification/submission-service.ts",
     keyColumns: ["institution_verification_documents.r2_key"],
@@ -608,10 +650,13 @@ export const TABLE_RULINGS: readonly StoreRuling[] = Object.freeze([
   {
     store: "competitions",
     survival: "detached",
-    carries: [],
+    carries: ["title", "description", "eligibility_note", "cancellation_reason"],
     reason:
       "`created_by_user_id` nulls; the competition belongs to its institution and outlives the " +
-      "staff member who drafted it",
+      "staff member who drafted it. What survives with it is everything they WROTE on it — and " +
+      "the title is enough on its own. A recruiter's personal competition survives a deletion " +
+      "still titled `Kuis Mingguan Rina`, published and publicly reachable, carrying a given " +
+      "name that appears nowhere in the account's own rows",
   },
   {
     store: "institution_audit_logs",
@@ -674,10 +719,25 @@ export const TABLE_RULINGS: readonly StoreRuling[] = Object.freeze([
   },
   {
     store: "institutions",
-    survival: "holds-no-user-data",
-    carries: [],
+    survival: "detached",
+    carries: [
+      "slug",
+      "description",
+      "about",
+      "contact_name",
+      "contact_email",
+      "contact_phone",
+    ],
     reason:
-      "the tenant anchor. It outlives every member; its own owner is a membership, not a column",
+      "THE TENANT ANCHOR, and the one survivor no foreign key can reach: `institutions` declares NO " +
+      "foreign key to `users` at all. Its owner is a membership row, the membership cascades, and " +
+      "the institution is left standing with no owner. For an institution whose owner was also its " +
+      "only member that is not a tenant outliving a staff member — it is a detachment, and the " +
+      "survivor still carries the person: `description` and `about` are free text, the contact " +
+      "columns are theirs, and `slug` shares one namespace with usernames. A personal institution " +
+      "stores NULL `display_name` and derives its name from the owner's username at read time " +
+      "(`getInstitutionDisplayName`), so the row that survives renders as the bare placeholder " +
+      "`Personal Institution` — the name is gone and the person is still on the row",
   },
   {
     store: "institution_payment_instructions",
@@ -789,6 +849,55 @@ export const unknownKeyColumns = (
       return columns === undefined || !columns.includes(column);
     }),
   );
+
+/**
+ * Drizzle data types whose SQL value can hold a literal, so a sweep can search inside them.
+ *
+ * `json` and `array` are here rather than excluded because both are stored as text and both are
+ * places a value hides: an email inside a JSON blob is as present as one in a column of its own, and
+ * a sweep that skipped them would report the row clean.
+ */
+const SEARCHABLE_DATA_TYPES = new Set(["string", "json", "array", "buffer"]);
+
+/**
+ * Data types whose values are numbers, booleans or instants, which cannot contain a literal.
+ *
+ * Enumerated rather than left to the fall-through so that the two sets together are exhaustive: a
+ * data type in neither set is refused below, where a bare `else` would skip it.
+ */
+const UNSEARCHABLE_DATA_TYPES = new Set(["number", "boolean", "date", "bigint"]);
+
+/**
+ * Every column a value sweep has to search, so that a residue carried as a literal rather than as a
+ * reference is found.
+ *
+ * This exists because an attribution count cannot see a detached row: nulling
+ * `institution_invitations.target_user_id` removes the only edge joining the invitation to the
+ * person, and the email address on it is then invisible to every join from `users`. A column the
+ * census cannot classify throws rather than being skipped — a sweep that silently omits a column
+ * reports the same clean result as one that searched it.
+ */
+export const schemaTextColumns = (): { table: string; column: string }[] => {
+  const targets: { table: string; column: string }[] = [];
+
+  for (const value of Object.values(schema)) {
+    if (!(value instanceof PgTable)) continue;
+    const config = getTableConfig(value);
+
+    for (const column of config.columns) {
+      const dataType = String(column.dataType);
+
+      if (UNSEARCHABLE_DATA_TYPES.has(dataType)) continue;
+      if (!SEARCHABLE_DATA_TYPES.has(dataType)) {
+        throw new DeletionCensusRefusal(`${config.name}.${column.name}`, "column data type");
+      }
+
+      targets.push({ table: config.name, column: column.name });
+    }
+  }
+
+  return targets;
+};
 
 /** Every column of every schema table, by SQL table name. */
 export const schemaColumns = (): Map<string, string[]> => {
