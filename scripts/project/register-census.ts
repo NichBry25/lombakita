@@ -783,15 +783,15 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 28,
+    bound: 38,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "THE ONE POPULATION THAT RISES AS THE REGISTER IMPROVES, so it is held as a floor rather " +
-      "than a pin. Twenty-eight ids are anchored `→ Step 7.7 Block <X>`; nineteen more are " +
+      "than a pin. Thirty-eight ids are anchored `→ Step 7.7 Block <X>`; nineteen more are " +
       "anchored `→ Step 7.7.` with no block at all, which is why this number and the anchorless " +
-      "ratchet do not partition the live population — 50 anchorless plus these 28 plus those 19 " +
-      "is the 97 live ids the header prints, and the nineteen is read off that sum rather than " +
+      "ratchet do not partition the live population — 50 anchorless plus these 38 plus those 19 " +
+      "is the 107 live ids the header prints, and the nineteen is read off that sum rather than " +
       "counted a second time. What the floor catches is the direction nothing " +
       "else did: REWRITING an existing anchor to `→ TBD` leaves every other instrument at " +
       "baseline — gate (a) compares id sets and an edit is not a filing, gate (b) reads bare " +
@@ -809,7 +809,16 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "27 on 2026-09-15 before 28 was trusted, the same way and against one of the five new " +
       "anchors rather than an old one: LAUNCH-D89's anchor was reverted to a bare `→ Step 7.7.` " +
       "and the gate failed `27  live debt ids carrying an anchor that names a step and a block  " +
-      "(down 1 — below the floor of 28)`",
+      "(down 1 — below the floor of 28)`. Raised to 38 on 2026-09-15 by the close that filed " +
+      "LAUNCH-D90 through LAUNCH-D99, five to Block D and five to Block C2. The number was READ " +
+      "OFF THE GATE'S OWN `raise the bound to N` rather than computed from the filings, and that " +
+      "discipline is what caught an arithmetic error: 28, minus the withdrawn D89, plus ten " +
+      "filings predicts 37; the measured value is 38, because a WITHDRAWN entry keeps its anchor " +
+      "line and stays in this population exactly as a discharged one does. Proven red at 37 " +
+      "before 38 was trusted, against one of the ten new anchors: LAUNCH-D99's anchor was " +
+      "reverted to a bare `→ Step 7.7.`, the gate failed `37  live debt ids carrying an anchor " +
+      "that names a step and a block  (down 1 — below the floor of 38)`, and the register was " +
+      "restored from git with `git diff --quiet` asserted on it",
   },
   {
     what: "items a discharged section declares discharged whose anchor line carries no mark",
