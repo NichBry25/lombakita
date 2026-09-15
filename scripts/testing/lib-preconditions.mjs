@@ -16,9 +16,10 @@
  * ── 2. The database holds the fixtures ──────────────────────────────────────────────────────────
  * `npm run db:reset` writes the testing matrix as its fifth step of seven. The operator accounts and
  * the manual bukti-transfer lane are OPT-IN and are not part of it, so a reset-only database has no
- * `platform_ops` login and no finance row, while the harnesses go on describing both. Measured
- * against a reset-only database that is 51 misses across 31 surfaces, every one of which reads as a
- * product defect. The fix is one refusal naming the command that was not run.
+ * `platform_ops` login and no finance row, while the harnesses go on describing both. Measured by
+ * running `ui-states.mjs` against a reset-only database: 45 misses across 31 surfaces, every one of
+ * them a sentence about a surface failing to render. The fix is one refusal naming the command that
+ * was not run.
  *
  * WHY THIS ASKS THE DATABASE AND NOT THE APP. The role gate runs before the resource lookup on every
  * money-lane route, so a refused caller gets the same answer whether the proof exists or not. Where
@@ -33,11 +34,7 @@ import postgres from "postgres";
 import { isLoopbackUrl, parseDatabaseHost } from "../lib/loopback-host.mjs";
 
 /** The three commands the harnesses assume, in the order they have to run. */
-const SEED_COMMANDS = [
-  "npm run db:reset",
-  "npm run db:seed:operators",
-  "npm run db:seed:payments",
-];
+const SEED_COMMANDS = ["npm run db:reset", "npm run db:seed:operators", "npm run db:seed:payments"];
 
 const SEED_COMMAND_BLOCK = SEED_COMMANDS.map((command) => `  ${command}`).join("\n");
 
@@ -101,7 +98,9 @@ export const classifyAppReachability = async (
 
   // SOMETHING IS LISTENING, so a slow answer from here on is slow, not absent. Warmed first for the
   // same reason every case route is: `/api/health` is a route like any other and cold-compiles.
-  await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(warmBudgetMs) }).catch(() => {});
+  await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(warmBudgetMs) }).catch(
+    () => {},
+  );
 
   try {
     const response = await fetch(`${baseUrl}/api/health`, {
@@ -279,9 +278,7 @@ export const assertSeedLanesPresent = async () => {
 
   if (absent.length === 0) return;
 
-  const named = absent
-    .map((lane) => `  missing: ${lane.describes}  (${lane.command})`)
-    .join("\n");
+  const named = absent.map((lane) => `  missing: ${lane.describes}  (${lane.command})`).join("\n");
 
   refuse(
     "The database these assertions describe has not been seeded with its opt-in lanes:\n" +
@@ -295,34 +292,50 @@ export const assertSeedLanesPresent = async () => {
 };
 
 /**
- * Which of the named manual payment proofs are NOT in the database.
+ * The tables a seeded fixture id can live in, for the controls below.
  *
- * Exists for the negative cases, which cannot answer the question themselves: the role gate refuses
- * before the lookup, so a wrong-role caller gets the same 403 for a proof that exists and for one
- * that never did. An empty result is what makes such a refusal evidence of the role boundary
- * rather than evidence of a missing fixture.
+ * A fixed list rather than a parameter: a caller that names its own table is a caller that can name
+ * the wrong one and be told its fixture is missing. Seed ids are unique across the matrix and the
+ * opt-in lane, so an id found in none of these is an id that was not seeded.
  */
-export const missingPaymentProofs = async (proofIds) => {
-  if (proofIds.length === 0) return [];
+const FIXTURE_TABLES = [
+  "institutions",
+  "competitions",
+  "competition_registrations",
+  "institution_payment_instructions",
+  "finance_fee_rules",
+  "finance_fee_accruals",
+  "finance_payments",
+  "finance_manual_payment_proofs",
+];
 
-  const rows = await withDatabase(
-    (sql) => sql`SELECT id FROM finance_manual_payment_proofs WHERE id IN ${sql(proofIds)}`,
-  );
-  const present = new Set(rows.map((row) => row.id));
+/**
+ * Which of the named fixtures are NOT in the database.
+ *
+ * Exists for the NEGATIVE cases, which cannot answer the question themselves. The role gate runs
+ * before the resource lookup on every money-lane route, so a wrong-role caller gets the same 403
+ * whether the proof is there or not — and a UI page whose fixture is absent renders no control for
+ * anyone, which is indistinguishable from a control correctly withheld. An empty result is what
+ * makes such a refusal evidence of the boundary rather than evidence of a missing fixture.
+ *
+ * Fails closed: an id that is real but lives in a table this list does not name reads as missing,
+ * which is a refusal rather than a case passing for a reason nobody chose.
+ */
+export const missingFixtures = async (fixtureIds) => {
+  if (fixtureIds.length === 0) return [];
 
-  return proofIds.filter((id) => !present.has(id));
-};
+  const found = await withDatabase(async (sql) => {
+    const present = new Set();
 
-/** Which of the named competitions are NOT in the database, for the same reason as above. */
-export const missingCompetitions = async (competitionIds) => {
-  if (competitionIds.length === 0) return [];
+    for (const table of FIXTURE_TABLES) {
+      const rows = await sql`SELECT id FROM ${sql(table)} WHERE id IN ${sql(fixtureIds)}`;
+      for (const row of rows) present.add(row.id);
+    }
 
-  const rows = await withDatabase(
-    (sql) => sql`SELECT id FROM competitions WHERE id IN ${sql(competitionIds)}`,
-  );
-  const present = new Set(rows.map((row) => row.id));
+    return present;
+  });
 
-  return competitionIds.filter((id) => !present.has(id));
+  return fixtureIds.filter((id) => !found.has(id));
 };
 
 /** The commands themselves, so a harness's own notes quote the same list this module refuses with. */

@@ -270,9 +270,28 @@ jobs:
         run: npm run db:migrate:guarded
 
       # Every audit asserts against the seeded matrix by id. Without it the pages render empty and
-      # `ui-states` would report eleven surfaces missing text that was never seeded.
+      # `ui-states` would report all 31 surfaces missing text that was never seeded.
       - name: Seed the test matrix
         run: node --import tsx scripts/seed-test-matrix.ts
+
+      # THE TWO OPT-IN LANES, and they are opt-in in CI for the same reason they are locally: neither
+      # `db:reset` nor the matrix seed writes them, and the environment block above already declares
+      # what they need (the MFA key and the R2 placeholders exist so the payment-proof surfaces
+      # render). `ui-states` asserts against the bukti-transfer lane, so without these two steps the
+      # required check cannot go green — which is the failure mode the harness's own precondition now
+      # reports as one refusal naming the commands rather than 31 surfaces of missing text.
+      #
+      # ORDER MATTERS and is the same as local: the operator seed writes the roles the payments seed
+      # reviews, and the payments seed refuses outright unless the matrix registrations it names are
+      # already there.
+      - name: Seed the operator accounts
+        run: npm run db:seed:operators
+
+      # Writes no competitions, so the search index below is unaffected by running it here. It does
+      # write `finance_payments`, which DEC-0133 makes append-only — acceptable in this job and only
+      # here because `lombakita_audits` is a service container destroyed with the runner.
+      - name: Seed the manual payment lane
+        run: npm run db:seed:payments
 
       # AFTER the seed, not before: this script creates the index and backfills it from the
       # database in one pass, so run against an unseeded database it would build an empty index and

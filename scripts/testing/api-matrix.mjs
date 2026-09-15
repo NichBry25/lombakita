@@ -10,8 +10,7 @@ import { bodyHasValue, bodySnippet, errorCode, refusedWith } from "./lib-asserti
 import {
   assertAppReachable,
   assertSeedLanesPresent,
-  missingCompetitions,
-  missingPaymentProofs,
+  missingFixtures,
 } from "./lib-preconditions.mjs";
 import { BASE, USERS, INST, COMP, REG } from "./seeds.mjs";
 
@@ -1394,7 +1393,30 @@ const main = async () => {
   // PLATFORM role handling disputes that arrive from any institution, so reading across tenants is
   // the requirement, not the leak. The boundary that exists is ROLE: nobody else reaches this
   // surface, and finance_ops reaches no verdict.
-  const finView = await apiFetch("/api/finance-ops/payment-proofs/seed-proof-b/view", {
+  // THE CONTROL THAT MAKES THESE SEVEN MEAN SOMETHING.
+  //
+  // Every case below asserts a REFUSAL, and on every one of these routes the role gate runs before
+  // the resource lookup — so a caller who is going to be refused gets the same answer whether the
+  // proof exists or not. Green on a machine where the fixture was never seeded is green for a reason
+  // nobody chose, and nothing in the response can tell the two apart. Asking the database is the only
+  // question that separates them: it runs BEFORE the call, so a missing fixture is reported against
+  // the control rather than being absorbed into the status the case was hoping for.
+  //
+  // THE PROOF IDS ARE DECLARED ONCE, below, and used for BOTH the request and the control. Two
+  // literals would drift: a case whose URL moves to a different proof while its control keeps naming
+  // the old one is vacuous again and says nothing about it, which is this defect one level down. One
+  // literal means the mutation that breaks a case is the mutation the control sees.
+  const FIN_PROOF = "seed-proof-b"; // seed-inst-a's competition — the subject of every negative here
+  const FIN_PROOF_CROSS_TENANT = "seed-proof-d"; // seed-inst-d's — the cross-tenant positive
+  const FIN_FIXTURES = [FIN_PROOF, FIN_PROOF_CROSS_TENANT, COMP.paid.id];
+  const absentFinFixtures = new Set(await missingFixtures(FIN_FIXTURES));
+  const finHeld = (...ids) => ids.every((id) => !absentFinFixtures.has(id));
+  const finControl = (...ids) => {
+    const absent = ids.filter((id) => absentFinFixtures.has(id));
+    return absent.length === 0 ? "" : `CONTROL MISSING: ${absent.join(", ")} not seeded`;
+  };
+
+  const finView = await apiFetch(`/api/finance-ops/payment-proofs/${FIN_PROOF}/view`, {
     method: "POST",
     cookie: sessions.finOps,
   });
@@ -1402,20 +1424,24 @@ const main = async () => {
   // object storage answers 503 — the role gate and the proof lookup both ran and only the presigner
   // was unavailable — and a machine with storage answers 200. Accepting either meant a storage
   // outage on a configured machine read as a pass, on the one lane where "we have your transfer"
-  // has to be true.
+  // has to be true. A 404 is neither, and that is the whole point of the storage expectation: the
+  // proof is looked up BEFORE the presigner runs, so its absence would show here as a 404.
   record(
     "FIN-01",
     "finance_ops may open a bukti transfer for dispute handling",
     `${storageExpectation}`,
     `${finView.status}`,
-    finView.status === storageExpectation,
-    bodySnippet(finView.body).slice(0, 90),
+    finHeld(FIN_PROOF) && finView.status === storageExpectation,
+    [bodySnippet(finView.body).slice(0, 90), finControl(FIN_PROOF)].filter(Boolean).join("  "),
   );
 
-  const finViewOther = await apiFetch("/api/finance-ops/payment-proofs/seed-proof-d/view", {
-    method: "POST",
-    cookie: sessions.finOps,
-  });
+  const finViewOther = await apiFetch(
+    `/api/finance-ops/payment-proofs/${FIN_PROOF_CROSS_TENANT}/view`,
+    {
+      method: "POST",
+      cookie: sessions.finOps,
+    },
+  );
   // A DIFFERENT INSTITUTION's proof (seed-inst-d's competition). Reachable ON PURPOSE. This is the
   // cross-tenant positive, and a 403 here would mean disputes could only be handled by guessing
   // which tenant they came from.
@@ -1424,7 +1450,8 @@ const main = async () => {
     "finance_ops reads across tenants by design",
     `${storageExpectation}`,
     `${finViewOther.status}`,
-    finViewOther.status === storageExpectation,
+    finHeld(FIN_PROOF_CROSS_TENANT) && finViewOther.status === storageExpectation,
+    finControl(FIN_PROOF_CROSS_TENANT),
   );
 
   for (const [key, label] of [
@@ -1432,7 +1459,7 @@ const main = async () => {
     ["candA", "candidate"],
     ["ops", "platform_ops"],
   ]) {
-    const refused = await apiFetch("/api/finance-ops/payment-proofs/seed-proof-b/view", {
+    const refused = await apiFetch(`/api/finance-ops/payment-proofs/${FIN_PROOF}/view`, {
       method: "POST",
       cookie: sessions[key],
     });
@@ -1447,13 +1474,17 @@ const main = async () => {
       `Dispute file access refused for ${label} (role, not MFA)`,
       "403 forbidden",
       `${refused.status} ${refusalCode}`,
-      refused.status === 403 && refusalCode !== "mfa_challenge_required",
+      finHeld(FIN_PROOF) && refused.status === 403 && refusalCode !== "mfa_challenge_required",
+      finControl(FIN_PROOF),
     );
   }
 
-  const finViewAnon = await apiFetch("/api/finance-ops/payment-proofs/seed-proof-b/view", {
+  const finViewAnon = await apiFetch(`/api/finance-ops/payment-proofs/${FIN_PROOF}/view`, {
     method: "POST",
   });
+  // NOT GATED ON THE FIXTURE, and deliberately. An anonymous request is refused before any session
+  // is even resolved, so the proof's existence cannot change the answer — this case is evidence
+  // without the control the others need. Gating it would assert a relationship that does not exist.
   record(
     "FIN-04",
     "Dispute file access refused anon",
@@ -1464,7 +1495,11 @@ const main = async () => {
 
   // DEC-0162 AT THE HTTP LAYER. Withholding the controls in the UI is presentation; these two are
   // the enforcement, and they are what makes "no verdict power" true rather than merely displayed.
-  const finVoid = await apiFetch("/api/platform-ops/payments/proofs/seed-proof-b/void", {
+  //
+  // THE VACUITY IS SHARPEST HERE. This route is refused for finance_ops at the gate, so a proof id
+  // that does not exist produces exactly the 403 the case is looking for, and FIN-05 was one of
+  // three green for that reason against a reset-only database.
+  const finVoid = await apiFetch(`/api/platform-ops/payments/proofs/${FIN_PROOF}/void`, {
     method: "POST",
     cookie: sessions.finOps,
     json: { reason: "percobaan finance_ops" },
@@ -1474,11 +1509,12 @@ const main = async () => {
     "finance_ops cannot void a bukti transfer",
     "403",
     `${finVoid.status}`,
-    finVoid.status === 403,
+    finHeld(FIN_PROOF) && finVoid.status === 403,
+    finControl(FIN_PROOF),
   );
 
   const finVerdict = await apiFetch(
-    `/api/v1/institutions/${INST.a.slug}/competitions/${COMP.paid.id}/payment-proofs/seed-proof-b`,
+    `/api/v1/institutions/${INST.a.slug}/competitions/${COMP.paid.id}/payment-proofs/${FIN_PROOF}`,
     {
       method: "PATCH",
       cookie: sessions.finOps,
@@ -1490,7 +1526,8 @@ const main = async () => {
     "finance_ops cannot render the organiser's verdict",
     "403",
     `${finVerdict.status}`,
-    finVerdict.status === 403,
+    finHeld(FIN_PROOF, COMP.paid.id) && finVerdict.status === 403,
+    finControl(FIN_PROOF, COMP.paid.id),
   );
 
   const finCancel = await apiFetch(`/api/platform-ops/competitions/${COMP.paid.id}/cancel`, {
@@ -1503,7 +1540,8 @@ const main = async () => {
     "finance_ops cannot cancel a competition",
     "403",
     `${finCancel.status}`,
-    finCancel.status === 403,
+    finHeld(COMP.paid.id) && finCancel.status === 403,
+    finControl(COMP.paid.id),
   );
 
   // ---- write artifacts ------------------------------------------------------

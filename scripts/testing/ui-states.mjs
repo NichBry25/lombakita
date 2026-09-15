@@ -17,12 +17,27 @@
  * An `absent` assertion is only meaningful next to a `present` one on another case: "candB has no
  * upload button" passes trivially on a blank page. Every absent case here is paired.
  *
+ * PAIRED IS NOT ENOUGH WHEN THE PAIR IS A DIFFERENT CASE. The pairing above is a sibling case, so an
+ * absent-only case still passes if its fixture is simply not in the database — a page that renders
+ * no verdict controls because there is no payment renders exactly like a page that withholds them
+ * from the wrong role. Worse, the sibling that would have caught it is excluded by the id filter, so
+ * `ui-states.mjs organiser-queue-outsider` reported a green tenant boundary over an unseeded lane.
+ *
+ * A case with nothing in `present` therefore also declares `fixtures`: the seeded rows that have to
+ * exist for its absence to mean anything. They are resolved against the database before the browser
+ * starts, and a case whose fixture is missing is a MISS naming the control, not a pass. It is not
+ * enough that the sibling case would have failed too — this case has to be able to fail on its own.
+ *
  * Usage:  node scripts/testing/ui-states.mjs [idFilterRegex]
  * Exits non-zero on any miss, so it can gate a change the way the other audits do.
  */
 import { launch, contextFor, DESKTOP } from "./lib-browser.mjs";
 import { preflightOrRefuse } from "./lib-css-fingerprint.mjs";
-import { assertAppReachable, assertSeedLanesPresent } from "./lib-preconditions.mjs";
+import {
+  assertAppReachable,
+  assertSeedLanesPresent,
+  missingFixtures,
+} from "./lib-preconditions.mjs";
 import { BASE, COMP, INST, USERS } from "./seeds.mjs";
 
 /**
@@ -33,6 +48,8 @@ import { BASE, COMP, INST, USERS } from "./seeds.mjs";
  * @property {string[]} present  text that MUST appear in <main>
  * @property {string[]} absent   text that must NOT appear in <main>
  * @property {string} why      one line: what breaking this would mean
+ * @property {string[]} [fixtures] seeded row ids that must exist for an absent-only case to mean
+ *                                 anything. Required whenever `present` is empty.
  */
 
 /** @type {UiStateCase[]} */
@@ -147,6 +164,9 @@ export const CASES = [
     as: "dual",
     path: `/institution/${INST.d.slug}/competitions/${COMP.dPaid.slug}/payments`,
     present: [],
+    // The queue the absence is about. Without a paid competition carrying a proof at D there is
+    // nothing for D's owner to be sent to, and this case would pass over an empty lane.
+    fixtures: [COMP.dPaid.id, "seed-proof-d"],
     // The membership gate redirects, so `main` never carries the queue. Asserting the ACTIONS are
     // absent rather than asserting a 403: the failure that matters is a verdict control reachable
     // by someone outside the tenant, whatever the status code says.
@@ -162,6 +182,7 @@ export const CASES = [
     as: "recMin",
     path: `/institution/${INST.a.slug}/competitions/${COMP.paid.slug}/payments`,
     present: [],
+    fixtures: [COMP.paid.id, "seed-proof-b"],
     absent: ["Verifikasi pembayaran", "Verifikasi", "Tolak", "Lihat bukti"],
     why: "administering one institution's paid competition grants nothing at another's",
   },
@@ -201,6 +222,7 @@ export const CASES = [
     as: "dual",
     path: `/institution/${INST.a.slug}/settings`,
     present: [],
+    fixtures: ["seed-payinstr-a"],
     absent: ["Informasi pembayaran", "Nomor rekening"],
     why: "a staff member must not be able to repoint the institution's bank account",
   },
@@ -212,6 +234,7 @@ export const CASES = [
     as: "recMin",
     path: `/institution/${INST.a.slug}/settings`,
     present: [],
+    fixtures: ["seed-payinstr-a"],
     absent: ["Informasi pembayaran", "Nomor rekening"],
     why: "owning one institution grants nothing at another's banking settings",
   },
@@ -248,6 +271,9 @@ export const CASES = [
     // THE PAIRING. A verified institution with an account and a fee rule must show nothing. Without
     // this, the panel could render unconditionally and the case above would still pass.
     present: [],
+    // All three conditions the pairing names, so the absence is measured on the state it describes
+    // rather than on a page that rendered nothing because A cannot charge for a different reason.
+    fixtures: [INST.a.id, "seed-feerule-default", "seed-payinstr-a"],
     absent: ["Pendaftaran berbayar belum dapat diaktifkan"],
     why: "a panel that always renders is not a diagnosis",
   },
@@ -476,6 +502,8 @@ export const CASES = [
     as: "recMin",
     path: `/institution/${INST.a.slug}/fees`,
     present: [],
+    // A's three ledger entries, which are the reason there are figures on A's statement at all.
+    fixtures: ["seed-accrual-d-settled", "seed-accrual-historic", "seed-accrual-d-reversed"],
     // A's OWN FIGURES, not the page heading: the heading also appears on this user's legitimate
     // statement below, so asserting its absence would confuse "refused" with "rendered elsewhere".
     // These two amounts exist nowhere but institution A's accruals.
@@ -526,11 +554,36 @@ const warmRoute = async (page, path) => {
 await assertAppReachable(BASE);
 await assertSeedLanesPresent();
 
+// Every fixture the SELECTED cases name, resolved in one pass before the browser opens.
+//
+// Resolved from `targets` rather than `CASES` on purpose: a filtered run still has to know whether
+// the one case it is about to measure can be measured, and asking about the cases it is not running
+// would refuse a run over fixtures it never reads.
+const absentFixtures = new Set(
+  await missingFixtures([...new Set(targets.flatMap((one) => one.fixtures ?? []))]),
+);
+
 const browser = await launch();
 const misses = [];
 let preflightDone = false;
 
 for (const testCase of targets) {
+  // A case whose fixture is not in the database CANNOT fail on its own. No page renders a withheld
+  // control for a row that is not there, so "the boundary held" and "the row was never seeded" are
+  // the same blank page — and the case reports the first while having measured neither. The sibling
+  // pairing does not save it: the sibling is a different case, and a filtered run does not run it.
+  const absent = (testCase.fixtures ?? []).filter((id) => absentFixtures.has(id));
+
+  if (absent.length > 0) {
+    const named = absent.map((id) => `"${id}"`).join(", ");
+    misses.push(
+      `${testCase.id}: CONTROL MISSING ${named} — this case asserts that something is WITHHELD, and ` +
+        `a fixture that was never seeded withholds it for everyone. Seed the lane ` +
+        `(npm run db:seed:payments) or correct the id. ${testCase.why}`,
+    );
+    continue;
+  }
+
   let context;
   try {
     // Inside the try because minting a session is itself a thing that fails, and a failure here
