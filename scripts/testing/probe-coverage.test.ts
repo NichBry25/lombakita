@@ -63,7 +63,10 @@ const everyProbe: [string, Probe][] = Object.entries(SUITES).flatMap(([suite, pr
   probes.map((probe): [string, Probe] => [`${suite}: ${probe.name}`, probe]),
 );
 
-const GUARD_CLASSES = ["A1-in", "A1-pre", "A2", "B", "C", "D"];
+// Rule 36 clause 8's control-flow classes, plus `value` for a property that is not a guard at all.
+// A probe that mutates a sign or a constant has no position to move and no call to remove, so
+// forcing it into a control-flow class asserts an ordering relationship the code does not have.
+const GUARD_CLASSES = ["A1-in", "A1-pre", "A2", "B", "C", "D", "value"];
 
 describe("the probe suites", () => {
   it("both contain probes", () => {

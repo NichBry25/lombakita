@@ -353,7 +353,12 @@ export const probes = [
   },
   {
     name: "a reversal is recorded as a second accrual, so the institution's outstanding fee doubles — NEGATION REMOVED",
-    klass: "B",
+    // NOT a guard, and saying so is the honest classification (Rule 38). `recordFeeAccrualReversal`'s
+    // negation has no control flow, no write to order against, and nothing to remove or relocate —
+    // the mutation flips a SIGN, not a guard's position. Class B asserts "a guard before a write,
+    // no transaction", an ordering relationship this code does not have. The property is
+    // value correctness, measured by the post-state sum.
+    klass: "value",
     harmfulMove:
       "recording a reversal as a positive accrual, so a debt the platform had already written off " +
       "reads as twice what it was — the append-only shape is intact and every row is still a row, " +

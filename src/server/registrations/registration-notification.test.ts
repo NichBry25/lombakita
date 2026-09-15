@@ -16,6 +16,15 @@ const { mockGetDb, enqueueRegistrationConfirmed, enqueueRegistrationCancelled } 
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
 vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
+// DEC-0131's guard now asks the REGISTRATION'S own money rather than the competition's price, so
+// it runs on every cancellation instead of only on priced ones. Against a real database that is one
+// indexed read which returns false immediately when no chargeable payment exists; here the fake db
+// has no rows to serve it, so the predicate is stubbed to its no-proof answer. These cases are
+// about the enqueue, and the refusal itself is covered against a real database in
+// `manual-lane-db.integration.test.ts`.
+vi.mock("@/server/finance/paid-registration", () => ({
+  hasSubmittedPaymentProof: vi.fn().mockResolvedValue(false),
+}));
 vi.mock("@/server/async/enqueue", () => ({
   enqueueRegistrationConfirmed,
   enqueueRegistrationCancelled,

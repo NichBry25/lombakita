@@ -17,7 +17,6 @@ import { TeamError } from "@/server/teams/team-core";
 import { MAX_CANCELLATION_REASON_LENGTH } from "@/server/registrations/registration-core";
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
-import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import {
   findTeamPaymentGroupAnchor,
   hasSubmittedPaymentProof,
@@ -451,21 +450,20 @@ export const cancelTeamRegistration = async (
   //
   // Leaving this arm blanket while the individual arm became conditional would mean a captain and
   // a solo entrant on the same competition, both having paid nothing, got different answers.
-  if (isPaidCompetition(competition.feeAmount)) {
-    // A team with no registration rows at all has no payment and therefore no proof. The anchor
-    // lookup is shared with the surface that decides whether to OFFER the cancel control, so the
-    // control cannot appear on a team this guard would refuse.
-    const anchorRegistrationId = await findTeamPaymentGroupAnchor(teamId, db);
+  // A team with no registration rows at all has no payment and therefore no proof. The anchor
+  // lookup is shared with the surface that decides whether to OFFER the cancel control, so the
+  // control cannot appear on a team this guard would refuse.
+  //
+  // Asked of the TEAM'S OWN MONEY, never of the competition's current price, for the same reason
+  // the individual arm is: a fee lowered to zero would otherwise skip the check against a team
+  // whose payment row still carries its original gross amount.
+  const anchorRegistrationId = await findTeamPaymentGroupAnchor(teamId, db);
 
-    if (
-      anchorRegistrationId !== null &&
-      (await hasSubmittedPaymentProof(anchorRegistrationId, db))
-    ) {
-      throw new TeamError(
-        "cancellation_not_supported_for_paid",
-        "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
-      );
-    }
+  if (anchorRegistrationId !== null && (await hasSubmittedPaymentProof(anchorRegistrationId, db))) {
+    throw new TeamError(
+      "cancellation_not_supported_for_paid",
+      "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
+    );
   }
 
   // Institution must allow cancellation.

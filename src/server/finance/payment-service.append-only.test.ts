@@ -104,6 +104,19 @@ const MUTATION_PATTERNS = [
     String.raw`\binsert\s+into\s+${RAW_TABLE}[^;]*?\bon\s+conflict\b[^;]*?\bdo\s+update`,
     "gi",
   ),
+  // The SAME upsert through Drizzle's typed API, which the raw-SQL pattern above cannot see: there
+  // is no `insert into`, the table is a camelCase binding rather than a snake_case name, and the
+  // word `update` arrives capitalised inside `onConflictDoUpdate`. Pattern 1 cannot reach it either,
+  // being anchored to a dot immediately followed by lowercase `update`/`delete`.
+  //
+  // This is the second time this pin has been blind to a sibling spelling of the same write — the
+  // raw form was the first. The pattern list is enumerated from the forms someone thought of, not
+  // derived from what Drizzle can emit, and nothing establishes that these six are all of them.
+  // That gap is LAUNCH-D86's, not this line's.
+  new RegExp(
+    String.raw`\.\s*insert\s*\(\s*finance[A-Za-z]*[^;]*?\.\s*on\s*conflict\s*do\s*update\s*\(`,
+    "gis",
+  ),
 ];
 
 /**
@@ -298,6 +311,13 @@ describe("finance write surface", () => {
       "await sql`delete from finance_fee_accruals a using x where a.id = x.id`;",
       // An upsert rewrites the existing row and never says `update <table>`.
       "await sql`INSERT INTO finance_payments (id, due_at) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET due_at = EXCLUDED.due_at`;",
+      // THE SAME UPSERT THROUGH DRIZZLE, which is the idiomatic form in this repository — it is in
+      // live use at 23 call sites, none of them finance today, which is exactly why the next
+      // finance upsert is likely to be written this way.
+      "await db.insert(financePayments).values(row).onConflictDoUpdate({ set: { grossAmount: 0 } });",
+      "await tx.insert(financeFeeAccruals).values(v).onConflictDoUpdate({ set: { amount: 1 } });",
+      // Newline-straddling, since the builder chain is usually formatted across lines.
+      "await db\n  .insert(financePaymentEvents)\n  .values(row)\n  .onConflictDoUpdate({ set: {} });",
       "await sql`insert into finance_fee_rules (id) values ($1)\n  on conflict (id)\n  do update set basis_points = 1`;",
     ];
 
@@ -314,6 +334,16 @@ describe("finance write surface", () => {
       "await sql`INSERT INTO finance_payments (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`;",
       // The mutable table may be upserted like any other write to it.
       "await sql`INSERT INTO finance_manual_payment_proofs (id) VALUES ($1) ON CONFLICT (payment_id) DO UPDATE SET status = 'x'`;",
+      // …including through Drizzle. The exception is subtracted by matching the table name inside
+      // the hit, and the typed pattern's match spans the identifier, so both spellings are covered.
+      "await db.insert(financeManualPaymentProofs).values(v).onConflictDoUpdate({ set: { status: 'x' } });",
+      // A typed upsert against a NON-finance table. The scan walks all of `src/`, and
+      // `.onConflictDoUpdate()` is live at 23 call sites there, so a pattern that is not correlated
+      // with a finance insert target would turn every one of them into a false failure.
+      "await db.insert(userProfiles).values(v).onConflictDoUpdate({ set: { bio: 'x' } });",
+      // An idempotent insert against a ledger table, typed. `DO NOTHING` cannot rewrite a row, and
+      // this is the form the seed lane uses at five sites.
+      "await db.insert(financePayments).values(v).onConflictDoNothing();",
     ];
 
     for (const source of allowed) {
