@@ -26,6 +26,7 @@ import {
   baseDatabaseUrl,
   createProbeDatabase,
   dropProbeDatabase,
+  migrateProbeDatabase,
   onDatabase,
   withDatabase,
 } from "./throwaway-database.mjs";
@@ -43,28 +44,6 @@ try {
 } catch {
   // Absent in CI, where these come from the workflow environment instead.
 }
-
-/**
- * Migrates the throwaway so the seed has tables to write into.
- *
- * The migration guard refuses only under APP_ENV=production, so a locally-named protected database
- * migrates like any other; it is the seed's identity layer, not the migrator's, under test here.
- */
-const migrate = (childUrl) => {
-  const result = spawnSync("npm", ["run", "db:migrate:guarded"], {
-    encoding: "utf8",
-    env: { ...process.env, MIGRATION_DATABASE_URL: childUrl, DATABASE_URL: childUrl },
-  });
-
-  if (result.status !== 0) {
-    throw new Error(
-      "could not migrate the probe database, so the seed would have had nothing to write into " +
-        `and the post-state would prove nothing:\n${(result.stdout ?? "") + (result.stderr ?? "")}`.slice(
-          -1200,
-        ),
-    );
-  }
-};
 
 const seedRowsWritten = async (databaseName) =>
   onDatabase(databaseName, async (sql) => {
@@ -85,7 +64,7 @@ const seedWroteInto = async (databaseName) => {
   await createProbeDatabase(databaseName);
 
   try {
-    migrate(childUrl);
+    migrateProbeDatabase(childUrl);
 
     const result = spawnSync("npm", ["run", "db:seed"], {
       encoding: "utf8",

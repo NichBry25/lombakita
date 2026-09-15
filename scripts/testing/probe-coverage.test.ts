@@ -32,6 +32,7 @@ import { probes as seedGuardProbes } from "./probes/seed-guard.mjs";
 import { probes as harnessGuardProbes } from "./probes/harness-guard.mjs";
 import { probes as registerGateProbes } from "./probes/register-gate.mjs";
 import { probes as backfillRejectedBatchProbes } from "./probes/backfill-rejected-batch.mjs";
+import { probes as priceClaimProbes } from "./probes/price-claim.mjs";
 
 const SUITES: Record<string, Probe[]> = {
   "config-gates": configGateProbes,
@@ -47,6 +48,7 @@ const SUITES: Record<string, Probe[]> = {
   "harness-guard": harnessGuardProbes,
   "register-gate": registerGateProbes,
   "backfill-rejected-batch": backfillRejectedBatchProbes,
+  "price-claim": priceClaimProbes,
 };
 
 const everyProbe: [string, Probe][] = Object.entries(SUITES).flatMap(([suite, probes]) =>

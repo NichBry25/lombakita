@@ -9,6 +9,8 @@
  * Requires a role that may CREATE DATABASE. CI's single `postgres` role is a superuser; a local
  * machine needs `ALTER ROLE <migration role> CREATEDB` once.
  */
+import { spawnSync } from "node:child_process";
+
 import postgres from "postgres";
 
 import { isLoopbackUrl, parseDatabaseHost } from "../../lib/loopback-host.mjs";
@@ -33,6 +35,12 @@ export const PROBE_DATABASES = Object.freeze({
   hostProbeTarget: "lombakita_hostprobe",
   /** Watched by the harness probes to see whether this guard let it be dropped. */
   harnessWitness: "lombakita_loopback_witness",
+  /** Carries a fixture whose copy claims a price its row does not have, with the check intact. */
+  priceClaimPremise: "lombakita_priceclaim_premise",
+  /** The same fixture, with the check deleted: the run must be free to write the lie. */
+  priceClaimRemoved: "lombakita_priceclaim_removed",
+  /** The same fixture, with the check moved above the write it checks: it must pass vacuously. */
+  priceClaimMoved: "lombakita_priceclaim_moved",
 });
 
 const PROBE_DATABASE_NAMES = Object.freeze(Object.values(PROBE_DATABASES));
@@ -153,6 +161,32 @@ export const dropProbeDatabase = async (databaseName) => {
   await onDatabase("postgres", async (sql) => {
     await sql.unsafe(`drop database if exists ${databaseName} with (force)`);
   });
+};
+
+/**
+ * Applies the migrations to a throwaway, so a probe's subject has tables to write into.
+ *
+ * The migration guard refuses only under APP_ENV=production, so a throwaway named whatever the
+ * guards under test must refuse still migrates like any other. What is under test in these suites
+ * is the identity check a seed makes before writing, not the migrator's.
+ *
+ * Lives here rather than in the suite that needed it first: a second suite needs the same
+ * migration now, and a second copy is the half of a pair that drifts (Rule 37).
+ */
+export const migrateProbeDatabase = (childUrl) => {
+  const result = spawnSync("npm", ["run", "db:migrate:guarded"], {
+    encoding: "utf8",
+    env: { ...process.env, MIGRATION_DATABASE_URL: childUrl, DATABASE_URL: childUrl },
+  });
+
+  if (result.status !== 0) {
+    throw new Error(
+      "could not migrate the throwaway, so the probe would have had nothing to write into and " +
+        `its post-state would prove nothing:\n${(result.stdout ?? "") + (result.stderr ?? "")}`.slice(
+          -1200,
+        ),
+    );
+  }
 };
 
 export const markerSurvives = async (databaseName) =>
