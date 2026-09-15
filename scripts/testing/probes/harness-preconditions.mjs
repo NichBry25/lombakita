@@ -144,7 +144,11 @@ console.log("PROCEEDED");
 const PROCEEDED = "PROCEEDED";
 
 /** The commands the refusal must name, one per lane that is missing. */
-const NAMED_COMMANDS = ["npm run db:seed:operators", "npm run db:seed:payments", "npm run db:reset"];
+const NAMED_COMMANDS = [
+  "npm run db:seed:operators",
+  "npm run db:seed:payments",
+  "npm run db:reset",
+];
 
 /**
  * A migrated throwaway with no lane rows, handed to `work`, and dropped whatever `work` does.
@@ -251,7 +255,7 @@ export const probes = [
       substituteOnce(
         PRECONDITIONS,
         "  const absence = await nothingIsListening(baseUrl, socketBudgetMs);\n" +
-          "  if (absence.absent) return { state: \"absent\", detail: absence.reason };\n",
+          '  if (absence.absent) return { state: "absent", detail: absence.reason };\n',
         SOCKET_CHECK_REMOVED,
       );
     },
@@ -282,11 +286,11 @@ export const probes = [
       // turned an earlier version of this probe green, by making the check refuse unconditionally
       // and proving the opposite of what it claimed. What has to go is the refusal, which is
       // reached by returning before it whatever the counts say.
-      substituteOnce(
-        PRECONDITIONS,
-        "  if (absent.length === 0) return;\n\n  const named = absent\n",
-        `${LANE_CHECK_REMOVED}  const named = absent\n`,
-      );
+      //
+      // The anchor is the single line the early return occupies, and deliberately no longer: an
+      // anchor spanning the line below stops matching the moment the formatter reflows that line,
+      // and a probe that cannot find its anchor has measured nothing.
+      substituteOnce(PRECONDITIONS, "  if (absent.length === 0) return;\n", LANE_CHECK_REMOVED);
     },
     detect: async () => {
       const run = await withUnseededLaneDatabase((url) =>
