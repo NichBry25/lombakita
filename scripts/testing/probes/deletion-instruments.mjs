@@ -43,7 +43,11 @@ export const probes = [
         'attributionChains("users", schemaForeignKeys(), ["cascade"])',
         'attributionChains("users", schemaForeignKeys())',
       ),
-    detect: async () => fails("npx", ["vitest", "run", TEST], /follows a non-CASCADE edge|object-key walk/),
+    // Anchored on the failure marker AND the case name. A bare `/object-key walk/` matches the
+    // describe-block prefix on the `✓` line of a test that PASSED, so the probe reported itself red
+    // while quoting a green assertion — a red for a reason other than the one claimed, which is the
+    // clause this detector exists to satisfy.
+    detect: async () => fails("npx", ["vitest", "run", TEST], /× .*builds each join from the chain/),
   },
   {
     name: "a value is searched for as the literal it is, not as a pattern",
@@ -57,7 +61,7 @@ export const probes = [
     appliedMarkers: ["ilike '%' || $1 || '%'"],
     mutate: () =>
       substituteOnce(RESIDUE, "ilike '%' || ${LIKE_LITERAL} || '%'", "ilike '%' || $1 || '%'"),
-    detect: async () => fails("npx", ["vitest", "run", TEST], /metacharacters/),
+    detect: async () => fails("npx", ["vitest", "run", TEST], /× .*metacharacters/),
   },
 ];
 
