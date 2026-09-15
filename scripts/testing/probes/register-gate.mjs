@@ -61,8 +61,14 @@ const gateRefused = (reached) => fails("npm", VERIFY, reached);
  * Inserted ABOVE an existing item rather than appended, so it lands inside a section whose
  * sub-heading already states liveness and the probe measures the anchor rule rather than the
  * census's ability to guess what an item at the end of the file is.
+ *
+ * THE ID IS OUT OF THE REGISTER'S RANGE ON PURPOSE, and it was not always. The check this probe
+ * exercises reads the live ID SET against the doc lane's committed baseline, so planting an id the
+ * register already holds adds no id and the gate answers `(0 filed)` — the probe then reports NOT
+ * PROVEN while the guard is working perfectly. A probe that names "the next free id" has a fixture
+ * that expires the moment someone files it, and this one did.
  */
-const PLANTED_ITEM = "- **LAUNCH-D99 [HIGH]** filed by the register-gate probe with no anchor.\n";
+const PLANTED_ITEM = "- **LAUNCH-D9999 [HIGH]** filed by the register-gate probe with no anchor.\n";
 
 const D47_ANCHORED = "- **LAUNCH-D47 [HIGH] → Step 7.7 Block C2.";
 const D40_ANCHORED = "- **LAUNCH-D40 [MEDIUM] → Step 7.7 Block D.**";
@@ -148,7 +154,7 @@ export const probes = [
       "filing an item with no destination, which is invisible to every anchored grep the next reader runs",
     files: [REGISTER],
     repo: DOC_LANE,
-    appliedMarkers: ["LAUNCH-D99"],
+    appliedMarkers: ["LAUNCH-D9999"],
     mutate: () => substituteOnce(REGISTER, D47_ANCHORED, PLANTED_ITEM + D47_ANCHORED),
     detect: () =>
       gateRefused(/FAIL\s+a live item filed since docs@[0-9a-f]+ names a step \(1 filed\)/),
@@ -286,9 +292,15 @@ export const probes = [
     repo: DOC_LANE,
     appliedMarkers: ["- **LAUNCH-D40 [MEDIUM] → TBD.**"],
     mutate: () => substituteOnce(REGISTER, D40_ANCHORED, "- **LAUNCH-D40 [MEDIUM] → TBD.**"),
+    // The two numbers are `\d+`. The floor moves whenever an anchored item is filed, and the
+    // measured count moves with it, so a pinned literal stops matching the gate's output — and a
+    // detector that matches nothing makes the harness THROW rather than report, which aborts the
+    // suite here and leaves every probe below it unrun. What this probe claims is the SHAPE: a
+    // rewritten anchor falls the population by exactly one and the gate names it. The floor's
+    // current value is not part of that claim.
     detect: () =>
       gateRefused(
-        /FAIL\s+20\s+live debt ids carrying an anchor that names a step and a block\s+\(down 1 — below the floor of 21\)/,
+        /FAIL\s+\d+\s+live debt ids carrying an anchor that names a step and a block\s+\(down 1 — below the floor of \d+\)/,
       ),
   },
   {

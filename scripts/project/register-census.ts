@@ -783,15 +783,15 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 38,
+    bound: 42,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "THE ONE POPULATION THAT RISES AS THE REGISTER IMPROVES, so it is held as a floor rather " +
-      "than a pin. Thirty-eight ids are anchored `→ Step 7.7 Block <X>`; nineteen more are " +
+      "than a pin. Forty-two ids are anchored `→ Step 7.7 Block <X>`; nineteen more are " +
       "anchored `→ Step 7.7.` with no block at all, which is why this number and the anchorless " +
-      "ratchet do not partition the live population — 50 anchorless plus these 38 plus those 19 " +
-      "is the 107 live ids the header prints, and the nineteen is read off that sum rather than " +
+      "ratchet do not partition the live population — 50 anchorless plus these 42 plus those 19 " +
+      "is the 111 live ids the header prints, and the nineteen is read off that sum rather than " +
       "counted a second time. What the floor catches is the direction nothing " +
       "else did: REWRITING an existing anchor to `→ TBD` leaves every other instrument at " +
       "baseline — gate (a) compares id sets and an edit is not a filing, gate (b) reads bare " +
@@ -818,7 +818,26 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "before 38 was trusted, against one of the ten new anchors: LAUNCH-D99's anchor was " +
       "reverted to a bare `→ Step 7.7.`, the gate failed `37  live debt ids carrying an anchor " +
       "that names a step and a block  (down 1 — below the floor of 38)`, and the register was " +
-      "restored from git with `git diff --quiet` asserted on it",
+      "restored from git with `git diff --quiet` asserted on it. Raised to 41 on 2026-09-16 by the " +
+      "close that filed LAUNCH-D100 through LAUNCH-D102, all three carrying `→ Step 7.7 Block C2`. " +
+      "Read off the gate's own `raise the bound to 41` rather than computed from the filings. " +
+      "Proven red at 40 before 41 was trusted, and for the first time by the PROBE rather than by a " +
+      "hand edit: `npm run verify:register-probe` rewrites LAUNCH-D40's canonical anchor to " +
+      "`→ TBD`, the gate failed `40  live debt ids carrying an anchor that names a step and a " +
+      "block  (down 1 — below the floor of 41)`, and the harness restored the register with " +
+      "`RESTORE OK (1 file(s) match HEAD)`. Every raise before that one proved the floor by hand " +
+      "because the probe could not reach a verdict at all — its detector pinned the floor's " +
+      "literals, which move with this number. Raised to 42 on 2026-09-16 by the close that filed " +
+      "LAUNCH-D103, carrying `→ Step 7.7 Block C2`. Read off the gate's own `raise the bound to " +
+      "42` rather than computed from the filing (the gate printed `anchored live 42` against " +
+      "`docs@3ef292e`). Proven red at 41 before 42 was trusted, and by the probe on a fixture that " +
+      "had by then been repaired: `npm run verify:register-probe` rewrites LAUNCH-D40's canonical " +
+      "anchor to `→ TBD` and the gate failed `41  live debt ids carrying an anchor that names a " +
+      "step and a block  (down 1 — below the floor of 42)`, with the harness restoring the " +
+      "register — `RESTORE OK (1 file(s) match HEAD)` — and reporting `14/14 probes went red as " +
+      "claimed.` The 41 raise reached only `13/14` — one probe above the anchored-floor one was " +
+      "reporting NOT PROVEN on a fixture that had expired — so 42 is the first raise proved by a " +
+      "suite that reached a verdict on every probe it declares",
   },
   {
     what: "items a discharged section declares discharged whose anchor line carries no mark",
