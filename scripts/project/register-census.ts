@@ -783,28 +783,33 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 23,
+    bound: 28,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "THE ONE POPULATION THAT RISES AS THE REGISTER IMPROVES, so it is held as a floor rather " +
-      "than a pin. Twenty-three ids are anchored `→ Step 7.7 Block <X>`; nineteen more are " +
+      "than a pin. Twenty-eight ids are anchored `→ Step 7.7 Block <X>`; nineteen more are " +
       "anchored `→ Step 7.7.` with no block at all, which is why this number and the anchorless " +
-      "ratchet do not partition the live population — 50 anchorless plus these 23 plus those 19 " +
-      "is the 92 live ids the header prints, and the nineteen is read off that sum rather than " +
+      "ratchet do not partition the live population — 50 anchorless plus these 28 plus those 19 " +
+      "is the 97 live ids the header prints, and the nineteen is read off that sum rather than " +
       "counted a second time. What the floor catches is the direction nothing " +
       "else did: REWRITING an existing anchor to `→ TBD` leaves every other instrument at " +
       "baseline — gate (a) compares id sets and an edit is not a filing, gate (b) reads bare " +
       "block anchors only, and the anchorless ratchet accepts any non-null anchor, junk included. " +
       "Measured 2026-09-14, proven red at 20 before it was trusted, and held at 19 for exactly as " +
       "long as the register held nineteen. Raised to 21 by the close that filed two anchored " +
-      "items and to 23 by the close that filed LAUNCH-D83 and LAUNCH-D84, because the floor " +
-      "follows the population up or it leaves that many anchors of slack in the one instrument " +
-      "that watches for an anchor degrading out of canonical form. Proven red at 22 on " +
+      "items, to 23 by the close that filed LAUNCH-D83 and LAUNCH-D84, and to 28 by the close " +
+      "that filed LAUNCH-D85 through LAUNCH-D89, each carrying `→ Step 7.7 Block D`, because the " +
+      "floor follows the population up or it leaves that many anchors of slack in the one " +
+      "instrument that watches for an anchor degrading out of canonical form. Proven red at 22 on " +
       "2026-09-15 before 23 was trusted, by the probe rather than by a lower bound: LAUNCH-D84's " +
       "anchor was reverted to a bare `→ Step 7.7.`, the gate failed `22  live debt ids carrying " +
       "an anchor that names a step and a block  (down 1 — below the floor of 23)`, and the " +
-      "register was then restored from git with `git diff --quiet` asserted on it",
+      "register was then restored from git with `git diff --quiet` asserted on it. Proven red at " +
+      "27 on 2026-09-15 before 28 was trusted, the same way and against one of the five new " +
+      "anchors rather than an old one: LAUNCH-D89's anchor was reverted to a bare `→ Step 7.7.` " +
+      "and the gate failed `27  live debt ids carrying an anchor that names a step and a block  " +
+      "(down 1 — below the floor of 28)`",
   },
   {
     what: "items a discharged section declares discharged whose anchor line carries no mark",
