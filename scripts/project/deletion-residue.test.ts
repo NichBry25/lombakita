@@ -147,6 +147,44 @@ describe("the object-key walk", () => {
     }
   });
 
+  it("builds each join from the chain the deletion walks, not from the shortest one that exists", () => {
+    // THE ASSERTION THE `["cascade"]` RESTRICTION FAILS, and it did not exist until a Rule 36 probe
+    // measured it: with the argument dropped from `objectKeySql`, every test in this file still
+    // passed. The check above asks whether a CASCADE chain EXISTS for each column, and one always
+    // does, so it stays green while the query underneath becomes a different one. Presence was not
+    // enforcement, and the probe is what said so.
+    //
+    // The worked case is the document a candidate uploaded. Unrestricted, the shortest chain to
+    // `competition_document_request_files` runs through the organiser who ASKED for it, on a column
+    // the deletion sets to null — so the count answers zero for every candidate who uploaded one and
+    // reports it as an account holding no files.
+    const keys = schemaForeignKeys();
+    const cascading = attributionChains("users", keys, ["cascade"]);
+    const counted = objectKeySql();
+
+    // A tripwire so the loop below cannot pass over an empty population.
+    expect(counted.length).toBeGreaterThan(0);
+
+    for (const entry of counted) {
+      const separator = entry.column.lastIndexOf(".");
+      const table = entry.column.slice(0, separator);
+      const column = entry.column.slice(separator + 1);
+      const chain = cascading.find((candidate) => candidate.table === table);
+
+      expect(chain, `${entry.column} is not reachable along CASCADE edges`).toBeDefined();
+      expect(entry.sql, `${entry.column} is counted through a chain the deletion does not walk`).toBe(
+        attributionSql(chain as Attribution, column),
+      );
+    }
+
+    // And the specific case, named, so a failure here reads as the defect rather than as a diff.
+    const documents = counted.find((entry) =>
+      entry.column.startsWith("competition_document_request_files."),
+    );
+
+    expect(documents?.sql).toContain("join competition_registrations t1 on");
+  });
+
   it("counts only rows that actually hold a key, so a null is not reported as an object", () => {
     // Without the predicate the count is the number of rows, and a candidate with a profile and no
     // avatar would be reported as holding an avatar object that no bucket contains.
