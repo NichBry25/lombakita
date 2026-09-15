@@ -7,7 +7,13 @@ import { writeFileSync, mkdirSync } from "fs";
 import { resolve } from "path";
 import { cookieHeader, elevateMfaSession, mintSession, apiFetch } from "./lib-auth.mjs";
 import { bodyHasValue, bodySnippet, errorCode, refusedWith } from "./lib-assertions.mjs";
-import { USERS, INST, COMP, REG } from "./seeds.mjs";
+import {
+  assertAppReachable,
+  assertSeedLanesPresent,
+  missingCompetitions,
+  missingPaymentProofs,
+} from "./lib-preconditions.mjs";
+import { BASE, USERS, INST, COMP, REG } from "./seeds.mjs";
 
 // Resolved from this file's own location, not hard-coded to one laptop's home directory: the
 // artifacts have to land in the repository the script is running in, wherever that is.
@@ -22,6 +28,13 @@ const record = (id, name, expected, actual, pass, note = "") => {
 };
 
 const main = async () => {
+  // Before a session is minted and before a case is measured. The reachability refusal distinguishes
+  // a dead app from a slow one; the seeding refusal asks the database, because the money-lane
+  // negatives below describe proofs and competitions that only the opt-in seeds write, and a missing
+  // one is indistinguishable at the HTTP layer from a role gate doing its job.
+  await assertAppReachable(BASE);
+  await assertSeedLanesPresent();
+
   // ---- sessions -----------------------------------------------------------
   const sessions = {};
   const sessionKeys = [

@@ -41,6 +41,8 @@ export const PROBE_DATABASES = Object.freeze({
   priceClaimRemoved: "lombakita_priceclaim_removed",
   /** The same fixture, with the check moved above the write it checks: it must pass vacuously. */
   priceClaimMoved: "lombakita_priceclaim_moved",
+  /** Migrated and empty, so the harness preconditions find none of the opt-in lanes. */
+  preconditionUnseeded: "lombakita_precondition_unseeded",
 });
 
 const PROBE_DATABASE_NAMES = Object.freeze(Object.values(PROBE_DATABASES));

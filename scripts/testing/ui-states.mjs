@@ -22,6 +22,7 @@
  */
 import { launch, contextFor, DESKTOP } from "./lib-browser.mjs";
 import { preflightOrRefuse } from "./lib-css-fingerprint.mjs";
+import { assertAppReachable, assertSeedLanesPresent } from "./lib-preconditions.mjs";
 import { BASE, COMP, INST, USERS } from "./seeds.mjs";
 
 /**
@@ -502,14 +503,6 @@ if (targets.length === 0) {
 }
 
 /**
- * Refuses to run at all when the app is not up.
- *
- * Without this the first `contextFor` throws while minting a session and the run dies with a
- * stack trace about credentials, which reads as "the seed accounts are broken", not "nothing is
- * listening on 3000". The likeliest misconfiguration by far is a forgotten dev server, so it gets
- * the one message that names itself.
- */
-/**
  * One unasserted navigation, purely to make the dev server compile the route.
  *
  * Swallows everything: a warm-up that fails is not a result. If the route is genuinely broken the
@@ -523,35 +516,15 @@ const warmRoute = async (page, path) => {
   }
 };
 
-const assertAppReachable = async () => {
-  // WARM FIRST, MEASURE SECOND, the same treatment `warmRoute` gives every case route, for the
-  // same reason. `/api/health` is a route like any other and cold-compiles on a dev server:
-  // measured at 37.5s under load against 0.5s warm, while answering `{"status":"ok"}` both times.
-  // A 10-second budget against the cold number reports a healthy app as dead, which is the exact
-  // failure this gate exists to stop someone else making.
-  await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(90_000) }).catch(() => {});
-
-  try {
-    const response = await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(10_000) });
-    // Any answer proves something is serving. `degraded` is fine: these assertions read pages,
-    // not connectors.
-    if (response.status !== 200 && response.status !== 503) {
-      throw new Error(`unexpected status ${response.status}`);
-    }
-  } catch (error) {
-    console.error(
-      `Nothing is serving ${BASE} (${String(error).slice(0, 120)}).\n` +
-        `These assertions need the app RUNNING and the matrix SEEDED:\n` +
-        `  node --import tsx scripts/seed-test-matrix.ts\n` +
-        `  npm run dev\n` +
-        `This is a FAILURE, not a skip. A UI-state harness that quietly passes when the app is ` +
-        `absent reports success for every surface it was supposed to be checking.`,
-    );
-    process.exit(1);
-  }
-};
-
-await assertAppReachable();
+// Two refusals, both before a browser is launched and before a single case is measured.
+//
+// The reachability one has to come first: it is the only check that can tell "the app is down" from
+// "the app is slow", and its refusal names `npm run dev`. The seeding one then asks the database,
+// because the money-lane cases here describe fixtures that `npm run db:reset` does not write —
+// without them 31 surfaces report missing text that reads as a product defect, and the answer is one
+// command the reader never ran.
+await assertAppReachable(BASE);
+await assertSeedLanesPresent();
 
 const browser = await launch();
 const misses = [];
