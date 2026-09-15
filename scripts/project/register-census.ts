@@ -783,15 +783,15 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 42,
+    bound: 43,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "THE ONE POPULATION THAT RISES AS THE REGISTER IMPROVES, so it is held as a floor rather " +
-      "than a pin. Forty-two ids are anchored `→ Step 7.7 Block <X>`; nineteen more are " +
+      "than a pin. Forty-three ids are anchored `→ Step 7.7 Block <X>`; nineteen more are " +
       "anchored `→ Step 7.7.` with no block at all, which is why this number and the anchorless " +
-      "ratchet do not partition the live population — 50 anchorless plus these 42 plus those 19 " +
-      "is the 111 live ids the header prints, and the nineteen is read off that sum rather than " +
+      "ratchet do not partition the live population — 50 anchorless plus these 43 plus those 19 " +
+      "is the 112 live ids the header prints, and the nineteen is read off that sum rather than " +
       "counted a second time. What the floor catches is the direction nothing " +
       "else did: REWRITING an existing anchor to `→ TBD` leaves every other instrument at " +
       "baseline — gate (a) compares id sets and an edit is not a filing, gate (b) reads bare " +
@@ -837,7 +837,14 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "register — `RESTORE OK (1 file(s) match HEAD)` — and reporting `14/14 probes went red as " +
       "claimed.` The 41 raise reached only `13/14` — one probe above the anchored-floor one was " +
       "reporting NOT PROVEN on a fixture that had expired — so 42 is the first raise proved by a " +
-      "suite that reached a verdict on every probe it declares",
+      "suite that reached a verdict on every probe it declares. Raised to 43 on 2026-09-16 by the " +
+      "Stage 9 filing of LAUNCH-D104, the privacy-policy deletion gap, which carries " +
+      "`→ Step 7.7 Block D` rather than Block C2 because it is a legal finding and belongs with " +
+      "the TRUST-D12 cluster. Read off the gate's own `raise the bound to 43` (the gate printed " +
+      "`anchored live 43` against `docs@dbcf13e`). This is the first raise whose arithmetic the " +
+      "reason string above can be checked against without running anything: 50 anchorless plus 43 " +
+      "plus 19 is the 112 the header prints, and the 19 did not move, which is what a filing " +
+      "carrying a canonical block anchor should do to this partition",
   },
   {
     what: "items a discharged section declares discharged whose anchor line carries no mark",
