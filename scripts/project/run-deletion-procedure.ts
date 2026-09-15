@@ -660,7 +660,11 @@ const demonstrateAll = async (
 
   if (baselineOut !== null) {
     const file: BaselineFile = { generatedAt: new Date().toISOString(), cases: baselines };
-    writeFileSync(resolve(process.cwd(), baselineOut), `${JSON.stringify(file, null, 2)}\n`, "utf8");
+    writeFileSync(
+      resolve(process.cwd(), baselineOut),
+      `${JSON.stringify(file, null, 2)}\n`,
+      "utf8",
+    );
     console.log(`wrote ${baselineOut}`);
   }
 };
@@ -698,7 +702,13 @@ const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection
     // The population the procedure's own description names: a candidate holding a registration, a
     // submission, a payment proof and notifications. Every clause is counted rather than assumed.
     const rows = await sql<
-      { id: string; registrations: number; submissions: number; notifications: number; proofs: number }[]
+      {
+        id: string;
+        registrations: number;
+        submissions: number;
+        notifications: number;
+        proofs: number;
+      }[]
     >`
       select
         u.id,
@@ -715,7 +725,8 @@ const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection
     `;
 
     const matching = rows.filter(
-      (row) => row.registrations > 0 && row.submissions > 0 && row.notifications > 0 && row.proofs > 0,
+      (row) =>
+        row.registrations > 0 && row.submissions > 0 && row.notifications > 0 && row.proofs > 0,
     );
 
     if (matching.length === 0) {
@@ -747,7 +758,11 @@ const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection
   }
 
   if (which === "completable") {
-    return { userId: deletable[0]!, criterion: `${base}; ties broken by lowest \`users.id\``, matched: deletable.length };
+    return {
+      userId: deletable[0]!,
+      criterion: `${base}; ties broken by lowest \`users.id\``,
+      matched: deletable.length,
+    };
   }
 
   // The two criteria below narrow the same population by what the case needs to have something to

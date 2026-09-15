@@ -47,7 +47,8 @@ export const probes = [
     // describe-block prefix on the `✓` line of a test that PASSED, so the probe reported itself red
     // while quoting a green assertion — a red for a reason other than the one claimed, which is the
     // clause this detector exists to satisfy.
-    detect: async () => fails("npx", ["vitest", "run", TEST], /× .*builds each join from the chain/),
+    detect: async () =>
+      fails("npx", ["vitest", "run", TEST], /× .*builds each join from the chain/),
   },
   {
     name: "a value is searched for as the literal it is, not as a pattern",

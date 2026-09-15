@@ -156,10 +156,7 @@ describe("the rulings cover the derived population", () => {
         expect(ruling.carries, `${ruling.store} is removed and cannot carry anything`).toEqual([]);
         continue;
       }
-      expect(
-        ruling.reason.length,
-        `${ruling.store} survives and must say why`,
-      ).toBeGreaterThan(40);
+      expect(ruling.reason.length, `${ruling.store} survives and must say why`).toBeGreaterThan(40);
     }
   });
 
@@ -342,7 +339,9 @@ describe("the stores outside Postgres", () => {
   it("answers every non-Postgres store individually, reached or not", () => {
     for (const store of EXTERNAL_STORES) {
       expect(store.reason.length, `${store.store} must say why`).toBeGreaterThan(40);
-      expect(store.address.length, `${store.store} must say how it is addressed`).toBeGreaterThan(0);
+      expect(store.address.length, `${store.store} must say how it is addressed`).toBeGreaterThan(
+        0,
+      );
     }
 
     // The stores that are NOT reached are the ones the policy statement has to name, so they are

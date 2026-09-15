@@ -10,7 +10,12 @@
 // is run.
 
 import { describe, expect, it } from "vitest";
-import { cascadeClosure, R2_PREFIXES, schemaForeignKeys, schemaTextColumns } from "./deletion-census";
+import {
+  cascadeClosure,
+  R2_PREFIXES,
+  schemaForeignKeys,
+  schemaTextColumns,
+} from "./deletion-census";
 import {
   attributionChains,
   attributionPath,
@@ -172,9 +177,10 @@ describe("the object-key walk", () => {
       const chain = cascading.find((candidate) => candidate.table === table);
 
       expect(chain, `${entry.column} is not reachable along CASCADE edges`).toBeDefined();
-      expect(entry.sql, `${entry.column} is counted through a chain the deletion does not walk`).toBe(
-        attributionSql(chain as Attribution, column),
-      );
+      expect(
+        entry.sql,
+        `${entry.column} is counted through a chain the deletion does not walk`,
+      ).toBe(attributionSql(chain as Attribution, column));
     }
 
     // And the specific case, named, so a failure here reads as the defect rather than as a diff.

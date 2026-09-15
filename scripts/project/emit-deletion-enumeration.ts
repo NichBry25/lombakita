@@ -229,7 +229,13 @@ export const renderEnumeration = (): string => {
     `Prefixes it does not: **${R2_PREFIXES.filter((entry) => !entry.reachedByDeletion).length}**.`,
     "",
     table(
-      ["prefix", "scope", "reached by a deletion", "object key recorded in", "how a deletion reaches it"],
+      [
+        "prefix",
+        "scope",
+        "reached by a deletion",
+        "object key recorded in",
+        "how a deletion reaches it",
+      ],
       R2_PREFIXES.map((entry) => [
         `\`${entry.prefix}\``,
         entry.scope,
@@ -243,7 +249,7 @@ export const renderEnumeration = (): string => {
     "",
     "`reached by a deletion` is declared, not derived from `scope`, because they are different",
     "questions: `payment-proofs` is scoped to a competition and is still not reached. A `no` is not",
-    "\"unimportant\" either, and the two reasons for one are opposite. Institution-scoped objects",
+    '"unimportant" either, and the two reasons for one are opposite. Institution-scoped objects',
     "belong to a tenant that outlives the user. Payment proofs are the ledger's evidence, on rows",
     "DEC-0133 forbids deleting, so removing the image would destroy what the surviving row points at.",
     "",
@@ -308,7 +314,9 @@ const main = (): void => {
 
   if (check) {
     if (existing !== rendered) {
-      console.error(`the deletion enumeration at ${ARTIFACT_PATH} is stale — re-run without --check`);
+      console.error(
+        `the deletion enumeration at ${ARTIFACT_PATH} is stale — re-run without --check`,
+      );
       process.exitCode = 1;
       return;
     }

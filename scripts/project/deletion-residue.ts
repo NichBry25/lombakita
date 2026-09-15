@@ -53,7 +53,7 @@ import {
   schemaTextColumns,
   schemaTableNames,
 } from "./deletion-census";
-import type { ForeignKey, ReferentialAction } from "./deletion-census";
+import type { ReferentialAction } from "./deletion-census";
 
 /** One hop of a join from `users` to a table that carries rows about a user. */
 export type AttributionStep = {
@@ -518,7 +518,9 @@ const renderCaseVerification = (label: string, report: ResidueReport): string[] 
 };
 
 /** The verification, as a document. Every line of it is written here. */
-export const renderVerification = (entries: readonly { label: string; report: ResidueReport }[]): string => {
+export const renderVerification = (
+  entries: readonly { label: string; report: ResidueReport }[],
+): string => {
   const first = entries[0]!.report;
 
   const lines: string[] = [

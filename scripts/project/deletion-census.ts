@@ -42,12 +42,7 @@ import * as schema from "@/server/db/schema";
 const TABLE_NAME = Symbol.for("drizzle:Name");
 
 /** The `ON DELETE` actions Postgres recognises, lowercased as Drizzle writes them. */
-export type ReferentialAction =
-  | "cascade"
-  | "set null"
-  | "set default"
-  | "restrict"
-  | "no action";
+export type ReferentialAction = "cascade" | "set null" | "set default" | "restrict" | "no action";
 
 /** One foreign key, as the schema declares it. */
 export type ForeignKey = {
@@ -344,8 +339,9 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     scope: "user",
     module: "src/server/user-profile/profile-files-service.ts",
     keyColumns: ["user_profiles.avatar_r2_key"],
-    reachedBy: "the user id in the prefix; the key in `user_profiles` is the exact form, and that "
-      + "row is inside the closure, so the key must be read before the delete",
+    reachedBy:
+      "the user id in the prefix; the key in `user_profiles` is the exact form, and that " +
+      "row is inside the closure, so the key must be read before the delete",
     reason: "profile photo, keyed by the owning user",
   },
   {
@@ -354,9 +350,11 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     scope: "user",
     module: "src/server/user-profile/profile-files-service.ts",
     keyColumns: ["user_profiles.banner_r2_key"],
-    reachedBy: "the user id in the prefix, or the key in `user_profiles` — closure row, read it first",
-    reason: "profile banner, keyed by the owning user; the institution owner's banner also renders "
-      + "on their institution's public page",
+    reachedBy:
+      "the user id in the prefix, or the key in `user_profiles` — closure row, read it first",
+    reason:
+      "profile banner, keyed by the owning user; the institution owner's banner also renders " +
+      "on their institution's public page",
   },
   {
     prefix: "resumes/{userId}/",
@@ -364,7 +362,8 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     scope: "user",
     module: "src/server/user-profile/profile-files-service.ts",
     keyColumns: ["user_profiles.resume_r2_key"],
-    reachedBy: "the user id in the prefix, or the key in `user_profiles` — closure row, read it first",
+    reachedBy:
+      "the user id in the prefix, or the key in `user_profiles` — closure row, read it first",
     reason: "CV, keyed by the owning user",
   },
   {
@@ -373,8 +372,9 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     scope: "user",
     module: "src/server/user-profile/profile-files-service.ts",
     keyColumns: ["profile_certifications.file_r2_key"],
-    reachedBy: "the user id in the prefix, or the key on each `profile_certifications` row — closure "
-      + "rows, so a prefix listing under the user id is the only route that survives deleting first",
+    reachedBy:
+      "the user id in the prefix, or the key on each `profile_certifications` row — closure " +
+      "rows, so a prefix listing under the user id is the only route that survives deleting first",
     reason: "certification scans, keyed by the owning user",
   },
   {
@@ -383,8 +383,9 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     scope: "user",
     module: "src/server/recruiter-verification/recruiter-verification-service.ts",
     keyColumns: ["recruiter_verification_documents.r2_key"],
-    reachedBy: "the user id in the prefix, or the key on each document row — closure rows, and the "
-      + "submissionId segment is not recorded anywhere else once they are gone",
+    reachedBy:
+      "the user id in the prefix, or the key on each document row — closure rows, and the " +
+      "submissionId segment is not recorded anywhere else once they are gone",
     reason: "identity documents a recruiter uploaded to verify; the most sensitive objects here",
   },
   {
@@ -393,9 +394,11 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     scope: "registration",
     module: "src/server/submissions/submission-service.ts",
     keyColumns: ["competition_submissions.file_key"],
-    reachedBy: "the key on the submission row — a closure row — or a prefix listing, which needs "
-      + "the competition id and the registration id read before either row is deleted",
-    reason: "competition entry files; keyed by registration, reached through the user's registration",
+    reachedBy:
+      "the key on the submission row — a closure row — or a prefix listing, which needs " +
+      "the competition id and the registration id read before either row is deleted",
+    reason:
+      "competition entry files; keyed by registration, reached through the user's registration",
   },
   {
     prefix: "registration-documents/{competitionId}/{registrationId}/{requestId}/",
@@ -403,8 +406,9 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     scope: "registration",
     module: "src/server/registration-documents/registration-document-service.ts",
     keyColumns: ["competition_document_request_files.r2_key"],
-    reachedBy: "the key on each file row — closure rows — or a prefix listing, which needs the "
-      + "request ids read before the rows that carry them are deleted",
+    reachedBy:
+      "the key on each file row — closure rows — or a prefix listing, which needs the " +
+      "request ids read before the rows that carry them are deleted",
     reason: "documents an organiser requested from a participant and the participant uploaded",
   },
   {
@@ -416,10 +420,12 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
       "finance_manual_payment_proofs.r2_key",
       "finance_manual_payment_proof_attempts.r2_key",
     ],
-    reachedBy: "the key on the proof row — which DEC-0133 forbids deleting, so the objects are "
-      + "exactly addressable AND permanently undeletable by a procedure that respects the ledger",
-    reason: "bukti transfer images; the key is recorded on rows that survive, which is what makes "
-      + "them reachable and what makes them impossible to remove",
+    reachedBy:
+      "the key on the proof row — which DEC-0133 forbids deleting, so the objects are " +
+      "exactly addressable AND permanently undeletable by a procedure that respects the ledger",
+    reason:
+      "bukti transfer images; the key is recorded on rows that survive, which is what makes " +
+      "them reachable and what makes them impossible to remove",
   },
   {
     prefix: "payment-instructions/{institutionId}/",
@@ -454,7 +460,8 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     scope: "institution",
     module: "src/server/institution-verification/submission-service.ts",
     keyColumns: ["institution_verification_documents.r2_key"],
-    reachedBy: "nothing — institution-scoped; the rows survive a user deletion and so do the objects",
+    reachedBy:
+      "nothing — institution-scoped; the rows survive a user deletion and so do the objects",
     reason: "institution legal documents; institution-scoped",
   },
 ]);
@@ -485,8 +492,9 @@ export const EXTERNAL_STORES: readonly ExternalStore[] = Object.freeze([
   },
   {
     store: "Redis rate-limit counters",
-    address: "rl:identify: · rl:login-fail: · rl:register: · rl:register-resend-ip: · "
-      + "rl:verify-email-addr: · rl:mfa:",
+    address:
+      "rl:identify: · rl:login-fail: · rl:register: · rl:register-resend-ip: · " +
+      "rl:verify-email-addr: · rl:mfa:",
     scope: "user",
     reached: false,
     reason:
@@ -720,14 +728,7 @@ export const TABLE_RULINGS: readonly StoreRuling[] = Object.freeze([
   {
     store: "institutions",
     survival: "detached",
-    carries: [
-      "slug",
-      "description",
-      "about",
-      "contact_name",
-      "contact_email",
-      "contact_phone",
-    ],
+    carries: ["slug", "description", "about", "contact_name", "contact_email", "contact_phone"],
     reason:
       "THE TENANT ANCHOR, and the one survivor no foreign key can reach: `institutions` declares NO " +
       "foreign key to `users` at all. Its owner is a membership row, the membership cascades, and " +
