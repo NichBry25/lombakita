@@ -817,7 +817,19 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "from the drift a floor guards against: a fall by discharge is a measured population leaving, " +
       "not coverage being lost. Read off the gate's own `lower the literal to 48` rather than " +
       "computed, and the two ids are individually checkable at :4339 and :4387. The partition is " +
-      "now 48 anchorless plus 51 canonical plus 19 partial = the 118 the header prints",
+      "now 48 anchorless plus 57 canonical plus 17 partial = the 122 the header prints. THIS " +
+      "SENTENCE WAS TWO CLOSES STALE AND IS CORRECTED AT BLOCK C2'S STAGE 1 (2026-09-16), which is " +
+      "the follow-through on the close that read the other literal off the gate's output and left " +
+      "this one under a one-obligation scope. It said `48 plus 51 plus 19 = 118` while the header " +
+      "had already printed 123, so a reader meeting the partition here was being handed a sum that " +
+      "had not been true since two closes earlier — the failure this whole reason string exists to " +
+      "prevent, committed inside the instrument that prevents it. The partition moved in TWO " +
+      "DIRECTIONS at this close for the first time: 48 anchorless plus 56 canonical plus 19 " +
+      "partial = 123 before, 122 after. LAUNCH-D118 was filed carrying `→ Step 7.7 Block D`, which " +
+      "is the canonical term's one gain; BETA-D17 and BETA-D28 were marked `· DISCHARGED " +
+      "2026-09-16, PARTIAL` on their anchor lines, which took both out of the live population and " +
+      "is the partial term's loss of two. The anchorless term did not move, and a reader checking " +
+      "this sentence against the header sees 122 and can decompose it the same way",
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
