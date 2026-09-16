@@ -112,8 +112,10 @@ const DISCHARGED_SECTION = /^### Discharged\b/;
  *
  * WHAT THIS COSTS, stated rather than implied: a genuinely mistyped register id written inside a
  * `Learnings` subsection is not counted and not reported. The exclusion is a hole of exactly that
- * shape and no larger, and `scripts/testing/probes/census-learnings-exclusion.mjs` demonstrates both
- * of its edges.
+ * shape and no larger, and the probe `the Learnings exclusion is exactly one bullet wide` in
+ * `scripts/testing/probes/register-gate.mjs` demonstrates both of its edges in one run: it plants a
+ * mistyped id in a live section and another inside a `Learnings` subsection, and requires the count
+ * to move by exactly one.
  */
 const LEARNINGS_SECTION = /^### Learnings\b/;
 
