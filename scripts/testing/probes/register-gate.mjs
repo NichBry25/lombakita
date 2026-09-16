@@ -198,7 +198,7 @@ export const probes = [
     mutate: () => substituteOnce(REGISTER, BETA_D29_MARKED, "- **BETA-D29 [LOW]** → Step 7.7."),
     detect: () =>
       gateRefused(
-        /FAIL\s+3\s+items a discharged section declares discharged whose anchor line carries no mark/,
+        /FAIL\s+\d+\s+items a discharged section declares discharged whose anchor line carries no mark\s+\(up 1\)/,
       ),
   },
   {

@@ -821,7 +821,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 56,
+    bound: 57,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
@@ -916,23 +916,60 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "anchorless plus 56 here plus 19 partial = the 123 the " +
       "header prints, and the 19 has not moved across any of the three closes a reader can " +
       "check against this string without running anything — which is also, per LAUNCH-D113, " +
-      "the tell that the 19 is not measured at all but subtracted",
+      "the tell that the 19 is not measured at all but subtracted" +
+      ". RAISED FROM 56 TO 57 AT BLOCK C2'S STAGE 1 (2026-09-16) by the filing of LAUNCH-D118, " +
+      "which carries `→ Step 7.7 Block D`. Read off the gate's own `raise the bound to 57` rather " +
+      "than computed from the filing. **THE PARTITION MOVED IN TWO DIRECTIONS AT ONCE, which no " +
+      "close before this one had done**: 48 anchorless plus 57 here plus 17 partial = the 122 the " +
+      "header prints. This floor rose by one for the filing, and the partial term fell from 19 to " +
+      "17 because the same close marked BETA-D17's and BETA-D28's anchor lines `· DISCHARGED` and " +
+      "both were carried on `→ Step 7.7.` with no block — the partial term is the one class a " +
+      "discharge can move, and this is the first close to move it. The 19 was subtracted rather " +
+      "than measured, per LAUNCH-D113; the 17 is the same subtraction over two fewer live ids and " +
+      "is no more measured than the 19 was, so the first close to move it moved a number no " +
+      "instrument computes" +
+      ". PROVEN RED AT 56 BEFORE 57 WAS TRUSTED, by the probe rather than by a hand edit, which " +
+      "makes this the second consecutive raise proved by the suite: " +
+      "`npm run verify:register-probe` rewrites LAUNCH-D40's canonical anchor to `→ TBD`, the gate " +
+      "failed `56  live debt ids carrying an anchor that names a step and a block  (down 1 — below " +
+      "the floor of 57)`, and the harness restored the register with `RESTORE OK (1 file(s) match " +
+      "HEAD)`, reporting `15/15 probes went red as claimed.` This raise needed no probe edit, " +
+      "because this floor's detector already reads its bound as `\\d+` rather than pinning it",
   },
   {
     what: "items a discharged section declares discharged whose anchor line carries no mark",
-    bound: 2,
+    bound: 0,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
-      "PINNED AT TWO, NOT AT ZERO, and the two are a finding rather than a tolerance. BETA-D17 and " +
-      "BETA-D28 each have an entry under a discharge section AND an anchor line under `### Open` " +
-      "carrying no mark, so the register contradicts itself about both: the same id is filed as " +
-      "discharged in one place and as live in another. Both severities read PARTIAL — BETA-D17's " +
-      "DOMAIN MOVE is deferred to Block D, BETA-D28 is `[PARTIAL → minimum surfacing landed]` — so " +
-      "marking either anchor line DISCHARGED would delete live deferred work from the live " +
-      "population, which is the defect the mark exists to make visible. The repair is a ruling on " +
-      "which of the two entries is wrong, not a transcription. Three of the five items this was " +
-      "expected to clear were unambiguous and are marked; these two were not",
+      "LOWERED FROM TWO TO ZERO AT BLOCK C2'S STAGE 1 (2026-09-16), ON THE OWNER'S RULING, and the " +
+      "pin it replaces is worth keeping because the argument it made has not been answered — it " +
+      "has been overruled. It was pinned at two for three closes: BETA-D17 and BETA-D28 each had " +
+      "an entry under a discharge section AND an anchor line under `### Open` carrying no mark, so " +
+      "the register contradicted itself about both, filing the same id as discharged in one place " +
+      "and as live in another. The pin's own reason argued against marking them — both anchor " +
+      "lines carried deferred work, BETA-D17's DOMAIN MOVE and BETA-D28's remaining surfacing, and " +
+      "marking either would delete that work from the live population, which is the defect the " +
+      "mark exists to make visible — and recommended a ruling on which of the two entries was " +
+      "wrong rather than a transcription. **The ruling is that both are discharged.** Both anchor " +
+      "lines now carry `· DISCHARGED 2026-09-16, PARTIAL`, and the PARTIAL qualifier is where the " +
+      "surviving work is named. **That qualifier is load-bearing and nothing in this census " +
+      "enforces it**: with the marks in place neither id is live, so the deferred remainder is " +
+      "recorded by its `### Discharged` entry and by nothing else — no population here counts a " +
+      "discharge-section entry, so a close that swept one would be sweeping the only record of " +
+      "that work without failing anything. Measured value 0, read off this gate's own " +
+      "`lower the literal to 0` rather than computed by subtracting two from the pin" +
+      ". THE PROBE WAS REPAIRED IN THE SAME CHANGE, and that repair is the evidence this " +
+      "obligation is still live at a bound of zero. Its detector had pinned the measured VALUE — " +
+      "`FAIL\\s+3` — which was the pin plus one, so the mutation stopped producing the asserted " +
+      "string the moment the register moved and the probe reported no verdict at all. It now reads " +
+      "`FAIL\\s+\\d+\\s+items a discharged section declares discharged whose anchor line carries " +
+      "no mark\\s+\\(up 1\\)`: the obligation named, the direction, and that the mutation moved it " +
+      "by exactly one, with the count left to the register. `npm run verify:register-probe` strips " +
+      "BETA-D29's mark, the gate failed `1  items a discharged section declares discharged whose " +
+      "anchor line carries no mark  (up 1)`, the harness restored the register with " +
+      "`RESTORE OK (1 file(s) match HEAD)`, and the suite reported `15/15 probes went red as " +
+      "claimed.`",
   },
   {
     what: NON_REGISTER_ID_BULLETS,
