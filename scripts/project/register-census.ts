@@ -817,7 +817,11 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "from the drift a floor guards against: a fall by discharge is a measured population leaving, " +
       "not coverage being lost. Read off the gate's own `lower the literal to 48` rather than " +
       "computed, and the two ids are individually checkable at :4339 and :4387. The partition is " +
-      "now 48 anchorless plus 57 canonical plus 17 partial = the 122 the header prints. THIS " +
+      "now 48 anchorless plus 58 canonical plus 17 partial = the 123 the header prints. LAUNCH-D119 " +
+      "was filed after this sentence was corrected and moved the canonical term by one, which is " +
+      "this obligation's own item demonstrated on its own correction: the class it files is that a " +
+      "reason string cannot be kept true by hand, because the close that files an item is the close " +
+      "that invalidates the partition sentence it just wrote. THIS " +
       "SENTENCE WAS TWO CLOSES STALE AND IS CORRECTED AT BLOCK C2'S STAGE 1 (2026-09-16), which is " +
       "the follow-through on the close that read the other literal off the gate's output and left " +
       "this one under a one-obligation scope. It said `48 plus 51 plus 19 = 118` while the header " +
@@ -833,16 +837,29 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 57,
+    bound: 58,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "THE ONE POPULATION THAT RISES AS THE REGISTER IMPROVES, so it is held as a floor rather " +
-      "than a pin. Fifty ids are anchored `→ Step 7.7 Block <X>`; nineteen more are " +
+      "than a pin. Fifty-eight ids are anchored `→ Step 7.7 Block <X>`; seventeen more are " +
       "anchored `→ Step 7.7.` with no block at all, which is why this number and the anchorless " +
-      "ratchet do not partition the live population — 50 anchorless plus these 50 plus those 19 " +
-      "is the 119 live ids the header prints, and the nineteen is read off that sum rather than " +
-      "counted a second time. What the floor catches is the direction nothing " +
+      "ratchet do not partition the live population — 48 anchorless plus these 58 plus those 17 " +
+      "is the 123 live ids the header prints, and the seventeen is read off that sum rather than " +
+      "counted a second time. THIS SENTENCE HAS NOW BEEN CORRECTED TWICE IN ONE STAGE, and the " +
+      "second correction is LAUNCH-D119's item demonstrated on this string: it read `these 57 … " +
+      "the 122 the header prints` for the minutes between its correction and the filing of " +
+      "LAUNCH-D119, which carries `→ Step 7.7 Block D` and moved the canonical term by one. That " +
+      "is the class, stated as a measurement rather than an argument — the act of filing an item " +
+      "is the act of invalidating the sentence describing the population it joins, and no amount " +
+      "of care on the writer's part closes that, because the writer is the one doing both. THE " +
+      "TWO COUNTS BEFORE THE PARTITION WERE CORRECTED AT BLOCK C2'S " +
+      "STAGE 1 (2026-09-16), in the same change as the partition itself, because they are one " +
+      "sentence and correcting half of it leaves it contradicting itself five words apart. It " +
+      "opened `Fifty ids are anchored … nineteen more are anchored`, which summed against a 48 " +
+      "to a header printing 122: the first two numbers a reader meets in this reason string were " +
+      "the stale ones, which is the worse half of the defect the partition correction below " +
+      "names. What the floor catches is the direction nothing " +
       "else did: REWRITING an existing anchor to `→ TBD` leaves every other instrument at " +
       "baseline — gate (a) compares id sets and an edit is not a filing, gate (b) reads bare " +
       "block anchors only, and the anchorless ratchet accepts any non-null anchor, junk included. " +
@@ -946,7 +963,18 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "failed `56  live debt ids carrying an anchor that names a step and a block  (down 1 — below " +
       "the floor of 57)`, and the harness restored the register with `RESTORE OK (1 file(s) match " +
       "HEAD)`, reporting `15/15 probes went red as claimed.` This raise needed no probe edit, " +
-      "because this floor's detector already reads its bound as `\\d+` rather than pinning it",
+      "because this floor's detector already reads its bound as `\\d+` rather than pinning it" +
+      ". RAISED FROM 57 TO 58 IN THE SAME CLOSE THAT FILED LAUNCH-D119, by the filing itself, " +
+      "which carries `→ Step 7.7 Block D`. Read off the gate's own `raise the bound to 58` — the " +
+      "gate printed `PASS  58  live debt ids carrying an anchor that names a step and a block  " +
+      "(up 1 — raise the bound to 58)` against a bound of 57 — rather than computed from the " +
+      "filing. This is the third consecutive raise taken off the gate's own hint and the first " +
+      "taken in the same change that corrected the partition it belongs to: the correction and " +
+      "the filing invalidated each other, and the ordering that resolves it is that the bound " +
+      "follows the measurement, never the measurement the bound. A floor left at 57 against a " +
+      "measured 58 is one unit of slack in the one instrument that watches for an anchor " +
+      "degrading out of canonical form, and one unit of slack is the Phase 4 finding this floor " +
+      "exists downstream of",
   },
   {
     what: "items a discharged section declares discharged whose anchor line carries no mark",
