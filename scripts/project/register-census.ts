@@ -799,18 +799,29 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
     // id, so a literal reading "50" is 50 of two different things depending on which the reader
     // assumed, and the pair (50 ids / 53 entries) is reported together for that reason.
     what: "distinct live debt ids carrying no anchor at all",
-    bound: 50,
+    bound: 48,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "mostly the Step 7.1 and 6.5.INFRA sections, filed before anchoring was practised, plus the " +
       "items the Block C Phase 1 depth review filed without one. Anchoring an item lowers this and " +
       "nothing raises it except a deliberate edit to this literal; an item filed without an anchor " +
-      "in a live section fails the close that files it, so the population should now only shrink",
+      "in a live section fails the close that files it, so the population should now only shrink. " +
+      "Lowered from 50 to 48 on 2026-09-16, and the reason matters more than the number: it fell by " +
+      "DISCHARGE, not by drift. A discharged item leaves the live population, so it leaves this " +
+      "one, and that is a second way down that the paragraph above did not name — it described " +
+      "anchoring as the only repair. What happened is that LAUNCH-D59 and LAUNCH-D61 each carry a " +
+      "discharged reporting entry AND an unmarked original, and until this close only the reporting " +
+      "entry was marked, so the originals were still counted here while the register read as though " +
+      "they were closed. Marking the originals moved this literal, which is the opposite direction " +
+      "from the drift a floor guards against: a fall by discharge is a measured population leaving, " +
+      "not coverage being lost. Read off the gate's own `lower the literal to 48` rather than " +
+      "computed, and the two ids are individually checkable at :4339 and :4387. The partition is " +
+      "now 48 anchorless plus 51 canonical plus 19 partial = the 118 the header prints",
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 51,
+    bound: 56,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
@@ -881,7 +892,31 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "worth keeping: seven of them came from a review of work that had already passed its own " +
       "gate, which is what the floor is for — it follows the register up or it leaves that many " +
       "anchors of slack in the instrument that watches for an anchor degrading out of canonical " +
-      "form",
+      "form" +
+      ". UNMOVED BY THE FIVE MARKS OF THE 2026-09-16 CLOSE, AND THAT IS THE FINDING RATHER THAN " +
+      "AN OMISSION. " +
+      "The " +
+      "close discharged five ids and this floor was expected to fall; it did not move, and the " +
+      "reason is that not one of the five could reach it. LAUNCH-D59 and LAUNCH-D61 are ANCHORLESS " +
+      "— both their entries carry no `→` at all, which is why they landed on the anchorless " +
+      "literal instead, at :4339 and :4387. LAUNCH-D70, LAUNCH-D75 and LAUNCH-D76 do carry " +
+      "canonical anchors and are the three that could plausibly have moved this number, but they " +
+      "sit in the Block C Phase 2 block, which holds no `###` subsection the census reads as " +
+      "live, so no mark on them can move any population. Marking them was still done and is still " +
+      "correct: an item excluded from every population by its block's shape rather than by its " +
+      "own line is excluded by accident, and correctness that rests on an accident is not " +
+      "correctness. " +
+      "RAISED FROM 51 TO 56 BY THE SAME CLOSE'S FIVE FILINGS, and the two moves are worth keeping " +
+      "apart: the marks moved nothing, because none of the five discharged ids could reach this " +
+      "population, and the filings moved it by exactly five, because LAUNCH-D113 through " +
+      "LAUNCH-D117 each carry `→ Step 7.7 Block D`. Read off the gate's own `raise the bound to " +
+      "56` rather than computed. A floor that rises with the register is the floor working; a " +
+      "floor that had fallen for the marks would have been a floor weakened by a discharge, " +
+      "which is the direction this reason exists to make legible. The partition is now 48 " +
+      "anchorless plus 56 here plus 19 partial = the 123 the " +
+      "header prints, and the 19 has not moved across any of the three closes a reader can " +
+      "check against this string without running anything — which is also, per LAUNCH-D113, " +
+      "the tell that the 19 is not measured at all but subtracted",
   },
   {
     what: "items a discharged section declares discharged whose anchor line carries no mark",
@@ -941,13 +976,23 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "decision-log rows a blank line left outside every table",
-    bound: 96,
+    bound: 100,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
-      "one blank line at :369 ends the seeded-decisions table, so DEC-0115 onward stop rendering as " +
+      "one blank line at :373 ends the seeded-decisions table, so DEC-0115 onward stop rendering as " +
       "rows and become pipe-delimited paragraphs. They still grep, which is what makes this quiet; " +
-      "the number counts rows, not the one cause, so removing the blank line takes it to zero",
+      "the number counts rows, not the one cause, so removing the blank line takes it to zero. " +
+      "Raised from 96 to 100 on 2026-09-16 by the one cause moving four rows further down, NOT by " +
+      "four new orphans: this close appended four seeded rows below the break and the blank line " +
+      "shifted from :369 to :373 for the unrelated reason that the same close appended four rows to " +
+      "the Index above it. Every one of the hundred is still accounted for by that single blank line, " +
+      "and the check the number does perform is unchanged — it is an exact bound, so it fails if " +
+      "anything ADDS an orphan somewhere else in the log. Read off the gate's own `(up 4)` rather " +
+      "than computed. The repair remains the one-line deletion the paragraph above names, and it is " +
+      "owed: a hundred of this log's two hundred and five seeded rows — DEC-0115 through DEC-0215, " +
+      "every decision taken since 2026-07-27 — do not render as a table today, and the seeded table " +
+      "is the half of the log that carries the rationales",
   },
   {
     what: "decision-log rows written on another record's line instead of below it",
@@ -997,14 +1042,19 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "decision-log Supersedes cells holding nothing but an id",
-    bound: 1,
+    bound: 2,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "THE COVERAGE OF THE THREE OBLIGATIONS ABOVE, pinned so it cannot shrink unremarked: they " +
-      "examine 1 cell of the column's 204, so losing that cell would take them from asserting over " +
-      "a population of one to asserting over nothing, which is a green instrument watching an empty " +
-      "set. Extending the reading to the 203 prose cells is parser work over a column whose " +
+      "examine 2 cells of the column's 205, so losing those cells would take them from asserting " +
+      "over " +
+      "a population of two to asserting over nothing, which is a green instrument watching an empty " +
+      "set. Raised from 1 to 2 on 2026-09-16 by the close that appended DEC-0213, whose Supersedes " +
+      "cell holds the bare id `DEC-0201` — a DECIDED supersession rather than a prose one, and the " +
+      "first row in the log to name a lower id in this column than its own, so it raises no " +
+      "direction finding. Read off the gate's own `raise the bound to 2` rather than computed. " +
+      "Extending the reading to the 203 prose cells is parser work over a column whose " +
       "direction is itself unruled — building coverage before the direction is decided would make " +
       "an instrument that enforces an ambiguity — so that happens when the direction ruling lands, " +
       "and this floor is what holds the ground in the meantime",
