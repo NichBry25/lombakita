@@ -95,6 +95,29 @@ const LIVE_SECTION = /^### (Open|Still open|New)\b/;
 const DISCHARGED_SECTION = /^### Discharged\b/;
 
 /**
+ * A `Learnings` subsection, which files prose lessons rather than debt items.
+ *
+ * Its bullets never carried ids and were never meant to, so reading their head token as a failed id
+ * measures the punctuation each one happens to open with: a bullet opening `- **A guard whose …` is
+ * read and counted, one opening ``- **`railway run` borrows …`` is not, and the difference says
+ * nothing about either. The section KIND is the test rather than a list of headings, so a new
+ * `Learnings` subsection is covered the day it is written.
+ *
+ * THE NAME IS DELIBERATELY NARROW. This matches `Learnings` and nothing else, and `Learnings` is not
+ * the register's only narrative subsection: `Repository hygiene, filed at the REPO-D4 move`, `Two
+ * declared absences`, `Fixed in-step after depth review`, `Two findings the step was not looking
+ * for` and `Three traps, recorded so they are not re-run` all file prose bullets too, and seven of
+ * them are still counted for opening with a bare word. Calling this `NARRATIVE_SECTION` would claim
+ * a population it does not cover, which is the defect the count exists to expose.
+ *
+ * WHAT THIS COSTS, stated rather than implied: a genuinely mistyped register id written inside a
+ * `Learnings` subsection is not counted and not reported. The exclusion is a hole of exactly that
+ * shape and no larger, and `scripts/testing/probes/census-learnings-exclusion.mjs` demonstrates both
+ * of its edges.
+ */
+const LEARNINGS_SECTION = /^### Learnings\b/;
+
+/**
  * The register's item-level disposition mark — one mark, not a list of words.
  *
  * The words are unusable as a signal because the register's evidence prose uses them while
@@ -214,7 +237,9 @@ function censusRegister(text: string, file: string): RegisterWalk {
     const [matched, id, severity] = head;
     if (matched === undefined || id === undefined) continue;
     if (!REGISTER_ID.test(id)) {
-      skipped.push({ id, line });
+      if (!LEARNINGS_SECTION.test(section)) {
+        skipped.push({ id, line });
+      }
       continue;
     }
 
@@ -783,7 +808,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 50,
+    bound: 51,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
@@ -874,7 +899,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: NON_REGISTER_ID_BULLETS,
-    bound: 32,
+    bound: 25,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
@@ -882,11 +907,22 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "`- **TRAP-1: …` or `- **INCIDENT-2026-07-16 …` is read by the head matcher and then dropped " +
       "because the token is not a `<name>-D<n>` or `<name>-T<n>` id, so a mistyped id vanishes from " +
       "every population without saying so and this count is the only place it appears. Refusing is " +
-      "not available: these 32 are in the register as it stands, so a census that refused them " +
-      "could not be green on the file it is written over. A 33rd fails a close and names itself. " +
-      "Which of the 32 are review-finding labels that legitimately are not register ids, and which " +
-      "are ids typed wrong, is a real question and is filed separately in open-debt.md — this " +
-      "literal holds the count until that ruling lands, and moves with it when it does",
+      "not available: these 25 are in the register as it stands, so a census that refused them " +
+      "could not be green on the file it is written over. A 26th fails a close and names itself. " +
+      "WHAT THE 25 CONSIST OF, measured rather than assumed: 18 are id-shaped labels from series " +
+      "the register does not own (C1, M1 / M3, S5, T1, SCH2, SCH4, TRAP-1, TRAP-2, INFER-1, " +
+      "INFER-2, INCIDENT-2026-07-16, DEPLOY-DEBT-1, 6.5e-Sec-I1, 6.5f.1-S2, DOC-RESID-4, " +
+      "DOC-RESID-6, DOC-RESID-7 and the like), which is the population this count was written for. " +
+      "THE OTHER 7 ARE NOT LABELS AT ALL — they are prose sentences counted for opening with a " +
+      "bare word: `Fresh debt-id census …`, `Rule 31 — deploy environment gate …`, " +
+      "`Guarded-surface tripwire …`, three opening `The …`, and `Vercel Deployment Protection does " +
+      "not answer 401.` They sit in narrative subsections the way the `Learnings` bullets did, and " +
+      "they survive only because `Learnings` is the one narrative kind excluded by section " +
+      "structure. That is the same accident this exclusion removed, not a different one, and it is " +
+      "named here rather than fixed because which narrative subsections the register recognises is " +
+      "a convention question. Which of the remaining 18 are legitimate foreign labels and which " +
+      "are ids typed wrong is the older question, filed separately in open-debt.md — this literal " +
+      "holds the count until those rulings land, and moves with them when they do",
   },
   {
     what: "decision-log rows whose cells do not match their columns' declared count",

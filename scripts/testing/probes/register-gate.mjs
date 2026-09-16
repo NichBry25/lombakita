@@ -84,6 +84,23 @@ const BETA_D29_MARKED = "- **BETA-D29 [LOW]** → Step 7.7 · DISCHARGED 2026-09
 const PLANTED_MISTYPED_ID = "- **LAUNCH-D99X [HIGH]** filed by the register-gate probe.\n";
 
 /**
+ * The same defect, planted inside a `Learnings` subsection instead of a live one.
+ *
+ * The census excludes `Learnings` bullets from the skip count because they are prose lessons that
+ * never carried ids, and that exclusion is a HOLE: a genuinely mistyped id written there is not
+ * counted. This fixture is that hole, made visible rather than argued about.
+ *
+ * A SECOND ID RATHER THAN A SECOND COPY OF THE FIRST, so the two plants are distinguishable on disk
+ * and `appliedMarkers` can require both. Two copies of one id would satisfy the marker check with
+ * either plant alone.
+ */
+const PLANTED_MISTYPED_ID_IN_LEARNINGS =
+  "- **LAUNCH-D98X [HIGH]** filed by the register-gate probe inside a Learnings subsection.\n";
+
+/** A `Learnings` heading, which is what the exclusion keys on — the section KIND, not this text. */
+const BLOCK_B_LEARNINGS_HEADING = "### Learnings (Step 7.7 Block B, 2026-09-09)\n";
+
+/**
  * The close procedure's two steps as the file writes them, commands and all.
  *
  * The gate matches on these strings rather than on prose about them, so a probe that moves one has
@@ -313,7 +330,32 @@ export const probes = [
     appliedMarkers: ["LAUNCH-D99X"],
     mutate: () => substituteOnce(REGISTER, D47_ANCHORED, PLANTED_MISTYPED_ID + D47_ANCHORED),
     detect: () =>
-      gateRefused(/FAIL\s+33\s+register bullets whose head id is not a register id\s+\(up 1\)/),
+      gateRefused(/FAIL\s+26\s+register bullets whose head id is not a register id\s+\(up 1\)/),
+  },
+  {
+    // THE NUMBER IS THE WHOLE ASSERTION, and it is why this is one probe and not two. Two mistyped
+    // ids are planted in the same run — one in a live section, one inside a `Learnings` subsection —
+    // and the count is required to move by exactly ONE. If the exclusion were removed the gate would
+    // read `(up 2)`, this regex would miss, and the probe would report NOT PROVEN rather than
+    // quietly passing. A probe that planted only inside `Learnings` could not be red at all: the
+    // gate would stay green, which this harness reads as an unproven guard and not as evidence.
+    name: "the Learnings exclusion is exactly one bullet wide",
+    klass: "D",
+    harmfulMove:
+      "excluding Learnings bullets from the skip count so broadly that a mistyped id in an ordinary live section stops being counted too, which would turn a measured fail-open back into a silent one",
+    files: [REGISTER],
+    repo: DOC_LANE,
+    appliedMarkers: ["LAUNCH-D99X", "LAUNCH-D98X"],
+    mutate: () => {
+      substituteOnce(REGISTER, D47_ANCHORED, PLANTED_MISTYPED_ID + D47_ANCHORED);
+      substituteOnce(
+        REGISTER,
+        BLOCK_B_LEARNINGS_HEADING,
+        BLOCK_B_LEARNINGS_HEADING + "\n" + PLANTED_MISTYPED_ID_IN_LEARNINGS,
+      );
+    },
+    detect: () =>
+      gateRefused(/FAIL\s+26\s+register bullets whose head id is not a register id\s+\(up 1\)/),
   },
   {
     name: "the supersede reading cannot shrink to nothing",
