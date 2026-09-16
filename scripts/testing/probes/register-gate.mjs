@@ -242,7 +242,9 @@ export const probes = [
     appliedMarkers: ["\n\n| DEC-0114 | Every platform-ops mutation writes an audit row"],
     mutate: () => substituteOnce(DECISION_LOG, `\n${ROW_DEC_0114}`, `\n\n${ROW_DEC_0114}`),
     detect: () =>
-      gateRefused(/FAIL\s+\d+\s+decision-log rows a blank line left outside every table\s+\(up 1\)/),
+      gateRefused(
+        /FAIL\s+\d+\s+decision-log rows a blank line left outside every table\s+\(up 1\)/,
+      ),
   },
   {
     name: "two records glued onto one line fail the close",
