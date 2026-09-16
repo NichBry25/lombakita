@@ -783,15 +783,15 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 43,
+    bound: 50,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "THE ONE POPULATION THAT RISES AS THE REGISTER IMPROVES, so it is held as a floor rather " +
-      "than a pin. Forty-three ids are anchored `→ Step 7.7 Block <X>`; nineteen more are " +
+      "than a pin. Fifty ids are anchored `→ Step 7.7 Block <X>`; nineteen more are " +
       "anchored `→ Step 7.7.` with no block at all, which is why this number and the anchorless " +
-      "ratchet do not partition the live population — 50 anchorless plus these 43 plus those 19 " +
-      "is the 112 live ids the header prints, and the nineteen is read off that sum rather than " +
+      "ratchet do not partition the live population — 50 anchorless plus these 50 plus those 19 " +
+      "is the 119 live ids the header prints, and the nineteen is read off that sum rather than " +
       "counted a second time. What the floor catches is the direction nothing " +
       "else did: REWRITING an existing anchor to `→ TBD` leaves every other instrument at " +
       "baseline — gate (a) compares id sets and an edit is not a filing, gate (b) reads bare " +
@@ -844,7 +844,17 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "`anchored live 43` against `docs@dbcf13e`). This is the first raise whose arithmetic the " +
       "reason string above can be checked against without running anything: 50 anchorless plus 43 " +
       "plus 19 is the 112 the header prints, and the 19 did not move, which is what a filing " +
-      "carrying a canonical block anchor should do to this partition",
+      "carrying a canonical block anchor should do to this partition. Raised to 50 on 2026-09-16 " +
+      "by Stage 7, which filed seven items at once — LAUNCH-D105 to Block C2 and LAUNCH-D106 " +
+      "through LAUNCH-D111 to Block D. Read off the gate's own `raise the bound to 50` (the gate " +
+      "printed `anchored live 50` against `docs@9b614b9`). The partition held again across a " +
+      "seven-item filing: 50 anchorless plus 50 plus 19 is the 119 the header prints, and the 19 " +
+      "did not move, which is the second consecutive raise a reader can check against this string " +
+      "without running anything. The largest single raise this floor has taken, and the reason is " +
+      "worth keeping: seven of them came from a review of work that had already passed its own " +
+      "gate, which is what the floor is for — it follows the register up or it leaves that many " +
+      "anchors of slack in the instrument that watches for an anchor degrading out of canonical " +
+      "form",
   },
   {
     what: "items a discharged section declares discharged whose anchor line carries no mark",

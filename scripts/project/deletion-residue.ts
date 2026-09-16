@@ -288,11 +288,17 @@ const connect = (): postgres.Sql => {
  * THE POPULATION IS WHOLE VALUES, and that boundary is a decision this instrument does not make.
  * The four columns below hold the account's own strings; a surviving row that renders the person
  * under some other string is outside the sweep and reports as zero. A personal institution is the
- * worked case: its `description` reads `Institusi personal milik Rina` and the competition the
- * person authored is titled `Kuis Mingguan Rina`, and neither contains the full name `Rina Wijaya`
- * or the username `seed_rec_min`. Splitting a stored name into its parts would widen the search,
- * and by how much is a product decision about what counts as identifying — a scope boundary this
- * phase has no ruling for, so the boundary is stated here instead of guessed at in code.
+ * worked case: its `description` reads `Institusi personal milik Rina (data uji).` and the
+ * competition the person authored is titled `Kuis Mingguan Rina`, and neither contains the username
+ * `seed_rec_min`. Splitting a stored name into its parts would widen the search, and by how much is
+ * a product decision about what counts as identifying — a scope boundary this phase has no ruling
+ * for, so the boundary is stated here instead of guessed at in code.
+ *
+ * THESE FOUR ARE NARROWER THAN THE PROCEDURE'S OWN CAPTURE, which reads eight columns. `users.name`,
+ * `user_profiles.display_name` and `user_profiles.phone_number` are not read here, so an account
+ * with no `candidate_profiles` row — every recruiter — is swept on its email and username alone.
+ * That gap is inside the boundary described above rather than a question about where the boundary
+ * sits, and it is recorded in the register rather than closed here.
  */
 export const readIdentities = async (sql: postgres.Sql, userId: string): Promise<string[]> => {
   const rows = await sql<
