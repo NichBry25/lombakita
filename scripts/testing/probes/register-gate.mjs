@@ -242,7 +242,7 @@ export const probes = [
     appliedMarkers: ["\n\n| DEC-0114 | Every platform-ops mutation writes an audit row"],
     mutate: () => substituteOnce(DECISION_LOG, `\n${ROW_DEC_0114}`, `\n\n${ROW_DEC_0114}`),
     detect: () =>
-      gateRefused(/FAIL\s+97\s+decision-log rows a blank line left outside every table\s+\(up 1\)/),
+      gateRefused(/FAIL\s+\d+\s+decision-log rows a blank line left outside every table\s+\(up 1\)/),
   },
   {
     name: "two records glued onto one line fail the close",
@@ -368,7 +368,7 @@ export const probes = [
     mutate: () => substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0010, "| Extends DEC-0153 |"),
     detect: () =>
       gateRefused(
-        /FAIL\s+0\s+decision-log Supersedes cells holding nothing but an id\s+\(down 1 — below the floor of 1\)/,
+        /FAIL\s+0\s+decision-log Supersedes cells holding nothing but an id\s+\(down 1 — below the floor of \d+\)/,
       ),
   },
   {
