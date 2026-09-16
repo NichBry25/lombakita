@@ -28,9 +28,12 @@
  * already knew the table existed.
  *
  * Pure apart from reading the source tree, so the derivation is unit-testable with no database
- * present. The live-catalog half is confirmed separately, in the demonstration, by querying
- * `pg_constraint` — the schema module says what the migrations should have produced, the catalog
- * says what the database will enforce, and the two are compared rather than assumed equal.
+ * present. That purity is also this module's boundary: the schema module is the SINGLE source, and
+ * the live catalog is never consulted. `schema.ts` says what the migrations should have produced;
+ * `pg_constraint` says what the database will enforce; nothing here compares them, so a divergence
+ * between the two — a constraint altered by hand, a migration that did not land, a table created in
+ * raw SQL and absent from the module — is invisible to every claim this file makes. The enumeration
+ * describes a schema, not a database.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";

@@ -128,6 +128,43 @@ describe("the procedure document", () => {
   });
 });
 
+describe("the guard in front of the delete", () => {
+  // THE ASSERTION A NARROWED GUARD FAILS. `reset-guard.ts` states the doctrine these three layers
+  // come from: the server's own `current_database()` is authoritative, environment and connection
+  // host read configuration and can be lied to, and the weaker two may only ADD a refusal. A
+  // destructive statement standing behind the host alone is the shape DEC-0207 shipped.
+  const source = readFileSync("scripts/project/run-deletion-procedure.ts", "utf8");
+
+  it("asks the server which database it is, not the connection string", () => {
+    expect(source).toContain("select current_database() as name");
+    expect(source).toContain("findDatabaseNameRefusal(name)");
+  });
+
+  it("carries all three refusal layers, reusing the ones that already exist", () => {
+    for (const layer of [
+      "findConnectionHostRefusal",
+      "findEnvironmentRefusal",
+      "findDatabaseNameRefusal",
+    ]) {
+      expect(source, `${layer} is not wired into the runner`).toContain(layer);
+    }
+    expect(source, "the refusal layers must be imported, not reimplemented").toContain(
+      'from "../reset/reset-guard"',
+    );
+  });
+
+  it("returns the connection only from the helper that checked it", () => {
+    // The ordering is a type constraint rather than a convention: `main` has no other way to obtain
+    // a handle, so moving the check below the delete is a compile error rather than a probe.
+    expect(source).toContain("const sql = await connectToDisposableDatabase(url);");
+
+    // Exactly one construction site, and it is inside the helper that performs the check. A second
+    // one would be a path to a connection that never asked the server anything.
+    const constructions = source.match(/postgres\(url/g) ?? [];
+    expect(constructions).toHaveLength(1);
+  });
+});
+
 describe("the policy the procedure is compared against", () => {
   it("quotes the published policy sentence for sentence, so the comparison is against the text", () => {
     // THE ASSERTION A POLICY EDIT FAILS. The procedure's whole conclusion is a disagreement with the

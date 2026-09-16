@@ -25,6 +25,7 @@ import { fails } from "./detectors.mjs";
 
 const RESIDUE = "scripts/project/deletion-residue.ts";
 const TEST = "scripts/project/deletion-residue.test.ts";
+const SHAPE = "src/config/env-shape.ts";
 
 export const probes = [
   {
@@ -63,6 +64,32 @@ export const probes = [
     mutate: () =>
       substituteOnce(RESIDUE, "ilike '%' || ${LIKE_LITERAL} || '%'", "ilike '%' || $1 || '%'"),
     detect: async () => fails("npx", ["vitest", "run", TEST], /× .*metacharacters/),
+  },
+  {
+    name: "the delete asks the server which database it is, and refuses a protected answer",
+    klass: "B",
+    harmfulMove:
+      "running `delete from users` behind the connection host alone. The host is the weakest of the " +
+      "three refusal layers and `reset-guard.ts` says so in its own header — it may add a refusal " +
+      "and never grant one — because a tunnel, a port-forward and an `/etc/hosts` line all spell " +
+      "`localhost`, and this repository has already shipped a production DSN whose host and name " +
+      "both read as staging (DEC-0207, LAUNCH-D24). This probe makes the local database a protected " +
+      "one and requires the run to refuse on the SERVER'S OWN answer: if the identity layer is " +
+      "removed, nothing refuses and the procedure proceeds to the delete",
+    files: [SHAPE],
+    appliedMarkers: ['production: "lombakita"'],
+    mutate: () =>
+      substituteOnce(SHAPE, 'production: "lombakita_production"', 'production: "lombakita"'),
+    // Class B rather than D: the guard stands before a write with no transaction around it, so the
+    // detector is the refusal arriving before anything ran. It quotes `current_database()` because
+    // that is the layer under test — a refusal naming the connection string instead would be layer
+    // 3 answering, and would pass a probe that proved nothing about layer 1.
+    detect: async () =>
+      fails(
+        "npx",
+        ["tsx", "scripts/project/run-deletion-procedure.ts", "--select", "blocked"],
+        /current_database\(\) = "lombakita"/,
+      ),
   },
 ];
 

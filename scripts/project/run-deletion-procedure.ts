@@ -29,7 +29,13 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import postgres from "postgres";
 import { loadEnvFile } from "@/server/scripts/env-file";
-import { isLocalDatabaseHost, parseDatabaseHost } from "../lib/local-database-host";
+import { parseDatabaseHost } from "../lib/local-database-host";
+import {
+  findConnectionHostRefusal,
+  findDatabaseNameRefusal,
+  findEnvironmentRefusal,
+} from "../reset/reset-guard";
+import { resolveAppEnvironment } from "@/config/env";
 import { captureBaseline, objectKeySql, readIdentities } from "./deletion-residue";
 import type { BaselineFile, ResidueBaseline } from "./deletion-residue";
 
@@ -457,6 +463,40 @@ const renderCase = (entry: CaseRun): string[] => {
   return lines;
 };
 
+/**
+ * Open a connection, having first asked the server which database it is.
+ *
+ * The connection is returned only after the answer clears, so a caller cannot hold a handle that
+ * skipped the check — the ordering is a type constraint rather than a convention, which is the shape
+ * to prefer when the statement downstream is a `delete`.
+ *
+ * `current_database()` is the authoritative layer because it cannot be lied to by configuration. A
+ * connection string's own path segment is the claim under test, not the evidence: a URL whose host
+ * and name both read as disposable has already been shipped here once. The host and environment
+ * checks above run too, and each may only ADD a refusal — none of the three grants permission.
+ */
+const connectToDisposableDatabase = async (url: string): Promise<postgres.Sql> => {
+  const sql = postgres(url, { max: 1 });
+
+  try {
+    const rows = await sql<{ name: string }[]>`select current_database() as name`;
+    const name = rows[0]?.name;
+    if (name === undefined) {
+      throw new ProcedureRefusal("the server did not answer `select current_database()`");
+    }
+
+    const refusal = findDatabaseNameRefusal(name);
+    if (refusal !== null) {
+      throw new ProcedureRefusal(`this procedure deletes rows. ${refusal.message}`);
+    }
+
+    return sql;
+  } catch (error) {
+    await sql.end();
+    throw error;
+  }
+};
+
 const main = async (): Promise<void> => {
   const argv = process.argv.slice(2);
   const skip = new Set<string>();
@@ -494,10 +534,18 @@ const main = async (): Promise<void> => {
   if (url === undefined) {
     throw new ProcedureRefusal(`DATABASE_URL is not set and no env file was found (${loadedFrom})`);
   }
-  if (!isLocalDatabaseHost(url)) {
+  const hostRefusal = findConnectionHostRefusal(url, "DATABASE_URL");
+  if (hostRefusal !== null) {
     throw new ProcedureRefusal(
       `this procedure deletes rows, so it runs only against a loopback database. The configured ` +
         `host is "${parseDatabaseHost(url) ?? "<unparseable>"}"`,
+    );
+  }
+
+  const environmentRefusal = findEnvironmentRefusal(resolveAppEnvironment());
+  if (environmentRefusal !== null) {
+    throw new ProcedureRefusal(
+      `this procedure deletes rows. ${environmentRefusal.message.replace("reset", "run")}`,
     );
   }
 
@@ -513,7 +561,7 @@ const main = async (): Promise<void> => {
     }
   }
 
-  const sql = postgres(url, { max: 1 });
+  const sql = await connectToDisposableDatabase(url);
 
   try {
     if (demonstrate) {
