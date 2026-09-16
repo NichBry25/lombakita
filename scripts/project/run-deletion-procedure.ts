@@ -485,9 +485,13 @@ const connectToDisposableDatabase = async (url: string): Promise<postgres.Sql> =
       throw new ProcedureRefusal("the server did not answer `select current_database()`");
     }
 
-    const refusal = findDatabaseNameRefusal(name);
-    if (refusal !== null) {
-      throw new ProcedureRefusal(`this procedure deletes rows. ${refusal.message}`);
+    if (findDatabaseNameRefusal(name) !== null) {
+      throw new ProcedureRefusal(
+        `refusing to run: the server on this connection reports current_database() = "${name}", ` +
+          "which is a protected database. This is the database's own answer rather than the " +
+          "connection string's, so there is no value to correct here other than where this process " +
+          "is pointed",
+      );
     }
 
     return sql;
@@ -542,10 +546,11 @@ const main = async (): Promise<void> => {
     );
   }
 
-  const environmentRefusal = findEnvironmentRefusal(resolveAppEnvironment());
-  if (environmentRefusal !== null) {
+  const appEnv = resolveAppEnvironment();
+  if (findEnvironmentRefusal(appEnv) !== null) {
     throw new ProcedureRefusal(
-      `this procedure deletes rows. ${environmentRefusal.message.replace("reset", "run")}`,
+      `refusing to run: APP_ENV resolves to "${appEnv}", and this procedure deletes rows, so it ` +
+        "runs only where the data is disposable. There is deliberately no override flag",
     );
   }
 
