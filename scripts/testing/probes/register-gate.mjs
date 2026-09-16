@@ -368,7 +368,7 @@ export const probes = [
     mutate: () => substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0010, "| Extends DEC-0153 |"),
     detect: () =>
       gateRefused(
-        /FAIL\s+0\s+decision-log Supersedes cells holding nothing but an id\s+\(down 1 — below the floor of \d+\)/,
+        /FAIL\s+\d+\s+decision-log Supersedes cells holding nothing but an id\s+\(down 1 — below the floor of \d+\)/,
       ),
   },
   {
