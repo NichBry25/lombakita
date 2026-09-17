@@ -817,7 +817,12 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "from the drift a floor guards against: a fall by discharge is a measured population leaving, " +
       "not coverage being lost. Read off the gate's own `lower the literal to 48` rather than " +
       "computed, and the two ids are individually checkable at :4339 and :4387. The partition is " +
-      "now 48 anchorless plus 58 canonical plus 17 partial = the 123 the header prints. LAUNCH-D119 " +
+      "now 48 anchorless plus 62 canonical plus 17 partial = the 127 the header prints. THIS LINE " +
+      "WAS MOVED BY THE CLOSE THAT WROTE IT, for the fourth time and for the reason LAUNCH-D119 " +
+      "files: LAUNCH-D120 through LAUNCH-D123 were filed in this same change and each carries " +
+      "`→ Step 7.7 Block D`, so the canonical term gained four between this sentence being written " +
+      "and this sentence being read. The demonstration arrived before this line was committed, " +
+      "again. LAUNCH-D119 " +
       "was filed after this sentence was corrected and moved the canonical term by one, which is " +
       "this obligation's own item demonstrated on its own correction: the class it files is that a " +
       "reason string cannot be kept true by hand, because the close that files an item is the close " +
@@ -837,16 +842,20 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 58,
+    bound: 62,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "THE ONE POPULATION THAT RISES AS THE REGISTER IMPROVES, so it is held as a floor rather " +
-      "than a pin. Fifty-eight ids are anchored `→ Step 7.7 Block <X>`; seventeen more are " +
+      "than a pin. Sixty-two ids are anchored `→ Step 7.7 Block <X>`; seventeen more are " +
       "anchored `→ Step 7.7.` with no block at all, which is why this number and the anchorless " +
-      "ratchet do not partition the live population — 48 anchorless plus these 58 plus those 17 " +
-      "is the 123 live ids the header prints, and the seventeen is read off that sum rather than " +
-      "counted a second time. THIS SENTENCE HAS NOW BEEN CORRECTED TWICE IN ONE STAGE, and the " +
+      "ratchet do not partition the live population — 48 anchorless plus these 62 plus those 17 " +
+      "is the 127 live ids the header prints, and the seventeen is read off that sum rather than " +
+      "counted a second time. THE TWO COUNTS IN THIS SENTENCE WERE CORRECTED AT BLOCK C2'S STAGE " +
+      "1 (2026-09-16) AND AGAIN ON 2026-09-17, each time read off the gate rather than computed, " +
+      "and the third correction arrived the way LAUNCH-D119 says it must: the close that filed " +
+      "LAUNCH-D120 through LAUNCH-D123 moved this population by four while correcting it. THIS " +
+      "SENTENCE HAS NOW BEEN CORRECTED THREE TIMES ACROSS TWO CLOSES, and the " +
       "second correction is LAUNCH-D119's item demonstrated on this string: it read `these 57 … " +
       "the 122 the header prints` for the minutes between its correction and the filing of " +
       "LAUNCH-D119, which carries `→ Step 7.7 Block D` and moved the canonical term by one. That " +
@@ -974,7 +983,18 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "follows the measurement, never the measurement the bound. A floor left at 57 against a " +
       "measured 58 is one unit of slack in the one instrument that watches for an anchor " +
       "degrading out of canonical form, and one unit of slack is the Phase 4 finding this floor " +
-      "exists downstream of",
+      "exists downstream of" +
+      ". RAISED FROM 58 TO 62 ON 2026-09-17 BY THE CLOSE THAT FILED LAUNCH-D120 THROUGH " +
+      "LAUNCH-D123, all four carrying `→ Step 7.7 Block D`. Read off the gate's own `raise the " +
+      "bound to 62` — the gate printed `PASS  62  live debt ids carrying an anchor that names a " +
+      "step and a block  (up 4 — raise the bound to 62)` against a bound of 58 — rather than " +
+      "computed from the filings. This is the largest raise taken in a single filing since the " +
+      "seven-item close, and the first taken against a bound that had been left four units of " +
+      "slack: the four filings moved the canonical term 58 → 62 and the header's live total 123 → " +
+      "127, and no mark fell in the same close, so nothing pushed the number back down. The " +
+      "partition a reader can check against this string without running anything is 48 anchorless " +
+      "plus 62 here plus 17 partial = the 127 the header prints, where the 17 is the same " +
+      "subtraction LAUNCH-D113 records rather than a count",
   },
   {
     what: "items a discharged section declares discharged whose anchor line carries no mark",
