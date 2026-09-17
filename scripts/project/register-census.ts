@@ -844,15 +844,15 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 68,
+    bound: 69,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "THE ONE POPULATION THAT RISES AS THE REGISTER IMPROVES, so it is held as a floor rather " +
-      "than a pin. Sixty-eight ids are anchored `→ Step 7.7 Block <X>`; seventeen more are " +
+      "than a pin. Sixty-nine ids are anchored `→ Step 7.7 Block <X>`; seventeen more are " +
       "anchored `→ Step 7.7.` with no block at all, which is why this number and the anchorless " +
-      "ratchet do not partition the live population — 48 anchorless plus these 68 plus those 17 " +
-      "is the 133 live ids the header prints, and the seventeen is read off that sum rather than " +
+      "ratchet do not partition the live population — 48 anchorless plus these 69 plus those 17 " +
+      "is the 134 live ids the header prints, and the seventeen is read off that sum rather than " +
       "counted a second time. THE TWO COUNTS IN THIS SENTENCE WERE CORRECTED AT BLOCK C2'S STAGE " +
       "1 (2026-09-16) AND AGAIN ON 2026-09-17, each time read off the gate rather than computed, " +
       "and the third correction arrived the way LAUNCH-D119 says it must: the close that filed " +
@@ -995,7 +995,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "slack: the four filings moved the canonical term 58 → 62 and the header's live total 123 → " +
       "127, and no mark fell in the same close, so nothing pushed the number back down. The " +
       "partition a reader can check against this string without running anything is 48 anchorless " +
-      "plus 68 here plus 17 partial = the 133 the header prints, where the 17 is the same " +
+      "plus 69 here plus 17 partial = the 134 the header prints, where the 17 is the same " +
       "subtraction LAUNCH-D113 records rather than a count" +
       ". RAISED FROM 62 TO 65 ON 2026-09-17 BY THE CLOSE THAT FILED LAUNCH-D124 THROUGH " +
       "LAUNCH-D126, all three carrying `→ Step 7.7 Block D`. Read off the gate's own `raise the " +
@@ -1022,7 +1022,21 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "no mark fell in the same close, so nothing pushed the number back down. This is the first " +
       "raise whose two filings are one repair and its record: LAUNCH-D128 was found, filed and " +
       "repaired inside the same close, and its own filing is what moved this number, which is the " +
-      "class LAUNCH-D119 states rather than an instance of it",
+      "class LAUNCH-D119 states rather than an instance of it" +
+      ". RAISED FROM 68 TO 69 ON 2026-09-18 BY THE CLOSE THAT FILED LAUNCH-D130, which carries " +
+      "`→ Step 7.7 Block D`. Read off the gate's own `raise the bound to 69` — the gate printed " +
+      "`PASS  69  live debt ids carrying an anchor that names a step and a block  (up 1 — raise " +
+      "the bound to 69)` against a bound of 68 — rather than computed from the filing. The filing " +
+      "moved the canonical term 68 → 69 and the header's live total 133 → 134, and no mark fell in " +
+      "the same close, so nothing pushed the number back down. THE FILING AND THIS RAISE ARE IN " +
+      "TWO REPOSITORIES AND SO COULD NOT GO IN ONE COMMIT, which is the first time this file has " +
+      "had to record that: the item is filed in the doc lane and the bound lives here, behind " +
+      "`main`'s protection, so the raise arrives as its own pull request and the gate printed its " +
+      "`raise the bound to 69` hint across the interval between them. That interval is the whole " +
+      "of what this sentence exists to close, and the ordering LAUNCH-D119's class asks for — " +
+      "correct the literal inside the change that invalidates it — was available here only as a " +
+      "follow-up rather than a same-commit edit, which is a property of the two-repository split " +
+      "and not of the discipline",
   },
   {
     what: "items a discharged section declares discharged whose anchor line carries no mark",
