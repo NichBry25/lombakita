@@ -30,6 +30,7 @@
  * Runs only over committed work — the harness refuses if any listed file differs from HEAD.
  */
 import { pathToFileURL } from "node:url";
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
 import {
@@ -45,8 +46,55 @@ import {
 const RESET = "scripts/reset/reset-local.ts";
 const GUARD = "scripts/reset/reset-guard.ts";
 
-/** Printed by the reset when it reaches the drop. Its absence means the run measured nothing. */
-const REACHED_THE_DROP = "[2/6] Dropping every migrated object";
+/**
+ * The line the reset prints when it reaches the drop, derived from the reset's own source.
+ *
+ * Nothing about it is pinned. The step number, the total, the title and the print format all belong
+ * to `reset-local.ts`, and a fixture restating any of them asserts a value the code is free to move
+ * — which is how this probe stopped measuring anything on 2026-09-14, when the reset grew a seventh
+ * step and the expectation it compared against stayed at `[2/6]`.
+ *
+ * Read per run rather than once at import, and refused rather than guessed when an anchor is absent
+ * (Rule 38). A probe that cannot derive its subject has not measured it, and must not report as if
+ * it had.
+ *
+ * Exported so what it derives can be read without running a reset that drops a database.
+ */
+export const reachedTheDropLine = () => {
+  const source = readFileSync(RESET, "utf8");
+  const print = source.match(/console\.log\(`([^`]*\$\{number\}[^`]*)`\)/);
+  const total = source.match(/^const TOTAL_STEPS = (\d+);$/m);
+  const drop = source.match(/^\s*step\((\d+), "(Dropping[^"]*)"\);$/m);
+
+  for (const [anchor, found] of [
+    ["the step helper's print template", print],
+    ["TOTAL_STEPS", total],
+    ["the step(…) call that drops every migrated object", drop],
+  ]) {
+    if (found === null) {
+      throw new Error(
+        `cannot derive the line the reset prints when it reaches the drop: ${anchor} is not in ` +
+          `${RESET}. Refusing rather than comparing against a guess.`,
+      );
+    }
+  }
+
+  // A bracketed line is the contract `step()` prints. Without one, the reached-the-drop line could
+  // not be told apart from anything else the reset writes, so the probe refuses rather than match
+  // on a fragment that happens to appear.
+  if (!print[1].includes("[")) {
+    throw new Error(
+      `the step helper's print template in ${RESET} carries no bracket, so the reached-the-drop ` +
+        `line cannot be told apart from the rest of the output: \`${print[1]}\`. Refusing.`,
+    );
+  }
+
+  return print[1]
+    .slice(print[1].indexOf("["))
+    .replace("${number}", drop[1])
+    .replace("${TOTAL_STEPS}", total[1])
+    .replace("${title}", drop[2]);
+};
 
 try {
   process.loadEnvFile(".env.local");
@@ -83,6 +131,10 @@ const atNonLoopbackAddress = (url) => {
  * failed, or threw.
  */
 const dropHappenedAgainst = async (databaseName, environment, { nonLoopback = false } = {}) => {
+  // Derived before anything is created or dropped. Without it the run cannot be judged, and
+  // discovering that afterwards would mean having run a destroying reset for nothing.
+  const reachedTheDrop = reachedTheDropLine();
+
   const baseUrl = baseDatabaseUrl();
   const childUrl = withDatabase(
     nonLoopback ? atNonLoopbackAddress(baseUrl) : baseUrl,
@@ -108,7 +160,7 @@ const dropHappenedAgainst = async (databaseName, environment, { nonLoopback = fa
 
     // CLAUSE 3 — reached. A run that never got as far as attempting the drop has not measured
     // whether the guard stopped it, and must not be read as the guard holding.
-    if (!output.includes(REACHED_THE_DROP)) {
+    if (!output.includes(reachedTheDrop)) {
       throw new Error(
         `the reset never reached the drop step, so nothing was measured. Tail of its output:\n` +
           output.slice(-800),

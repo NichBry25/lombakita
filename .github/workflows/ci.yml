@@ -110,6 +110,44 @@ jobs:
           psql "$DATABASE_URL" -tAc "SELECT current_setting('default_transaction_isolation')" \
             | grep -qx 'read committed'
 
+      # THE DOC LANE, WHICH CI HAS NEVER HAD. `docs/` is its own private repository (Rule 26) and is
+      # gitignored here, so the product checkout above does not contain it. Twelve tests read it:
+      # eleven in `register-census.test.ts` measure `open-debt.md` and `decision-log.md`, and
+      # `deletion-procedure.test.ts` reads the procedure. On a runner without the lane all twelve
+      # fail — which is how the false green this step removes was found, by cloning the product repo
+      # somewhere the lane was not.
+      #
+      # It sits here rather than earlier because Lint, Format and Typecheck never look at `docs/`:
+      # eslint does not, and neither the vitest include list nor the tsconfig include list reaches
+      # it. A lane present during Test is the whole of what the suite needs.
+      #
+      # No `continue-on-error`, no fallback and no condition. An unavailable doc repo, a revoked
+      # token or an absent branch must fail the job: a checkout that quietly proceeds without `docs/`
+      # restores the exact false green this step exists to remove.
+      - name: Check out the doc lane
+        uses: actions/checkout@v4
+        with:
+          repository: NichBry25/lombakita-docs
+          path: docs
+          token: ${{ secrets.DOC_REPO_READ_TOKEN }}
+          persist-credentials: false
+
+      # The checkout above proves the repository was reachable, not that it holds the files the
+      # suite reads. Without this, a token scoped to the wrong repository would surface as twelve
+      # collection errors instead of one sentence naming the lane.
+      - name: Confirm the doc lane holds what the suite reads
+        run: |
+          for path in \
+            docs/project/open-debt.md \
+            docs/project/decision-log.md \
+            docs/operations/account-deletion-procedure.md
+          do
+            if [ ! -f "$path" ]; then
+              echo "::error::$path is absent — the doc lane did not check out"
+              exit 1
+            fi
+          done
+
       - name: Test
         run: npm run test
 

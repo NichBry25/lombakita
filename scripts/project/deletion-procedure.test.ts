@@ -25,7 +25,30 @@ import {
 
 const POLICY_PAGE = "src/app/kebijakan-privasi/page.tsx";
 
-const document = readFileSync(PROCEDURE_PATH, "utf8");
+/**
+ * Read once, at module scope: every assertion below is about one document, and parsing it per test
+ * would let the file hold two different procedures at once.
+ *
+ * The read can fail. `docs/` is its own private repository (Rule 26) and is gitignored in the
+ * product repo, so a checkout without the doc lane has no procedure at that path. It refuses with
+ * that sentence rather than letting an ENOENT out of the parser, because the missing thing is the
+ * lane, not the statement. This file refuses at collection; `register-census.test.ts` measures the
+ * same lane and refuses at run time. Naming the lane is the property both share.
+ */
+const readProcedure = (): string => {
+  try {
+    return readFileSync(PROCEDURE_PATH, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+
+    throw new Error(
+      `the account-deletion procedure is not readable at ${PROCEDURE_PATH}: the doc lane ` +
+        `(\`docs/\`, its own private repository under Rule 26) is not present in this checkout.`,
+    );
+  }
+};
+
+const document = readProcedure();
 const steps = parseProcedure(document);
 
 const stepNamed = (name: string): ProcedureStep => {
