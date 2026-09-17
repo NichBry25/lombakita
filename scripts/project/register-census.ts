@@ -844,15 +844,15 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 65,
+    bound: 66,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "THE ONE POPULATION THAT RISES AS THE REGISTER IMPROVES, so it is held as a floor rather " +
-      "than a pin. Sixty-five ids are anchored `→ Step 7.7 Block <X>`; seventeen more are " +
+      "than a pin. Sixty-six ids are anchored `→ Step 7.7 Block <X>`; seventeen more are " +
       "anchored `→ Step 7.7.` with no block at all, which is why this number and the anchorless " +
-      "ratchet do not partition the live population — 48 anchorless plus these 65 plus those 17 " +
-      "is the 130 live ids the header prints, and the seventeen is read off that sum rather than " +
+      "ratchet do not partition the live population — 48 anchorless plus these 66 plus those 17 " +
+      "is the 131 live ids the header prints, and the seventeen is read off that sum rather than " +
       "counted a second time. THE TWO COUNTS IN THIS SENTENCE WERE CORRECTED AT BLOCK C2'S STAGE " +
       "1 (2026-09-16) AND AGAIN ON 2026-09-17, each time read off the gate rather than computed, " +
       "and the third correction arrived the way LAUNCH-D119 says it must: the close that filed " +
@@ -995,7 +995,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "slack: the four filings moved the canonical term 58 → 62 and the header's live total 123 → " +
       "127, and no mark fell in the same close, so nothing pushed the number back down. The " +
       "partition a reader can check against this string without running anything is 48 anchorless " +
-      "plus 65 here plus 17 partial = the 130 the header prints, where the 17 is the same " +
+      "plus 66 here plus 17 partial = the 131 the header prints, where the 17 is the same " +
       "subtraction LAUNCH-D113 records rather than a count" +
       ". RAISED FROM 62 TO 65 ON 2026-09-17 BY THE CLOSE THAT FILED LAUNCH-D124 THROUGH " +
       "LAUNCH-D126, all three carrying `→ Step 7.7 Block D`. Read off the gate's own `raise the " +
@@ -1005,7 +1005,15 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "header's live total 127 → 130, and no mark fell in the same close, so nothing pushed the " +
       "number back down. The partition sentence above was corrected inside the same change that " +
       "invalidated it rather than a close later, which is the ordering LAUNCH-D119's class says " +
-      "is the only one available",
+      "is the only one available" +
+      ". RAISED FROM 65 TO 66 ON 2026-09-17 BY THE CLOSE THAT FILED LAUNCH-D127, which carries " +
+      "`→ Step 7.7 Block D`. Read off the gate's own `raise the bound to 66` — the gate printed " +
+      "`PASS  66  live debt ids carrying an anchor that names a step and a block  (up 1 — raise " +
+      "the bound to 66)` against a bound of 65 — rather than computed from the filing. The filing " +
+      "moved the canonical term 65 → 66 and the header's live total 130 → 131, and no mark fell " +
+      "in the same close, so nothing pushed the number back down. Both partition sentences were " +
+      "corrected inside the same change that invalidated them rather than a close later, which is " +
+      "the ordering LAUNCH-D119's class says is the only one available",
   },
   {
     what: "items a discharged section declares discharged whose anchor line carries no mark",
