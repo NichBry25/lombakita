@@ -494,7 +494,10 @@ export const institutions = pgTable(
     // — never read this column raw on any surface that shows a name to a user.
     displayName: text("display_name"),
     slug: text("slug").notNull(),
-    status: institutionStatusEnum("status").notNull().default("active"),
+    // Defaults to what every creation path writes (`NEW_INSTITUTION_DEFAULT_STATUS`). It was
+    // `active`, a value no creation path ever produced, so a fixture that omitted the column got
+    // a state production could not reach.
+    status: institutionStatusEnum("status").notNull().default("inactive"),
     // Institution type. NOT NULL: every institution declares a type at creation — `personal` via
     // the personal-create path, or a full subtype via the full-create form / personal→full upgrade.
     // `personal` rows are capped (≤2 published competitions, individual-only, no featured placement,

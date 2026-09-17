@@ -1,11 +1,35 @@
+import { readFileSync } from "node:fs";
+
 export const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 export const PASSWORD = "UjiCoba123!";
 
-// The TOTP secret behind every seeded MFA factor. Fixed and shared so the harness can generate a
-// valid code without reading it back out of the database (it is stored encrypted), and so a human
-// running the stage-9 checklist can add ONE authenticator entry and use it for every seeded
-// operational account. Never a real secret — it exists only in seed data.
-export const MFA_FACTOR_SECRET_HEX = "5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed";
+// The TOTP secrets behind the seeded MFA factors are NOT in this file. Each `npm run
+// db:seed:operators` run enrols every factor through the production enrolment path, which mints a
+// fresh secret, and writes what it minted to a git-ignored file. The harness reads that file so it
+// can generate a valid code without reading the encrypted secret back out of the database. An
+// earlier fixed, committed secret meant a public repository published the second factor for every
+// operator account any database ever seeded.
+export const OPERATOR_SECRETS_FILE = "test-artifacts/seed-operator-secrets.json";
+
+export const mfaSecretHexFor = (userId) => {
+  let secrets;
+  try {
+    secrets = JSON.parse(readFileSync(OPERATOR_SECRETS_FILE, "utf8"));
+  } catch {
+    throw new Error(
+      `${OPERATOR_SECRETS_FILE} is missing or unreadable, so no seeded operator can pass an MFA ` +
+        "challenge. Run `npm run db:seed:operators` after the reset; it writes the file.",
+    );
+  }
+  const entry = secrets[userId];
+  if (!entry?.secretHex) {
+    throw new Error(
+      `${OPERATOR_SECRETS_FILE} holds no factor for ${userId}. It was written by an older operator ` +
+        "seed run than the accounts in this database, or the account carries no factor by design.",
+    );
+  }
+  return entry.secretHex;
+};
 
 // `mfa` records which of the three operational states the account is seeded into. The harness reads
 // it to decide whether a minted session must also complete a challenge before it is usable:

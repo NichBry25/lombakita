@@ -186,14 +186,29 @@ describe("the fee-setting write path enforces the edit matrix THROUGH the classi
   });
 });
 
-describe("DEC-0131's non-refundable rule is the confirmed-paid question", () => {
-  it("still refuses candidate self-cancellation on a paid competition", () => {
-    // What must hold is that the rule keys off the competition being priced, through the ONE shared
-    // helper rather than a local parse.
+describe("DEC-0131's non-refundable rule is the proof-submitted question", () => {
+  it("still refuses candidate self-cancellation once a proof exists", () => {
+    // What must hold is that the rule keys off THE REGISTRATION'S OWN MONEY — whether a bukti
+    // transfer was submitted against it — and not off the competition's current price.
+    //
+    // This block previously asserted the opposite. It required
+    // `isPaidCompetition(competition.feeAmount)` to wrap the predicate, and was titled for the
+    // confirmed-paid question, which is neither the predicate DEC-0174 names nor the one the code
+    // called. It therefore PINNED a bypass: rejecting a proof clears payment-in-flight, which
+    // unblocks a fee edit, and a fee of zero made the wrapper false so the guard never ran against
+    // a registration whose payment row still carried its original gross amount. A wiring test that
+    // pins the wrong shape does not merely fail to catch a defect, it holds it in place against
+    // anyone who fixes it — which is what happened here.
     const source = readCode(REGISTRATION_SERVICE);
 
-    expect(source).toContain("isPaidCompetition(competition.feeAmount)");
+    expect(source).toContain("hasSubmittedPaymentProof(registration.id, db)");
     expect(source).toContain("cancellation_not_supported_for_paid");
+    // THE REGRESSION GUARD, at the source level: the competition's price must not gate the check.
+    expect(source).not.toContain("isPaidCompetition(competition.feeAmount)");
+    // DEC-0167's anti-collapse assertion, matching what the DEC-0132 block above already does for
+    // its own predicate. The three paid predicates answer different questions and a swap here is
+    // otherwise caught only incidentally, by a mock factory failing to export the substitute.
+    expect(source).not.toContain("isRegistrationConfirmedPaid");
     // The private byte-identical copy is gone.
     expect(source).not.toContain("Number.parseFloat(feeAmount)");
   });

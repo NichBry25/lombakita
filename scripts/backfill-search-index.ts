@@ -30,7 +30,7 @@ try {
 
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { MeiliSearch } from "meilisearch";
 import { competitions, institutions } from "../src/server/db/schema";
 import {
@@ -38,9 +38,11 @@ import {
   type CompetitionIndexDocument,
 } from "../src/server/search/competition-index";
 import {
-  getInstitutionDisplayName,
-  institutionOwnerUsernameSql,
-} from "../src/server/institution-workspace/institution-display-name";
+  COMPETITION_INDEX_COLUMNS,
+  publishedCompetitionsFilter,
+  toCompetitionIndexDocument,
+} from "../src/server/search/competition-index-documents";
+import { waitForTask } from "./lib/competition-index-admin";
 
 const db_url = process.env.DATABASE_URL;
 const meili_host = process.env.MEILISEARCH_HOST;
@@ -57,55 +59,55 @@ const index = client.index<CompetitionIndexDocument>(COMPETITION_INDEX_NAME);
 
 async function main() {
   const rows = await db
-    .select({
-      id: competitions.id,
-      title: competitions.title,
-      slug: competitions.slug,
-      category: competitions.category,
-      mode: competitions.mode,
-      registrationEndAt: competitions.registrationEndAt,
-      createdAt: competitions.createdAt,
-      isFeatured: competitions.isFeatured,
-      featuredOrder: competitions.featuredOrder,
-      institutionSlug: institutions.slug,
-      institutionDisplayName: institutions.displayName,
-      institutionType: institutions.institutionType,
-      institutionOwnerUsername: institutionOwnerUsernameSql,
-    })
+    .select(COMPETITION_INDEX_COLUMNS)
     .from(competitions)
     .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
-    .where(and(eq(competitions.status, "published"), isNull(competitions.deletedAt)));
+    .where(publishedCompetitionsFilter());
 
-  const documents: CompetitionIndexDocument[] = rows.map((r) => ({
-    id: r.id,
-    title: r.title,
-    slug: r.slug,
-    category: r.category ?? null,
-    mode: r.mode ?? null,
-    deadline: r.registrationEndAt ? Math.floor(r.registrationEndAt.getTime() / 1000) : null,
-    createdAt: r.createdAt.toISOString(),
-    isFeatured: r.isFeatured,
-    featuredOrder: r.featuredOrder ?? null,
-    institutionSlug: r.institutionSlug,
-    // Personal institutions store NULL display_name and derive their name from the owner username.
-    institutionName: getInstitutionDisplayName(
-      { displayName: r.institutionDisplayName, institutionType: r.institutionType },
-      { username: r.institutionOwnerUsername },
-    ),
-    status: "published",
-  }));
+  const documents: CompetitionIndexDocument[] = rows.map(toCompetitionIndexDocument);
 
   if (documents.length === 0) {
     console.log("No published competitions found — nothing to upsert.");
-  } else {
-    const task = await index.addDocuments(documents, { primaryKey: "id" });
-    console.log(`Upserted ${documents.length} document(s). Meilisearch task uid: ${task.taskUid}`);
+    return;
   }
 
-  await sql.end();
+  const task = await index.addDocuments(documents, { primaryKey: "id" });
+
+  // THE TASK IS ENQUEUED, NOT DONE. Meilisearch accepts a batch and reports the outcome
+  // asynchronously, so the uid this returns says only that the request was received. Without this
+  // wait, a batch where every document was rejected prints the same success line as a batch that
+  // landed — the script's own output asserts a count it never measured.
+  await waitForTask(client, task.taskUid, `upserted ${documents.length} document(s)`);
+
+  // AND "THE TASK SUCCEEDED" IS NOT "THESE DOCUMENTS ARE THERE". A task can succeed having written
+  // fewer documents than it was handed, so the files are read back by id and counted.
+  //
+  // By id rather than by the index's total, because this script only ever ADDS. An index left over
+  // from a previous database legitimately holds documents this run did not write, and the total
+  // would report that as a failed backfill. Total-count equality is `search:reindex`'s assertion:
+  // it empties the index first, which is what makes the comparison meaningful there. See
+  // `scripts/reindex-search-index.ts`.
+  const written = await index.getDocuments({
+    ids: documents.map((document) => document.id),
+    fields: ["id"],
+    limit: documents.length,
+  });
+
+  if (written.results.length !== documents.length) {
+    throw new Error(
+      `the index returned ${written.results.length} of the ${documents.length} document(s) this ` +
+        "run wrote. The batch was accepted and did not land.",
+    );
+  }
+
+  console.log(`Upserted ${documents.length} document(s) and read them back.`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// The connection is closed in a finally, so a rejected batch tearing the script down cannot also
+// leave the pool open and hang the process instead of exiting non-zero.
+main()
+  .catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  })
+  .finally(() => sql.end({ timeout: 5 }));

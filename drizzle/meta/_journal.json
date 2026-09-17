@@ -421,6 +421,13 @@
       "when": 1787039145547,
       "tag": "0059_smiling_black_panther",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1789359386675,
+      "tag": "0060_institutions_status_default_inactive",
+      "breakpoints": true
     }
   ]
 }

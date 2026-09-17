@@ -1159,8 +1159,10 @@ describe.skipIf(skipWithoutDatabase)("the accrual write is single-shot (real dat
   /**
    * THE SEEDED REVERSAL AND THE SERVICE WRITE THE SAME SHAPE.
    *
-   * `scripts/seed-test-matrix.ts` writes `seed-accrual-d-reversed` as raw SQL, because that file
-   * imports no application module at all and the house style is worth keeping. The cost is that the
+   * `scripts/seed/manual-payment-lane.ts` writes `seed-accrual-d-reversed` as raw SQL, and does so
+   * deliberately: the money lane is the one part of the seed Phase 2 does NOT route, because the
+   * ledger is append-only and several of these rows exist precisely because the service refuses
+   * them. The cost is unchanged and is the reason this comparison exists; the
    * fee statement's only browser coverage of a reversal renders a HAND-BUILT row: change
    * `recordFeeAccrualReversal` and the fixture stays behind while the ui-states case goes on
    * passing over a shape the service no longer produces. This is the page where that matters most:
@@ -1644,7 +1646,11 @@ describe.skipIf(skipWithoutDatabase)("the lane's write precondition", () => {
   });
 });
 
-const SEED_SCRIPT = "scripts/seed-test-matrix.ts";
+// The money lane moved out of the matrix seed: the matrix routes through production services and
+// the finance rows deliberately do not, so they live in their own module. This constant is how this
+// test finds the seeded rows it compares against, and it failed loudly when they moved, which is
+// the property the split was built to have.
+const SEED_SCRIPT = "scripts/seed/manual-payment-lane.ts";
 const SEED_ACCRUED_ID = "seed-accrual-d-settled";
 const SEED_REVERSED_ID = "seed-accrual-d-reversed";
 
@@ -5112,6 +5118,71 @@ describe.skipIf(skipWithoutDatabase)(
 
         // THE POST-STATE ASSERTION. A guard that ran after the transaction throws the same error and
         // leaves this row cancelled.
+        expect(await statusOf(tx, fixture.registrationId)).toBe("confirmed");
+      });
+    });
+
+    // THE FEE-TO-ZERO BYPASS. Regression for the DEC-0131 hole found at Stage 7: the guard used to
+    // read `isPaidCompetition(competition.feeAmount)` before consulting the registration's own
+    // money, so an organiser could reopen cancellation on a registration a candidate had already
+    // transferred against.
+    //
+    // The sequence is the point, and every step of it is a thing an organiser may legitimately do:
+    // rejecting a proof takes the competition out of PAYMENT-IN-FLIGHT (`rejected` is not an
+    // in-flight status), which unblocks the fee edit that `edit-classification.ts` would otherwise
+    // refuse; dropping the fee to zero then made `isPaidCompetition` false and skipped the guard
+    // entirely. The payment row keeps its original gross amount throughout — the ledger is
+    // append-only — so the money fact never changed. Only the column the guard was reading did.
+    //
+    // Asserted on the SPECIFIC code and message, never on "something refused": this suite's
+    // sibling failure mode is a negative that passes because an earlier gate fired, and at the
+    // moment this was written a constructed cancel scored green on `cancellation_reason_required`
+    // while the money boundary went unmeasured. A bare rejects.toThrow() here would pass with the
+    // bypass fully restored, because the cancellation window guard refuses too.
+    it("REFUSES after the proof is rejected and the fee is dropped to zero", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        await openCancellationWindow(tx, fixture);
+        const paymentId = await seedManualPayment(tx, fixture);
+        const proof = await submitProofFor(tx, fixture, paymentId);
+
+        // Step 1: the organiser rejects the proof, through the real verdict service. The
+        // registration's payment row is untouched by this and still carries its gross amount.
+        const { rejectManualPaymentProof } =
+          await import("@/server/finance/manual-payment-proof-service");
+        await rejectManualPaymentProof(
+          fixture.institutionId,
+          fixture.userId,
+          proof.id,
+          "bukti tidak terbaca",
+          true,
+          tx as never,
+        );
+
+        // Step 2: the fee goes to zero. Permitted by the edit classifier precisely because the
+        // rejection above cleared payment-in-flight.
+        await tx
+          .update(competitions)
+          .set({ feeAmount: 0 })
+          .where(eq(competitions.id, fixture.competitionId));
+
+        // Step 3: the cancel that used to succeed.
+        const { cancelRegistration } = await import("@/server/registrations/registration-service");
+        await expect(
+          cancelRegistration(
+            fixture.userId,
+            fixture.competitionId,
+            fixture.registrationId,
+            "berubah pikiran",
+            tx as never,
+          ),
+        ).rejects.toMatchObject({
+          code: "cancellation_not_supported_for_paid",
+          message: "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
+        });
+
+        // The row the whole guard exists to protect: the only in-app record connecting this payer
+        // to this competition.
         expect(await statusOf(tx, fixture.registrationId)).toBe("confirmed");
       });
     });

@@ -61,18 +61,23 @@ const HARNESS_FILES = [
  * last file that should have it: it is the most plausible place a "just fix this one row" ledger
  * edit gets written, precisely because it is already allowed to write finance rows.
  *
- *   scripts/seed-test-matrix.ts, finance_manual_payment_proof_attempts: the scratch reset. The
- *     seed deletes the proofs the AUTOMATED PASS created, and their attempt rows hold a foreign key
- *     to them, so the parent delete fails on the constraint and the whole reset aborts. Without
+ *   scripts/seed/manual-payment-lane.ts, finance_manual_payment_proof_attempts: the scratch reset.
+ *     The lane deletes the proofs the AUTOMATED PASS created, and their attempt rows hold a foreign
+ *     key to them, so the parent delete fails on the constraint and the whole reset aborts. Without
  *     this the local pipeline goes one-shot the moment any pass reaches a verdict. It removes only
  *     rows the automation itself created, on a scratch database, and touches no attempt belonging
  *     to a seeded proof.
+ *
+ *     The exception NAMES THE LANE RATHER THAN THE MATRIX SEED because the finance rows moved
+ *     there. Repointing it was not bookkeeping: this scan is one of the two things that failed when
+ *     the money lane was split out, which is the property the split exists to have: a finance
+ *     write cannot change address without something saying so.
  *
  * The attempts table stays OUT of `MUTABLE_FINANCE_TABLES`: it is append-only everywhere in the
  * application, and nothing under `src/` may delete from it.
  */
 const SCOPED_TABLE_EXCEPTIONS: Readonly<Record<string, readonly string[]>> = {
-  "scripts/seed-test-matrix.ts": ["finance_manual_payment_proof_attempts"],
+  "scripts/seed/manual-payment-lane.ts": ["finance_manual_payment_proof_attempts"],
 };
 
 /**
@@ -91,6 +96,27 @@ const MUTATION_PATTERNS = [
   // single most destructive statement that could be aimed at the ledger, and the scan did not
   // mention it.
   new RegExp(String.raw`\btruncate\s+(?:table\s+)?${RAW_TABLE}`, "gi"),
+  // An upsert. `INSERT … ON CONFLICT … DO UPDATE SET` rewrites the existing row, and the word
+  // `update` is followed by SET rather than by the table name, so none of the patterns above can
+  // see it. This was the form the seed lane used against `finance_payments` while every scan here
+  // reported the ledger untouched.
+  new RegExp(
+    String.raw`\binsert\s+into\s+${RAW_TABLE}[^;]*?\bon\s+conflict\b[^;]*?\bdo\s+update`,
+    "gi",
+  ),
+  // The SAME upsert through Drizzle's typed API, which the raw-SQL pattern above cannot see: there
+  // is no `insert into`, the table is a camelCase binding rather than a snake_case name, and the
+  // word `update` arrives capitalised inside `onConflictDoUpdate`. Pattern 1 cannot reach it either,
+  // being anchored to a dot immediately followed by lowercase `update`/`delete`.
+  //
+  // This is the second time this pin has been blind to a sibling spelling of the same write — the
+  // raw form was the first. The pattern list is enumerated from the forms someone thought of, not
+  // derived from what Drizzle can emit, and nothing establishes that these six are all of them.
+  // That gap is LAUNCH-D86's, not this line's.
+  new RegExp(
+    String.raw`\.\s*insert\s*\(\s*finance[A-Za-z]*[^;]*?\.\s*on\s*conflict\s*do\s*update\s*\(`,
+    "gis",
+  ),
 ];
 
 /**
@@ -235,7 +261,7 @@ describe("finance write surface", () => {
 
   it("pins the scoped exceptions, and proves each one is narrower than the file it names", () => {
     expect(SCOPED_TABLE_EXCEPTIONS).toEqual({
-      "scripts/seed-test-matrix.ts": ["finance_manual_payment_proof_attempts"],
+      "scripts/seed/manual-payment-lane.ts": ["finance_manual_payment_proof_attempts"],
     });
 
     for (const path of Object.keys(SCOPED_TABLE_EXCEPTIONS)) {
@@ -245,7 +271,7 @@ describe("finance write surface", () => {
     // THE POINT OF SCOPING IT. A whole-file exemption would let a ledger mutation into the same
     // file unnoticed; this asserts the exempted file is still scanned for everything else, by
     // running the real filter over a source that mutates a ledger table AND the excepted one.
-    const allowedHere = SCOPED_TABLE_EXCEPTIONS["scripts/seed-test-matrix.ts"]!;
+    const allowedHere = SCOPED_TABLE_EXCEPTIONS["scripts/seed/manual-payment-lane.ts"]!;
     const mixed = [
       "await sql`DELETE FROM finance_manual_payment_proof_attempts WHERE proof_id = $1`;",
       "await sql`DELETE FROM finance_payment_events WHERE payment_id = $1`;",
@@ -283,6 +309,16 @@ describe("finance write surface", () => {
       // Aliased forms, which read nothing like the bare statement.
       "await sql`update finance_payments AS p set gross_amount = 0 where p.id = 1`;",
       "await sql`delete from finance_fee_accruals a using x where a.id = x.id`;",
+      // An upsert rewrites the existing row and never says `update <table>`.
+      "await sql`INSERT INTO finance_payments (id, due_at) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET due_at = EXCLUDED.due_at`;",
+      // THE SAME UPSERT THROUGH DRIZZLE, which is the idiomatic form in this repository — it is in
+      // live use at 23 call sites, none of them finance today, which is exactly why the next
+      // finance upsert is likely to be written this way.
+      "await db.insert(financePayments).values(row).onConflictDoUpdate({ set: { grossAmount: 0 } });",
+      "await tx.insert(financeFeeAccruals).values(v).onConflictDoUpdate({ set: { amount: 1 } });",
+      // Newline-straddling, since the builder chain is usually formatted across lines.
+      "await db\n  .insert(financePaymentEvents)\n  .values(row)\n  .onConflictDoUpdate({ set: {} });",
+      "await sql`insert into finance_fee_rules (id) values ($1)\n  on conflict (id)\n  do update set basis_points = 1`;",
     ];
 
     for (const source of mutatesLedger) {
@@ -294,6 +330,20 @@ describe("finance write surface", () => {
       "await sql`update finance_manual_payment_proofs set status = 'verified'`;",
       "await db.select().from(financePayments);",
       "await db.insert(financeFeeAccruals).values(row);",
+      // An idempotent insert leaves the existing row untouched.
+      "await sql`INSERT INTO finance_payments (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`;",
+      // The mutable table may be upserted like any other write to it.
+      "await sql`INSERT INTO finance_manual_payment_proofs (id) VALUES ($1) ON CONFLICT (payment_id) DO UPDATE SET status = 'x'`;",
+      // …including through Drizzle. The exception is subtracted by matching the table name inside
+      // the hit, and the typed pattern's match spans the identifier, so both spellings are covered.
+      "await db.insert(financeManualPaymentProofs).values(v).onConflictDoUpdate({ set: { status: 'x' } });",
+      // A typed upsert against a NON-finance table. The scan walks all of `src/`, and
+      // `.onConflictDoUpdate()` is live at 23 call sites there, so a pattern that is not correlated
+      // with a finance insert target would turn every one of them into a false failure.
+      "await db.insert(userProfiles).values(v).onConflictDoUpdate({ set: { bio: 'x' } });",
+      // An idempotent insert against a ledger table, typed. `DO NOTHING` cannot rewrite a row, and
+      // this is the form the seed lane uses at five sites.
+      "await db.insert(financePayments).values(v).onConflictDoNothing();",
     ];
 
     for (const source of allowed) {

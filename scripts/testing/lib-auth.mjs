@@ -1,4 +1,4 @@
-import { BASE, MFA_FACTOR_SECRET_HEX, PASSWORD } from "./seeds.mjs";
+import { BASE, PASSWORD, mfaSecretHexFor } from "./seeds.mjs";
 import { generateTotpCode } from "./lib-totp.mjs";
 
 const parseSetCookies = (res, jar) => {
@@ -86,9 +86,9 @@ const TOTP_STEP_MS = 30_000;
  * retrying once is the harness catching up with the product, and it is what lets more than one ops
  * surface be audited in a single run.
  */
-async function challengeWithFreshCode(jar) {
+async function challengeWithFreshCode(jar, userId) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const code = generateTotpCode(Buffer.from(MFA_FACTOR_SECRET_HEX, "hex"));
+    const code = generateTotpCode(Buffer.from(mfaSecretHexFor(userId), "hex"));
 
     const res = await fetch(`${BASE}/api/v1/auth/mfa/challenge`, {
       method: "POST",
@@ -104,13 +104,14 @@ async function challengeWithFreshCode(jar) {
     if (spentCode && attempt === 1) {
       // The SECOND refusal after waiting out the step is not replay any more, and saying so is the
       // difference between a two-minute diagnosis and an hour of it: a fresh code refused means the
-      // seeded factor's secret no longer matches MFA_FACTOR_SECRET_HEX, or the machine clock has
+      // seeded factor's secret no longer matches the one in the secrets file (the database was
+      // re-seeded after the file was written, or the other way round), or the machine clock has
       // drifted more than one step from the server's. Neither is a product defect on the page under
       // audit, which is what the bare message would otherwise imply.
       throw new Error(
         `MFA challenge refused a FRESH code after waiting out the TOTP step (${res.status}). ` +
-          `This is no longer replay protection. Re-seed (npx tsx scripts/seed-test-matrix.ts) or ` +
-          `check clock drift. Detail: ${detail.slice(0, 160)}`,
+          `This is no longer replay protection. Re-run \`npm run db:seed:operators\` so the factor ` +
+          `and the secrets file agree, or check clock drift. Detail: ${detail.slice(0, 160)}`,
       );
     }
 
@@ -127,8 +128,8 @@ async function challengeWithFreshCode(jar) {
   throw new Error("MFA challenge failed: unreachable");
 }
 
-export async function elevateMfaSession(jar) {
-  const { elevationGrantId } = await challengeWithFreshCode(jar);
+export async function elevateMfaSession(jar, userId) {
+  const { elevationGrantId } = await challengeWithFreshCode(jar, userId);
 
   const csrfRes = await fetch(`${BASE}/api/auth/csrf`, { headers: { cookie: cookieHeader(jar) } });
   parseSetCookies(csrfRes, jar);

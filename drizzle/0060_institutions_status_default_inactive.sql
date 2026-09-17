@@ -1,0 +1,1 @@
+ALTER TABLE "institutions" ALTER COLUMN "status" SET DEFAULT 'inactive';

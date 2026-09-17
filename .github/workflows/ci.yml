@@ -110,6 +110,44 @@ jobs:
           psql "$DATABASE_URL" -tAc "SELECT current_setting('default_transaction_isolation')" \
             | grep -qx 'read committed'
 
+      # THE DOC LANE, WHICH CI HAS NEVER HAD. `docs/` is its own private repository (Rule 26) and is
+      # gitignored here, so the product checkout above does not contain it. Twelve tests read it:
+      # eleven in `register-census.test.ts` measure `open-debt.md` and `decision-log.md`, and
+      # `deletion-procedure.test.ts` reads the procedure. On a runner without the lane all twelve
+      # fail — which is how the false green this step removes was found, by cloning the product repo
+      # somewhere the lane was not.
+      #
+      # It sits here rather than earlier because Lint, Format and Typecheck never look at `docs/`:
+      # eslint does not, and neither the vitest include list nor the tsconfig include list reaches
+      # it. A lane present during Test is the whole of what the suite needs.
+      #
+      # No `continue-on-error`, no fallback and no condition. An unavailable doc repo, a revoked
+      # token or an absent branch must fail the job: a checkout that quietly proceeds without `docs/`
+      # restores the exact false green this step exists to remove.
+      - name: Check out the doc lane
+        uses: actions/checkout@v4
+        with:
+          repository: NichBry25/lombakita-docs
+          path: docs
+          token: ${{ secrets.DOC_REPO_READ_TOKEN }}
+          persist-credentials: false
+
+      # The checkout above proves the repository was reachable, not that it holds the files the
+      # suite reads. Without this, a token scoped to the wrong repository would surface as twelve
+      # collection errors instead of one sentence naming the lane.
+      - name: Confirm the doc lane holds what the suite reads
+        run: |
+          for path in \
+            docs/project/open-debt.md \
+            docs/project/decision-log.md \
+            docs/operations/account-deletion-procedure.md
+          do
+            if [ ! -f "$path" ]; then
+              echo "::error::$path is absent — the doc lane did not check out"
+              exit 1
+            fi
+          done
+
       - name: Test
         run: npm run test
 
@@ -130,6 +168,21 @@ jobs:
       # checkout and is why the harness refuses to run over anything that differs from HEAD.
       - name: Guard probes
         run: node scripts/testing/probes/config-gates.mjs
+
+      # Separate from the step above because these need a database they may CREATE and DROP: each
+      # one builds a throwaway database, points the real `npm run db:reset` at it, and reads whether
+      # the drop happened. The job's own `lombakita_ci` is never the subject. Nothing here can reach
+      # a deployed database — the probes construct their targets from this job's local
+      # `DATABASE_URL`, and the guard under test is what refuses anything else.
+      - name: Reset guard probes
+        run: node scripts/testing/probes/reset-guard.mjs
+
+      # The harness's own `DROP DATABASE ... WITH (FORCE)` is a destructive surface in its own
+      # right, and for one step it was the only one in this repository with no guard in front of
+      # it. These probe the refusal that now stands there: an allow-list of the harness's own
+      # throwaways, and a loopback check on the server it reaches them through.
+      - name: Probe harness guard probes
+        run: node scripts/testing/probes/harness-guard.mjs
 
       # Build is intentionally NOT run here. `next build` requires runtime env
       # (DATABASE_URL / AUTH_SECRET, and a reachable DB for public-page
@@ -255,9 +308,28 @@ jobs:
         run: npm run db:migrate:guarded
 
       # Every audit asserts against the seeded matrix by id. Without it the pages render empty and
-      # `ui-states` would report eleven surfaces missing text that was never seeded.
+      # `ui-states` would report all 31 surfaces missing text that was never seeded.
       - name: Seed the test matrix
         run: node --import tsx scripts/seed-test-matrix.ts
+
+      # THE TWO OPT-IN LANES, and they are opt-in in CI for the same reason they are locally: neither
+      # `db:reset` nor the matrix seed writes them, and the environment block above already declares
+      # what they need (the MFA key and the R2 placeholders exist so the payment-proof surfaces
+      # render). `ui-states` asserts against the bukti-transfer lane, so without these two steps the
+      # required check cannot go green — which is the failure mode the harness's own precondition now
+      # reports as one refusal naming the commands rather than 31 surfaces of missing text.
+      #
+      # ORDER MATTERS and is the same as local: the operator seed writes the roles the payments seed
+      # reviews, and the payments seed refuses outright unless the matrix registrations it names are
+      # already there.
+      - name: Seed the operator accounts
+        run: npm run db:seed:operators
+
+      # Writes no competitions, so the search index below is unaffected by running it here. It does
+      # write `finance_payments`, which DEC-0133 makes append-only — acceptable in this job and only
+      # here because `lombakita_audits` is a service container destroyed with the runner.
+      - name: Seed the manual payment lane
+        run: npm run db:seed:payments
 
       # AFTER the seed, not before: this script creates the index and backfills it from the
       # database in one pass, so run against an unseeded database it would build an empty index and
@@ -321,6 +393,17 @@ jobs:
       - name: Guard probes — browser audit refusals
         if: always()
         run: node scripts/testing/probes/browser-audit-refusals.mjs
+
+      # HERE FOR THE SAME REASON as the step above: its mutations are measured against a real
+      # Meilisearch, which only this job has. The reset probes in the other job cover a DIFFERENT
+      # call site in front of a different destructive operation, and Rule 32 does not let one stand
+      # in for the other.
+      #
+      # It empties the competitions index while measuring and rebuilds it from this job's database
+      # in its teardown, so it runs AFTER every audit that reads the index rather than before one.
+      - name: Guard probes — reindex refusals
+        if: always()
+        run: node scripts/testing/probes/reindex-guard.mjs
 
       # THE BASELINE HAS TO COME FROM THE MACHINE THAT MEASURED IT. This runner and a macOS laptop
       # do not render the same page — the three institution pages measure 400px of content here and

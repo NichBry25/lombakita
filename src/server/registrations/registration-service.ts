@@ -14,7 +14,6 @@ import { logger } from "@/lib/logger";
 import { enqueueRegistrationConfirmed, enqueueRegistrationCancelled } from "@/server/async/enqueue";
 import { isParticipantCancellationClosedByConfirmation } from "@/lib/competitions/competition-participation";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
-import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { hasSubmittedPaymentProof } from "@/server/finance/paid-registration";
 import {
   createRegistrationPayment,
@@ -389,13 +388,18 @@ export const cancelRegistration = async (
   // would leave a candidate whose proof is still awaiting review able to cancel out from under an
   // organiser mid-review, and payment-in-flight would hand the right to cancel BACK the moment a
   // proof was rejected, even though the transfer it evidences may well have happened.
-  if (isPaidCompetition(competition.feeAmount)) {
-    if (await hasSubmittedPaymentProof(registration.id, db)) {
-      throw new RegistrationError(
-        "cancellation_not_supported_for_paid",
-        "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
-      );
-    }
+  // Asked of the REGISTRATION'S OWN MONEY, never of the competition's current price. The predicate
+  // resolves the payment group and already returns false when no chargeable payment exists, so it
+  // answers "did this candidate assert a transfer?" without consulting a column an organiser can
+  // edit afterwards. Gating it on the competition's fee meant a fee lowered to zero skipped the
+  // check entirely: a rejected proof stops the competition counting as payment-in-flight, which
+  // unblocks the fee edit, and the guard then never ran against a registration whose payment row
+  // still carries its original gross amount.
+  if (await hasSubmittedPaymentProof(registration.id, db)) {
+    throw new RegistrationError(
+      "cancellation_not_supported_for_paid",
+      "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",
+    );
   }
 
   // (f) institution must allow cancellation at all.
