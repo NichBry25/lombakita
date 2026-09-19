@@ -140,7 +140,8 @@ jobs:
           for path in \
             docs/project/open-debt.md \
             docs/project/decision-log.md \
-            docs/operations/account-deletion-procedure.md
+            docs/operations/account-deletion-procedure.md \
+            docs/.claude/commands/precheck.md
           do
             if [ ! -f "$path" ]; then
               echo "::error::$path is absent — the doc lane did not check out"
