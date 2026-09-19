@@ -799,10 +799,14 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
     // id, so a literal reading "50" is 50 of two different things depending on which the reader
     // assumed, and the pair (50 ids / 53 entries) is reported together for that reason.
     what: "distinct live debt ids carrying no anchor at all",
-    bound: 48,
+    bound: 47,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
+      "LOWERED FROM 48 TO 47 ON 2026-09-19, BY DISCHARGE, the same direction as the 50→48 move " +
+      "below: LAUNCH-D62 (anchorless since filing) was marked `· DISCHARGED` on its anchor line " +
+      "once Rule 23's text was amended to match DEC-0215, so it left the live population and left " +
+      "this count with it. Read off the gate's own `lower the literal to 47` rather than computed. " +
       "mostly the Step 7.1 and 6.5.INFRA sections, filed before anchoring was practised, plus the " +
       "items the Block C Phase 1 depth review filed without one. Anchoring an item lowers this and " +
       "nothing raises it except a deliberate edit to this literal; an item filed without an anchor " +
