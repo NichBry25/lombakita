@@ -211,7 +211,7 @@ export const probes = [
     appliedMarkers: ["- **LAUNCH-D40 [MEDIUM].**"],
     mutate: () => substituteOnce(REGISTER, D40_ANCHORED, "- **LAUNCH-D40 [MEDIUM].**"),
     detect: () =>
-      gateRefused(/FAIL\s+49\s+distinct live debt ids carrying no anchor at all\s+\(up 1\)/),
+      gateRefused(/FAIL\s+\d+\s+distinct live debt ids carrying no anchor at all\s+\(up 1\)/),
   },
   {
     name: "a row off its column count fails the close",
