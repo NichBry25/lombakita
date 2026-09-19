@@ -38,11 +38,9 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { getTableName } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import * as schema from "@/server/db/schema";
-
-/** Drizzle stores the SQL table name under this symbol, not on a typed property. */
-const TABLE_NAME = Symbol.for("drizzle:Name");
 
 /** The `ON DELETE` actions Postgres recognises, lowercased as Drizzle writes them. */
 export type ReferentialAction = "cascade" | "set null" | "set default" | "restrict" | "no action";
@@ -132,10 +130,12 @@ export const schemaForeignKeys = (): ForeignKey[] => {
 
     for (const foreignKey of config.foreignKeys) {
       const reference = foreignKey.reference();
-      const target = reference.foreignTable as unknown as Record<symbol, string>;
 
-      const targetTable = target[TABLE_NAME];
-      if (targetTable === undefined) {
+      // A target whose name does not read is REFUSED rather than dropped: a foreign key missing from
+      // this graph is a blocker `blockingForeignKeys` will not report, and an enumeration short one
+      // edge reads as complete.
+      const targetTable = getTableName(reference.foreignTable);
+      if (!targetTable) {
         throw new DeletionCensusRefusal(config.name, "foreign key");
       }
 

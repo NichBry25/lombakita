@@ -844,199 +844,35 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 69,
+    bound: 70,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
       "THE ONE POPULATION THAT RISES AS THE REGISTER IMPROVES, so it is held as a floor rather " +
-      "than a pin. Sixty-nine ids are anchored `→ Step 7.7 Block <X>`; seventeen more are " +
-      "anchored `→ Step 7.7.` with no block at all, which is why this number and the anchorless " +
-      "ratchet do not partition the live population — 48 anchorless plus these 69 plus those 17 " +
-      "is the 134 live ids the header prints, and the seventeen is read off that sum rather than " +
-      "counted a second time. THE TWO COUNTS IN THIS SENTENCE WERE CORRECTED AT BLOCK C2'S STAGE " +
-      "1 (2026-09-16) AND AGAIN ON 2026-09-17, each time read off the gate rather than computed, " +
-      "and the third correction arrived the way LAUNCH-D119 says it must: the close that filed " +
-      "LAUNCH-D120 through LAUNCH-D123 moved this population by four while correcting it. THIS " +
-      "SENTENCE HAS NOW BEEN CORRECTED THREE TIMES ACROSS TWO CLOSES, and the " +
-      "second correction is LAUNCH-D119's item demonstrated on this string: it read `these 57 … " +
-      "the 122 the header prints` for the minutes between its correction and the filing of " +
-      "LAUNCH-D119, which carries `→ Step 7.7 Block D` and moved the canonical term by one. That " +
-      "is the class, stated as a measurement rather than an argument — the act of filing an item " +
-      "is the act of invalidating the sentence describing the population it joins, and no amount " +
-      "of care on the writer's part closes that, because the writer is the one doing both. THE " +
-      "TWO COUNTS BEFORE THE PARTITION WERE CORRECTED AT BLOCK C2'S " +
-      "STAGE 1 (2026-09-16), in the same change as the partition itself, because they are one " +
-      "sentence and correcting half of it leaves it contradicting itself five words apart. It " +
-      "opened `Fifty ids are anchored … nineteen more are anchored`, which summed against a 48 " +
-      "to a header printing 122: the first two numbers a reader meets in this reason string were " +
-      "the stale ones, which is the worse half of the defect the partition correction below " +
-      "names. What the floor catches is the direction nothing " +
-      "else did: REWRITING an existing anchor to `→ TBD` leaves every other instrument at " +
-      "baseline — gate (a) compares id sets and an edit is not a filing, gate (b) reads bare " +
-      "block anchors only, and the anchorless ratchet accepts any non-null anchor, junk included. " +
-      "Measured 2026-09-14, proven red at 20 before it was trusted, and held at 19 for exactly as " +
-      "long as the register held nineteen. Raised to 21 by the close that filed two anchored " +
-      "items, to 23 by the close that filed LAUNCH-D83 and LAUNCH-D84, and to 28 by the close " +
-      "that filed LAUNCH-D85 through LAUNCH-D89, each carrying `→ Step 7.7 Block D`, because the " +
-      "floor follows the population up or it leaves that many anchors of slack in the one " +
-      "instrument that watches for an anchor degrading out of canonical form. Proven red at 22 on " +
-      "2026-09-15 before 23 was trusted, by the probe rather than by a lower bound: LAUNCH-D84's " +
-      "anchor was reverted to a bare `→ Step 7.7.`, the gate failed `22  live debt ids carrying " +
-      "an anchor that names a step and a block  (down 1 — below the floor of 23)`, and the " +
-      "register was then restored from git with `git diff --quiet` asserted on it. Proven red at " +
-      "27 on 2026-09-15 before 28 was trusted, the same way and against one of the five new " +
-      "anchors rather than an old one: LAUNCH-D89's anchor was reverted to a bare `→ Step 7.7.` " +
-      "and the gate failed `27  live debt ids carrying an anchor that names a step and a block  " +
-      "(down 1 — below the floor of 28)`. Raised to 38 on 2026-09-15 by the close that filed " +
-      "LAUNCH-D90 through LAUNCH-D99, five to Block D and five to Block C2. The number was READ " +
-      "OFF THE GATE'S OWN `raise the bound to N` rather than computed from the filings, and that " +
-      "discipline is what caught an arithmetic error: 28, minus the withdrawn D89, plus ten " +
-      "filings predicts 37; the measured value is 38, because a WITHDRAWN entry keeps its anchor " +
-      "line and stays in this population exactly as a discharged one does. Proven red at 37 " +
-      "before 38 was trusted, against one of the ten new anchors: LAUNCH-D99's anchor was " +
-      "reverted to a bare `→ Step 7.7.`, the gate failed `37  live debt ids carrying an anchor " +
-      "that names a step and a block  (down 1 — below the floor of 38)`, and the register was " +
-      "restored from git with `git diff --quiet` asserted on it. Raised to 41 on 2026-09-16 by the " +
-      "close that filed LAUNCH-D100 through LAUNCH-D102, all three carrying `→ Step 7.7 Block C2`. " +
-      "Read off the gate's own `raise the bound to 41` rather than computed from the filings. " +
-      "Proven red at 40 before 41 was trusted, and for the first time by the PROBE rather than by a " +
-      "hand edit: `npm run verify:register-probe` rewrites LAUNCH-D40's canonical anchor to " +
-      "`→ TBD`, the gate failed `40  live debt ids carrying an anchor that names a step and a " +
-      "block  (down 1 — below the floor of 41)`, and the harness restored the register with " +
-      "`RESTORE OK (1 file(s) match HEAD)`. Every raise before that one proved the floor by hand " +
-      "because the probe could not reach a verdict at all — its detector pinned the floor's " +
-      "literals, which move with this number. Raised to 42 on 2026-09-16 by the close that filed " +
-      "LAUNCH-D103, carrying `→ Step 7.7 Block C2`. Read off the gate's own `raise the bound to " +
-      "42` rather than computed from the filing (the gate printed `anchored live 42` against " +
-      "`docs@3ef292e`). Proven red at 41 before 42 was trusted, and by the probe on a fixture that " +
-      "had by then been repaired: `npm run verify:register-probe` rewrites LAUNCH-D40's canonical " +
-      "anchor to `→ TBD` and the gate failed `41  live debt ids carrying an anchor that names a " +
-      "step and a block  (down 1 — below the floor of 42)`, with the harness restoring the " +
-      "register — `RESTORE OK (1 file(s) match HEAD)` — and reporting `14/14 probes went red as " +
-      "claimed.` The 41 raise reached only `13/14` — one probe above the anchored-floor one was " +
-      "reporting NOT PROVEN on a fixture that had expired — so 42 is the first raise proved by a " +
-      "suite that reached a verdict on every probe it declares. Raised to 43 on 2026-09-16 by the " +
-      "Stage 9 filing of LAUNCH-D104, the privacy-policy deletion gap, which carries " +
-      "`→ Step 7.7 Block D` rather than Block C2 because it is a legal finding and belongs with " +
-      "the TRUST-D12 cluster. Read off the gate's own `raise the bound to 43` (the gate printed " +
-      "`anchored live 43` against `docs@dbcf13e`). This is the first raise whose arithmetic the " +
-      "reason string above can be checked against without running anything: 50 anchorless plus 43 " +
-      "plus 19 is the 112 the header prints, and the 19 did not move, which is what a filing " +
-      "carrying a canonical block anchor should do to this partition. Raised to 50 on 2026-09-16 " +
-      "by Stage 7, which filed seven items at once — LAUNCH-D105 to Block C2 and LAUNCH-D106 " +
-      "through LAUNCH-D111 to Block D. Read off the gate's own `raise the bound to 50` (the gate " +
-      "printed `anchored live 50` against `docs@9b614b9`). The partition held again across a " +
-      "seven-item filing: 50 anchorless plus 50 plus 19 is the 119 the header prints, and the 19 " +
-      "did not move, which is the second consecutive raise a reader can check against this string " +
-      "without running anything. The largest single raise this floor has taken, and the reason is " +
-      "worth keeping: seven of them came from a review of work that had already passed its own " +
-      "gate, which is what the floor is for — it follows the register up or it leaves that many " +
-      "anchors of slack in the instrument that watches for an anchor degrading out of canonical " +
-      "form" +
-      ". UNMOVED BY THE FIVE MARKS OF THE 2026-09-16 CLOSE, AND THAT IS THE FINDING RATHER THAN " +
-      "AN OMISSION. " +
-      "The " +
-      "close discharged five ids and this floor was expected to fall; it did not move, and the " +
-      "reason is that not one of the five could reach it. LAUNCH-D59 and LAUNCH-D61 are ANCHORLESS " +
-      "— both their entries carry no `→` at all, which is why they landed on the anchorless " +
-      "literal instead, at :4339 and :4387. LAUNCH-D70, LAUNCH-D75 and LAUNCH-D76 do carry " +
-      "canonical anchors and are the three that could plausibly have moved this number, but they " +
-      "sit in the Block C Phase 2 block, which holds no `###` subsection the census reads as " +
-      "live, so no mark on them can move any population. Marking them was still done and is still " +
-      "correct: an item excluded from every population by its block's shape rather than by its " +
-      "own line is excluded by accident, and correctness that rests on an accident is not " +
-      "correctness. " +
-      "RAISED FROM 51 TO 56 BY THE SAME CLOSE'S FIVE FILINGS, and the two moves are worth keeping " +
-      "apart: the marks moved nothing, because none of the five discharged ids could reach this " +
-      "population, and the filings moved it by exactly five, because LAUNCH-D113 through " +
-      "LAUNCH-D117 each carry `→ Step 7.7 Block D`. Read off the gate's own `raise the bound to " +
-      "56` rather than computed. A floor that rises with the register is the floor working; a " +
-      "floor that had fallen for the marks would have been a floor weakened by a discharge, " +
-      "which is the direction this reason exists to make legible. The partition is now 48 " +
-      "anchorless plus 56 here plus 19 partial = the 123 the " +
-      "header prints, and the 19 has not moved across any of the three closes a reader can " +
-      "check against this string without running anything — which is also, per LAUNCH-D113, " +
-      "the tell that the 19 is not measured at all but subtracted" +
-      ". RAISED FROM 56 TO 57 AT BLOCK C2'S STAGE 1 (2026-09-16) by the filing of LAUNCH-D118, " +
-      "which carries `→ Step 7.7 Block D`. Read off the gate's own `raise the bound to 57` rather " +
-      "than computed from the filing. **THE PARTITION MOVED IN TWO DIRECTIONS AT ONCE, which no " +
-      "close before this one had done**: 48 anchorless plus 57 here plus 17 partial = the 122 the " +
-      "header prints. This floor rose by one for the filing, and the partial term fell from 19 to " +
-      "17 because the same close marked BETA-D17's and BETA-D28's anchor lines `· DISCHARGED` and " +
-      "both were carried on `→ Step 7.7.` with no block — the partial term is the one class a " +
-      "discharge can move, and this is the first close to move it. The 19 was subtracted rather " +
-      "than measured, per LAUNCH-D113; the 17 is the same subtraction over two fewer live ids and " +
-      "is no more measured than the 19 was, so the first close to move it moved a number no " +
-      "instrument computes" +
-      ". PROVEN RED AT 56 BEFORE 57 WAS TRUSTED, by the probe rather than by a hand edit, which " +
-      "makes this the second consecutive raise proved by the suite: " +
-      "`npm run verify:register-probe` rewrites LAUNCH-D40's canonical anchor to `→ TBD`, the gate " +
-      "failed `56  live debt ids carrying an anchor that names a step and a block  (down 1 — below " +
-      "the floor of 57)`, and the harness restored the register with `RESTORE OK (1 file(s) match " +
-      "HEAD)`, reporting `15/15 probes went red as claimed.` This raise needed no probe edit, " +
-      "because this floor's detector already reads its bound as `\\d+` rather than pinning it" +
-      ". RAISED FROM 57 TO 58 IN THE SAME CLOSE THAT FILED LAUNCH-D119, by the filing itself, " +
-      "which carries `→ Step 7.7 Block D`. Read off the gate's own `raise the bound to 58` — the " +
-      "gate printed `PASS  58  live debt ids carrying an anchor that names a step and a block  " +
-      "(up 1 — raise the bound to 58)` against a bound of 57 — rather than computed from the " +
-      "filing. This is the third consecutive raise taken off the gate's own hint and the first " +
-      "taken in the same change that corrected the partition it belongs to: the correction and " +
-      "the filing invalidated each other, and the ordering that resolves it is that the bound " +
-      "follows the measurement, never the measurement the bound. A floor left at 57 against a " +
-      "measured 58 is one unit of slack in the one instrument that watches for an anchor " +
-      "degrading out of canonical form, and one unit of slack is the Phase 4 finding this floor " +
-      "exists downstream of" +
-      ". RAISED FROM 58 TO 62 ON 2026-09-17 BY THE CLOSE THAT FILED LAUNCH-D120 THROUGH " +
-      "LAUNCH-D123, all four carrying `→ Step 7.7 Block D`. Read off the gate's own `raise the " +
-      "bound to 62` — the gate printed `PASS  62  live debt ids carrying an anchor that names a " +
-      "step and a block  (up 4 — raise the bound to 62)` against a bound of 58 — rather than " +
-      "computed from the filings. This is the largest raise taken in a single filing since the " +
-      "seven-item close, and the first taken against a bound that had been left four units of " +
-      "slack: the four filings moved the canonical term 58 → 62 and the header's live total 123 → " +
-      "127, and no mark fell in the same close, so nothing pushed the number back down. The " +
-      "partition a reader can check against this string without running anything is 48 anchorless " +
-      "plus 69 here plus 17 partial = the 134 the header prints, where the 17 is the same " +
-      "subtraction LAUNCH-D113 records rather than a count" +
-      ". RAISED FROM 62 TO 65 ON 2026-09-17 BY THE CLOSE THAT FILED LAUNCH-D124 THROUGH " +
-      "LAUNCH-D126, all three carrying `→ Step 7.7 Block D`. Read off the gate's own `raise the " +
-      "bound to 65` — the gate printed `PASS  65  live debt ids carrying an anchor that names a " +
-      "step and a block  (up 3 — raise the bound to 65)` against a bound of 62 — rather than " +
-      "computed from the filings. The three filings moved the canonical term 62 → 65 and the " +
-      "header's live total 127 → 130, and no mark fell in the same close, so nothing pushed the " +
-      "number back down. The partition sentence above was corrected inside the same change that " +
-      "invalidated it rather than a close later, which is the ordering LAUNCH-D119's class says " +
-      "is the only one available" +
-      ". RAISED FROM 65 TO 66 ON 2026-09-17 BY THE CLOSE THAT FILED LAUNCH-D127, which carries " +
-      "`→ Step 7.7 Block D`. Read off the gate's own `raise the bound to 66` — the gate printed " +
-      "`PASS  66  live debt ids carrying an anchor that names a step and a block  (up 1 — raise " +
-      "the bound to 66)` against a bound of 65 — rather than computed from the filing. The filing " +
-      "moved the canonical term 65 → 66 and the header's live total 130 → 131, and no mark fell " +
-      "in the same close, so nothing pushed the number back down. Both partition sentences were " +
-      "corrected inside the same change that invalidated them rather than a close later, which is " +
-      "the ordering LAUNCH-D119's class says is the only one available" +
-      ". RAISED FROM 66 TO 68 ON 2026-09-17 BY THE CLOSE THAT FILED LAUNCH-D128 AND LAUNCH-D129, " +
-      "both carrying `→ Step 7.7 Block D`. Read off the gate's own `raise the bound to 68` — the " +
-      "gate printed `PASS  68  live debt ids carrying an anchor that names a step and a block  (up " +
-      "2 — raise the bound to 68)` against a bound of 66 — rather than computed from the filings. " +
-      "The two filings moved the canonical term 66 → 68 and the header's live total 131 → 133, and " +
-      "no mark fell in the same close, so nothing pushed the number back down. This is the first " +
-      "raise whose two filings are one repair and its record: LAUNCH-D128 was found, filed and " +
-      "repaired inside the same close, and its own filing is what moved this number, which is the " +
-      "class LAUNCH-D119 states rather than an instance of it" +
-      ". RAISED FROM 68 TO 69 ON 2026-09-18 BY THE CLOSE THAT FILED LAUNCH-D130, which carries " +
-      "`→ Step 7.7 Block D`. Read off the gate's own `raise the bound to 69` — the gate printed " +
-      "`PASS  69  live debt ids carrying an anchor that names a step and a block  (up 1 — raise " +
-      "the bound to 69)` against a bound of 68 — rather than computed from the filing. The filing " +
-      "moved the canonical term 68 → 69 and the header's live total 133 → 134, and no mark fell in " +
-      "the same close, so nothing pushed the number back down. THE FILING AND THIS RAISE ARE IN " +
-      "TWO REPOSITORIES AND SO COULD NOT GO IN ONE COMMIT, which is the first time this file has " +
-      "had to record that: the item is filed in the doc lane and the bound lives here, behind " +
-      "`main`'s protection, so the raise arrives as its own pull request and the gate printed its " +
-      "`raise the bound to 69` hint across the interval between them. That interval is the whole " +
-      "of what this sentence exists to close, and the ordering LAUNCH-D119's class asks for — " +
-      "correct the literal inside the change that invalidates it — was available here only as a " +
-      "follow-up rather than a same-commit edit, which is a property of the two-repository split " +
-      "and not of the discipline",
+      "than a pin. WHAT IT CATCHES IS THE DIRECTION NOTHING ELSE DOES: rewriting an existing " +
+      "anchor to `→ TBD` leaves every other instrument at baseline — gate (a) compares id " +
+      "sets and an edit is not a filing, gate (b) reads bare block anchors only, and the " +
+      "anchorless ratchet accepts any non-null anchor, junk included. So the floor follows the " +
+      "population up, or it leaves that many anchors of slack in the one instrument watching for " +
+      "an anchor degrading out of canonical form. THIS NUMBER DOES NOT PARTITION THE LIVE " +
+      "POPULATION ON ITS OWN, and that is a property of the register rather than a gap here: ids " +
+      "anchored `→ Step 7.7.` carry a step and no block, which no predicate classifies, so the " +
+      "live total decomposes into this count plus the anchorless ratchet plus that unclassified " +
+      "remainder. A WITHDRAWN ENTRY COUNTS HERE exactly as a discharged one does, because it " +
+      "keeps its anchor line — which is why the literal is READ OFF THE GATE'S OWN " +
+      "`raise the bound to N` and never computed from a close's filings, and why a raise is not " +
+      "trusted until the floor has been PROVEN RED one below it, by the probe wherever the probe " +
+      "can reach a verdict. THE DATED RECORD OF EVERY MOVE THIS BOUND HAS TAKEN IS DELIBERATELY " +
+      "NOT HERE. It is in `docs/project/register-bound-history.md`, verbatim, and the separation " +
+      "IS LAUNCH-D119's repair applied to the string that item was filed against: a dated claim " +
+      "about a past close may carry whatever it carried then, a present-tense claim about the " +
+      "current state must be read from the measurement or be asserted, and the two stop being " +
+      "distinguishable once they are interleaved in one paragraph. That string had reached 2,899 " +
+      "words and eighteen dated entries, and nothing reads it — `reason` is never printed by the " +
+      "gate and never asserted by a test, so every live-state literal in it was a claim with no " +
+      "instrument behind it. What remains states what this obligation MEANS and carries no " +
+      "live-state number at all; the `bound` above is the only literal, and it is the one a " +
+      "machine checks",
   },
   {
     what: "items a discharged section declares discharged whose anchor line carries no mark",
