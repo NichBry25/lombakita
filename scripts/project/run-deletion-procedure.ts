@@ -31,11 +31,11 @@ import postgres from "postgres";
 import { loadEnvFile } from "@/server/scripts/env-file";
 import { parseDatabaseHost } from "../lib/local-database-host";
 import {
+  declaredAppEnvironment,
   findConnectionHostRefusal,
   findDatabaseNameRefusal,
   findEnvironmentRefusal,
 } from "../reset/reset-guard";
-import { resolveAppEnvironment } from "@/config/env";
 import { captureBaseline, objectKeySql, readIdentities } from "./deletion-residue";
 import type { BaselineFile, ResidueBaseline } from "./deletion-residue";
 
@@ -546,7 +546,10 @@ const main = async (): Promise<void> => {
     );
   }
 
-  const appEnv = resolveAppEnvironment();
+  // `declaredAppEnvironment`, never `resolveAppEnvironment` directly: the latter reads only its
+  // argument, NODE_ENV and VERCEL_ENV, so calling it bare answers "local" in a shell that has
+  // declared production and leaves this layer inert.
+  const appEnv = declaredAppEnvironment();
   if (findEnvironmentRefusal(appEnv) !== null) {
     throw new ProcedureRefusal(
       `refusing to run: APP_ENV resolves to "${appEnv}", and this procedure deletes rows, so it ` +
