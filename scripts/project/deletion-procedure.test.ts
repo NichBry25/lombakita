@@ -159,11 +159,17 @@ describe("the procedure document", () => {
  * dead so that a test of the guard standing in front of a delete cannot reach a database at all.
  * Every refusal asserted below fires before `connectToDisposableDatabase` opens a socket, so no run
  * here needs a server and none can touch one.
+ *
+ * NO INLINE CREDENTIAL, and not merely because the scan would flag one. Both layers under test read
+ * the host and nothing else, so a user and password here would be decoration that happens to carry
+ * the exact shape `verify:secrets` exists to catch — and the right answer to a fixture matching that
+ * rule is to stop writing the shape, not to allowlist a fingerprint and weaken the rule for the next
+ * URL that matches it for real.
  */
-const DEAD_LOOPBACK = "postgres://probe:probe@127.0.0.1:59432/lombakita_absent";
+const DEAD_LOOPBACK = "postgres://127.0.0.1:59432/lombakita_absent";
 
 /** A host the guard must refuse outright, parseable and unreachable. */
-const REMOTE_HOST = "postgres://probe:probe@db.invalid.example.com:5432/lombakita_absent";
+const REMOTE_HOST = "postgres://db.invalid.example.com:5432/lombakita_absent";
 
 /**
  * One real run of the runner, under the environment it is being asked to refuse in.
