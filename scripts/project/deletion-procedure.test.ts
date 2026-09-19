@@ -12,6 +12,7 @@
 // is checked here is what can be checked without one — that the document covers the population the
 // census derives, and that it does so in the order it says it does.
 
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { COMPANY } from "@/config/company";
@@ -151,31 +152,133 @@ describe("the procedure document", () => {
   });
 });
 
+/**
+ * A loopback address with nothing behind it.
+ *
+ * Loopback so the connection-host layer PASSES and the environment layer is the one a run reaches;
+ * dead so that a test of the guard standing in front of a delete cannot reach a database at all.
+ * Every refusal asserted below fires before `connectToDisposableDatabase` opens a socket, so no run
+ * here needs a server and none can touch one.
+ *
+ * NO INLINE CREDENTIAL, and not merely because the scan would flag one. Both layers under test read
+ * the host and nothing else, so a user and password here would be decoration that happens to carry
+ * the exact shape `verify:secrets` exists to catch — and the right answer to a fixture matching that
+ * rule is to stop writing the shape, not to allowlist a fingerprint and weaken the rule for the next
+ * URL that matches it for real.
+ */
+const DEAD_LOOPBACK = "postgres://127.0.0.1:59432/lombakita_absent";
+
+/** A host the guard must refuse outright, parseable and unreachable. */
+const REMOTE_HOST = "postgres://db.invalid.example.com:5432/lombakita_absent";
+
+/**
+ * One real run of the runner, under the environment it is being asked to refuse in.
+ *
+ * A CHILD PROCESS rather than a call. The guard sits inside `main`, which is not exported, and
+ * exporting it in order to test it would prove the function rather than the wiring (Rule 33). What
+ * is measured here is what an operator typing the command actually gets.
+ *
+ * `APP_ENV` and `NEXT_PUBLIC_APP_ENV` are passed as empty strings rather than omitted, because
+ * `process.loadEnvFile` does not override a variable already present in the process: declaring them
+ * empty is what stops a developer's own `.env.local` deciding the result of these assertions.
+ */
+const runRunner = (environment: Record<string, string>): string => {
+  const result = spawnSync(
+    process.execPath,
+    ["--import", "tsx", "scripts/project/run-deletion-procedure.ts", "--select", "completable"],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        DATABASE_URL: DEAD_LOOPBACK,
+        APP_ENV: "",
+        NEXT_PUBLIC_APP_ENV: "",
+        ...environment,
+      },
+    },
+  );
+
+  return `${result.stdout ?? ""}${result.stderr ?? ""}`;
+};
+
+/** The sentence the environment layer produces, and the only thing that can produce it. */
+const environmentRefusal = (resolved: string) =>
+  `refusing to run: APP_ENV resolves to "${resolved}"`;
+
+const HOST_REFUSAL = "runs only against a loopback database";
+
 describe("the guard in front of the delete", () => {
   // THE ASSERTION A NARROWED GUARD FAILS. `reset-guard.ts` states the doctrine these three layers
   // come from: the server's own `current_database()` is authoritative, environment and connection
   // host read configuration and can be lied to, and the weaker two may only ADD a refusal. A
   // destructive statement standing behind the host alone is the shape DEC-0207 shipped.
+  //
+  // WHAT REPLACED A SOURCE GREP HERE, AND WHY IT HAD TO. Two assertions in this block used to read
+  // the runner's own text and check that `findEnvironmentRefusal` and `findDatabaseNameRefusal`
+  // appeared somewhere in it. Both were green through the entire window in which the environment
+  // layer was INERT: the runner called `resolveAppEnvironment()` with no argument, and that function
+  // reads neither APP_ENV nor NEXT_PUBLIC_APP_ENV — it consults NODE_ENV and VERCEL_ENV and
+  // otherwise answers "local". A process whose only environment declaration said `production` was
+  // therefore permitted, while the identifier the test searched for sat one line underneath. Rule 32
+  // in its plainest form: presence is not enforcement. What follows runs the real script and reads
+  // the refusal it really produces.
   const source = readFileSync("scripts/project/run-deletion-procedure.ts", "utf8");
 
-  it("asks the server which database it is, not the connection string", () => {
-    expect(source).toContain("select current_database() as name");
-    expect(source).toContain("findDatabaseNameRefusal(name)");
-  });
+  it("refuses a run in a process that declares production, by either variable", () => {
+    // The three routes `reset-guard.ts` already carries for the reset, asserted here against the
+    // deletion runner. The third is the one that motivated `declaredAppEnvironment`: an APP_ENV
+    // set to the empty string must not shadow a NEXT_PUBLIC_APP_ENV that says production.
+    const declarations: Record<string, string>[] = [
+      { APP_ENV: "production" },
+      { APP_ENV: "", NEXT_PUBLIC_APP_ENV: "production" },
+      { APP_ENV: "   ", NEXT_PUBLIC_APP_ENV: "production" },
+    ];
 
-  it("carries all three refusal layers, reusing the ones that already exist", () => {
-    for (const layer of [
-      "findConnectionHostRefusal",
-      "findEnvironmentRefusal",
-      "findDatabaseNameRefusal",
-    ]) {
-      expect(source, `${layer} is not wired into the runner`).toContain(layer);
+    for (const declaration of declarations) {
+      const output = runRunner(declaration);
+
+      // Quoting the RESOLVED value is what makes this proof the gate ran: only the environment
+      // layer can produce this sentence, and only with production already resolved.
+      expect(output, `permitted a run declaring ${JSON.stringify(declaration)}`).toContain(
+        environmentRefusal("production"),
+      );
     }
-    expect(source, "the refusal layers must be imported, not reimplemented").toContain(
-      'from "../reset/reset-guard"',
-    );
-  });
+  }, 90_000);
 
+  it("refuses staging and preview too, rather than only the name it was tested with", () => {
+    for (const appEnv of ["staging", "preview"]) {
+      expect(runRunner({ APP_ENV: appEnv })).toContain(environmentRefusal(appEnv));
+    }
+  }, 60_000);
+
+  it("refuses a non-loopback host before it can resolve an environment", () => {
+    const output = runRunner({ DATABASE_URL: REMOTE_HOST, APP_ENV: "local" });
+
+    expect(output).toContain(HOST_REFUSAL);
+    expect(output).toContain("db.invalid.example.com");
+  }, 60_000);
+
+  // THE CONTROL, and the reason the three assertions above are about the guard rather than about the
+  // script failing for any reason at all. A disposable environment on a loopback address must get
+  // PAST both layers — if it did not, every assertion above would pass against a runner that refused
+  // unconditionally, which is the same defect one level up.
+  it("permits a disposable environment on a loopback address, so the refusals above are the guard", () => {
+    const output = runRunner({ APP_ENV: "local" });
+
+    expect(output).not.toContain("refusing to run: APP_ENV resolves to");
+    expect(output).not.toContain(HOST_REFUSAL);
+    // Nothing stands between the environment layer and the connection, so a run that cleared both
+    // and then failed has demonstrably reached the end of the guard chain.
+    expect(output.trim(), "the run produced no output at all").not.toBe("");
+  }, 60_000);
+
+  // WHAT IS NOT MEASURED HERE, stated rather than implied (Rule 32 permits a stated absence with a
+  // reason). The identity layer — `select current_database()` answered by the server, checked by
+  // `findDatabaseNameRefusal` — cannot be made to refuse without a reachable database carrying a
+  // protected name, and this file is the one that runs without one. Its PLACEMENT is guaranteed
+  // structurally by the assertion below rather than by a grep: `main` has no way to obtain a handle
+  // except from the helper that performs the check, so moving the check after the delete is a
+  // compile error. Making it REFUSE belongs with the probes that create throwaway databases.
   it("returns the connection only from the helper that checked it", () => {
     // The ordering is a type constraint rather than a convention: `main` has no other way to obtain
     // a handle, so moving the check below the delete is a compile error rather than a probe.
