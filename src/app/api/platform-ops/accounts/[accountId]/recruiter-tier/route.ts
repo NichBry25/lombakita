@@ -55,14 +55,16 @@ export async function PATCH(
     // `requireSessionRole` and then fails here is a session the database has since contradicted.
     //
     // THE CODE IS ECHOED, DELIBERATELY. The alternative is a single generic denial, and the reason it
-    // is not the right answer here is that these three codes describe the CALLER'S OWN ACCOUNT and
-    // nothing else. The caller reached this branch only by passing `requireSessionRole`, and the three
+    // is not the right answer here is that these four codes describe the CALLER'S OWN ACCOUNT and
+    // nothing else. The caller reached this branch only by passing `requireSessionRole`, and the
     // states behind the codes are "your account was deleted", "your role was revoked", "you were
-    // suspended" — facts about the caller that the caller has a claim to, and that the session it
-    // still holds is actively misrepresenting. Nothing here names a property of `accountId`: all
-    // three refusals are thrown before the target is read, which the ordering test in
-    // `operator-actor-db.integration.test.ts` pins. A route that collapsed these into one would leave
-    // a genuine operator with a stale session and no way to tell which of the three had happened.
+    // suspended" and "the target you named is your own account" — facts about the caller that the
+    // caller has a claim to, and that the session it still holds is actively misrepresenting. Nothing
+    // here names a property of `accountId`: the first three are thrown before the target is read, and
+    // the fourth compares `accountId` against the caller's own resolved id rather than reading the
+    // target row, which the ordering test in `operator-actor-db.integration.test.ts` pins. A route
+    // that collapsed these into one would leave a genuine operator with a stale session and no way to
+    // tell which of the four had happened.
     if (error instanceof OperatorActorError) {
       return NextResponse.json(
         { error: { code: error.code, message: error.message } },

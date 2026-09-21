@@ -198,6 +198,29 @@ describe.skipIf(skipWithoutDatabase)("elevateRecruiterTier against a real databa
     });
   });
 
+  // THE ACTOR AS THE TARGET. The account below is a `users` row that holds `platform_ops` AND is
+  // recruiter-verified at `minimal` — a shape this platform permits, because the two roles are
+  // independent columns — so every other refusal in this file would let it through. Migration 0061
+  // makes the tier column a one-way ratchet, so the elevation this refuses would have been
+  // permanent. The row is asserted unchanged AND un-audited: a refusal that still wrote the flip
+  // would satisfy "it threw" while being the self-grant it exists to prevent.
+  it("refuses a platform_ops actor that names its own account as the target", async () => {
+    await inRollback(async (tx) => {
+      const actor = await seedAccount(tx, {
+        role: "platform_ops",
+        recruiterTier: "minimal",
+      });
+
+      await expect(elevate(tx, actor, actor)).rejects.toMatchObject({
+        code: "operator_actor_is_target",
+        status: 403,
+      });
+
+      expect(await readTier(tx, actor)).toBe("minimal");
+      expect(await auditRowsFor(tx, actor)).toHaveLength(0);
+    });
+  });
+
   it("elevates for a live platform_ops actor, and the audit row names that account", async () => {
     await inRollback(async (tx) => {
       const target = await seedAccount(tx, { role: "recruiter", recruiterTier: "minimal" });

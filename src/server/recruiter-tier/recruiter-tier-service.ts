@@ -4,6 +4,7 @@ import { getDb, type Database } from "@/server/db/client";
 import { users } from "@/server/db/schema";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import {
+  OperatorActorError,
   recordOperatorAuditEntry,
   resolvePlatformOpsActor,
 } from "@/server/platform-ops/operator-actor";
@@ -95,6 +96,12 @@ export type TierElevationResult = {
 // Every read below — the actor included — happens inside the one transaction that writes the audit
 // row, and the actor is read FIRST. A caller that has no business here therefore learns nothing
 // about the target, not even whether it exists.
+//
+// THE ACTOR MAY NOT BE THE TARGET (LAUNCH-D73). A `platform_ops` account that also holds a recruiter
+// role is a target this endpoint can name, and the audit row it would write names the same id on
+// both sides — a self-grant that reads exactly like a reviewed one. Migration 0061 makes the tier
+// column a one-way ratchet, so an operator who elevated itself could not be walked back by this
+// path. The refusal sits with the other three, before the target row is read.
 export const elevateRecruiterTier = async (
   actorUserId: string,
   accountId: string,
@@ -110,6 +117,14 @@ export const elevateRecruiterTier = async (
   // routes reach an identical end state and must be equally visible.
   const outcome = await db.transaction(async (tx) => {
     const actor = await resolvePlatformOpsActor(tx, actorUserId);
+
+    if (actor.userId === accountId) {
+      throw new OperatorActorError(
+        "operator_actor_is_target",
+        403,
+        "A platform-ops account cannot elevate its own recruiter tier",
+      );
+    }
 
     const current = await getRecruiterTierForAccount(accountId, tx);
 

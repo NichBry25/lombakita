@@ -72,10 +72,11 @@ export type OperatorActorTransaction = Parameters<Parameters<Database["transacti
 export type OperatorActorRefusalCode =
   | "operator_actor_not_found"
   | "operator_actor_not_platform_ops"
-  | "operator_actor_suspended";
+  | "operator_actor_suspended"
+  | "operator_actor_is_target";
 
 /**
- * One status for all three refusals.
+ * One status for every refusal in this family.
  *
  * Deliberately not `404` for a missing account: the caller has just failed an authorization check,
  * and a status that distinguishes "no such user" from "wrong role" answers a question it was not

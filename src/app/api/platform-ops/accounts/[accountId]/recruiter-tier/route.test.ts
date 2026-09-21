@@ -184,8 +184,8 @@ describe("PATCH /api/platform-ops/accounts/[accountId]/recruiter-tier", () => {
   // deleted outright and the suite would stay green — the error would fall through to
   // `toAccessDeniedResponse` and nothing would notice.
   //
-  // All three codes are asserted, because the branch echoes whichever one it was given and a
-  // hard-coded code would satisfy a single case.
+  // Every code is asserted, because the branch echoes whichever one it was given and a hard-coded
+  // code would satisfy a single case.
   it("returns the actor refusal's own code and status for each way the actor can fail", async () => {
     requireSessionRole.mockResolvedValue(platformOpsSession);
 
@@ -198,6 +198,10 @@ describe("PATCH /api/platform-ops/accounts/[accountId]/recruiter-tier", () => {
       {
         code: "operator_actor_suspended",
         message: "The acting account is suspended and cannot perform platform-ops actions",
+      },
+      {
+        code: "operator_actor_is_target",
+        message: "A platform-ops account cannot elevate its own recruiter tier",
       },
     ] as const;
 
