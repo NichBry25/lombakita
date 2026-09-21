@@ -12,9 +12,10 @@
 //
 // The connection here is the ordinary application role out of `.env.local` (`lombakita_app`), which
 // does NOT own the table — so the refusal cannot be an ownership artefact, and the test asserts the
-// trigger's own SQLSTATE rather than any error. Nothing else in this checkout issues this UPDATE as
-// the owning migration role, so the claim is exactly this role's: the ordering holds for a
-// connection with no DDL rights at all.
+// trigger's own SQLSTATE rather than any error. No migration in this checkout issues a DOWNGRADING
+// UPDATE of this column: 0037_abandoned_kat_farrell is the only one that writes it, and it writes
+// `elevated` upward, where the tier was not already `elevated`. The ordering claim is therefore
+// exactly this role's: it holds for a connection with no DDL rights at all.
 //
 // Every test runs inside a transaction that is ALWAYS rolled back. Nothing here is committed.
 
