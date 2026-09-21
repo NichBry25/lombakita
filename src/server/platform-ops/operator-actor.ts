@@ -41,16 +41,16 @@ assertServerOnly("server/platform-ops/operator-actor");
  * THE COMPILER HALF DOES NOT COVER THE RUNTIME. `recordOperatorAuditEntry` gates on membership of
  * `genuineOperatorActors` rather than on `instanceof`, and the difference is measured rather than
  * argued: `instanceof` is satisfied by anything whose prototype chain reaches this class, and three
- * ways of producing one never run this constructor — `Object.create`, `new real.constructor(...)`,
- * and `Object.setPrototypeOf`. See the set's own docstring.
+ * ways of producing one never run resolvePlatformOpsActor — `Object.create`,
+ * `new real.constructor(...)`, and `Object.setPrototypeOf`. See the set's own docstring.
  *
  * THE CLASS ITSELF IS NOT EXPORTED — only its type is, on the line below. So `new
  * ResolvedPlatformOpsActor(...)` has no spelling outside this module. What that buys is narrower
  * than "the only value of this type in existence came out of `resolvePlatformOpsActor`", which the
  * earlier wording here claimed and which is false: an object of this type can be built outside by
  * reaching the prototype through a live instance, and `constructor` is an ordinary property of one.
- * What is true is that such an object cannot be CONSTRUCTED, so it never runs the code that
- * registers, and the registration is what the insert requires.
+ * What is true is that constructing such an object does not register it, and the registration is
+ * what the insert requires.
  */
 class ResolvedPlatformOpsActor {
   readonly userId: string;
@@ -200,8 +200,8 @@ export type OperatorAuditEntry = Omit<typeof platformOpsAuditLogs.$inferInsert, 
  * caller who is reading the compiler; it does not stop a value that arrived through a cast, an
  * `any` from `JSON.parse`, or a spread written by someone who did not read this file.
  *
- * ONLY WHAT `resolvePlatformOpsActor` REGISTERED REACHES THE INSERT — measured, not asserted. Every
- * route that produces something of this type without calling that function was run against this
+ * ONLY WHAT `resolvePlatformOpsActor` REGISTERED REACHES THE INSERT — measured, not asserted. Seven
+ * routes that produce something of this type without calling that function were run against this
  * gate, and each throws here instead of writing: a spread of a live actor, `structuredClone`,
  * `Object.assign`, `JSON.parse`, `Object.create`, `new real.constructor(...)`, and
  * `Object.setPrototypeOf`. The three prototype-chain routes are the ones an `instanceof` gate did

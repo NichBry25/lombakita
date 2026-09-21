@@ -21,7 +21,8 @@
 -- `ALTER TABLE "users" ALTER COLUMN "recruiter_verification_tier" TYPE ...` with SQLSTATE 0A000,
 -- "cannot alter type of a column used in a trigger definition". That statement is this
 -- repository's established recipe for reshaping an enum column — 0015_two_role_identity_rebuild
--- uses it on `users.role`, and 0016_institution_membership_role_rebuild on
+-- uses it on `users.role` and `user_platform_roles.role`, and
+-- 0016_institution_membership_role_rebuild on
 -- `institution_memberships.membership_role` and `institution_invitations.invited_role`. Any migration that
 -- reorders these labels, removes one, or swaps the type must first run
 -- `DROP TRIGGER "users_recruiter_tier_no_downgrade" ON "users"` and re-create it afterwards.

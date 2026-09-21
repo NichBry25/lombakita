@@ -204,10 +204,12 @@ export const parseProcedureSteps = (markdown: string): ProcedureStep[] => {
  * CONSTRUCTED above the guard — postgres.js does not open a socket until a query, and the guard's
  * first two layers read only configuration, so a refused run still never reaches the server. What is
  * guaranteed here is narrower and is the part that matters: this is the ONLY place either runner can
- * obtain a query-capable handle, so a caller that skipped the check is a compile error rather than a
- * probe. It is a single-construction-site convention, NOT a type constraint — an earlier comment on
- * the provisioning runner's copy claimed the stronger thing while its own `sql` sat one line above
- * the call. On refusal the handle is closed before the error propagates, so a refusal leaks no pool.
+ * obtain a query-capable handle, and the guard has run by the time it returns one. It is a
+ * single-construction-site convention, NOT a type constraint: nothing in the type system stops a
+ * caller reaching for `postgres()` itself, so the ordering is enforced by execution — measured in
+ * `procedure-harness.test.ts` — rather than by the compiler. An earlier comment on the provisioning
+ * runner's copy claimed the stronger thing while its own `sql` sat one line above the call. On
+ * refusal the handle is closed before the error propagates, so a refusal leaks no pool.
  *
  * The guard's messages say "refusing to reset", because they are the reset lane's. The refusal is
  * what matters and the wording is not restated here: a second copy of it is exactly the drift this

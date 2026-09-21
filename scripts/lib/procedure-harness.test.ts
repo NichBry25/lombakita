@@ -49,7 +49,7 @@ const opensACodeBlockThisHarnessCannotRead = (line: string, at: number): string 
 const A_VALID_BLOCK = ["```sql", "-- step: first", "select 1;", "```"];
 
 describe("a fence-like line this grammar cannot read", () => {
-  // The eight shapes the step names, each with the line its refusal must point at. `at` is the
+  // The seven shapes the step names, each with the line its refusal must point at. `at` is the
   // discriminator: a refusal that named a different line would mean the scan had already moved past
   // the line it should have stopped on, which is the swallow these cases exist to make impossible.
   const shapes: { name: string; lines: string[]; at: number }[] = [
