@@ -37,148 +37,56 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import postgres from "postgres";
-import type { AppEnvironment } from "@/config/env";
+import type postgres from "postgres";
 import { resolveMfaStatus, type MfaStatus } from "@/server/auth/mfa/mfa-status";
 import { loadEnvFile } from "@/server/scripts/env-file";
+import { declaredAppEnvironment, presentOrUndefined } from "../reset/reset-guard";
 import {
-  assertResetTargetIsDisposable,
-  declaredAppEnvironment,
-  presentOrUndefined,
-} from "../reset/reset-guard";
+  ProcedureRefusal,
+  connectToGuardedDatabase,
+  parseProcedureSteps,
+  type ProcedureStep as SharedProcedureStep,
+} from "../lib/procedure-harness";
 
 export const PROCEDURE_PATH = "docs/operations/operator-provisioning-procedure.md";
 export const DEMONSTRATION_PATH = "docs/operations/operator-provisioning-demonstration.md";
 
-/** The fenced info strings that name a step the operator is meant to perform. */
-const EXECUTABLE_FENCES = new Set(["sql", "browser"]);
-
-/** Fenced info strings that are illustrative and are skipped without a step header. */
-const ILLUSTRATIVE_FENCES = new Set(["text", "json", ""]);
-
-/** The one opener shape this harness reads: a backtick fence at column zero, one word of info. */
-const ACCEPTED_OPENING_FENCE = /^```(\S*)\s*$/;
-
-/** The one closer shape it reads. Anything else closing a block is a desynchronised scan. */
-const ACCEPTED_CLOSING_FENCE = /^```\s*$/;
-
-/**
- * A line that BEGINS a code block in Markdown, whether or not this file can read it.
- *
- * Deliberately wider than the accepted form. CommonMark allows up to three spaces of indentation
- * and either backticks or tildes, and permits an info string with more than one word — so
- * ` ```sql copy `, an indented ```sql, and `~~~sql` are all real code blocks that the narrow regex
- * above does not match. Treating "does not match the narrow form" as "is not a fence" is what made
- * this parser skip them in silence, and in one case swallow a VALID step that followed: the
- * malformed opener's closing fence was then read as an opening bare fence, which is illustrative
- * and consumes everything to the next one. Refusing on this predicate instead is what makes the
- * docstring's "refuses rather than skips" true of every block the narrow form would miss.
- */
-const ANY_FENCE_LIKE_LINE = /^\s{0,3}(?:`{3,}|~{3,})/;
-
-/** One step of the procedure, as the document declares it. */
-export type ProcedureStep = {
-  /** The fence's info string. `sql` is executed; `browser` is named and never executed. */
+/** One step of the procedure, as this document declares it. */
+export type ProcedureStep = Omit<SharedProcedureStep, "kind"> & {
+  /** `sql` is executed; `browser` is named in the report and never executed. */
   kind: "sql" | "browser";
-  name: string;
-  body: string;
-  /** The line the fence opens on, so a refusal can name where to look. */
-  line: number;
 };
 
-export class ProcedureRefusal extends Error {}
+export { ProcedureRefusal };
+
+/**
+ * The kinds this document's grammar carries that this runner does not execute.
+ *
+ * `r2` is the deletion runner's: an object-store step this procedure has no block for and no way to
+ * perform. Refused rather than skipped, because a document that grew one would otherwise be read,
+ * reported as complete, and silently missing the step — the failure the shared grammar exists to
+ * make impossible, one level up from the fence it was fixed at.
+ */
+const KINDS_THIS_RUNNER_DOES_NOT_EXECUTE = new Set(["r2"]);
 
 /**
  * The procedure's steps, in document order.
  *
- * Refuses rather than skips, on four counts: a fence this harness cannot read, a fence it can read
- * but must not ignore, an executable block with no `-- step:` header, and a step name used twice.
- * Each of those is a way for the document to disagree with what actually runs, and a silent skip
- * turns that disagreement into a report of a step that was never performed.
+ * The grammar is `parseProcedureSteps`'s; what belongs here is only the vocabulary. Each runner
+ * refuses the other's kinds in its own file rather than in the shared grammar, so the refusal can
+ * name the document it is about.
  */
-export const parseProcedure = (markdown: string): ProcedureStep[] => {
-  const lines = markdown.split("\n");
-  const steps: ProcedureStep[] = [];
-  const seen = new Set<string>();
-
-  let index = 0;
-  while (index < lines.length) {
-    const line = lines[index]!;
-    const opening = ACCEPTED_OPENING_FENCE.exec(line);
-
-    if (opening === null) {
-      if (ANY_FENCE_LIKE_LINE.test(line)) {
-        throw new ProcedureRefusal(
-          `line ${index + 1} opens a code block this harness cannot read: ${JSON.stringify(line)}. ` +
-            "It reads only a backtick fence at column zero whose info string is one word — " +
-            "`sql`, `browser`, or one of the illustrative forms. A block it cannot read is a block " +
-            "whose steps nobody would know were skipped, so it refuses instead of reading past it",
-        );
-      }
-      index += 1;
-      continue;
-    }
-
-    const fence = opening[1]!;
-    const openedAt = index + 1;
-    const body: string[] = [];
-    index += 1;
-
-    while (index < lines.length) {
-      const candidate = lines[index]!;
-      if (ACCEPTED_CLOSING_FENCE.test(candidate)) break;
-
-      // A fence-like line that is not the closer means the scan is out of step with the document:
-      // reading past it would end this block somewhere it does not end, or run to EOF.
-      if (ANY_FENCE_LIKE_LINE.test(candidate)) {
-        throw new ProcedureRefusal(
-          `the fence opened at line ${openedAt} contains a fence-like line at line ${index + 1} ` +
-            `that cannot close it: ${JSON.stringify(candidate)}. The block would swallow whatever ` +
-            "follows it, so it refuses rather than guessing where the block ends",
-        );
-      }
-
-      body.push(candidate);
-      index += 1;
-    }
-    if (index === lines.length) {
-      throw new ProcedureRefusal(`the fence opened at line ${openedAt} is never closed`);
-    }
-    index += 1;
-
-    if (ILLUSTRATIVE_FENCES.has(fence)) continue;
-    if (!EXECUTABLE_FENCES.has(fence)) {
+export const parseProcedure = (markdown: string): ProcedureStep[] =>
+  parseProcedureSteps(markdown).map((step) => {
+    if (KINDS_THIS_RUNNER_DOES_NOT_EXECUTE.has(step.kind)) {
       throw new ProcedureRefusal(
-        `line ${openedAt} opens a \`${fence}\` block, which this harness does not know how to ` +
-          "handle. A block it ignored would be a step nobody knows was skipped",
+        `the \`${step.kind}\` block at line ${step.line} is a kind this runner does not execute. ` +
+          `It carries \`${step.name}\` as a step it would report on while performing nothing`,
       );
     }
 
-    const header = /^(?:--|#)\s*step:\s*(\S+)\s*$/.exec(body[0] ?? "");
-    if (header === null) {
-      throw new ProcedureRefusal(
-        `the \`${fence}\` block at line ${openedAt} has no \`step: <name>\` on its first line`,
-      );
-    }
-
-    const name = header[1]!;
-    if (seen.has(name)) {
-      throw new ProcedureRefusal(
-        `step \`${name}\` is declared twice; a report listing it once would hide the other`,
-      );
-    }
-    seen.add(name);
-
-    steps.push({
-      kind: fence as ProcedureStep["kind"],
-      name,
-      body: body.join("\n"),
-      line: openedAt,
-    });
-  }
-
-  return steps;
-};
+    return { ...step, kind: step.kind as ProcedureStep["kind"] };
+  });
 
 /** How a step's exception reads in the report, without the driver type in the way. */
 export type DescribedError = { message: string; code: string | null; constraint: string | null };
@@ -528,12 +436,19 @@ const renderCase = (entry: CaseRun): string[] => {
     "own transaction, and **not** from the document's `postcondition` step — a run measured by the",
     "procedure it is measuring answers a different question.",
     "",
+    // THE ROLLBACK, RENDERED FROM THE MEASUREMENT. The row is read before the transaction opens and
+    // again after it closes, and `run.rolledBack` is that comparison. It is printed here rather than
+    // asserted in the document's header because a header sentence cannot fail; the check in
+    // `demonstrateAll` is what refuses to write this file at all when any case reads false.
+    `**Rolled back, measured:** the row read after the transaction closed is ` +
+      `${run.rolledBack ? "identical to" : "**different from**"} the row read before it opened.`,
+    "",
   );
 
   if (run.state === null) {
     lines.push(
       "**No state was read.** A step threw, which aborts the transaction, so there is no row the run",
-      "left behind to describe. The account is exactly as it was.",
+      "left behind to describe.",
       "",
     );
     return lines;
@@ -559,37 +474,6 @@ const renderCase = (entry: CaseRun): string[] => {
   );
 
   return lines;
-};
-
-/**
- * Open a connection, having first asked the reset lane's own guard whether this target is disposable.
- *
- * THE GUARD IS `assertResetTargetIsDisposable`, NOT A SECOND COPY OF IT (Rule 37). This file used to
- * compose the same three layers by hand, and it had already drifted from the original in two ways
- * nothing here could see: it never read `current_user`, so the identity it acted on was half the
- * answer the original prints; and it ran the layers in the opposite order, with no test in either
- * file discriminating the two orders. The `IdentifiableConnection` type on that function is
- * structural precisely so another lane's connection can be passed to it.
- *
- * The connection is returned only after the guard resolves, so a caller cannot hold a handle that
- * skipped the check — the ordering is a type constraint rather than a convention, which is the shape
- * to prefer when the statement downstream promotes an account to `platform_ops`. The guard's messages
- * say "refusing to reset" because they are the reset lane's; the refusal is what matters and the
- * wording is not restated here, because a second copy of it is the drift this fix removed.
- */
-const connectToDisposableDatabase = async (
-  url: string,
-  appEnv: AppEnvironment,
-): Promise<postgres.Sql> => {
-  const sql = postgres(url, { max: 1 });
-
-  try {
-    await assertResetTargetIsDisposable(sql, { appEnv, databaseUrl: url, redisUrl: null });
-    return sql;
-  } catch (error) {
-    await sql.end();
-    throw error;
-  }
 };
 
 const main = async (): Promise<void> => {
@@ -654,7 +538,7 @@ const main = async (): Promise<void> => {
     }
   }
 
-  const sql = await connectToDisposableDatabase(url, appEnv);
+  const sql = await connectToGuardedDatabase(url, { appEnv, redisUrl: null });
 
   try {
     if (demonstrate) {
@@ -731,6 +615,21 @@ const demonstrateAll = async (
     });
   }
 
+  // THE ROLLBACK, READ BEFORE ANYTHING IS WRITTEN. `rolledBack` is measured from the account's row
+  // on either side of the transaction, and until this check existed nothing in this file read it:
+  // the header below asserted the rollback in prose while the measurement was computed and thrown
+  // away, so a run whose rollback had failed would have written a document saying it succeeded —
+  // instrument output and a hand-written claim in one file (Rule 39). Refusing here, rather than
+  // after the write, is what leaves a previous document untouched.
+  const notRolledBack = cases.filter((entry) => !entry.run.rolledBack);
+  if (notRolledBack.length > 0) {
+    throw new ProcedureRefusal(
+      `${notRolledBack.map((entry) => entry.label).join(", ")}: the account's row read after the ` +
+        "transaction closed differs from the row read before it opened, so the run left a write " +
+        `behind. No demonstration was written to ${out ?? DEMONSTRATION_PATH}`,
+    );
+  }
+
   const lines: string[] = [
     "# Operator provisioning — the procedure, executed",
     "",
@@ -742,9 +641,12 @@ const demonstrateAll = async (
     `\`${PROCEDURE_PATH}\` against the database the configuration names. The procedure is`,
     "hand-written; this is the record of running it, and nothing here was typed in by hand.",
     "",
-    "**Nothing this harness does is committed.** Every `sql` step runs inside one transaction that",
-    "is always rolled back, so the promotion each case performs is undone when the process exits.",
-    "The accounts named below are exactly as they were before the run.",
+    "**Every case below was rolled back, and that is a measurement rather than a claim.** Each",
+    "case's `sql` steps run inside one transaction that is always rolled back; the account's row is",
+    "read before that transaction opens and again after it closes, and each case prints the",
+    "comparison under \"What the account's row says afterwards\". A run in which any case read",
+    "otherwise exits non-zero and writes no document at all, so this paragraph only ever appears",
+    "over a set of cases that were each measured.",
     "",
     "**Nothing here ran against staging or production.** The harness refuses any `DATABASE_URL`",
     "that is not a loopback host, and it refuses a process that declares an environment other than",

@@ -11,9 +11,10 @@
 // claim, and it is what the acceptance criterion asks for.
 //
 // The connection here is the ordinary application role out of `.env.local` (`lombakita_app`), which
-// does NOT own the table. The demonstration script that accompanies this step issues the same
-// UPDATE as the owning migration role, which is the stronger form of the same claim: the trigger
-// refuses the downgrade regardless of who connects.
+// does NOT own the table — so the refusal cannot be an ownership artefact, and the test asserts the
+// trigger's own SQLSTATE rather than any error. Nothing else in this checkout issues this UPDATE as
+// the owning migration role, so the claim is exactly this role's: the ordering holds for a
+// connection with no DDL rights at all.
 //
 // Every test runs inside a transaction that is ALWAYS rolled back. Nothing here is committed.
 

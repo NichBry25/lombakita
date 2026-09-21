@@ -59,6 +59,35 @@ const DROP_LOCK_TIMEOUT = "10s";
 
 const TOTAL_STEPS = 7;
 
+/**
+ * The ONE definition of "a non-extension routine in `public`", as a SQL fragment.
+ *
+ * THE THREE SITES THAT USE IT MUST NOT DIVERGE, and the drift between them is asymmetric in a way
+ * that decides which one is dangerous. The drop loop removes what this predicate selects; the
+ * up-front ownership check refuses on it; and the survivor check counts it. If the DROP LOOP's use
+ * narrows, the reset fails loudly, after the drop has committed, naming the survivor. If the
+ * SURVIVOR CHECK's use narrows, the reset prints its success line over a routine that is still
+ * there and migrates a database that is not the one from zero it reports being — a false green,
+ * which nothing downstream detects.
+ *
+ * It lives as a string rather than as a postgres.js fragment because the drop loop is a PL/pgSQL
+ * `DO` block, built as text, and no fragment type can reach inside it. A text constant is the only
+ * shape all three can share, so the two query sites interpolate it through `sql.unsafe` — they take
+ * no parameters, so nothing is lost by building them as text.
+ *
+ * WHAT IT DOES NOT NARROW ON: `p.prokind`. `pg_proc` holds procedures, aggregates and window
+ * functions as well as functions, and the statement the drop loop builds is hardcoded
+ * `drop function` — so a future `CREATE PROCEDURE` would be selected by all three sites and
+ * droppable by none, raising 42809 through `IF EXISTS`. No migration in this checkout creates one
+ * (0061's `CREATE FUNCTION` is the only `pg_proc` row any of them adds), so it is latent rather than
+ * live, and narrowing the predicate to `prokind = 'f'` is the fix when the first non-function
+ * routine arrives.
+ */
+const NON_EXTENSION_ROUTINE_SOURCE = `from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    left join pg_depend d on d.objid = p.oid and d.deptype = 'e'
+    where n.nspname = 'public' and d.objid is null`;
+
 const step = (number: number, title: string): void => {
   console.log(`\n[${number}/${TOTAL_STEPS}] ${title}`);
 };
@@ -133,16 +162,11 @@ const dropEveryMigratedObject = async (sql: postgres.Sql): Promise<void> => {
 
         -- Routines LAST, because a trigger belongs to its table: the table loop above has already
         -- taken the trigger, so the function it called has no dependent left by the time this runs.
-        -- The predicate is the one assertPublicSchemaIsEmpty counts this class with, deliberately
-        -- the same query rather than a matching one — migration 0061 creates the first standalone
-        -- routine in the history, and while this loop dropped nothing here the check below counted
-        -- the survivor and refused the reset.
+        -- The predicate is NON_EXTENSION_ROUTINE_SOURCE, interpolated here and used by the two
+        -- checks below — one definition, not three copies that have to be kept matching.
         for item in
           select p.proname, pg_get_function_identity_arguments(p.oid) as args
-          from pg_proc p
-          join pg_namespace n on n.oid = p.pronamespace
-          left join pg_depend d on d.objid = p.oid and d.deptype = 'e'
-          where n.nspname = 'public' and d.objid is null
+          ${NON_EXTENSION_ROUTINE_SOURCE}
         loop
           execute format('drop function if exists public.%I(%s) cascade', item.proname, item.args);
         end loop;
@@ -179,9 +203,9 @@ const ALTER_OWNER_KEYWORD: Record<"table" | "type" | "routine", string> = {
 };
 
 const assertEveryObjectIsDroppable = async (sql: postgres.Sql): Promise<void> => {
-  const blocked = await sql<
+  const blocked = await sql.unsafe<
     { kind: "table" | "type" | "routine"; name: string; owner: string; args: string }[]
-  >`
+  >(`
     select kind, name, owner, args
     from (
       select 'table' as kind, c.relname::text as name,
@@ -199,14 +223,11 @@ const assertEveryObjectIsDroppable = async (sql: postgres.Sql): Promise<void> =>
       select 'routine', p.proname::text,
              pg_get_userbyid(p.proowner), p.proowner,
              pg_get_function_identity_arguments(p.oid)
-        from pg_proc p
-        join pg_namespace n on n.oid = p.pronamespace
-        left join pg_depend d on d.objid = p.oid and d.deptype = 'e'
-        where n.nspname = 'public' and d.objid is null
+        ${NON_EXTENSION_ROUTINE_SOURCE}
     ) owned
     where not pg_has_role(current_user, owned.owner_oid, 'USAGE')
     order by kind, name
-  `;
+  `);
 
   if (blocked.length === 0) {
     return;
@@ -245,7 +266,7 @@ const assertEveryObjectIsDroppable = async (sql: postgres.Sql): Promise<void> =>
  * measure. The message therefore claims exactly the classes it looked at and names the rest.
  */
 const assertPublicSchemaIsEmpty = async (sql: postgres.Sql): Promise<void> => {
-  const rows = await sql<{ kind: string; count: string }[]>`
+  const rows = await sql.unsafe<{ kind: string; count: string }[]>(`
     select 'table' as kind, count(*)::text as count
       from pg_tables where schemaname = 'public'
     union all
@@ -256,14 +277,11 @@ const assertPublicSchemaIsEmpty = async (sql: postgres.Sql): Promise<void> => {
     select 'view', count(*)::text from pg_views where schemaname = 'public'
     union all
     select 'routine', count(*)::text
-      from pg_proc p
-      join pg_namespace n on n.oid = p.pronamespace
-      left join pg_depend d on d.objid = p.oid and d.deptype = 'e'
-      where n.nspname = 'public' and d.objid is null
+      ${NON_EXTENSION_ROUTINE_SOURCE}
     union all
     select 'migration-ledger', count(*)::text
       from pg_namespace where nspname = 'drizzle'
-  `;
+  `);
 
   const survivors = rows.filter((row) => Number(row.count) > 0);
 

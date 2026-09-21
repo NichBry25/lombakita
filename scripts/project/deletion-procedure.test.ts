@@ -157,8 +157,8 @@ describe("the procedure document", () => {
  *
  * Loopback so the connection-host layer PASSES and the environment layer is the one a run reaches;
  * dead so that a test of the guard standing in front of a delete cannot reach a database at all.
- * Every refusal asserted below fires before `connectToDisposableDatabase` opens a socket, so no run
- * here needs a server and none can touch one.
+ * Every refusal asserted below fires in `assertResetTargetIsDisposable` before it asks the server for
+ * `current_database()`, so no run here needs a server and none can touch one.
  *
  * NO INLINE CREDENTIAL, and not merely because the scan would flag one. Both layers under test read
  * the host and nothing else, so a user and password here would be decoration that happens to carry
@@ -201,11 +201,19 @@ const runRunner = (environment: Record<string, string>): string => {
   return `${result.stdout ?? ""}${result.stderr ?? ""}`;
 };
 
-/** The sentence the environment layer produces, and the only thing that can produce it. */
+/**
+ * The sentence the environment layer produces, and the only thing that can produce it.
+ *
+ * The step's own report now comes from `assertResetTargetIsDisposable` through
+ * `connectToGuardedDatabase` (K2), so the layer says "reset" here exactly as it does on the reset
+ * path. Quoting the RESOLVED value is still what makes this proof the gate ran: only the environment
+ * layer can produce this sentence, and only with the value already resolved.
+ */
 const environmentRefusal = (resolved: string) =>
-  `refusing to run: APP_ENV resolves to "${resolved}"`;
+  `refusing to reset: APP_ENV resolves to "${resolved}"`;
 
-const HOST_REFUSAL = "runs only against a loopback database";
+/** The connection-host layer's sentence. Its layer name is what makes it distinguishable. */
+const HOST_REFUSAL = "which is not loopback";
 
 describe("the guard in front of the delete", () => {
   // THE ASSERTION A NARROWED GUARD FAILS. `reset-guard.ts` states the doctrine these three layers
@@ -251,11 +259,26 @@ describe("the guard in front of the delete", () => {
     }
   }, 60_000);
 
-  it("refuses a non-loopback host before it can resolve an environment", () => {
+  it("refuses a non-loopback host, naming the host it refused", () => {
     const output = runRunner({ DATABASE_URL: REMOTE_HOST, APP_ENV: "local" });
 
     expect(output).toContain(HOST_REFUSAL);
     expect(output).toContain("db.invalid.example.com");
+  }, 60_000);
+
+  // THE ORDER, pinned because consolidating two guard chains into one is exactly the change that
+  // silently swaps it. This runner used to ask host-then-environment; `assertResetTargetIsDisposable`
+  // asks environment-then-host. With BOTH layers objecting, only one refusal can be the one printed,
+  // and it is the environment's. A future reordering of the shared guard fails here — which is the
+  // discrimination the two chains lacked while they both existed and nobody compared them.
+  it("asks the environment before the host, which is the shared guard's order", () => {
+    const output = runRunner({ DATABASE_URL: REMOTE_HOST, APP_ENV: "production" });
+
+    expect(output).toContain(environmentRefusal("production"));
+    expect(
+      output,
+      "the connection-host layer answered first, so the two chains are in different orders again",
+    ).not.toContain(HOST_REFUSAL);
   }, 60_000);
 
   // THE CONTROL, and the reason the three assertions above are about the guard rather than about the
@@ -265,7 +288,7 @@ describe("the guard in front of the delete", () => {
   it("permits a disposable environment on a loopback address, so the refusals above are the guard", () => {
     const output = runRunner({ APP_ENV: "local" });
 
-    expect(output).not.toContain("refusing to run: APP_ENV resolves to");
+    expect(output).not.toContain("refusing to reset: APP_ENV resolves to");
     expect(output).not.toContain(HOST_REFUSAL);
     // Nothing stands between the environment layer and the connection, so a run that cleared both
     // and then failed has demonstrably reached the end of the guard chain.
@@ -275,19 +298,25 @@ describe("the guard in front of the delete", () => {
   // WHAT IS NOT MEASURED HERE, stated rather than implied (Rule 32 permits a stated absence with a
   // reason). The identity layer — `select current_database()` answered by the server, checked by
   // `findDatabaseNameRefusal` — cannot be made to refuse without a reachable database carrying a
-  // protected name, and this file is the one that runs without one. Its PLACEMENT is guaranteed
-  // structurally by the assertion below rather than by a grep: `main` has no way to obtain a handle
-  // except from the helper that performs the check, so moving the check after the delete is a
-  // compile error. Making it REFUSE belongs with the probes that create throwaway databases.
-  it("returns the connection only from the helper that checked it", () => {
-    // The ordering is a type constraint rather than a convention: `main` has no other way to obtain
-    // a handle, so moving the check below the delete is a compile error rather than a probe.
-    expect(source).toContain("const sql = await connectToDisposableDatabase(url);");
+  // protected name, and this file is the one that runs without one. Making it REFUSE belongs with
+  // the probes that create throwaway databases.
+  //
+  // THE PLACEMENT CLAIM, STATED AT THE STRENGTH THAT IS NOW TRUE. It used to be a compile error
+  // here, because the helper was local to this file: `main` could not name a connection type without
+  // calling the one function that performed the check. The helper is now
+  // `connectToGuardedDatabase` in `scripts/lib/procedure-harness.ts`, shared with the provisioning
+  // runner, so what this file can still guarantee is narrower and is asserted below: this file
+  // constructs no connection of its own, so it has no socket that skipped the guard. That the guard
+  // RUNS before the handle is returned is measured by execution in `procedure-harness.test.ts`, not
+  // by a grep here.
+  it("obtains its connection only from the helper that performed the check", () => {
+    expect(source).toContain("const sql = await connectToGuardedDatabase(url, { appEnv, redisUrl: null });");
 
-    // Exactly one construction site, and it is inside the helper that performs the check. A second
-    // one would be a path to a connection that never asked the server anything.
-    const constructions = source.match(/postgres\(url/g) ?? [];
-    expect(constructions).toHaveLength(1);
+    // ZERO construction sites, down from exactly one. The one that used to be here moved into the
+    // helper with the check; any `postgres(` reappearing in this file would be a socket that never
+    // asked the server anything.
+    const constructions = source.match(/postgres\(/g) ?? [];
+    expect(constructions).toHaveLength(0);
   });
 });
 
