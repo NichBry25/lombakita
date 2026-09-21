@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 import {
   elevateRecruiterTier,
   parseElevationInput,
@@ -44,6 +45,28 @@ export async function PATCH(
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     if (error instanceof RecruiterTierElevationError) {
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status },
+      );
+    }
+    // The service re-resolves the actor from the database and refuses a caller whose account does
+    // not exist, does not hold `platform_ops`, or is suspended (LAUNCH-D72). A session that passed
+    // `requireSessionRole` and then fails here is a session the database has since contradicted.
+    //
+    // THE CODE IS ECHOED, DELIBERATELY. The alternative is a single generic denial, and the reason it
+    // is not the right answer here is that these four codes describe the CALLER'S OWN ACCOUNT and
+    // nothing else. The caller reached this branch only by passing `requireSessionRole`, and the
+    // states behind the codes are "your account was deleted", "your role was revoked", "you were
+    // suspended" and "the target you named is your own account" — facts about the caller that the
+    // caller has a claim to, and that the session it still holds is actively misrepresenting. Nothing
+    // here names a property of `accountId`: the first three are thrown before the target is read —
+    // an ordering `operator-actor-db.integration.test.ts:151` pins — and the fourth compares
+    // `accountId` against the caller's own resolved id rather than reading the target row, pinned by
+    // the account-as-its-own-target case at `operator-actor-db.integration.test.ts:207`. A route that
+    // collapsed these into one would leave a genuine operator with a stale session and no way to tell
+    // which of the four had happened.
+    if (error instanceof OperatorActorError) {
       return NextResponse.json(
         { error: { code: error.code, message: error.message } },
         { status: error.status },

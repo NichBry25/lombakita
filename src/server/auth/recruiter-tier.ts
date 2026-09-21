@@ -13,16 +13,32 @@ assertServerOnly("server/auth/recruiter-tier");
 // Recruiter tier state.
 //
 // Tier order at launch: unverified < minimal < elevated. Tier is monotonically increasing — no
-// downgrade or revocation path exists. The recruiter mode must already be verified
+// downgrade or revocation path exists in any service, and since migration 0061 the database
+// refuses one as well. The recruiter mode must already be verified
 // (recruiterVerifiedAt IS NOT NULL) for any tier above `unverified` to be meaningful; the
 // assertion helper enforces both conditions in lockstep.
+//
+// THE ORDER IS DECLARED ONCE, BY THE ENUM. `RECRUITER_TIERS` is the enum's own `enumValues`, so the
+// sequence is `src/server/db/schema.ts`'s declaration rather than a copy of it, and Postgres orders
+// enum labels by that same declaration (`pg_enum.enumsortorder`) — which is what the downgrade
+// trigger compares against. One declaration, read by both engines; a hand-maintained rank table
+// would be a second source of the same fact, and disagreement between two rankings is silent in
+// both directions.
 export const RECRUITER_TIERS = recruiterVerificationTierEnum.enumValues;
 export type { RecruiterVerificationTier };
 
-const TIER_RANK: Record<RecruiterVerificationTier, number> = {
-  unverified: 0,
-  minimal: 1,
-  elevated: 2,
+/**
+ * Position in `RECRUITER_TIERS`, which is the enum's declaration order.
+ *
+ * Refuses an unrecognised value rather than answering `-1`. `-1` compares below every real rank, so
+ * a tier that somehow arrives unvalidated would read as "lower than everything" and be refused by
+ * every gate — which is the safe direction — but it would also be silently accepted as a MINIMUM,
+ * and this is the one function whose whole job is the ordering.
+ */
+const tierRank = (tier: RecruiterVerificationTier): number => {
+  const rank = RECRUITER_TIERS.indexOf(tier);
+  if (rank < 0) throw new Error(`unknown recruiter tier: ${String(tier)}`);
+  return rank;
 };
 
 export const isRecruiterTier = (value: unknown): value is RecruiterVerificationTier => {
@@ -97,7 +113,7 @@ export const meetsRecruiterTier = (
   current: RecruiterVerificationTier,
   minTier: RecruiterVerificationTier,
 ): boolean => {
-  return TIER_RANK[current] >= TIER_RANK[minTier];
+  return tierRank(current) >= tierRank(minTier);
 };
 
 // Server-side recruiter tier assertion. Reads tier from the DB (not the JWT) so a fresh

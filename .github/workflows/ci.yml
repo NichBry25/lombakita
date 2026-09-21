@@ -110,12 +110,14 @@ jobs:
           psql "$DATABASE_URL" -tAc "SELECT current_setting('default_transaction_isolation')" \
             | grep -qx 'read committed'
 
-      # THE DOC LANE, WHICH CI HAS NEVER HAD. `docs/` is its own private repository (Rule 26) and is
-      # gitignored here, so the product checkout above does not contain it. Twelve tests read it:
-      # eleven in `register-census.test.ts` measure `open-debt.md` and `decision-log.md`, and
-      # `deletion-procedure.test.ts` reads the procedure. On a runner without the lane all twelve
-      # fail — which is how the false green this step removes was found, by cloning the product repo
-      # somewhere the lane was not.
+      # THE DOC LANE, WHICH THE PRODUCT CHECKOUT HAS NEVER HAD. `docs/` is its own private
+      # repository (Rule 26) and is gitignored here, so the checkout above does not contain it. Four
+      # test files read it, one path each: `register-census.test.ts` measures `open-debt.md` and
+      # `decision-log.md`, `deletion-procedure.test.ts` reads `account-deletion-procedure.md`,
+      # `provisioning-procedure.test.ts` reads `operator-provisioning-procedure.md`, and
+      # `precheck-parity.test.ts` reads `.claude/commands/precheck.md`. On a runner without the lane
+      # every one of them fails — which is how the false green this step removes was found, by
+      # cloning the product repo somewhere the lane was not.
       #
       # It sits here rather than earlier because Lint, Format and Typecheck never look at `docs/`:
       # eslint does not, and neither the vitest include list nor the tsconfig include list reaches
@@ -141,6 +143,7 @@ jobs:
             docs/project/open-debt.md \
             docs/project/decision-log.md \
             docs/operations/account-deletion-procedure.md \
+            docs/operations/operator-provisioning-procedure.md \
             docs/.claude/commands/precheck.md
           do
             if [ ! -f "$path" ]; then

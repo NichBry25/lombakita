@@ -27,134 +27,87 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import postgres from "postgres";
+import type postgres from "postgres";
 import { loadEnvFile } from "@/server/scripts/env-file";
-import { parseDatabaseHost } from "../lib/local-database-host";
+import { declaredAppEnvironment } from "../reset/reset-guard";
 import {
-  declaredAppEnvironment,
-  findConnectionHostRefusal,
-  findDatabaseNameRefusal,
-  findEnvironmentRefusal,
-} from "../reset/reset-guard";
+  ProcedureRefusal,
+  connectToGuardedDatabase,
+  parseProcedureSteps,
+  type ProcedureStep as SharedProcedureStep,
+} from "../lib/procedure-harness";
 import { captureBaseline, objectKeySql, readIdentities } from "./deletion-residue";
 import type { BaselineFile, ResidueBaseline } from "./deletion-residue";
 
 export const PROCEDURE_PATH = "docs/operations/account-deletion-procedure.md";
 export const DEMONSTRATION_PATH = "docs/operations/account-deletion-demonstration.md";
 
-/** The fenced info strings that name a step the operator is meant to perform. */
-const EXECUTABLE_FENCES = new Set(["sql", "r2"]);
-
-/** Fenced info strings that are illustrative and are skipped without a step header. */
-const ILLUSTRATIVE_FENCES = new Set(["text", "json", ""]);
-
 /** What a block hands to the harness, beyond its own return value. */
 export type YieldKind = "identity-literals" | "object-keys";
 
 const YIELD_KINDS: readonly string[] = ["identity-literals", "object-keys"];
 
-/** One step of the procedure, as the document declares it. */
-export type ProcedureStep = {
-  /** The fence's info string. `sql` is executed; `r2` is named and skipped. */
+/** One step of the procedure, as this document declares it. */
+export type ProcedureStep = Omit<SharedProcedureStep, "kind"> & {
+  /** `sql` is executed; `r2` is named in the report and never executed. */
   kind: "sql" | "r2";
-  name: string;
   yields: YieldKind | null;
-  body: string;
-  /** The line the fence opens on, so a refusal can name where to look. */
-  line: number;
 };
 
-export class ProcedureRefusal extends Error {}
+export { ProcedureRefusal };
+
+/**
+ * The kinds this document's grammar carries that this runner does not execute.
+ *
+ * `browser` is the provisioning runner's: a step a person performs in a browser, which this harness
+ * can neither perform nor verify. Refused rather than skipped — a document that grew one would
+ * otherwise be read, reported as complete, and silently missing the step.
+ */
+const KINDS_THIS_RUNNER_DOES_NOT_EXECUTE = new Set(["browser"]);
 
 /**
  * The procedure's steps, in document order.
  *
- * Refuses rather than skips, on four counts: an unrecognised fence, an executable block with no
- * `-- step:` header, a step name used twice, and a `-- yields:` the harness does not know. Each of
- * those is a way for the document to disagree with what actually runs, and a silent skip turns
- * that disagreement into a report of a step that was never performed.
+ * The grammar is `parseProcedureSteps`'s. What belongs here is the vocabulary and the one thing this
+ * document declares that the other does not: `-- yields:`, on the second line of a `sql` block,
+ * naming what the block hands back beyond its own return value.
+ *
+ * Refuses rather than skips, on two counts beyond the shared grammar's four: a `-- yields:` the
+ * harness does not know, and a `-- yields:` on a block that cannot produce one. Each is a way for the
+ * document to disagree with what actually runs, and a silent skip turns that disagreement into a
+ * report of a step that was never performed.
  */
-export const parseProcedure = (markdown: string): ProcedureStep[] => {
-  const lines = markdown.split("\n");
-  const steps: ProcedureStep[] = [];
-  const seen = new Set<string>();
-
-  let index = 0;
-  while (index < lines.length) {
-    const line = lines[index]!;
-    const opening = /^```(\S*)\s*$/.exec(line);
-
-    if (opening === null) {
-      index += 1;
-      continue;
-    }
-
-    const fence = opening[1]!;
-    const openedAt = index + 1;
-    const body: string[] = [];
-    index += 1;
-
-    while (index < lines.length && !/^```\s*$/.test(lines[index]!)) {
-      body.push(lines[index]!);
-      index += 1;
-    }
-    if (index === lines.length) {
-      throw new ProcedureRefusal(`the fence opened at line ${openedAt} is never closed`);
-    }
-    index += 1;
-
-    if (ILLUSTRATIVE_FENCES.has(fence)) continue;
-    if (!EXECUTABLE_FENCES.has(fence)) {
+export const parseProcedure = (markdown: string): ProcedureStep[] =>
+  parseProcedureSteps(markdown).map((step) => {
+    if (KINDS_THIS_RUNNER_DOES_NOT_EXECUTE.has(step.kind)) {
       throw new ProcedureRefusal(
-        `line ${openedAt} opens a \`${fence}\` block, which this harness does not know how to ` +
-          "handle. A block it ignored would be a step nobody knows was skipped",
+        `the \`${step.kind}\` block at line ${step.line} is a kind this runner does not execute. ` +
+          `It carries \`${step.name}\` as a step it would report on while performing nothing`,
       );
     }
 
-    const header = /^-- step:\s*(\S+)\s*$/.exec(body[0] ?? "");
-    if (header === null) {
-      throw new ProcedureRefusal(
-        `the \`${fence}\` block at line ${openedAt} has no \`-- step: <name>\` on its first line`,
-      );
-    }
-
-    const name = header[1]!;
-    if (seen.has(name)) {
-      throw new ProcedureRefusal(
-        `step \`${name}\` is declared twice; a report listing it once would hide the other`,
-      );
-    }
-    seen.add(name);
-
-    const declared = /^-- yields:\s*(\S+)\s*$/.exec(body[1] ?? "");
+    const kind = step.kind as ProcedureStep["kind"];
+    const declared = /^-- yields:\s*(\S+)\s*$/.exec(step.body.split("\n")[1] ?? "");
     let yields: YieldKind | null = null;
+
     if (declared !== null) {
       if (!YIELD_KINDS.includes(declared[1]!)) {
         throw new ProcedureRefusal(
-          `step \`${name}\` declares \`-- yields: ${declared[1]}\`, which is not one of ` +
+          `step \`${step.name}\` declares \`-- yields: ${declared[1]}\`, which is not one of ` +
             YIELD_KINDS.join(", "),
         );
       }
-      if (fence !== "sql") {
+      if (kind !== "sql") {
         throw new ProcedureRefusal(
-          `step \`${name}\` is a \`${fence}\` block and cannot yield: this harness executes only ` +
-            "`sql` blocks, so a yield declared here would never be produced",
+          `step \`${step.name}\` is a \`${kind}\` block and cannot yield: this harness executes ` +
+            "only `sql` blocks, so a yield declared here would never be produced",
         );
       }
       yields = declared[1] as YieldKind;
     }
 
-    steps.push({
-      kind: fence as ProcedureStep["kind"],
-      name,
-      yields,
-      body: body.join("\n"),
-      line: openedAt,
-    });
-  }
-
-  return steps;
-};
+    return { ...step, kind, yields };
+  });
 
 /** How a step's exception reads in the report, without the driver type in the way. */
 export type DescribedError = { message: string; code: string | null; constraint: string | null };
@@ -463,44 +416,6 @@ const renderCase = (entry: CaseRun): string[] => {
   return lines;
 };
 
-/**
- * Open a connection, having first asked the server which database it is.
- *
- * The connection is returned only after the answer clears, so a caller cannot hold a handle that
- * skipped the check — the ordering is a type constraint rather than a convention, which is the shape
- * to prefer when the statement downstream is a `delete`.
- *
- * `current_database()` is the authoritative layer because it cannot be lied to by configuration. A
- * connection string's own path segment is the claim under test, not the evidence: a URL whose host
- * and name both read as disposable has already been shipped here once. The host and environment
- * checks above run too, and each may only ADD a refusal — none of the three grants permission.
- */
-const connectToDisposableDatabase = async (url: string): Promise<postgres.Sql> => {
-  const sql = postgres(url, { max: 1 });
-
-  try {
-    const rows = await sql<{ name: string }[]>`select current_database() as name`;
-    const name = rows[0]?.name;
-    if (name === undefined) {
-      throw new ProcedureRefusal("the server did not answer `select current_database()`");
-    }
-
-    if (findDatabaseNameRefusal(name) !== null) {
-      throw new ProcedureRefusal(
-        `refusing to run: the server on this connection reports current_database() = "${name}", ` +
-          "which is a protected database. This is the database's own answer rather than the " +
-          "connection string's, so there is no value to correct here other than where this process " +
-          "is pointed",
-      );
-    }
-
-    return sql;
-  } catch (error) {
-    await sql.end();
-    throw error;
-  }
-};
-
 const main = async (): Promise<void> => {
   const argv = process.argv.slice(2);
   const skip = new Set<string>();
@@ -538,24 +453,16 @@ const main = async (): Promise<void> => {
   if (url === undefined) {
     throw new ProcedureRefusal(`DATABASE_URL is not set and no env file was found (${loadedFrom})`);
   }
-  const hostRefusal = findConnectionHostRefusal(url, "DATABASE_URL");
-  if (hostRefusal !== null) {
-    throw new ProcedureRefusal(
-      `this procedure deletes rows, so it runs only against a loopback database. The configured ` +
-        `host is "${parseDatabaseHost(url) ?? "<unparseable>"}"`,
-    );
-  }
-
+  // The three-layer disposability guard is `assertResetTargetIsDisposable`, reached through
+  // `connectToGuardedDatabase` below — the reset lane's own, not a second copy of its layers
+  // (Rule 37). This file used to compose its own, which had drifted in two ways nothing here could
+  // see: it asked the connection host BEFORE the environment, and it read only
+  // `current_database()` without `current_user`.
+  //
   // `declaredAppEnvironment`, never `resolveAppEnvironment` directly: the latter reads only its
   // argument, NODE_ENV and VERCEL_ENV, so calling it bare answers "local" in a shell that has
-  // declared production and leaves this layer inert.
+  // declared production and leaves the environment layer inert.
   const appEnv = declaredAppEnvironment();
-  if (findEnvironmentRefusal(appEnv) !== null) {
-    throw new ProcedureRefusal(
-      `refusing to run: APP_ENV resolves to "${appEnv}", and this procedure deletes rows, so it ` +
-        "runs only where the data is disposable. There is deliberately no override flag",
-    );
-  }
 
   const document = readFileSync(resolve(process.cwd(), PROCEDURE_PATH), "utf8");
   const declared = parseProcedure(document);
@@ -569,7 +476,7 @@ const main = async (): Promise<void> => {
     }
   }
 
-  const sql = await connectToDisposableDatabase(url);
+  const sql = await connectToGuardedDatabase(url, { appEnv, redisUrl: null });
 
   try {
     if (demonstrate) {

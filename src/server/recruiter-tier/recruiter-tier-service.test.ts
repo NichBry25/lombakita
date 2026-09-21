@@ -29,11 +29,30 @@ import {
   RecruiterTierElevationError,
 } from "./recruiter-tier-service";
 
+/** What the actor resolution reads back. `id` is the DATABASE's answer, not the caller's claim. */
+type ActorRow = { id: string; role: string; suspendedAt: Date | null };
+
+const RESOLVED_ACTOR: ActorRow = { id: "ops_1", role: "platform_ops", suspendedAt: null };
+
 // `flippedRows` models what the conditional UPDATE matched: one row when this caller won the CAS,
 // none when a concurrent request already moved the tier out from under it.
+//
+// `actorRows` models the row `resolvePlatformOpsActor` reads inside the transaction. It defaults to
+// a live `platform_ops` account so a test that is not about the actor is not silently also a test of
+// the actor guard; the guards themselves are asserted against real rows in
+// `operator-actor-db.integration.test.ts`, which is where a hand-built object would prove nothing.
 const buildUpdateDb = ({
   flippedRows = [{ id: "u1" }],
-}: { flippedRows?: { id: string }[] } = {}) => {
+  actorRows = [RESOLVED_ACTOR],
+}: { flippedRows?: { id: string }[]; actorRows?: ActorRow[] } = {}) => {
+  const selectChain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    limit: vi.fn().mockResolvedValue(actorRows),
+  };
+  selectChain.from.mockReturnValue(selectChain);
+  selectChain.where.mockReturnValue(selectChain);
+
   const updateChain = {
     set: vi.fn(),
     where: vi.fn(),
@@ -44,17 +63,19 @@ const buildUpdateDb = ({
 
   const insertChain = { values: vi.fn().mockResolvedValue(undefined) };
   const tx = {
+    select: vi.fn().mockReturnValue(selectChain),
     update: vi.fn().mockReturnValue(updateChain),
     insert: vi.fn().mockReturnValue(insertChain),
   };
 
   const db = {
     transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) => run(tx)),
+    select: tx.select,
     update: tx.update,
     insert: tx.insert,
   };
 
-  return { db, updateChain, insertChain };
+  return { db, selectChain, updateChain, insertChain };
 };
 
 describe("ELEVATION_TARGET_TIER", () => {
@@ -130,11 +151,13 @@ describe("elevateRecruiterTier", () => {
       recruiterVerified: true,
       recruiterVerificationTier: "minimal",
     });
-    const { db, updateChain, insertChain } = buildUpdateDb();
+    const { db, selectChain, updateChain, insertChain } = buildUpdateDb();
 
     const result = await elevateRecruiterTier("ops_1", "u1", db as never);
 
     expect(result).toEqual({ accountId: "u1", tier: "elevated", changed: true });
+    // The actor is read from the database inside the transaction, not taken from the argument.
+    expect(selectChain.limit).toHaveBeenCalled();
     expect(updateChain.set).toHaveBeenCalled();
     // The manual elevation path runs the orphan sweep it would otherwise bypass.
     expect(mockSweepForAccount).toHaveBeenCalledWith("u1", db);
@@ -148,6 +171,26 @@ describe("elevateRecruiterTier", () => {
     });
     // Flip and audit row must land together or not at all.
     expect(db.transaction).toHaveBeenCalledTimes(1);
+  });
+
+  // LAUNCH-D72. The audit row must name the account the DATABASE answered with, not the string the
+  // caller passed. The two differ here on purpose: a row that echoed the claim would be the exact
+  // defect this change exists to close, and it would be indistinguishable from a correct row in
+  // every test where the claim happens to be true.
+  it("records the resolved actor's id, not the caller's claim", async () => {
+    getRecruiterTierForAccount.mockResolvedValue({
+      recruiterVerified: true,
+      recruiterVerificationTier: "minimal",
+    });
+    const { db, insertChain } = buildUpdateDb({
+      actorRows: [{ id: "ops_from_database", role: "platform_ops", suspendedAt: null }],
+    });
+
+    await elevateRecruiterTier("ops_claimed_by_caller", "u1", db as never);
+
+    expect(insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ actorUserId: "ops_from_database" }),
+    );
   });
 
   it("writes no audit row and reports changed=false when the CAS loses a race", async () => {
