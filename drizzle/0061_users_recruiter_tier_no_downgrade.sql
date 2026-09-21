@@ -21,12 +21,15 @@
 -- `ALTER TABLE "users" ALTER COLUMN "recruiter_verification_tier" TYPE ...` with SQLSTATE 0A000,
 -- "cannot alter type of a column used in a trigger definition". That statement is this
 -- repository's established recipe for reshaping an enum column — 0015_two_role_identity_rebuild
--- and 0016_institution_membership_role_rebuild both use it, on `users.role`. Any migration that
+-- uses it on `users.role`, and 0016_institution_membership_role_rebuild on
+-- `institution_memberships.membership_role` and `institution_invitations.invited_role`. Any migration that
 -- reorders these labels, removes one, or swaps the type must first run
 -- `DROP TRIGGER "users_recruiter_tier_no_downgrade" ON "users"` and re-create it afterwards.
 --
 -- OR REPLACE ON BOTH, so replaying this file over an object that already exists is a no-op rather
--- than SQLSTATE 42723. PG 14+ for the trigger form; this repo runs 16 and 17.
+-- than the duplicate-object refusal either statement would otherwise raise — SQLSTATE 42723 for
+-- the function, and 42710 for the trigger, which is not the same code. PG 14+ for the trigger form;
+-- this repo runs 16 and 17.
 --
 -- THE BODY OF THIS FILE WAS EDITED AFTER IT HAD BEEN APPLIED LOCALLY, and `OR REPLACE` is what
 -- lets a fresh application pick the edited body up instead of failing on 42723. THAT IS SAFE ONLY
