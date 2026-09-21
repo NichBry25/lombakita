@@ -1,8 +1,12 @@
 import { and, eq, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
-import { platformOpsAuditLogs, users } from "@/server/db/schema";
+import { users } from "@/server/db/schema";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
+import {
+  recordOperatorAuditEntry,
+  resolvePlatformOpsActor,
+} from "@/server/platform-ops/operator-actor";
 import {
   getRecruiterTierForAccount,
   isRecruiterTier,
@@ -81,29 +85,21 @@ export type TierElevationResult = {
 
 // Elevates a recruiter-verified account to `elevated`. Idempotent: a second call returns
 // `changed: false` with the current tier. Rejects targets whose recruiter mode is not verified.
+//
+// THE ACTOR IS RESOLVED, NOT ACCEPTED. `actorUserId` is a claim; `resolvePlatformOpsActor` asks the
+// database and refuses a caller whose account does not exist, does not hold `platform_ops`, or is
+// suspended (LAUNCH-D72). The route already gates on `requireSessionRole(["platform_ops"])`, and
+// this second resolution is not redundant: the service is reachable from anywhere in the server,
+// and a route gate protects the route rather than the service.
+//
+// Every read below — the actor included — happens inside the one transaction that writes the audit
+// row, and the actor is read FIRST. A caller that has no business here therefore learns nothing
+// about the target, not even whether it exists.
 export const elevateRecruiterTier = async (
   actorUserId: string,
   accountId: string,
   db: Database = getDb(),
 ): Promise<TierElevationResult> => {
-  const current = await getRecruiterTierForAccount(accountId, db);
-
-  if (!current) {
-    throw new RecruiterTierElevationError("tier_account_not_found", 404, "Account not found");
-  }
-
-  if (!current.recruiterVerified) {
-    throw new RecruiterTierElevationError(
-      "tier_target_not_recruiter_verified",
-      422,
-      "Account does not hold a verified recruiter role and cannot be elevated",
-    );
-  }
-
-  if (current.recruiterVerificationTier === ELEVATION_TARGET_TIER) {
-    return { accountId, tier: ELEVATION_TARGET_TIER, changed: false };
-  }
-
   // Conditional UPDATE: only flip from a non-elevated tier. Prevents a race where two concurrent
   // ops requests both observe the same starting tier and stomp on each other; one wins, the other
   // matches zero rows and reports `changed: false`.
@@ -112,7 +108,27 @@ export const elevateRecruiterTier = async (
   // lands, so the trail records elevations that happened and never one that lost a race. This
   // manual path carries the same audit weight as an approval through the review queue — the two
   // routes reach an identical end state and must be equally visible.
-  const elevated = await db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx) => {
+    const actor = await resolvePlatformOpsActor(tx, actorUserId);
+
+    const current = await getRecruiterTierForAccount(accountId, tx);
+
+    if (!current) {
+      throw new RecruiterTierElevationError("tier_account_not_found", 404, "Account not found");
+    }
+
+    if (!current.recruiterVerified) {
+      throw new RecruiterTierElevationError(
+        "tier_target_not_recruiter_verified",
+        422,
+        "Account does not hold a verified recruiter role and cannot be elevated",
+      );
+    }
+
+    if (current.recruiterVerificationTier === ELEVATION_TARGET_TIER) {
+      return { changed: false, actorUserId: actor.userId, from: current.recruiterVerificationTier };
+    }
+
     const flipped = await tx
       .update(users)
       .set({
@@ -128,27 +144,26 @@ export const elevateRecruiterTier = async (
       .returning({ id: users.id });
 
     if (flipped.length === 0) {
-      return false;
+      return { changed: false, actorUserId: actor.userId, from: current.recruiterVerificationTier };
     }
 
-    await tx.insert(platformOpsAuditLogs).values({
-      actorUserId,
+    await recordOperatorAuditEntry(tx, actor, {
       targetUserId: accountId,
       eventType: RECRUITER_TIER_ELEVATED_EVENT,
       metadata: { from: current.recruiterVerificationTier, to: ELEVATION_TARGET_TIER },
     });
 
-    return true;
+    return { changed: true, actorUserId: actor.userId, from: current.recruiterVerificationTier };
   });
 
-  if (!elevated) {
+  if (!outcome.changed) {
     return { accountId, tier: ELEVATION_TARGET_TIER, changed: false };
   }
 
   logger.info(RECRUITER_TIER_ELEVATED_EVENT, {
     accountId,
-    actorUserId,
-    from: current.recruiterVerificationTier,
+    actorUserId: outcome.actorUserId,
+    from: outcome.from,
     to: ELEVATION_TARGET_TIER,
   });
 

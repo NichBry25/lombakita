@@ -130,6 +130,22 @@ const dropEveryMigratedObject = async (sql: postgres.Sql): Promise<void> => {
         loop
           execute format('drop type if exists public.%I cascade', item.typname);
         end loop;
+
+        -- Routines LAST, because a trigger belongs to its table: the table loop above has already
+        -- taken the trigger, so the function it called has no dependent left by the time this runs.
+        -- The predicate is the one assertPublicSchemaIsEmpty counts this class with, deliberately
+        -- the same query rather than a matching one — migration 0061 creates the first standalone
+        -- routine in the history, and while this loop dropped nothing here the check below counted
+        -- the survivor and refused the reset.
+        for item in
+          select p.proname, pg_get_function_identity_arguments(p.oid) as args
+          from pg_proc p
+          join pg_namespace n on n.oid = p.pronamespace
+          left join pg_depend d on d.objid = p.oid and d.deptype = 'e'
+          where n.nspname = 'public' and d.objid is null
+        loop
+          execute format('drop function if exists public.%I(%s) cascade', item.proname, item.args);
+        end loop;
       end $$;
     `);
   });
@@ -149,22 +165,44 @@ const dropEveryMigratedObject = async (sql: postgres.Sql): Promise<void> => {
  * rather than a partial reset and a raw error. `pg_has_role(... 'USAGE')` is the right predicate
  * rather than an owner-name comparison: a role that is a MEMBER of the owning role may drop the
  * object too, and so may a superuser, which is the arrangement CI runs under.
+ *
+ * It covers the same three classes `dropEveryMigratedObject` drops — tables, enum types, and
+ * non-extension routines — because a check that inspects fewer classes than the loop removes is
+ * how the reset lane broke once already: the survivor assertion counted routines while the loop
+ * dropped none, and the run failed after the drop had committed.
  */
+/** The keyword `ALTER <kind> … OWNER TO` needs, per class this file drops. */
+const ALTER_OWNER_KEYWORD: Record<"table" | "type" | "routine", string> = {
+  table: "table",
+  type: "type",
+  routine: "function",
+};
+
 const assertEveryObjectIsDroppable = async (sql: postgres.Sql): Promise<void> => {
-  const blocked = await sql<{ kind: string; name: string; owner: string }[]>`
-    select kind, name, owner
+  const blocked = await sql<
+    { kind: "table" | "type" | "routine"; name: string; owner: string; args: string }[]
+  >`
+    select kind, name, owner, args
     from (
       select 'table' as kind, c.relname::text as name,
-             pg_get_userbyid(c.relowner) as owner, c.relowner as owner_oid
+             pg_get_userbyid(c.relowner) as owner, c.relowner as owner_oid, '' as args
         from pg_class c
         join pg_namespace n on n.oid = c.relnamespace
         where n.nspname = 'public' and c.relkind in ('r', 'p')
       union all
       select 'type', t.typname::text,
-             pg_get_userbyid(t.typowner), t.typowner
+             pg_get_userbyid(t.typowner), t.typowner, ''
         from pg_type t
         join pg_namespace n on n.oid = t.typnamespace
         where n.nspname = 'public' and t.typtype = 'e'
+      union all
+      select 'routine', p.proname::text,
+             pg_get_userbyid(p.proowner), p.proowner,
+             pg_get_function_identity_arguments(p.oid)
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        left join pg_depend d on d.objid = p.oid and d.deptype = 'e'
+        where n.nspname = 'public' and d.objid is null
     ) owned
     where not pg_has_role(current_user, owned.owner_oid, 'USAGE')
     order by kind, name
@@ -177,7 +215,8 @@ const assertEveryObjectIsDroppable = async (sql: postgres.Sql): Promise<void> =>
   const listed = blocked.map((item) => `${item.kind} ${item.name} (owner ${item.owner})`);
   const repairs = blocked.map(
     (item) =>
-      `  alter ${item.kind === "type" ? "type" : "table"} public.${item.name} owner to <this role>;`,
+      `  alter ${ALTER_OWNER_KEYWORD[item.kind]} public.${item.name}` +
+      `${item.args === "" ? "" : `(${item.args})`} owner to <this role>;`,
   );
 
   throw new Error(
@@ -231,8 +270,12 @@ const assertPublicSchemaIsEmpty = async (sql: postgres.Sql): Promise<void> => {
   if (survivors.length > 0) {
     throw new Error(
       `the drop left objects behind (${survivors.map((s) => `${s.count} ${s.kind}`).join(", ")}), ` +
-        "so what follows would not be a database built from zero. Most likely they belong to a " +
-        "role other than the one this connected as.",
+        "so what follows would not be a database built from zero. Ownership is not the likely cause " +
+        "and is not what this means: assertEveryObjectIsDroppable refuses up front if any object " +
+        "belongs to a role this connection cannot drop through, so nothing here was dropped and " +
+        "failed. A survivor means dropEveryMigratedObject and this check no longer cover the same " +
+        "classes — the migrations created a class of object the drop loop does not remove. Add that " +
+        "class to the loop; do not relax this assertion.",
     );
   }
 

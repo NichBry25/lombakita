@@ -37,6 +37,7 @@ vi.mock("@/server/recruiter-tier/recruiter-tier-service", () => ({
   RecruiterTierElevationError,
 }));
 
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 import { PATCH } from "./route";
 
 const platformOpsSession = {
@@ -175,5 +176,42 @@ describe("PATCH /api/platform-ops/accounts/[accountId]/recruiter-tier", () => {
 
     expect(response.status).toBe(404);
     expect(body.error.code).toBe("tier_account_not_found");
+  });
+
+  // THE BRANCH THE OTHER CASES CANNOT REACH. `OperatorActorError` comes from the platform-ops module
+  // rather than from the service this file mocks, so every other rejection here is a
+  // `RecruiterTierElevationError` or an `AccessError`. Without this case the actor branch could be
+  // deleted outright and the suite would stay green — the error would fall through to
+  // `toAccessDeniedResponse` and nothing would notice.
+  //
+  // All three codes are asserted, because the branch echoes whichever one it was given and a
+  // hard-coded code would satisfy a single case.
+  it("returns the actor refusal's own code and status for each way the actor can fail", async () => {
+    requireSessionRole.mockResolvedValue(platformOpsSession);
+
+    const refusals = [
+      { code: "operator_actor_not_found", message: "The acting account was not found" },
+      {
+        code: "operator_actor_not_platform_ops",
+        message: "The acting account does not hold the platform_ops role",
+      },
+      {
+        code: "operator_actor_suspended",
+        message: "The acting account is suspended and cannot perform platform-ops actions",
+      },
+    ] as const;
+
+    for (const refusal of refusals) {
+      elevateRecruiterTier.mockRejectedValue(
+        new OperatorActorError(refusal.code, 403, refusal.message),
+      );
+
+      const response = await PATCH(makeRequest({ tier: "elevated" }), makeParams("u1"));
+      const body = await response.json();
+
+      expect(response.status, `${refusal.code} did not answer 403`).toBe(403);
+      expect(body.error.code, `${refusal.code} was not echoed`).toBe(refusal.code);
+      expect(body.error.message).toBe(refusal.message);
+    }
   });
 });
