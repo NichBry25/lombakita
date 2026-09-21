@@ -43,7 +43,8 @@
 -- 8206ec4 after application and now carry two accepted hashes per index.
 -- Evidence that no deployed environment has 0061: it was created on this branch and is absent
 -- from main, and migrations reach deployed databases only through a manual operator step
--- (deploy.yml:162 — that job deploys code only, and refuses a database whose history differs).
+-- (deploy.yml:162 — that job deploys code only; the schema-drift gate at deploy.yml:103 and :231
+-- refuses a database whose history differs).
 -- Once 0061 is applied anywhere that is not rebuilt from zero, this body is frozen and any
 -- further change needs its own migration.
 CREATE OR REPLACE FUNCTION "users_recruiter_tier_no_downgrade"() RETURNS trigger
