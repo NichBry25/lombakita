@@ -264,6 +264,63 @@ describe.skipIf(skipWithoutDatabase)("elevateRecruiterTier against a real databa
   });
 });
 
+// THE GATE IS MEMBERSHIP, NOT SHAPE, AND THIS IS WHERE THAT IS MEASURED RATHER THAN ASSERTED.
+//
+// Every object below is built from a LIVE actor without calling `resolvePlatformOpsActor` again —
+// which is the whole attack: the class is not exported, but `constructor` and the prototype are
+// ordinary properties of any instance, so a caller holding one can manufacture as many more as it
+// likes. All three prototype-chain routes walk through `instanceof`; a `WeakSet` refuses them
+// because none of them is the object that was registered.
+//
+// The four copy routes were already refused by `instanceof`, and are kept here because the gate
+// changed: a fix that stopped the three would be free to lose the four, and nothing else in this
+// file would notice. The final assertion is the one that matters — nothing at all reached the
+// table — and the control below it is what makes that assertion discriminating rather than vacuous.
+describe.skipIf(skipWithoutDatabase)("recordOperatorAuditEntry against a real database", () => {
+  it("writes nothing for any actor resolvePlatformOpsActor did not register", async () => {
+    await inRollback(async (tx) => {
+      const actor = await seedAccount(tx, { role: "platform_ops" });
+      const real = await resolvePlatformOpsActor(tx, actor);
+      const prototype = Object.getPrototypeOf(real) as object;
+      const Forger = (real as unknown as { constructor: new (id: string) => object }).constructor;
+
+      const forgeries: { label: string; value: unknown }[] = [
+        { label: "Object.create", value: Object.create(prototype) },
+        { label: "new real.constructor", value: new Forger("attacker-constructor") },
+        {
+          label: "Object.setPrototypeOf",
+          value: Object.setPrototypeOf({ userId: "attacker-setproto" }, prototype),
+        },
+        { label: "spread", value: { ...real } },
+        { label: "structuredClone", value: structuredClone(real) },
+        { label: "Object.assign", value: Object.assign({}, real) },
+        { label: "JSON.parse", value: JSON.parse(JSON.stringify(real)) },
+      ];
+
+      for (const forgery of forgeries) {
+        await expect(
+          recordOperatorAuditEntry(tx, forgery.value as ResolvedPlatformOpsActor, {
+            targetUserId: actor,
+            eventType: "recruiter_tier.elevated",
+          }),
+          `${forgery.label} reached the insert`,
+        ).rejects.toThrow(/resolvePlatformOpsActor did not produce/);
+      }
+
+      expect(await auditRowsFor(tx, actor)).toHaveLength(0);
+
+      // The control. Without it the assertion above passes just as well against a function that
+      // refuses everything, including the one actor it exists to accept.
+      await recordOperatorAuditEntry(tx, real, {
+        targetUserId: actor,
+        eventType: "recruiter_tier.elevated",
+      });
+
+      expect(await auditRowsFor(tx, actor)).toHaveLength(1);
+    });
+  });
+});
+
 // WHAT THIS ASSERTS IS A COMPILE ERROR, and the directives are what make its ABSENCE a failure.
 // `@ts-expect-error` is itself an error when nothing is wrong, so if the class became a value
 // export, or gained a public way to build one, or `recordOperatorAuditEntry` gained an overload

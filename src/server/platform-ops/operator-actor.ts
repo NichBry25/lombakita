@@ -36,13 +36,21 @@ assertServerOnly("server/platform-ops/operator-actor");
  * stop the type being COPIED: `{ ...real, userId: "attacker" }` carries the symbol through a spread
  * and compiles with no cast. TypeScript treats a private member as part of the type's identity
  * rather than its structure, so that spread — and every other object built outside this class — is
- * refused. `recordOperatorAuditEntry` additionally gates on `instanceof`, and the constructor
- * freezes, so the copy routes that defeat the compiler do not survive the runtime either.
+ * refused. The constructor freezes, so a live actor cannot be mutated into a different claim.
+ *
+ * THE COMPILER HALF DOES NOT COVER THE RUNTIME. `recordOperatorAuditEntry` gates on membership of
+ * `genuineOperatorActors` rather than on `instanceof`, and the difference is measured rather than
+ * argued: `instanceof` is satisfied by anything whose prototype chain reaches this class, and three
+ * ways of producing one never run this constructor — `Object.create`, `new real.constructor(...)`,
+ * and `Object.setPrototypeOf`. See the set's own docstring.
  *
  * THE CLASS ITSELF IS NOT EXPORTED — only its type is, on the line below. So `new
- * ResolvedPlatformOpsActor(...)` has no spelling outside this module either, and the only value of
- * this type in existence came out of `resolvePlatformOpsActor`. That is a property of the compiler
- * rather than a sentence beside the code.
+ * ResolvedPlatformOpsActor(...)` has no spelling outside this module. What that buys is narrower
+ * than "the only value of this type in existence came out of `resolvePlatformOpsActor`", which the
+ * earlier wording here claimed and which is false: an object of this type can be built outside by
+ * reaching the prototype through a live instance, and `constructor` is an ordinary property of one.
+ * What is true is that such an object cannot be CONSTRUCTED, so it never runs the code that
+ * registers, and the registration is what the insert requires.
  */
 class ResolvedPlatformOpsActor {
   readonly userId: string;
@@ -57,6 +65,29 @@ class ResolvedPlatformOpsActor {
 }
 
 export type { ResolvedPlatformOpsActor };
+
+/**
+ * The actors this module has resolved, held by identity rather than by shape.
+ *
+ * WHY A `WeakSet` AND NOT `instanceof`. `instanceof` asks a question about the PROTOTYPE CHAIN, and
+ * the prototype chain is an ordinary, writable property that any caller can assemble without ever
+ * running the constructor. Three routes were measured against an `instanceof` gate and all three
+ * passed it: `Object.create(real.constructor.prototype)`, `new real.constructor("attacker")` — the
+ * constructor is reachable as a property of any live instance even though the class is not exported
+ * — and `Object.setPrototypeOf({ userId: "attacker" }, Object.getPrototypeOf(real))`. A `WeakSet`
+ * asks a question about IDENTITY instead: it holds the exact objects added to it and nothing that
+ * merely resembles one, so none of those three is a member and no fourth spelling of the same idea
+ * is either.
+ *
+ * MODULE-PRIVATE AND DELIBERATELY NOT EXPORTED. A set the caller can reach is a set the caller can
+ * add to, which would return the gate to being a claim. The only code that can add to it is the one
+ * function below, and it adds only what it built itself.
+ *
+ * WHY `WeakSet` RATHER THAN `Set`: membership is the only question ever asked, and the actors are
+ * short-lived. A strong set would retain every actor ever resolved for the life of the process and
+ * turn this guard into a memory leak proportional to traffic.
+ */
+const genuineOperatorActors = new WeakSet<ResolvedPlatformOpsActor>();
 
 /**
  * A transaction handle, and specifically not the pool.
@@ -135,14 +166,26 @@ export const resolvePlatformOpsActor = async (
     );
   }
 
-  return new ResolvedPlatformOpsActor(row.id);
+  const actor = new ResolvedPlatformOpsActor(row.id);
+
+  // Registered HERE, never in the constructor. A constructor that registered its own product would
+  // make any construction a resolution, and the class is reachable as `real.constructor` from every
+  // live instance — so the constructor would hand the attacker the very membership this exists to
+  // withhold.
+  genuineOperatorActors.add(actor);
+
+  return actor;
 };
 
 /**
  * Everything a `platform_ops_audit_logs` row carries except who did it.
  *
- * Derived from the table rather than restated, so a column added to the audit log is a field this
- * type requires at every call site instead of a column rows silently stop filling.
+ * Derived from the table rather than restated, so a column added to the audit log arrives here
+ * without an edit — and, IF THAT COLUMN IS `NOT NULL` WITH NO DEFAULT, the compiler names every call
+ * site that has not been taught to fill it. The condition is the whole of the claim: a nullable or
+ * defaulted column is optional in `$inferInsert`, so adding one changes nothing at any call site and
+ * rows written afterwards carry whatever the default says. The earlier wording here stated the
+ * consequence unconditionally, which was true only of the NOT NULL case.
  */
 export type OperatorAuditEntry = Omit<typeof platformOpsAuditLogs.$inferInsert, "actorUserId">;
 
@@ -153,17 +196,23 @@ export type OperatorAuditEntry = Omit<typeof platformOpsAuditLogs.$inferInsert, 
  * to reach this insert is to have called `resolvePlatformOpsActor` first. A caller that skips the
  * resolution does not get an unchecked row — it gets a type error.
  *
- * The `instanceof` is the second half, and it is not redundant with the type. The type stops a
+ * The membership check is the second half, and it is not redundant with the type. The type stops a
  * caller who is reading the compiler; it does not stop a value that arrived through a cast, an
- * `any` from `JSON.parse`, or a spread written by someone who did not read this file. Only objects
- * this class constructed reach the insert.
+ * `any` from `JSON.parse`, or a spread written by someone who did not read this file.
+ *
+ * ONLY WHAT `resolvePlatformOpsActor` REGISTERED REACHES THE INSERT — measured, not asserted. Every
+ * route that produces something of this type without calling that function was run against this
+ * gate, and each throws here instead of writing: a spread of a live actor, `structuredClone`,
+ * `Object.assign`, `JSON.parse`, `Object.create`, `new real.constructor(...)`, and
+ * `Object.setPrototypeOf`. The three prototype-chain routes are the ones an `instanceof` gate did
+ * NOT stop, which is why the gate is membership rather than `instanceof`.
  */
 export const recordOperatorAuditEntry = async (
   tx: OperatorActorTransaction,
   actor: ResolvedPlatformOpsActor,
   entry: OperatorAuditEntry,
 ): Promise<void> => {
-  if (!(actor instanceof ResolvedPlatformOpsActor)) {
+  if (!genuineOperatorActors.has(actor)) {
     throw new Error(
       "recordOperatorAuditEntry was given an actor that resolvePlatformOpsActor did not produce, " +
         "so the id it carries is a claim rather than a database answer",
