@@ -848,7 +848,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 73,
+    bound: 87,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
@@ -955,7 +955,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "decision-log rows a blank line left outside every table",
-    bound: 100,
+    bound: 103,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
@@ -971,7 +971,9 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "than computed. The repair remains the one-line deletion the paragraph above names, and it is " +
       "owed: a hundred of this log's two hundred and five seeded rows — DEC-0115 through DEC-0215, " +
       "every decision taken since 2026-07-27 — do not render as a table today, and the seeded table " +
-      "is the half of the log that carries the rationales",
+      "is the half of the log that carries the rationales. Raised 100 → 103 at Step 7.7 Block C2 " +
+      "Phase 1's close: DEC-0216 to DEC-0218 were appended below the blank line that already orphans " +
+      "DEC-0115 onward. The repair is TRUST-D15, and it resets this bound in the same pass",
   },
   {
     what: "decision-log rows written on another record's line instead of below it",
