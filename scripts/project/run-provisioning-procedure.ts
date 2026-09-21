@@ -644,7 +644,7 @@ const demonstrateAll = async (
     "**Every case below was rolled back, and that is a measurement rather than a claim.** Each",
     "case's `sql` steps run inside one transaction that is always rolled back; the account's row is",
     "read before that transaction opens and again after it closes, and each case prints the",
-    "comparison under \"What the account's row says afterwards\". A run in which any case read",
+    'comparison under "What the account\'s row says afterwards". A run in which any case read',
     "otherwise exits non-zero and writes no document at all, so this paragraph only ever appears",
     "over a set of cases that were each measured.",
     "",

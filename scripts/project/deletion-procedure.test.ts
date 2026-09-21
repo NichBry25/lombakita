@@ -310,7 +310,9 @@ describe("the guard in front of the delete", () => {
   // RUNS before the handle is returned is measured by execution in `procedure-harness.test.ts`, not
   // by a grep here.
   it("obtains its connection only from the helper that performed the check", () => {
-    expect(source).toContain("const sql = await connectToGuardedDatabase(url, { appEnv, redisUrl: null });");
+    expect(source).toContain(
+      "const sql = await connectToGuardedDatabase(url, { appEnv, redisUrl: null });",
+    );
 
     // ZERO construction sites, down from exactly one. The one that used to be here moved into the
     // helper with the check; any `postgres(` reappearing in this file would be a socket that never
