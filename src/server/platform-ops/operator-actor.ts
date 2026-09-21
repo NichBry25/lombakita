@@ -93,10 +93,19 @@ const genuineOperatorActors = new WeakSet<ResolvedPlatformOpsActor>();
  * A transaction handle, and specifically not the pool.
  *
  * `Database` has no `rollback`, so it is not assignable here and `resolvePlatformOpsActor(db, id)`
- * does not compile. That is the point: the actor is readable only from inside a transaction, which
- * is what makes "read the actor in the same transaction that writes the audit row" a property of
- * the code rather than a note beside it. A resolution taken outside the transaction races the write
- * it authorises — an account suspended between the two would elevate on a stale answer.
+ * does not compile. What that buys is narrow: the actor is readable only from inside SOME
+ * transaction, and the type does not say which one. `recordOperatorAuditEntry(tx, actor, entry)`
+ * never checks that `actor` was resolved in `tx` — it checks membership in the set
+ * `resolvePlatformOpsActor` registers into, and an actor resolved in a DIFFERENT transaction is a
+ * member of that set too.
+ *
+ * THE STRONGER CLAIM IS NOT TRUE, and an earlier version of this docstring made it: this type does
+ * not make "read the actor in the same transaction that writes the audit row" a property of the
+ * code. What holds today is that `elevateRecruiterTier` resolves and writes inside one callback,
+ * which is a convention at a single call site — nothing refuses an actor resolved in one
+ * transaction and handed to another. The race the convention closes is real, because a resolution
+ * taken outside the writing transaction is one an account suspension can overtake, so a second call
+ * site has to keep the convention by hand rather than inherit it from the type.
  */
 export type OperatorActorTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 

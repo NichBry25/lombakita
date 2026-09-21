@@ -34,7 +34,7 @@
 // raw SQL and removed in `afterAll`, which also asserts that none survived (Rule 35).
 
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { afterAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { resolveMfaStatus } from "@/server/auth/mfa/mfa-status";
@@ -53,14 +53,18 @@ import {
 
 const ENROL_PAGE = "src/app/auth/mfa/enroll/page.tsx";
 
+/** The doc lane's own root, so the two read failures above can be told apart. */
+const DOC_LANE = "docs";
+
 /**
  * Read once, at module scope: every assertion below is about one document, and parsing it per test
  * would let the file hold two different procedures at once.
  *
- * The read can fail. `docs/` is its own private repository (Rule 26) and is gitignored in the
- * product repo, so a checkout without the doc lane has no procedure at that path. It refuses with
- * that sentence rather than letting an ENOENT out of the parser, because the missing thing is the
- * lane, not the statement.
+ * The read can fail, and the two ways it fails are different documents' problems. `docs/` absent
+ * means the doc lane did not check out — a token scoped to the wrong repository, or a checkout that
+ * skipped the second clone. `docs/` present with this file missing means the lane is here and this
+ * one document is not, which is what a doc-repository commit that was never pushed looks like. One
+ * sentence for both sent the reader to the checkout when the answer was the file.
  */
 const readProcedure = (): string => {
   try {
@@ -68,9 +72,18 @@ const readProcedure = (): string => {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 
+    if (!existsSync(DOC_LANE)) {
+      throw new Error(
+        `the operator-provisioning procedure is not readable at ${PROCEDURE_PATH}: the doc lane ` +
+          `(\`docs/\`, its own private repository under Rule 26) is not present in this checkout.`,
+      );
+    }
+
     throw new Error(
-      `the operator-provisioning procedure is not readable at ${PROCEDURE_PATH}: the doc lane ` +
-        `(\`docs/\`, its own private repository under Rule 26) is not present in this checkout.`,
+      `the operator-provisioning procedure is not readable at ${PROCEDURE_PATH}: the doc lane is ` +
+        "present in this checkout and does not hold this file. It is tracked in the doc " +
+        "repository, so this is a document that was never committed or pushed there — not a " +
+        "checkout that is missing the lane.",
     );
   }
 };
