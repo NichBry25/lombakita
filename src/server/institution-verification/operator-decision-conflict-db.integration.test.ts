@@ -624,10 +624,11 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
   // the submission's reviewer, and the institution's CAS UPDATE — and each branch reaches them by
   // its own route, so a run that only exercised approval would leave the rejection branch's writer
   // unmeasured.
-  // Both branches carry the same test name by instruction, so a run reports it twice — once per
-  // decision, which is the only way the two writers are told apart in the output.
+  // The decision is substituted into the name, so the run reports two DISTINCT titles — one per
+  // branch. Without the substitution the same title appeared twice and a failure named only the
+  // pair, leaving the branch that broke to be worked out by hand.
   it.each(["approved", "rejected"] as const)(
-    "records the deciding operator's resolved id in the audit row",
+    "records the deciding operator's resolved id in the audit row (%s)",
     async (decision) => {
       await inRollback(async (tx) => {
         const owner = await seedUser(tx, "candidate");
