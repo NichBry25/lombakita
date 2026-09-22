@@ -10,24 +10,36 @@
 // against a real connection (Rule 33).
 //
 // THE REFUSAL IS NOT THE ASSERTION. A decision that throws and still wrote would satisfy "it threw"
-// while being the failure this exists to prevent, so each refusal is followed by four assertions:
+// while being the failure this exists to prevent, so each refusal is followed by five assertions:
 // the institution's verification_status is unchanged, the submission's status is unchanged, there is
-// no row in `institution_verification_audit`, and no mail was composed. The mail assertion is made
-// against the module's own mocked senders rather than inferred from the absence of a table.
+// no row in `institution_verification_audit`, no row in `platform_ops_audit_logs`, and no mail was
+// composed. The mail assertion is made against the module's own mocked senders rather than inferred
+// from the absence of a table. They live in `expectRefusedAndWroteNothing` so no caller can assert
+// the refusal and forget the rest.
 //
 // The commit path is asserted too — a guard that refuses the conflicted actor must not have become a
 // guard that refuses everybody — and the audit row it writes is checked to name the RESOLVED actor.
+//
+// THE REFUSAL HAS THREE ARMS, and every value of the two status enums they range over is read FROM
+// THE SCHEMA rather than from a literal list: a membership in ANY status, a submission this actor
+// filed in ANY status, and an invitation naming this actor in ANY status. A hand-written list of
+// statuses would keep passing after a migration added a seventh, which is exactly the drift this
+// coverage exists to catch.
 //
 // Everything except the concurrency test runs inside a transaction that is ALWAYS rolled back.
 // The concurrency test cannot: one connection cannot block on itself, and a second connection cannot
 // see uncommitted rows. It commits, and it deletes what it wrote — see its own teardown contract.
 
+import { createHash } from "crypto";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { TransactionRollbackError, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/server/db/schema";
 import {
+  institutionInvitationStatusEnum,
+  institutionInvitations,
+  institutionMembershipStatusEnum,
   institutionMemberships,
   institutionVerificationAudit,
   institutionVerificationSubmissions,
@@ -82,21 +94,23 @@ const inRollback = async (body: (tx: Tx) => Promise<void>): Promise<void> => {
 };
 
 let seq = 0;
-// Hyphen-separated: an institution slug goes through `normalizeInstitutionSlug` on the way in from a
-// URL, which rewrites `_` to `-`. A fixture slug carrying an underscore is one `isInstitutionMemberBySlug`
-// could never match, so the membership check would answer `false` for a member and the test would
-// measure the fixture rather than the guard.
+// Hyphen-separated, so a fixture slug stays a slug under `normalizeInstitutionSlug` and no test has to
+// reason about how a URL would rewrite it.
 const uniqueSuffix = (): string => `${Date.now()}-${seq++}`;
 
+// The optional `email` exists for one case: the invitation arm matches the actor's own address, and a
+// fixture whose stored address is byte-identical to `invited_email` would pass a comparison that never
+// normalised anything.
 const seedUser = async (
   tx: Tx,
   role: "candidate" | "recruiter" | "platform_ops",
+  email?: string,
 ): Promise<string> => {
   const id = uniqueSuffix();
   const [row] = await tx
     .insert(users)
     .values({
-      email: `ops_conflict_${id}@example.test`,
+      email: email ?? `ops_conflict_${id}@example.test`,
       username: `ops_conflict_${id}`,
       role,
       candidateVerifiedAt: new Date(),
@@ -135,13 +149,39 @@ const addMembership = async (
   institutionId: string,
   userId: string,
   membershipRole: "institution_owner" | "institution_staff" | "institution_member",
+  status: (typeof institutionMembershipStatusEnum.enumValues)[number] = "active",
 ): Promise<void> => {
   await tx.insert(institutionMemberships).values({
     institutionId,
     userId,
     membershipRole,
-    status: "active",
+    status,
   });
+};
+
+const seedInvitation = async (
+  tx: Tx,
+  institutionId: string,
+  invitation: {
+    status: (typeof institutionInvitationStatusEnum.enumValues)[number];
+    invitedEmail: string;
+    targetUserId: string | null;
+  },
+): Promise<string> => {
+  const id = uniqueSuffix();
+  const [row] = await tx
+    .insert(institutionInvitations)
+    .values({
+      institutionId,
+      invitedEmail: invitation.invitedEmail,
+      invitedRole: "institution_member",
+      tokenHash: createHash("sha256").update(`ops-conflict-invite-${id}`).digest("hex"),
+      status: invitation.status,
+      targetUserId: invitation.targetUserId,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    })
+    .returning({ id: institutionInvitations.id });
+  return row!.id;
 };
 
 const seedSubmission = async (
@@ -231,7 +271,50 @@ const reviewFor = async (
 };
 
 const CONFLICT_MESSAGE =
-  "A platform-ops account cannot decide the verification of an institution it submitted for or belongs to";
+  "A platform-ops account cannot decide the verification of an institution it has filed for, been invited to, or held any membership in";
+
+type RefusalFixture = {
+  actorUserId: string;
+  institutionId: string;
+  /** The institution's verification_status as the attempt found it; a refusal must leave it here. */
+  institutionStatusAtRest: string;
+  /** The submission as the attempt found it, or null when the attempt does not turn on one. */
+  submission: { id: string; status: string } | null;
+};
+
+// THE REFUSAL AND THE POST-STATE, IN ONE PLACE. A refusal asserted on its own passes for a guard that
+// threw AFTER the UPDATE, so every arm below routes through this and asserts the five things a
+// refused decision must not have touched.
+const expectRefusedAndWroteNothing = async (
+  tx: Tx,
+  attempt: Promise<unknown>,
+  fixture: RefusalFixture,
+): Promise<void> => {
+  await expect(attempt).rejects.toMatchObject({
+    code: "operator_actor_conflicted",
+    status: 403,
+    message: CONFLICT_MESSAGE,
+  });
+
+  expect(await readInstitutionStatus(tx, fixture.institutionId)).toBe(
+    fixture.institutionStatusAtRest,
+  );
+  if (fixture.submission) {
+    expect((await readSubmission(tx, fixture.submission.id)).status).toBe(
+      fixture.submission.status,
+    );
+  }
+  expect(await auditRowsFor(tx, fixture.institutionId)).toHaveLength(0);
+  expect(
+    await tx
+      .select({ id: platformOpsAuditLogs.id })
+      .from(platformOpsAuditLogs)
+      .where(eq(platformOpsAuditLogs.actorUserId, fixture.actorUserId)),
+  ).toHaveLength(0);
+  expect(sendVerified).not.toHaveBeenCalled();
+  expect(sendRevoked).not.toHaveBeenCalled();
+  expect(sendRejected).not.toHaveBeenCalled();
+};
 
 describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () => {
   // The mailer stubs are module-level, so without this the "not called" assertions below would be
@@ -256,18 +339,16 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
         .set({ submittedByUserId: conflictedReviewer })
         .where(eq(institutionVerificationSubmissions.id, submissionId));
 
-      await expect(
+      await expectRefusedAndWroteNothing(
+        tx,
         reviewFor(tx, conflictedReviewer, submissionId, "approved"),
-      ).rejects.toMatchObject({
-        code: "operator_actor_conflicted",
-        status: 403,
-        message: CONFLICT_MESSAGE,
-      });
-
-      expect(await readInstitutionStatus(tx, institution.id)).toBe("pending_verification");
-      expect((await readSubmission(tx, submissionId)).status).toBe("pending_review");
-      expect(await auditRowsFor(tx, institution.id)).toHaveLength(0);
-      expect(sendVerified).not.toHaveBeenCalled();
+        {
+          actorUserId: conflictedReviewer,
+          institutionId: institution.id,
+          institutionStatusAtRest: "pending_verification",
+          submission: { id: submissionId, status: "pending_review" },
+        },
+      );
     });
   });
 
@@ -288,15 +369,12 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
         const insider = await seedUser(tx, "platform_ops");
         await addMembership(tx, institution.id, insider, membershipRole);
 
-        await expect(
-          reviewFor(tx, insider, submissionId, "rejected"),
-          membershipRole,
-        ).rejects.toMatchObject({ code: "operator_actor_conflicted", status: 403 });
-
-        expect(await readInstitutionStatus(tx, institution.id)).toBe("pending_verification");
-        expect((await readSubmission(tx, submissionId)).status).toBe("pending_review");
-        expect(await auditRowsFor(tx, institution.id)).toHaveLength(0);
-        expect(sendRejected).not.toHaveBeenCalled();
+        await expectRefusedAndWroteNothing(tx, reviewFor(tx, insider, submissionId, "rejected"), {
+          actorUserId: insider,
+          institutionId: institution.id,
+          institutionStatusAtRest: "pending_verification",
+          submission: { id: submissionId, status: "pending_review" },
+        });
       });
     }
   });
@@ -337,17 +415,157 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
       const insider = await seedUser(tx, "platform_ops");
       await addMembership(tx, institution.id, insider, "institution_staff");
 
-      await expect(
+      await expectRefusedAndWroteNothing(
+        tx,
         verifyInstitutionFor(tx, insider, institution.id, "rejected"),
-      ).rejects.toMatchObject({
-        code: "operator_actor_conflicted",
-        status: 403,
-        message: CONFLICT_MESSAGE,
+        {
+          actorUserId: insider,
+          institutionId: institution.id,
+          institutionStatusAtRest: "verified",
+          submission: null,
+        },
+      );
+    });
+  });
+
+  // EVERY STATUS THE SCHEMA DECLARES, READ FROM THE SCHEMA. The rule refuses a membership in ANY
+  // status, so the population it must cover is the enum itself. A literal array here keeps passing
+  // after a migration adds a fifth value, and the new value is then uncovered by every run.
+  it("refuses a membership in any status the schema declares, on both decision paths", async () => {
+    for (const status of institutionMembershipStatusEnum.enumValues) {
+      await inRollback(async (tx) => {
+        const owner = await seedUser(tx, "candidate");
+        const institution = await seedInstitution(tx);
+        await addMembership(tx, institution.id, owner, "institution_owner");
+        const submissionId = await seedSubmission(tx, institution.id, owner);
+
+        // An ordinary member, in whichever status the loop is on. A revoked or inactive membership is
+        // still a record that this account was on the inside of the decision it is about to make.
+        const insider = await seedUser(tx, "platform_ops");
+        await addMembership(tx, institution.id, insider, "institution_member", status);
+
+        const fixture = {
+          actorUserId: insider,
+          institutionId: institution.id,
+          institutionStatusAtRest: "pending_verification",
+          submission: { id: submissionId, status: "pending_review" },
+        };
+
+        await expectRefusedAndWroteNothing(tx, reviewFor(tx, insider, submissionId, "rejected"), {
+          ...fixture,
+          submission: null,
+        });
+        await expectRefusedAndWroteNothing(
+          tx,
+          verifyInstitutionFor(tx, insider, institution.id, "verified"),
+          fixture,
+        );
+      });
+    }
+  });
+
+  // THE SAME ENUMERATION FOR THE INVITATION ARM, and the arm has two ways to name an account, so each
+  // status is measured twice: once through `target_user_id` and once through the address alone.
+  it("refuses an invitation in any status the schema declares, on both decision paths", async () => {
+    for (const status of institutionInvitationStatusEnum.enumValues) {
+      // (a) NAMED BY ACCOUNT. `target_user_id` points at the operator; the address on the row belongs
+      // to somebody else, so only the id arm can be what refuses them.
+      await inRollback(async (tx) => {
+        const owner = await seedUser(tx, "candidate");
+        const institution = await seedInstitution(tx);
+        await addMembership(tx, institution.id, owner, "institution_owner");
+        const submissionId = await seedSubmission(tx, institution.id, owner);
+
+        const invitee = await seedUser(tx, "platform_ops");
+        await seedInvitation(tx, institution.id, {
+          status,
+          invitedEmail: `someone_else_${uniqueSuffix()}@example.test`,
+          targetUserId: invitee,
+        });
+
+        const fixture = {
+          actorUserId: invitee,
+          institutionId: institution.id,
+          institutionStatusAtRest: "pending_verification",
+          submission: { id: submissionId, status: "pending_review" },
+        };
+
+        await expectRefusedAndWroteNothing(tx, reviewFor(tx, invitee, submissionId, "approved"), {
+          ...fixture,
+          submission: null,
+        });
+        await expectRefusedAndWroteNothing(
+          tx,
+          verifyInstitutionFor(tx, invitee, institution.id, "verified"),
+          fixture,
+        );
       });
 
-      expect(await readInstitutionStatus(tx, institution.id)).toBe("verified");
-      expect(await auditRowsFor(tx, institution.id)).toHaveLength(0);
-      expect(sendRevoked).not.toHaveBeenCalled();
+      // (b) NAMED BY ADDRESS ONLY. No account is attached to the row — the shape every invitation has
+      // before signup claims it — and the two stored strings are deliberately NOT byte-identical: the
+      // account's address carries padding and mixed case, the invitation's does not. A comparison
+      // that skipped the normalisation would find nothing here and let the operator decide.
+      await inRollback(async (tx) => {
+        const owner = await seedUser(tx, "candidate");
+        const institution = await seedInstitution(tx);
+        await addMembership(tx, institution.id, owner, "institution_owner");
+        const submissionId = await seedSubmission(tx, institution.id, owner);
+
+        const tag = uniqueSuffix();
+        const invitedEmail = `ops_invitee_${tag}@example.test`;
+        const storedEmail = `  OPS_Invitee_${tag}@Example.TEST  `;
+        expect(storedEmail).not.toBe(invitedEmail);
+
+        const invitee = await seedUser(tx, "platform_ops", storedEmail);
+        await seedInvitation(tx, institution.id, { status, invitedEmail, targetUserId: null });
+
+        const fixture = {
+          actorUserId: invitee,
+          institutionId: institution.id,
+          institutionStatusAtRest: "pending_verification",
+          submission: { id: submissionId, status: "pending_review" },
+        };
+
+        await expectRefusedAndWroteNothing(tx, reviewFor(tx, invitee, submissionId, "approved"), {
+          ...fixture,
+          submission: null,
+        });
+        await expectRefusedAndWroteNothing(
+          tx,
+          verifyInstitutionFor(tx, invitee, institution.id, "verified"),
+          fixture,
+        );
+      });
+    }
+  });
+
+  // FILED, THEN LEFT, THEN VERIFIES. The operator filed this institution's submission and has since
+  // left it: no membership, and the submission is no longer live, so `verifyInstitution` — which reads
+  // no submission of its own — is deciding an organisation the account filed for with nothing else
+  // about the pair left to refuse it.
+  it("refuses an operator who filed for an institution and has since left, when they verify it", async () => {
+    await inRollback(async (tx) => {
+      const owner = await seedUser(tx, "candidate");
+      const institution = await seedInstitution(tx);
+      await addMembership(tx, institution.id, owner, "institution_owner");
+      const submissionId = await seedSubmission(tx, institution.id, owner);
+
+      const filer = await seedUser(tx, "platform_ops");
+      await tx
+        .update(institutionVerificationSubmissions)
+        .set({ submittedByUserId: filer, status: "rejected" })
+        .where(eq(institutionVerificationSubmissions.id, submissionId));
+
+      await expectRefusedAndWroteNothing(
+        tx,
+        verifyInstitutionFor(tx, filer, institution.id, "verified"),
+        {
+          actorUserId: filer,
+          institutionId: institution.id,
+          institutionStatusAtRest: "pending_verification",
+          submission: { id: submissionId, status: "rejected" },
+        },
+      );
     });
   });
 
@@ -377,7 +595,7 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
     });
   });
 
-  it("records the resolved operator, not the caller's claim, when the account moves between the two", async () => {
+  it("records the deciding operator's resolved id in the audit row", async () => {
     await inRollback(async (tx) => {
       const owner = await seedUser(tx, "candidate");
       const institution = await seedInstitution(tx);
@@ -399,8 +617,10 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
   // the submission's reviewer, and the institution's CAS UPDATE — and each branch reaches them by
   // its own route, so a run that only exercised approval would leave the rejection branch's writer
   // unmeasured.
+  // Both branches carry the same test name by instruction, so a run reports it twice — once per
+  // decision, which is the only way the two writers are told apart in the output.
   it.each(["approved", "rejected"] as const)(
-    "records the resolved operator, not the caller's claim, when a submission is %s",
+    "records the deciding operator's resolved id in the audit row",
     async (decision) => {
       await inRollback(async (tx) => {
         const owner = await seedUser(tx, "candidate");

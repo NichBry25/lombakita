@@ -17,6 +17,15 @@ export type ClaimResult = {
   teamInvitationsClaimed: number;
 };
 
+// The one place an invited address is made comparable.
+//
+// `invited_email` is written lowercased at invite creation by `classifyInviteIdentifier`
+// (`invite-resolution.ts:39`), so the comparison below is between two already-lowercased values, and
+// the trim+lowercase here is the incoming side of it. Exported because it is the platform's answer to
+// "is this row addressed to this account" — a second caller that normalised differently would be
+// asking a different question while reading the same column.
+export const normalizeInviteEmail = (email: string): string => email.trim().toLowerCase();
+
 // Claim-at-signup. After a brand-new account's email is verified (credentials
 // verification completion OR Google finalize), attach every `pending_claim` invitation addressed to
 // that email to the new user: set `target_user_id` and flip the status to `pending` so it surfaces
@@ -37,7 +46,7 @@ export const claimPendingInvitationsForUser = async (
   db: DbOrTx,
   now: Date = new Date(),
 ): Promise<ClaimResult> => {
-  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedEmail = normalizeInviteEmail(email);
 
   const institutionClaimed = await db
     .update(institutionInvitations)

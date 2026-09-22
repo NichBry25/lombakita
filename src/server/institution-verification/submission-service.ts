@@ -19,8 +19,8 @@ import {
 } from "@/server/db/schema";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { assertValidTransition } from "@/server/institution-verification/verification-core";
-import { OperatorActorError, resolvePlatformOpsActor } from "@/server/platform-ops/operator-actor";
-import { isInstitutionMemberBySlug } from "@/server/institution-members/member-service";
+import { resolvePlatformOpsActor } from "@/server/platform-ops/operator-actor";
+import { assertOperatorHasNoInstitutionRelationship } from "@/server/institution-verification/operator-institution-conflict";
 import { getInstitutionDisplayName } from "@/server/institution-workspace/institution-display-name";
 import { isR2Available, generatePresignedPutUrl } from "@/server/storage/r2.client";
 import { logger } from "@/lib/logger";
@@ -568,7 +568,6 @@ export const reviewVerificationSubmission = async (
         displayName: institutions.displayName,
         institutionType: institutions.institutionType,
         verificationStatus: institutions.verificationStatus,
-        slug: institutions.slug,
       })
       .from(institutions)
       .where(eq(institutions.id, sub.institutionId))
@@ -578,27 +577,12 @@ export const reviewVerificationSubmission = async (
       throw new SubmissionError("institution_not_found", 404, "Institution not found");
     }
 
-    // NOBODY DECIDES A SUBMISSION THEY FILED, OR AN INSTITUTION THEY BELONG TO. The first arm is
-    // why the submission row is read at all before this point — `submittedByUserId` is a property of
-    // the target, not of the caller, so unlike the three account refusals it cannot be answered
-    // before the read. The second arm is the any-role membership check: an ordinary
-    // `institution_member` counts, because the problem is being on the inside rather than holding
-    // an operational permission. Both are refused before any write, so a refused decision leaves the
-    // submission, the institution, the audit trail and the mailer exactly as it found them.
-    if (actor.userId === sub.submittedByUserId) {
-      throw new OperatorActorError(
-        "operator_actor_conflicted",
-        403,
-        "A platform-ops account cannot decide the verification of an institution it submitted for or belongs to",
-      );
-    }
-    if (await isInstitutionMemberBySlug(actor.userId, inst.slug, tx)) {
-      throw new OperatorActorError(
-        "operator_actor_conflicted",
-        403,
-        "A platform-ops account cannot decide the verification of an institution it submitted for or belongs to",
-      );
-    }
+    // NOBODY DECIDES A SUBMISSION THEY FILED, OR AN INSTITUTION THEY BELONG TO, OR WERE INVITED INTO.
+    // The rule is the shared one (operator-institution-conflict.ts) and it covers all three
+    // relationships on both decision paths; what the reads above supply is the institution it is
+    // asked about. Refused before any write, so a refused decision leaves the submission, the
+    // institution, the audit trail and the mailer exactly as it found them.
+    await assertOperatorHasNoInstitutionRelationship(tx, actor, sub.institutionId);
 
     const now = new Date();
 

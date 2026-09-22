@@ -162,10 +162,19 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
     };
 
     // The service resolves the platform-ops ACTOR from the database first, then reads the
-    // institution, then asks whether that actor belongs to it (verification-service.ts). The queue
-    // answers in that order; `suspendedAt: null` is required rather than cosmetic, because the
-    // resolver refuses a row whose suspension field is not exactly null.
-    const selects = [[{ id: "ops_1", role: "platform_ops", suspendedAt: null }], currentRows, []];
+    // institution, then runs the conflict rule's four reads in order: a membership, a submission this
+    // actor filed, the acting account's own address, and an invitation naming them
+    // (operator-institution-conflict.ts). The queue answers positionally; `suspendedAt: null` is
+    // required rather than cosmetic, because the resolver refuses a row whose suspension field is not
+    // exactly null.
+    const selects = [
+      [{ id: "ops_1", role: "platform_ops", suspendedAt: null }],
+      currentRows,
+      [],
+      [],
+      [{ email: "ops_1@lombakita.test" }],
+      [],
+    ];
     let call = 0;
 
     const db: Record<string, unknown> = {
@@ -307,11 +316,14 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       return n;
     };
 
-    // Same queue as makeVerifyDb: actor, institution, membership, then the owner-notification
-    // lookup.
+    // Same queue as makeVerifyDb: actor, institution, the conflict rule's four reads, then the
+    // owner-notification lookup.
     const selects = [
       [{ id: "ops_1", role: "platform_ops", suspendedAt: null }],
       [currentRow],
+      [],
+      [],
+      [{ email: "ops_1@lombakita.test" }],
       [],
       [{ email: "owner@contoh.co.id", username: "owner" }],
     ];

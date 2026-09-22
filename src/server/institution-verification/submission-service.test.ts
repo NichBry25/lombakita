@@ -282,13 +282,22 @@ describe("reviewVerificationSubmission", () => {
   // transaction, so every fixture below leads with it.
   const opsActorRow = { id: "ops_1", role: "platform_ops", suspendedAt: null };
 
+  // The conflict rule's four reads in order: a membership, a submission this actor filed, the acting
+  // account's own address, and an invitation naming them. The queue is positional, so a fixture that
+  // omits one slides every later answer up by one; `opsAccountRow` is required rather than optional,
+  // because the rule cannot evaluate its address arm without it.
+  const opsAccountRow = { email: "ops_1@lombakita.test" };
+
   it("reject — marks submission rejected with audit row, no institution status change", async () => {
     const db = createDbMock({
       selects: [
         [opsActorRow], // resolvePlatformOpsActor
         [companySub], // CAS fetch submission
         [companyInst], // fetch institution
-        [], // membership check: the reviewer is not inside this institution
+        [], // conflict rule: no membership
+        [], // conflict rule: this actor filed nothing here
+        [opsAccountRow], // conflict rule: the acting account's own address
+        [], // conflict rule: no invitation names them
       ],
       updates: [
         [{ id: "sub_1", status: "rejected" }], // submission update
@@ -316,7 +325,10 @@ describe("reviewVerificationSubmission", () => {
         [opsActorRow], // resolvePlatformOpsActor
         [companySub], // CAS fetch submission
         [companyInst], // fetch institution
-        [], // membership check
+        [], // conflict rule: no membership
+        [], // conflict rule: this actor filed nothing here
+        [opsAccountRow], // conflict rule: the acting account's own address
+        [], // conflict rule: no invitation names them
         [ownerMembership], // post-commit email lookup
       ],
       updates: [
@@ -343,6 +355,9 @@ describe("reviewVerificationSubmission", () => {
         [companySub],
         [{ ...companyInst, verificationStatus: "verified" }],
         [],
+        [],
+        [opsAccountRow],
+        [],
       ],
     });
 
@@ -357,7 +372,7 @@ describe("reviewVerificationSubmission", () => {
     // Zero rows updated: the CAS predicate no longer matches, because a revocation or another
     // approval landed first. The submission must not be marked approved on top of it.
     const db = createDbMock({
-      selects: [[opsActorRow], [companySub], [companyInst], []],
+      selects: [[opsActorRow], [companySub], [companyInst], [], [], [opsAccountRow], []],
       updates: [[]],
     });
 
@@ -374,7 +389,16 @@ describe("reviewVerificationSubmission", () => {
     const setPayloads: Record<string, unknown>[] = [];
     const db = createDbMock({
       onSet: (payload) => setPayloads.push(payload),
-      selects: [[opsActorRow], [companySub], [companyInst], [], [ownerMembership]],
+      selects: [
+        [opsActorRow],
+        [companySub],
+        [companyInst],
+        [],
+        [],
+        [opsAccountRow],
+        [],
+        [ownerMembership],
+      ],
       updates: [
         [{ id: "inst_1", verificationStatus: "verified" }],
         [{ id: "sub_1", status: "approved" }],

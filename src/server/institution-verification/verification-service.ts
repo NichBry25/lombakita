@@ -28,8 +28,8 @@ import {
   isVerificationStatus,
   VerificationError,
 } from "@/server/institution-verification/verification-core";
-import { OperatorActorError, resolvePlatformOpsActor } from "@/server/platform-ops/operator-actor";
-import { isInstitutionMemberBySlug } from "@/server/institution-members/member-service";
+import { resolvePlatformOpsActor } from "@/server/platform-ops/operator-actor";
+import { assertOperatorHasNoInstitutionRelationship } from "@/server/institution-verification/operator-institution-conflict";
 import {
   sendInstitutionRejectedEmail,
   sendInstitutionVerificationRevokedEmail,
@@ -263,19 +263,12 @@ export const verifyInstitution = async (options: {
       throw new VerificationError("verification_not_found", 404, "Institution not found");
     }
 
-    // NOBODY DECIDES THEIR OWN INSTITUTION. An operator who is an active member of the institution
-    // — any role, so an ordinary member counts and not just the owner — is judging an organization
-    // they are inside. The audit row would record a review that reads exactly like an independent
-    // one, and the membership is precisely what makes it not. Refused before the transition is
-    // validated and before anything is written, so the target's status and audit trail are
-    // untouched by the attempt.
-    if (await isInstitutionMemberBySlug(actor.userId, row.slug, tx)) {
-      throw new OperatorActorError(
-        "operator_actor_conflicted",
-        403,
-        "A platform-ops account cannot decide the verification of an institution it submitted for or belongs to",
-      );
-    }
+    // NOBODY DECIDES THEIR OWN INSTITUTION. The three relationships that make an operator conflicted,
+    // and why each is read in ANY status, are declared in the rule itself
+    // (operator-institution-conflict.ts). It runs here — after the institution read that supplies the
+    // id, before the transition is validated and before anything is written — so a refused decision
+    // leaves the target's status and audit trail untouched by the attempt.
+    await assertOperatorHasNoInstitutionRelationship(tx, actor, options.institutionId);
 
     current = row;
 
