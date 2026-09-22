@@ -228,7 +228,6 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
       institutionId: "inst_personal",
       targetStatus: "under_review",
       actorUserId: "ops_1",
-      actorRole: "platform_ops",
       db,
     }).catch((e: unknown) => e);
 
@@ -261,7 +260,6 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
         institutionId: "inst_personal",
         targetStatus: "verified",
         actorUserId: "ops_1",
-        actorRole: "platform_ops",
         db,
       }),
     ).rejects.toMatchObject({ code: "institution_verification_not_applicable" });
@@ -283,7 +281,6 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
       institutionId: "inst_1",
       targetStatus: "verified",
       actorUserId: "ops_1",
-      actorRole: "platform_ops",
       db,
     });
 
@@ -381,7 +378,6 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       targetStatus: "rejected",
       reason: "Dokumen NPWP tidak sesuai catatan resmi",
       actorUserId: "ops_1",
-      actorRole: "platform_ops",
       db,
     });
 
@@ -411,7 +407,6 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       targetStatus: "rejected",
       reason: "alasan",
       actorUserId: "ops_1",
-      actorRole: "platform_ops",
       db,
     });
 
@@ -432,7 +427,6 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       targetStatus: "rejected",
       reason: "alasan",
       actorUserId: "ops_1",
-      actorRole: "platform_ops",
       db,
     }).catch((e: unknown) => e);
 
@@ -460,7 +454,6 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       targetStatus: "rejected",
       reason: "Dokumen tidak lagi valid",
       actorUserId: "ops_1",
-      actorRole: "platform_ops",
       db,
     });
 
@@ -481,7 +474,6 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       institutionId: "inst_1",
       targetStatus: "under_review",
       actorUserId: "ops_1",
-      actorRole: "platform_ops",
       db,
     }).catch((e: unknown) => e);
 

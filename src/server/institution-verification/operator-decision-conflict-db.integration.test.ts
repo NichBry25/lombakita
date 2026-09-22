@@ -209,7 +209,6 @@ const verifyInstitutionFor = async (
     targetStatus,
     reason: targetStatus === "rejected" ? "Dokumen tidak sah" : undefined,
     actorUserId,
-    actorRole: "platform_ops",
     db: tx as unknown as Database,
   });
 };

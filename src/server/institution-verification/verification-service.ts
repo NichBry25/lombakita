@@ -191,11 +191,8 @@ export const verifyInstitution = async (options: {
   targetStatus: InstitutionVerificationStatus;
   reason?: string;
   actorUserId: string;
-  actorRole: string;
   db?: Database;
 }): Promise<VerifyResult> => {
-  requirePlatformOps(options.actorRole);
-
   const db = options.db ?? getDb();
 
   const now = new Date();
@@ -240,6 +237,10 @@ export const verifyInstitution = async (options: {
     // refusal codes below are about the caller's own account, and the audit row must name the
     // account the database answered with rather than the one that was asserted. Reading it first
     // also means a caller with no business here learns nothing about the target.
+    //
+    // THE ONLY ROLE AUTHORITY ON THIS PATH (C2.2). The route's `requireSessionRole(["platform_ops"])`
+    // gate and this read are the two halves; a role STRING passed in the options object was a third,
+    // and a claim. `reviewVerificationSubmission` has been shaped this way since LAUNCH-D72.
     const actor = await resolvePlatformOpsActor(tx, options.actorUserId);
     resolvedActorUserId = actor.userId;
 

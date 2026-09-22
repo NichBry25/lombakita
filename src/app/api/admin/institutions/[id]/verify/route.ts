@@ -30,7 +30,6 @@ export async function PATCH(
       targetStatus: input.targetStatus,
       reason: input.reason,
       actorUserId: session.user.id,
-      actorRole: session.user.role,
     });
 
     return NextResponse.json(result, { status: 200 });

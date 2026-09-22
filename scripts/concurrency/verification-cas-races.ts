@@ -194,7 +194,6 @@ const main = async (): Promise<void> => {
           targetStatus: "rejected",
           reason: "Dokumen tidak sah",
           actorUserId: reviewerId,
-          actorRole: "platform_ops",
           db,
         });
 
