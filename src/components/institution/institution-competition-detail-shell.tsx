@@ -226,10 +226,9 @@ export const InstitutionCompetitionDetailShell = ({
   const onParticipationDecision = async (decision: ParticipationDecision) => {
     setPendingAction(decision);
     const url = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}/participation-decision`;
-    const response = await fetch(url, {
+    const response = await sessionFetch(expectedUserId, url, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      credentials: "include",
       body: JSON.stringify({ decision }),
     });
     if (!response.ok) {
@@ -249,10 +248,11 @@ export const InstitutionCompetitionDetailShell = ({
 
   const runDelete = async () => {
     setPendingAction("delete");
-    const response = await fetch(`/api/v1/competitions/${encodeURIComponent(competitionId)}`, {
-      method: "DELETE",
-      credentials: "include",
-    });
+    const response = await sessionFetch(
+      expectedUserId,
+      `/api/v1/competitions/${encodeURIComponent(competitionId)}`,
+      { method: "DELETE" },
+    );
     if (!response.ok && response.status !== 204) {
       const { message } = await extractError(response);
       addToast({ type: "error", message });

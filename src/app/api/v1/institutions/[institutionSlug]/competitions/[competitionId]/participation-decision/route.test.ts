@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 import { CompetitionError } from "@/server/competitions/competition-core";
+import { SESSION_USER_HEADER } from "@/lib/session/session-fetch";
 
 const {
   requireAuthenticatedSession,
@@ -32,10 +33,13 @@ const session = {
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
-const request = (decision: unknown) =>
+const request = (decision: unknown, expectedUserId?: string) =>
   new Request("http://localhost", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(expectedUserId !== undefined ? { [SESSION_USER_HEADER]: expectedUserId } : {}),
+    },
     body: JSON.stringify({ decision }),
   });
 
@@ -116,5 +120,22 @@ describe("POST .../participation-decision", () => {
     const response = await POST(request("cancel"), context());
 
     expect(response.status).toBe(403);
+  });
+
+  it("returns 409 and never reaches a decision service when the expected user is another account", async () => {
+    requireAuthenticatedSession.mockResolvedValue(session);
+    assertCompetitionInInstitution.mockResolvedValue(undefined);
+    cancelCompetitionForInsufficientParticipation.mockResolvedValue({
+      competition: { id: "comp_1", status: "published", cancelledAt: new Date() },
+      cancelledRegistrationCount: 0,
+    });
+
+    const response = await POST(request("cancel", "someone_else"), context());
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("session_user_mismatch");
+    // A guard below this line would still answer 409, with the competition already cancelled.
+    expect(cancelCompetitionForInsufficientParticipation).not.toHaveBeenCalled();
   });
 });

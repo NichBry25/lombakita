@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { toAccessDeniedResponse } from "@/server/auth/access-core";
+import {
+  assertSessionMatchesExpectedUser,
+  toAccessDeniedResponse,
+} from "@/server/auth/access-core";
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import {
   CompetitionError,
@@ -59,6 +62,10 @@ export async function PATCH(
 ): Promise<Response> {
   try {
     const session = await requireAuthenticatedSession();
+    // Rule 16 — a field edit acts on the calling user's own draft (mirrors
+    // api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route.ts:25). A save
+    // rendered for Account A must not land on Account B after a cookie flip in the same browser.
+    assertSessionMatchesExpectedUser(request, session);
     const { competitionId } = await context.params;
     let body: unknown;
     try {
@@ -80,11 +87,15 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ competitionId: string }> },
 ): Promise<Response> {
   try {
     const session = await requireAuthenticatedSession();
+    // Rule 16 — deleting acts on the calling user's own draft (mirrors
+    // api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route.ts:25). The same
+    // cookie flip that would publish Account B's competition would delete it.
+    assertSessionMatchesExpectedUser(request, session);
     const { competitionId } = await context.params;
     await softDeleteCompetitionDraft(session.user.id, competitionId);
     return new Response(null, { status: 204 });

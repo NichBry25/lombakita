@@ -229,4 +229,24 @@ describe("POST .../unpublish", () => {
     const response = await UNPUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
     expect(response.status).toBe(403);
   });
+
+  it("returns 409 and never reaches the unpublish when the expected user is another account", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    assertCompetitionInInstitution.mockResolvedValue(undefined);
+    unpublishCompetition.mockResolvedValue({
+      competition: { ...baseCompetition, status: "draft" },
+      cancelledCount: 0,
+    });
+
+    const response = await UNPUBLISH(
+      makeRequestWithExpectedUser("someone_else"),
+      makeParams("lk-univ", "comp_1"),
+    );
+
+    const body = (await response.json()) as { error: { code: string } };
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("session_user_mismatch");
+    // A guard below this line would still answer 409, with the competition already back in draft.
+    expect(unpublishCompetition).not.toHaveBeenCalled();
+  });
 });
