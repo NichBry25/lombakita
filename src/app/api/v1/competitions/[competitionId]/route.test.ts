@@ -11,6 +11,7 @@ const {
   softDeleteCompetitionDraft,
   hasActiveRegistrationsForCompetition,
   getCompetitionParticipationSummary,
+  resolveCompetitionPublishReadiness,
 } = vi.hoisted(() => ({
   requireAuthenticatedSession: vi.fn(),
   getCompetitionForReader: vi.fn(),
@@ -18,6 +19,7 @@ const {
   softDeleteCompetitionDraft: vi.fn(),
   hasActiveRegistrationsForCompetition: vi.fn(),
   getCompetitionParticipationSummary: vi.fn(),
+  resolveCompetitionPublishReadiness: vi.fn(),
 }));
 
 vi.mock("@/server/auth/session", () => ({ requireAuthenticatedSession }));
@@ -31,6 +33,11 @@ vi.mock("@/server/competitions/competition-access", () => ({
 }));
 vi.mock("@/server/competitions/competition-participation-service", () => ({
   getCompetitionParticipationSummary,
+}));
+// The GET carries publish readiness alongside the competition, so the route imports this module and
+// an unmocked import would reach the real database from a unit test.
+vi.mock("@/server/competitions/competition-publish-readiness", () => ({
+  resolveCompetitionPublishReadiness,
 }));
 
 import { DELETE, GET, PATCH } from "@/app/api/v1/competitions/[competitionId]/route";
@@ -65,9 +72,12 @@ describe("GET /api/v1/competitions/[competitionId]", () => {
     getCompetitionForReader.mockResolvedValue({ id: "comp_1", status: "draft" });
     hasActiveRegistrationsForCompetition.mockResolvedValue(false);
     getCompetitionParticipationSummary.mockResolvedValue({ state: "not_configured" });
+    resolveCompetitionPublishReadiness.mockResolvedValue({ canPublish: false, blockers: [] });
     const response = await GET(makeRequest("GET"), makeParams("comp_1"));
     expect(response.status).toBe(200);
     expect(getCompetitionForReader).toHaveBeenCalledWith("admin_1", "recruiter", "comp_1");
+    // Readiness is answered for the CALLER, on the competition in the path.
+    expect(resolveCompetitionPublishReadiness).toHaveBeenCalledWith("admin_1", "comp_1");
   });
 
   it("reports whether registrations exist so the console can gate withdrawal", async () => {
@@ -75,9 +85,16 @@ describe("GET /api/v1/competitions/[competitionId]", () => {
     getCompetitionForReader.mockResolvedValue({ id: "comp_1", status: "published" });
     hasActiveRegistrationsForCompetition.mockResolvedValue(true);
     getCompetitionParticipationSummary.mockResolvedValue({ state: "collecting_entries" });
+    resolveCompetitionPublishReadiness.mockResolvedValue({
+      canPublish: true,
+      blockers: [],
+    });
     const response = await GET(makeRequest("GET"), makeParams("comp_1"));
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ hasActiveRegistrations: true });
+    await expect(response.json()).resolves.toMatchObject({
+      hasActiveRegistrations: true,
+      publishReadiness: { canPublish: true, blockers: [] },
+    });
     expect(getCompetitionParticipationSummary).toHaveBeenCalledWith(
       expect.objectContaining({ id: "comp_1" }),
     );

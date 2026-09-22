@@ -161,7 +161,11 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
       return n;
     };
 
-    const selects = [currentRows, []];
+    // The service resolves the platform-ops ACTOR from the database first, then reads the
+    // institution, then asks whether that actor belongs to it (verification-service.ts). The queue
+    // answers in that order; `suspendedAt: null` is required rather than cosmetic, because the
+    // resolver refuses a row whose suspension field is not exactly null.
+    const selects = [[{ id: "ops_1", role: "platform_ops", suspendedAt: null }], currentRows, []];
     let call = 0;
 
     const db: Record<string, unknown> = {
@@ -213,6 +217,7 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
     const { db, writes } = makeVerifyDb([
       {
         id: "inst_personal",
+        slug: "inst-personal",
         displayName: null,
         institutionType: "personal",
         verificationStatus: "pending_verification",
@@ -244,6 +249,7 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
     const { db, writes } = makeVerifyDb([
       {
         id: "inst_personal",
+        slug: "inst-personal",
         displayName: null,
         institutionType: "personal",
         verificationStatus: "under_review",
@@ -266,6 +272,7 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
     const { db, writes } = makeVerifyDb([
       {
         id: "inst_1",
+        slug: "universitas-contoh",
         displayName: "Universitas Contoh",
         institutionType: "university",
         verificationStatus: "under_review",
@@ -303,7 +310,14 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       return n;
     };
 
-    const selects = [[currentRow], [{ email: "owner@contoh.co.id", username: "owner" }]];
+    // Same queue as makeVerifyDb: actor, institution, membership, then the owner-notification
+    // lookup.
+    const selects = [
+      [{ id: "ops_1", role: "platform_ops", suspendedAt: null }],
+      [currentRow],
+      [],
+      [{ email: "owner@contoh.co.id", username: "owner" }],
+    ];
     let call = 0;
 
     const db: Record<string, unknown> = {
@@ -345,6 +359,7 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
 
   const verifiedInstitution = {
     id: "inst_1",
+    slug: "pt-contoh",
     displayName: "PT Contoh",
     institutionType: "company" as const,
     verificationStatus: "verified" as const,
