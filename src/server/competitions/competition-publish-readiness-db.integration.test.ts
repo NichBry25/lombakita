@@ -21,7 +21,7 @@
 //
 // Every test runs inside a transaction that is always rolled back.
 
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { TransactionRollbackError, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -59,28 +59,61 @@ const inRollback = async (body: (tx: Tx) => Promise<void>): Promise<void> => {
   }
 };
 
-// The route reads the pooled connection; these fixtures live in a transaction that is rolled back.
-let routeTransaction: Database | null = null;
-// The route reads the session cookie; this process has none.
-let routeActorUserId: string | null = null;
-
-vi.mock("@/server/db/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/server/db/client")>()),
-  getDb: () => {
-    if (!routeTransaction) throw new Error("the publish route read the database outside a test");
-    return routeTransaction;
-  },
+// The route reads the pooled connection and the session cookie; this process has neither. Both are
+// staged per call by `publishViaRoute`, and reset before each test.
+//
+// THEY LIVE IN `vi.hoisted` RATHER THAN IN MODULE-SCOPE `let`s, AND THAT IS NOT STYLE. A `vi.mock`
+// factory is hoisted above every import in this file, and the route imported below reaches
+// `@/server/auth/session` -> `auth.config.ts`, which calls `getDb()` AT MODULE SCOPE to build its
+// Drizzle adapter. So `getDb()` is reached DURING THIS FILE'S OWN INITIALISATION, before any
+// module-scope `let` has been assigned. A factory closing over one throws "Cannot access
+// 'routeTransaction' before initialization", which vitest reports as "There was an error when
+// mocking a module", and the file collects ZERO tests. That is what happened whenever DATABASE_URL
+// was exported into the environment, which is how CI runs this suite — so the whole file was dark
+// there, reporting one failed suite and no tests. With the variable only in `.env.local` the auth
+// adapter is unconfigured, the module-scope read never happens, and the file looked healthy.
+// `vi.hoisted` runs before the imports, so the state is assigned either way.
+const routeState = vi.hoisted(() => ({
+  transaction: null as Database | null,
+  actorUserId: null as string | null,
+  // False until the first test starts. Before that a `getDb()` call can only be the auth adapter
+  // wiring itself up during module initialisation, which is not a test reading the database.
+  testRunStarted: false,
 }));
+
+vi.mock("@/server/db/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/db/client")>();
+  return {
+    ...actual,
+    getDb: () => {
+      if (routeState.transaction) return routeState.transaction;
+      // Module initialisation. `auth.config.ts` only calls `getDb()` when it holds a database URL,
+      // so the real client is configured at exactly the point this branch is reachable; nothing is
+      // under test yet and there is no staged transaction to hand back.
+      if (!routeState.testRunStarted) return actual.getDb();
+      throw new Error("the publish route read the database outside a test");
+    },
+  };
+});
 
 vi.mock("@/server/auth/session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/server/auth/session")>()),
   requireAuthenticatedSession: async () => {
-    if (!routeActorUserId) throw new Error("the publish route ran with no session staged");
-    return { user: { id: routeActorUserId, role: "recruiter" } } as unknown as AuthenticatedSession;
+    if (!routeState.actorUserId) {
+      throw new Error("the publish route ran with no session staged");
+    }
+    return {
+      user: { id: routeState.actorUserId, role: "recruiter" },
+    } as unknown as AuthenticatedSession;
   },
 }));
 
 import { POST as publishCompetition } from "@/app/api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route";
+
+// Collection is finished, so every `getDb()` from here belongs to a test.
+beforeAll(() => {
+  routeState.testRunStarted = true;
+});
 
 let seq = 0;
 const uniqueSuffix = (): string => `${Date.now()}-${seq++}`;
@@ -254,8 +287,8 @@ const publishViaRoute = async (
   actorUserId: string,
   tx: Tx,
 ): Promise<{ status: number; code: string | null }> => {
-  routeTransaction = tx as unknown as Database;
-  routeActorUserId = actorUserId;
+  routeState.transaction = tx as unknown as Database;
+  routeState.actorUserId = actorUserId;
 
   const request = new Request(
     `https://lombakita.test/api/v1/institutions/${fixture.institutionSlug}/competitions/${fixture.competitionId}/publish`,
@@ -329,8 +362,8 @@ describe.skipIf(skipWithoutDatabase)(
   "readiness and the publish endpoint name the same refusal",
   () => {
     beforeEach(() => {
-      routeTransaction = null;
-      routeActorUserId = null;
+      routeState.transaction = null;
+      routeState.actorUserId = null;
     });
 
     it("covers every blocker code the module declares", () => {
@@ -364,8 +397,8 @@ describe.skipIf(skipWithoutDatabase)(
 
 describe.skipIf(skipWithoutDatabase)("a competition that can publish", () => {
   beforeEach(() => {
-    routeTransaction = null;
-    routeActorUserId = null;
+    routeState.transaction = null;
+    routeState.actorUserId = null;
   });
 
   it("reports canPublish and then actually publishes", async () => {
