@@ -152,6 +152,8 @@ type SeedOptions = {
   feeAmount?: number | null;
   /** How many OTHER already-published competitions this institution owns. */
   otherPublished?: number;
+  /** The competition's status. A published row is one the transition gate refuses to move again. */
+  status?: "draft" | "published";
 };
 
 type Fixture = {
@@ -255,6 +257,7 @@ const seedFixture = async (tx: Tx, options: SeedOptions = {}): Promise<Fixture> 
     minTeamSize: options.minTeamSize ?? (mode === "team" ? 2 : null),
     maxTeamSize: options.maxTeamSize ?? (mode === "team" ? 5 : null),
     feeAmount: options.feeAmount ?? null,
+    status: options.status,
   });
 
   for (let i = 0; i < (options.otherPublished ?? 0); i += 1) {
@@ -317,6 +320,13 @@ const GATE_CASES: GateCase[] = [
     // A staff member of the owning institution: real membership, wrong role for publishing.
     seed: (tx) => seedFixture(tx, { actorRole: "institution_staff" }),
     expectedHttpStatus: 403,
+  },
+  {
+    code: "competition_invalid_transition",
+    // Already published, and everything else about it is publishable — so the state machine's lack
+    // of an edge from `published` back to `published` is the one question that fails.
+    seed: (tx) => seedFixture(tx, { status: "published" }),
+    expectedHttpStatus: 422,
   },
   {
     code: "competition_recruiter_not_trusted",
@@ -426,13 +436,13 @@ describe.skipIf(skipWithoutDatabase)("a competition that can publish", () => {
     });
   });
 
-  // A PIN, not a discovery. Readiness answers the gates, and the legality of the TRANSITION is not
-  // one of them, so on a competition that is already published it still reports `canPublish: true`.
-  // The publish endpoint refuses that attempt (draft → published only), and the assertion below does
-  // not pretend otherwise — it records the value so a later change to it is a decision rather than a
-  // drift. The competition is published through the real route rather than seeded with
-  // `status: 'published'`, so the row under test carries the `published_at` production writes.
-  it("reports canPublish on an already-published competition, and the endpoint still refuses", async () => {
+  // The transition is one of the questions readiness answers, in the publish path's own position:
+  // straight after the access gate, before any publish-only guard (competition-service.ts:855-861).
+  // So an already-published competition is reported as blocked, and the endpoint refuses that same
+  // attempt with the same code. The row is published through the real route rather than seeded with
+  // `status: 'published'`, so it carries the `published_at` production writes and both answers are
+  // read from one row.
+  it("blocks an already-published competition with the transition code, and the endpoint refuses", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx, { feeAmount: null });
 
@@ -440,13 +450,12 @@ describe.skipIf(skipWithoutDatabase)("a competition that can publish", () => {
       expect(first.status).toBe(200);
 
       const readiness = await readinessFor(fixture.actorUserId, fixture.competitionId, tx);
-      expect(
-        readiness.canPublish,
-        "readiness does not evaluate the status transition; Terbitkan renders only on drafts, so this value is never shown (C2.2 Stage 6 ruling)",
-      ).toBe(true);
+      expect(readiness.blockers).toEqual(["competition_invalid_transition"]);
+      expect(readiness.canPublish).toBe(false);
 
       const second = await publishViaRoute(fixture, fixture.actorUserId, tx);
-      expect(second.status).not.toBe(200);
+      expect(second.code).toBe("competition_invalid_transition");
+      expect(second.status).toBe(422);
     });
   });
 });

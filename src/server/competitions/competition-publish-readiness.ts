@@ -12,7 +12,11 @@ import {
   assertPersonalCompetitionPublishable,
   type CompetitionRow,
 } from "@/server/competitions/competition-access";
-import { CompetitionError, validatePublishChecklist } from "@/server/competitions/competition-core";
+import {
+  CompetitionError,
+  isAllowedStatusTransition,
+  validatePublishChecklist,
+} from "@/server/competitions/competition-core";
 import { loadCompetitionPricing } from "@/server/competitions/competition-service";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 
@@ -25,10 +29,11 @@ import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 // while the server refuses is a control that lies.
 //
 // So this asks the publish path's own questions, IN ITS ORDER, and reports all of the answers. It
-// does not re-implement any of them: every gate below is the function `transitionCompetitionStatus`
-// calls at the same point (competition-service.ts:867-916). A copy of an eligibility rule is a
-// second answer that drifts; the surfaces are told what the server will do because they asked the
-// server's own guards.
+// does not re-implement any of them. The transition check is read with the same predicate the
+// publish path reads, in the position the publish path reads it (competition-service.ts:855-861);
+// every gate after it is the function `transitionCompetitionStatus` calls at the same point
+// (competition-service.ts:867-916). A copy of an eligibility rule is a second answer that drifts;
+// the surfaces are told what the server will do because they asked the server's own guards.
 //
 // THE ONE STRUCTURAL DIFFERENCE: the publish path stops at the first refusal, because it is
 // aborting a write. This collects them all, because a disabled control has to explain itself once
@@ -37,6 +42,7 @@ export const COMPETITION_PUBLISH_BLOCKER_CODES = [
   // The order is the publish path's execution order. Read it as a description of what a caller
   // sees first, not as a priority this module invents.
   "forbidden",
+  "competition_invalid_transition",
   "competition_recruiter_not_trusted",
   "institution_suspended",
   "competition_publish_validation_failed",
@@ -103,6 +109,14 @@ export const resolveCompetitionPublishReadiness = async (
   }
 
   const blockers: CompetitionPublishBlockerCode[] = [];
+
+  // The publish path's next question, in its own position: the state machine has no edge from where
+  // this competition already is to `published`, so publishing an already-published competition is
+  // refused before any publish-only guard runs. Same predicate, so the two cannot come to disagree
+  // about which edges exist.
+  if (!isAllowedStatusTransition(competition.status, "published")) {
+    blockers.push("competition_invalid_transition");
+  }
 
   await collectGate(() => assertActorIsTrustedRecruiter(actorUserId, db), blockers);
   await collectGate(() => assertInstitutionNotSuspended(competition.institutionId, db), blockers);

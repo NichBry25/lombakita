@@ -30,6 +30,13 @@ const REASONS: Record<CompetitionPublishBlockerCode, PublishBlockerReason> = {
     text: "Hanya pemilik institusi yang dapat menerbitkan kompetisi.",
     link: null,
   },
+  // No link: no surface this app renders can turn a published competition back into a draft, so the
+  // sentence names the state rather than pointing at a next step that does not exist.
+  competition_invalid_transition: {
+    code: "competition_invalid_transition",
+    text: "Hanya kompetisi berstatus draf yang dapat diterbitkan.",
+    link: null,
+  },
   competition_recruiter_not_trusted: {
     code: "competition_recruiter_not_trusted",
     text: "Akun Anda belum menjadi Trusted Recruiter. Selesaikan verifikasi rekruter untuk dapat menerbitkan kompetisi.",
@@ -91,10 +98,11 @@ export const resolvePublishReasonHref = (
 export const PUBLISH_REFUSAL_FALLBACK_TEXT =
   "Kompetisi gagal diterbitkan. Coba lagi atau hubungi dukungan Lombakita.";
 
-// `competition_publish_validation_failed` is the one code whose TOAST differs from its REASON: the
-// reason is a sentence a disabled control carries, and the toast is what the server just told this
-// particular attempt went wrong — so it names the fields. Everything else refuses for a reason that
-// does not change between the control and the attempt.
+// Two codes have a TOAST that differs from their REASON, because in both the reason describes a
+// state and the toast describes what the server just told this particular attempt:
+// `competition_publish_validation_failed` names the failing fields, and
+// `competition_invalid_transition` says the status changed underneath the caller. Every other code
+// refuses for a reason that does not change between the control and the attempt.
 const VALIDATION_FAILED_TOAST_PREFIX = "Data kompetisi belum lengkap";
 
 export const resolvePublishRefusalToastText = (

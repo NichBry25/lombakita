@@ -24,6 +24,7 @@ import {
 
 const BLOCKER_CODES: CompetitionPublishBlockerCode[] = [
   "forbidden",
+  "competition_invalid_transition",
   "competition_recruiter_not_trusted",
   "institution_suspended",
   "competition_publish_validation_failed",
@@ -55,6 +56,7 @@ describe("publish blocker reasons", () => {
   it("names every blocker code with the reason the shell shows", () => {
     const reasons: Record<CompetitionPublishBlockerCode, string> = {
       forbidden: "Hanya pemilik institusi yang dapat menerbitkan kompetisi.",
+      competition_invalid_transition: "Hanya kompetisi berstatus draf yang dapat diterbitkan.",
       competition_recruiter_not_trusted:
         "Akun Anda belum menjadi Trusted Recruiter. Selesaikan verifikasi rekruter untuk dapat menerbitkan kompetisi.",
       institution_suspended:
@@ -76,6 +78,7 @@ describe("publish blocker reasons", () => {
   it("links only the reasons that name a next step, and labels each one", () => {
     const links: Record<CompetitionPublishBlockerCode, string | null> = {
       forbidden: null,
+      competition_invalid_transition: null,
       competition_recruiter_not_trusted: "Verifikasi rekruter",
       institution_suspended: null,
       competition_publish_validation_failed: "Buka halaman edit",
@@ -112,11 +115,14 @@ describe("publish blocker reasons", () => {
 
 describe("publish refusal toasts", () => {
   it("uses the reason's own sentence for every readiness code", () => {
-    // `competition_publish_validation_failed` is the one code whose TOAST differs from its REASON:
-    // the reason is the sentence a disabled control carries, and the toast is what the server just
-    // told this particular attempt went wrong, so it names the fields. It is asserted on its own
-    // below.
-    for (const code of BLOCKER_CODES.filter((c) => c !== "competition_publish_validation_failed")) {
+    // The two codes whose TOAST differs from their REASON: `competition_publish_validation_failed`
+    // names the fields the server rejected, and `competition_invalid_transition` reports that the
+    // status moved underneath the caller. Both are asserted on their own below.
+    const TOAST_DIFFERS_FROM_REASON = [
+      "competition_publish_validation_failed",
+      "competition_invalid_transition",
+    ];
+    for (const code of BLOCKER_CODES.filter((c) => !TOAST_DIFFERS_FROM_REASON.includes(c))) {
       expect(resolvePublishRefusalToastText(code), code).toBe(getPublishBlockerReason(code).text);
     }
   });
@@ -150,6 +156,15 @@ describe("publish refusal toasts", () => {
     );
     expect(resolvePublishRefusalToastText("competition_invalid_transition")).toBe(
       "Status kompetisi sudah berubah. Muat ulang halaman lalu coba lagi.",
+    );
+  });
+
+  it("says the status moved underneath the caller, not the reason a disabled control carries", () => {
+    // The CONTROL is disabled because the row is not a draft — a state. The TOAST fires because the
+    // status changed between the readiness read and the click — an event. One sentence cannot carry
+    // both, and the toast is the one the user sees after acting.
+    expect(resolvePublishRefusalToastText("competition_invalid_transition")).not.toBe(
+      getPublishBlockerReason("competition_invalid_transition").text,
     );
   });
 
