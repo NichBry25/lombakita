@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 import { CompetitionError } from "@/server/competitions/competition-core";
+import { SESSION_USER_HEADER } from "@/lib/session/session-fetch";
 
 const {
   requireAuthenticatedSession,
@@ -45,6 +46,14 @@ const makeRequest = () =>
   new Request("http://localhost", {
     method: "POST",
     headers: { "content-type": "application/json" },
+  });
+
+// The header the shells attach through `sessionFetch`. Read from the helper rather than written
+// out here, so a rename fails at the import instead of leaving this test asserting a dead name.
+const makeRequestWithExpectedUser = (expectedUserId: string) =>
+  new Request("http://localhost", {
+    method: "POST",
+    headers: { "content-type": "application/json", [SESSION_USER_HEADER]: expectedUserId },
   });
 
 const makeParams = (institutionSlug: string, competitionId: string) => ({
@@ -156,6 +165,29 @@ describe("POST /api/v1/institutions/[institutionSlug]/competitions/[competitionI
     const response = await PUBLISH(makeRequest(), makeParams("lk-univ", "comp_1"));
     expect(response.status).toBe(401);
     expect(assertCompetitionInInstitution).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 and never reaches the transition when the expected user is another account", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    assertCompetitionInInstitution.mockResolvedValue(undefined);
+    // Everything the route needs to publish successfully is staged, so a request that gets past the
+    // session guard WILL publish. That is what makes the assertion below able to fail.
+    transitionCompetitionStatus.mockResolvedValue({ competition: baseCompetition });
+
+    const response = await PUBLISH(
+      makeRequestWithExpectedUser("someone_else"),
+      makeParams("lk-univ", "comp_1"),
+    );
+
+    const body = (await response.json()) as { error: { code: string } };
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("session_user_mismatch");
+
+    // The status alone cannot tell this refusal from one raised AFTER the transition: a guard that
+    // runs below `transitionCompetitionStatus` still answers 409, and the competition has already
+    // been published. So the assertion that carries the rule is that the transition never ran at
+    // all — delete this line and the test still passes while the guard is useless.
+    expect(transitionCompetitionStatus).not.toHaveBeenCalled();
   });
 });
 
