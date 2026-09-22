@@ -465,11 +465,14 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
   });
 
   // THE SAME ENUMERATION FOR THE INVITATION ARM, and the arm has two ways to name an account, so each
-  // status is measured twice: once through `target_user_id` and once through the address alone.
-  it("refuses an invitation in any status the schema declares, on both decision paths", async () => {
+  // status is measured twice, on both decision paths: here through `target_user_id`, in the test below
+  // through the address alone. TWO TESTS RATHER THAN ONE, because a single test running both ways
+  // reports a failure without saying which way stopped working — and that difference is the difference
+  // between a red mark and evidence (Rule 36, clause 3).
+  it("refuses an invitation that names the operator by account, in any status the schema declares", async () => {
     for (const status of institutionInvitationStatusEnum.enumValues) {
-      // (a) NAMED BY ACCOUNT. `target_user_id` points at the operator; the address on the row belongs
-      // to somebody else, so only the id arm can be what refuses them.
+      // `target_user_id` points at the operator; the address on the row belongs to somebody else, so
+      // only the id arm can be what refuses them.
       await inRollback(async (tx) => {
         const owner = await seedUser(tx, "candidate");
         const institution = await seedInstitution(tx);
@@ -500,11 +503,15 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
           fixture,
         );
       });
+    }
+  });
 
-      // (b) NAMED BY ADDRESS ONLY. No account is attached to the row — the shape every invitation has
-      // before signup claims it — and the two stored strings are deliberately NOT byte-identical: the
-      // account's address carries padding and mixed case, the invitation's does not. A comparison
-      // that skipped the normalisation would find nothing here and let the operator decide.
+  // NAMED BY ADDRESS ONLY. No account is attached to the row — the shape every invitation has before
+  // signup claims it — and the two stored strings are deliberately NOT byte-identical: the account's
+  // address carries padding and mixed case, the invitation's does not. A comparison that skipped the
+  // normalisation would find nothing here and let the operator decide.
+  it("refuses an invitation that names the operator by address only, in any status the schema declares", async () => {
+    for (const status of institutionInvitationStatusEnum.enumValues) {
       await inRollback(async (tx) => {
         const owner = await seedUser(tx, "candidate");
         const institution = await seedInstitution(tx);
