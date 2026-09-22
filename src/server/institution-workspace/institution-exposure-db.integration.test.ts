@@ -152,90 +152,97 @@ const pageIsIndexable = async (tx: Tx, slug: string): Promise<boolean> => {
   return page !== null && isIndexableInstitution(page);
 };
 
-describe.skipIf(skipWithoutDatabase)("sitemap membership and the page's robots answer agree", () => {
-  it("agrees over every verification status, institution type and suspension state", async () => {
-    const statuses: VerificationStatus[] = [
-      "pending_verification",
-      "under_review",
-      "verified",
-      "rejected",
-    ];
-    const types: InstitutionType[] = ["company", "personal"];
+describe.skipIf(skipWithoutDatabase)(
+  "sitemap membership and the page's robots answer agree",
+  () => {
+    it("agrees over every verification status, institution type and suspension state", async () => {
+      const statuses: VerificationStatus[] = [
+        "pending_verification",
+        "under_review",
+        "verified",
+        "rejected",
+      ];
+      const types: InstitutionType[] = ["company", "personal"];
 
-    await inRollback(async (tx) => {
-      const seeded: { slug: string; label: string }[] = [];
+      await inRollback(async (tx) => {
+        const seeded: { slug: string; label: string }[] = [];
 
-      for (const verificationStatus of statuses) {
-        for (const institutionType of types) {
-          for (const suspended of [false, true]) {
-            const institution = await seedInstitution(tx, {
-              verificationStatus,
-              institutionType,
-              suspended,
-            });
-            seeded.push({
-              slug: institution.slug,
-              label: `${verificationStatus}/${institutionType}/suspended=${suspended}`,
-            });
+        for (const verificationStatus of statuses) {
+          for (const institutionType of types) {
+            for (const suspended of [false, true]) {
+              const institution = await seedInstitution(tx, {
+                verificationStatus,
+                institutionType,
+                suspended,
+              });
+              seeded.push({
+                slug: institution.slug,
+                label: `${verificationStatus}/${institutionType}/suspended=${suspended}`,
+              });
+            }
           }
         }
-      }
 
-      const sitemap = await sitemapSlugs(tx);
+        const sitemap = await sitemapSlugs(tx);
 
-      for (const { slug, label } of seeded) {
-        expect(
-          sitemap.includes(slug),
-          `${label}: the sitemap and the page's robots directive disagree`,
-        ).toBe(await pageIsIndexable(tx, slug));
-      }
+        for (const { slug, label } of seeded) {
+          expect(
+            sitemap.includes(slug),
+            `${label}: the sitemap and the page's robots directive disagree`,
+          ).toBe(await pageIsIndexable(tx, slug));
+        }
 
-      // The grid is only meaningful if it produced both answers. Without this the whole block would
-      // pass against a sitemap that listed nothing and a page that indexed nothing.
-      const indexed = seeded.filter(({ slug }) => sitemap.includes(slug));
-      expect(indexed.length).toBeGreaterThan(0);
-      expect(indexed.length).toBeLessThan(seeded.length);
-    });
-  });
-
-  it("keeps rendering an unverified organizer's page while withholding it from the sitemap", async () => {
-    await inRollback(async (tx) => {
-      const institution = await seedInstitution(tx, {
-        verificationStatus: "pending_verification",
-        institutionType: "company",
-        suspended: false,
+        // The grid is only meaningful if it produced both answers. Without this the whole block would
+        // pass against a sitemap that listed nothing and a page that indexed nothing.
+        const indexed = seeded.filter(({ slug }) => sitemap.includes(slug));
+        expect(indexed.length).toBeGreaterThan(0);
+        expect(indexed.length).toBeLessThan(seeded.length);
       });
-
-      const page = await pageFor(tx, institution.slug);
-
-      expect(
-        page,
-        "a free competition may publish from an unverified institution (DEC-0158), so its page must render; only verified institutions are indexed",
-      ).not.toBeNull();
-      expect(isIndexableInstitution(page!)).toBe(false);
-      expect(await sitemapSlugs(tx)).not.toContain(institution.slug);
     });
-  });
 
-  it("keeps the render predicate on suspension alone", async () => {
-    await inRollback(async (tx) => {
-      const active = await seedInstitution(tx, { verificationStatus: "rejected" });
-      const suspended = await seedInstitution(tx, { suspended: true });
+    it("keeps rendering an unverified organizer's page while withholding it from the sitemap", async () => {
+      await inRollback(async (tx) => {
+        const institution = await seedInstitution(tx, {
+          verificationStatus: "pending_verification",
+          institutionType: "company",
+          suspended: false,
+        });
 
-      // The render predicate is unchanged by this step, and the unverified-active row is what makes
-      // the assertion discriminating: a predicate that had quietly grown a verification term would
-      // still return the suspended row as null. `rejected` is used rather than `pending_verification`
-      // so the row cannot be accused of passing on a status the gate might plausibly allow.
-      expect(await pageFor(tx, active.slug)).not.toBeNull();
-      expect(await pageFor(tx, suspended.slug)).toBeNull();
-      // And the sitemap excludes the suspended row for the same reason the page does.
-      expect(await sitemapSlugs(tx)).not.toContain(suspended.slug);
+        const page = await pageFor(tx, institution.slug);
+
+        expect(
+          page,
+          "a free competition may publish from an unverified institution (DEC-0158), so its page must render; only verified institutions are indexed",
+        ).not.toBeNull();
+        expect(isIndexableInstitution(page!)).toBe(false);
+        expect(await sitemapSlugs(tx)).not.toContain(institution.slug);
+      });
     });
-  });
-});
+
+    it("keeps the render predicate on suspension alone", async () => {
+      await inRollback(async (tx) => {
+        const active = await seedInstitution(tx, { verificationStatus: "rejected" });
+        const suspended = await seedInstitution(tx, { suspended: true });
+
+        // The render predicate is unchanged by this step, and the unverified-active row is what makes
+        // the assertion discriminating: a predicate that had quietly grown a verification term would
+        // still return the suspended row as null. `rejected` is used rather than `pending_verification`
+        // so the row cannot be accused of passing on a status the gate might plausibly allow.
+        expect(await pageFor(tx, active.slug)).not.toBeNull();
+        expect(await pageFor(tx, suspended.slug)).toBeNull();
+        // And the sitemap excludes the suspended row for the same reason the page does.
+        expect(await sitemapSlugs(tx)).not.toContain(suspended.slug);
+      });
+    });
+  },
+);
 
 describe.skipIf(skipWithoutDatabase)("contact disclosure by viewer", () => {
-  const contactKeysOf = (page: { contactName: string | null; contactEmail: string | null; contactPhone: string | null }) => ({
+  const contactKeysOf = (page: {
+    contactName: string | null;
+    contactEmail: string | null;
+    contactPhone: string | null;
+  }) => ({
     contactName: page.contactName,
     contactEmail: page.contactEmail,
     contactPhone: page.contactPhone,
@@ -466,7 +473,8 @@ describe.skipIf(skipWithoutDatabase)("the unauthenticated competition detail res
       const competitionSlug = await seedCompetition(tx, institution.id);
       routeTransaction = tx as unknown as Database;
 
-      const { GET } = await import("@/app/api/v1/competitions/public/[institutionSlug]/[slug]/route");
+      const { GET } =
+        await import("@/app/api/v1/competitions/public/[institutionSlug]/[slug]/route");
       const response = await GET(
         new Request("http://localhost/", { headers: { Accept: "application/json" } }) as never,
         { params: Promise.resolve({ institutionSlug: institution.slug, slug: competitionSlug }) },

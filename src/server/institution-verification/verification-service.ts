@@ -28,10 +28,7 @@ import {
   isVerificationStatus,
   VerificationError,
 } from "@/server/institution-verification/verification-core";
-import {
-  OperatorActorError,
-  resolvePlatformOpsActor,
-} from "@/server/platform-ops/operator-actor";
+import { OperatorActorError, resolvePlatformOpsActor } from "@/server/platform-ops/operator-actor";
 import { isInstitutionMemberBySlug } from "@/server/institution-members/member-service";
 import {
   sendInstitutionRejectedEmail,

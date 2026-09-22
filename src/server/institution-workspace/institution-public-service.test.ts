@@ -74,7 +74,11 @@ describe("getPublicInstitution", () => {
   it("returns the public face of a full institution", async () => {
     const db = makeDb([[institutionRow()], [{ platform: "linkedin", url: "https://li/x" }]]);
 
-    const institution = await getPublicInstitution("kampus-merdeka", ANONYMOUS_INSTITUTION_VIEWER, db);
+    const institution = await getPublicInstitution(
+      "kampus-merdeka",
+      ANONYMOUS_INSTITUTION_VIEWER,
+      db,
+    );
 
     expect(institution).toMatchObject({
       slug: "kampus-merdeka",
@@ -90,7 +94,9 @@ describe("getPublicInstitution", () => {
   it("reports unverified status rather than omitting the institution", async () => {
     const db = makeDb([[institutionRow({ verificationStatus: "pending_verification" })], []]);
 
-    expect((await getPublicInstitution("kampus-merdeka", ANONYMOUS_INSTITUTION_VIEWER, db))?.isVerified).toBe(false);
+    expect(
+      (await getPublicInstitution("kampus-merdeka", ANONYMOUS_INSTITUTION_VIEWER, db))?.isVerified,
+    ).toBe(false);
   });
 
   // A personal institution's page is a redirect to its owner, so the caller needs the username and
@@ -127,13 +133,19 @@ describe("getPublicInstitution", () => {
   // src/app/sitemap-db.integration.test.ts against real Postgres, where the same suspended
   // organizer is required to be absent from its own page and from the sitemap alike.
   it("asks the database to withhold a suspended institution rather than filtering afterwards", async () => {
-    await getPublicInstitution("kampus-merdeka", ANONYMOUS_INSTITUTION_VIEWER, makeDb([[institutionRow()], []]));
+    await getPublicInstitution(
+      "kampus-merdeka",
+      ANONYMOUS_INSTITUTION_VIEWER,
+      makeDb([[institutionRow()], []]),
+    );
 
     expect(wherePredicates).toHaveLength(2);
     expect(compiledSql(wherePredicates[0]!)).toContain('"institutions"."suspended_at" is null');
   });
 
   it("returns null for an unknown slug", async () => {
-    expect(await getPublicInstitution("tidak-ada", ANONYMOUS_INSTITUTION_VIEWER, makeDb([[]]))).toBeNull();
+    expect(
+      await getPublicInstitution("tidak-ada", ANONYMOUS_INSTITUTION_VIEWER, makeDb([[]])),
+    ).toBeNull();
   });
 });

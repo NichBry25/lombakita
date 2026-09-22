@@ -19,10 +19,7 @@ import {
 } from "@/server/db/schema";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { assertValidTransition } from "@/server/institution-verification/verification-core";
-import {
-  OperatorActorError,
-  resolvePlatformOpsActor,
-} from "@/server/platform-ops/operator-actor";
+import { OperatorActorError, resolvePlatformOpsActor } from "@/server/platform-ops/operator-actor";
 import { isInstitutionMemberBySlug } from "@/server/institution-members/member-service";
 import { getInstitutionDisplayName } from "@/server/institution-workspace/institution-display-name";
 import { isR2Available, generatePresignedPutUrl } from "@/server/storage/r2.client";

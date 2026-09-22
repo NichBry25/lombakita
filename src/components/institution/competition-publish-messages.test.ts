@@ -175,9 +175,10 @@ describe("publish refusal toasts", () => {
     ];
 
     for (const text of reachableTexts) {
-      expect(SERVER_REFUSAL_MESSAGES, `a toast relayed the server's own message: ${text}`).not.toContain(
-        text,
-      );
+      expect(
+        SERVER_REFUSAL_MESSAGES,
+        `a toast relayed the server's own message: ${text}`,
+      ).not.toContain(text);
     }
   });
 });

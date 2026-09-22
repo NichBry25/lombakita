@@ -202,7 +202,8 @@ const verifyInstitutionFor = async (
   institutionId: string,
   targetStatus: "verified" | "rejected" = "verified",
 ) => {
-  const { verifyInstitution } = await import("@/server/institution-verification/verification-service");
+  const { verifyInstitution } =
+    await import("@/server/institution-verification/verification-service");
   return verifyInstitution({
     institutionId,
     targetStatus,
@@ -219,9 +220,8 @@ const reviewFor = async (
   submissionId: string,
   decision: "approved" | "rejected",
 ) => {
-  const { reviewVerificationSubmission } = await import(
-    "@/server/institution-verification/submission-service"
-  );
+  const { reviewVerificationSubmission } =
+    await import("@/server/institution-verification/submission-service");
   return reviewVerificationSubmission(
     submissionId,
     decision,
@@ -257,9 +257,13 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
         .set({ submittedByUserId: conflictedReviewer })
         .where(eq(institutionVerificationSubmissions.id, submissionId));
 
-      await expect(reviewFor(tx, conflictedReviewer, submissionId, "approved")).rejects.toMatchObject(
-        { code: "operator_actor_conflicted", status: 403, message: CONFLICT_MESSAGE },
-      );
+      await expect(
+        reviewFor(tx, conflictedReviewer, submissionId, "approved"),
+      ).rejects.toMatchObject({
+        code: "operator_actor_conflicted",
+        status: 403,
+        message: CONFLICT_MESSAGE,
+      });
 
       expect(await readInstitutionStatus(tx, institution.id)).toBe("pending_verification");
       expect((await readSubmission(tx, submissionId)).status).toBe("pending_review");
@@ -334,9 +338,13 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
       const insider = await seedUser(tx, "platform_ops");
       await addMembership(tx, institution.id, insider, "institution_staff");
 
-      await expect(verifyInstitutionFor(tx, insider, institution.id, "rejected")).rejects.toMatchObject(
-        { code: "operator_actor_conflicted", status: 403, message: CONFLICT_MESSAGE },
-      );
+      await expect(
+        verifyInstitutionFor(tx, insider, institution.id, "rejected"),
+      ).rejects.toMatchObject({
+        code: "operator_actor_conflicted",
+        status: 403,
+        message: CONFLICT_MESSAGE,
+      });
 
       expect(await readInstitutionStatus(tx, institution.id)).toBe("verified");
       expect(await auditRowsFor(tx, institution.id)).toHaveLength(0);
@@ -513,9 +521,8 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
       `;
       const submissionId = submission!.id;
 
-      const { reviewVerificationSubmission } = await import(
-        "@/server/institution-verification/submission-service"
-      );
+      const { reviewVerificationSubmission } =
+        await import("@/server/institution-verification/submission-service");
 
       const reject = (connection: RaceConnection, reviewerUserId: string) =>
         reviewVerificationSubmission(

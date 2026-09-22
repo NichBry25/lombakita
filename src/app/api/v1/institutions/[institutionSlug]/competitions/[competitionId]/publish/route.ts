@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { assertSessionMatchesExpectedUser, toAccessDeniedResponse } from "@/server/auth/access-core";
+import {
+  assertSessionMatchesExpectedUser,
+  toAccessDeniedResponse,
+} from "@/server/auth/access-core";
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import {
   CompetitionError,

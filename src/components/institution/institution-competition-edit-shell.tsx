@@ -515,8 +515,7 @@ export const InstitutionCompetitionEditShell = ({
             : isDirty
               ? "Simpan perubahan sebelum menerbitkan kompetisi."
               : `Lengkapi bidang wajib sebelum menerbitkan: ${missingPublishFields.join(", ")}.`
-          : (serverPublishReasons[0]?.text ??
-            "Kompetisi belum dapat diterbitkan saat ini."),
+          : (serverPublishReasons[0]?.text ?? "Kompetisi belum dapat diterbitkan saat ini."),
       });
       return;
     }

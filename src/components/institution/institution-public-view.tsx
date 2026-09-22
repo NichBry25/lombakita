@@ -55,9 +55,9 @@ export function InstitutionPublicView({
     contactDisclosure.kind === "preview_hidden" ||
     Boolean(
       institution.contactName ||
-        institution.contactEmail ||
-        institution.contactPhone ||
-        institution.socialLinks.length > 0,
+      institution.contactEmail ||
+      institution.contactPhone ||
+      institution.socialLinks.length > 0,
     );
 
   return (
@@ -171,7 +171,9 @@ export function InstitutionPublicView({
                 institusi terverifikasi.
               </p>
               {contactDisclosure.canRequestVerification && (
-                <Link href={`/institution/${institution.slug}/verification`}>Ajukan verifikasi</Link>
+                <Link href={`/institution/${institution.slug}/verification`}>
+                  Ajukan verifikasi
+                </Link>
               )}
             </Feedback>
           )}

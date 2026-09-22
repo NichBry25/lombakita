@@ -309,7 +309,12 @@ const GATE_CASES: GateCase[] = [
   {
     code: "competition_personal_individual_only",
     seed: (tx) =>
-      seedFixture(tx, { institutionType: "personal", mode: "team", minTeamSize: 2, maxTeamSize: 5 }),
+      seedFixture(tx, {
+        institutionType: "personal",
+        mode: "team",
+        minTeamSize: 2,
+        maxTeamSize: 5,
+      }),
     expectedHttpStatus: 422,
   },
   {

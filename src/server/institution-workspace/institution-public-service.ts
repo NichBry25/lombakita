@@ -147,8 +147,7 @@ export const buildIndexableInstitutionCondition = (): SQL =>
 export const isIndexableInstitution = (institution: {
   institutionType: InstitutionType;
   isVerified: boolean;
-}): boolean =>
-  !isPersonalInstitutionType(institution.institutionType) && institution.isVerified;
+}): boolean => !isPersonalInstitutionType(institution.institutionType) && institution.isVerified;
 
 /**
  * Which contact fields this viewer may see, and what to say above them.

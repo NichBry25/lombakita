@@ -255,7 +255,11 @@ describe.skipIf(skipWithoutDatabase)("institution visibility has one definition"
     await inRollback(async (tx) => {
       const suspended = await seedInstitution(tx, { suspended: true });
 
-      const page = await getPublicInstitution(suspended.slug, ANONYMOUS_INSTITUTION_VIEWER, tx as unknown as Database);
+      const page = await getPublicInstitution(
+        suspended.slug,
+        ANONYMOUS_INSTITUTION_VIEWER,
+        tx as unknown as Database,
+      );
       const sitemap = await institutionSlugsIn(tx);
 
       expect(page).toBeNull();
@@ -267,7 +271,11 @@ describe.skipIf(skipWithoutDatabase)("institution visibility has one definition"
     await inRollback(async (tx) => {
       const active = await seedInstitution(tx);
 
-      const page = await getPublicInstitution(active.slug, ANONYMOUS_INSTITUTION_VIEWER, tx as unknown as Database);
+      const page = await getPublicInstitution(
+        active.slug,
+        ANONYMOUS_INSTITUTION_VIEWER,
+        tx as unknown as Database,
+      );
       const sitemap = await institutionSlugsIn(tx);
 
       expect(page?.slug).toBe(active.slug);
@@ -281,7 +289,11 @@ describe.skipIf(skipWithoutDatabase)("institution visibility has one definition"
     await inRollback(async (tx) => {
       const personal = await seedInstitution(tx, { personal: true });
 
-      const page = await getPublicInstitution(personal.slug, ANONYMOUS_INSTITUTION_VIEWER, tx as unknown as Database);
+      const page = await getPublicInstitution(
+        personal.slug,
+        ANONYMOUS_INSTITUTION_VIEWER,
+        tx as unknown as Database,
+      );
       const sitemap = await institutionSlugsIn(tx);
 
       expect(page?.slug).toBe(personal.slug);
