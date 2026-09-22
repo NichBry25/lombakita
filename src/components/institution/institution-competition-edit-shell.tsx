@@ -325,8 +325,12 @@ export const InstitutionCompetitionEditShell = ({
     setCompetition(data.competition);
     if (data.publishReadiness) {
       setPublishReadiness(data.publishReadiness);
-      setReadinessIsKnown(true);
     }
+    // A successful read clears the unknown state whether or not the optional key came with it: the
+    // flag records whether the last READ succeeded, not whether that read carried a new answer.
+    // Assigning it only inside the branch above latched the shell — one failed read turned the flag
+    // false, and from then on only a response carrying `publishReadiness` could turn it back.
+    setReadinessIsKnown(true);
     const loadedTitle = data.competition.title;
     const loadedSlug = data.competition.slug;
     const loadedDescription = data.competition.description ?? "";

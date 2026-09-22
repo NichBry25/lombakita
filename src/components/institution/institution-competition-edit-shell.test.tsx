@@ -1,15 +1,19 @@
 // @vitest-environment jsdom
 //
-// WHAT THIS FILE EXISTS TO PIN (C2.2, F5): a readiness answer the shell could not REFRESH must not
-// keep the publish control disabled. The server is still the authority — pressing Terbitkan sends
+// WHAT THIS FILE EXISTS TO PIN (C2.2).
+//
+// F5: a readiness answer the shell could not REFRESH must not keep the publish control disabled. The server is still the authority — pressing Terbitkan sends
 // the attempt, and a refusal comes back as Indonesian text through `competition-publish-messages` —
 // so an unknown answer disables nothing and prints no reason. A reason is a claim about what the
 // server will do, and after a failed read the shell has just admitted it does not know.
 //
-// The SECOND save is what makes this test able to fail. A single failed refetch proves only that the
-// control is enabled afterwards; it is satisfied by an implementation that never becomes ready
+// The SECOND save is what makes the F5 test able to fail. A single failed refetch proves only that
+// the control is enabled afterwards; it is satisfied by an implementation that never becomes ready
 // again, which would leave the reason permanently unreachable. The sequence therefore runs
 // known-blocked → unknown → known-blocked and asserts each state.
+//
+// A6: a successful read clears the unknown state even when the response omits the optional
+// `publishReadiness` key.
 
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -71,6 +75,9 @@ const failedJson = (body: unknown): Response =>
 
 const loadOk = (publishReadiness: unknown) =>
   okJson({ competition: COMPETITION, publishReadiness });
+// A successful read whose payload omits the OPTIONAL `publishReadiness` key. The type says the key
+// may be absent, so the shell has to behave for a response that carries no new answer.
+const loadOkWithoutReadiness = okJson({ competition: COMPETITION });
 const patchOk = okJson({ competition: COMPETITION });
 const loadFailed = failedJson({ error: { message: LOAD_FAILED_MESSAGE } });
 
@@ -158,5 +165,40 @@ describe("InstitutionCompetitionEditShell publish readiness", () => {
     await screen.findByRole("button", { name: "Terbitkan" });
     expect(publishButton().hasAttribute("disabled")).toBe(false);
     expect(screen.queryByText(UNVERIFIED_REASON)).toBeNull();
+  });
+
+  it("clears the unknown state on a successful read that carries no readiness key", async () => {
+    const calls = stubFetchSequence([
+      () => loadOk(BLOCKED),
+      () => patchOk,
+      () => loadFailed,
+      () => patchOk,
+      () => loadOkWithoutReadiness,
+    ]);
+
+    mount();
+
+    // 1. KNOWN-BLOCKED.
+    await screen.findByRole("button", { name: "Terbitkan" });
+    await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
+
+    // 2. UNKNOWN — a failed refetch disables nothing.
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(false));
+
+    // 3. KNOWN AGAIN — the read succeeded, so the shell stops treating its answer as unknown. Under
+    // the latch this step left the control enabled forever: only a response carrying the optional
+    // key could clear the flag, so a key-less success was indistinguishable from a failure.
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
+    expect(screen.getByText(UNVERIFIED_REASON)).toBeTruthy();
+
+    expect(calls).toEqual([
+      "GET /api/v1/competitions/comp_1",
+      "PATCH /api/v1/competitions/comp_1",
+      "GET /api/v1/competitions/comp_1",
+      "PATCH /api/v1/competitions/comp_1",
+      "GET /api/v1/competitions/comp_1",
+    ]);
   });
 });
