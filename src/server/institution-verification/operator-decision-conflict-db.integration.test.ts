@@ -399,6 +399,40 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
     });
   });
 
+  // The same construction as the test above, on the other decision path and on BOTH of its
+  // branches. `reviewVerificationSubmission` writes `actor.userId` in three places — the audit row,
+  // the submission's reviewer, and the institution's CAS UPDATE — and each branch reaches them by
+  // its own route, so a run that only exercised approval would leave the rejection branch's writer
+  // unmeasured.
+  it.each(["approved", "rejected"] as const)(
+    "records the resolved operator, not the caller's claim, when a submission is %s",
+    async (decision) => {
+      await inRollback(async (tx) => {
+        const owner = await seedUser(tx, "candidate");
+        const institution = await seedInstitution(tx);
+        await addMembership(tx, institution.id, owner, "institution_owner");
+        const submissionId = await seedSubmission(tx, institution.id, owner);
+
+        const claimed = await seedUser(tx, "platform_ops");
+        const resolved = await seedUser(tx, "platform_ops");
+
+        await reviewFor(tx, resolved, submissionId, decision);
+
+        const rows = await auditRowsFor(tx, institution.id);
+        expect(rows).toEqual([
+          {
+            actorUserId: resolved,
+            fromStatus: "pending_verification",
+            // An approval moves the institution; a rejection records the review without moving it.
+            toStatus: decision === "approved" ? "verified" : "pending_verification",
+          },
+        ]);
+        expect(rows[0]!.actorUserId).not.toBe(claimed);
+        expect((await readSubmission(tx, submissionId)).reviewerUserId).toBe(resolved);
+      });
+    },
+  );
+
   it("leaves no platform_ops_audit_logs row on either path", async () => {
     await inRollback(async (tx) => {
       const owner = await seedUser(tx, "candidate");
