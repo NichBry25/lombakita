@@ -392,4 +392,28 @@ describe.skipIf(skipWithoutDatabase)("a competition that can publish", () => {
       expect(row?.status).toBe("published");
     });
   });
+
+  // A PIN, not a discovery. Readiness answers the gates, and the legality of the TRANSITION is not
+  // one of them, so on a competition that is already published it still reports `canPublish: true`.
+  // The publish endpoint refuses that attempt (draft → published only), and the assertion below does
+  // not pretend otherwise — it records the value so a later change to it is a decision rather than a
+  // drift. The competition is published through the real route rather than seeded with
+  // `status: 'published'`, so the row under test carries the `published_at` production writes.
+  it("reports canPublish on an already-published competition, and the endpoint still refuses", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx, { feeAmount: null });
+
+      const first = await publishViaRoute(fixture, fixture.actorUserId, tx);
+      expect(first.status).toBe(200);
+
+      const readiness = await readinessFor(fixture.actorUserId, fixture.competitionId, tx);
+      expect(
+        readiness.canPublish,
+        "readiness does not evaluate the status transition; Terbitkan renders only on drafts, so this value is never shown (C2.2 Stage 6 ruling)",
+      ).toBe(true);
+
+      const second = await publishViaRoute(fixture, fixture.actorUserId, tx);
+      expect(second.status).not.toBe(200);
+    });
+  });
 });
