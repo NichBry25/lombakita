@@ -12,6 +12,12 @@
 // again, which would leave the reason permanently unreachable. The sequence therefore runs
 // known-blocked → unknown → known-blocked and asserts each state.
 //
+// A2: a DISABLED Terbitkan must always carry a visible reason. The client's own checks and the
+// server's checklist overlap on missing fields and out-of-order dates and nowhere else — the server
+// also refuses a registration window that has CLOSED (competition-core.ts:877-883), a fact neither
+// client validator can see. So the server's checklist reason is dropped only when the shell is
+// already saying the same thing about this form.
+//
 // A6: a successful read clears the unknown state even when the response omits the optional
 // `publishReadiness` key.
 
@@ -65,7 +71,30 @@ const READY = { canPublish: true, blockers: [] as const };
 // The exact sentence `competition-publish-messages.ts` renders for that code.
 const UNVERIFIED_REASON =
   "Kompetisi berbayar hanya dapat diterbitkan oleh institusi yang sudah terverifikasi.";
+const VALIDATION_REASON = "Data kompetisi belum lengkap atau belum valid.";
 const LOAD_FAILED_MESSAGE = "Gagal memuat kompetisi.";
+
+const BLOCKED_BY_CHECKLIST = {
+  canPublish: false,
+  blockers: ["competition_publish_validation_failed" as const],
+};
+
+// The same competition with its registration window CLOSED and its ordering still valid. Every client
+// check passes on this row: `getMissingCompetitionPublishFields` reads presence only, and
+// `validateCompetitionTimeline` compares fields to each other and never to the clock. Only the
+// server's checklist judges the clock, which is what makes this the shape the shell cannot explain
+// on its own.
+const closedRegistrationWindow = () => {
+  const now = Date.now();
+  return {
+    registrationStartAt: new Date(now - 30 * DAY).toISOString(),
+    registrationEndAt: new Date(now - 20 * DAY).toISOString(),
+    participantConfirmationAt: new Date(now - 15 * DAY).toISOString(),
+    eventStartAt: new Date(now + 10 * DAY).toISOString(),
+    eventEndAt: new Date(now + 11 * DAY).toISOString(),
+    resultAnnouncementAt: new Date(now + 20 * DAY).toISOString(),
+  };
+};
 
 const okJson = (body: unknown): Response =>
   ({ ok: true, json: async () => body }) as unknown as Response;
@@ -165,6 +194,35 @@ describe("InstitutionCompetitionEditShell publish readiness", () => {
     await screen.findByRole("button", { name: "Terbitkan" });
     expect(publishButton().hasAttribute("disabled")).toBe(false);
     expect(screen.queryByText(UNVERIFIED_REASON)).toBeNull();
+    // The other half of A2's claim: the wording belongs to an ENABLED control, and this is the state
+    // that is allowed to say it.
+    expect(screen.getByText("Semua perubahan tersimpan dan siap diterbitkan")).toBeTruthy();
+  });
+
+  it("shows a reason on a disabled Terbitkan that no client check can explain", async () => {
+    stubFetchSequence([
+      () =>
+        okJson({
+          competition: { ...COMPETITION, ...closedRegistrationWindow() },
+          publishReadiness: BLOCKED_BY_CHECKLIST,
+        }),
+    ]);
+
+    mount();
+
+    await screen.findByRole("button", { name: "Terbitkan" });
+    await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
+
+    // The reason is the LOADED answer, not the readiness the page was rendered with.
+    expect(screen.queryByText(UNVERIFIED_REASON)).toBeNull();
+    expect(screen.getByText(VALIDATION_REASON)).toBeTruthy();
+
+    // No link: this shell IS the page the link would point at.
+    expect(screen.queryByRole("link", { name: "Buka halaman edit" })).toBeNull();
+
+    // And nothing on screen claims the draft is ready while the control says it is not.
+    expect(screen.queryAllByText(/siap diterbitkan/)).toHaveLength(0);
+    expect(screen.queryAllByText(/Lengkapi untuk menerbitkan/)).toHaveLength(0);
   });
 
   it("clears the unknown state on a successful read that carries no readiness key", async () => {

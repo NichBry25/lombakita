@@ -281,21 +281,45 @@ export const InstitutionCompetitionEditShell = ({
   const timelineIsInvalid = timelineErrors.length > 0;
   const clientPublishIsBlocked = isDirty || missingPublishFields.length > 0 || timelineIsInvalid;
 
-  // The server's reasons for refusing a publish, in the publish path's order, MINUS the checklist
-  // reason: in this shell the form's own values are what the checklist would judge, and
-  // `editorStatusMessage` below already names the fields that are missing or out of order. Two
-  // sentences saying the same thing about the same form is one too many.
-  // No reasons are shown against an unknown answer: a reason is a claim about what the server will
-  // do, and the shell has just failed to ask it.
+  // Whether `editorStatusMessage` below is about to say, in this form's own terms, what the
+  // checklist reason would say. The two overlap on missing fields and out-of-order dates and nowhere
+  // else, which is why they cannot simply be deduplicated by code.
+  const clientChecklistReasonIsRendered = timelineIsInvalid || missingPublishFields.length > 0;
+
+  // The server's reasons for refusing a publish, in the publish path's order. No reasons are shown
+  // against an unknown answer: a reason is a claim about what the server will do, and the shell has
+  // just failed to ask it.
   const serverPublishReasons = readinessIsKnown
     ? publishReadiness.blockers
-        .filter((code) => code !== "competition_publish_validation_failed")
-        .map(getPublishBlockerReason)
+        // Dropped only when the sentence above really is on screen. The server's checklist also
+        // refuses a registration window that has CLOSED (competition-core.ts:877-883) — a check this
+        // form cannot make, because its own two validators read presence and relative order and
+        // never the clock. A field-complete, correctly ordered draft whose window has closed passes
+        // every client check, so dropping the reason there would leave a disabled control with
+        // nothing to explain it.
+        .filter(
+          (code) =>
+            code !== "competition_publish_validation_failed" || !clientChecklistReasonIsRendered,
+        )
+        // This shell IS the page that reason's link points at, so the link is dropped rather than
+        // rendered as a control that sends the user to the page they are already on.
+        .map((code) => {
+          const reason = getPublishBlockerReason(code);
+          return code === "competition_publish_validation_failed"
+            ? { ...reason, link: null }
+            : reason;
+        })
     : [];
 
   const publishIsBlocked =
     clientPublishIsBlocked || (readinessIsKnown && !publishReadiness.canPublish);
-  let editorStatusMessage = "Semua perubahan tersimpan dan siap diterbitkan";
+  // "siap diterbitkan" is a claim the control has to be able to back, so it is the default only
+  // while the control is enabled. When a server refusal is what blocks, that refusal is on screen
+  // above this line instead of a sentence here — there is always one, because a block with no client
+  // check behind it is a server refusal.
+  let editorStatusMessage: string | null = publishIsBlocked
+    ? null
+    : "Semua perubahan tersimpan dan siap diterbitkan";
   if (timelineIsInvalid) {
     editorStatusMessage = `Perbaiki urutan jadwal: ${timelineErrors[0]?.message}`;
   } else if (isDirty) {
