@@ -537,7 +537,10 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
 
       const barrier = handled(
         control.sql.begin(async (tx) => {
-          await tx`SELECT id FROM institution_verification_submissions WHERE id = ${submissionId} FOR UPDATE`;
+          // postgres-js types the transaction callback's argument as a bare `TransactionSql`, which
+          // does not carry the tagged-template call signature the same object has at runtime.
+          const locked = tx as unknown as typeof control.sql;
+          await locked`SELECT id FROM institution_verification_submissions WHERE id = ${submissionId} FOR UPDATE`;
           await barrierReleased;
         }),
       );
