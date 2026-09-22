@@ -12,6 +12,7 @@ import {
   updateCompetitionDraft,
 } from "@/server/competitions/competition-service";
 import { hasActiveRegistrationsForCompetition } from "@/server/competitions/competition-access";
+import { resolveCompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
 import { getCompetitionParticipationSummary } from "@/server/competitions/competition-participation-service";
 
 export async function GET(
@@ -30,11 +31,22 @@ export async function GET(
     // availability rather than offering an action the service will refuse. Access is already
     // narrowed to platform_ops and institution owner/staff, who can list the participants
     // themselves, so this exposes nothing new.
-    const [hasActiveRegistrations, participation] = await Promise.all([
+    //
+    // Publish readiness rides this same read. The publish control has to keep telling the truth
+    // after a save changes the answer — clearing the personal reach cap, setting a fee, fixing a
+    // date — and the shells already re-run this request after every successful mutation. A second
+    // endpoint for one boolean would be a second thing to keep in step with the first.
+    const [hasActiveRegistrations, participation, publishReadiness] = await Promise.all([
       hasActiveRegistrationsForCompetition(competitionId),
       getCompetitionParticipationSummary(competition),
+      resolveCompetitionPublishReadiness(session.user.id, competitionId),
     ]);
-    return NextResponse.json({ competition, hasActiveRegistrations, participation });
+    return NextResponse.json({
+      competition,
+      hasActiveRegistrations,
+      participation,
+      publishReadiness,
+    });
   } catch (error) {
     if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     return toAccessDeniedResponse(error);

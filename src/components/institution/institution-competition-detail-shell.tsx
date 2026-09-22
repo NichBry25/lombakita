@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Button,
   ButtonLink,
@@ -16,7 +17,14 @@ import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
 import { resolveResultAnnouncement } from "@/lib/competitions/competition-phase";
 import { useWithdrawalAvailability } from "@/components/competitions/use-withdrawal-availability";
+import { sessionFetch } from "@/lib/session/session-fetch";
 import { capitalizeFirst, capitalizeWord } from "@/lib/text/capitalize";
+import {
+  getPublishBlockerReason,
+  resolvePublishReasonHref,
+  resolvePublishRefusalToastText,
+} from "@/components/institution/competition-publish-messages";
+import type { CompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
 import {
   getCompetitionCancellationReasonLabel,
   getCompetitionParticipationStateLabel,
@@ -73,13 +81,18 @@ const formatFailures = (failures: PublishValidationFailure[] | undefined): strin
 
 const extractError = async (
   response: Response,
-): Promise<{ message: string; failures?: PublishValidationFailure[] }> => {
+): Promise<{ message: string; code?: string; failures?: PublishValidationFailure[] }> => {
   try {
     const payload = (await response.json()) as {
-      error?: { message?: string; details?: { failures?: PublishValidationFailure[] } };
+      error?: {
+        code?: string;
+        message?: string;
+        details?: { failures?: PublishValidationFailure[] };
+      };
     };
     return {
       message: payload.error?.message ?? "Permintaan gagal diproses.",
+      code: payload.error?.code,
       failures: payload.error?.details?.failures,
     };
   } catch {
@@ -104,10 +117,15 @@ const actionLabel: Record<ActionKind, string> = {
 export const InstitutionCompetitionDetailShell = ({
   institutionSlug,
   competitionId,
+  expectedUserId,
+  initialPublishReadiness,
   canDecideParticipation,
 }: {
   institutionSlug: string;
   competitionId: string;
+  // Rule 16: the rendered-for user id, sent as `X-Expected-User-Id` on every mutation from here.
+  expectedUserId: string;
+  initialPublishReadiness: CompetitionPublishReadiness;
   canDecideParticipation: boolean;
 }) => {
   const { openModal } = useModal();
@@ -116,6 +134,10 @@ export const InstitutionCompetitionDetailShell = ({
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [hasActiveRegistrations, setHasActiveRegistrations] = useState(false);
   const [participation, setParticipation] = useState<ParticipationSummary | null>(null);
+  // Seeded from the page's server answer, then refreshed by every `load()` — the same request that
+  // refreshes the competition refreshes what the server would say about publishing it.
+  const [publishReadiness, setPublishReadiness] =
+    useState<CompetitionPublishReadiness>(initialPublishReadiness);
   const [isLoading, setIsLoading] = useState(true);
   // Several lifecycle actions live side by side; the key records which one is running so only
   // that button spins while the rest stay locked.
@@ -140,10 +162,12 @@ export const InstitutionCompetitionDetailShell = ({
       competition: Competition;
       hasActiveRegistrations: boolean;
       participation: ParticipationSummary;
+      publishReadiness?: CompetitionPublishReadiness;
     };
     setCompetition(data.competition);
     setHasActiveRegistrations(data.hasActiveRegistrations);
     setParticipation(data.participation);
+    if (data.publishReadiness) setPublishReadiness(data.publishReadiness);
     setIsLoading(false);
   }, [competitionId, addToast]);
 
@@ -165,14 +189,20 @@ export const InstitutionCompetitionDetailShell = ({
   const onAction = async (action: ActionKind) => {
     setPendingAction(action);
     const url = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}/${action}`;
-    const response = await fetch(url, { method: "POST", credentials: "include" });
+    const response = await sessionFetch(expectedUserId, url, { method: "POST" });
     if (!response.ok) {
-      const { message, failures } = await extractError(response);
-      const failureText = formatFailures(failures);
-      addToast({
-        type: "error",
-        message: failureText ? `${message} (${failureText})` : message,
-      });
+      const { message, code, failures } = await extractError(response);
+      // A publish refusal is translated from its code, never relayed. The server's message is
+      // English and written for a log; the person who pressed the button gets Indonesian.
+      if (action === "publish") {
+        addToast({ type: "error", message: resolvePublishRefusalToastText(code, failures) });
+      } else {
+        const failureText = formatFailures(failures);
+        addToast({
+          type: "error",
+          message: failureText ? `${message} (${failureText})` : message,
+        });
+      }
       setPendingAction(null);
       return;
     }
@@ -273,6 +303,9 @@ export const InstitutionCompetitionDetailShell = ({
   const isDraft = competition.status === "draft";
   const isPublished = competition.status === "published";
   const isCancelled = competition.cancelledAt !== null;
+  // Every reason the server would refuse a publish, in the publish path's own order. The detail
+  // shell has no form, so there are no client-side reasons to add after these.
+  const publishBlockers = publishReadiness.blockers.map(getPublishBlockerReason);
   // When no date was entered the public page falls back to one derived from the event end; show
   // the organizer the same value, marked as the estimate it is.
   const resolvedAnnouncement = resolveResultAnnouncement(competition);
@@ -473,22 +506,54 @@ export const InstitutionCompetitionDetailShell = ({
           </div>
         </div>
         {isDraft ? (
-          <div className="record-actions">
-            <Button
-              onClick={() => onAction("publish")}
-              loading={pendingAction === "publish"}
-              disabled={isSubmitting}
-            >
-              Terbitkan
-            </Button>
-            <Button
-              variant="danger"
-              onClick={confirmDelete}
-              loading={pendingAction === "delete"}
-              disabled={isSubmitting}
-            >
-              Hapus
-            </Button>
+          <div className="stack-sm">
+            <div className="record-actions">
+              <Button
+                onClick={() => onAction("publish")}
+                loading={pendingAction === "publish"}
+                disabled={isSubmitting || !publishReadiness.canPublish}
+                aria-describedby={
+                  publishReadiness.canPublish ? undefined : "publish-blocked-reason"
+                }
+              >
+                Terbitkan
+              </Button>
+              <Button
+                variant="danger"
+                onClick={confirmDelete}
+                loading={pendingAction === "delete"}
+                disabled={isSubmitting}
+              >
+                Hapus
+              </Button>
+            </div>
+            {/* A disabled control has to say why, and it has to say it in the page rather than only
+                through aria-describedby: the reasons can carry links, and nothing inside a described
+                element is reachable by keyboard. */}
+            {publishReadiness.canPublish ? null : (
+              <div className="form-field-aside" id="publish-blocked-reason">
+                <ul className="stack-xs">
+                  {publishBlockers.map((reason) => (
+                    <li key={reason.code}>
+                      {reason.text}
+                      {reason.link ? (
+                        <>
+                          {" "}
+                          <Link
+                            href={resolvePublishReasonHref(reason.link.kind, {
+                              institutionSlug,
+                              competitionSlug: competition.slug,
+                            })}
+                          >
+                            {reason.link.label}
+                          </Link>
+                        </>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         ) : null}
         {isPublished && !isCancelled ? (

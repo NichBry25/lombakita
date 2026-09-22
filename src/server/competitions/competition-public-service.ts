@@ -596,9 +596,12 @@ const PUBLIC_DETAIL_COLUMNS = {
   institutionOwnerAvatarKey: institutionOwnerAvatarKeySql,
   institutionOwnerBannerKey: institutionOwnerBannerKeySql,
   institutionAbout: institutions.about,
-  institutionContactName: institutions.contactName,
-  institutionContactEmail: institutions.contactEmail,
-  institutionContactPhone: institutions.contactPhone,
+  // The organizer's contact details are deliberately NOT read here. They are gated on verification
+  // status and on the viewer (institution-public-service.ts), and this endpoint is unauthenticated
+  // and has no viewer to gate on — so it could only ever return them to everyone, which is the
+  // exposure the gate exists to close. Nothing rendered them: the competition detail page reads
+  // `organizer.name`, `logoUrl`, `about`, `websiteUrl` and `socialLinks`, and no component read a
+  // contact field.
   institutionWebsiteUrl: institutions.websiteUrl,
 } as const;
 
@@ -664,9 +667,6 @@ export type PublicCompetitionDetail = {
     name: string;
     logoUrl: string | null;
     about: string | null;
-    contactName: string | null;
-    contactEmail: string | null;
-    contactPhone: string | null;
     websiteUrl: string | null;
     socialLinks: Array<{ platform: string; url: string }>;
   };
@@ -845,9 +845,6 @@ export const getPublicCompetitionDetail = async (
       ),
       logoUrl,
       about: row.institutionAbout,
-      contactName: row.institutionContactName,
-      contactEmail: row.institutionContactEmail,
-      contactPhone: row.institutionContactPhone,
       websiteUrl: row.institutionWebsiteUrl,
       socialLinks,
     },

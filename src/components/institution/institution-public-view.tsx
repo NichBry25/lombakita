@@ -1,4 +1,5 @@
-import { Icon } from "@/components/ui";
+import Link from "next/link";
+import { Feedback, Icon } from "@/components/ui";
 import {
   CompetitionCard,
   type CompetitionCardItem,
@@ -43,6 +44,21 @@ export function InstitutionPublicView({
   competitions: CompetitionCardItem[];
 }) {
   const typeLabel = INSTITUTION_TYPE_LABELS[institution.institutionType] ?? null;
+  const { contactDisclosure } = institution;
+
+  // The notice states exist to SAY something, so they keep the section alive even when the contact
+  // fields themselves were nulled on the server — otherwise the members-only notice would be
+  // dropped for an institution whose only public detail is a social link, and the preview notice
+  // would never render at all.
+  const showContactSection =
+    contactDisclosure.kind === "members_only" ||
+    contactDisclosure.kind === "preview_hidden" ||
+    Boolean(
+      institution.contactName ||
+        institution.contactEmail ||
+        institution.contactPhone ||
+        institution.socialLinks.length > 0,
+    );
 
   return (
     <main className="page-shell app-page pf-page">
@@ -140,10 +156,7 @@ export function InstitutionPublicView({
         )}
       </section>
 
-      {(institution.contactName ||
-        institution.contactEmail ||
-        institution.contactPhone ||
-        institution.socialLinks.length > 0) && (
+      {showContactSection && (
         <section className="content-section">
           <div className="section-heading">
             <div>
@@ -151,6 +164,22 @@ export function InstitutionPublicView({
               <h2>Hubungi penyelenggara</h2>
             </div>
           </div>
+          {contactDisclosure.kind === "members_only" && (
+            <Feedback tone="info">
+              <p>
+                Kontak ini hanya terlihat oleh anggota institusi. Publik akan melihatnya setelah
+                institusi terverifikasi.
+              </p>
+              {contactDisclosure.canRequestVerification && (
+                <Link href={`/institution/${institution.slug}/verification`}>Ajukan verifikasi</Link>
+              )}
+            </Feedback>
+          )}
+          {contactDisclosure.kind === "preview_hidden" && (
+            <Feedback tone="info">
+              Kontak disembunyikan dari publik sampai institusi terverifikasi.
+            </Feedback>
+          )}
           <div className="stack-xs">
             {institution.contactName && (
               <p className="pf-entry-sub">

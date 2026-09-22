@@ -5,6 +5,7 @@ import { AccessError } from "@/server/auth/access-core";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import { getCompetitionIdByInstitutionAndSlug } from "@/server/competitions/competition-service";
+import { resolveCompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
 import {
   isInstitutionAdminBySlug,
   isInstitutionOwnerBySlug,
@@ -31,10 +32,17 @@ export default async function InstitutionCompetitionDetailPage({ params }: Props
     throw error;
   }
 
+  // The first paint's answer. The shell refreshes it from the competition read after every
+  // mutation, but a control that starts out claiming "ready" and corrects itself one request later
+  // has already lied to whoever pressed it.
+  const publishReadiness = await resolveCompetitionPublishReadiness(session.user.id, competitionId);
+
   return (
     <InstitutionCompetitionDetailShell
       institutionSlug={institutionSlug}
       competitionId={competitionId}
+      expectedUserId={session.user.id}
+      initialPublishReadiness={publishReadiness}
       canDecideParticipation={canDecideParticipation}
     />
   );
