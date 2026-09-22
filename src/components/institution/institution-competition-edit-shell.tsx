@@ -199,6 +199,11 @@ export const InstitutionCompetitionEditShell = ({
   // successful save, so a save that clears a blocker clears the reason with it — no reload.
   const [publishReadiness, setPublishReadiness] =
     useState<CompetitionPublishReadiness>(initialPublishReadiness);
+  // Whether the readiness above came from a live read. A refetch that FAILS leaves the answer
+  // UNKNOWN rather than stale: the server is still the authority, and pressing Terbitkan still
+  // sends the attempt, whose refusal arrives as Indonesian text via `competition-publish-messages`.
+  // Holding the last known value would disable the control on a reason nobody was shown.
+  const [readinessIsKnown, setReadinessIsKnown] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Publish shares the submit lock with Save but needs its own flag so the spinner lands on the
@@ -280,11 +285,16 @@ export const InstitutionCompetitionEditShell = ({
   // reason: in this shell the form's own values are what the checklist would judge, and
   // `editorStatusMessage` below already names the fields that are missing or out of order. Two
   // sentences saying the same thing about the same form is one too many.
-  const serverPublishReasons = publishReadiness.blockers
-    .filter((code) => code !== "competition_publish_validation_failed")
-    .map(getPublishBlockerReason);
+  // No reasons are shown against an unknown answer: a reason is a claim about what the server will
+  // do, and the shell has just failed to ask it.
+  const serverPublishReasons = readinessIsKnown
+    ? publishReadiness.blockers
+        .filter((code) => code !== "competition_publish_validation_failed")
+        .map(getPublishBlockerReason)
+    : [];
 
-  const publishIsBlocked = clientPublishIsBlocked || !publishReadiness.canPublish;
+  const publishIsBlocked =
+    clientPublishIsBlocked || (readinessIsKnown && !publishReadiness.canPublish);
   let editorStatusMessage = "Semua perubahan tersimpan dan siap diterbitkan";
   if (timelineIsInvalid) {
     editorStatusMessage = `Perbaiki urutan jadwal: ${timelineErrors[0]?.message}`;
@@ -303,6 +313,8 @@ export const InstitutionCompetitionEditShell = ({
     if (!response.ok) {
       const { message } = await extractError(response);
       addToast({ type: "error", message });
+      // The read failed, so the readiness on screen is no longer an answer to anything. Drop it.
+      setReadinessIsKnown(false);
       setIsLoading(false);
       return;
     }
@@ -311,7 +323,10 @@ export const InstitutionCompetitionEditShell = ({
       publishReadiness?: CompetitionPublishReadiness;
     };
     setCompetition(data.competition);
-    if (data.publishReadiness) setPublishReadiness(data.publishReadiness);
+    if (data.publishReadiness) {
+      setPublishReadiness(data.publishReadiness);
+      setReadinessIsKnown(true);
+    }
     const loadedTitle = data.competition.title;
     const loadedSlug = data.competition.slug;
     const loadedDescription = data.competition.description ?? "";
