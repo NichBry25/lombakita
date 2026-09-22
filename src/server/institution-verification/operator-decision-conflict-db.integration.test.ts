@@ -383,10 +383,6 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
       const institution = await seedInstitution(tx);
       await addMembership(tx, institution.id, owner, "institution_owner");
 
-      // Two real platform_ops accounts. `claimed` is the id a caller asserts; `resolved` is the
-      // account the database is asked about. They are distinct rows, so an implementation that wrote
-      // the argument through would name the wrong one and be caught here.
-      const claimed = await seedUser(tx, "platform_ops");
       const resolved = await seedUser(tx, "platform_ops");
 
       await verifyInstitutionFor(tx, resolved, institution.id, "verified");
@@ -395,7 +391,6 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
       expect(rows).toEqual([
         { actorUserId: resolved, fromStatus: "pending_verification", toStatus: "verified" },
       ]);
-      expect(rows[0]!.actorUserId).not.toBe(claimed);
     });
   });
 
@@ -413,7 +408,6 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
         await addMembership(tx, institution.id, owner, "institution_owner");
         const submissionId = await seedSubmission(tx, institution.id, owner);
 
-        const claimed = await seedUser(tx, "platform_ops");
         const resolved = await seedUser(tx, "platform_ops");
 
         await reviewFor(tx, resolved, submissionId, decision);
@@ -427,7 +421,6 @@ describe.skipIf(skipWithoutDatabase)("nobody decides their own institution", () 
             toStatus: decision === "approved" ? "verified" : "pending_verification",
           },
         ]);
-        expect(rows[0]!.actorUserId).not.toBe(claimed);
         expect((await readSubmission(tx, submissionId)).reviewerUserId).toBe(resolved);
       });
     },
