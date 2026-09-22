@@ -38,7 +38,9 @@ const institutionWith = (
 });
 
 const renderNotice = (contactDisclosure: PublicInstitution["contactDisclosure"]) =>
-  render(<InstitutionPublicView institution={institutionWith(contactDisclosure)} competitions={[]} />);
+  render(
+    <InstitutionPublicView institution={institutionWith(contactDisclosure)} competitions={[]} />,
+  );
 
 describe("the unverified-contact notice", () => {
   it("tells a platform-ops viewer they are seeing it as Lombakita, and offers them no link", () => {
@@ -53,7 +55,11 @@ describe("the unverified-contact notice", () => {
         "Kontak ini terlihat oleh Anda sebagai tim Lombakita. Publik akan melihatnya setelah institusi terverifikasi.",
       ),
     ).toBeTruthy();
-    expect(screen.queryByText("Kontak ini hanya terlihat oleh anggota institusi. Publik akan melihatnya setelah institusi terverifikasi.")).toBeNull();
+    expect(
+      screen.queryByText(
+        "Kontak ini hanya terlihat oleh anggota institusi. Publik akan melihatnya setelah institusi terverifikasi.",
+      ),
+    ).toBeNull();
     expect(screen.queryByText("Ajukan verifikasi")).toBeNull();
   });
 

@@ -25,10 +25,7 @@ import {
   type CompetitionTimelineError,
   type CompetitionTimelineField,
 } from "@/lib/competitions/competition-timeline";
-import {
-  resolveSessionMismatchMessage,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { resolveSessionMismatchMessage, sessionFetch } from "@/lib/session/session-fetch";
 import {
   getPublishBlockerReason,
   resolvePublishReasonHref,

@@ -17,10 +17,7 @@ import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
 import { resolveResultAnnouncement } from "@/lib/competitions/competition-phase";
 import { useWithdrawalAvailability } from "@/components/competitions/use-withdrawal-availability";
-import {
-  resolveSessionMismatchMessage,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { resolveSessionMismatchMessage, sessionFetch } from "@/lib/session/session-fetch";
 import { capitalizeFirst, capitalizeWord } from "@/lib/text/capitalize";
 import {
   getPublishBlockerReason,
