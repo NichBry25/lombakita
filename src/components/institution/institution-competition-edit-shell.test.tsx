@@ -23,6 +23,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { SESSION_MISMATCH_MESSAGE } from "@/lib/session/session-fetch";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { InstitutionCompetitionEditShell } from "./institution-competition-edit-shell";
 
@@ -184,6 +185,24 @@ describe("InstitutionCompetitionEditShell publish readiness", () => {
       "PATCH /api/v1/competitions/comp_1",
       "GET /api/v1/competitions/comp_1",
     ]);
+  });
+
+  it("translates a session-mismatch refusal instead of relaying the server's English", async () => {
+    // The exact prose `assertSessionMatchesExpectedUser` puts in the envelope (access-core.ts:56-61).
+    const SERVER_ENGLISH =
+      "Session changed since this page was rendered — reload the page and try again";
+    stubFetchSequence([
+      () => loadOk(READY),
+      () => failedJson({ error: { code: "session_user_mismatch", message: SERVER_ENGLISH } }),
+    ]);
+
+    mount();
+
+    await screen.findByRole("button", { name: "Terbitkan" });
+    fireEvent.click(saveButton());
+
+    expect(await screen.findByText(SESSION_MISMATCH_MESSAGE)).toBeTruthy();
+    expect(screen.queryByText(SERVER_ENGLISH)).toBeNull();
   });
 
   it("offers Terbitkan when the server is ready, and refuses it on the client's own checks alone", async () => {

@@ -25,7 +25,10 @@ import {
   type CompetitionTimelineError,
   type CompetitionTimelineField,
 } from "@/lib/competitions/competition-timeline";
-import { sessionFetch } from "@/lib/session/session-fetch";
+import {
+  resolveSessionMismatchMessage,
+  sessionFetch,
+} from "@/lib/session/session-fetch";
 import {
   getPublishBlockerReason,
   resolvePublishReasonHref,
@@ -532,11 +535,11 @@ export const InstitutionCompetitionEditShell = ({
           ),
           actions: [{ label: "Mengerti", variant: "primary", autoClose: true, onClick: () => {} }],
         });
-        addToast({ type: "error", message });
+        addToast({ type: "error", message: resolveSessionMismatchMessage(code, message) });
         setIsSubmitting(false);
         return;
       }
-      addToast({ type: "error", message });
+      addToast({ type: "error", message: resolveSessionMismatchMessage(code, message) });
       setIsSubmitting(false);
       return;
     }
@@ -570,7 +573,13 @@ export const InstitutionCompetitionEditShell = ({
       const response = await sessionFetch(expectedUserId, url, { method: "POST" });
       if (!response.ok) {
         const { code, failures } = await extractError(response);
-        addToast({ type: "error", message: resolvePublishRefusalToastText(code, failures) });
+        addToast({
+          type: "error",
+          message: resolveSessionMismatchMessage(
+            code,
+            resolvePublishRefusalToastText(code, failures),
+          ),
+        });
         return;
       }
       addToast({ type: "success", message: "Status diterbitkan (published)." });

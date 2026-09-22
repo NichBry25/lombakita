@@ -17,7 +17,10 @@ import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
 import { resolveResultAnnouncement } from "@/lib/competitions/competition-phase";
 import { useWithdrawalAvailability } from "@/components/competitions/use-withdrawal-availability";
-import { sessionFetch } from "@/lib/session/session-fetch";
+import {
+  resolveSessionMismatchMessage,
+  sessionFetch,
+} from "@/lib/session/session-fetch";
 import { capitalizeFirst, capitalizeWord } from "@/lib/text/capitalize";
 import {
   getPublishBlockerReason,
@@ -207,12 +210,21 @@ export const InstitutionCompetitionDetailShell = ({
       // A publish refusal is translated from its code, never relayed. The server's message is
       // English and written for a log; the person who pressed the button gets Indonesian.
       if (action === "publish") {
-        addToast({ type: "error", message: resolvePublishRefusalToastText(code, failures) });
+        addToast({
+          type: "error",
+          message: resolveSessionMismatchMessage(
+            code,
+            resolvePublishRefusalToastText(code, failures),
+          ),
+        });
       } else {
         const failureText = formatFailures(failures);
         addToast({
           type: "error",
-          message: failureText ? `${message} (${failureText})` : message,
+          message: resolveSessionMismatchMessage(
+            code,
+            failureText ? `${message} (${failureText})` : message,
+          ),
         });
       }
       setPendingAction(null);
@@ -232,8 +244,8 @@ export const InstitutionCompetitionDetailShell = ({
       body: JSON.stringify({ decision }),
     });
     if (!response.ok) {
-      const { message } = await extractError(response);
-      addToast({ type: "error", message });
+      const { message, code } = await extractError(response);
+      addToast({ type: "error", message: resolveSessionMismatchMessage(code, message) });
       setPendingAction(null);
       return;
     }
@@ -254,8 +266,8 @@ export const InstitutionCompetitionDetailShell = ({
       { method: "DELETE" },
     );
     if (!response.ok && response.status !== 204) {
-      const { message } = await extractError(response);
-      addToast({ type: "error", message });
+      const { message, code } = await extractError(response);
+      addToast({ type: "error", message: resolveSessionMismatchMessage(code, message) });
       setPendingAction(null);
       return;
     }
