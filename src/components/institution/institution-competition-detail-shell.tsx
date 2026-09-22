@@ -138,6 +138,12 @@ export const InstitutionCompetitionDetailShell = ({
   // refreshes the competition refreshes what the server would say about publishing it.
   const [publishReadiness, setPublishReadiness] =
     useState<CompetitionPublishReadiness>(initialPublishReadiness);
+  // Whether the readiness above came from a live read. A refetch that FAILS leaves the answer
+  // UNKNOWN rather than stale — the same rule the edit shell applies (F5): the server is still the
+  // authority, so the control stays offered and pressing it sends the attempt, whose refusal arrives
+  // as Indonesian text through `competition-publish-messages`. Holding the last known value would
+  // disable the control on a reason nobody was shown.
+  const [readinessIsKnown, setReadinessIsKnown] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   // Several lifecycle actions live side by side; the key records which one is running so only
   // that button spins while the rest stay locked.
@@ -155,6 +161,8 @@ export const InstitutionCompetitionDetailShell = ({
     if (!response.ok) {
       const { message } = await extractError(response);
       addToast({ type: "error", message });
+      // The read failed, so the readiness on screen is no longer an answer to anything. Drop it.
+      setReadinessIsKnown(false);
       setIsLoading(false);
       return;
     }
@@ -168,6 +176,10 @@ export const InstitutionCompetitionDetailShell = ({
     setHasActiveRegistrations(data.hasActiveRegistrations);
     setParticipation(data.participation);
     if (data.publishReadiness) setPublishReadiness(data.publishReadiness);
+    // Set on every successful read, whether or not the optional key came with it: the flag records
+    // whether the last READ succeeded, not whether that read carried a new answer (the edit shell's
+    // A6 rule, applied here at the point it is introduced).
+    setReadinessIsKnown(true);
     setIsLoading(false);
   }, [competitionId, addToast]);
 
@@ -303,9 +315,14 @@ export const InstitutionCompetitionDetailShell = ({
   const isDraft = competition.status === "draft";
   const isPublished = competition.status === "published";
   const isCancelled = competition.cancelledAt !== null;
+  // Whether the server is known to refuse. An answer the shell could not REFRESH is not an answer,
+  // so an unknown readiness neither disables the control nor prints a reason against it.
+  const publishIsBlockedByServer = readinessIsKnown && !publishReadiness.canPublish;
   // Every reason the server would refuse a publish, in the publish path's own order. The detail
   // shell has no form, so there are no client-side reasons to add after these.
-  const publishBlockers = publishReadiness.blockers.map(getPublishBlockerReason);
+  const publishBlockers = publishIsBlockedByServer
+    ? publishReadiness.blockers.map(getPublishBlockerReason)
+    : [];
   // When no date was entered the public page falls back to one derived from the event end; show
   // the organizer the same value, marked as the estimate it is.
   const resolvedAnnouncement = resolveResultAnnouncement(competition);
@@ -511,10 +528,8 @@ export const InstitutionCompetitionDetailShell = ({
               <Button
                 onClick={() => onAction("publish")}
                 loading={pendingAction === "publish"}
-                disabled={isSubmitting || !publishReadiness.canPublish}
-                aria-describedby={
-                  publishReadiness.canPublish ? undefined : "publish-blocked-reason"
-                }
+                disabled={isSubmitting || publishIsBlockedByServer}
+                aria-describedby={publishIsBlockedByServer ? "publish-blocked-reason" : undefined}
               >
                 Terbitkan
               </Button>
@@ -530,7 +545,7 @@ export const InstitutionCompetitionDetailShell = ({
             {/* A disabled control has to say why, and it has to say it in the page rather than only
                 through aria-describedby: the reasons can carry links, and nothing inside a described
                 element is reachable by keyboard. */}
-            {publishReadiness.canPublish ? null : (
+            {publishIsBlockedByServer ? (
               <div className="form-field-aside" id="publish-blocked-reason">
                 <ul className="stack-xs">
                   {publishBlockers.map((reason) => (
@@ -553,7 +568,7 @@ export const InstitutionCompetitionDetailShell = ({
                   ))}
                 </ul>
               </div>
-            )}
+            ) : null}
           </div>
         ) : null}
         {isPublished && !isCancelled ? (
