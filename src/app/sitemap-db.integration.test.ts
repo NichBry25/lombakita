@@ -258,6 +258,33 @@ describe.skipIf(skipWithoutDatabase)("sitemap institution entries", () => {
   });
 });
 
+// R6, pinned as a DECISION rather than left to drift (C2.2). The two lists answer different
+// questions and this step deliberately made them disagree: an organizer's page stops being
+// ADVERTISED until platform ops verifies it, while the competitions it runs stay advertised. The
+// reason is the same in both directions — at launch no institution is verified, so tying the
+// competition sitemap to verification would empty it, and the competition page discloses no
+// organizer contact for the entry to expose.
+describe.skipIf(skipWithoutDatabase)(
+  "competition indexing is independent of organizer verification",
+  () => {
+    it("keeps a published competition whose organizer is unverified, and withholds the organizer", async () => {
+      await inRollback(async (tx) => {
+        const unverified = await seedInstitution(tx);
+        const published = await seedCompetition(tx, unverified.id, { status: "published" });
+
+        const competitions = await competitionSlugsIn(tx);
+        const organizers = await institutionSlugsIn(tx);
+
+        expect(
+          competitions,
+          "competitions stay indexed regardless of organizer verification: at launch no institution is verified, and the competition page exposes no organizer contact (C2.2 R6)",
+        ).toContain(published);
+        expect(organizers).not.toContain(unverified.slug);
+      });
+    });
+  },
+);
+
 // M7. Institution visibility used to be written twice — a JavaScript post-filter in
 // `getPublicInstitution` and a separately-authored WHERE clause in `listSitemapInstitutions` — so
 // the sitemap could start advertising organizers whose own page had stopped serving, and the
