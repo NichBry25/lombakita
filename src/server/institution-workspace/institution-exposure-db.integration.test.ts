@@ -311,6 +311,8 @@ describe.skipIf(skipWithoutDatabase)("contact disclosure by viewer", () => {
         expect(page.contactDisclosure).toEqual({
           kind: "members_only",
           canRequestVerification,
+          // Seen as a member, so the notice is the members-only one whatever else this account is.
+          viewerIsPlatformOps: false,
         });
       });
     }
@@ -333,6 +335,8 @@ describe.skipIf(skipWithoutDatabase)("contact disclosure by viewer", () => {
       expect(page.contactDisclosure).toEqual({
         kind: "members_only",
         canRequestVerification: false,
+        // Access by platform ops, not by membership — which is what the notice has to say.
+        viewerIsPlatformOps: true,
       });
     });
   });

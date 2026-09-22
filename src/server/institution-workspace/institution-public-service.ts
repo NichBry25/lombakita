@@ -59,13 +59,20 @@ export const ANONYMOUS_INSTITUTION_VIEWER: InstitutionPublicViewer = {
  * against the database, and the client is never handed a contact it may not render.
  *
  * - `public`         — verified institution. Contacts shown, no notice.
- * - `members_only`   — unverified, viewer is an insider. Contacts shown, members-only notice.
+ * - `members_only`   — unverified, viewer is an insider. Contacts shown, and the notice names which
+ *                       kind of insider: a member of the institution, or Lombakita's own team
+ *                       looking in with no membership at all.
  * - `preview_hidden` — unverified, insider, but the viewer is in public preview. Contacts hidden.
  * - `hidden`         — nobody to show them to (or nothing to show). Section omitted entirely.
  */
 export type InstitutionContactDisclosure =
   | { kind: "public" }
-  | { kind: "members_only"; canRequestVerification: boolean }
+  | {
+      kind: "members_only";
+      canRequestVerification: boolean;
+      /** True when this viewer sees the contacts as platform ops rather than as a member. */
+      viewerIsPlatformOps: boolean;
+    }
   | { kind: "preview_hidden" }
   | { kind: "hidden" };
 
@@ -198,7 +205,9 @@ const resolveContactDisclosure = async (
       ? await isInstitutionAdminBySlug(viewer.userId, institution.slug, db)
       : false;
 
-  return { kind: "members_only", canRequestVerification };
+  // `isMember` is already known false for the platform-ops viewer that reached here, so this names
+  // the account whose access is platform ops rather than a relationship with the institution.
+  return { kind: "members_only", canRequestVerification, viewerIsPlatformOps: !isMember };
 };
 
 export const getPublicInstitution = async (

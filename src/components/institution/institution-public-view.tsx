@@ -166,9 +166,13 @@ export function InstitutionPublicView({
           </div>
           {contactDisclosure.kind === "members_only" && (
             <Feedback tone="info">
+              {/* Two different reasons one section is visible: a relationship with the institution,
+                  or a platform-ops account looking in without one. The second is not a member, so
+                  the members-only sentence would be false to them. */}
               <p>
-                Kontak ini hanya terlihat oleh anggota institusi. Publik akan melihatnya setelah
-                institusi terverifikasi.
+                {contactDisclosure.viewerIsPlatformOps
+                  ? "Kontak ini terlihat oleh Anda sebagai tim Lombakita. Publik akan melihatnya setelah institusi terverifikasi."
+                  : "Kontak ini hanya terlihat oleh anggota institusi. Publik akan melihatnya setelah institusi terverifikasi."}
               </p>
               {contactDisclosure.canRequestVerification && (
                 <Link href={`/institution/${institution.slug}/verification`}>
