@@ -429,10 +429,16 @@ describe.skipIf(skipWithoutDatabase)("contact disclosure by viewer", () => {
 // ─── The public API carries no contact ────────────────────────────────────────
 //
 // THE ONE MOCK IN THIS FILE, and it is drawn at connection selection rather than at the route. The
-// route reads the application's pooled client, whose connection string is captured from
-// `process.env` at module load; the test process has no `DATABASE_URL` in its environment (the DB
-// suites read it from `.env.local` directly), so `getDb()` cannot be called here at all. This hands
-// the route the SAME transaction the fixtures were seeded in.
+// fixtures are seeded inside a transaction this file opened on its own client, and that transaction
+// is never committed. The route reads the application's POOLED client instead — `getDb()` builds a
+// five-connection pool over `DATABASE_URL` (server/db/client.ts:28-54) — and a second connection
+// cannot see another session's uncommitted rows, so an unmocked route would answer 404 over fixtures
+// that are right there. The mock is what puts the route and the fixtures on ONE connection.
+//
+// It is not a workaround for a missing variable. Run this suite the way CI runs it, `DATABASE_URL` is
+// exported into the process alongside `REQUIRE_DB_TESTS=1` (.github/workflows/ci.yml:46-52), and
+// `getDb()` is fully configured and reachable. The reason the mock is needed is the connection, not
+// the environment.
 //
 // What that leaves real: the route handler, its 200/404/500 branches, the service, every query, and
 // the serialization — this is the response body an anonymous caller receives. What it replaces is
