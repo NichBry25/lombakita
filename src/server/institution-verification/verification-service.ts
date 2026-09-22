@@ -29,6 +29,11 @@ import {
   VerificationError,
 } from "@/server/institution-verification/verification-core";
 import {
+  OperatorActorError,
+  resolvePlatformOpsActor,
+} from "@/server/platform-ops/operator-actor";
+import { isInstitutionMemberBySlug } from "@/server/institution-members/member-service";
+import {
   sendInstitutionRejectedEmail,
   sendInstitutionVerificationRevokedEmail,
   sendInstitutionVerifiedEmail,
@@ -229,7 +234,18 @@ export const verifyInstitution = async (options: {
     verificationStatus: InstitutionVerificationStatus;
   };
 
+  // Assigned inside the transaction, read by the logger after it commits.
+  let resolvedActorUserId: string | null = null;
+
   await db.transaction(async (tx) => {
+    // THE ACTOR IS READ FIRST, AND FROM THE DATABASE (LAUNCH-D72, mirrors
+    // recruiter-tier-service.ts:120-129). `options.actorUserId` is whatever the caller claimed; the
+    // refusal codes below are about the caller's own account, and the audit row must name the
+    // account the database answered with rather than the one that was asserted. Reading it first
+    // also means a caller with no business here learns nothing about the target.
+    const actor = await resolvePlatformOpsActor(tx, options.actorUserId);
+    resolvedActorUserId = actor.userId;
+
     // Read and write in one transaction, and pin the UPDATE to the status this decision was made
     // against. Two concurrent PATCHes previously both passed assertValidTransition and both
     // committed, leaving the loser's audit row describing a transition that never happened — which
@@ -239,6 +255,7 @@ export const verifyInstitution = async (options: {
         displayName: institutions.displayName,
         institutionType: institutions.institutionType,
         verificationStatus: institutions.verificationStatus,
+        slug: institutions.slug,
       })
       .from(institutions)
       .where(eq(institutions.id, options.institutionId))
@@ -246,6 +263,20 @@ export const verifyInstitution = async (options: {
 
     if (!row) {
       throw new VerificationError("verification_not_found", 404, "Institution not found");
+    }
+
+    // NOBODY DECIDES THEIR OWN INSTITUTION. An operator who is an active member of the institution
+    // — any role, so an ordinary member counts and not just the owner — is judging an organization
+    // they are inside. The audit row would record a review that reads exactly like an independent
+    // one, and the membership is precisely what makes it not. Refused before the transition is
+    // validated and before anything is written, so the target's status and audit trail are
+    // untouched by the attempt.
+    if (await isInstitutionMemberBySlug(actor.userId, row.slug, tx)) {
+      throw new OperatorActorError(
+        "operator_actor_conflicted",
+        403,
+        "A platform-ops account cannot decide the verification of an institution it submitted for or belongs to",
+      );
     }
 
     current = row;
@@ -294,7 +325,8 @@ export const verifyInstitution = async (options: {
       .insert(institutionVerificationAudit)
       .values({
         institutionId: options.institutionId,
-        actorUserId: options.actorUserId,
+        // The RESOLVED id, not the claimed one.
+        actorUserId: actor.userId,
         fromStatus: row.verificationStatus,
         toStatus: options.targetStatus,
         reason: options.reason ?? null,
@@ -317,7 +349,7 @@ export const verifyInstitution = async (options: {
 
   logger.info("institution.verification.transitioned", {
     institutionId: options.institutionId,
-    actorUserId: options.actorUserId,
+    actorUserId: resolvedActorUserId,
     from: current!.verificationStatus,
     to: options.targetStatus,
     reason: options.reason,

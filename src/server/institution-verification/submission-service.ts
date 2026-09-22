@@ -19,6 +19,11 @@ import {
 } from "@/server/db/schema";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { assertValidTransition } from "@/server/institution-verification/verification-core";
+import {
+  OperatorActorError,
+  resolvePlatformOpsActor,
+} from "@/server/platform-ops/operator-actor";
+import { isInstitutionMemberBySlug } from "@/server/institution-members/member-service";
 import { getInstitutionDisplayName } from "@/server/institution-workspace/institution-display-name";
 import { isR2Available, generatePresignedPutUrl } from "@/server/storage/r2.client";
 import { logger } from "@/lib/logger";
@@ -518,18 +523,22 @@ export const reviewVerificationSubmission = async (
   decision: "approved" | "rejected",
   reviewerNotes: string | null,
   reviewerUserId: string,
-  actorRole: string,
   db: Database = getDb(),
 ): Promise<{
   submissionId: string;
   status: VerificationSubmissionStatus;
   emailDelivery: EmailDeliveryOutcome | null;
 }> => {
-  if (actorRole !== "platform_ops") {
-    throw new AccessError("forbidden", 403, "platform_ops access required");
-  }
-
   const reviewed = await db.transaction(async (tx) => {
+    // THE ACTOR IS READ FIRST, FROM THE DATABASE, AND THE `actorRole` PARAMETER IS GONE
+    // (LAUNCH-D72, mirrors recruiter-tier-service.ts:120-129). The parameter used to be the
+    // authority: the caller passed the session's role string and this function believed it. That
+    // made the role a claim, and every audit row below records an actor id — so the claim and the
+    // recorded actor could disagree with everything the database knows. `resolvePlatformOpsActor`
+    // refuses a missing account, a non-platform_ops role and a suspended one, and the id it returns
+    // is the one the database answered with.
+    const actor = await resolvePlatformOpsActor(tx, reviewerUserId);
+
     // CAS guard: only pending_review submissions can be reviewed.
     const [sub] = await tx
       .select({
@@ -572,18 +581,63 @@ export const reviewVerificationSubmission = async (
       throw new SubmissionError("institution_not_found", 404, "Institution not found");
     }
 
+    // NOBODY DECIDES A SUBMISSION THEY FILED, OR AN INSTITUTION THEY BELONG TO. The first arm is
+    // why the submission row is read at all before this point — `submittedByUserId` is a property of
+    // the target, not of the caller, so unlike the three account refusals it cannot be answered
+    // before the read. The second arm is the any-role membership check: an ordinary
+    // `institution_member` counts, because the problem is being on the inside rather than holding
+    // an operational permission. Both are refused before any write, so a refused decision leaves the
+    // submission, the institution, the audit trail and the mailer exactly as it found them.
+    if (actor.userId === sub.submittedByUserId) {
+      throw new OperatorActorError(
+        "operator_actor_conflicted",
+        403,
+        "A platform-ops account cannot decide the verification of an institution it submitted for or belongs to",
+      );
+    }
+    if (await isInstitutionMemberBySlug(actor.userId, inst.slug, tx)) {
+      throw new OperatorActorError(
+        "operator_actor_conflicted",
+        403,
+        "A platform-ops account cannot decide the verification of an institution it submitted for or belongs to",
+      );
+    }
+
     const now = new Date();
 
     if (decision === "rejected") {
-      await tx
+      // PINNED TO pending_review. Two reviewers rejecting the same submission at the same moment
+      // both pass the status check above and both reach this UPDATE; without the pin both land, and
+      // the loser's audit row describes a rejection that was the winner's. The pin makes exactly one
+      // of them match a row, and the other is refused below without having written anything.
+      const [rejected] = await tx
         .update(institutionVerificationSubmissions)
-        .set({ status: "rejected", reviewerUserId, reviewerNotes, reviewedAt: now })
-        .where(eq(institutionVerificationSubmissions.id, submissionId));
+        .set({
+          status: "rejected",
+          reviewerUserId: actor.userId,
+          reviewerNotes,
+          reviewedAt: now,
+        })
+        .where(
+          and(
+            eq(institutionVerificationSubmissions.id, submissionId),
+            eq(institutionVerificationSubmissions.status, "pending_review"),
+          ),
+        )
+        .returning({ id: institutionVerificationSubmissions.id });
+
+      if (!rejected) {
+        throw new SubmissionError(
+          "verification_transition_conflict",
+          409,
+          "This submission was reviewed while you were deciding. Reload and try again",
+        );
+      }
 
       // Audit every review decision — rejections are moderation actions just as approvals are.
       await tx.insert(institutionVerificationAudit).values({
         institutionId: sub.institutionId,
-        actorUserId: reviewerUserId,
+        actorUserId: actor.userId,
         fromStatus: inst.verificationStatus,
         toStatus: inst.verificationStatus,
         reason: reviewerNotes ?? null,
@@ -592,7 +646,7 @@ export const reviewVerificationSubmission = async (
       logger.info("institution.verification.submission.rejected", {
         submissionId,
         institutionId: sub.institutionId,
-        reviewerUserId,
+        reviewerUserId: actor.userId,
       });
 
       return { submissionId, status: "rejected" as const, institutionId: sub.institutionId };
@@ -632,7 +686,7 @@ export const reviewVerificationSubmission = async (
     // Write audit entry (mirrors verifyInstitution from verification-service.ts).
     await tx.insert(institutionVerificationAudit).values({
       institutionId: sub.institutionId,
-      actorUserId: reviewerUserId,
+      actorUserId: actor.userId,
       fromStatus: inst.verificationStatus,
       toStatus: "verified",
       reason: reviewerNotes ?? null,
@@ -641,13 +695,13 @@ export const reviewVerificationSubmission = async (
     // Mark submission approved.
     await tx
       .update(institutionVerificationSubmissions)
-      .set({ status: "approved", reviewerUserId, reviewerNotes, reviewedAt: now })
+      .set({ status: "approved", reviewerUserId: actor.userId, reviewerNotes, reviewedAt: now })
       .where(eq(institutionVerificationSubmissions.id, submissionId));
 
     logger.info("institution.verification.submission.approved", {
       submissionId,
       institutionId: sub.institutionId,
-      reviewerUserId,
+      reviewerUserId: actor.userId,
     });
 
     // Verification never renames an institution, so the name read above is still the current one

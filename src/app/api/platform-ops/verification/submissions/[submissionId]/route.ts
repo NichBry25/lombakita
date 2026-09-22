@@ -8,6 +8,7 @@ import {
   SubmissionError,
 } from "@/server/institution-verification/submission-service";
 import { VerificationError } from "@/server/institution-verification/verification-core";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 
 type RouteContext = { params: Promise<{ submissionId: string }> };
 
@@ -61,17 +62,28 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
     const reviewerNotes =
       typeof raw.reviewerNotes === "string" ? raw.reviewerNotes.trim() || null : null;
 
+    // The role is not passed: the service resolves the acting account from the database and that
+    // resolution is the authority. `requireSessionRole` above is the route's own gate.
     const result = await reviewVerificationSubmission(
       submissionId,
       decision,
       reviewerNotes,
       session.user.id,
-      session.user.role,
     );
 
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof SubmissionError) {
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status },
+      );
+    }
+    // The caller's own account was refused — including `operator_actor_conflicted`, which says this
+    // reviewer is inside the institution they are deciding. Echoed for the same reason the
+    // recruiter-tier route echoes it (accounts/[accountId]/recruiter-tier/route.ts:69-74): the code
+    // describes the caller's relationship to the target, not a property of the target.
+    if (error instanceof OperatorActorError) {
       return NextResponse.json(
         { error: { code: error.code, message: error.message } },
         { status: error.status },

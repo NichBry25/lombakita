@@ -187,14 +187,7 @@ const main = async (): Promise<void> => {
       );
 
       const approve = () =>
-        reviewVerificationSubmission(
-          submission.id,
-          "approved",
-          "Dokumen lengkap",
-          reviewerId,
-          "platform_ops",
-          db,
-        );
+        reviewVerificationSubmission(submission.id, "approved", "Dokumen lengkap", reviewerId, db);
       const revoke = () =>
         verifyInstitution({
           institutionId: institution.id,
