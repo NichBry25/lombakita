@@ -920,18 +920,24 @@ const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection
   if (which === "completable-with-objects") {
     const holding: { id: string; keys: number }[] = [];
     for (const id of deletable) {
+      // The pre-flight runs before any case can execute, so a subject it refuses would end this case
+      // in the refusal rather than in the omission the case exists to demonstrate.
+      if ((await institutionsLeftWithoutAnOwner(sql, id)).length > 0) continue;
       const keys = await countObjectKeys(sql, id);
       if (keys.length > 0) holding.push({ id, keys: keys.length });
     }
     if (holding.length === 0) {
       throw new ProcedureRefusal(
-        "no deletable account holds an R2 object key, so removing the object-key capture would " +
-          "leave nothing to fail to capture and the case would report a pass it had not earned",
+        "no deletable account the pre-flight would not refuse holds an R2 object key, so removing " +
+          "the object-key capture would leave nothing to fail to capture and the case would report " +
+          "a pass it had not earned",
       );
     }
     return {
       userId: holding[0]!.id,
-      criterion: `${base}, and holding at least one R2 object key; ties broken by lowest \`users.id\``,
+      criterion:
+        `${base}, holding at least one R2 object key, and not one the pre-flight refuses; ties ` +
+        "broken by lowest `users.id`",
       matched: holding.length,
     };
   }

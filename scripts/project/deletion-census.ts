@@ -154,6 +154,7 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "accounts.access_token",
   "accounts.id_token",
   "accounts.session_state",
+  "accounts.provider_account_id",
   // candidate_profiles
   "candidate_profiles.full_name",
   "candidate_profiles.phone_number",
@@ -299,10 +300,6 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
     reason: "the Auth.js account type code (`oauth` / `email` / `credentials`)",
   },
   { column: "accounts.provider", reason: "the Auth.js provider slug (`google`)" },
-  {
-    column: "accounts.provider_account_id",
-    reason: "an app-minted id; nothing a person typed reaches it",
-  },
   {
     column: "accounts.token_type",
     reason: "the OAuth token-type token the provider returned (`bearer`)",
