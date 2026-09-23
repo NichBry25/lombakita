@@ -34,6 +34,7 @@ const serverReporting = (databaseName: string) => ({
 });
 
 const disposableContext = {
+  verb: "reset" as const,
   appEnv: "local" as const,
   databaseUrl: LOCAL_URL,
   redisUrl: "redis://localhost:6379",
@@ -76,7 +77,7 @@ describe("resolving which database the reset targets", () => {
     withUrls(migration, database);
 
     try {
-      resolveResetTarget();
+      resolveResetTarget("reset");
     } catch (error: unknown) {
       return error;
     }
@@ -117,13 +118,13 @@ describe("resolving which database the reset targets", () => {
   it("treats an empty MIGRATION_DATABASE_URL as absent and falls back to DATABASE_URL", () => {
     withUrls("", LOCAL_URL);
 
-    expect(resolveResetTarget()).toBe(LOCAL_URL);
+    expect(resolveResetTarget("reset")).toBe(LOCAL_URL);
   });
 
   it("treats an empty DATABASE_URL as absent and uses MIGRATION_DATABASE_URL", () => {
     withUrls(LOCAL_URL, "");
 
-    expect(resolveResetTarget()).toBe(LOCAL_URL);
+    expect(resolveResetTarget("reset")).toBe(LOCAL_URL);
   });
 
   // Two roles against one database is the arrangement working correctly, not a disagreement. A
@@ -134,7 +135,7 @@ describe("resolving which database the reset targets", () => {
       "postgres://lombakita_app:pw@localhost:5432/lombakita",
     );
 
-    expect(resolveResetTarget()).toContain("lombakita_migrate");
+    expect(resolveResetTarget("reset")).toContain("lombakita_migrate");
   });
 });
 
@@ -150,7 +151,7 @@ describe("the protected database list", () => {
 
 describe("the database-identity layer", () => {
   it("refuses the production database by the name the server reported", () => {
-    const refusal = findDatabaseNameRefusal("lombakita_production");
+    const refusal = findDatabaseNameRefusal("reset", "lombakita_production");
 
     expect(refusal?.layer).toBe("database-identity");
     expect(refusal?.message).toContain("lombakita_production");
@@ -158,52 +159,90 @@ describe("the database-identity layer", () => {
   });
 
   it("refuses the staging database", () => {
-    expect(findDatabaseNameRefusal("lombakita_staging")?.layer).toBe("database-identity");
+    expect(findDatabaseNameRefusal("reset", "lombakita_staging")?.layer).toBe("database-identity");
   });
 
   it("permits a database that is not protected", () => {
-    expect(findDatabaseNameRefusal("lombakita")).toBeNull();
-    expect(findDatabaseNameRefusal("lombakita_ci")).toBeNull();
+    expect(findDatabaseNameRefusal("reset", "lombakita")).toBeNull();
+    expect(findDatabaseNameRefusal("reset", "lombakita_ci")).toBeNull();
   });
 });
 
 describe("the environment layer", () => {
   it.each(["production", "preview", "staging"] as const)("refuses %s", (appEnv) => {
-    const refusal = findEnvironmentRefusal(appEnv);
+    const refusal = findEnvironmentRefusal("reset", appEnv);
 
     expect(refusal?.layer).toBe("environment");
     expect(refusal?.message).toContain(appEnv);
   });
 
   it.each(["local", "test"] as const)("permits %s", (appEnv) => {
-    expect(findEnvironmentRefusal(appEnv)).toBeNull();
+    expect(findEnvironmentRefusal("reset", appEnv)).toBeNull();
   });
 
   // An ALLOW-LIST is the whole point: a deny-list would have to enumerate every way of being
   // production, and would permit whichever one it had not thought of.
   it("refuses an environment nobody has classified", () => {
-    expect(findEnvironmentRefusal("staging-two" as never)?.layer).toBe("environment");
+    expect(findEnvironmentRefusal("reset", "staging-two" as never)?.layer).toBe("environment");
   });
 });
 
 describe("the connection-host layer", () => {
   it("refuses a remote host", () => {
-    const refusal = findConnectionHostRefusal(REMOTE_URL, "DATABASE_URL");
+    const refusal = findConnectionHostRefusal("reset", REMOTE_URL, "DATABASE_URL");
 
     expect(refusal?.layer).toBe("connection-host");
     expect(refusal?.message).toContain("ep-thing.ap-southeast-1.aws.neon.tech");
   });
 
   it("permits loopback in every spelling, including bracketed IPv6", () => {
-    expect(findConnectionHostRefusal(LOCAL_URL, "DATABASE_URL")).toBeNull();
-    expect(findConnectionHostRefusal("postgres://u:p@127.0.0.1/db", "DATABASE_URL")).toBeNull();
-    expect(findConnectionHostRefusal("postgres://u:p@[::1]:5432/db", "DATABASE_URL")).toBeNull();
+    expect(findConnectionHostRefusal("reset", LOCAL_URL, "DATABASE_URL")).toBeNull();
+    expect(findConnectionHostRefusal("reset", "postgres://u:p@127.0.0.1/db", "DATABASE_URL")).toBeNull();
+    expect(findConnectionHostRefusal("reset", "postgres://u:p@[::1]:5432/db", "DATABASE_URL")).toBeNull();
   });
 
   // An unparseable string is refused rather than waved through: a caller uses this to decide
   // whether it may destroy a database, and a string this cannot read is not one to destroy through.
   it("refuses a string it cannot parse", () => {
-    expect(findConnectionHostRefusal("not-a-url", "DATABASE_URL")?.layer).toBe("connection-host");
+    expect(findConnectionHostRefusal("reset", "not-a-url", "DATABASE_URL")?.layer).toBe("connection-host");
+  });
+});
+
+/**
+ * The verb, and why it is a parameter rather than a constant.
+ *
+ * Three lanes connect through this guard and each one refuses a different operation. A deletion
+ * runner whose refusal said "refusing to reset" named an operation its operator had not asked for
+ * (LAUNCH-D144), and the blast radius of the two is not the same thing to be wrong about. The reset
+ * lane's own bytes are pinned separately, by the probe suite and by the reset lane's output being
+ * diffed before and after the parameter existed.
+ */
+describe("the verb a refusal speaks in", () => {
+  it.each(["reset", "delete", "provision"] as const)("says %s in every layer's message", (verb) => {
+    const messages = [
+      findDatabaseNameRefusal(verb, "lombakita_production")?.message,
+      findEnvironmentRefusal(verb, "production")?.message,
+      findConnectionHostRefusal(verb, REMOTE_URL, "DATABASE_URL")?.message,
+    ];
+
+    const others = (["reset", "delete", "provision"] as const).filter((other) => other !== verb);
+
+    for (const message of messages) {
+      expect(message).toContain(`refusing to ${verb}: `);
+      for (const other of others) {
+        expect(message).not.toContain(`refusing to ${other}: `);
+      }
+    }
+  });
+
+  it("passes the caller's verb through to the thrown error", async () => {
+    const refused = await assertResetTargetIsDisposable(serverReporting("lombakita"), {
+      ...disposableContext,
+      verb: "delete",
+      appEnv: "production",
+    }).catch((error: unknown) => error);
+
+    expect((refused as ResetRefused).message).toContain('refusing to delete: APP_ENV resolves to');
   });
 });
 
@@ -333,7 +372,7 @@ describe("the declared environment", () => {
     ] as const) {
       withEnvironment(app, publicApp);
 
-      expect(findEnvironmentRefusal(declaredAppEnvironment())).not.toBeNull();
+      expect(findEnvironmentRefusal("reset", declaredAppEnvironment())).not.toBeNull();
     }
   });
 });

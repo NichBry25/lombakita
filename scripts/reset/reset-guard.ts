@@ -21,6 +21,11 @@
  *
  * Layers 2 and 3 read configuration and can therefore be lied to. Layer 1 cannot, which is why the
  * other two may only ever ADD a refusal and none of them may grant permission on its own.
+ *
+ * ONE GUARD, THREE LANES. The reset drops every table; the deletion runner deletes one account; the
+ * provisioning runner writes operator rows. All three ask the same three questions of the same
+ * connection, so the questions live here once and the ANSWER IS PHRASED IN THE ASKER'S VERB — a
+ * `GuardedVerb` parameter, not a constant. See `refusalPrefix`.
  */
 
 import { CANONICAL_DATABASE_NAME } from "@/config/env-shape";
@@ -46,6 +51,20 @@ export const PROTECTED_DATABASE_NAMES: readonly string[] = Object.freeze(
  * any future environment name by not mentioning it.
  */
 const DISPOSABLE_ENVIRONMENTS: readonly AppEnvironment[] = Object.freeze(["local", "test"]);
+
+/**
+ * The operation a guarded connection is about to perform, as the caller's own word for it.
+ *
+ * The three layers below are one guard with three callers, and a refusal is only readable if it
+ * names what it refused. Before this, every message said "refusing to reset" whoever asked — so the
+ * deletion runner told its operator that a *reset* had been refused, which is a different operation
+ * with a different blast radius (LAUNCH-D144). The word is a parameter now, and the reset lane's own
+ * bytes are unchanged by it.
+ */
+export type GuardedVerb = "reset" | "delete" | "provision";
+
+/** Every message this module produces opens with this, so a caller reads its own operation refused. */
+const refusalPrefix = (verb: GuardedVerb): string => `refusing to ${verb}: `;
 
 export type ResetRefusal = {
   /**
@@ -74,7 +93,10 @@ export type ResetRefusal = {
  * possible to call this with the string instead of the server's answer, which is the whole defect
  * it exists to prevent.
  */
-export const findDatabaseNameRefusal = (databaseName: string): ResetRefusal | null => {
+export const findDatabaseNameRefusal = (
+  verb: GuardedVerb,
+  databaseName: string,
+): ResetRefusal | null => {
   if (!PROTECTED_DATABASE_NAMES.includes(databaseName)) {
     return null;
   }
@@ -82,14 +104,17 @@ export const findDatabaseNameRefusal = (databaseName: string): ResetRefusal | nu
   return {
     layer: "database-identity",
     message:
-      `refusing to reset: the server on this connection reports current_database() = ` +
+      `${refusalPrefix(verb)}the server on this connection reports current_database() = ` +
       `"${databaseName}", which is a protected database (${PROTECTED_DATABASE_NAMES.join(", ")}). ` +
       "This is the database's own answer, not the connection string's, so there is no value to " +
       "correct here other than where this process is pointed.",
   };
 };
 
-export const findEnvironmentRefusal = (appEnv: AppEnvironment): ResetRefusal | null => {
+export const findEnvironmentRefusal = (
+  verb: GuardedVerb,
+  appEnv: AppEnvironment,
+): ResetRefusal | null => {
   if (DISPOSABLE_ENVIRONMENTS.includes(appEnv)) {
     return null;
   }
@@ -97,13 +122,17 @@ export const findEnvironmentRefusal = (appEnv: AppEnvironment): ResetRefusal | n
   return {
     layer: "environment",
     message:
-      `refusing to reset: APP_ENV resolves to "${appEnv}", and the reset path runs only in ` +
-      `${DISPOSABLE_ENVIRONMENTS.join(" or ")}. There is deliberately no override flag: a reset ` +
-      "that can be authorised is a reset that will eventually be authorised by mistake.",
+      `${refusalPrefix(verb)}APP_ENV resolves to "${appEnv}", and the ${verb} path runs only in ` +
+      `${DISPOSABLE_ENVIRONMENTS.join(" or ")}. There is deliberately no override flag: a ` +
+      `${verb} that can be authorised is a ${verb} that will eventually be authorised by mistake.`,
   };
 };
 
-export const findConnectionHostRefusal = (url: string, variable: string): ResetRefusal | null => {
+export const findConnectionHostRefusal = (
+  verb: GuardedVerb,
+  url: string,
+  variable: string,
+): ResetRefusal | null => {
   if (isLoopbackUrl(url)) {
     return null;
   }
@@ -111,7 +140,7 @@ export const findConnectionHostRefusal = (url: string, variable: string): ResetR
   return {
     layer: "connection-host",
     message:
-      `refusing to reset: ${variable} points at "${parseDatabaseHost(url) ?? "<unparseable>"}", ` +
+      `${refusalPrefix(verb)}${variable} points at "${parseDatabaseHost(url) ?? "<unparseable>"}", ` +
       "which is not loopback. This is the weakest of the three checks — it reads configuration " +
       "rather than asking the server — and it is here to add a refusal, never to grant one.",
   };
@@ -176,7 +205,7 @@ const addressOf = (url: string): string => {
  * refusal whose message nobody checks. `reset-local.ts` runs `main()` at module scope, so nothing
  * can import from it to test.
  */
-export const resolveResetTarget = (): string => {
+export const resolveResetTarget = (verb: GuardedVerb): string => {
   // `presentOrUndefined`, never `??`. With `??` an empty MIGRATION_DATABASE_URL is a present value
   // that shadows a correctly set DATABASE_URL, so the target resolved to "" and this refused with
   // "must be set" while DATABASE_URL was set the whole time: fail-closed, but naming a cause the
@@ -189,8 +218,8 @@ export const resolveResetTarget = (): string => {
     throw new ResetRefused({
       layer: "target-configuration",
       message:
-        "refusing to reset: neither DATABASE_URL nor MIGRATION_DATABASE_URL names a database, so " +
-        "there is nothing for the identity, environment and host layers to be asked about.",
+        `${refusalPrefix(verb)}neither DATABASE_URL nor MIGRATION_DATABASE_URL names a database, ` +
+        "so there is nothing for the identity, environment and host layers to be asked about.",
     });
   }
 
@@ -204,8 +233,8 @@ export const resolveResetTarget = (): string => {
     throw new ResetRefused({
       layer: "target-coherence",
       message:
-        `refusing to reset: MIGRATION_DATABASE_URL points at ${addressOf(migrationUrl)} and ` +
-        `DATABASE_URL at ${addressOf(databaseUrl)}. The reset would drop one and leave the app ` +
+        `${refusalPrefix(verb)}MIGRATION_DATABASE_URL points at ${addressOf(migrationUrl)} and ` +
+        `DATABASE_URL at ${addressOf(databaseUrl)}. The ${verb} would drop one and leave the app ` +
         "pointed at the other. Point them at the same database.\n" +
         "This is the coherence check, NOT the database-identity layer. If you changed one variable " +
         "to exercise identity, point both at that database instead; otherwise this refuses first " +
@@ -239,7 +268,12 @@ export type IdentifiableConnection = {
  */
 export const assertResetTargetIsDisposable = async (
   connection: IdentifiableConnection,
-  context: { appEnv: AppEnvironment; databaseUrl: string; redisUrl: string | null },
+  context: {
+    verb: GuardedVerb;
+    appEnv: AppEnvironment;
+    databaseUrl: string;
+    redisUrl: string | null;
+  },
 ): Promise<void> => {
   const refuseIf = (refusal: ResetRefusal | null): void => {
     if (refusal) {
@@ -247,11 +281,11 @@ export const assertResetTargetIsDisposable = async (
     }
   };
 
-  refuseIf(findEnvironmentRefusal(context.appEnv));
-  refuseIf(findConnectionHostRefusal(context.databaseUrl, "DATABASE_URL"));
+  refuseIf(findEnvironmentRefusal(context.verb, context.appEnv));
+  refuseIf(findConnectionHostRefusal(context.verb, context.databaseUrl, "DATABASE_URL"));
 
   if (context.redisUrl !== null) {
-    refuseIf(findConnectionHostRefusal(context.redisUrl, "REDIS_URL"));
+    refuseIf(findConnectionHostRefusal(context.verb, context.redisUrl, "REDIS_URL"));
   }
 
   const rows = await connection.unsafe("select current_database() as db, current_user as usr");
@@ -263,15 +297,15 @@ export const assertResetTargetIsDisposable = async (
     throw new ResetRefused({
       layer: "database-identity",
       message:
-        "refusing to reset: connected, but the server returned no identity row, so the database " +
-        "about to be dropped has not been named by anything.",
+        `${refusalPrefix(context.verb)}connected, but the server returned no identity row, so ` +
+        "the database about to be dropped has not been named by anything.",
     });
   }
 
-  refuseIf(findDatabaseNameRefusal(identity.db));
+  refuseIf(findDatabaseNameRefusal(context.verb, identity.db));
 
   console.log(
-    `reset target: database "${identity.db}" as "${String(identity.usr)}" ` +
+    `${context.verb} target: database "${identity.db}" as "${String(identity.usr)}" ` +
       `(APP_ENV=${context.appEnv}, host=${parseDatabaseHost(context.databaseUrl) ?? "<unparseable>"})`,
   );
 };

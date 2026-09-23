@@ -13,10 +13,19 @@
 // census derives, and that it does so in the order it says it does.
 
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { COMPANY } from "@/config/company";
-import { blockingForeignKeys, R2_PREFIXES } from "./deletion-census";
+import {
+  R2_PREFIXES,
+  blockingForeignKeys,
+  cascadeClosure,
+  detachingForeignKeys,
+  personalColumnsOf,
+  schemaForeignKeys,
+  schemaTableNames,
+  survivingPersonalColumns,
+} from "./deletion-census";
 import {
   DEMONSTRATION_CASES,
   parseProcedure,
@@ -26,15 +35,20 @@ import {
 
 const POLICY_PAGE = "src/app/kebijakan-privasi/page.tsx";
 
+/** The doc lane's own root, so the two read failures above can be told apart. */
+const DOC_LANE = "docs";
+
 /**
  * Read once, at module scope: every assertion below is about one document, and parsing it per test
  * would let the file hold two different procedures at once.
  *
- * The read can fail. `docs/` is its own private repository (Rule 26) and is gitignored in the
- * product repo, so a checkout without the doc lane has no procedure at that path. It refuses with
- * that sentence rather than letting an ENOENT out of the parser, because the missing thing is the
- * lane, not the statement. This file refuses at collection; `register-census.test.ts` measures the
- * same lane and refuses at run time. Naming the lane is the property both share.
+ * The read can fail, and the two ways it fails are different documents' problems. `docs/` absent
+ * means the doc lane did not check out — a token scoped to the wrong repository, or a checkout that
+ * skipped the second clone. `docs/` present with this file missing means the lane is here and this
+ * one document is not, which is what a doc-repository commit that was never pushed looks like. One
+ * sentence for both sent the reader to the checkout when the answer was the file. This file refuses
+ * at collection; `register-census.test.ts` measures the same lane and refuses at run time. Naming
+ * the lane is the property both share.
  */
 const readProcedure = (): string => {
   try {
@@ -42,9 +56,18 @@ const readProcedure = (): string => {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 
+    if (!existsSync(DOC_LANE)) {
+      throw new Error(
+        `the account-deletion procedure is not readable at ${PROCEDURE_PATH}: the doc lane ` +
+          `(\`docs/\`, its own private repository under Rule 26) is not present in this checkout.`,
+      );
+    }
+
     throw new Error(
-      `the account-deletion procedure is not readable at ${PROCEDURE_PATH}: the doc lane ` +
-        `(\`docs/\`, its own private repository under Rule 26) is not present in this checkout.`,
+      `the account-deletion procedure is not readable at ${PROCEDURE_PATH}: the doc lane is ` +
+        "present in this checkout and does not hold this file. It is tracked in the doc " +
+        "repository, so this is a document that was never committed or pushed there — not a " +
+        "checkout that is missing the lane.",
     );
   }
 };
@@ -204,13 +227,15 @@ const runRunner = (environment: Record<string, string>): string => {
 /**
  * The sentence the environment layer produces, and the only thing that can produce it.
  *
- * The step's own report now comes from `assertResetTargetIsDisposable` through
- * `connectToGuardedDatabase` (K2), so the layer says "reset" here exactly as it does on the reset
- * path. Quoting the RESOLVED value is still what makes this proof the gate ran: only the environment
- * layer can produce this sentence, and only with the value already resolved.
+ * The step's own report comes from `assertResetTargetIsDisposable` through
+ * `connectToGuardedDatabase` (K2), and that guard now speaks in the verb its caller passes
+ * (LAUNCH-D144) — this runner passes `delete`, so the layer says "refusing to delete" here rather
+ * than "refusing to reset", which named an operation the operator had not asked for. Quoting the
+ * RESOLVED value is still what makes this proof the gate ran: only the environment layer can produce
+ * this sentence, and only with the value already resolved.
  */
 const environmentRefusal = (resolved: string) =>
-  `refusing to reset: APP_ENV resolves to "${resolved}"`;
+  `refusing to delete: APP_ENV resolves to "${resolved}"`;
 
 /** The connection-host layer's sentence. Its layer name is what makes it distinguishable. */
 const HOST_REFUSAL = "which is not loopback";
@@ -288,7 +313,11 @@ describe("the guard in front of the delete", () => {
   it("permits a disposable environment on a loopback address, so the refusals above are the guard", () => {
     const output = runRunner({ APP_ENV: "local" });
 
-    expect(output).not.toContain("refusing to reset: APP_ENV resolves to");
+    // THE VERB, ASSERTED AS A CONTROL. Every refusal this runner prints says "refusing to delete";
+    // a "refusing to reset" anywhere in its output is the shared guard having reverted to a
+    // constant verb, which is the defect LAUNCH-D144 named (Rule 36's removal direction, run
+    // against the parameter rather than against a call).
+    expect(output).not.toContain("refusing to reset");
     expect(output).not.toContain(HOST_REFUSAL);
     // Nothing stands between the environment layer and the connection, so a run that cleared both
     // and then failed has demonstrably reached the end of the guard chain.
@@ -311,7 +340,7 @@ describe("the guard in front of the delete", () => {
   // by a grep here.
   it("obtains its connection only from the helper that performed the check", () => {
     expect(source).toContain(
-      "const sql = await connectToGuardedDatabase(url, { appEnv, redisUrl: null });",
+      'const sql = await connectToGuardedDatabase(url, { verb: "delete", appEnv, redisUrl: null });',
     );
 
     // ZERO construction sites, down from exactly one. The one that used to be here moved into the
@@ -375,6 +404,135 @@ describe("the population the census derives", () => {
     // And the other direction, so the step cannot quietly grow an arm for a key that does not block.
     const arms = blockers.body.match(/select '/g) ?? [];
     expect(arms.length).toBe(blocking.length);
+  });
+});
+
+/**
+ * The residue section, as the document states it: one row per surviving table, the columns on it, and
+ * the group saying why the row is still there.
+ *
+ * Parsed rather than quoted so the comparison is against what a reader sees, not against a sentence
+ * that happens to contain the right words. A table the census derives and the document omits is a
+ * personal column the operator will not go looking for.
+ */
+type ResidueRow = { table: string; columns: string[]; why: string };
+
+const backticked = (text: string): string[] =>
+  [...text.matchAll(/`([^`]+)`/g)].map((match) => match[1]!);
+
+const residueRows = (markdown: string): ResidueRow[] => {
+  const rows: ResidueRow[] = [];
+
+  for (const line of markdown.split("\n")) {
+    const cells = /^\| `([a-z_]+)` \| (.+?) \| (.+?) \|$/.exec(line);
+    if (cells === null) continue;
+
+    rows.push({ table: cells[1]!, columns: backticked(cells[2]!), why: cells[3]! });
+  }
+
+  return rows;
+};
+
+/** One `- **label (n):** \`a\`, \`b\`` group from the section, and the count it prints. */
+type ResidueGroup = { label: string; declared: number; tables: string[] };
+
+const residueGroups = (markdown: string): ResidueGroup[] => {
+  const groups: ResidueGroup[] = [];
+
+  for (const line of markdown.split("\n")) {
+    const match = /^- \*\*(.+?) \((\d+)\):\*\* (.+)$/.exec(line);
+    if (match === null) continue;
+
+    groups.push({
+      label: match[1]!,
+      declared: Number(match[2]),
+      tables: backticked(match[3]!),
+    });
+  }
+
+  return groups;
+};
+
+describe("the residue the census derives", () => {
+  // THE ASSERTION A COLUMN CHANGE FAILS. The section is the only place a reader of the procedure is
+  // told which personal columns outlive a deletion — the enumeration artifact carries the same facts
+  // in a different shape, and the procedure is what someone holding a live request reads. Deriving
+  // both sides from the census is what makes the document's copy checkable: a column added to a
+  // surviving table appears in `survivingPersonalColumns()` and this fails until the document lists
+  // it, with the columns it actually has.
+  it("lists every table that can leave a personal column behind, with those columns", () => {
+    const derived = survivingPersonalColumns()
+      .map((entry) => ({ table: entry.table, columns: [...entry.columns].sort() }))
+      .sort((a, b) => a.table.localeCompare(b.table));
+
+    expect(derived.length).toBeGreaterThan(0);
+
+    const stated = residueRows(document)
+      .map((row) => ({ table: row.table, columns: [...row.columns].sort() }))
+      .sort((a, b) => a.table.localeCompare(b.table));
+
+    expect(stated).toEqual(derived);
+  });
+
+  // The three reasons, each checked against the edge it names rather than against a list. A table
+  // moved between groups by hand would still be present in the table above and would still be
+  // wrong about why — which is the difference between a residue an operator can act on and one
+  // they can only read.
+  it("groups those tables by the edge that leaves the row standing", () => {
+    const keys = schemaForeignKeys();
+    const closure = new Set(cascadeClosure("users", keys));
+    const holdsPersonal = (table: string): boolean => personalColumnsOf(table).length > 0;
+
+    const derived = {
+      "the deletion never reaches them": schemaTableNames().filter(
+        (table) => !closure.has(table) && holdsPersonal(table),
+      ),
+      "a pointer to the person detaches and the row stays": schemaTableNames().filter(
+        (table) =>
+          closure.has(table) &&
+          detachingForeignKeys(keys, closure).some((key) => key.sourceTable === table) &&
+          holdsPersonal(table),
+      ),
+      "the deletion is refused by a row on them": schemaTableNames().filter(
+        (table) =>
+          closure.has(table) &&
+          blockingForeignKeys(keys, closure).some((key) => key.sourceTable === table) &&
+          holdsPersonal(table),
+      ),
+    };
+
+    const groups = residueGroups(document);
+
+    expect(groups.map((group) => group.label)).toEqual(Object.keys(derived));
+
+    for (const group of groups) {
+      const expected = [...(derived[group.label as keyof typeof derived] ?? [])].sort();
+
+      expect(
+        group.tables.sort(),
+        `the group \`${group.label}\` is not what the graph says`,
+      ).toEqual(expected);
+      // The count is printed so a reader can see the size at a glance; it is checked so it cannot
+      // go stale while the list under it changes.
+      expect(group.declared, `the group \`${group.label}\` miscounts itself`).toBe(expected.length);
+    }
+  });
+
+  // THE LINK BETWEEN THE TWO TESTS ABOVE, which neither of them makes on its own. The table can
+  // list a table that no group explains, and the groups can name a table the table omits, and both
+  // assertions would still pass — the table is compared with the census and the groups are compared
+  // with the graph, and the two comparisons never meet. What is asserted here is the claim the
+  // section's "none" rests on: the three groups cover the residue table exactly, so there is no
+  // fourth kind of survivor left unwritten. The census derives the same thing through
+  // `rowsCanOutliveDeletion`, and the oracle measured it against a live database — it observed no
+  // closure row surviving with a live pointer to the deleted account.
+  it("leaves no surviving table outside the three groups the section names", () => {
+    const listed = residueRows(document)
+      .map((row) => row.table)
+      .sort();
+    const grouped = [...new Set(residueGroups(document).flatMap((group) => group.tables))].sort();
+
+    expect(grouped).toEqual(listed);
   });
 });
 

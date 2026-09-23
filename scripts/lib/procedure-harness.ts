@@ -28,7 +28,7 @@
 
 import postgres from "postgres";
 import type { AppEnvironment } from "@/config/env";
-import { assertResetTargetIsDisposable } from "../reset/reset-guard";
+import { assertResetTargetIsDisposable, type GuardedVerb } from "../reset/reset-guard";
 
 /**
  * The info strings this grammar knows, in the two families the Markdown uses.
@@ -211,18 +211,19 @@ export const parseProcedureSteps = (markdown: string): ProcedureStep[] => {
  * runner's copy claimed the stronger thing while its own `sql` sat one line above the call. On
  * refusal the handle is closed before the error propagates, so a refusal leaks no pool.
  *
- * The guard's messages say "refusing to reset", because they are the reset lane's. The refusal is
- * what matters and the wording is not restated here: a second copy of it is exactly the drift this
- * function removed.
+ * The guard speaks in the caller's verb (`context.verb`), so a deletion runner's refusal says
+ * "refusing to delete" and a provisioning runner's says "refusing to provision". The wording is not
+ * restated here: a second copy of it is exactly the drift this function removed.
  */
 export const connectToGuardedDatabase = async (
   url: string,
-  context: { appEnv: AppEnvironment; redisUrl: string | null },
+  context: { verb: GuardedVerb; appEnv: AppEnvironment; redisUrl: string | null },
 ): Promise<postgres.Sql> => {
   const sql = postgres(url, { max: 1 });
 
   try {
     await assertResetTargetIsDisposable(sql, {
+      verb: context.verb,
       appEnv: context.appEnv,
       databaseUrl: url,
       redisUrl: context.redisUrl,

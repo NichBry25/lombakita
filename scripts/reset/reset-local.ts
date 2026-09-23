@@ -480,13 +480,14 @@ const main = async (): Promise<void> => {
   // operator set, and the environment layer would be a guard that cannot fail. This path therefore
   // does not build on that harness, and reads the value itself.
   const appEnv = declaredAppEnvironment();
-  const target = resolveResetTarget();
+  const target = resolveResetTarget("reset");
 
   const sql = postgres(target, { max: 1, prepare: false, idle_timeout: 5, connect_timeout: 15 });
 
   try {
     step(1, "Checking the target is disposable");
     await assertResetTargetIsDisposable(sql, {
+      verb: "reset",
       appEnv,
       databaseUrl: target,
       redisUrl: optionalUrl(process.env.REDIS_URL),

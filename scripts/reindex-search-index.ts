@@ -72,7 +72,7 @@ const main = async (): Promise<void> => {
   try {
     // Asked of the database this reads from, which is the same one whose contents decide what the
     // index will hold. Refusing here is what makes the index rebuild non-production-capable.
-    await assertResetTargetIsDisposable(sql, { appEnv, databaseUrl, redisUrl: null });
+    await assertResetTargetIsDisposable(sql, { verb: "reset", appEnv, databaseUrl, redisUrl: null });
 
     console.log(`\nMeilisearch host: ${meilisearchHost}`);
 

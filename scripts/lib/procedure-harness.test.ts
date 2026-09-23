@@ -209,7 +209,7 @@ const REMOTE_HOST = "postgres://db.invalid.example.com:5432/lombakita_absent";
 describe("connectToGuardedDatabase", () => {
   it("rejects rather than returning a handle, when the target is not disposable", async () => {
     await expect(
-      connectToGuardedDatabase(REMOTE_HOST, { appEnv: "local", redisUrl: null }),
+      connectToGuardedDatabase(REMOTE_HOST, { verb: "reset", appEnv: "local", redisUrl: null }),
     ).rejects.toBeInstanceOf(ResetRefused);
   });
 
@@ -219,7 +219,7 @@ describe("connectToGuardedDatabase", () => {
   // BEFORE anything touched a socket. A handle returned ahead of the guard resolves instead.
   it("asks the environment before the host, and before any socket is used", async () => {
     await expect(
-      connectToGuardedDatabase(REMOTE_HOST, { appEnv: "production", redisUrl: null }),
+      connectToGuardedDatabase(REMOTE_HOST, { verb: "reset", appEnv: "production", redisUrl: null }),
     ).rejects.toThrow('refusing to reset: APP_ENV resolves to "production"');
   });
 
@@ -228,7 +228,7 @@ describe("connectToGuardedDatabase", () => {
   // this, the two assertions above would pass against a helper that refused unconditionally.
   it("clears the configuration layers and reaches the server, on a disposable loopback target", async () => {
     await expect(
-      connectToGuardedDatabase(DEAD_LOOPBACK, { appEnv: "local", redisUrl: null }),
+      connectToGuardedDatabase(DEAD_LOOPBACK, { verb: "reset", appEnv: "local", redisUrl: null }),
     ).rejects.not.toBeInstanceOf(ResetRefused);
   });
 });

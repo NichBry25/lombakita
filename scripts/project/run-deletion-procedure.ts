@@ -29,7 +29,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type postgres from "postgres";
 import { loadEnvFile } from "@/server/scripts/env-file";
-import { declaredAppEnvironment } from "../reset/reset-guard";
+import { ResetRefused, declaredAppEnvironment } from "../reset/reset-guard";
 import {
   ProcedureRefusal,
   connectToGuardedDatabase,
@@ -38,6 +38,12 @@ import {
 } from "../lib/procedure-harness";
 import { captureBaseline, objectKeySql, readIdentities } from "./deletion-residue";
 import type { BaselineFile, ResidueBaseline } from "./deletion-residue";
+import {
+  competitionStatusEnum,
+  type CompetitionStatus,
+  type InstitutionMembershipRole,
+  type InstitutionMembershipStatus,
+} from "@/server/db/schema";
 
 export const PROCEDURE_PATH = "docs/operations/account-deletion-procedure.md";
 export const DEMONSTRATION_PATH = "docs/operations/account-deletion-demonstration.md";
@@ -137,6 +143,113 @@ export type ProcedureRun = {
 };
 
 /**
+ * The two membership tokens an ownerless institution turns on, and every competition status.
+ *
+ * Typed against the schema's own unions rather than written as bare strings, so a rename of either
+ * token is a compile error here instead of a refusal that silently stops matching. The status list is
+ * the enum's own `enumValues`, so its ORDER is the enum's order and a new status appears in the
+ * refusal without anyone adding it.
+ */
+const INSTITUTION_OWNER_ROLE: InstitutionMembershipRole = "institution_owner";
+const ACTIVE_MEMBERSHIP_STATUS: InstitutionMembershipStatus = "active";
+const COMPETITION_STATUSES: readonly CompetitionStatus[] = competitionStatusEnum.enumValues;
+
+/** An institution the subject's deletion would leave with no active owner, and what it holds. */
+export type OwnerlessInstitution = {
+  id: string;
+  slug: string;
+  competitionsByStatus: ReadonlyMap<CompetitionStatus, number>;
+};
+
+/**
+ * Every institution this account is the LAST active owner of, with its competitions counted.
+ *
+ * ASKED OF THE MEMBERSHIP ROWS, not of `institutions.owner_user_id` or any other denormalisation —
+ * there is none, and the membership table is the only place an owner is recorded.
+ *
+ * The `not exists` arm is the last-owner test and it excludes the subject by id, because the
+ * subject's own memberships are the ones the deletion removes. A membership that is `invited`,
+ * `inactive` or `revoked` is not an owner for this purpose: after the deletion nobody could sign in
+ * and act as one, and an institution nobody can administer is the state this refuses to create.
+ */
+export const institutionsLeftWithoutAnOwner = async (
+  sql: postgres.Sql,
+  userId: string,
+): Promise<OwnerlessInstitution[]> => {
+  const rows = await sql<{ id: string; slug: string }[]>`
+    select i.id, i.slug
+    from institutions i
+    where exists (
+        select 1 from institution_memberships mine
+         where mine.institution_id = i.id
+           and mine.user_id = ${userId}
+           and mine.membership_role = ${INSTITUTION_OWNER_ROLE}
+           and mine.status = ${ACTIVE_MEMBERSHIP_STATUS}
+      )
+      and not exists (
+        select 1 from institution_memberships other
+         where other.institution_id = i.id
+           and other.membership_role = ${INSTITUTION_OWNER_ROLE}
+           and other.status = ${ACTIVE_MEMBERSHIP_STATUS}
+           and other.user_id <> ${userId}
+      )
+    order by i.slug, i.id
+  `;
+
+  const institutions: OwnerlessInstitution[] = [];
+  for (const row of rows) {
+    const counted = await sql<{ status: CompetitionStatus; n: number }[]>`
+      select c.status, count(*)::int as n
+      from competitions c
+      where c.institution_id = ${row.id}
+      group by c.status
+    `;
+    institutions.push({
+      id: row.id,
+      slug: row.slug,
+      competitionsByStatus: new Map(counted.map((entry) => [entry.status, entry.n])),
+    });
+  }
+
+  return institutions;
+};
+
+/**
+ * Refuses before the first write when the deletion would leave an institution with no active owner.
+ *
+ * THE ONE THING THE FOREIGN KEY CANNOT SEE. Every other blocker this procedure predicts is a row
+ * that points at the account and would be orphaned; this one is an absence — the membership that
+ * goes away with the account is what made the institution administrable, and nothing in the schema
+ * requires an institution to keep one. Postgres deletes the account happily; the institution is left
+ * with no one who can act for it, which is a state no later step in this procedure repairs.
+ *
+ * THE COUNTS ARE DIAGNOSTIC, not a second condition. They say what is at stake — how many
+ * competitions would be left unadministrable — so the operator can decide whether to appoint a
+ * second owner or delete the competitions first. Nothing here is written: the caller is refused.
+ */
+export const assertNoInstitutionIsLeftWithoutAnOwner = async (
+  sql: postgres.Sql,
+  userId: string,
+): Promise<void> => {
+  const institutions = await institutionsLeftWithoutAnOwner(sql, userId);
+  if (institutions.length === 0) {
+    return;
+  }
+
+  const lines = institutions.map((institution) => {
+    const counts = COMPETITION_STATUSES.map(
+      (status) => `${status}=${institution.competitionsByStatus.get(status) ?? 0}`,
+    ).join(" ");
+
+    return `${institution.slug} (${institution.id}): ${counts}`;
+  });
+
+  throw new ProcedureRefusal(
+    `subject is the last active owner of ${institutions.length} institution(s)\n${lines.join("\n")}`,
+  );
+};
+
+/**
  * Run the `sql` steps in order, in one transaction.
  *
  * The transaction is opened and closed explicitly rather than through a callback so that a failure
@@ -150,6 +263,11 @@ export const runProcedure = async (
   userId: string,
 ): Promise<ProcedureRun> => {
   const run: ProcedureRun = { steps: [], literals: [], objectKeys: [], committed: false };
+
+  // BEFORE `begin`, so a refusal opens no transaction at all rather than opening one to roll back.
+  // The refusal is the whole of what happened: nothing was read, nothing was written, and the
+  // caller's report says so rather than reporting a rollback of work that never started.
+  await assertNoInstitutionIsLeftWithoutAnOwner(sql, userId);
 
   await sql.unsafe("begin");
   try {
@@ -241,6 +359,13 @@ type CaseRun = {
   steps: readonly ProcedureStep[];
   skipped: readonly string[];
   run: ProcedureRun;
+  /**
+   * The pre-flight refusal, when there was one, and `null` when the procedure ran.
+   *
+   * A separate field rather than a step outcome, because no step produced it: the refusal happens
+   * before the transaction opens, so a case carrying one has a run with no steps at all.
+   */
+  refusal: string | null;
   /** Object keys the foreign-key graph says this account holds, counted without the procedure. */
   expectedKeys: { prefix: string; column: string; n: number }[];
 };
@@ -389,6 +514,23 @@ const renderCase = (entry: CaseRun): string[] => {
     lines.push("");
   }
 
+  if (entry.refusal !== null) {
+    lines.push(
+      "### The outcome",
+      "",
+      "**Refused before the first write.** No transaction was opened, so there is no rollback to",
+      "report: the procedure's own pre-flight found an institution this deletion would leave with",
+      "no active owner, and stopped. Nothing was read and nothing was written.",
+      "",
+      "```",
+      entry.refusal,
+      "```",
+      "",
+    );
+
+    return lines;
+  }
+
   if (run.committed) {
     lines.push(
       "### The outcome",
@@ -476,7 +618,7 @@ const main = async (): Promise<void> => {
     }
   }
 
-  const sql = await connectToGuardedDatabase(url, { appEnv, redisUrl: null });
+  const sql = await connectToGuardedDatabase(url, { verb: "delete", appEnv, redisUrl: null });
 
   try {
     if (demonstrate) {
@@ -499,8 +641,8 @@ const main = async (): Promise<void> => {
     }
 
     const steps = declared.filter((step) => !skip.has(step.name));
-    const run = await runProcedure(sql, steps, selection.userId);
     const expectedKeys = await countObjectKeys(sql, selection.userId);
+    const { run, refusal } = await runOrRefuse(sql, steps, selection.userId);
 
     const text = renderCase({
       label: "The procedure, executed",
@@ -510,6 +652,7 @@ const main = async (): Promise<void> => {
       steps,
       skipped: [...skip],
       run,
+      refusal,
       expectedKeys,
     }).join("\n");
 
@@ -535,6 +678,32 @@ const countObjectKeys = async (
     if (row!.n > 0) counted.push({ prefix: entry.prefix, column: entry.column, n: row!.n });
   }
   return counted;
+};
+
+/**
+ * Run the procedure, or hand back the pre-flight refusal as a value instead of an exception.
+ *
+ * The demonstration has to RECORD a refusal rather than stop at one: a case whose whole point is
+ * that the deletion was refused is a case that has to appear in the document, and an exception
+ * escaping `demonstrateAll` would leave every case after it unwritten. The CLI path does the
+ * opposite and lets it throw, because a refusal there is the run's outcome and the final catch is
+ * what an operator reads.
+ */
+const runOrRefuse = async (
+  sql: postgres.Sql,
+  steps: readonly ProcedureStep[],
+  userId: string,
+): Promise<{ run: ProcedureRun; refusal: string | null }> => {
+  try {
+    return { run: await runProcedure(sql, steps, userId), refusal: null };
+  } catch (error) {
+    if (!(error instanceof ProcedureRefusal)) throw error;
+
+    return {
+      run: { steps: [], literals: [], objectKeys: [], committed: false },
+      refusal: error.message,
+    };
+  }
 };
 
 /** Run every case in `DEMONSTRATION_CASES`, in order, and write the record of all of them to one document. */
@@ -567,7 +736,7 @@ const demonstrateAll = async (
     });
 
     const expectedKeys = await countObjectKeys(sql, selection.userId);
-    const run = await runProcedure(sql, steps, selection.userId);
+    const { run, refusal } = await runOrRefuse(sql, steps, selection.userId);
 
     cases.push({
       label: spec.label,
@@ -577,6 +746,7 @@ const demonstrateAll = async (
       steps,
       skipped: spec.skip,
       run,
+      refusal,
       expectedKeys,
     });
   }
@@ -614,7 +784,8 @@ const demonstrateAll = async (
     "## What the cases together say",
     "",
     `Cases run: **${cases.length}**. Committed: **${cases.filter((entry) => entry.run.committed).length}**.`,
-    `Refused: **${cases.filter((entry) => !entry.run.committed).length}**.`,
+    `Refused by the schema: **${cases.filter((entry) => entry.refusal === null && !entry.run.committed).length}**.`,
+    `Refused before the first write: **${cases.filter((entry) => entry.refusal !== null).length}**.`,
     "",
     "## What a zero in the residue file means",
     "",
@@ -794,7 +965,22 @@ const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection
 
 if (process.argv[1]?.endsWith("run-deletion-procedure.ts")) {
   main().catch((error: unknown) => {
-    console.error(error);
+    // A shared-guard refusal already opens with this runner's verb — the guard takes it as a
+    // parameter (LAUNCH-D144) — so prefixing it here would say "refusing to delete" twice. Every
+    // other failure is this runner's own and is prefixed here, so an operator always reads what was
+    // refused and in whose name rather than a bare object dump.
+    const message =
+      error instanceof ResetRefused
+        ? error.message
+        : `refusing to delete: ${error instanceof Error ? error.message : String(error)}`;
+
+    console.error(message);
+
+    if (error instanceof Error && error.stack !== undefined) {
+      // The stack WITHOUT its first line, which repeats the message just printed.
+      console.error(error.stack.split("\n").slice(1).join("\n"));
+    }
+
     process.exitCode = 1;
   });
 }

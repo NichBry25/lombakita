@@ -58,6 +58,7 @@ export const resolveSeedDatabaseUrl = (reason: string): string => {
  */
 export const assertSeedTargetIsDisposable = (sql: Sql, databaseUrl: string): Promise<void> =>
   assertResetTargetIsDisposable(sql, {
+    verb: "reset",
     appEnv: declaredAppEnvironment(),
     databaseUrl,
     redisUrl: presentOrUndefined(process.env.REDIS_URL) ?? null,

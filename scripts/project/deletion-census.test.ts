@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 // @vitest-environment node
 //
 // The deletion census, held to the schema it derives from.
@@ -12,23 +13,33 @@
 // deletion that completes and one that refuses, so a set that gains an edge is a procedure that
 // changed its answer, and a test asserting "at least one" would report that as green.
 
-import { describe, expect, it } from "vitest";
 import {
+  assertEveryTextColumnIsClassified,
   blockingForeignKeys,
   cascadeClosure,
   cascadeCycles,
+  carriesOf,
+  COLUMN_CLASSIFICATIONS,
   DeletionCensusRefusal,
   detachingForeignKeys,
   EXTERNAL_STORES,
+  holdsNoUserData,
+  NOT_PERSONAL_COLUMNS,
+  PERSONAL_COLUMNS,
+  personalColumnsByTable,
+  personalColumnsOf,
   R2_PREFIXES,
   r2UploadModules,
+  rowsCanOutliveDeletion,
   rulingsPerStore,
   rulingsWithoutTable,
-  schemaColumns,
   schemaForeignKeys,
   schemaTableNames,
+  schemaTextCapableColumns,
+  staleColumnClassifications,
+  survivingPersonalColumns,
   TABLE_RULINGS,
-  unknownCarriedColumns,
+  unclassifiedTextColumns,
   unknownKeyColumns,
   unruledR2Modules,
   unruledTables,
@@ -70,6 +81,12 @@ describe("the derived Postgres population", () => {
     // The FK-order requirement, pinned. Each entry is a row that turns `DELETE FROM users` into a
     // referential-integrity violation. A new one means some user population can no longer be
     // deleted, and the procedure has to be told about it before it is run against a live request.
+    //
+    // `platform_ops_notes.created_by_id` is the entry LAUNCH-D105 was about, and it is here because
+    // the filter used to require the SOURCE table to be outside the closure — a property of a whole
+    // table, while Postgres enforces the edge per row. This table is in the closure by way of
+    // `target_user_id`, so the edge was dropped and the procedure predicted a deletion that the
+    // database refuses.
     expect(
       blockingForeignKeys().map((key) => `${key.sourceTable}.${key.sourceColumns.join("+")}`),
     ).toEqual([
@@ -83,26 +100,42 @@ describe("the derived Postgres population", () => {
       "finance_payments.competition_registration_id",
       "platform_ops_audit_logs.actor_user_id",
       "platform_ops_audit_logs.target_user_id",
+      "platform_ops_notes.created_by_id",
     ]);
+
+    // The catalog oracle measures each of these against a live database and asserts the two sets
+    // are equal; this pin is what makes a CHANGE visible in a unit run with no database attached.
   });
 
   it("pins the foreign keys that detach a pointer instead of taking the row", () => {
+    // The same per-row correction, in the other direction. The six entries whose source table is
+    // INSIDE the closure are the ones the old filter dropped: a seat on another member's
+    // `institution_memberships` row, an invitation on another captain's team, a request on another
+    // participant's registration and a review on another recruiter's submission all survive the
+    // deletion of the person who was named on them.
     expect(
       detachingForeignKeys().map((key) => `${key.sourceTable}.${key.sourceColumns.join("+")}`),
     ).toEqual([
+      "competition_document_requests.requested_by_user_id",
+      "competition_document_requests.reviewed_by_user_id",
       "competitions.created_by_user_id",
       "institution_audit_logs.actor_user_id",
       "institution_audit_logs.target_membership_id",
       "institution_invitations.invited_by_user_id",
       "institution_invitations.target_user_id",
+      "institution_memberships.invited_by_user_id",
       "institution_verification_audit.actor_user_id",
       "institution_verification_submissions.submitted_by_user_id",
       "institution_verification_submissions.reviewer_user_id",
+      "recruiter_verification_submissions.reviewer_user_id",
+      "team_invitations.invited_by_user_id",
+      "team_invitations.target_user_id",
     ]);
 
-    // `competition_document_requests` carries the same two SET NULL columns and is deliberately
-    // absent: it is INSIDE the closure, so its rows are deleted rather than detached. Listed here
-    // because the pair is otherwise indistinguishable from an omission.
+    // `competition_document_requests` used to be asserted ABSENT from this list on the reasoning
+    // that its rows are deleted rather than detached. That reasoning is the defect: the table is in
+    // the closure, and a request on somebody else's registration is a row the closure never
+    // reaches. It is in the list above, and the oracle observed it nulled.
     expect(cascadeClosure()).toContain("competition_document_requests");
   });
 });
@@ -137,64 +170,108 @@ describe("the rulings cover the derived population", () => {
     expect(doubled).toEqual([]);
   });
 
-  it("rules a table `removed` only when the CASCADE closure actually reaches it", () => {
-    const removed = new Set(cascadeClosure());
-    const claimed = TABLE_RULINGS.filter((ruling) => ruling.survival === "removed").map(
-      (ruling) => ruling.store,
-    );
-
-    // Both directions. A store claimed removed but not in the closure is a procedure that reports
-    // deleting rows it never touches; a store in the closure with no ruling is already caught above,
-    // so this closes the pair.
-    expect(claimed.filter((store) => !removed.has(store))).toEqual([]);
-    expect([...removed].filter((store) => !claimed.includes(store))).toEqual([]);
-  });
-
-  it("gives a `removed` store no surviving personal data, and a survivor its columns", () => {
+  it("rules a table `removed` exactly when no row of it can outlive the deletion", () => {
+    // The equivalence, in both directions, across two derivations that do not read each other: the
+    // ruling's own `survival` field and the edge walk behind `rowsCanOutliveDeletion`. A table
+    // claimed removed while a row of it survives is a procedure that reports deleting data it left
+    // behind; a survivor claimed for a table nothing of which survives is a listing that reads as
+    // residue and is not.
     for (const ruling of TABLE_RULINGS) {
-      if (ruling.survival === "removed") {
-        expect(ruling.carries, `${ruling.store} is removed and cannot carry anything`).toEqual([]);
-        continue;
-      }
-      expect(ruling.reason.length, `${ruling.store} survives and must say why`).toBeGreaterThan(40);
+      expect(
+        ruling.survival === "removed",
+        `${ruling.store}: \`survival\` and \`rowsCanOutliveDeletion\` disagree`,
+      ).toBe(!rowsCanOutliveDeletion(ruling.store));
     }
   });
 
-  it("names only columns the table actually has, so a rename cannot leave a stale claim", () => {
-    const columns = schemaColumns();
-    const wrong = TABLE_RULINGS.flatMap((ruling) =>
-      unknownCarriedColumns(ruling, columns).map((column) => `${ruling.store}.${column}`),
-    );
+  it("rules a table `removed` only when the CASCADE closure actually reaches it", () => {
+    const removed = new Set(cascadeClosure());
 
-    expect(wrong).toEqual([]);
+    expect(
+      TABLE_RULINGS.filter((ruling) => ruling.survival === "removed")
+        .map((ruling) => ruling.store)
+        .filter((store) => !removed.has(store)),
+    ).toEqual([]);
   });
 
-  it("records personal data surviving outside the tables it deletes", () => {
-    const survivals = TABLE_RULINGS.filter(
-      (ruling) => ruling.survival !== "removed" && ruling.carries.length > 0,
-    ).map((ruling) => `${ruling.store}: ${ruling.carries.join(", ")}`);
+  it("accounts for every closure table the deletion does not empty", () => {
+    // The closure is not the same thing as the removal set any more, and the difference is the
+    // whole of LAUNCH-D105: four closure tables are sources of a detaching edge, and one is a
+    // source of a blocking edge. Enumerated rather than counted, so the fifth one arriving is a
+    // failing test naming itself rather than a total that shifted by one.
+    const survivorsInsideTheClosure = TABLE_RULINGS.filter(
+      (ruling) => ruling.survival !== "removed" && cascadeClosure().includes(ruling.store),
+    ).map((ruling) => `${ruling.store}: ${ruling.survival}`);
 
-    // Pinned because these are the rows the policy's promise has to be read against. An email
-    // address in `institution_invitations` and a payer pointer in `finance_payments` are the two
-    // that cannot be removed by any procedure that respects DEC-0133.
-    //
-    // `competitions` and `institutions` are the two the demonstration added, and neither is a
-    // foreign key. Both were ruled `carries: []` until a seeded deletion was run and read back: the
-    // account went, and a published competition titled `Kuis Mingguan Rina` and the personal
-    // institution it was held under were still there. Nothing in the FK graph could have said so —
-    // `competitions.created_by_user_id` had already nulled, and `institutions` has no foreign key to
-    // `users` at all — which is why the free-text columns are the ones that have to be named.
-    expect(survivals).toEqual([
-      "finance_payments: payer_user_id",
-      "finance_payment_events: actor_user_id, metadata",
-      "finance_fee_disclosure_acknowledgements: acknowledged_by_user_id",
-      "finance_manual_payment_proofs: submitted_by_user_id, r2_key, original_file_name",
-      "finance_manual_payment_proof_attempts: submitted_by_user_id, reviewer_user_id, r2_key, original_file_name",
-      "platform_ops_audit_logs: actor_user_id, target_user_id, metadata",
-      "competitions: title, description, eligibility_note, cancellation_reason",
+    expect(survivorsInsideTheClosure).toEqual([
+      "competition_document_requests: detached",
+      "institution_memberships: detached",
+      "recruiter_verification_submissions: detached",
+      "team_invitations: detached",
+      "platform_ops_notes: blocks-deletion",
+    ]);
+  });
+
+  it("says why every surviving table survives", () => {
+    // The assertion here used to be `reason.length > 40`, which a forty-one-character sentence
+    // about the wrong table passes and a correct short one fails — a character count is not a
+    // property of being right. It is replaced by structural claims that can be checked: the
+    // equivalence above (`removed` against `rowsCanOutliveDeletion`), the closure-survivor
+    // enumeration, and the pinned carry sets below. What remains here is only that a ruling
+    // answered the question at all; the answer's quality is what a reader is for.
+    for (const ruling of TABLE_RULINGS) {
+      expect(ruling.reason.trim().length, `${ruling.store} must say why`).toBeGreaterThan(0);
+    }
+  });
+
+  it("derives what survives with a row from the table's own columns", () => {
+    // `carriesOf` is the derivation and this pins its OUTPUT, which is the part a reader has to be
+    // able to disagree with. Every entry is the full personal-column list of a table a row of which
+    // can still be there after the statement — no hand-written list is consulted, so a ruling
+    // cannot be right about the row and wrong about the columns on it, which is the exact shape of
+    // the eight wrong `holds-no-user-data` rulings LAUNCH-D100 found.
+    expect(survivingPersonalColumns().map((entry) => `${entry.table}: ${entry.columns.join(", ")}`)).toEqual([
+      "competition_document_requests: instructions, review_note, title",
+      "competition_prizes: description, rank_label, title",
+      "competition_rounds: description, platform_label, title",
+      "competition_tags: tag",
+      "competitions: description, eligibility_note, slug, title",
+      "finance_fee_accruals: reason",
+      "finance_manual_payment_proof_attempts: original_file_name, verdict_reason",
+      "finance_manual_payment_proofs: original_file_name, rejection_reason",
+      "finance_payment_events: metadata, reason",
+      "finance_payment_instruction_snapshots: account_holder_name, account_number, bank_name, instructions_note",
       "institution_audit_logs: metadata",
       "institution_invitations: invited_email",
-      "institutions: slug, description, about, contact_name, contact_email, contact_phone",
+      "institution_payment_instructions: account_holder_name, account_number, bank_name, instructions_note",
+      "institution_social_links: url",
+      "institution_verification_audit: reason",
+      "institution_verification_documents: original_file_name",
+      "institution_verification_submissions: proposed_display_name, reviewer_notes",
+      "institutions: about, contact_email, contact_name, contact_phone, description, display_name, rejection_reason, slug, suspension_reason, website_url",
+      "platform_ops_audit_logs: metadata, reason",
+      "platform_ops_notes: note",
+      "recruiter_verification_submissions: corporate_email, full_name, mobile_number, rejection_reason",
+      "team_invitations: invited_email",
+      "verification_tokens: identifier, token",
+    ]);
+
+    // The survivors carrying NOTHING are pinned too, because they are the other half of the same
+    // claim: `competition_saves` has no personal column at all, so its emptiness is a fact about
+    // its columns rather than a ruling that nothing of it survives.
+    expect(
+      TABLE_RULINGS.filter((ruling) => ruling.survival !== "removed" && carriesOf(ruling.store).length === 0)
+        .map((ruling) => ruling.store),
+    ).toEqual([
+      "finance_fee_rules",
+      "infrastructure_probe",
+      "institution_memberships",
+      // Two tables that BLOCK the deletion while holding no classified personal column of their
+      // own: `finance_payments` and `finance_fee_disclosure_acknowledgements` name a user through
+      // a uuid, which is not a text-capable type. The row still refuses the statement — which is
+      // the reminder that "holds no personal data" and "can be deleted" are different questions.
+      "finance_payments",
+      "finance_fee_disclosure_acknowledgements",
     ]);
   });
 });
@@ -207,6 +284,140 @@ describe("the rendered enumeration", () => {
 
     expect(absent).toEqual([]);
   });
+
+describe("the column classification", () => {
+  it("classifies every text-capable column, and only text-capable columns", () => {
+    // THE ASSERTION A NEW COLUMN FAILS. Both directions of the same refusal: a text-capable column
+    // with no classification, and a classification naming a column the schema does not have or that
+    // is not text-capable. Either one leaves a claim that cannot be checked against anything, and a
+    // listing that keeps it reads as coverage.
+    expect(unclassifiedTextColumns()).toEqual([]);
+    expect(staleColumnClassifications()).toEqual([]);
+
+    // A tripwire so the two assertions above cannot pass over an empty population — every one of
+    // them is vacuously true if `getSQLType()` stopped returning anything the predicate knows.
+    expect(schemaTextCapableColumns().length).toBeGreaterThanOrEqual(250);
+    expect(PERSONAL_COLUMNS.length + NOT_PERSONAL_COLUMNS.length).toBe(
+      schemaTextCapableColumns().length,
+    );
+  });
+
+  it("refuses by name when a single classification is removed", () => {
+    // Rule 33: the input is built through the real production path — the schema's own column list —
+    // and only the classification list is perturbed, so this measures the coverage check rather
+    // than a hand-built population. `institutions.about` is the column the demonstration showed
+    // surviving on a real deletion; if the check cannot notice that one going missing it cannot
+    // notice any.
+    const columns = schemaTextCapableColumns();
+    const without = COLUMN_CLASSIFICATIONS.filter((entry) => entry.column !== "institutions.about");
+
+    expect(unclassifiedTextColumns(columns, without)).toEqual(["institutions.about"]);
+
+    // And the refusal is thrown by the deriving path, not merely returned by a helper.
+    expect(() => personalColumnsByTable(without)).toThrow(DeletionCensusRefusal);
+  });
+
+  it("refuses a classification naming a column that is not text-capable", () => {
+    // The same defect from the other side. `users.created_at` is a real column and not a
+    // text-capable one, so a classification of it is a claim about a column no reader can verify.
+    const withStray = [
+      ...COLUMN_CLASSIFICATIONS,
+      { column: "users.created_at", kind: "not-personal", reason: "not a text column" } as const,
+    ];
+
+    expect(staleColumnClassifications(schemaTextCapableColumns(), withStray)).toEqual([
+      "users.created_at",
+    ]);
+  });
+
+  it("gives every `not-personal` column the reason it is not personal", () => {
+    // The reason is the whole content of a `not-personal` classification: without one the entry is
+    // indistinguishable from a column nobody got round to. `personal` owes no reason, because the
+    // default direction is the safe one.
+    const unexplained = NOT_PERSONAL_COLUMNS.filter((entry) => entry.reason.trim().length === 0).map(
+      (entry) => entry.column,
+    );
+
+    expect(unexplained).toEqual([]);
+
+    for (const entry of NOT_PERSONAL_COLUMNS) {
+      expect(entry.reason.length, `${entry.column} must say why`).toBeGreaterThan(10);
+    }
+  });
+
+  it("refuses a `not-personal` classification that does not say why", () => {
+    // The third arm of the same guard, and the one no other test reaches: the reason IS the content
+    // of a `not-personal` entry, so an entry without one is a column nobody got round to, wearing
+    // the ruling of a column somebody considered. Rule 32: this arm is asserted through the guard
+    // that throws rather than through the list it reads, so deleting the arm fails here.
+    const withSilentEntry = [
+      ...COLUMN_CLASSIFICATIONS.map((entry) =>
+        entry.column === "institutions.about"
+          ? ({ ...entry, kind: "not-personal", reason: "   " } as const)
+          : entry,
+      ),
+    ];
+
+    expect(() => assertEveryTextColumnIsClassified(schemaTextCapableColumns(), withSilentEntry)).toThrow(
+      /no ruling for reason for a not-personal column "institutions.about"/,
+    );
+  });
+
+  it("answers every classified column exactly once", () => {
+    const counts = new Map<string, number>();
+    for (const entry of COLUMN_CLASSIFICATIONS) {
+      counts.set(entry.column, (counts.get(entry.column) ?? 0) + 1);
+    }
+
+    expect([...counts].filter(([, count]) => count !== 1).map(([column, count]) => `${column} x${count}`)).toEqual(
+      [],
+    );
+  });
+
+  it("derives `holds no user data` from the columns rather than ruling it per table", () => {
+    // THE LAUNCH-D100 CHANGE, and the set is pinned because it is what the procedure's residue
+    // section is written against. Eight of the ten tables the hand rulings called clean are not in
+    // it: `competition_prizes` holds `title`, `description` and `rank_label`;
+    // `institution_verification_documents` holds the uploader's `original_file_name`.
+    const clean = schemaTableNames().filter(holdsNoUserData);
+
+    expect(clean.sort()).toEqual([
+      "competition_saves",
+      "finance_fee_disclosure_acknowledgements",
+      "finance_fee_rules",
+      "finance_payments",
+      "infrastructure_probe",
+      "institution_memberships",
+      "mfa_factors",
+      "mfa_recovery_codes",
+      "team_memberships",
+      "user_email_verification_tokens",
+      "user_password_credentials",
+      "user_platform_roles",
+    ]);
+
+    // Two of the ten the hand rulings got right, named so the fact that the derivation agrees with
+    // them is visible rather than assumed.
+    expect(holdsNoUserData("finance_fee_rules")).toBe(true);
+    expect(holdsNoUserData("competition_prizes")).toBe(false);
+    expect(personalColumnsOf("competition_prizes")).toEqual([
+      "description",
+      "rank_label",
+      "title",
+    ]);
+  });
+
+  it("carries the free-text columns the demonstration found surviving, not only the key columns", () => {
+    // The columns the seeded deletion left behind on a real run, asserted through the derivation.
+    // Neither is a foreign key: `competitions.created_by_user_id` had already nulled, and
+    // `institutions` has no foreign key to `users` at all. The FK graph could not have named them.
+    expect(carriesOf("competitions")).toContain("title");
+    expect(carriesOf("institutions")).toContain("about");
+
+    // And the column the Auth.js adapter table holds with nothing reaching it.
+    expect(carriesOf("verification_tokens")).toEqual(["identifier", "token"]);
+  });
+});
 
   it("names every R2 prefix and every external store", () => {
     // A section the renderer drops is a store the reader never learns about, and the artifact is the
