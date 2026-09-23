@@ -68,7 +68,6 @@ describe("PATCH /api/admin/institutions/[id]/verify", () => {
         institutionId: "inst_1",
         targetStatus: "under_review",
         actorUserId: "ops_1",
-        actorRole: "platform_ops",
       }),
     );
   });

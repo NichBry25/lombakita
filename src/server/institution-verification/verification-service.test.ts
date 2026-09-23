@@ -161,7 +161,20 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
       return n;
     };
 
-    const selects = [currentRows, []];
+    // The service resolves the platform-ops ACTOR from the database first, then reads the
+    // institution, then runs the conflict rule's four reads in order: a membership, a submission this
+    // actor filed, the acting account's own address, and an invitation naming them
+    // (operator-institution-conflict.ts). The queue answers positionally; `suspendedAt: null` is
+    // required rather than cosmetic, because the resolver refuses a row whose suspension field is not
+    // exactly null.
+    const selects = [
+      [{ id: "ops_1", role: "platform_ops", suspendedAt: null }],
+      currentRows,
+      [],
+      [],
+      [{ email: "ops_1@lombakita.test" }],
+      [],
+    ];
     let call = 0;
 
     const db: Record<string, unknown> = {
@@ -213,6 +226,7 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
     const { db, writes } = makeVerifyDb([
       {
         id: "inst_personal",
+        slug: "inst-personal",
         displayName: null,
         institutionType: "personal",
         verificationStatus: "pending_verification",
@@ -223,7 +237,6 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
       institutionId: "inst_personal",
       targetStatus: "under_review",
       actorUserId: "ops_1",
-      actorRole: "platform_ops",
       db,
     }).catch((e: unknown) => e);
 
@@ -244,6 +257,7 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
     const { db, writes } = makeVerifyDb([
       {
         id: "inst_personal",
+        slug: "inst-personal",
         displayName: null,
         institutionType: "personal",
         verificationStatus: "under_review",
@@ -255,7 +269,6 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
         institutionId: "inst_personal",
         targetStatus: "verified",
         actorUserId: "ops_1",
-        actorRole: "platform_ops",
         db,
       }),
     ).rejects.toMatchObject({ code: "institution_verification_not_applicable" });
@@ -266,6 +279,7 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
     const { db, writes } = makeVerifyDb([
       {
         id: "inst_1",
+        slug: "universitas-contoh",
         displayName: "Universitas Contoh",
         institutionType: "university",
         verificationStatus: "under_review",
@@ -276,7 +290,6 @@ describe("verifyInstitution — personal institutions are not reviewable", () =>
       institutionId: "inst_1",
       targetStatus: "verified",
       actorUserId: "ops_1",
-      actorRole: "platform_ops",
       db,
     });
 
@@ -303,7 +316,17 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       return n;
     };
 
-    const selects = [[currentRow], [{ email: "owner@contoh.co.id", username: "owner" }]];
+    // Same queue as makeVerifyDb: actor, institution, the conflict rule's four reads, then the
+    // owner-notification lookup.
+    const selects = [
+      [{ id: "ops_1", role: "platform_ops", suspendedAt: null }],
+      [currentRow],
+      [],
+      [],
+      [{ email: "ops_1@lombakita.test" }],
+      [],
+      [{ email: "owner@contoh.co.id", username: "owner" }],
+    ];
     let call = 0;
 
     const db: Record<string, unknown> = {
@@ -345,6 +368,7 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
 
   const verifiedInstitution = {
     id: "inst_1",
+    slug: "pt-contoh",
     displayName: "PT Contoh",
     institutionType: "company" as const,
     verificationStatus: "verified" as const,
@@ -366,7 +390,6 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       targetStatus: "rejected",
       reason: "Dokumen NPWP tidak sesuai catatan resmi",
       actorUserId: "ops_1",
-      actorRole: "platform_ops",
       db,
     });
 
@@ -396,7 +419,6 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       targetStatus: "rejected",
       reason: "alasan",
       actorUserId: "ops_1",
-      actorRole: "platform_ops",
       db,
     });
 
@@ -417,7 +439,6 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       targetStatus: "rejected",
       reason: "alasan",
       actorUserId: "ops_1",
-      actorRole: "platform_ops",
       db,
     }).catch((e: unknown) => e);
 
@@ -445,7 +466,6 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       targetStatus: "rejected",
       reason: "Dokumen tidak lagi valid",
       actorUserId: "ops_1",
-      actorRole: "platform_ops",
       db,
     });
 
@@ -466,7 +486,6 @@ describe("verifyInstitution — revocation and concurrent-decision safety", () =
       institutionId: "inst_1",
       targetStatus: "under_review",
       actorUserId: "ops_1",
-      actorRole: "platform_ops",
       db,
     }).catch((e: unknown) => e);
 

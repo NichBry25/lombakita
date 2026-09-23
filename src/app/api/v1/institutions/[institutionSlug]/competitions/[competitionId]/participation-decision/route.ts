@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { toAccessDeniedResponse } from "@/server/auth/access-core";
+import {
+  assertSessionMatchesExpectedUser,
+  toAccessDeniedResponse,
+} from "@/server/auth/access-core";
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import {
   CompetitionError,
@@ -49,6 +52,10 @@ export async function POST(
 ): Promise<Response> {
   try {
     const session = await requireAuthenticatedSession();
+    // Rule 16 — the decision acts on the calling user's own competition (mirrors
+    // api/v1/institutions/[institutionSlug]/competitions/[competitionId]/publish/route.ts:25). A
+    // decision rendered for Account A must not cancel Account B's competition.
+    assertSessionMatchesExpectedUser(request, session);
     const { institutionSlug, competitionId } = await context.params;
     await assertCompetitionInInstitution(institutionSlug.trim().toLowerCase(), competitionId);
     const decision = await parseDecision(request);

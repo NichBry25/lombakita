@@ -113,7 +113,12 @@ export type OperatorActorRefusalCode =
   | "operator_actor_not_found"
   | "operator_actor_not_platform_ops"
   | "operator_actor_suspended"
-  | "operator_actor_is_target";
+  | "operator_actor_is_target"
+  // The actor may act as platform ops, but not on THIS target: they are inside it, or they filed
+  // for it. Distinct from `is_target`, which is about the actor's own account row; this is about a
+  // relationship between the actor and the thing being decided. Raised by the institution
+  // verification paths — see `verification-service.ts` and `submission-service.ts`.
+  | "operator_actor_conflicted";
 
 /**
  * One status for every refusal in this family.

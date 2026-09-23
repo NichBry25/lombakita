@@ -35,7 +35,12 @@ export type FullInstitutionType = (typeof FULL_INSTITUTION_TYPES)[number];
 
 // Reach caps for a personal institution. Enforced server-side at the existing gates
 // (publish, competition-create, featured, invitation). Shared constants — never inline.
-export const MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL = 2;
+//
+// The published-competitions cap is declared in `lib/institutions/reach-caps.ts` and re-exported
+// here so its server callers keep one import path. It moved because this module imports the Drizzle
+// schema, and the publish control has to name the cap in an Indonesian sentence on the client —
+// see that file's header. Still one definition, read from two directions.
+export { MAX_PUBLISHED_COMPETITIONS_FOR_PERSONAL } from "@/lib/institutions/reach-caps";
 export const MAX_PERSONAL_INSTITUTIONS_PER_RECRUITER = 1;
 
 export const isInstitutionType = (value: unknown): value is InstitutionType =>

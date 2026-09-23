@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Button,
@@ -24,7 +25,14 @@ import {
   type CompetitionTimelineError,
   type CompetitionTimelineField,
 } from "@/lib/competitions/competition-timeline";
-import { capitalizeFirst, capitalizeWord } from "@/lib/text/capitalize";
+import { resolveSessionMismatchMessage, sessionFetch } from "@/lib/session/session-fetch";
+import {
+  getPublishBlockerReason,
+  resolvePublishReasonHref,
+  resolvePublishRefusalToastText,
+} from "@/components/institution/competition-publish-messages";
+import type { CompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
+import { capitalizeWord } from "@/lib/text/capitalize";
 import type { CompetitionCategory } from "@/server/db/schema";
 
 type Category = CompetitionCategory;
@@ -106,13 +114,6 @@ const extractError = async (
   }
 };
 
-const formatFailures = (failures: PublishValidationFailure[] | undefined): string => {
-  if (!failures || failures.length === 0) return "";
-  return failures
-    .map((f) => `${getCompetitionFieldLabel(f.field)}: ${capitalizeFirst(f.message)}`)
-    .join("; ");
-};
-
 const cutoffOrNull = (value: string): number | null => {
   if (value.trim() === "") return null;
   const n = Number.parseInt(value, 10);
@@ -171,11 +172,16 @@ const snapshotEquals = (a: FormSnapshot, b: FormSnapshot): boolean =>
 export const InstitutionCompetitionEditShell = ({
   institutionSlug,
   competitionId,
+  expectedUserId,
+  initialPublishReadiness,
   isPersonal = false,
   children,
 }: {
   institutionSlug: string;
   competitionId: string;
+  // Rule 16: the rendered-for user id, sent as `X-Expected-User-Id` on every mutation from here.
+  expectedUserId: string;
+  initialPublishReadiness: CompetitionPublishReadiness;
   // A personal institution may only run individual-mode competitions. When true the
   // mode selector offers individual only (no team/both); the server guard
   // (assertPersonalInstitutionIndividualMode, 422) remains the authoritative enforcement.
@@ -189,6 +195,15 @@ export const InstitutionCompetitionEditShell = ({
   const { addToast } = useToast();
 
   const [competition, setCompetition] = useState<Competition | null>(null);
+  // Seeded from the page's server answer, then refreshed by every `load()`. `load()` runs after a
+  // successful save, so a save that clears a blocker clears the reason with it — no reload.
+  const [publishReadiness, setPublishReadiness] =
+    useState<CompetitionPublishReadiness>(initialPublishReadiness);
+  // Whether the readiness above came from a live read. A refetch that FAILS leaves the answer
+  // UNKNOWN rather than stale: the server is still the authority, and pressing Terbitkan still
+  // sends the attempt, whose refusal arrives as Indonesian text via `competition-publish-messages`.
+  // Holding the last known value would disable the control on a reason nobody was shown.
+  const [readinessIsKnown, setReadinessIsKnown] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Publish shares the submit lock with Save but needs its own flag so the spinner lands on the
@@ -264,8 +279,47 @@ export const InstitutionCompetitionEditShell = ({
   const eventEndError = getTimelineFieldError(timelineErrors, "eventEndAt");
   const resultAnnouncementError = getTimelineFieldError(timelineErrors, "resultAnnouncementAt");
   const timelineIsInvalid = timelineErrors.length > 0;
-  const publishIsBlocked = isDirty || missingPublishFields.length > 0 || timelineIsInvalid;
-  let editorStatusMessage = "Semua perubahan tersimpan dan siap diterbitkan";
+  const clientPublishIsBlocked = isDirty || missingPublishFields.length > 0 || timelineIsInvalid;
+
+  // Whether `editorStatusMessage` below is about to say, in this form's own terms, what the
+  // checklist reason would say. The two overlap on missing fields and out-of-order dates and nowhere
+  // else, which is why they cannot simply be deduplicated by code.
+  const clientChecklistReasonIsRendered = timelineIsInvalid || missingPublishFields.length > 0;
+
+  // The server's reasons for refusing a publish, in the publish path's order. No reasons are shown
+  // against an unknown answer: a reason is a claim about what the server will do, and the shell has
+  // just failed to ask it.
+  const serverPublishReasons = readinessIsKnown
+    ? publishReadiness.blockers
+        // Dropped only when the sentence above really is on screen. The server's checklist also
+        // refuses a registration window that has CLOSED (competition-core.ts:877-883) — a check this
+        // form cannot make, because its own two validators read presence and relative order and
+        // never the clock. A field-complete, correctly ordered draft whose window has closed passes
+        // every client check, so dropping the reason there would leave a disabled control with
+        // nothing to explain it.
+        .filter(
+          (code) =>
+            code !== "competition_publish_validation_failed" || !clientChecklistReasonIsRendered,
+        )
+        // This shell IS the page that reason's link points at, so the link is dropped rather than
+        // rendered as a control that sends the user to the page they are already on.
+        .map((code) => {
+          const reason = getPublishBlockerReason(code);
+          return code === "competition_publish_validation_failed"
+            ? { ...reason, link: null }
+            : reason;
+        })
+    : [];
+
+  const publishIsBlocked =
+    clientPublishIsBlocked || (readinessIsKnown && !publishReadiness.canPublish);
+  // "siap diterbitkan" is a claim the control has to be able to back, so it is the default only
+  // while the control is enabled. When a server refusal is what blocks, that refusal is on screen
+  // above this line instead of a sentence here — there is always one, because a block with no client
+  // check behind it is a server refusal.
+  let editorStatusMessage: string | null = publishIsBlocked
+    ? null
+    : "Semua perubahan tersimpan dan siap diterbitkan";
   if (timelineIsInvalid) {
     editorStatusMessage = `Perbaiki urutan jadwal: ${timelineErrors[0]?.message}`;
   } else if (isDirty) {
@@ -283,11 +337,24 @@ export const InstitutionCompetitionEditShell = ({
     if (!response.ok) {
       const { message } = await extractError(response);
       addToast({ type: "error", message });
+      // The read failed, so the readiness on screen is no longer an answer to anything. Drop it.
+      setReadinessIsKnown(false);
       setIsLoading(false);
       return;
     }
-    const data = (await response.json()) as { competition: Competition };
+    const data = (await response.json()) as {
+      competition: Competition;
+      publishReadiness?: CompetitionPublishReadiness;
+    };
     setCompetition(data.competition);
+    if (data.publishReadiness) {
+      setPublishReadiness(data.publishReadiness);
+    }
+    // A successful read clears the unknown state whether or not the optional key came with it: the
+    // flag records whether the last READ succeeded, not whether that read carried a new answer.
+    // Assigning it only inside the branch above latched the shell — one failed read turned the flag
+    // false, and from then on only a response carrying `publishReadiness` could turn it back.
+    setReadinessIsKnown(true);
     const loadedTitle = data.competition.title;
     const loadedSlug = data.competition.slug;
     const loadedDescription = data.competition.description ?? "";
@@ -423,12 +490,15 @@ export const InstitutionCompetitionEditShell = ({
       cancellationCutoffDays: allowCancellation ? cutoffOrNull(cutoffDays) : null,
     };
 
-    const response = await fetch(`/api/v1/competitions/${encodeURIComponent(competitionId)}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(patch),
-    });
+    const response = await sessionFetch(
+      expectedUserId,
+      `/api/v1/competitions/${encodeURIComponent(competitionId)}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      },
+    );
 
     if (!response.ok) {
       const { message, code, blockedFields } = await extractError(response);
@@ -462,11 +532,11 @@ export const InstitutionCompetitionEditShell = ({
           ),
           actions: [{ label: "Mengerti", variant: "primary", autoClose: true, onClick: () => {} }],
         });
-        addToast({ type: "error", message });
+        addToast({ type: "error", message: resolveSessionMismatchMessage(code, message) });
         setIsSubmitting(false);
         return;
       }
-      addToast({ type: "error", message });
+      addToast({ type: "error", message: resolveSessionMismatchMessage(code, message) });
       setIsSubmitting(false);
       return;
     }
@@ -478,13 +548,17 @@ export const InstitutionCompetitionEditShell = ({
 
   const onPublish = async () => {
     if (publishIsBlocked) {
+      // The client's own reasons first: they are the ones this shell can see and the user can act
+      // on here. If only the server is refusing, say what it said.
       addToast({
         type: "error",
-        message: timelineIsInvalid
-          ? `Perbaiki urutan jadwal: ${timelineErrors.map(({ message }) => message).join(" ")}`
-          : isDirty
-            ? "Simpan perubahan sebelum menerbitkan kompetisi."
-            : `Lengkapi bidang wajib sebelum menerbitkan: ${missingPublishFields.join(", ")}.`,
+        message: clientPublishIsBlocked
+          ? timelineIsInvalid
+            ? `Perbaiki urutan jadwal: ${timelineErrors.map(({ message }) => message).join(" ")}`
+            : isDirty
+              ? "Simpan perubahan sebelum menerbitkan kompetisi."
+              : `Lengkapi bidang wajib sebelum menerbitkan: ${missingPublishFields.join(", ")}.`
+          : (serverPublishReasons[0]?.text ?? "Kompetisi belum dapat diterbitkan saat ini."),
       });
       return;
     }
@@ -493,13 +567,15 @@ export const InstitutionCompetitionEditShell = ({
     setIsPublishing(true);
     const url = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}/publish`;
     try {
-      const response = await fetch(url, { method: "POST", credentials: "include" });
+      const response = await sessionFetch(expectedUserId, url, { method: "POST" });
       if (!response.ok) {
-        const { message, failures } = await extractError(response);
-        const failureText = formatFailures(failures);
+        const { code, failures } = await extractError(response);
         addToast({
           type: "error",
-          message: failureText ? `${message} (${failureText})` : message,
+          message: resolveSessionMismatchMessage(
+            code,
+            resolvePublishRefusalToastText(code, failures),
+          ),
         });
         return;
       }
@@ -944,13 +1020,37 @@ export const InstitutionCompetitionEditShell = ({
         <IconButton icon="arrow-left" label="Kembali ke aksi status" onClick={handleBack} />
         {isEditable ? (
           <div className="form-action-bar-end">
-            <span
+            <div
               className="record-meta"
               id="publish-readiness-message"
               data-dirty={publishIsBlocked ? "true" : undefined}
             >
-              {editorStatusMessage}
-            </span>
+              {/* Server reasons first: what the server will do outranks what this form thinks of
+                  itself, and a reason the user cannot fix here is the one worth reading first. */}
+              {serverPublishReasons.length > 0 ? (
+                <ul className="stack-xs">
+                  {serverPublishReasons.map((reason) => (
+                    <li key={reason.code}>
+                      {reason.text}
+                      {reason.link ? (
+                        <>
+                          {" "}
+                          <Link
+                            href={resolvePublishReasonHref(reason.link.kind, {
+                              institutionSlug,
+                              competitionSlug: competition.slug,
+                            })}
+                          >
+                            {reason.link.label}
+                          </Link>
+                        </>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <span>{editorStatusMessage}</span>
+            </div>
             <Button
               type="button"
               onClick={() => onSave()}

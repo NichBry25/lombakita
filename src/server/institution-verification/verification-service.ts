@@ -28,6 +28,8 @@ import {
   isVerificationStatus,
   VerificationError,
 } from "@/server/institution-verification/verification-core";
+import { resolvePlatformOpsActor } from "@/server/platform-ops/operator-actor";
+import { assertOperatorHasNoInstitutionRelationship } from "@/server/institution-verification/operator-institution-conflict";
 import {
   sendInstitutionRejectedEmail,
   sendInstitutionVerificationRevokedEmail,
@@ -189,11 +191,8 @@ export const verifyInstitution = async (options: {
   targetStatus: InstitutionVerificationStatus;
   reason?: string;
   actorUserId: string;
-  actorRole: string;
   db?: Database;
 }): Promise<VerifyResult> => {
-  requirePlatformOps(options.actorRole);
-
   const db = options.db ?? getDb();
 
   const now = new Date();
@@ -229,7 +228,22 @@ export const verifyInstitution = async (options: {
     verificationStatus: InstitutionVerificationStatus;
   };
 
+  // Assigned inside the transaction, read by the logger after it commits.
+  let resolvedActorUserId: string | null = null;
+
   await db.transaction(async (tx) => {
+    // THE ACTOR IS READ FIRST, AND FROM THE DATABASE (LAUNCH-D72, mirrors
+    // recruiter-tier-service.ts:120-129). `options.actorUserId` is whatever the caller claimed; the
+    // refusal codes below are about the caller's own account, and the audit row must name the
+    // account the database answered with rather than the one that was asserted. Reading it first
+    // also means a caller with no business here learns nothing about the target.
+    //
+    // THE ONLY ROLE AUTHORITY ON THIS PATH (C2.2). The route's `requireSessionRole(["platform_ops"])`
+    // gate and this read are the two halves; a role STRING passed in the options object was a third,
+    // and a claim. `reviewVerificationSubmission` has been shaped this way since LAUNCH-D72.
+    const actor = await resolvePlatformOpsActor(tx, options.actorUserId);
+    resolvedActorUserId = actor.userId;
+
     // Read and write in one transaction, and pin the UPDATE to the status this decision was made
     // against. Two concurrent PATCHes previously both passed assertValidTransition and both
     // committed, leaving the loser's audit row describing a transition that never happened — which
@@ -239,6 +253,7 @@ export const verifyInstitution = async (options: {
         displayName: institutions.displayName,
         institutionType: institutions.institutionType,
         verificationStatus: institutions.verificationStatus,
+        slug: institutions.slug,
       })
       .from(institutions)
       .where(eq(institutions.id, options.institutionId))
@@ -247,6 +262,13 @@ export const verifyInstitution = async (options: {
     if (!row) {
       throw new VerificationError("verification_not_found", 404, "Institution not found");
     }
+
+    // NOBODY DECIDES THEIR OWN INSTITUTION. The three relationships that make an operator conflicted,
+    // and why each is read in ANY status, are declared in the rule itself
+    // (operator-institution-conflict.ts). It runs here — after the institution read that supplies the
+    // id, before the transition is validated and before anything is written — so a refused decision
+    // leaves the target's status and audit trail untouched by the attempt.
+    await assertOperatorHasNoInstitutionRelationship(tx, actor, options.institutionId);
 
     current = row;
 
@@ -294,7 +316,8 @@ export const verifyInstitution = async (options: {
       .insert(institutionVerificationAudit)
       .values({
         institutionId: options.institutionId,
-        actorUserId: options.actorUserId,
+        // The RESOLVED id, not the claimed one.
+        actorUserId: actor.userId,
         fromStatus: row.verificationStatus,
         toStatus: options.targetStatus,
         reason: options.reason ?? null,
@@ -317,7 +340,7 @@ export const verifyInstitution = async (options: {
 
   logger.info("institution.verification.transitioned", {
     institutionId: options.institutionId,
-    actorUserId: options.actorUserId,
+    actorUserId: resolvedActorUserId,
     from: current!.verificationStatus,
     to: options.targetStatus,
     reason: options.reason,

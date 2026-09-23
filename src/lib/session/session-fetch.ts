@@ -46,3 +46,10 @@ export const readErrorCode = async (response: Response): Promise<string | null> 
 // components when the server responds with 409 session_user_mismatch.
 export const SESSION_MISMATCH_MESSAGE =
   "Sesi telah berubah ke akun lain. Muat ulang halaman dan coba lagi.";
+
+// What a surface says when a mutation was refused. The server's own message is written for a log —
+// English, and phrased for whoever reads the logs — so every surface that renders a refusal passes
+// it through here first. Exactly one code is replaced: the mismatch names a condition the user
+// resolves by reloading, and it is the one refusal the server's prose would describe wrongly.
+export const resolveSessionMismatchMessage = (code: string | null | undefined, fallback: string) =>
+  code === SESSION_MISMATCH_CODE ? SESSION_MISMATCH_MESSAGE : fallback;

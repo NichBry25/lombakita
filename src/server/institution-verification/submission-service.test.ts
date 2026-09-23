@@ -20,6 +20,7 @@ import {
   SubmissionError,
   type DocumentInput,
 } from "./submission-service";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 import { isR2Available } from "@/server/storage/r2.client";
 
 // ─── DB mock helpers ──────────────────────────────────────────────────────────
@@ -277,25 +278,26 @@ describe("reviewVerificationSubmission", () => {
 
   const ownerMembership = { email: "alice@company.co.id", username: "alice" };
 
-  it("returns 403 when actor is not platform_ops", async () => {
-    const err = await catchAsync(() =>
-      reviewVerificationSubmission(
-        "sub_1",
-        "approved",
-        null,
-        "ops_1",
-        "recruiter",
-        createDbMock({}),
-      ),
-    );
-    expect((err as { status: number }).status).toBe(403);
-  });
+  // The acted-on account row `resolvePlatformOpsActor` reads. It is the FIRST select inside the
+  // transaction, so every fixture below leads with it.
+  const opsActorRow = { id: "ops_1", role: "platform_ops", suspendedAt: null };
+
+  // The conflict rule's four reads in order: a membership, a submission this actor filed, the acting
+  // account's own address, and an invitation naming them. The queue is positional, so a fixture that
+  // omits one slides every later answer up by one; `opsAccountRow` is required rather than optional,
+  // because the rule cannot evaluate its address arm without it.
+  const opsAccountRow = { email: "ops_1@lombakita.test" };
 
   it("reject — marks submission rejected with audit row, no institution status change", async () => {
     const db = createDbMock({
       selects: [
+        [opsActorRow], // resolvePlatformOpsActor
         [companySub], // CAS fetch submission
         [companyInst], // fetch institution
+        [], // conflict rule: no membership
+        [], // conflict rule: this actor filed nothing here
+        [opsAccountRow], // conflict rule: the acting account's own address
+        [], // conflict rule: no invitation names them
       ],
       updates: [
         [{ id: "sub_1", status: "rejected" }], // submission update
@@ -310,7 +312,6 @@ describe("reviewVerificationSubmission", () => {
       "rejected",
       "Dokumen tidak valid",
       "ops_1",
-      "platform_ops",
       db,
     );
 
@@ -321,8 +322,13 @@ describe("reviewVerificationSubmission", () => {
   it("approve — sets verifiedAt, writes audit, marks approved", async () => {
     const db = createDbMock({
       selects: [
+        [opsActorRow], // resolvePlatformOpsActor
         [companySub], // CAS fetch submission
         [companyInst], // fetch institution
+        [], // conflict rule: no membership
+        [], // conflict rule: this actor filed nothing here
+        [opsAccountRow], // conflict rule: the acting account's own address
+        [], // conflict rule: no invitation names them
         [ownerMembership], // post-commit email lookup
       ],
       updates: [
@@ -334,14 +340,7 @@ describe("reviewVerificationSubmission", () => {
       ],
     });
 
-    const result = await reviewVerificationSubmission(
-      "sub_1",
-      "approved",
-      null,
-      "ops_1",
-      "platform_ops",
-      db,
-    );
+    const result = await reviewVerificationSubmission("sub_1", "approved", null, "ops_1", db);
 
     expect(result.submissionId).toBe("sub_1");
     expect(result.status).toBe("approved");
@@ -351,11 +350,19 @@ describe("reviewVerificationSubmission", () => {
     // verified→verified is not a legal transition, so a stale queue tab cannot re-approve an
     // institution and stamp a second verified_at over the original decision.
     const db = createDbMock({
-      selects: [[companySub], [{ ...companyInst, verificationStatus: "verified" }]],
+      selects: [
+        [opsActorRow],
+        [companySub],
+        [{ ...companyInst, verificationStatus: "verified" }],
+        [],
+        [],
+        [opsAccountRow],
+        [],
+      ],
     });
 
     const err = await catchAsync(() =>
-      reviewVerificationSubmission("sub_1", "approved", null, "ops_1", "platform_ops", db),
+      reviewVerificationSubmission("sub_1", "approved", null, "ops_1", db),
     );
     expect((err as { code: string }).code).toBe("verification_invalid_transition");
     expect((err as { status: number }).status).toBe(409);
@@ -365,12 +372,12 @@ describe("reviewVerificationSubmission", () => {
     // Zero rows updated: the CAS predicate no longer matches, because a revocation or another
     // approval landed first. The submission must not be marked approved on top of it.
     const db = createDbMock({
-      selects: [[companySub], [companyInst]],
+      selects: [[opsActorRow], [companySub], [companyInst], [], [], [opsAccountRow], []],
       updates: [[]],
     });
 
     const err = await catchAsync(() =>
-      reviewVerificationSubmission("sub_1", "approved", null, "ops_1", "platform_ops", db),
+      reviewVerificationSubmission("sub_1", "approved", null, "ops_1", db),
     );
     expect(err).toBeInstanceOf(SubmissionError);
     expect((err as SubmissionError).code).toBe("verification_transition_conflict");
@@ -382,7 +389,16 @@ describe("reviewVerificationSubmission", () => {
     const setPayloads: Record<string, unknown>[] = [];
     const db = createDbMock({
       onSet: (payload) => setPayloads.push(payload),
-      selects: [[companySub], [companyInst], [ownerMembership]],
+      selects: [
+        [opsActorRow],
+        [companySub],
+        [companyInst],
+        [],
+        [],
+        [opsAccountRow],
+        [],
+        [ownerMembership],
+      ],
       updates: [
         [{ id: "inst_1", verificationStatus: "verified" }],
         [{ id: "sub_1", status: "approved" }],
@@ -390,14 +406,7 @@ describe("reviewVerificationSubmission", () => {
       inserts: [[{ id: "audit_1" }]],
     });
 
-    const result = await reviewVerificationSubmission(
-      "sub_1",
-      "approved",
-      null,
-      "ops_1",
-      "platform_ops",
-      db,
-    );
+    const result = await reviewVerificationSubmission("sub_1", "approved", null, "ops_1", db);
 
     expect(result.status).toBe("approved");
     expect(setPayloads.some((payload) => "institutionType" in payload)).toBe(false);
@@ -409,12 +418,13 @@ describe("reviewVerificationSubmission", () => {
     const alreadyApproved = { ...companySub, status: "approved" };
     const db = createDbMock({
       selects: [
+        [opsActorRow],
         [alreadyApproved], // CAS fetch — status is not pending_review
       ],
     });
 
     const err = await catchAsync(() =>
-      reviewVerificationSubmission("sub_1", "approved", null, "ops_1", "platform_ops", db),
+      reviewVerificationSubmission("sub_1", "approved", null, "ops_1", db),
     );
     expect(err).toBeInstanceOf(SubmissionError);
     expect((err as SubmissionError).code).toBe("submission_already_reviewed");
@@ -422,9 +432,9 @@ describe("reviewVerificationSubmission", () => {
   });
 
   it("returns 404 when submission not found", async () => {
-    const db = createDbMock({ selects: [[]] }); // empty result
+    const db = createDbMock({ selects: [[opsActorRow], []] }); // empty result
     const err = await catchAsync(() =>
-      reviewVerificationSubmission("no-sub", "approved", null, "ops_1", "platform_ops", db),
+      reviewVerificationSubmission("no-sub", "approved", null, "ops_1", db),
     );
     expect(err).toBeInstanceOf(SubmissionError);
     expect((err as SubmissionError).code).toBe("submission_not_found");
@@ -432,15 +442,25 @@ describe("reviewVerificationSubmission", () => {
   });
 });
 
-// ─── Route-level access gates ─────────────────────────────────────────────────
+// ─── Account-level refusals (the resolved actor is the authority) ─────────────
 
-describe("reviewVerificationSubmission — platform_ops gate", () => {
-  it("throws 403 for any role other than platform_ops", async () => {
-    for (const role of ["recruiter", "candidate", "finance_ops", "reviewer_or_judge"]) {
+describe("reviewVerificationSubmission — resolvePlatformOpsActor refusals", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("refuses for a missing account, a non-platform_ops role, and a suspended account", async () => {
+    const actorRows = [
+      [], // not found
+      [{ id: "ops_1", role: "recruiter", suspendedAt: null }], // wrong role
+      [{ id: "ops_1", role: "platform_ops", suspendedAt: new Date() }], // suspended
+    ];
+
+    for (const actorRow of actorRows) {
+      const db = createDbMock({ selects: [actorRow] });
       const err = await catchAsync(() =>
-        reviewVerificationSubmission("sub_1", "approved", null, "user_1", role, createDbMock({})),
+        reviewVerificationSubmission("sub_1", "approved", null, "user_1", db),
       );
-      expect((err as { status: number }).status).toBe(403);
+      expect(err).toBeInstanceOf(OperatorActorError);
+      expect((err as OperatorActorError).status).toBe(403);
     }
   });
 });

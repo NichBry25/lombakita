@@ -10,6 +10,7 @@ import { AccessError } from "@/server/auth/access-core";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import { getCompetitionIdByInstitutionAndSlug } from "@/server/competitions/competition-service";
+import { resolveCompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
 import { loadInstitutionTypeBySlug } from "@/server/institution-workspace/institution-service";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 
@@ -31,10 +32,17 @@ export default async function InstitutionCompetitionEditPage({ params }: Props) 
 
   const isPersonal = isPersonalInstitutionType(await loadInstitutionTypeBySlug(institutionSlug));
 
+  // The first paint's answer. The shell refreshes it from the competition read after every save,
+  // which is what makes the control reflect the state that was just written rather than the state
+  // the form was opened on.
+  const publishReadiness = await resolveCompetitionPublishReadiness(session.user.id, competitionId);
+
   return (
     <InstitutionCompetitionEditShell
       institutionSlug={institutionSlug}
       competitionId={competitionId}
+      expectedUserId={session.user.id}
+      initialPublishReadiness={publishReadiness}
       isPersonal={isPersonal}
     >
       <CompetitionRoundsEditor competitionId={competitionId} expectedUserId={session.user.id} />

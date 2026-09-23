@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
 import { CompetitionError } from "@/server/competitions/competition-core";
+import { SESSION_USER_HEADER } from "@/lib/session/session-fetch";
 
 const {
   requireAuthenticatedSession,
@@ -11,6 +12,7 @@ const {
   softDeleteCompetitionDraft,
   hasActiveRegistrationsForCompetition,
   getCompetitionParticipationSummary,
+  resolveCompetitionPublishReadiness,
 } = vi.hoisted(() => ({
   requireAuthenticatedSession: vi.fn(),
   getCompetitionForReader: vi.fn(),
@@ -18,6 +20,7 @@ const {
   softDeleteCompetitionDraft: vi.fn(),
   hasActiveRegistrationsForCompetition: vi.fn(),
   getCompetitionParticipationSummary: vi.fn(),
+  resolveCompetitionPublishReadiness: vi.fn(),
 }));
 
 vi.mock("@/server/auth/session", () => ({ requireAuthenticatedSession }));
@@ -31,6 +34,11 @@ vi.mock("@/server/competitions/competition-access", () => ({
 }));
 vi.mock("@/server/competitions/competition-participation-service", () => ({
   getCompetitionParticipationSummary,
+}));
+// The GET carries publish readiness alongside the competition, so the route imports this module and
+// an unmocked import would reach the real database from a unit test.
+vi.mock("@/server/competitions/competition-publish-readiness", () => ({
+  resolveCompetitionPublishReadiness,
 }));
 
 import { DELETE, GET, PATCH } from "@/app/api/v1/competitions/[competitionId]/route";
@@ -49,12 +57,14 @@ const makeParams = (competitionId: string) => ({
   params: Promise.resolve({ competitionId }),
 });
 
-const makeRequest = (method: "GET" | "PATCH" | "DELETE", body?: unknown) =>
+const makeRequest = (method: "GET" | "PATCH" | "DELETE", body?: unknown, expectedUserId?: string) =>
   new Request("http://localhost/api/v1/competitions/comp_1", {
     method,
-    ...(body !== undefined
-      ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }
-      : {}),
+    headers: {
+      ...(body !== undefined ? { "content-type": "application/json" } : {}),
+      ...(expectedUserId !== undefined ? { [SESSION_USER_HEADER]: expectedUserId } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
 
 describe("GET /api/v1/competitions/[competitionId]", () => {
@@ -65,9 +75,12 @@ describe("GET /api/v1/competitions/[competitionId]", () => {
     getCompetitionForReader.mockResolvedValue({ id: "comp_1", status: "draft" });
     hasActiveRegistrationsForCompetition.mockResolvedValue(false);
     getCompetitionParticipationSummary.mockResolvedValue({ state: "not_configured" });
+    resolveCompetitionPublishReadiness.mockResolvedValue({ canPublish: false, blockers: [] });
     const response = await GET(makeRequest("GET"), makeParams("comp_1"));
     expect(response.status).toBe(200);
     expect(getCompetitionForReader).toHaveBeenCalledWith("admin_1", "recruiter", "comp_1");
+    // Readiness is answered for the CALLER, on the competition in the path.
+    expect(resolveCompetitionPublishReadiness).toHaveBeenCalledWith("admin_1", "comp_1");
   });
 
   it("reports whether registrations exist so the console can gate withdrawal", async () => {
@@ -75,9 +88,16 @@ describe("GET /api/v1/competitions/[competitionId]", () => {
     getCompetitionForReader.mockResolvedValue({ id: "comp_1", status: "published" });
     hasActiveRegistrationsForCompetition.mockResolvedValue(true);
     getCompetitionParticipationSummary.mockResolvedValue({ state: "collecting_entries" });
+    resolveCompetitionPublishReadiness.mockResolvedValue({
+      canPublish: true,
+      blockers: [],
+    });
     const response = await GET(makeRequest("GET"), makeParams("comp_1"));
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ hasActiveRegistrations: true });
+    await expect(response.json()).resolves.toMatchObject({
+      hasActiveRegistrations: true,
+      publishReadiness: { canPublish: true, blockers: [] },
+    });
     expect(getCompetitionParticipationSummary).toHaveBeenCalledWith(
       expect.objectContaining({ id: "comp_1" }),
     );
@@ -204,6 +224,22 @@ describe("PATCH /api/v1/competitions/[competitionId]", () => {
     );
     expect(response.status).toBe(409);
   });
+
+  it("returns 409 and never reaches the draft update when the expected user is another account", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    updateCompetitionDraft.mockResolvedValue({ id: "comp_1", title: "Updated", status: "draft" });
+
+    const response = await PATCH(
+      makeRequest("PATCH", { title: "Updated" }, "someone_else"),
+      makeParams("comp_1"),
+    );
+
+    const body = (await response.json()) as { error: { code: string } };
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("session_user_mismatch");
+    // A guard below this line would still answer 409, with Account B's draft already saved.
+    expect(updateCompetitionDraft).not.toHaveBeenCalled();
+  });
 });
 
 describe("DELETE /api/v1/competitions/[competitionId]", () => {
@@ -243,5 +279,21 @@ describe("DELETE /api/v1/competitions/[competitionId]", () => {
     );
     const response = await DELETE(makeRequest("DELETE"), makeParams("comp_1"));
     expect(response.status).toBe(403);
+  });
+
+  it("returns 409 and never reaches the soft-delete when the expected user is another account", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    softDeleteCompetitionDraft.mockResolvedValue(undefined);
+
+    const response = await DELETE(
+      makeRequest("DELETE", undefined, "someone_else"),
+      makeParams("comp_1"),
+    );
+
+    const body = (await response.json()) as { error: { code: string } };
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("session_user_mismatch");
+    // A guard below this line would still answer 409, with Account B's draft already deleted.
+    expect(softDeleteCompetitionDraft).not.toHaveBeenCalled();
   });
 });

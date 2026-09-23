@@ -10,7 +10,11 @@ import { ChargingReadinessPanel } from "@/components/institution/charging-readin
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
-import { getPublicInstitution } from "@/server/institution-workspace/institution-public-service";
+import {
+  getPublicInstitution,
+  isIndexableInstitution,
+  type InstitutionPublicViewer,
+} from "@/server/institution-workspace/institution-public-service";
 import { listPublicCompetitions } from "@/server/competitions/competition-public-service";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 
@@ -53,7 +57,16 @@ export async function generateMetadata({ params }: InstitutionHubPageProps): Pro
   return {
     title,
     description,
-    robots: INDEXABLE_ROBOTS,
+    // `robots` IS OMITTED, NOT SET TO `NON_INDEXABLE_ROBOTS`, for an institution that has not
+    // earned indexing: the root layout already withholds the whole app and a page becomes indexable
+    // only by overriding it. Omitting the key therefore withholds, and does so without a second
+    // spelling of "do not index" that could drift from the layout's.
+    //
+    // An unverified institution reaches this branch — its page renders, because a free competition
+    // publishes from an unverified institution (DEC-0158) — and it gets a title, a description, a
+    // canonical and Open Graph, exactly as before. What it does not get is the invitation to index:
+    // the sitemap leaves it out, and so does this directive.
+    ...(isIndexableInstitution(institution) ? { robots: INDEXABLE_ROBOTS } : {}),
     alternates: { canonical: path },
     openGraph: {
       title,
@@ -88,7 +101,14 @@ export default async function InstitutionHubPage({
     : false;
 
   if (!isAdmin || tampilan === PUBLIC_VIEW_PARAM) {
-    return renderPublicView(institutionSlug);
+    // `isPlatformOps` and `isPreview` are read here and resolved in the service, so the contact
+    // decision is made against the database for THIS viewer rather than by a client that could be
+    // wrong about who is looking.
+    return renderPublicView(institutionSlug, {
+      userId: session?.user?.id ?? null,
+      isPlatformOps: session?.user?.role === "platform_ops",
+      isPreview: tampilan === PUBLIC_VIEW_PARAM,
+    });
   }
 
   await requireRolePage("recruiter", { callbackPath: base });
@@ -210,8 +230,8 @@ export default async function InstitutionHubPage({
 
 // A personal institution has no identity of its own — its name, photo and banner are all the
 // owner's — so its public page is that person's profile rather than a near-duplicate of it.
-async function renderPublicView(institutionSlug: string) {
-  const institution = await getPublicInstitution(institutionSlug);
+async function renderPublicView(institutionSlug: string, viewer: InstitutionPublicViewer) {
+  const institution = await getPublicInstitution(institutionSlug, viewer);
   if (!institution) notFound();
 
   if (isPersonalInstitutionType(institution.institutionType)) {

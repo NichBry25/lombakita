@@ -154,6 +154,24 @@ export const isInstitutionAdminBySlug = async (
   db: Database = getDb(),
 ): Promise<boolean> => hasActiveMembershipBySlug(actorUserId, institutionSlug, ADMIN_ROLES, db);
 
+// Every role that puts a person inside the institution, institution_member included. The question
+// this answers is "is the caller on the inside", not "may the caller operate anything" — which is
+// why it is not built on ADMIN_ROLES: a plain member is an insider for the purpose that consumes it
+// (an unverified institution's contact details are shown to its own people, DEC-0158's exposure
+// rule) while holding no operational permission at all.
+const ALL_MEMBERSHIP_ROLES: readonly InstitutionMembershipRole[] = [
+  "institution_owner",
+  "institution_staff",
+  "institution_member",
+];
+
+export const isInstitutionMemberBySlug = async (
+  actorUserId: string,
+  institutionSlug: string,
+  db: Database = getDb(),
+): Promise<boolean> =>
+  hasActiveMembershipBySlug(actorUserId, institutionSlug, ALL_MEMBERSHIP_ROLES, db);
+
 export const isInstitutionOwnerBySlug = async (
   actorUserId: string,
   institutionSlug: string,
