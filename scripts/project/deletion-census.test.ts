@@ -230,7 +230,9 @@ describe("the rulings cover the derived population", () => {
     // can still be there after the statement — no hand-written list is consulted, so a ruling
     // cannot be right about the row and wrong about the columns on it, which is the exact shape of
     // the eight wrong `holds-no-user-data` rulings LAUNCH-D100 found.
-    expect(survivingPersonalColumns().map((entry) => `${entry.table}: ${entry.columns.join(", ")}`)).toEqual([
+    expect(
+      survivingPersonalColumns().map((entry) => `${entry.table}: ${entry.columns.join(", ")}`),
+    ).toEqual([
       "competition_document_requests: instructions, review_note, title",
       "competition_prizes: description, rank_label, title",
       "competition_rounds: description, platform_label, title",
@@ -260,8 +262,9 @@ describe("the rulings cover the derived population", () => {
     // claim: `competition_saves` has no personal column at all, so its emptiness is a fact about
     // its columns rather than a ruling that nothing of it survives.
     expect(
-      TABLE_RULINGS.filter((ruling) => ruling.survival !== "removed" && carriesOf(ruling.store).length === 0)
-        .map((ruling) => ruling.store),
+      TABLE_RULINGS.filter(
+        (ruling) => ruling.survival !== "removed" && carriesOf(ruling.store).length === 0,
+      ).map((ruling) => ruling.store),
     ).toEqual([
       "finance_fee_rules",
       "infrastructure_probe",
@@ -285,139 +288,143 @@ describe("the rendered enumeration", () => {
     expect(absent).toEqual([]);
   });
 
-describe("the column classification", () => {
-  it("classifies every text-capable column, and only text-capable columns", () => {
-    // THE ASSERTION A NEW COLUMN FAILS. Both directions of the same refusal: a text-capable column
-    // with no classification, and a classification naming a column the schema does not have or that
-    // is not text-capable. Either one leaves a claim that cannot be checked against anything, and a
-    // listing that keeps it reads as coverage.
-    expect(unclassifiedTextColumns()).toEqual([]);
-    expect(staleColumnClassifications()).toEqual([]);
+  describe("the column classification", () => {
+    it("classifies every text-capable column, and only text-capable columns", () => {
+      // THE ASSERTION A NEW COLUMN FAILS. Both directions of the same refusal: a text-capable column
+      // with no classification, and a classification naming a column the schema does not have or that
+      // is not text-capable. Either one leaves a claim that cannot be checked against anything, and a
+      // listing that keeps it reads as coverage.
+      expect(unclassifiedTextColumns()).toEqual([]);
+      expect(staleColumnClassifications()).toEqual([]);
 
-    // A tripwire so the two assertions above cannot pass over an empty population — every one of
-    // them is vacuously true if `getSQLType()` stopped returning anything the predicate knows.
-    expect(schemaTextCapableColumns().length).toBeGreaterThanOrEqual(250);
-    expect(PERSONAL_COLUMNS.length + NOT_PERSONAL_COLUMNS.length).toBe(
-      schemaTextCapableColumns().length,
-    );
+      // A tripwire so the two assertions above cannot pass over an empty population — every one of
+      // them is vacuously true if `getSQLType()` stopped returning anything the predicate knows.
+      expect(schemaTextCapableColumns().length).toBeGreaterThanOrEqual(250);
+      expect(PERSONAL_COLUMNS.length + NOT_PERSONAL_COLUMNS.length).toBe(
+        schemaTextCapableColumns().length,
+      );
+    });
+
+    it("refuses by name when a single classification is removed", () => {
+      // Rule 33: the input is built through the real production path — the schema's own column list —
+      // and only the classification list is perturbed, so this measures the coverage check rather
+      // than a hand-built population. `institutions.about` is the column the demonstration showed
+      // surviving on a real deletion; if the check cannot notice that one going missing it cannot
+      // notice any.
+      const columns = schemaTextCapableColumns();
+      const without = COLUMN_CLASSIFICATIONS.filter(
+        (entry) => entry.column !== "institutions.about",
+      );
+
+      expect(unclassifiedTextColumns(columns, without)).toEqual(["institutions.about"]);
+
+      // And the refusal is thrown by the deriving path, not merely returned by a helper.
+      expect(() => personalColumnsByTable(without)).toThrow(DeletionCensusRefusal);
+    });
+
+    it("refuses a classification naming a column that is not text-capable", () => {
+      // The same defect from the other side. `users.created_at` is a real column and not a
+      // text-capable one, so a classification of it is a claim about a column no reader can verify.
+      const withStray = [
+        ...COLUMN_CLASSIFICATIONS,
+        { column: "users.created_at", kind: "not-personal", reason: "not a text column" } as const,
+      ];
+
+      expect(staleColumnClassifications(schemaTextCapableColumns(), withStray)).toEqual([
+        "users.created_at",
+      ]);
+    });
+
+    it("gives every `not-personal` column the reason it is not personal", () => {
+      // The reason is the whole content of a `not-personal` classification: without one the entry is
+      // indistinguishable from a column nobody got round to. `personal` owes no reason, because the
+      // default direction is the safe one.
+      const unexplained = NOT_PERSONAL_COLUMNS.filter(
+        (entry) => entry.reason.trim().length === 0,
+      ).map((entry) => entry.column);
+
+      expect(unexplained).toEqual([]);
+
+      for (const entry of NOT_PERSONAL_COLUMNS) {
+        expect(entry.reason.length, `${entry.column} must say why`).toBeGreaterThan(10);
+      }
+    });
+
+    it("refuses a `not-personal` classification that does not say why", () => {
+      // The third arm of the same guard, and the one no other test reaches: the reason IS the content
+      // of a `not-personal` entry, so an entry without one is a column nobody got round to, wearing
+      // the ruling of a column somebody considered. Rule 32: this arm is asserted through the guard
+      // that throws rather than through the list it reads, so deleting the arm fails here.
+      const withSilentEntry = [
+        ...COLUMN_CLASSIFICATIONS.map((entry) =>
+          entry.column === "institutions.about"
+            ? ({ ...entry, kind: "not-personal", reason: "   " } as const)
+            : entry,
+        ),
+      ];
+
+      expect(() =>
+        assertEveryTextColumnIsClassified(schemaTextCapableColumns(), withSilentEntry),
+      ).toThrow(/no ruling for reason for a not-personal column "institutions.about"/);
+    });
+
+    it("answers every classified column exactly once", () => {
+      const counts = new Map<string, number>();
+      for (const entry of COLUMN_CLASSIFICATIONS) {
+        counts.set(entry.column, (counts.get(entry.column) ?? 0) + 1);
+      }
+
+      expect(
+        [...counts]
+          .filter(([, count]) => count !== 1)
+          .map(([column, count]) => `${column} x${count}`),
+      ).toEqual([]);
+    });
+
+    it("derives `holds no user data` from the columns rather than ruling it per table", () => {
+      // THE LAUNCH-D100 CHANGE, and the set is pinned because it is what the procedure's residue
+      // section is written against. Eight of the ten tables the hand rulings called clean are not in
+      // it: `competition_prizes` holds `title`, `description` and `rank_label`;
+      // `institution_verification_documents` holds the uploader's `original_file_name`.
+      const clean = schemaTableNames().filter(holdsNoUserData);
+
+      expect(clean.sort()).toEqual([
+        "competition_saves",
+        "finance_fee_disclosure_acknowledgements",
+        "finance_fee_rules",
+        "finance_payments",
+        "infrastructure_probe",
+        "institution_memberships",
+        "mfa_factors",
+        "mfa_recovery_codes",
+        "team_memberships",
+        "user_email_verification_tokens",
+        "user_password_credentials",
+        "user_platform_roles",
+      ]);
+
+      // Two of the ten the hand rulings got right, named so the fact that the derivation agrees with
+      // them is visible rather than assumed.
+      expect(holdsNoUserData("finance_fee_rules")).toBe(true);
+      expect(holdsNoUserData("competition_prizes")).toBe(false);
+      expect(personalColumnsOf("competition_prizes")).toEqual([
+        "description",
+        "rank_label",
+        "title",
+      ]);
+    });
+
+    it("carries the free-text columns the demonstration found surviving, not only the key columns", () => {
+      // The columns the seeded deletion left behind on a real run, asserted through the derivation.
+      // Neither is a foreign key: `competitions.created_by_user_id` had already nulled, and
+      // `institutions` has no foreign key to `users` at all. The FK graph could not have named them.
+      expect(carriesOf("competitions")).toContain("title");
+      expect(carriesOf("institutions")).toContain("about");
+
+      // And the column the Auth.js adapter table holds with nothing reaching it.
+      expect(carriesOf("verification_tokens")).toEqual(["identifier", "token"]);
+    });
   });
-
-  it("refuses by name when a single classification is removed", () => {
-    // Rule 33: the input is built through the real production path — the schema's own column list —
-    // and only the classification list is perturbed, so this measures the coverage check rather
-    // than a hand-built population. `institutions.about` is the column the demonstration showed
-    // surviving on a real deletion; if the check cannot notice that one going missing it cannot
-    // notice any.
-    const columns = schemaTextCapableColumns();
-    const without = COLUMN_CLASSIFICATIONS.filter((entry) => entry.column !== "institutions.about");
-
-    expect(unclassifiedTextColumns(columns, without)).toEqual(["institutions.about"]);
-
-    // And the refusal is thrown by the deriving path, not merely returned by a helper.
-    expect(() => personalColumnsByTable(without)).toThrow(DeletionCensusRefusal);
-  });
-
-  it("refuses a classification naming a column that is not text-capable", () => {
-    // The same defect from the other side. `users.created_at` is a real column and not a
-    // text-capable one, so a classification of it is a claim about a column no reader can verify.
-    const withStray = [
-      ...COLUMN_CLASSIFICATIONS,
-      { column: "users.created_at", kind: "not-personal", reason: "not a text column" } as const,
-    ];
-
-    expect(staleColumnClassifications(schemaTextCapableColumns(), withStray)).toEqual([
-      "users.created_at",
-    ]);
-  });
-
-  it("gives every `not-personal` column the reason it is not personal", () => {
-    // The reason is the whole content of a `not-personal` classification: without one the entry is
-    // indistinguishable from a column nobody got round to. `personal` owes no reason, because the
-    // default direction is the safe one.
-    const unexplained = NOT_PERSONAL_COLUMNS.filter((entry) => entry.reason.trim().length === 0).map(
-      (entry) => entry.column,
-    );
-
-    expect(unexplained).toEqual([]);
-
-    for (const entry of NOT_PERSONAL_COLUMNS) {
-      expect(entry.reason.length, `${entry.column} must say why`).toBeGreaterThan(10);
-    }
-  });
-
-  it("refuses a `not-personal` classification that does not say why", () => {
-    // The third arm of the same guard, and the one no other test reaches: the reason IS the content
-    // of a `not-personal` entry, so an entry without one is a column nobody got round to, wearing
-    // the ruling of a column somebody considered. Rule 32: this arm is asserted through the guard
-    // that throws rather than through the list it reads, so deleting the arm fails here.
-    const withSilentEntry = [
-      ...COLUMN_CLASSIFICATIONS.map((entry) =>
-        entry.column === "institutions.about"
-          ? ({ ...entry, kind: "not-personal", reason: "   " } as const)
-          : entry,
-      ),
-    ];
-
-    expect(() => assertEveryTextColumnIsClassified(schemaTextCapableColumns(), withSilentEntry)).toThrow(
-      /no ruling for reason for a not-personal column "institutions.about"/,
-    );
-  });
-
-  it("answers every classified column exactly once", () => {
-    const counts = new Map<string, number>();
-    for (const entry of COLUMN_CLASSIFICATIONS) {
-      counts.set(entry.column, (counts.get(entry.column) ?? 0) + 1);
-    }
-
-    expect([...counts].filter(([, count]) => count !== 1).map(([column, count]) => `${column} x${count}`)).toEqual(
-      [],
-    );
-  });
-
-  it("derives `holds no user data` from the columns rather than ruling it per table", () => {
-    // THE LAUNCH-D100 CHANGE, and the set is pinned because it is what the procedure's residue
-    // section is written against. Eight of the ten tables the hand rulings called clean are not in
-    // it: `competition_prizes` holds `title`, `description` and `rank_label`;
-    // `institution_verification_documents` holds the uploader's `original_file_name`.
-    const clean = schemaTableNames().filter(holdsNoUserData);
-
-    expect(clean.sort()).toEqual([
-      "competition_saves",
-      "finance_fee_disclosure_acknowledgements",
-      "finance_fee_rules",
-      "finance_payments",
-      "infrastructure_probe",
-      "institution_memberships",
-      "mfa_factors",
-      "mfa_recovery_codes",
-      "team_memberships",
-      "user_email_verification_tokens",
-      "user_password_credentials",
-      "user_platform_roles",
-    ]);
-
-    // Two of the ten the hand rulings got right, named so the fact that the derivation agrees with
-    // them is visible rather than assumed.
-    expect(holdsNoUserData("finance_fee_rules")).toBe(true);
-    expect(holdsNoUserData("competition_prizes")).toBe(false);
-    expect(personalColumnsOf("competition_prizes")).toEqual([
-      "description",
-      "rank_label",
-      "title",
-    ]);
-  });
-
-  it("carries the free-text columns the demonstration found surviving, not only the key columns", () => {
-    // The columns the seeded deletion left behind on a real run, asserted through the derivation.
-    // Neither is a foreign key: `competitions.created_by_user_id` had already nulled, and
-    // `institutions` has no foreign key to `users` at all. The FK graph could not have named them.
-    expect(carriesOf("competitions")).toContain("title");
-    expect(carriesOf("institutions")).toContain("about");
-
-    // And the column the Auth.js adapter table holds with nothing reaching it.
-    expect(carriesOf("verification_tokens")).toEqual(["identifier", "token"]);
-  });
-});
 
   it("names every R2 prefix and every external store", () => {
     // A section the renderer drops is a store the reader never learns about, and the artifact is the

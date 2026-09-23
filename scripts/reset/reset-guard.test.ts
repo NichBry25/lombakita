@@ -197,14 +197,20 @@ describe("the connection-host layer", () => {
 
   it("permits loopback in every spelling, including bracketed IPv6", () => {
     expect(findConnectionHostRefusal("reset", LOCAL_URL, "DATABASE_URL")).toBeNull();
-    expect(findConnectionHostRefusal("reset", "postgres://u:p@127.0.0.1/db", "DATABASE_URL")).toBeNull();
-    expect(findConnectionHostRefusal("reset", "postgres://u:p@[::1]:5432/db", "DATABASE_URL")).toBeNull();
+    expect(
+      findConnectionHostRefusal("reset", "postgres://u:p@127.0.0.1/db", "DATABASE_URL"),
+    ).toBeNull();
+    expect(
+      findConnectionHostRefusal("reset", "postgres://u:p@[::1]:5432/db", "DATABASE_URL"),
+    ).toBeNull();
   });
 
   // An unparseable string is refused rather than waved through: a caller uses this to decide
   // whether it may destroy a database, and a string this cannot read is not one to destroy through.
   it("refuses a string it cannot parse", () => {
-    expect(findConnectionHostRefusal("reset", "not-a-url", "DATABASE_URL")?.layer).toBe("connection-host");
+    expect(findConnectionHostRefusal("reset", "not-a-url", "DATABASE_URL")?.layer).toBe(
+      "connection-host",
+    );
   });
 });
 
@@ -242,7 +248,7 @@ describe("the verb a refusal speaks in", () => {
       appEnv: "production",
     }).catch((error: unknown) => error);
 
-    expect((refused as ResetRefused).message).toContain('refusing to delete: APP_ENV resolves to');
+    expect((refused as ResetRefused).message).toContain("refusing to delete: APP_ENV resolves to");
   });
 });
 

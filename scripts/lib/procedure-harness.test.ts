@@ -219,7 +219,11 @@ describe("connectToGuardedDatabase", () => {
   // BEFORE anything touched a socket. A handle returned ahead of the guard resolves instead.
   it("asks the environment before the host, and before any socket is used", async () => {
     await expect(
-      connectToGuardedDatabase(REMOTE_HOST, { verb: "reset", appEnv: "production", redisUrl: null }),
+      connectToGuardedDatabase(REMOTE_HOST, {
+        verb: "reset",
+        appEnv: "production",
+        redisUrl: null,
+      }),
     ).rejects.toThrow('refusing to reset: APP_ENV resolves to "production"');
   });
 

@@ -141,7 +141,6 @@ export type ColumnClassification =
 /** A `not-personal` classification, which owes the reason it is not personal. */
 export type NotPersonalColumn = { column: string; reason: string };
 
-
 /**
  * Every text-capable column that can carry a person's own data, as `table.column`.
  *
@@ -295,152 +294,468 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
 export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze([
   // accounts
   { column: "accounts.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "accounts.type", reason: "the Auth.js account type code (`oauth` / `email` / `credentials`)" },
+  {
+    column: "accounts.type",
+    reason: "the Auth.js account type code (`oauth` / `email` / `credentials`)",
+  },
   { column: "accounts.provider", reason: "the Auth.js provider slug (`google`)" },
-  { column: "accounts.provider_account_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "accounts.token_type", reason: "the OAuth token-type token the provider returned (`bearer`)" },
+  {
+    column: "accounts.provider_account_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "accounts.token_type",
+    reason: "the OAuth token-type token the provider returned (`bearer`)",
+  },
   { column: "accounts.scope", reason: "the OAuth scope string the provider returned" },
   // candidate_profiles
-  { column: "candidate_profiles.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "candidate_profiles.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // competition_document_request_files
-  { column: "competition_document_request_files.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_document_request_files.request_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_document_request_files.r2_key", reason: "a storage key composed only of ids" },
-  { column: "competition_document_request_files.content_type", reason: "a MIME type the upload declared; it names a format, not a person" },
+  {
+    column: "competition_document_request_files.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_document_request_files.request_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_document_request_files.r2_key",
+    reason: "a storage key composed only of ids",
+  },
+  {
+    column: "competition_document_request_files.content_type",
+    reason: "a MIME type the upload declared; it names a format, not a person",
+  },
   // competition_document_requests
-  { column: "competition_document_requests.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_document_requests.registration_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_document_requests.requested_by_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_document_requests.reviewed_by_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "competition_document_requests.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_document_requests.registration_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_document_requests.requested_by_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_document_requests.reviewed_by_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // competition_prizes
-  { column: "competition_prizes.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_prizes.competition_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "competition_prizes.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_prizes.competition_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // competition_registrations
-  { column: "competition_registrations.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_registrations.competition_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_registrations.student_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_registrations.team_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_registrations.cancellation_reason", reason: "the machine-readable cancellation token (`institution_cancelled`)" },
+  {
+    column: "competition_registrations.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_registrations.competition_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_registrations.student_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_registrations.team_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_registrations.cancellation_reason",
+    reason: "the machine-readable cancellation token (`institution_cancelled`)",
+  },
   // competition_results
-  { column: "competition_results.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_results.registration_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_results.competition_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "competition_results.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_results.registration_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_results.competition_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // competition_reviews
-  { column: "competition_reviews.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_reviews.competition_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_reviews.author_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "competition_reviews.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_reviews.competition_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_reviews.author_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // competition_rounds
-  { column: "competition_rounds.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_rounds.competition_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "competition_rounds.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_rounds.competition_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // competition_saves
-  { column: "competition_saves.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_saves.competition_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "competition_saves.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_saves.competition_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // competition_submissions
-  { column: "competition_submissions.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_submissions.registration_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competition_submissions.submitted_by_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "competition_submissions.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_submissions.registration_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competition_submissions.submitted_by_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   { column: "competition_submissions.file_key", reason: "a storage key composed only of ids" },
-  { column: "competition_submissions.file_mime_type", reason: "a MIME type the upload declared; it names a format, not a person" },
+  {
+    column: "competition_submissions.file_mime_type",
+    reason: "a MIME type the upload declared; it names a format, not a person",
+  },
   // competition_tags
-  { column: "competition_tags.competition_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "competition_tags.competition_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // competitions
   { column: "competitions.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competitions.institution_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competitions.created_by_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "competitions.cancellation_reason", reason: "the machine-readable cancellation token (`insufficient_participants`, pinned by competitions_cancellation_state_chk)" },
+  {
+    column: "competitions.institution_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competitions.created_by_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "competitions.cancellation_reason",
+    reason:
+      "the machine-readable cancellation token (`insufficient_participants`, pinned by competitions_cancellation_state_chk)",
+  },
   { column: "competitions.fee_currency", reason: "a currency code from the fixed ISO set" },
   // finance_fee_accruals
-  { column: "finance_fee_accruals.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_fee_accruals.payment_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_fee_accruals.owing_institution_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "finance_fee_accruals.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_fee_accruals.payment_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_fee_accruals.owing_institution_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   { column: "finance_fee_accruals.currency", reason: "a currency code from the fixed ISO set" },
-  { column: "finance_fee_accruals.fee_rule_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "finance_fee_accruals.fee_rule_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // finance_fee_disclosure_acknowledgements
-  { column: "finance_fee_disclosure_acknowledgements.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_fee_disclosure_acknowledgements.competition_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_fee_disclosure_acknowledgements.institution_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_fee_disclosure_acknowledgements.acknowledged_by_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_fee_disclosure_acknowledgements.fee_rule_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_fee_disclosure_acknowledgements.fee_currency", reason: "a currency code from the fixed ISO set" },
+  {
+    column: "finance_fee_disclosure_acknowledgements.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_fee_disclosure_acknowledgements.competition_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_fee_disclosure_acknowledgements.institution_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_fee_disclosure_acknowledgements.acknowledged_by_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_fee_disclosure_acknowledgements.fee_rule_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_fee_disclosure_acknowledgements.fee_currency",
+    reason: "a currency code from the fixed ISO set",
+  },
   // finance_fee_rules
   { column: "finance_fee_rules.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_fee_rules.institution_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "finance_fee_rules.institution_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   { column: "finance_fee_rules.currency", reason: "a currency code from the fixed ISO set" },
   // finance_manual_payment_proof_attempts
-  { column: "finance_manual_payment_proof_attempts.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_manual_payment_proof_attempts.proof_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_manual_payment_proof_attempts.payment_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_manual_payment_proof_attempts.competition_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_manual_payment_proof_attempts.submitted_by_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_manual_payment_proof_attempts.r2_key", reason: "a storage key composed only of ids" },
-  { column: "finance_manual_payment_proof_attempts.content_type", reason: "a MIME type the upload declared; it names a format, not a person" },
-  { column: "finance_manual_payment_proof_attempts.reviewer_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "finance_manual_payment_proof_attempts.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_manual_payment_proof_attempts.proof_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_manual_payment_proof_attempts.payment_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_manual_payment_proof_attempts.competition_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_manual_payment_proof_attempts.submitted_by_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_manual_payment_proof_attempts.r2_key",
+    reason: "a storage key composed only of ids",
+  },
+  {
+    column: "finance_manual_payment_proof_attempts.content_type",
+    reason: "a MIME type the upload declared; it names a format, not a person",
+  },
+  {
+    column: "finance_manual_payment_proof_attempts.reviewer_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // finance_manual_payment_proofs
-  { column: "finance_manual_payment_proofs.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_manual_payment_proofs.payment_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_manual_payment_proofs.competition_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_manual_payment_proofs.submitted_by_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "finance_manual_payment_proofs.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_manual_payment_proofs.payment_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_manual_payment_proofs.competition_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_manual_payment_proofs.submitted_by_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   { column: "finance_manual_payment_proofs.r2_key", reason: "a storage key composed only of ids" },
-  { column: "finance_manual_payment_proofs.content_type", reason: "a MIME type the upload declared; it names a format, not a person" },
-  { column: "finance_manual_payment_proofs.reviewer_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "finance_manual_payment_proofs.content_type",
+    reason: "a MIME type the upload declared; it names a format, not a person",
+  },
+  {
+    column: "finance_manual_payment_proofs.reviewer_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // finance_payment_events
-  { column: "finance_payment_events.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_payment_events.payment_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "finance_payment_events.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_payment_events.payment_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   { column: "finance_payment_events.currency", reason: "a currency code from the fixed ISO set" },
-  { column: "finance_payment_events.actor_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_payment_events.idempotency_key", reason: "the idempotency key the writer minted from the event's own identity" },
+  {
+    column: "finance_payment_events.actor_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_payment_events.idempotency_key",
+    reason: "the idempotency key the writer minted from the event's own identity",
+  },
   // finance_payment_instruction_snapshots
-  { column: "finance_payment_instruction_snapshots.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_payment_instruction_snapshots.payment_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_payment_instruction_snapshots.qris_r2_key", reason: "a storage key composed only of ids" },
+  {
+    column: "finance_payment_instruction_snapshots.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_payment_instruction_snapshots.payment_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_payment_instruction_snapshots.qris_r2_key",
+    reason: "a storage key composed only of ids",
+  },
   // finance_payments
   { column: "finance_payments.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_payments.payer_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_payments.receiving_institution_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "finance_payments.competition_registration_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "finance_payments.payer_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_payments.receiving_institution_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "finance_payments.competition_registration_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   { column: "finance_payments.currency", reason: "a currency code from the fixed ISO set" },
-  { column: "finance_payments.fee_rule_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "finance_payments.fee_rule_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // infrastructure_probe
-  { column: "infrastructure_probe.key", reason: "the probe's own key from a fixed set the connector list defines" },
+  {
+    column: "infrastructure_probe.key",
+    reason: "the probe's own key from a fixed set the connector list defines",
+  },
   // institution_audit_logs
-  { column: "institution_audit_logs.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_audit_logs.institution_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_audit_logs.actor_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_audit_logs.action", reason: "the machine-readable action code (`membership.invited`)" },
-  { column: "institution_audit_logs.target_membership_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "institution_audit_logs.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_audit_logs.institution_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_audit_logs.actor_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_audit_logs.action",
+    reason: "the machine-readable action code (`membership.invited`)",
+  },
+  {
+    column: "institution_audit_logs.target_membership_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // institution_invitations
-  { column: "institution_invitations.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_invitations.institution_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_invitations.token_hash", reason: "a hash of a secret the application minted; the secret itself is never stored" },
-  { column: "institution_invitations.invited_by_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_invitations.target_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "institution_invitations.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_invitations.institution_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_invitations.token_hash",
+    reason: "a hash of a secret the application minted; the secret itself is never stored",
+  },
+  {
+    column: "institution_invitations.invited_by_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_invitations.target_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // institution_memberships
-  { column: "institution_memberships.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_memberships.institution_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_memberships.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_memberships.invited_by_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "institution_memberships.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_memberships.institution_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_memberships.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_memberships.invited_by_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // institution_payment_instructions
-  { column: "institution_payment_instructions.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_payment_instructions.institution_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_payment_instructions.qris_r2_key", reason: "a storage key composed only of ids" },
+  {
+    column: "institution_payment_instructions.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_payment_instructions.institution_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_payment_instructions.qris_r2_key",
+    reason: "a storage key composed only of ids",
+  },
   // institution_social_links
-  { column: "institution_social_links.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_social_links.institution_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "institution_social_links.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_social_links.institution_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // institution_verification_audit
-  { column: "institution_verification_audit.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_verification_audit.institution_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_verification_audit.actor_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "institution_verification_audit.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_verification_audit.institution_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_verification_audit.actor_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // institution_verification_documents
-  { column: "institution_verification_documents.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_verification_documents.submission_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_verification_documents.document_type", reason: "the machine-readable document kind code" },
-  { column: "institution_verification_documents.r2_key", reason: "a storage key composed only of ids" },
-  { column: "institution_verification_documents.content_type", reason: "a MIME type the upload declared; it names a format, not a person" },
+  {
+    column: "institution_verification_documents.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_verification_documents.submission_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_verification_documents.document_type",
+    reason: "the machine-readable document kind code",
+  },
+  {
+    column: "institution_verification_documents.r2_key",
+    reason: "a storage key composed only of ids",
+  },
+  {
+    column: "institution_verification_documents.content_type",
+    reason: "a MIME type the upload declared; it names a format, not a person",
+  },
   // institution_verification_submissions
-  { column: "institution_verification_submissions.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_verification_submissions.institution_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_verification_submissions.submitted_by_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institution_verification_submissions.reviewer_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "institution_verification_submissions.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_verification_submissions.institution_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_verification_submissions.submitted_by_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "institution_verification_submissions.reviewer_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // institutions
   { column: "institutions.id", reason: "an app-minted id; nothing a person typed reaches it" },
   { column: "institutions.logo_r2_key", reason: "a storage key composed only of ids" },
@@ -448,85 +763,217 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
   // mfa_factors
   { column: "mfa_factors.id", reason: "an app-minted id; nothing a person typed reaches it" },
   { column: "mfa_factors.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "mfa_factors.encrypted_secret", reason: "ciphertext the server minted for the TOTP secret; no person types into it" },
+  {
+    column: "mfa_factors.encrypted_secret",
+    reason: "ciphertext the server minted for the TOTP secret; no person types into it",
+  },
   { column: "mfa_factors.secret_iv", reason: "the initialisation vector for that ciphertext" },
   { column: "mfa_factors.secret_auth_tag", reason: "the authentication tag for that ciphertext" },
   // mfa_recovery_codes
-  { column: "mfa_recovery_codes.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "mfa_recovery_codes.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "mfa_recovery_codes.code_hash", reason: "a hash of a secret the application minted; the secret itself is never stored" },
+  {
+    column: "mfa_recovery_codes.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "mfa_recovery_codes.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "mfa_recovery_codes.code_hash",
+    reason: "a hash of a secret the application minted; the secret itself is never stored",
+  },
   // notifications
   { column: "notifications.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "notifications.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "notifications.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   { column: "notifications.type", reason: "the machine-readable notification type" },
   // platform_ops_audit_logs
-  { column: "platform_ops_audit_logs.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "platform_ops_audit_logs.actor_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "platform_ops_audit_logs.target_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "platform_ops_audit_logs.target_institution_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "platform_ops_audit_logs.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "platform_ops_audit_logs.actor_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "platform_ops_audit_logs.target_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "platform_ops_audit_logs.target_institution_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   { column: "platform_ops_audit_logs.event_type", reason: "the machine-readable event code" },
   // platform_ops_notes
-  { column: "platform_ops_notes.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "platform_ops_notes.target_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "platform_ops_notes.target_institution_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "platform_ops_notes.created_by_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "platform_ops_notes.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "platform_ops_notes.target_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "platform_ops_notes.target_institution_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "platform_ops_notes.created_by_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // profile_certifications
-  { column: "profile_certifications.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "profile_certifications.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "profile_certifications.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "profile_certifications.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   { column: "profile_certifications.file_r2_key", reason: "a storage key composed only of ids" },
-  { column: "profile_certifications.file_mime_type", reason: "a MIME type the upload declared; it names a format, not a person" },
+  {
+    column: "profile_certifications.file_mime_type",
+    reason: "a MIME type the upload declared; it names a format, not a person",
+  },
   // profile_educations
-  { column: "profile_educations.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "profile_educations.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "profile_educations.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "profile_educations.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // profile_experiences
-  { column: "profile_experiences.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "profile_experiences.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "profile_experiences.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "profile_experiences.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // profile_skills
   { column: "profile_skills.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "profile_skills.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "profile_skills.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // profile_social_links
-  { column: "profile_social_links.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "profile_social_links.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "profile_social_links.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "profile_social_links.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // recruiter_verification_documents
-  { column: "recruiter_verification_documents.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "recruiter_verification_documents.submission_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "recruiter_verification_documents.r2_key", reason: "a storage key composed only of ids" },
-  { column: "recruiter_verification_documents.content_type", reason: "a MIME type the upload declared; it names a format, not a person" },
+  {
+    column: "recruiter_verification_documents.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "recruiter_verification_documents.submission_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "recruiter_verification_documents.r2_key",
+    reason: "a storage key composed only of ids",
+  },
+  {
+    column: "recruiter_verification_documents.content_type",
+    reason: "a MIME type the upload declared; it names a format, not a person",
+  },
   // recruiter_verification_submissions
-  { column: "recruiter_verification_submissions.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "recruiter_verification_submissions.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "recruiter_verification_submissions.reviewer_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "recruiter_verification_submissions.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "recruiter_verification_submissions.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "recruiter_verification_submissions.reviewer_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // sessions
   { column: "sessions.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
   // team_invitations
   { column: "team_invitations.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "team_invitations.team_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "team_invitations.invited_by_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "team_invitations.token_hash", reason: "a hash of a secret the application minted; the secret itself is never stored" },
-  { column: "team_invitations.target_user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "team_invitations.team_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "team_invitations.invited_by_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "team_invitations.token_hash",
+    reason: "a hash of a secret the application minted; the secret itself is never stored",
+  },
+  {
+    column: "team_invitations.target_user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // team_memberships
   { column: "team_memberships.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "team_memberships.team_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "team_memberships.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "team_memberships.team_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "team_memberships.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // teams
   { column: "teams.id", reason: "an app-minted id; nothing a person typed reaches it" },
   { column: "teams.competition_id", reason: "an app-minted id; nothing a person typed reaches it" },
   { column: "teams.captain_id", reason: "an app-minted id; nothing a person typed reaches it" },
   // user_email_verification_tokens
-  { column: "user_email_verification_tokens.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "user_email_verification_tokens.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "user_email_verification_tokens.token_hash", reason: "a hash of a secret the application minted; the secret itself is never stored" },
+  {
+    column: "user_email_verification_tokens.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "user_email_verification_tokens.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "user_email_verification_tokens.token_hash",
+    reason: "a hash of a secret the application minted; the secret itself is never stored",
+  },
   // user_password_credentials
-  { column: "user_password_credentials.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "user_password_credentials.password_hash", reason: "a hash of a secret the application minted; the secret itself is never stored" },
+  {
+    column: "user_password_credentials.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "user_password_credentials.password_hash",
+    reason: "a hash of a secret the application minted; the secret itself is never stored",
+  },
   // user_platform_roles
-  { column: "user_platform_roles.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "user_platform_roles.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   // user_profiles
-  { column: "user_profiles.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
+  {
+    column: "user_profiles.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
   { column: "user_profiles.avatar_r2_key", reason: "a storage key composed only of ids" },
   { column: "user_profiles.banner_r2_key", reason: "a storage key composed only of ids" },
   { column: "user_profiles.resume_r2_key", reason: "a storage key composed only of ids" },
-  { column: "user_profiles.resume_mime_type", reason: "a MIME type the upload declared; it names a format, not a person" },
+  {
+    column: "user_profiles.resume_mime_type",
+    reason: "a MIME type the upload declared; it names a format, not a person",
+  },
   // users
   { column: "users.id", reason: "an app-minted id; nothing a person typed reaches it" },
 ]);
@@ -576,7 +1023,9 @@ export const staleColumnClassifications = (
   classifications: readonly ColumnClassification[] = COLUMN_CLASSIFICATIONS,
 ): string[] => {
   const present = new Set(columns.map(({ table, column }) => `${table}.${column}`));
-  return classifications.map((entry) => entry.column).filter((reference) => !present.has(reference));
+  return classifications
+    .map((entry) => entry.column)
+    .filter((reference) => !present.has(reference));
 };
 
 /** Refuses while any text-capable column is unclassified or any classification is stale. */
@@ -1332,7 +1781,8 @@ export const TABLE_RULINGS: readonly StoreRuling[] = Object.freeze([
   {
     store: "institution_social_links",
     survival: "detached",
-    reason: "the institution's own social links; `url` is personal and is the tenant's, not a user's",
+    reason:
+      "the institution's own social links; `url` is personal and is the tenant's, not a user's",
   },
   {
     store: "institution_verification_audit",
@@ -1396,7 +1846,7 @@ export const TABLE_RULINGS: readonly StoreRuling[] = Object.freeze([
       "adapter's table: no `user_id` column, no foreign key to `users` anywhere, so no row is " +
       "attributable to anybody by key and the deletion neither nulls nor removes it. Nothing in " +
       "this application writes it — `next-auth` reaches `createVerificationToken` and " +
-      "`useVerificationToken` only under `provider.type === \"email\"`, and this app registers no " +
+      '`useVerificationToken` only under `provider.type === "email"`, and this app registers no ' +
       "`EmailProvider` and no `sendVerificationRequest`. So the population is empty, and it is " +
       "empty because no code path writes it rather than because the table is safe: were one row " +
       "ever written, it would hold an email address and a live single-use token that no deletion " +
@@ -1515,7 +1965,6 @@ export const rulingsPerStore = (
 
   return grouped;
 };
-
 
 /**
  * Whether a declared object key names a column the schema actually has.

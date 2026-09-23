@@ -183,7 +183,7 @@ const dropHappenedAgainst = async (databaseName, environment, { nonLoopback = fa
 /** The exact call the reset makes, matched as one unit so a move takes the whole thing. */
 const GUARD_CALL =
   "    await assertResetTargetIsDisposable(sql, {\n" +
-  "      verb: \"reset\",\n" +
+  '      verb: "reset",\n' +
   "      appEnv,\n" +
   "      databaseUrl: target,\n" +
   "      redisUrl: optionalUrl(process.env.REDIS_URL),\n" +

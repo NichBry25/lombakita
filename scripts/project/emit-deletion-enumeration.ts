@@ -144,14 +144,14 @@ export const renderEnumeration = (): string => {
     "",
     "Being in the closure is a property of a TABLE and the three fates are properties of a ROW, so",
     "the two do not partition each other. Five tables are in the closure and still survive it:",
-    `${
-      TABLE_RULINGS.filter((ruling) => ruling.survival !== "removed" && removedSet.has(ruling.store))
-        .map((ruling) => `\`${ruling.store}\``)
-        .join(", ")
-    }. A reading that stopped at the closure would report those rows deleted.`,
+    `${TABLE_RULINGS.filter(
+      (ruling) => ruling.survival !== "removed" && removedSet.has(ruling.store),
+    )
+      .map((ruling) => `\`${ruling.store}\``)
+      .join(", ")}. A reading that stopped at the closure would report those rows deleted.`,
     "",
     "`carries` is absent from this file's method on purpose. What a surviving row holds is derived",
-    "from the column classification described under \"what fails when a new store is added\" below,",
+    'from the column classification described under "what fails when a new store is added" below,',
     "so no table carries a hand-written list of the columns that outlive a deletion.",
     "",
     `**Table count by fate.** The ${tables.length} tables above, each counted once:`,
@@ -230,7 +230,9 @@ export const renderEnumeration = (): string => {
         ruling.survival,
         carriesOf(ruling.store).length === 0
           ? "—"
-          : carriesOf(ruling.store).map((column) => `\`${column}\``).join(", "),
+          : carriesOf(ruling.store)
+              .map((column) => `\`${column}\``)
+              .join(", "),
       ]),
     ),
     "",

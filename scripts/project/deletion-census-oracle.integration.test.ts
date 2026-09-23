@@ -51,7 +51,8 @@ type CatalogEdge = {
 };
 
 /** The catalog's spelling of an edge, used to key probes and to name a missing one. */
-const edgeKeyOf = (edge: CatalogEdge): string => `${edge.sourceTable}.${edge.sourceColumns.join("+")}`;
+const edgeKeyOf = (edge: CatalogEdge): string =>
+  `${edge.sourceTable}.${edge.sourceColumns.join("+")}`;
 
 /** One planted row, and how to find it again after the delete. */
 type Planted = {
@@ -92,14 +93,16 @@ type Fixture = {
 // ---------------------------------------------------------------------------------------------
 
 const readCatalogEdges = async (sql: Sql): Promise<CatalogEdge[]> => {
-  const rows = await sql<{
-    constraint: string;
-    source_table: string;
-    source_columns: string[];
-    target_table: string;
-    target_columns: string[];
-    on_delete: string;
-  }[]>`
+  const rows = await sql<
+    {
+      constraint: string;
+      source_table: string;
+      source_columns: string[];
+      target_table: string;
+      target_columns: string[];
+      on_delete: string;
+    }[]
+  >`
     select
       con.conname as constraint,
       src.relname as source_table,
@@ -159,7 +162,10 @@ const publicTables = async (sql: Sql): Promise<string[]> => {
   return rows.map((row) => row.table);
 };
 
-const countEveryTable = async (sql: Sql, tables: readonly string[]): Promise<Map<string, number>> => {
+const countEveryTable = async (
+  sql: Sql,
+  tables: readonly string[],
+): Promise<Map<string, number>> => {
   const counts = new Map<string, number>();
 
   for (const table of tables) {
@@ -314,11 +320,11 @@ const insertDocumentRequest = async (
 // than dressed up as two independent observations.
 // ---------------------------------------------------------------------------------------------
 
-
-const probe = (
-  keys: string[],
-  plant: (sql: Sql, fx: Fixture) => Promise<Planted>,
-): Probe => ({ keys, name: keys.join(" | "), plant });
+const probe = (keys: string[], plant: (sql: Sql, fx: Fixture) => Promise<Planted>): Probe => ({
+  keys,
+  name: keys.join(" | "),
+  plant,
+});
 
 /** How a probe's row is found again after the delete, given the id it was inserted with. */
 type IdentityFn = (id: string, row: Record<string, unknown>) => Record<string, string>;
@@ -397,7 +403,10 @@ const userOwnedProbes: Probe[] = [
     title: "Oracle Fixture Title",
     organization_name: "Oracle Fixture Organisation",
   })),
-  userColumnProbe("profile_skills", (fx) => ({ user_id: fx.subject, name: "Oracle Fixture Skill" })),
+  userColumnProbe("profile_skills", (fx) => ({
+    user_id: fx.subject,
+    name: "Oracle Fixture Skill",
+  })),
   userColumnProbe("profile_social_links", (fx) => ({
     user_id: fx.subject,
     platform: "website",
@@ -405,7 +414,11 @@ const userOwnedProbes: Probe[] = [
   })),
   userColumnProbe(
     "sessions",
-    (fx, id) => ({ session_token: `oracle-session-${id}`, user_id: fx.subject, expires: EXPIRES_AT }),
+    (fx, id) => ({
+      session_token: `oracle-session-${id}`,
+      user_id: fx.subject,
+      expires: EXPIRES_AT,
+    }),
     (id) => ({ session_token: `oracle-session-${id}` }),
   ),
   userColumnProbe("user_email_verification_tokens", (fx) => ({
@@ -423,9 +436,13 @@ const userOwnedProbes: Probe[] = [
     (fx) => ({ user_id: fx.subject, role: "candidate" }),
     (_id, row) => ({ user_id: String(row.user_id), role: String(row.role) }),
   ),
-  userColumnProbe("user_profiles", (fx) => ({ user_id: fx.subject }), (_id, row) => ({
-    user_id: String(row.user_id),
-  })),
+  userColumnProbe(
+    "user_profiles",
+    (fx) => ({ user_id: fx.subject }),
+    (_id, row) => ({
+      user_id: String(row.user_id),
+    }),
+  ),
 ];
 
 const graphProbes: Probe[] = [
@@ -494,7 +511,13 @@ const graphProbes: Probe[] = [
     return { table: "competition_document_requests", identity: { id } };
   }),
   probe(["competition_document_requests.reviewed_by_user_id"], async (sql, fx) => {
-    const id = await insertDocumentRequest(sql, fx, fx.bystanderRegistration, fx.bystander, fx.subject);
+    const id = await insertDocumentRequest(
+      sql,
+      fx,
+      fx.bystanderRegistration,
+      fx.bystander,
+      fx.subject,
+    );
     return { table: "competition_document_requests", identity: { id } };
   }),
   probe(["competition_document_request_files.request_id"], async (sql, fx) => {
@@ -778,9 +801,7 @@ const runProbe = async (
   edgesByKey: ReadonlyMap<string, CatalogEdge>,
 ): Promise<Map<string, Outcome>> => {
   const constrainedColumns = [
-    ...new Set(
-      probeUnderTest.keys.flatMap((key) => edgesByKey.get(key)?.sourceColumns ?? []),
-    ),
+    ...new Set(probeUnderTest.keys.flatMap((key) => edgesByKey.get(key)?.sourceColumns ?? [])),
   ];
 
   const observed = new Map<string, Outcome>();
@@ -839,9 +860,7 @@ const runOracle = async (sql: Sql): Promise<OracleRun> => {
 
   const probedKeys = ALL_PROBES.flatMap((entry) => entry.keys);
 
-  const unprobed = population
-    .map(edgeKeyOf)
-    .filter((key) => !probedKeys.includes(key));
+  const unprobed = population.map(edgeKeyOf).filter((key) => !probedKeys.includes(key));
   if (unprobed.length > 0) {
     throw new Error(
       `no probe plants a row on ${unprobed.length} of the ${population.length} edges, so their ` +
@@ -1025,7 +1044,10 @@ describe.skipIf(skipWithoutDatabase)("the deletion census oracle", () => {
 
   it("reports the one pair of edges a single planted row is evidence for", async () => {
     const run = await oracle();
-    const shared = run.observations.filter((o) => o.sharedPlant).map((o) => o.constraint).sort();
+    const shared = run.observations
+      .filter((o) => o.sharedPlant)
+      .map((o) => o.constraint)
+      .sort();
 
     // `team_id` and `(competition_id, team_id)` both reference the same team row, both CASCADE, and
     // both fire on that row's removal, so no planting can tell them apart. Both are reported; this
