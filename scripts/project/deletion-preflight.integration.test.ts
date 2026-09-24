@@ -2,16 +2,22 @@
 //
 // THE ONE REFUSAL THAT IS AN ABSENCE, measured against a live Postgres.
 //
-// WHY THIS SUITE IS DB-BACKED. The pre-flight in `run-deletion-procedure.ts` asks a question no
-// reading of the schema module can answer: given THESE membership rows, is the subject the last
-// active owner of an institution? Every part of that — which rows exist, which role and status they
-// carry, how many owners remain after the subject's own rows go — is a property of the data, and
-// the guard is a query. A hand-built object could not be its input, and until this file existed the
-// guard's query had never been executed against a database at all: the first run of this suite found
-// it selecting a column (`role`) that does not exist on `institution_memberships` (`membership_role`
-// is the column), which every unit test in the repository had passed over because none of them
-// reached the database. That is Rule 33's case, made concrete: the tests that existed proved the
-// function's shape, not its wiring.
+// WHY THIS SUITE IS DB-BACKED. The pre-flight asks a question no reading of the schema module can
+// answer: given THESE membership rows, is the subject the last active owner of an institution?
+// Every part of that — which rows exist, which role and status they carry, how many owners remain
+// after the subject's own rows go — is a property of the data, and the guard is a query. A hand-built
+// object could not be its input, and when this file was written the guard's query had never been
+// executed against a database at all: its first run found the query selecting a column (`role`) that
+// does not exist on `institution_memberships` (`membership_role` is the column), which every unit
+// test in the repository had passed over because none of them reached the database. That is Rule
+// 33's case, made concrete: the tests that existed proved the function's shape, not its wiring.
+//
+// THE QUERY LIVES IN THE DOCUMENT NOW, and this suite is the binding on it. `preflight-owners` is a
+// step of the procedure — one SQL text, executed by the runner and run by hand by an operator in
+// `psql` — so the statement is no longer tied to the schema module at compile time. What keeps it
+// honest is the fixture below: it plants memberships through the TS union types, and a rename of
+// `institution_owner` or `active` in the enum leaves this suite refusing the wrong rows rather than
+// passing quietly.
 //
 // THROUGH THE PRODUCTION PATH, NOT AROUND IT. Each case calls `runProcedure` — the function the
 // runner itself calls — with the DOCUMENT's own parsed `sql` steps, so the input is the procedure
@@ -28,8 +34,9 @@
 //     owns would fail here rather than pass by naming one fewer than the whole table.
 //   - The "writes nothing" half is read from `users` and `institution_memberships` after the
 //     refusal, and the strongest available form of "before the first write" is a second refusal
-//     driven with an EMPTY step list: no statement can have run, so a refusal that still arrives
-//     cannot have come from one.
+//     driven with the PRE-FLIGHT ALONE as the step list: no transaction step is even offered, so a
+//     refusal that still arrives cannot have come from one. Its pair drops the pre-flight instead
+//     and asserts the run refuses anyway, which is the wiring that stops the step being skipped.
 //
 // A SECOND BLOCK MEASURES THE COMMAND LINE ITSELF, and lives here for its fixtures. Whether a
 // refused run exits non-zero with the refusal on stderr is a property of the same two refusal
@@ -56,7 +63,9 @@ import {
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
 import { isLocalDatabaseHost, parseDatabaseHost } from "../lib/local-database-host";
 import {
+  PREFLIGHT_STEP_NAME,
   PROCEDURE_PATH,
+  PreflightRefusal,
   ProcedureRefusal,
   parseProcedure,
   runProcedure,
@@ -248,7 +257,7 @@ const guardedClient = (): Sql => {
 
 /** What a case observed. */
 type Outcome =
-  | { kind: "refused"; message: string }
+  | { kind: "refused"; message: string; steps: string[] }
   | { kind: "ran"; committed: boolean; steps: string[] };
 
 const attemptDeletion = async (
@@ -261,7 +270,15 @@ const attemptDeletion = async (
     return { kind: "ran", committed: run.committed, steps: run.steps.map((step) => step.name) };
   } catch (error) {
     if (!(error instanceof ProcedureRefusal)) throw error;
-    return { kind: "refused", message: error.message };
+
+    // A pre-flight refusal carries the one step that ran, so a case can say WHICH steps executed
+    // rather than only that a refusal arrived. Every other refusal names no step: the ones that
+    // reached a step carry it in the message, and the ones that did not never ran one.
+    return {
+      kind: "refused",
+      message: error.message,
+      steps: error instanceof PreflightRefusal ? [error.outcome.name] : [],
+    };
   }
 };
 
@@ -363,7 +380,7 @@ describe.skipIf(skipWithoutDatabase)("the pre-flight refusal", () => {
     }
   });
 
-  it("refuses before the first write, which an empty step list makes unfalsifiable-adjacent: no statement can have run", async () => {
+  it("refuses with no step of the transaction in the list at all, so the refusal cannot have come from one", async () => {
     const sql = guardedClient();
     const fixture = await plantFixture(sql, [
       {
@@ -377,13 +394,48 @@ describe.skipIf(skipWithoutDatabase)("the pre-flight refusal", () => {
     ]);
 
     try {
-      const outcome = await attemptDeletion(sql, fixture.subject, []);
+      // The strongest available form of "before the first write": the list handed to the runner is
+      // the pre-flight ALONE. No transaction step is even offered, so a refusal that still arrives
+      // cannot have come from one — and the run reports the single step that executed.
+      const preflightOnly = procedureSteps().filter((step) => step.name === PREFLIGHT_STEP_NAME);
+      const outcome = await attemptDeletion(sql, fixture.subject, preflightOnly);
       expect(outcome.kind).toBe("refused");
       if (outcome.kind !== "refused") return;
 
       expect(outcome.message).toBe(
         `subject is the last active owner of 1 institution(s)\n${expectedLine(fixture.institutions[0]!)}`,
       );
+      expect(outcome.steps).toEqual([PREFLIGHT_STEP_NAME]);
+      expect(await rowExists(sql, "users", fixture.subject)).toBe(true);
+    } finally {
+      await removeFixture(sql, fixture);
+    }
+  });
+
+  it("refuses a run handed no pre-flight step, rather than performing the deletion that step exists to prevent", async () => {
+    const sql = guardedClient();
+    const fixture = await plantFixture(sql, [
+      {
+        label: "sole-without-preflight",
+        spec: {
+          institutionType: "company",
+          competitionStatuses: [],
+          members: [{ user: "subject", membershipRole: ACTIVE_OWNER, status: ACTIVE }],
+        },
+      },
+    ]);
+
+    try {
+      // The account is the one every case above refuses. Drop the step that refuses it and the run
+      // must still refuse: `delete` is in this list, and the institution is exactly as orphanable as
+      // it was a case ago.
+      const withoutPreflight = procedureSteps().filter((step) => step.name !== PREFLIGHT_STEP_NAME);
+      const outcome = await attemptDeletion(sql, fixture.subject, withoutPreflight);
+      expect(outcome.kind).toBe("refused");
+      if (outcome.kind !== "refused") return;
+
+      expect(outcome.message).toContain(PREFLIGHT_STEP_NAME);
+      expect(outcome.steps).toEqual([]);
       expect(await rowExists(sql, "users", fixture.subject)).toBe(true);
     } finally {
       await removeFixture(sql, fixture);

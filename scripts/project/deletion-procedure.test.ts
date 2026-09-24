@@ -122,11 +122,12 @@ const policyProse = (): string =>
     .trim();
 
 describe("the procedure document", () => {
-  it("parses into the six steps it describes, in the order it describes them", () => {
+  it("parses into the seven steps it describes, in the order it describes them", () => {
     // The harness refuses an unknown fence and a duplicate name on the way through, so reaching this
     // assertion at all is the first result: the document is well formed against the grammar it
     // declares in its own fence table.
     expect(steps.map((step) => step.name)).toEqual([
+      "preflight-owners",
       "resolve",
       "capture-identities",
       "capture-object-keys",
@@ -553,12 +554,15 @@ describe("the residue the census derives", () => {
     // this the two halves of the section can disagree — a row labelled "the deletion never reaches
     // it" sitting under a group that reaches it — and both halves would still match their own
     // derivation. That is the shape M2 found.
-    const groupOfListed = new Map(groups.flatMap((group) => group.tables.map((t) => [t, group.label])));
+    const groupOfListed = new Map(
+      groups.flatMap((group) => group.tables.map((t) => [t, group.label])),
+    );
 
     for (const row of residueRows(document)) {
-      expect(row.why, `the row for \`${row.table}\` disagrees with the group it is listed under`).toBe(
-        groupOfListed.get(row.table),
-      );
+      expect(
+        row.why,
+        `the row for \`${row.table}\` disagrees with the group it is listed under`,
+      ).toBe(groupOfListed.get(row.table));
     }
   });
 

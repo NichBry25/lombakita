@@ -3,9 +3,14 @@
  *
  * WHAT THIS IS. A reader for the procedure, not a second copy of it. Every statement that touches
  * data lives in the document; this file extracts the fenced blocks, runs the `sql` ones in document
- * order inside one transaction, and reports what each returned. Nothing here knows what the
- * procedure does — which is what makes the document the artifact and this the harness, and what
- * makes a step's absence in the document visible as a step that did not run.
+ * order and reports what each returned. Nothing here knows what the procedure does — which is what
+ * makes the document the artifact and this the harness, and what makes a step's absence in the
+ * document visible as a step that did not run.
+ *
+ * ONE STEP RUNS BEFORE THE TRANSACTION. `preflight-owners` is the document's first step and the only
+ * one executed outside it, because its refusal has to arrive without a transaction having been
+ * opened to roll back. It is read from the document like every other step; where it runs is the
+ * whole of what is special about it.
  *
  * WHY A TRANSACTION. The delete and the cascade it fires are one atomic statement in Postgres, so a
  * blocking row produces a refusal with nothing written. Running the document's blocks in one
@@ -38,12 +43,6 @@ import {
 } from "../lib/procedure-harness";
 import { captureBaseline, objectKeySql, readIdentities } from "./deletion-residue";
 import type { BaselineFile, ResidueBaseline } from "./deletion-residue";
-import {
-  competitionStatusEnum,
-  type CompetitionStatus,
-  type InstitutionMembershipRole,
-  type InstitutionMembershipStatus,
-} from "@/server/db/schema";
 
 export const PROCEDURE_PATH = "docs/operations/account-deletion-procedure.md";
 export const DEMONSTRATION_PATH = "docs/operations/account-deletion-demonstration.md";
@@ -142,80 +141,86 @@ export type ProcedureRun = {
   committed: boolean;
 };
 
+/** The name the procedure document gives the step that refuses before a transaction is opened. */
+export const PREFLIGHT_STEP_NAME = "preflight-owners";
+
 /**
- * The two membership tokens an ownerless institution turns on, and every competition status.
+ * The document's own pre-flight step.
  *
- * Typed against the schema's own unions rather than written as bare strings, so a rename of either
- * token is a compile error here instead of a refusal that silently stops matching. The status list is
- * the enum's own `enumValues`, so its ORDER is the enum's order and a new status appears in the
- * refusal without anyone adding it.
+ * THE CHECK IS A STEP OF THE PROCEDURE, not a query this runner happens to carry. It refuses when
+ * the run was handed no such step: `--skip preflight-owners` removes it from the list, and a run
+ * without it performs the deletion this step exists to refuse.
  */
-const INSTITUTION_OWNER_ROLE: InstitutionMembershipRole = "institution_owner";
-const ACTIVE_MEMBERSHIP_STATUS: InstitutionMembershipStatus = "active";
-const COMPETITION_STATUSES: readonly CompetitionStatus[] = competitionStatusEnum.enumValues;
+export const preflightOwnersStep = (steps: readonly ProcedureStep[]): ProcedureStep => {
+  const step = steps.find((candidate) => candidate.name === PREFLIGHT_STEP_NAME);
+
+  if (step === undefined) {
+    throw new ProcedureRefusal(
+      `no \`${PREFLIGHT_STEP_NAME}\` step was given to this run. It is a declared step of the ` +
+        "procedure and cannot be left out: nothing else refuses the deletion it refuses",
+    );
+  }
+  if (step.kind !== "sql") {
+    throw new ProcedureRefusal(
+      `the \`${PREFLIGHT_STEP_NAME}\` step is a \`${step.kind}\` block, and this runner ` +
+        "executes only `sql` blocks",
+    );
+  }
+
+  return step;
+};
 
 /** An institution the subject's deletion would leave with no active owner, and what it holds. */
 export type OwnerlessInstitution = {
   id: string;
   slug: string;
-  competitionsByStatus: ReadonlyMap<CompetitionStatus, number>;
+  /** One entry per `competition_status` value, in the enum's own order, zero counts included. */
+  competitionsByStatus: { status: string; n: number }[];
+};
+
+/** The pre-flight's answer: the document's own rows, and the institutions the refusal reads. */
+export type PreflightAnswer = {
+  rows: Record<string, unknown>[];
+  institutions: OwnerlessInstitution[];
 };
 
 /**
- * Every institution this account is the LAST active owner of, with its competitions counted.
+ * Ask the pre-flight's question, by executing the document's own statement.
  *
- * ASKED OF THE MEMBERSHIP ROWS, not of `institutions.owner_user_id` or any other denormalisation —
- * there is none, and the membership table is the only place an owner is recorded.
+ * ONE SQL TEXT, NOT TWO. The statement is the `preflight-owners` block's body byte for byte — and
+ * the same text a by-hand operator runs in `psql`. A second copy here would be the copy that drifts,
+ * and the drift would be silent, because both copies would keep answering.
  *
- * The `not exists` arm is the last-owner test and it excludes the subject by id, because the
- * subject's own memberships are the ones the deletion removes. A membership that is `invited`,
- * `inactive` or `revoked` is not an owner for this purpose: after the deletion nobody could sign in
- * and act as one, and an institution nobody can administer is the state this refuses to create.
+ * The rows arrive in the shape the document's `order by` gives them: one row per `competition_status`
+ * value, the values taken from `enum_range` in the enum's own order, with a zero count where the
+ * institution holds none. A value added to the enum reaches the refusal without an edit in either
+ * file.
  */
-export const institutionsLeftWithoutAnOwner = async (
+export const askPreflight = async (
   sql: postgres.Sql,
+  step: ProcedureStep,
   userId: string,
-): Promise<OwnerlessInstitution[]> => {
-  const rows = await sql<{ id: string; slug: string }[]>`
-    select i.id, i.slug
-    from institutions i
-    where exists (
-        select 1 from institution_memberships mine
-         where mine.institution_id = i.id
-           and mine.user_id = ${userId}
-           and mine.membership_role = ${INSTITUTION_OWNER_ROLE}
-           and mine.status = ${ACTIVE_MEMBERSHIP_STATUS}
-      )
-      and not exists (
-        select 1 from institution_memberships other
-         where other.institution_id = i.id
-           and other.membership_role = ${INSTITUTION_OWNER_ROLE}
-           and other.status = ${ACTIVE_MEMBERSHIP_STATUS}
-           and other.user_id <> ${userId}
-      )
-    order by i.slug, i.id
-  `;
+): Promise<PreflightAnswer> => {
+  const rows = await sql.unsafe<{ id: string; slug: string; status: string; n: number }[]>(
+    step.body,
+    [userId],
+  );
 
-  const institutions: OwnerlessInstitution[] = [];
+  const byId = new Map<string, OwnerlessInstitution>();
   for (const row of rows) {
-    const counted = await sql<{ status: CompetitionStatus; n: number }[]>`
-      select c.status, count(*)::int as n
-      from competitions c
-      where c.institution_id = ${row.id}
-      group by c.status
-    `;
-    institutions.push({
-      id: row.id,
-      slug: row.slug,
-      competitionsByStatus: new Map(counted.map((entry) => [entry.status, entry.n])),
-    });
+    let institution = byId.get(row.id);
+    if (institution === undefined) {
+      institution = { id: row.id, slug: row.slug, competitionsByStatus: [] };
+      byId.set(row.id, institution);
+    }
+    institution.competitionsByStatus.push({ status: row.status, n: row.n });
   }
 
-  return institutions;
+  return { rows, institutions: [...byId.values()] };
 };
 
 /**
- * Refuses before the first write when the deletion would leave an institution with no active owner.
+ * The refusal a pre-flight answer amounts to, or `null` when there is nothing to refuse.
  *
  * THE ONE THING THE FOREIGN KEY CANNOT SEE. Every other blocker this procedure predicts is a row
  * that points at the account and would be orphaned; this one is an absence — the membership that
@@ -225,29 +230,40 @@ export const institutionsLeftWithoutAnOwner = async (
  *
  * THE COUNTS ARE DIAGNOSTIC, not a second condition. They say what is at stake — how many
  * competitions would be left unadministrable — so the operator can decide whether to appoint a
- * second owner or delete the competitions first. Nothing here is written: the caller is refused.
+ * second owner or delete the competitions first.
+ *
+ * A PURE FUNCTION OF ROWS THE DOCUMENT RETURNED, so the guard can be read and tested without a
+ * database; the caller is what refuses, and it refuses before `begin`.
  */
-export const assertNoInstitutionIsLeftWithoutAnOwner = async (
-  sql: postgres.Sql,
-  userId: string,
-): Promise<void> => {
-  const institutions = await institutionsLeftWithoutAnOwner(sql, userId);
-  if (institutions.length === 0) {
-    return;
-  }
+export const ownerlessRefusal = (institutions: readonly OwnerlessInstitution[]): string | null => {
+  if (institutions.length === 0) return null;
 
   const lines = institutions.map((institution) => {
-    const counts = COMPETITION_STATUSES.map(
-      (status) => `${status}=${institution.competitionsByStatus.get(status) ?? 0}`,
-    ).join(" ");
+    const counts = institution.competitionsByStatus
+      .map((entry) => `${entry.status}=${entry.n}`)
+      .join(" ");
 
     return `${institution.slug} (${institution.id}): ${counts}`;
   });
 
-  throw new ProcedureRefusal(
-    `subject is the last active owner of ${institutions.length} institution(s)\n${lines.join("\n")}`,
-  );
+  return `subject is the last active owner of ${institutions.length} institution(s)\n${lines.join("\n")}`;
 };
+
+/**
+ * The pre-flight's refusal, carrying the step that produced it.
+ *
+ * The outcome travels with the refusal so a report can say the step RAN and returned those rows,
+ * rather than listing a declared step as never reached. The step ran; what it found is why nothing
+ * after it ran.
+ */
+export class PreflightRefusal extends ProcedureRefusal {
+  constructor(
+    message: string,
+    readonly outcome: StepOutcome,
+  ) {
+    super(message);
+  }
+}
 
 /**
  * Run the `sql` steps in order, in one transaction.
@@ -265,13 +281,23 @@ export const runProcedure = async (
   const run: ProcedureRun = { steps: [], literals: [], objectKeys: [], committed: false };
 
   // BEFORE `begin`, so a refusal opens no transaction at all rather than opening one to roll back.
-  // The refusal is the whole of what happened: nothing was read, nothing was written, and the
-  // caller's report says so rather than reporting a rollback of work that never started.
-  await assertNoInstitutionIsLeftWithoutAnOwner(sql, userId);
+  // The step is read from the document like every other one — the reason it runs here and not inside
+  // the transaction is the refusal, not the statement.
+  const preflight = preflightOwnersStep(steps);
+  const answer = await askPreflight(sql, preflight, userId);
+  const preflightOutcome: StepOutcome = { name: preflight.name, rows: answer.rows, error: null };
+  run.steps.push(preflightOutcome);
+
+  const refusal = ownerlessRefusal(answer.institutions);
+  if (refusal !== null) throw new PreflightRefusal(refusal, preflightOutcome);
 
   await sql.unsafe("begin");
   try {
     for (const step of steps) {
+      // Executed above, outside the transaction. Running it again here would ask the same question a
+      // second time and record two outcomes under one name.
+      if (step.name === PREFLIGHT_STEP_NAME) continue;
+
       if (step.kind !== "sql") {
         run.steps.push({ name: step.name, rows: [], error: null });
         continue;
@@ -362,8 +388,8 @@ type CaseRun = {
   /**
    * The pre-flight refusal, when there was one, and `null` when the procedure ran.
    *
-   * A separate field rather than a step outcome, because no step produced it: the refusal happens
-   * before the transaction opens, so a case carrying one has a run with no steps at all.
+   * The run beside it carries the pre-flight's own outcome and nothing else: the refusal happens
+   * before the transaction opens, so the one step that ran is the one that refused.
    */
   refusal: string | null;
   /** Object keys the foreign-key graph says this account holds, counted without the procedure. */
@@ -518,9 +544,10 @@ const renderCase = (entry: CaseRun): string[] => {
     lines.push(
       "### The outcome",
       "",
-      "**Refused before the first write.** No transaction was opened, so there is no rollback to",
-      "report: the procedure's own pre-flight found an institution this deletion would leave with",
-      "no active owner, and stopped. Nothing was read and nothing was written.",
+      "**Refused before the first write.** The procedure's own pre-flight read the membership rows,",
+      "found an institution this deletion would leave with no active owner, and stopped. No",
+      "transaction was opened, so there is no rollback to report: nothing was written, and the",
+      "account is as it was.",
       "",
       "```",
       entry.refusal,
@@ -633,7 +660,7 @@ const main = async (): Promise<void> => {
 
     let selection: Selection;
     if (select !== null) {
-      selection = await selectTarget(sql, select);
+      selection = await selectTarget(sql, select, preflightOwnersStep(declared));
     } else if (explicitUserId !== null) {
       selection = { userId: explicitUserId, criterion: "named on the command line", matched: 1 };
     } else {
@@ -723,6 +750,15 @@ const runOrRefuse = async (
   try {
     return { run: await runProcedure(sql, steps, userId), refusal: null };
   } catch (error) {
+    if (error instanceof PreflightRefusal) {
+      // The pre-flight's outcome is kept, so the case's table shows the step that ran and refused
+      // rather than a declared step that never happened.
+      return {
+        run: { steps: [error.outcome], literals: [], objectKeys: [], committed: false },
+        refusal: error.message,
+      };
+    }
+
     if (!(error instanceof ProcedureRefusal)) throw error;
 
     return {
@@ -750,7 +786,7 @@ const demonstrateAll = async (
       }
     }
 
-    const selection = await selectTarget(sql, spec.select);
+    const selection = await selectTarget(sql, spec.select, preflightOwnersStep(declared));
     const steps = declared.filter((step) => !spec.skip.includes(step.name));
 
     // Captured for EVERY case, including the ones expected to refuse. A baseline for a refusal is
@@ -872,7 +908,11 @@ const deletableAccounts = async (sql: postgres.Sql): Promise<string[]> => {
 };
 
 /** Ask the database which account the criterion names. */
-const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection> => {
+const selectTarget = async (
+  sql: postgres.Sql,
+  which: string,
+  preflight: ProcedureStep,
+): Promise<Selection> => {
   if (which === "blocked") {
     // The population the procedure's own description names: a candidate holding a registration, a
     // submission, a payment proof and notifications. Every clause is counted rather than assumed.
@@ -947,8 +987,9 @@ const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection
     const holding: { id: string; keys: number }[] = [];
     for (const id of deletable) {
       // The pre-flight runs before any case can execute, so a subject it refuses would end this case
-      // in the refusal rather than in the omission the case exists to demonstrate.
-      if ((await institutionsLeftWithoutAnOwner(sql, id)).length > 0) continue;
+      // in the refusal rather than in the omission the case exists to demonstrate. Asked here by the
+      // document's own statement, so the criterion and the run cannot disagree about who is refused.
+      if ((await askPreflight(sql, preflight, id)).institutions.length > 0) continue;
       const keys = await countObjectKeys(sql, id);
       if (keys.length > 0) holding.push({ id, keys: keys.length });
     }

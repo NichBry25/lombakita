@@ -248,7 +248,7 @@ describe("the rulings cover the derived population", () => {
       "institution_payment_instructions: account_holder_name, account_number, bank_name, instructions_note",
       "institution_social_links: url",
       "institution_verification_audit: reason",
-      "institution_verification_documents: original_file_name",
+      "institution_verification_documents: content_type, document_type, original_file_name",
       "institution_verification_submissions: proposed_display_name, reviewer_notes",
       "institutions: about, contact_email, contact_name, contact_phone, description, display_name, rejection_reason, slug, suspension_reason, website_url",
       "platform_ops_audit_logs: metadata, reason",
