@@ -626,9 +626,10 @@ describe("the residue the census derives", () => {
       .sort();
     const everyListing = residueGroups(document).flatMap((group) => group.tables);
 
-    expect([...everyListing].sort(), "a table the section lists is in none of the three groups").toEqual(
-      listed,
-    );
+    expect(
+      [...everyListing].sort(),
+      "a table the section lists is in none of the three groups",
+    ).toEqual(listed);
     expect(
       everyListing.length,
       "a table is listed under two groups, so a reader finds it twice and trusts neither",

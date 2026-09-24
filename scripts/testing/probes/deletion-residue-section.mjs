@@ -33,7 +33,7 @@ export const probes = [
       "dropping a surviving personal-column table from the group it was listed under, while leaving " +
       "its row in the residue table: the section then reads as complete over a table it silently " +
       "dropped, and the operator holding a live request has a table whose residue the section never " +
-      "explains — the shape the removed \"Survives in part\" group left behind",
+      'explains — the shape the removed "Survives in part" group left behind',
     files: [PROCEDURE],
     repo: "docs",
     appliedMarkers: ["- **Never reached by the deletion (10):** `competition_rounds`"],
