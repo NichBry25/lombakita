@@ -1041,8 +1041,10 @@ if (process.argv[1]?.endsWith("run-deletion-procedure.ts")) {
     // A shared-guard refusal already opens with this runner's verb — the guard takes it as a
     // parameter (LAUNCH-D144) — so prefixing it here would say "refusing to delete" twice. Every
     // other failure is this runner's own and is prefixed here, so an operator always reads what was
-    // refused and in whose name rather than a bare object dump.
-    const refused = error instanceof ProcedureRefusal;
+    // refused and in whose name rather than a bare object dump. The shared guard's refusal is a
+    // refusal for the stack rule below as well: an operator reading it needs the sentence, not
+    // the frames that led to it.
+    const refused = error instanceof ProcedureRefusal || error instanceof ResetRefused;
     const message =
       error instanceof ResetRefused
         ? error.message

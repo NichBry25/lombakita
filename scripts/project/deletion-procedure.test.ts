@@ -204,9 +204,13 @@ const REMOTE_HOST = "postgres://db.invalid.example.com:5432/lombakita_absent";
  * `APP_ENV` and `NEXT_PUBLIC_APP_ENV` are passed as empty strings rather than omitted, because
  * `process.loadEnvFile` does not override a variable already present in the process: declaring them
  * empty is what stops a developer's own `.env.local` deciding the result of these assertions.
+ *
+ * It returns the child whole, and `runRunner` below flattens it for the cases that only ask whether
+ * a sentence was said. The cases that ask WHERE it was said, and what else came with it, keep the
+ * streams and the status apart.
  */
-const runRunner = (environment: Record<string, string>): string => {
-  const result = spawnSync(
+const runRunnerResult = (environment: Record<string, string>) =>
+  spawnSync(
     process.execPath,
     ["--import", "tsx", "scripts/project/run-deletion-procedure.ts", "--select", "completable"],
     {
@@ -220,6 +224,10 @@ const runRunner = (environment: Record<string, string>): string => {
       },
     },
   );
+
+/** The two streams as one string, for the assertions that only ask whether a sentence was said. */
+const runRunner = (environment: Record<string, string>): string => {
+  const result = runRunnerResult(environment);
 
   return `${result.stdout ?? ""}${result.stderr ?? ""}`;
 };
@@ -276,6 +284,27 @@ describe("the guard in front of the delete", () => {
         environmentRefusal("production"),
       );
     }
+  }, 90_000);
+
+  // THE OPERATOR'S HALF OF A REFUSAL, which the merged output cannot answer: it says neither which
+  // stream a sentence arrived on nor what came after it. What is asserted here is the shape of the
+  // whole answer — the exit status, the stream the sentence is on, and the absence of a frame
+  // marker under it.
+  //
+  // WHY THE STACK RULE HAS TO BE ASSERTED HERE AND NOT IN THE UNIT THAT BUILDS THE REFUSAL. Both
+  // refusal types carry a message and both print it, so a case that only asks whether the sentence
+  // appeared passes against either behaviour; the difference is entirely in what else is printed.
+  // The third clause is the only one that moves, and it is the one an operator feels: a stack
+  // between the sentence and the end of the output buries the sentence that says what was refused.
+  it("refuses the production run with the sentence alone, no stack under it, and a non-zero exit", () => {
+    const result = runRunnerResult({ APP_ENV: "production" });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/^refusing to delete: APP_ENV/);
+    expect(
+      result.stderr,
+      "the refusal printed a stack under its sentence, so the operator reads frames where the refusal should be",
+    ).not.toMatch(/^\s+at /m);
   }, 90_000);
 
   it("refuses staging and preview too, rather than only the name it was tested with", () => {
