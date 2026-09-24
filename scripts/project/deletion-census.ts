@@ -81,8 +81,11 @@ export type ForeignKey = {
  * natural person — names, email addresses, phone numbers, free text (titles, descriptions, notes),
  * URLs, file names, account numbers and account holders, slugs, and Auth.js identifiers. It is
  * `not-personal` only when the application alone generates its value AND that value cannot carry a
- * person's input: ids it mints, hashes, MIME types, storage keys composed only of ids, currency
- * codes, machine-readable status and action tokens, and the provider's own OAuth vocabulary.
+ * person's input: ids it mints, hashes, MIME types, currency codes, machine-readable status and
+ * action tokens, and the provider's own OAuth vocabulary. NO OBJECT KEY QUALIFIES. A key counts as
+ * self-generated only when the server mints each of its segments at write time, or compares the
+ * whole stored value against one it minted and kept; a tail checked by prefix alone is whatever the
+ * caller sent, because the check never reads past the prefix.
  * Where the answer was not clear the column is `personal`, because the two errors are not
  * symmetrical: calling a personal column clean leaves data behind and reports success, while
  * calling a clean column personal costs a line in a listing.
@@ -162,6 +165,7 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "candidate_profiles.phone_number",
   // competition_document_request_files
   "competition_document_request_files.original_file_name",
+  "competition_document_request_files.r2_key",
   // competition_document_requests
   "competition_document_requests.title",
   "competition_document_requests.instructions",
@@ -183,6 +187,7 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "competition_rounds.platform_label",
   // competition_submissions
   "competition_submissions.file_name",
+  "competition_submissions.file_key",
   // competition_tags
   "competition_tags.tag",
   // competitions
@@ -195,9 +200,11 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   // finance_manual_payment_proof_attempts
   "finance_manual_payment_proof_attempts.original_file_name",
   "finance_manual_payment_proof_attempts.verdict_reason",
+  "finance_manual_payment_proof_attempts.r2_key",
   // finance_manual_payment_proofs
   "finance_manual_payment_proofs.original_file_name",
   "finance_manual_payment_proofs.rejection_reason",
+  "finance_manual_payment_proofs.r2_key",
   // finance_payment_events
   "finance_payment_events.reason",
   "finance_payment_events.metadata",
@@ -206,6 +213,7 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "finance_payment_instruction_snapshots.account_number",
   "finance_payment_instruction_snapshots.account_holder_name",
   "finance_payment_instruction_snapshots.instructions_note",
+  "finance_payment_instruction_snapshots.qris_r2_key",
   // institution_audit_logs
   "institution_audit_logs.metadata",
   // institution_invitations
@@ -215,6 +223,7 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "institution_payment_instructions.account_number",
   "institution_payment_instructions.account_holder_name",
   "institution_payment_instructions.instructions_note",
+  "institution_payment_instructions.qris_r2_key",
   // institution_social_links
   "institution_social_links.url",
   // institution_verification_audit
@@ -238,6 +247,8 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "institutions.contact_email",
   "institutions.contact_phone",
   "institutions.website_url",
+  "institutions.logo_r2_key",
+  "institutions.banner_r2_key",
   // notifications
   "notifications.title",
   "notifications.body",
@@ -252,6 +263,7 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "profile_certifications.credential_id",
   "profile_certifications.credential_url",
   "profile_certifications.file_name",
+  "profile_certifications.file_r2_key",
   // profile_educations
   "profile_educations.school",
   "profile_educations.degree",
@@ -268,6 +280,7 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "profile_social_links.url",
   // recruiter_verification_documents
   "recruiter_verification_documents.original_file_name",
+  "recruiter_verification_documents.r2_key",
   // recruiter_verification_submissions
   "recruiter_verification_submissions.full_name",
   "recruiter_verification_submissions.mobile_number",
@@ -286,6 +299,9 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "user_profiles.summary",
   "user_profiles.location",
   "user_profiles.resume_file_name",
+  "user_profiles.avatar_r2_key",
+  "user_profiles.banner_r2_key",
+  "user_profiles.resume_r2_key",
   // users
   "users.name",
   "users.email",
@@ -318,10 +334,6 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
   {
     column: "competition_document_request_files.request_id",
     reason: "an app-minted id; nothing a person typed reaches it",
-  },
-  {
-    column: "competition_document_request_files.r2_key",
-    reason: "a storage key composed only of ids",
   },
   {
     column: "competition_document_request_files.content_type",
@@ -431,7 +443,6 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
     column: "competition_submissions.submitted_by_id",
     reason: "an app-minted id; nothing a person typed reaches it",
   },
-  { column: "competition_submissions.file_key", reason: "a storage key composed only of ids" },
   {
     column: "competition_submissions.file_mime_type",
     reason: "a MIME type the upload declared; it names a format, not a person",
@@ -529,10 +540,6 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
     reason: "an app-minted id; nothing a person typed reaches it",
   },
   {
-    column: "finance_manual_payment_proof_attempts.r2_key",
-    reason: "a storage key composed only of ids",
-  },
-  {
     column: "finance_manual_payment_proof_attempts.content_type",
     reason: "a MIME type the upload declared; it names a format, not a person",
   },
@@ -557,7 +564,6 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
     column: "finance_manual_payment_proofs.submitted_by_user_id",
     reason: "an app-minted id; nothing a person typed reaches it",
   },
-  { column: "finance_manual_payment_proofs.r2_key", reason: "a storage key composed only of ids" },
   {
     column: "finance_manual_payment_proofs.content_type",
     reason: "a MIME type the upload declared; it names a format, not a person",
@@ -592,10 +598,6 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
   {
     column: "finance_payment_instruction_snapshots.payment_id",
     reason: "an app-minted id; nothing a person typed reaches it",
-  },
-  {
-    column: "finance_payment_instruction_snapshots.qris_r2_key",
-    reason: "a storage key composed only of ids",
   },
   // finance_payments
   { column: "finance_payments.id", reason: "an app-minted id; nothing a person typed reaches it" },
@@ -689,10 +691,6 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
     column: "institution_payment_instructions.institution_id",
     reason: "an app-minted id; nothing a person typed reaches it",
   },
-  {
-    column: "institution_payment_instructions.qris_r2_key",
-    reason: "a storage key composed only of ids",
-  },
   // institution_social_links
   {
     column: "institution_social_links.id",
@@ -743,8 +741,6 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
   },
   // institutions
   { column: "institutions.id", reason: "an app-minted id; nothing a person typed reaches it" },
-  { column: "institutions.logo_r2_key", reason: "a storage key composed only of ids" },
-  { column: "institutions.banner_r2_key", reason: "a storage key composed only of ids" },
   // mfa_factors
   { column: "mfa_factors.id", reason: "an app-minted id; nothing a person typed reaches it" },
   { column: "mfa_factors.user_id", reason: "an app-minted id; nothing a person typed reaches it" },
@@ -818,7 +814,6 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
     column: "profile_certifications.user_id",
     reason: "an app-minted id; nothing a person typed reaches it",
   },
-  { column: "profile_certifications.file_r2_key", reason: "a storage key composed only of ids" },
   {
     column: "profile_certifications.file_mime_type",
     reason: "a MIME type the upload declared; it names a format, not a person",
@@ -864,10 +859,6 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
   {
     column: "recruiter_verification_documents.submission_id",
     reason: "an app-minted id; nothing a person typed reaches it",
-  },
-  {
-    column: "recruiter_verification_documents.r2_key",
-    reason: "a storage key composed only of ids",
   },
   {
     column: "recruiter_verification_documents.content_type",
@@ -952,9 +943,6 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
     column: "user_profiles.user_id",
     reason: "an app-minted id; nothing a person typed reaches it",
   },
-  { column: "user_profiles.avatar_r2_key", reason: "a storage key composed only of ids" },
-  { column: "user_profiles.banner_r2_key", reason: "a storage key composed only of ids" },
-  { column: "user_profiles.resume_r2_key", reason: "a storage key composed only of ids" },
   {
     column: "user_profiles.resume_mime_type",
     reason: "a MIME type the upload declared; it names a format, not a person",
