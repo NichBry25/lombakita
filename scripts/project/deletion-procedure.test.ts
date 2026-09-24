@@ -21,7 +21,6 @@ import {
   blockingForeignKeys,
   cascadeClosure,
   detachingForeignKeys,
-  rowsCanOutliveDeletion,
   schemaForeignKeys,
   survivingPersonalColumns,
 } from "./deletion-census";
@@ -503,15 +502,17 @@ describe("the residue the census derives", () => {
     expect(stated).toEqual(derived);
   });
 
-  // THE FOUR REASONS, each derived from the edge it names. The earlier version grouped by CASCADE
-  // REACH first — a table outside the closure was "never reached", whatever edges pointed at it —
-  // which put `institution_invitations`, `institution_audit_logs`,
-  // `institution_verification_audit` and `institution_verification_submissions` under "the deletion
-  // never reaches them" while each of them carries a `SET NULL` foreign key to `users`, and put
-  // `platform_ops_audit_logs` there while it carries a NO ACTION edge that REFUSES the statement. A
-  // table moved between groups by hand would still be present in the table above and would still be
-  // wrong about why — which is the difference between a residue an operator can act on and one they
-  // can only read.
+  // THE THREE REASONS, each derived from the edge it names. Grouping by CASCADE REACH instead is the
+  // mistake this test exists to catch: a table outside the closure reads as "never reached" while it
+  // carries a `SET NULL` foreign key to `users`, or a NO ACTION edge that REFUSES the statement
+  // outright. A table moved between groups by hand would still be present in the table above and
+  // would still be wrong about why — which is the difference between a residue an operator can act
+  // on and one they can only read.
+  //
+  // WHY THERE IS NO FOURTH GROUP. `rowsCanOutliveDeletion` is true of a closure table only through a
+  // blocking or a detaching key, so a closure table the two branches below did not claim is not one
+  // the statement can leave a row behind on. A group for that case is empty by construction, and an
+  // empty group in a section an operator reads is a claim with nothing under it.
   //
   // FIRST MATCH WINS, in the order the section states. The order is load-bearing rather than
   // cosmetic: a blocking edge is checked before a detaching one, so a table carrying both reads as
@@ -536,22 +537,38 @@ describe("the residue the census derives", () => {
 
     const refuses = "Refuses the deletion while a row names the account";
     const detaches = "Survives, with the account's key set to null";
-    const survivesInPart = "Survives in part: the cascade removes only some rows";
     const neverReached = "Never reached by the deletion";
 
     const groupOf = (table: string): string => {
       if (blocking.has(table)) return refuses;
       if (detaching.has(table)) return detaches;
-      if (closure.has(table) && rowsCanOutliveDeletion(table, keys, closure)) return survivesInPart;
       return neverReached;
     };
 
-    const labels = [refuses, detaches, survivesInPart, neverReached];
+    const labels = [refuses, detaches, neverReached];
     const derived = labels.map((label) => survivors.filter((table) => groupOf(table) === label));
 
     const groups = residueGroups(document);
 
     expect(groups.map((group) => group.label)).toEqual(labels);
+
+    // EVERY surviving table lands in exactly ONE of the three groups, checked BEFORE the group lists
+    // are compared one at a time. The order is what makes these two assertions separate guards rather
+    // than one: a table in NO group fails here, a table in the WRONG group fails below, and a table in
+    // two groups fails on the count. The first of them is the load-bearing one — a survivor the
+    // section lists and no group claims leaves the section reading as complete over a table it
+    // silently dropped, and a reader holding a live request has nowhere to look for that table's
+    // residue.
+    const groupedTables = groups.flatMap((group) => group.tables);
+
+    expect(
+      [...groupedTables].sort(),
+      "a surviving table is in none of the three groups the section names",
+    ).toEqual([...survivors].sort());
+    expect(
+      groupedTables.length,
+      "a table is listed under two groups, so its residue is reported twice",
+    ).toBe(new Set(groupedTables).size);
 
     for (const [index, group] of groups.entries()) {
       const expected = [...(derived[index] ?? [])].sort();
@@ -598,18 +615,24 @@ describe("the residue the census derives", () => {
   // THE LINK BETWEEN THE TWO TESTS ABOVE, which neither of them makes on its own. The table can
   // list a table that no group explains, and the groups can name a table the table omits, and both
   // assertions would still pass — the table is compared with the census and the groups are compared
-  // with the graph, and the two comparisons never meet. What is asserted here is the claim the
-  // section's "none" rests on: the four groups cover the residue table exactly, so there is no
-  // fifth kind of survivor left unwritten. The census derives the same thing through
-  // `rowsCanOutliveDeletion`, and the oracle measured it against a live database — it observed no
-  // closure row surviving with a live pointer to the deleted account.
-  it("leaves no surviving table outside the four groups the section names", () => {
+  // with the graph, and the two comparisons never meet. What is asserted here is that the three
+  // groups cover the residue table exactly, so there is no fourth kind of survivor left unwritten.
+  // The census derives the same thing through `rowsCanOutliveDeletion`, and the oracle measured it
+  // against a live database — it observed no closure row surviving with a live pointer to the
+  // deleted account.
+  it("leaves no surviving table outside the three groups the section names", () => {
     const listed = residueRows(document)
       .map((row) => row.table)
       .sort();
-    const grouped = [...new Set(residueGroups(document).flatMap((group) => group.tables))].sort();
+    const everyListing = residueGroups(document).flatMap((group) => group.tables);
 
-    expect(grouped).toEqual(listed);
+    expect([...everyListing].sort(), "a table the section lists is in none of the three groups").toEqual(
+      listed,
+    );
+    expect(
+      everyListing.length,
+      "a table is listed under two groups, so a reader finds it twice and trusts neither",
+    ).toBe(new Set(everyListing).size);
   });
 });
 

@@ -223,6 +223,7 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "institution_verification_documents.original_file_name",
   "institution_verification_documents.document_type",
   "institution_verification_documents.content_type",
+  "institution_verification_documents.r2_key",
   // institution_verification_submissions
   "institution_verification_submissions.proposed_display_name",
   "institution_verification_submissions.reviewer_notes",
@@ -722,10 +723,6 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
   {
     column: "institution_verification_documents.submission_id",
     reason: "an app-minted id; nothing a person typed reaches it",
-  },
-  {
-    column: "institution_verification_documents.r2_key",
-    reason: "a storage key composed only of ids",
   },
   // institution_verification_submissions
   {
