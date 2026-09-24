@@ -21,9 +21,8 @@ import {
   blockingForeignKeys,
   cascadeClosure,
   detachingForeignKeys,
-  personalColumnsOf,
+  rowsCanOutliveDeletion,
   schemaForeignKeys,
-  schemaTableNames,
   survivingPersonalColumns,
 } from "./deletion-census";
 import {
@@ -474,47 +473,92 @@ describe("the residue the census derives", () => {
     expect(stated).toEqual(derived);
   });
 
-  // The three reasons, each checked against the edge it names rather than against a list. A table
-  // moved between groups by hand would still be present in the table above and would still be
-  // wrong about why — which is the difference between a residue an operator can act on and one
-  // they can only read.
+  // THE FOUR REASONS, each derived from the edge it names. The earlier version grouped by CASCADE
+  // REACH first — a table outside the closure was "never reached", whatever edges pointed at it —
+  // which put `institution_invitations`, `institution_audit_logs`,
+  // `institution_verification_audit` and `institution_verification_submissions` under "the deletion
+  // never reaches them" while each of them carries a `SET NULL` foreign key to `users`, and put
+  // `platform_ops_audit_logs` there while it carries a NO ACTION edge that REFUSES the statement. A
+  // table moved between groups by hand would still be present in the table above and would still be
+  // wrong about why — which is the difference between a residue an operator can act on and one they
+  // can only read.
+  //
+  // FIRST MATCH WINS, in the order the section states. The order is load-bearing rather than
+  // cosmetic: a blocking edge is checked before a detaching one, so a table carrying both reads as
+  // the refusal it can cause rather than the detach it also permits.
   it("groups those tables by the edge that leaves the row standing", () => {
     const keys = schemaForeignKeys();
     const closure = new Set(cascadeClosure("users", keys));
-    const holdsPersonal = (table: string): boolean => personalColumnsOf(table).length > 0;
 
-    const derived = {
-      "the deletion never reaches them": schemaTableNames().filter(
-        (table) => !closure.has(table) && holdsPersonal(table),
-      ),
-      "a pointer to the person detaches and the row stays": schemaTableNames().filter(
-        (table) =>
-          closure.has(table) &&
-          detachingForeignKeys(keys, closure).some((key) => key.sourceTable === table) &&
-          holdsPersonal(table),
-      ),
-      "the deletion is refused by a row on them": schemaTableNames().filter(
-        (table) =>
-          closure.has(table) &&
-          blockingForeignKeys(keys, closure).some((key) => key.sourceTable === table) &&
-          holdsPersonal(table),
-      ),
+    // THE POPULATION IS THE SECTION'S OWN, taken from the same call the table above is checked
+    // against. Every table with a personal column is not it: `users`, `accounts` and `sessions`
+    // carry personal columns and the statement deletes their rows outright, so a group saying the
+    // deletion never reaches them would be false about exactly the tables it named. What the
+    // section lists, and what these groups must partition, is the tables whose rows can still be
+    // there when the statement finishes — `survivingPersonalColumns()`.
+    const survivors = survivingPersonalColumns().map((entry) => entry.table);
+
+    const sourcesOf = (foreignKeys: ReturnType<typeof blockingForeignKeys>): Set<string> =>
+      new Set(foreignKeys.map((key) => key.sourceTable));
+
+    const blocking = sourcesOf(blockingForeignKeys(keys, closure));
+    const detaching = sourcesOf(detachingForeignKeys(keys, closure));
+
+    const refuses = "Refuses the deletion while a row names the account";
+    const detaches = "Survives, with the account's key set to null";
+    const survivesInPart = "Survives in part: the cascade removes only some rows";
+    const neverReached = "Never reached by the deletion";
+
+    const groupOf = (table: string): string => {
+      if (blocking.has(table)) return refuses;
+      if (detaching.has(table)) return detaches;
+      if (closure.has(table) && rowsCanOutliveDeletion(table, keys, closure)) return survivesInPart;
+      return neverReached;
     };
+
+    const labels = [refuses, detaches, survivesInPart, neverReached];
+    const derived = labels.map((label) => survivors.filter((table) => groupOf(table) === label));
 
     const groups = residueGroups(document);
 
-    expect(groups.map((group) => group.label)).toEqual(Object.keys(derived));
+    expect(groups.map((group) => group.label)).toEqual(labels);
 
-    for (const group of groups) {
-      const expected = [...(derived[group.label as keyof typeof derived] ?? [])].sort();
+    for (const [index, group] of groups.entries()) {
+      const expected = [...(derived[index] ?? [])].sort();
 
       expect(
-        group.tables.sort(),
+        [...group.tables].sort(),
         `the group \`${group.label}\` is not what the graph says`,
       ).toEqual(expected);
       // The count is printed so a reader can see the size at a glance; it is checked so it cannot
       // go stale while the list under it changes.
       expect(group.declared, `the group \`${group.label}\` miscounts itself`).toBe(expected.length);
+    }
+
+    // NAMED, so a table that lands in the wrong group fails under its own name rather than as a
+    // diff between two sorted lists. Each of the first four carries a `SET NULL` foreign key to
+    // `users`, which is what a reader of the residue section is looking for; `platform_ops_audit_logs`
+    // carries the NO ACTION edge that refuses the whole statement.
+    for (const [table, label] of [
+      ["institution_invitations", detaches],
+      ["institution_audit_logs", detaches],
+      ["institution_verification_audit", detaches],
+      ["institution_verification_submissions", detaches],
+      ["platform_ops_audit_logs", refuses],
+    ] as const) {
+      expect(groupOf(table), `\`${table}\` is not in the group its edge puts it in`).toBe(label);
+    }
+
+    // The table's own third column has to say the same thing as the group it appears in. Without
+    // this the two halves of the section can disagree — a row labelled "the deletion never reaches
+    // it" sitting under a group that reaches it — and both halves would still match their own
+    // derivation. That is the shape M2 found.
+    const groupOfListed = new Map(groups.flatMap((group) => group.tables.map((t) => [t, group.label])));
+
+    for (const row of residueRows(document)) {
+      expect(row.why, `the row for \`${row.table}\` disagrees with the group it is listed under`).toBe(
+        groupOfListed.get(row.table),
+      );
     }
   });
 
@@ -522,11 +566,11 @@ describe("the residue the census derives", () => {
   // list a table that no group explains, and the groups can name a table the table omits, and both
   // assertions would still pass — the table is compared with the census and the groups are compared
   // with the graph, and the two comparisons never meet. What is asserted here is the claim the
-  // section's "none" rests on: the three groups cover the residue table exactly, so there is no
-  // fourth kind of survivor left unwritten. The census derives the same thing through
+  // section's "none" rests on: the four groups cover the residue table exactly, so there is no
+  // fifth kind of survivor left unwritten. The census derives the same thing through
   // `rowsCanOutliveDeletion`, and the oracle measured it against a live database — it observed no
   // closure row surviving with a live pointer to the deleted account.
-  it("leaves no surviving table outside the three groups the section names", () => {
+  it("leaves no surviving table outside the four groups the section names", () => {
     const listed = residueRows(document)
       .map((row) => row.table)
       .sort();

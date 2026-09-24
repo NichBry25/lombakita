@@ -155,6 +155,8 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "accounts.id_token",
   "accounts.session_state",
   "accounts.provider_account_id",
+  "accounts.scope",
+  "accounts.token_type",
   // candidate_profiles
   "candidate_profiles.full_name",
   "candidate_profiles.phone_number",
@@ -219,6 +221,8 @@ export const PERSONAL_COLUMNS: readonly string[] = Object.freeze([
   "institution_verification_audit.reason",
   // institution_verification_documents
   "institution_verification_documents.original_file_name",
+  "institution_verification_documents.document_type",
+  "institution_verification_documents.content_type",
   // institution_verification_submissions
   "institution_verification_submissions.proposed_display_name",
   "institution_verification_submissions.reviewer_notes",
@@ -300,11 +304,6 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
     reason: "the Auth.js account type code (`oauth` / `email` / `credentials`)",
   },
   { column: "accounts.provider", reason: "the Auth.js provider slug (`google`)" },
-  {
-    column: "accounts.token_type",
-    reason: "the OAuth token-type token the provider returned (`bearer`)",
-  },
-  { column: "accounts.scope", reason: "the OAuth scope string the provider returned" },
   // candidate_profiles
   {
     column: "candidate_profiles.user_id",
@@ -725,16 +724,8 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
     reason: "an app-minted id; nothing a person typed reaches it",
   },
   {
-    column: "institution_verification_documents.document_type",
-    reason: "the machine-readable document kind code",
-  },
-  {
     column: "institution_verification_documents.r2_key",
     reason: "a storage key composed only of ids",
-  },
-  {
-    column: "institution_verification_documents.content_type",
-    reason: "a MIME type the upload declared; it names a format, not a person",
   },
   // institution_verification_submissions
   {
