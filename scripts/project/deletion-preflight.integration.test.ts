@@ -31,12 +31,18 @@
 //     driven with an EMPTY step list: no statement can have run, so a refusal that still arrives
 //     cannot have come from one.
 //
+// A SECOND BLOCK MEASURES THE COMMAND LINE ITSELF, and lives here for its fixtures. Whether a
+// refused run exits non-zero with the refusal on stderr is a property of the same two refusal
+// paths, planted the same way; the fixtures and the guarded connection are already here, and
+// nothing about a spawned run is measurable without them.
+//
 // NOTHING HERE TOUCHES A NON-LOCAL HOST, and nothing here reports a personal datum: the fixtures are
 // generated rows, the assertions compare ids, slugs and counts, and no email, username or other
 // column value is ever put into a message. The connection is refused unless its host is loopback,
 // before a byte is sent. (Rule 35) every fixture is torn down in a `finally`, and the teardown
 // asserts that what it removed is gone rather than that it ran.
 
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterAll, describe, expect, it } from "vitest";
@@ -494,6 +500,150 @@ describe.skipIf(skipWithoutDatabase)("the pre-flight refusal", () => {
       expect([...lines].sort()).toEqual(fixture.institutions.map(expectedLine).sort());
       expect(await rowExists(sql, "users", fixture.subject)).toBe(true);
     } finally {
+      await removeFixture(sql, fixture);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The command line.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * One real run of the runner, as an operator would type it.
+ *
+ * A CHILD PROCESS rather than a call, for the reason `deletion-procedure.test.ts` gives about the
+ * runs it spawns: `main` is not exported, and exporting it so it could be called here would prove
+ * the function rather than the wiring (Rule 33). What an operator typing the command gets is what
+ * is measured.
+ *
+ * `DATABASE_URL` and `APP_ENV` are set rather than inherited: `process.loadEnvFile` does not
+ * override a variable already present in the process, so declaring them is what stops a developer's
+ * own `.env.local` from deciding the result of these assertions.
+ */
+const runCommandLine = (
+  userId: string,
+): { status: number | null; stdout: string; stderr: string } => {
+  const result = spawnSync(
+    process.execPath,
+    ["--import", "tsx", "scripts/project/run-deletion-procedure.ts", userId],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        DATABASE_URL: DATABASE_URL,
+        APP_ENV: "local",
+        NEXT_PUBLIC_APP_ENV: "",
+      },
+    },
+  );
+
+  return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+};
+
+/**
+ * What a refused command-line run owes, whichever of the two layers refused it.
+ *
+ * The stack check is a REGEX for an indented frame rather than a prefix test, because a stack is
+ * printed BELOW the message: a refusal that carried one would still open with the refusal line.
+ */
+const expectRefusedRun = (result: {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+}): void => {
+  expect(result.status).toBe(1);
+  expect(result.stderr.startsWith("refusing to delete: ")).toBe(true);
+  expect(result.stderr).not.toMatch(/^\s+at /m);
+
+  // A refusal is the answer, not a record: stdout carries the connection's own report of where the
+  // command was pointed and nothing else, so a refused run cannot be read as one that finished.
+  expect(result.stdout.trimEnd().split("\n")).toHaveLength(1);
+  expect(result.stdout).toContain("delete target: ");
+};
+
+/**
+ * A row only the schema can refuse: a note the subject AUTHORED, targeting an institution.
+ *
+ * `platform_ops_notes.created_by_id` is NOT NULL and NO ACTION, and the note's target is an
+ * institution rather than the account, so the cascade that removes the account's own rows does not
+ * reach it and step 5 refuses with `23503` (LAUNCH-D105's worked case). Planted rather than borrowed
+ * from a seeded database, so what this suite measures does not depend on what the seed left behind.
+ */
+const plantBlockingNote = async (
+  sql: Sql,
+  authorId: string,
+  institutionId: string,
+): Promise<void> => {
+  await sql`insert into platform_ops_notes (target_institution_id, note, created_by_id)
+    values (${institutionId}, 'planted by the command-line refusal case', ${authorId})`;
+};
+
+/** Remove the planted blocker and assert it is gone (Rule 35) — the next teardown depends on it. */
+const removeBlockingNote = async (sql: Sql, authorId: string): Promise<void> => {
+  await sql`delete from platform_ops_notes where created_by_id = ${authorId}`;
+
+  const [row] = await sql<{ n: number }[]>`
+    select count(*)::int as n from platform_ops_notes where created_by_id = ${authorId}`;
+
+  if (row!.n !== 0) {
+    throw new Error(`the teardown left ${row!.n} planted note(s) behind for their author`);
+  }
+};
+
+describe.skipIf(skipWithoutDatabase)("the command line", () => {
+  it("refuses a subject the pre-flight refuses, naming it on stderr and exiting non-zero", async () => {
+    const sql = guardedClient();
+    const fixture = await plantFixture(sql, [
+      {
+        label: "sole-company",
+        spec: {
+          institutionType: "company",
+          competitionStatuses: ["published"],
+          members: [{ user: "subject", membershipRole: ACTIVE_OWNER, status: ACTIVE }],
+        },
+      },
+    ]);
+
+    try {
+      const result = runCommandLine(fixture.subject);
+
+      expectRefusedRun(result);
+      expect(result.stderr).toContain("subject is the last active owner of 1 institution(s)");
+      expect(await rowExists(sql, "users", fixture.subject)).toBe(true);
+    } finally {
+      await removeFixture(sql, fixture);
+    }
+  });
+
+  it("refuses a subject a blocking row refuses, in the same shape and with nothing written", async () => {
+    const sql = guardedClient();
+    const fixture = await plantFixture(sql, [
+      {
+        label: "shared-company",
+        // A second active owner, so the pre-flight lets this deletion through and the refusal that
+        // arrives is the schema's rather than the guard's.
+        spec: {
+          institutionType: "company",
+          competitionStatuses: ["published"],
+          members: [
+            { user: "subject", membershipRole: ACTIVE_OWNER, status: ACTIVE },
+            { user: "co-owner", membershipRole: ACTIVE_OWNER, status: ACTIVE },
+          ],
+        },
+      },
+    ]);
+
+    try {
+      await plantBlockingNote(sql, fixture.subject, fixture.institutions[0]!.id);
+
+      const result = runCommandLine(fixture.subject);
+
+      expectRefusedRun(result);
+      expect(result.stderr).toContain("23503");
+      expect(await rowExists(sql, "users", fixture.subject)).toBe(true);
+    } finally {
+      await removeBlockingNote(sql, fixture.subject);
       await removeFixture(sql, fixture);
     }
   });

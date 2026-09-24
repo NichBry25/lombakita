@@ -642,7 +642,8 @@ const main = async (): Promise<void> => {
 
     const steps = declared.filter((step) => !skip.has(step.name));
     const expectedKeys = await countObjectKeys(sql, selection.userId);
-    const { run, refusal } = await runOrRefuse(sql, steps, selection.userId);
+    const run = await runProcedure(sql, steps, selection.userId);
+    throwIfAnyStepRefused(run);
 
     const text = renderCase({
       label: "The procedure, executed",
@@ -652,7 +653,7 @@ const main = async (): Promise<void> => {
       steps,
       skipped: [...skip],
       run,
-      refusal,
+      refusal: null,
       expectedKeys,
     }).join("\n");
 
@@ -678,6 +679,31 @@ const countObjectKeys = async (
     if (row!.n > 0) counted.push({ prefix: entry.prefix, column: entry.column, n: row!.n });
   }
   return counted;
+};
+
+/**
+ * Refuse a command-line run whose deletion the engine would not complete.
+ *
+ * The command line named one account, so a refusal IS its answer rather than a report about one: it
+ * reaches the entrypoint's catch, which prints it on stderr and exits non-zero. Rendering the run as
+ * a case instead would print a record on stdout and exit zero, which reads as a run that finished.
+ *
+ * The demonstration does not call this. A case whose whole point is the refusal has to appear in the
+ * document, which is what `runOrRefuse` below is for.
+ */
+const throwIfAnyStepRefused = (run: ProcedureRun): void => {
+  const refused = run.steps.find((step) => step.error !== null);
+  if (refused?.error == null) return;
+
+  // The step's own message first, so the entrypoint prefixes the line that says what happened; the
+  // SQLSTATE and constraint follow it unchanged.
+  throw new ProcedureRefusal(
+    [
+      `step \`${refused.name}\` was refused by the database: ${refused.error.message}`,
+      ...(refused.error.code === null ? [] : [`SQLSTATE \`${refused.error.code}\`.`]),
+      ...(refused.error.constraint === null ? [] : [`Constraint \`${refused.error.constraint}\`.`]),
+    ].join("\n"),
+  );
 };
 
 /**
@@ -975,6 +1001,7 @@ if (process.argv[1]?.endsWith("run-deletion-procedure.ts")) {
     // parameter (LAUNCH-D144) — so prefixing it here would say "refusing to delete" twice. Every
     // other failure is this runner's own and is prefixed here, so an operator always reads what was
     // refused and in whose name rather than a bare object dump.
+    const refused = error instanceof ProcedureRefusal;
     const message =
       error instanceof ResetRefused
         ? error.message
@@ -982,7 +1009,9 @@ if (process.argv[1]?.endsWith("run-deletion-procedure.ts")) {
 
     console.error(message);
 
-    if (error instanceof Error && error.stack !== undefined) {
+    // A refusal is the answer to the request, not a crash: the line above and the detail under it are
+    // the whole of what an operator needs, and a stack would bury both.
+    if (!refused && error instanceof Error && error.stack !== undefined) {
       // The stack WITHOUT its first line, which repeats the message just printed.
       console.error(error.stack.split("\n").slice(1).join("\n"));
     }
