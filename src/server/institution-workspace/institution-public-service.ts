@@ -21,10 +21,7 @@ import {
 import { resolveInstitutionMediaUrls } from "@/server/institution-workspace/institution-media-urls";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 import { parseInstitutionSlugParam } from "@/server/institution-workspace/institution-core";
-import {
-  isInstitutionAdminBySlug,
-  isInstitutionMemberBySlug,
-} from "@/server/institution-members/member-service";
+import { isInstitutionMemberBySlug } from "@/server/institution-members/member-service";
 
 /**
  * Who is asking for an institution's public page.
@@ -69,7 +66,6 @@ export type InstitutionContactDisclosure =
   | { kind: "public" }
   | {
       kind: "members_only";
-      canRequestVerification: boolean;
       /** True when this viewer sees the contacts as platform ops rather than as a member. */
       viewerIsPlatformOps: boolean;
     }
@@ -164,9 +160,10 @@ export const isIndexableInstitution = (institution: {
  * and an owner who is shown their own contacts under that flag is looking at a page no stranger
  * gets — which defeats the only reason the flag exists.
  *
- * `canRequestVerification` is the owner/staff check (`isInstitutionAdminBySlug`), not the
- * any-role one: the members-only notice carries a link to the verification flow, and
- * `institution_member` cannot open it.
+ * An owner or staff member is an insider, and `members_only` is where an insider's view lands — but
+ * the notice carries no route into the verification flow for them, because the only page that
+ * renders this decision serves the workspace hub to owner and staff and reserves the public view
+ * for a preview in which the disclosure is `preview_hidden` (LAUNCH-D161).
  */
 const resolveContactDisclosure = async (
   institution: {
@@ -200,14 +197,9 @@ const resolveContactDisclosure = async (
 
   if (viewer.isPreview) return { kind: "preview_hidden" };
 
-  const canRequestVerification =
-    viewer.userId !== null
-      ? await isInstitutionAdminBySlug(viewer.userId, institution.slug, db)
-      : false;
-
   // `isMember` is already known false for the platform-ops viewer that reached here, so this names
   // the account whose access is platform ops rather than a relationship with the institution.
-  return { kind: "members_only", canRequestVerification, viewerIsPlatformOps: !isMember };
+  return { kind: "members_only", viewerIsPlatformOps: !isMember };
 };
 
 export const getPublicInstitution = async (

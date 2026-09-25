@@ -11,6 +11,11 @@
 // So the notice is branched on `viewerIsPlatformOps`, and BOTH branches are asserted here: a test
 // that only checked the operator's sentence would pass over an unconditional string that had simply
 // been rewritten for everyone.
+//
+// NEITHER BRANCH OFFERS A LINK (LAUNCH-D161). The notice used to carry "Ajukan verifikasi" for a
+// viewer whose disclosure said the owner/staff check passed, and no viewer could ever be in that
+// state: the page reserves the public view for a preview, and a preview is `preview_hidden`. Both
+// cases below assert the link's absence, so restoring it fails here.
 
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -46,7 +51,6 @@ describe("the unverified-contact notice", () => {
   it("tells a platform-ops viewer they are seeing it as Lombakita, and offers them no link", () => {
     renderNotice({
       kind: "members_only",
-      canRequestVerification: false,
       viewerIsPlatformOps: true,
     });
 
@@ -63,10 +67,9 @@ describe("the unverified-contact notice", () => {
     expect(screen.queryByText("Ajukan verifikasi")).toBeNull();
   });
 
-  it("tells a member they are seeing it as an insider, and keeps the verification link for an admin", () => {
+  it("tells a member they are seeing it as an insider, and offers them no link either", () => {
     renderNotice({
       kind: "members_only",
-      canRequestVerification: true,
       viewerIsPlatformOps: false,
     });
 
@@ -76,6 +79,9 @@ describe("the unverified-contact notice", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/sebagai tim Lombakita/)).toBeNull();
-    expect(screen.getByText("Ajukan verifikasi")).toBeTruthy();
+    expect(
+      screen.queryByText("Ajukan verifikasi"),
+      "the members-only notice offered a route into the verification flow, which no viewer can be in a position to take",
+    ).toBeNull();
   });
 });

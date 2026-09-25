@@ -282,16 +282,17 @@ describe.skipIf(skipWithoutDatabase)("contact disclosure by viewer", () => {
     });
   });
 
-  it("restores contacts to every membership role, and offers the verification link only to the admin roles", async () => {
+  // NO ROLE CARRIES A VERIFICATION LINK (LAUNCH-D161). The notice used to branch on whether the
+  // owner/staff check passed, which no viewer reaching this page can satisfy, so what is pinned here
+  // is what the notice actually says to each role and nothing about a link.
+  it("restores contacts to every membership role", async () => {
     const cases = [
-      { membershipRole: "institution_owner" as const, canRequestVerification: true },
-      { membershipRole: "institution_staff" as const, canRequestVerification: true },
-      // An ordinary member sees the contacts and cannot open the verification flow, so the notice
-      // must not carry a link that would bounce them.
-      { membershipRole: "institution_member" as const, canRequestVerification: false },
+      "institution_owner" as const,
+      "institution_staff" as const,
+      "institution_member" as const,
     ];
 
-    for (const { membershipRole, canRequestVerification } of cases) {
+    for (const membershipRole of cases) {
       await inRollback(async (tx) => {
         const institution = await seedInstitution(tx, { contact: true });
         const viewerUserId = await seedUser(tx);
@@ -310,7 +311,6 @@ describe.skipIf(skipWithoutDatabase)("contact disclosure by viewer", () => {
         });
         expect(page.contactDisclosure).toEqual({
           kind: "members_only",
-          canRequestVerification,
           // Seen as a member, so the notice is the members-only one whatever else this account is.
           viewerIsPlatformOps: false,
         });
@@ -334,7 +334,6 @@ describe.skipIf(skipWithoutDatabase)("contact disclosure by viewer", () => {
       expect(contactKeysOf(page).contactEmail).toContain("@example.test");
       expect(page.contactDisclosure).toEqual({
         kind: "members_only",
-        canRequestVerification: false,
         // Access by platform ops, not by membership — which is what the notice has to say.
         viewerIsPlatformOps: true,
       });
