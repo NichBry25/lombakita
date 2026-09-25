@@ -321,7 +321,7 @@ export const probes = [
     mutate: () => substituteOnce(DECISION_LOG, `\n${ROW_DEC_0125}`, ROW_DEC_0125),
     detect: () =>
       gateRefused(
-        /FAIL\s+\d+\s+decision-log rows written on another record's line instead of below it/,
+        /FAIL\s+\d+\s+decision-log rows written on another record's line instead of below it\s+\(up 1\)/,
       ),
   },
   {
@@ -339,7 +339,7 @@ export const probes = [
         "between 6.5h and 6.5.INFRA | accepted | accepted |",
       ),
     detect: () =>
-      gateRefused(/FAIL\s+\d+\s+decision-log rows whose Date cell does not hold a date/),
+      gateRefused(/FAIL\s+\d+\s+decision-log rows whose Date cell does not hold a date\s+\(up 1\)/),
   },
   {
     name: "a supersede claim naming its own row fails the close",
