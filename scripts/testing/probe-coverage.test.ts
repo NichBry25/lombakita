@@ -228,6 +228,47 @@ describe("the retry on a runner that never started", () => {
 });
 
 /**
+ * A detector matches a case marker that colour surrounds.
+ *
+ * LAUNCH-D169. A test runner writes the marker, then an SGR escape, then the space — measured as
+ * `ESC[31m   ESC[31m×ESC[31m builds each join from the chain`. A detector anchored on `/× /`
+ * therefore matches only where colour happens to be off, so the same probe set is green in CI and
+ * red in a colour-forcing shell, and red in the one reading Rule 36 clause 3 forbids: it throws
+ * "a run that crashed is not a guard that refused" for a run that measured fine.
+ *
+ * CI sets no FORCE_COLOR, so deleting the strip in `detectors.mjs` would go unnoticed there and
+ * unnoticed by every probe suite this repository runs. This is the notice. The bytes below are the
+ * measured ones and a real child writes them, read back through `run`, so the input arrives the way
+ * a probe's does rather than being handed to the matcher.
+ */
+describe("a detector reading a case marker colour surrounds", () => {
+  const MEASURED = "\u001b[31m   \u001b[31m×\u001b[31m builds each join from the chain 4ms\n";
+
+  /** The detector as `deletion-instruments.mjs` spells it, over the run it actually waits on. */
+  const CHAIN_DETECTOR = /× .*builds each join from the chain/;
+
+  const colouredRun = () =>
+    run("node", [
+      "-e",
+      `process.stdout.write(${JSON.stringify(MEASURED)}); process.exit(1);`,
+    ]);
+
+  it("matches through the escapes", () => {
+    const verdict = refusedWhen(colouredRun(), {
+      status: 1,
+      reached: CHAIN_DETECTOR,
+      label: "the deletion-residue detector",
+    });
+
+    expect(verdict.refused).toBe(true);
+    expect(verdict.evidence).toContain("builds each join from the chain");
+    // The escapes are still there on the way in, so this is the strip doing the matching and not a
+    // child that happened not to colour its output.
+    expect(colouredRun().stdout).toContain("\u001b[31m");
+  });
+});
+
+/**
  * The register gate's detectors pin deltas, never figures.
  *
  * Two numbers in a line the gate prints are not the same kind of value. The FIGURE is what the gate
