@@ -17,16 +17,22 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   blockingForeignKeys,
+  carriesOf,
   cascadeClosure,
   cascadeCycles,
+  detachingForeignKeys,
   EXTERNAL_STORES,
+  NOT_PERSONAL_COLUMNS,
+  PERSONAL_COLUMNS,
   R2_PREFIXES,
   r2UploadModules,
-  schemaColumns,
   schemaForeignKeys,
   schemaTableNames,
+  schemaTextCapableColumns,
+  staleColumnClassifications,
+  survivingPersonalColumns,
   TABLE_RULINGS,
-  unknownCarriedColumns,
+  unclassifiedTextColumns,
   unknownKeyColumns,
   unruledR2Modules,
   unruledTables,
@@ -59,10 +65,9 @@ export const renderEnumeration = (): string => {
   const blocking = blockingForeignKeys();
   const unruled = unruledTables();
   const unruledR2 = unruledR2Modules();
-  const columns = schemaColumns();
-  const unruledColumns = TABLE_RULINGS.flatMap((ruling) =>
-    unknownCarriedColumns(ruling, columns).map((column) => `${ruling.store}.${column}`),
-  );
+  const textColumns = schemaTextCapableColumns();
+  const unclassified = unclassifiedTextColumns(textColumns);
+  const stale = staleColumnClassifications(textColumns);
   const unknownKey = unknownKeyColumns();
   const cycles = cascadeCycles();
 
@@ -75,8 +80,7 @@ export const renderEnumeration = (): string => {
   const fated =
     bySurvival("removed").length +
     bySurvival("detached").length +
-    bySurvival("blocks-deletion").length +
-    bySurvival("holds-no-user-data").length;
+    bySurvival("blocks-deletion").length;
   if (fated !== tables.length) {
     throw new Error(
       `the rulings account for ${fated} tables but the schema declares ${tables.length}`,
@@ -138,18 +142,32 @@ export const renderEnumeration = (): string => {
     "references a removed table without CASCADE is a survivor, and what happens to its rows is the",
     "subject of the three tables after this one.",
     "",
+    "Being in the closure is a property of a TABLE and the three fates are properties of a ROW, so",
+    "the two do not partition each other. Five tables are in the closure and still survive it:",
+    `${TABLE_RULINGS.filter(
+      (ruling) => ruling.survival !== "removed" && removedSet.has(ruling.store),
+    )
+      .map((ruling) => `\`${ruling.store}\``)
+      .join(", ")}. A reading that stopped at the closure would report those rows deleted.`,
+    "",
+    "`carries` is absent from this file's method on purpose. What a surviving row holds is derived",
+    'from the column classification described under "what fails when a new store is added" below,',
+    "so no table carries a hand-written list of the columns that outlive a deletion.",
+    "",
     `**Table count by fate.** The ${tables.length} tables above, each counted once:`,
     "",
     table(
       ["fate", "tables"],
       [
         ["removed by the CASCADE closure", String(bySurvival("removed").length)],
-        ["survives, pointer detached (SET NULL)", String(bySurvival("detached").length)],
+        [
+          "survives: not reached, or SET NULL severs the pointer",
+          String(bySurvival("detached").length),
+        ],
         [
           "survives, and BLOCKS the deletion (NO ACTION)",
           String(bySurvival("blocks-deletion").length),
         ],
-        ["survives, holds no attributable data", String(bySurvival("holds-no-user-data").length)],
       ],
     ),
     "",
@@ -184,21 +202,24 @@ export const renderEnumeration = (): string => {
     "",
     table(
       ["surviving table", "columns nulled", "points at"],
-      bySurvival("detached").flatMap((ruling) =>
-        fks
-          .filter((key) => key.sourceTable === ruling.store && key.onDelete === "set null")
-          .filter((key) => removedSet.has(key.targetTable) || removedSet.has(key.sourceTable))
-          .map((key) => [
-            `\`${key.sourceTable}\``,
-            key.sourceColumns.map((column) => `\`${column}\``).join(", "),
-            `\`${key.targetTable}\``,
-          ]),
-      ),
+      detachingForeignKeys().map((key) => [
+        `\`${key.sourceTable}\``,
+        key.sourceColumns.map((column) => `\`${column}\``).join(", "),
+        `\`${key.targetTable}\``,
+      ]),
     ),
+    "",
+    "Eight of the rows above have a source table OUTSIDE the closure and six have one inside it, and",
+    "the six are the ones a per-table reading drops. Whether a given row is reached has nothing to do",
+    "with whether its table is in the closure: a seat on another member's `institution_memberships`",
+    "row, an invitation on another captain's `team_invitations` row, a request on another",
+    "participant's `competition_document_requests` row and a review on another recruiter's",
+    "`recruiter_verification_submissions` row all survive the deletion of the person named on them.",
     "",
     "## Postgres — what each surviving table carries",
     "",
-    "A non-empty `carries` cell is personal data that outlives the deletion. `institution_invitations.invited_email`",
+    "A non-empty cell is personal data that outlives the deletion, and the list is DERIVED from the",
+    "table's own classified columns rather than written here. `institution_invitations.invited_email`",
     "is the one nobody can reach: nothing in the product shows an invited person the invitation another",
     "institution holds for their address.",
     "",
@@ -207,9 +228,24 @@ export const renderEnumeration = (): string => {
       TABLE_RULINGS.filter((ruling) => ruling.survival !== "removed").map((ruling) => [
         `\`${ruling.store}\``,
         ruling.survival,
-        ruling.carries.length === 0
+        carriesOf(ruling.store).length === 0
           ? "—"
-          : ruling.carries.map((column) => `\`${column}\``).join(", "),
+          : carriesOf(ruling.store)
+              .map((column) => `\`${column}\``)
+              .join(", "),
+      ]),
+    ),
+    "",
+    `Tables a deletion can leave personal data on: **${survivingPersonalColumns().length}**. The`,
+    "listing below is that set in full, which is what the deletion procedure's residue section is",
+    "checked against — a column added to one of these tables appears here and in the procedure, or",
+    "the procedure's own test fails.",
+    "",
+    table(
+      ["table", "personal columns that can survive"],
+      survivingPersonalColumns().map((entry) => [
+        `\`${entry.table}\``,
+        entry.columns.map((column) => `\`${column}\``).join(", "),
       ]),
     ),
     "",
@@ -280,7 +316,9 @@ export const renderEnumeration = (): string => {
     "",
     `Unruled tables, derived minus declared: **${unruled.length === 0 ? "none" : unruled.join(", ")}**.`,
     `Unruled upload modules: **${unruledR2.length === 0 ? "none" : unruledR2.join(", ")}**.`,
-    `Rulings naming a column the table does not have: **${unruledColumns.length === 0 ? "none" : unruledColumns.join(", ")}**.`,
+    `Text-capable columns in the schema: **${textColumns.length}**, of which personal: **${PERSONAL_COLUMNS.length}** and not personal: **${NOT_PERSONAL_COLUMNS.length}**.`,
+    `Text-capable columns with no classification: **${unclassified.length === 0 ? "none" : unclassified.join(", ")}**.`,
+    `Classifications naming a column the schema does not have, or one that is not text-capable: **${stale.length === 0 ? "none" : stale.join(", ")}**.`,
     `Object keys naming a column the schema does not have: **${unknownKey.length === 0 ? "none" : unknownKey.join(", ")}**.`,
     "",
     "`scripts/project/deletion-census.test.ts` asserts each of those is empty. A table added to",
@@ -294,7 +332,7 @@ export const renderEnumeration = (): string => {
     bullet([
       "**A new prefix inside a module that already uploads.** The R2 check is per MODULE: a file that calls `generatePresignedPutUrl(` and is not named by any entry is refused, but a fifth prefix added inside `profile-files-service.ts` is not, because that module is already declared. Prefixes are built from constants and template literals in shapes a regex reads as noise, so deriving them was not attempted. What this means is that the R2 population is complete for upload SURFACES and not provably complete for upload prefixes.",
       "**A new non-Postgres store.** `EXTERNAL_STORES` is declared, not derived — Redis, BullMQ, Resend and Sentry have no common call-site shape to scan for. Adding one to the product does not fail anything here. The entries above are checked for an answer and for a reason, which catches a store going silent, not a store going missing.",
-      "**A new column on a surviving table.** The census rules a table, not its columns. A column that starts holding a user identifier — an email, a phone number, a name — on `institutions` or `competition_prizes` would not be noticed. `carries` is asserted to name only columns that exist; nothing asserts that it names every column that matters.",
+      "**A text-capable column classified the wrong way.** Every text-capable column must carry a classification and every classification must name a real column, so a new column is refused until someone answers for it. What no test can catch is an answer that is WRONG — a column the application alone generates that was called personal costs a line in a listing, and one that can hold a person's typing that was called not-personal leaves data behind quietly. That direction is why the population rule says to answer `personal` when unsure, and why the reasons above are printed rather than counted: a reason is the thing a reader can disagree with.",
     ]),
     "",
   ].join("\n");

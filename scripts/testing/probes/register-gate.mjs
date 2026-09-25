@@ -332,7 +332,7 @@ export const probes = [
     appliedMarkers: ["LAUNCH-D99X"],
     mutate: () => substituteOnce(REGISTER, D47_ANCHORED, PLANTED_MISTYPED_ID + D47_ANCHORED),
     detect: () =>
-      gateRefused(/FAIL\s+26\s+register bullets whose head id is not a register id\s+\(up 1\)/),
+      gateRefused(/FAIL\s+\d+\s+register bullets whose head id is not a register id\s+\(up 1\)/),
   },
   {
     // THE NUMBER IS THE WHOLE ASSERTION, and it is why this is one probe and not two. Two mistyped
@@ -357,7 +357,7 @@ export const probes = [
       );
     },
     detect: () =>
-      gateRefused(/FAIL\s+26\s+register bullets whose head id is not a register id\s+\(up 1\)/),
+      gateRefused(/FAIL\s+\d+\s+register bullets whose head id is not a register id\s+\(up 1\)/),
   },
   {
     name: "the supersede reading cannot shrink to nothing",

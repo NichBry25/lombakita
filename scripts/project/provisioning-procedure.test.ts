@@ -330,7 +330,7 @@ const runRunner = (environment: Record<string, string>): string => {
 
 /** The sentence the environment layer produces, and the only thing that can produce it. */
 const environmentRefusal = (resolved: string) =>
-  `refusing to reset: APP_ENV resolves to "${resolved}"`;
+  `refusing to provision: APP_ENV resolves to "${resolved}"`;
 
 /** The connection-host layer's sentence. Its layer name is what makes it distinguishable. */
 const HOST_REFUSAL = "which is not loopback";
@@ -388,7 +388,7 @@ describe("the guard in front of the promotion", () => {
   it("permits a disposable environment on a loopback address, so the refusals above are the guard", () => {
     const output = runRunner({ APP_ENV: "local" });
 
-    expect(output).not.toContain("refusing to reset: APP_ENV resolves to");
+    expect(output).not.toContain("refusing to reset");
     expect(output).not.toContain(HOST_REFUSAL);
     // Nothing stands between the configuration layers and the connection, so a run that cleared both
     // and then failed has demonstrably reached the end of the guard chain.

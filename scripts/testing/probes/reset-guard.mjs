@@ -183,6 +183,7 @@ const dropHappenedAgainst = async (databaseName, environment, { nonLoopback = fa
 /** The exact call the reset makes, matched as one unit so a move takes the whole thing. */
 const GUARD_CALL =
   "    await assertResetTargetIsDisposable(sql, {\n" +
+  '      verb: "reset",\n' +
   "      appEnv,\n" +
   "      databaseUrl: target,\n" +
   "      redisUrl: optionalUrl(process.env.REDIS_URL),\n" +
@@ -277,7 +278,7 @@ export const probes = [
     mutate: () =>
       substituteOnce(
         GUARD,
-        '  refuseIf(findConnectionHostRefusal(context.databaseUrl, "DATABASE_URL"));\n',
+        '  refuseIf(findConnectionHostRefusal(context.verb, context.databaseUrl, "DATABASE_URL"));\n',
         "  // probe: connection-host refusal removed\n",
       ),
     detect: async () =>

@@ -538,7 +538,7 @@ const main = async (): Promise<void> => {
     }
   }
 
-  const sql = await connectToGuardedDatabase(url, { appEnv, redisUrl: null });
+  const sql = await connectToGuardedDatabase(url, { verb: "provision", appEnv, redisUrl: null });
 
   try {
     if (demonstrate) {

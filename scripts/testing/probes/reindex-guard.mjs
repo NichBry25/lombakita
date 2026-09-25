@@ -248,7 +248,12 @@ const indexWasEmptied = async () => {
 
 /** The exact call the reindex makes, matched as one unit so a move takes the whole thing. */
 const GUARD_CALL =
-  "    await assertResetTargetIsDisposable(sql, { appEnv, databaseUrl, redisUrl: null });\n";
+  "    await assertResetTargetIsDisposable(sql, {\n" +
+  '      verb: "reset",\n' +
+  "      appEnv,\n" +
+  "      databaseUrl,\n" +
+  "      redisUrl: null,\n" +
+  "    });\n";
 
 export const probes = [
   {

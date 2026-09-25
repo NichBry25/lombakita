@@ -42,9 +42,13 @@ import type { Sql } from "postgres";
  */
 const loadApplicationServices = async () => {
   const institutionService = await import("@/server/institution-workspace/institution-service");
+  const profileFilesService = await import("@/server/user-profile/profile-files-service");
+  const dbClient = await import("@/server/db/client");
 
   return {
     NEW_INSTITUTION_DEFAULT_STATUS: institutionService.NEW_INSTITUTION_DEFAULT_STATUS,
+    recordAvatar: profileFilesService.recordAvatar,
+    closeDbConnection: dbClient.closeDbConnection,
   };
 };
 
@@ -89,9 +93,25 @@ const sha256 = (raw: string): string => createHash("sha256").update(raw).digest(
 
 const EMAIL = (local: string): string => `${local}@seed.lombakita.local`;
 
+/**
+ * The one seeded account that holds an R2 object key — the subject the account-deletion
+ * demonstration's object-key case needs, because a case that omits the object-key capture has to
+ * leave something behind or it reports a result it did not earn. Deliberately NOT an account any
+ * other case selects (`seed-user-cand-a`, `seed-user-dual`, `seed-user-ops-enrol`), so this key
+ * moves no other case's subject. A fixed literal rather than a fresh uuid so a re-run writes the
+ * same key.
+ *
+ * See docs/operations/account-deletion-demonstration.md for what the case demonstrates.
+ */
+const OBJECT_KEY_HOLDING_ACCOUNT = {
+  id: "seed-user-rec-draft",
+  fileKey: "avatars/seed-user-rec-draft/0f1e2d3c-4b5a-4978-8a9b-0c1d2e3f4a5b",
+} as const;
+
 const main = async (): Promise<void> => {
   const { default: postgres } = await import("postgres");
-  const { NEW_INSTITUTION_DEFAULT_STATUS } = await loadApplicationServices();
+  const { NEW_INSTITUTION_DEFAULT_STATUS, recordAvatar, closeDbConnection } =
+    await loadApplicationServices();
   const sql = postgres(databaseUrl, { max: 1, prepare: false });
   const passwordHash = await hashSeedPassword();
 
@@ -366,6 +386,15 @@ const main = async (): Promise<void> => {
           updated_at = now()
       `;
     }
+
+    // Through the service that owns the column, not raw SQL: it sets the key and reaches no object
+    // store, so the seeded key names an object that need not exist. See OBJECT_KEY_HOLDING_ACCOUNT.
+    await recordAvatar(OBJECT_KEY_HOLDING_ACCOUNT.id, {
+      fileKey: OBJECT_KEY_HOLDING_ACCOUNT.fileKey,
+      fileName: "seed-avatar.jpg",
+      sizeBytes: 1024,
+      mimeType: "image/jpeg",
+    });
 
     // --------------------------------------------------------- institutions
     type InstSeed = {
@@ -2008,6 +2037,8 @@ const main = async (): Promise<void> => {
     );
   } finally {
     await sql.end();
+    // The profile service writes through the application's own client, which is a second pool.
+    await closeDbConnection();
   }
 };
 

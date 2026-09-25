@@ -3,9 +3,14 @@
  *
  * WHAT THIS IS. A reader for the procedure, not a second copy of it. Every statement that touches
  * data lives in the document; this file extracts the fenced blocks, runs the `sql` ones in document
- * order inside one transaction, and reports what each returned. Nothing here knows what the
- * procedure does — which is what makes the document the artifact and this the harness, and what
- * makes a step's absence in the document visible as a step that did not run.
+ * order and reports what each returned. Nothing here knows what the procedure does — which is what
+ * makes the document the artifact and this the harness, and what makes a step's absence in the
+ * document visible as a step that did not run.
+ *
+ * ONE STEP RUNS BEFORE THE TRANSACTION. `preflight-owners` is the document's first step and the only
+ * one executed outside it, because its refusal has to arrive without a transaction having been
+ * opened to roll back. It is read from the document like every other step; where it runs is the
+ * whole of what is special about it.
  *
  * WHY A TRANSACTION. The delete and the cascade it fires are one atomic statement in Postgres, so a
  * blocking row produces a refusal with nothing written. Running the document's blocks in one
@@ -29,7 +34,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type postgres from "postgres";
 import { loadEnvFile } from "@/server/scripts/env-file";
-import { declaredAppEnvironment } from "../reset/reset-guard";
+import { ResetRefused, declaredAppEnvironment } from "../reset/reset-guard";
 import {
   ProcedureRefusal,
   connectToGuardedDatabase,
@@ -136,6 +141,130 @@ export type ProcedureRun = {
   committed: boolean;
 };
 
+/** The name the procedure document gives the step that refuses before a transaction is opened. */
+export const PREFLIGHT_STEP_NAME = "preflight-owners";
+
+/**
+ * The document's own pre-flight step.
+ *
+ * THE CHECK IS A STEP OF THE PROCEDURE, not a query this runner happens to carry. It refuses when
+ * the run was handed no such step: `--skip preflight-owners` removes it from the list, and a run
+ * without it performs the deletion this step exists to refuse.
+ */
+export const preflightOwnersStep = (steps: readonly ProcedureStep[]): ProcedureStep => {
+  const step = steps.find((candidate) => candidate.name === PREFLIGHT_STEP_NAME);
+
+  if (step === undefined) {
+    throw new ProcedureRefusal(
+      `no \`${PREFLIGHT_STEP_NAME}\` step was given to this run. It is a declared step of the ` +
+        "procedure and cannot be left out: nothing else refuses the deletion it refuses",
+    );
+  }
+  if (step.kind !== "sql") {
+    throw new ProcedureRefusal(
+      `the \`${PREFLIGHT_STEP_NAME}\` step is a \`${step.kind}\` block, and this runner ` +
+        "executes only `sql` blocks",
+    );
+  }
+
+  return step;
+};
+
+/** An institution the subject's deletion would leave with no active owner, and what it holds. */
+export type OwnerlessInstitution = {
+  id: string;
+  slug: string;
+  /** One entry per `competition_status` value, in the enum's own order, zero counts included. */
+  competitionsByStatus: { status: string; n: number }[];
+};
+
+/** The pre-flight's answer: the document's own rows, and the institutions the refusal reads. */
+export type PreflightAnswer = {
+  rows: Record<string, unknown>[];
+  institutions: OwnerlessInstitution[];
+};
+
+/**
+ * Ask the pre-flight's question, by executing the document's own statement.
+ *
+ * ONE SQL TEXT, NOT TWO. The statement is the `preflight-owners` block's body byte for byte — and
+ * the same text a by-hand operator runs in `psql`. A second copy here would be the copy that drifts,
+ * and the drift would be silent, because both copies would keep answering.
+ *
+ * The rows arrive in the shape the document's `order by` gives them: one row per `competition_status`
+ * value, the values taken from `enum_range` in the enum's own order, with a zero count where the
+ * institution holds none. A value added to the enum reaches the refusal without an edit in either
+ * file.
+ */
+export const askPreflight = async (
+  sql: postgres.Sql,
+  step: ProcedureStep,
+  userId: string,
+): Promise<PreflightAnswer> => {
+  const rows = await sql.unsafe<{ id: string; slug: string; status: string; n: number }[]>(
+    step.body,
+    [userId],
+  );
+
+  const byId = new Map<string, OwnerlessInstitution>();
+  for (const row of rows) {
+    let institution = byId.get(row.id);
+    if (institution === undefined) {
+      institution = { id: row.id, slug: row.slug, competitionsByStatus: [] };
+      byId.set(row.id, institution);
+    }
+    institution.competitionsByStatus.push({ status: row.status, n: row.n });
+  }
+
+  return { rows, institutions: [...byId.values()] };
+};
+
+/**
+ * The refusal a pre-flight answer amounts to, or `null` when there is nothing to refuse.
+ *
+ * THE ONE THING THE FOREIGN KEY CANNOT SEE. Every other blocker this procedure predicts is a row
+ * that points at the account and would be orphaned; this one is an absence — the membership that
+ * goes away with the account is what made the institution administrable, and nothing in the schema
+ * requires an institution to keep one. Postgres deletes the account happily; the institution is left
+ * with no one who can act for it, which is a state no later step in this procedure repairs.
+ *
+ * THE COUNTS ARE DIAGNOSTIC, not a second condition. They say what is at stake — how many
+ * competitions would be left unadministrable — so the operator can decide whether to appoint a
+ * second owner or delete the competitions first.
+ *
+ * A PURE FUNCTION OF ROWS THE DOCUMENT RETURNED, so the guard can be read and tested without a
+ * database; the caller is what refuses, and it refuses before `begin`.
+ */
+export const ownerlessRefusal = (institutions: readonly OwnerlessInstitution[]): string | null => {
+  if (institutions.length === 0) return null;
+
+  const lines = institutions.map((institution) => {
+    const counts = institution.competitionsByStatus
+      .map((entry) => `${entry.status}=${entry.n}`)
+      .join(" ");
+
+    return `${institution.slug} (${institution.id}): ${counts}`;
+  });
+
+  return `subject is the last active owner of ${institutions.length} institution(s)\n${lines.join("\n")}`;
+};
+
+/**
+ * The pre-flight's refusal, carrying the step that produced it.
+ *
+ * The outcome travels with the refusal so a report can say the step RAN and returned those rows,
+ * rather than listing a declared step as never reached. The step ran; what it found is why nothing
+ * after it ran.
+ */
+export class PreflightRefusal extends ProcedureRefusal {
+  constructor(
+    message: string,
+    readonly outcome: StepOutcome,
+  ) {
+    super(message);
+  }
+}
+
 /**
  * Run the `sql` steps in order, in one transaction.
  *
@@ -151,9 +280,24 @@ export const runProcedure = async (
 ): Promise<ProcedureRun> => {
   const run: ProcedureRun = { steps: [], literals: [], objectKeys: [], committed: false };
 
+  // BEFORE `begin`, so a refusal opens no transaction at all rather than opening one to roll back.
+  // The step is read from the document like every other one — the reason it runs here and not inside
+  // the transaction is the refusal, not the statement.
+  const preflight = preflightOwnersStep(steps);
+  const answer = await askPreflight(sql, preflight, userId);
+  const preflightOutcome: StepOutcome = { name: preflight.name, rows: answer.rows, error: null };
+  run.steps.push(preflightOutcome);
+
+  const refusal = ownerlessRefusal(answer.institutions);
+  if (refusal !== null) throw new PreflightRefusal(refusal, preflightOutcome);
+
   await sql.unsafe("begin");
   try {
     for (const step of steps) {
+      // Executed above, outside the transaction. Running it again here would ask the same question a
+      // second time and record two outcomes under one name.
+      if (step.name === PREFLIGHT_STEP_NAME) continue;
+
       if (step.kind !== "sql") {
         run.steps.push({ name: step.name, rows: [], error: null });
         continue;
@@ -241,6 +385,13 @@ type CaseRun = {
   steps: readonly ProcedureStep[];
   skipped: readonly string[];
   run: ProcedureRun;
+  /**
+   * The pre-flight refusal, when there was one, and `null` when the procedure ran.
+   *
+   * The run beside it carries the pre-flight's own outcome and nothing else: the refusal happens
+   * before the transaction opens, so the one step that ran is the one that refused.
+   */
+  refusal: string | null;
   /** Object keys the foreign-key graph says this account holds, counted without the procedure. */
   expectedKeys: { prefix: string; column: string; n: number }[];
 };
@@ -389,6 +540,24 @@ const renderCase = (entry: CaseRun): string[] => {
     lines.push("");
   }
 
+  if (entry.refusal !== null) {
+    lines.push(
+      "### The outcome",
+      "",
+      "**Refused before the first write.** The procedure's own pre-flight read the membership rows,",
+      "found an institution this deletion would leave with no active owner, and stopped. No",
+      "transaction was opened, so there is no rollback to report: nothing was written, and the",
+      "account is as it was.",
+      "",
+      "```",
+      entry.refusal,
+      "```",
+      "",
+    );
+
+    return lines;
+  }
+
   if (run.committed) {
     lines.push(
       "### The outcome",
@@ -476,7 +645,7 @@ const main = async (): Promise<void> => {
     }
   }
 
-  const sql = await connectToGuardedDatabase(url, { appEnv, redisUrl: null });
+  const sql = await connectToGuardedDatabase(url, { verb: "delete", appEnv, redisUrl: null });
 
   try {
     if (demonstrate) {
@@ -491,7 +660,7 @@ const main = async (): Promise<void> => {
 
     let selection: Selection;
     if (select !== null) {
-      selection = await selectTarget(sql, select);
+      selection = await selectTarget(sql, select, preflightOwnersStep(declared));
     } else if (explicitUserId !== null) {
       selection = { userId: explicitUserId, criterion: "named on the command line", matched: 1 };
     } else {
@@ -499,8 +668,9 @@ const main = async (): Promise<void> => {
     }
 
     const steps = declared.filter((step) => !skip.has(step.name));
-    const run = await runProcedure(sql, steps, selection.userId);
     const expectedKeys = await countObjectKeys(sql, selection.userId);
+    const run = await runProcedure(sql, steps, selection.userId);
+    throwIfAnyStepRefused(run);
 
     const text = renderCase({
       label: "The procedure, executed",
@@ -510,6 +680,7 @@ const main = async (): Promise<void> => {
       steps,
       skipped: [...skip],
       run,
+      refusal: null,
       expectedKeys,
     }).join("\n");
 
@@ -537,6 +708,66 @@ const countObjectKeys = async (
   return counted;
 };
 
+/**
+ * Refuse a command-line run whose deletion the engine would not complete.
+ *
+ * The command line named one account, so a refusal IS its answer rather than a report about one: it
+ * reaches the entrypoint's catch, which prints it on stderr and exits non-zero. Rendering the run as
+ * a case instead would print a record on stdout and exit zero, which reads as a run that finished.
+ *
+ * The demonstration does not call this. A case whose whole point is the refusal has to appear in the
+ * document, which is what `runOrRefuse` below is for.
+ */
+const throwIfAnyStepRefused = (run: ProcedureRun): void => {
+  const refused = run.steps.find((step) => step.error !== null);
+  if (refused?.error == null) return;
+
+  // The step's own message first, so the entrypoint prefixes the line that says what happened; the
+  // SQLSTATE and constraint follow it unchanged.
+  throw new ProcedureRefusal(
+    [
+      `step \`${refused.name}\` was refused by the database: ${refused.error.message}`,
+      ...(refused.error.code === null ? [] : [`SQLSTATE \`${refused.error.code}\`.`]),
+      ...(refused.error.constraint === null ? [] : [`Constraint \`${refused.error.constraint}\`.`]),
+    ].join("\n"),
+  );
+};
+
+/**
+ * Run the procedure, or hand back the pre-flight refusal as a value instead of an exception.
+ *
+ * The demonstration has to RECORD a refusal rather than stop at one: a case whose whole point is
+ * that the deletion was refused is a case that has to appear in the document, and an exception
+ * escaping `demonstrateAll` would leave every case after it unwritten. The CLI path does the
+ * opposite and lets it throw, because a refusal there is the run's outcome and the final catch is
+ * what an operator reads.
+ */
+const runOrRefuse = async (
+  sql: postgres.Sql,
+  steps: readonly ProcedureStep[],
+  userId: string,
+): Promise<{ run: ProcedureRun; refusal: string | null }> => {
+  try {
+    return { run: await runProcedure(sql, steps, userId), refusal: null };
+  } catch (error) {
+    if (error instanceof PreflightRefusal) {
+      // The pre-flight's outcome is kept, so the case's table shows the step that ran and refused
+      // rather than a declared step that never happened.
+      return {
+        run: { steps: [error.outcome], literals: [], objectKeys: [], committed: false },
+        refusal: error.message,
+      };
+    }
+
+    if (!(error instanceof ProcedureRefusal)) throw error;
+
+    return {
+      run: { steps: [], literals: [], objectKeys: [], committed: false },
+      refusal: error.message,
+    };
+  }
+};
+
 /** Run every case in `DEMONSTRATION_CASES`, in order, and write the record of all of them to one document. */
 const demonstrateAll = async (
   sql: postgres.Sql,
@@ -555,7 +786,7 @@ const demonstrateAll = async (
       }
     }
 
-    const selection = await selectTarget(sql, spec.select);
+    const selection = await selectTarget(sql, spec.select, preflightOwnersStep(declared));
     const steps = declared.filter((step) => !spec.skip.includes(step.name));
 
     // Captured for EVERY case, including the ones expected to refuse. A baseline for a refusal is
@@ -567,7 +798,7 @@ const demonstrateAll = async (
     });
 
     const expectedKeys = await countObjectKeys(sql, selection.userId);
-    const run = await runProcedure(sql, steps, selection.userId);
+    const { run, refusal } = await runOrRefuse(sql, steps, selection.userId);
 
     cases.push({
       label: spec.label,
@@ -577,6 +808,7 @@ const demonstrateAll = async (
       steps,
       skipped: spec.skip,
       run,
+      refusal,
       expectedKeys,
     });
   }
@@ -614,7 +846,8 @@ const demonstrateAll = async (
     "## What the cases together say",
     "",
     `Cases run: **${cases.length}**. Committed: **${cases.filter((entry) => entry.run.committed).length}**.`,
-    `Refused: **${cases.filter((entry) => !entry.run.committed).length}**.`,
+    `Refused by the schema: **${cases.filter((entry) => entry.refusal === null && !entry.run.committed).length}**.`,
+    `Refused before the first write: **${cases.filter((entry) => entry.refusal !== null).length}**.`,
     "",
     "## What a zero in the residue file means",
     "",
@@ -675,7 +908,11 @@ const deletableAccounts = async (sql: postgres.Sql): Promise<string[]> => {
 };
 
 /** Ask the database which account the criterion names. */
-const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection> => {
+const selectTarget = async (
+  sql: postgres.Sql,
+  which: string,
+  preflight: ProcedureStep,
+): Promise<Selection> => {
   if (which === "blocked") {
     // The population the procedure's own description names: a candidate holding a registration, a
     // submission, a payment proof and notifications. Every clause is counted rather than assumed.
@@ -749,18 +986,25 @@ const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection
   if (which === "completable-with-objects") {
     const holding: { id: string; keys: number }[] = [];
     for (const id of deletable) {
+      // The pre-flight runs before any case can execute, so a subject it refuses would end this case
+      // in the refusal rather than in the omission the case exists to demonstrate. Asked here by the
+      // document's own statement, so the criterion and the run cannot disagree about who is refused.
+      if ((await askPreflight(sql, preflight, id)).institutions.length > 0) continue;
       const keys = await countObjectKeys(sql, id);
       if (keys.length > 0) holding.push({ id, keys: keys.length });
     }
     if (holding.length === 0) {
       throw new ProcedureRefusal(
-        "no deletable account holds an R2 object key, so removing the object-key capture would " +
-          "leave nothing to fail to capture and the case would report a pass it had not earned",
+        "no deletable account the pre-flight would not refuse holds an R2 object key, so removing " +
+          "the object-key capture would leave nothing to fail to capture and the case would report " +
+          "a pass it had not earned",
       );
     }
     return {
       userId: holding[0]!.id,
-      criterion: `${base}, and holding at least one R2 object key; ties broken by lowest \`users.id\``,
+      criterion:
+        `${base}, holding at least one R2 object key, and not one the pre-flight refuses; ties ` +
+        "broken by lowest `users.id`",
       matched: holding.length,
     };
   }
@@ -794,7 +1038,27 @@ const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection
 
 if (process.argv[1]?.endsWith("run-deletion-procedure.ts")) {
   main().catch((error: unknown) => {
-    console.error(error);
+    // A shared-guard refusal already opens with this runner's verb — the guard takes it as a
+    // parameter (LAUNCH-D144) — so prefixing it here would say "refusing to delete" twice. Every
+    // other failure is this runner's own and is prefixed here, so an operator always reads what was
+    // refused and in whose name rather than a bare object dump. The shared guard's refusal is a
+    // refusal for the stack rule below as well: an operator reading it needs the sentence, not
+    // the frames that led to it.
+    const refused = error instanceof ProcedureRefusal || error instanceof ResetRefused;
+    const message =
+      error instanceof ResetRefused
+        ? error.message
+        : `refusing to delete: ${error instanceof Error ? error.message : String(error)}`;
+
+    console.error(message);
+
+    // A refusal is the answer to the request, not a crash: the line above and the detail under it are
+    // the whole of what an operator needs, and a stack would bury both.
+    if (!refused && error instanceof Error && error.stack !== undefined) {
+      // The stack WITHOUT its first line, which repeats the message just printed.
+      console.error(error.stack.split("\n").slice(1).join("\n"));
+    }
+
     process.exitCode = 1;
   });
 }
