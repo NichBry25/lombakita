@@ -1,8 +1,30 @@
 import { defineConfig } from "vitest/config";
 import tsconfigPaths from "vite-tsconfig-paths";
 
+/** The D156 gate's module, named once so the plugin below and `reporters` cannot drift apart. */
+const REQUIRED_DATABASE_TESTS_REPORTER = "./scripts/testing/required-database-tests-reporter.ts";
+
 export default defineConfig({
-  plugins: [tsconfigPaths()],
+  plugins: [
+    tsconfigPaths(),
+    {
+      // LAUNCH-D156. A CLI `--reporter` REPLACES `test.reporters` rather than adding to it, so a run
+      // that named its own reporter — which is how the probes in `scripts/testing/probes/` read a
+      // run — had the gate removed and reported a fully skipped suite as a pass. That is the exact
+      // failure the gate exists to catch, switched off by the flag that changes the printing.
+      //
+      // `configureVitest` is vitest's own extension point on a Vite plugin, declared by vitest in
+      // `vitest/dist/chunks/vite.d.CMLlLIFP.d.ts` as an augmentation of Vite's `Plugin` interface.
+      // It runs after the CLI options have been merged into the resolved config and before the
+      // reporters are created from `vitest.config.reporters` (`cli-api.BkDphVBG.js`: the hooks run
+      // at `_setServer`, then `createReporters(resolved.reporters, this)`), so appending here is
+      // the one position a `--reporter` cannot reach.
+      name: "required-database-tests-reporter",
+      configureVitest({ vitest }) {
+        vitest.config.reporters.push([REQUIRED_DATABASE_TESTS_REPORTER, {}]);
+      },
+    },
+  ],
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
@@ -38,9 +60,10 @@ export default defineConfig({
     //
     // Measured cost, 250 files / 2800 tests: 91s parallel, 161s serial. Both runs green.
     fileParallelism: false,
-    // LAUNCH-D156. `default` prints the run; the second one fails it when a test was collected and
-    // did not run, which is otherwise indistinguishable from a pass. See the reporter.
-    reporters: ["default", "./scripts/testing/required-database-tests-reporter.ts"],
+    // LAUNCH-D156. `default` prints the run; the gate that fails it when a test was collected and
+    // did not run — otherwise indistinguishable from a pass — is installed by the plugin above
+    // rather than named here, so that `--reporter` cannot replace it. See the reporter.
+    reporters: ["default"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
