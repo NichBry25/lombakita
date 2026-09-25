@@ -34,7 +34,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type postgres from "postgres";
 import { loadEnvFile } from "@/server/scripts/env-file";
-import { ResetRefused, declaredAppEnvironment } from "../reset/reset-guard";
+import { ResetRefused, declaredAppEnvironment, presentOrUndefined } from "../reset/reset-guard";
 import {
   ProcedureRefusal,
   connectToGuardedDatabase,
@@ -618,9 +618,16 @@ const main = async (): Promise<void> => {
   }
 
   const { loadedFrom } = loadEnvFile({});
-  const url = process.env.DATABASE_URL;
+  // `presentOrUndefined`, not a bare `=== undefined` test, which is what the provisioning runner
+  // does for the same variable. `DATABASE_URL=""` IS a value, so an empty variable passes that test
+  // and reaches the driver with nothing to connect to, which opens a default local socket instead
+  // of refusing. Whether the variable is present is not the question; whether it names anything is
+  // (LAUNCH-D148).
+  const url = presentOrUndefined(process.env.DATABASE_URL);
   if (url === undefined) {
-    throw new ProcedureRefusal(`DATABASE_URL is not set and no env file was found (${loadedFrom})`);
+    throw new ProcedureRefusal(
+      `DATABASE_URL is unset or empty and no env file supplied one (${loadedFrom})`,
+    );
   }
   // The three-layer disposability guard is `assertResetTargetIsDisposable`, reached through
   // `connectToGuardedDatabase` below — the reset lane's own, not a second copy of its layers

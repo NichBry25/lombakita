@@ -153,15 +153,15 @@ const WITHDRAWAL_MARK = /·\s*\*{0,2}\s*WITHDRAWN/;
  * discharged while their anchor line says nothing — `discharged` above is that field, and it stays
  * DISCHARGED-only.
  */
-function isLiveItem(item: Pick<DebtItem, "section" | "severity" | "discharged" | "withdrawn"> & {
-  anchored: boolean;
-}): boolean {
+function isLiveItem(
+  item: Pick<DebtItem, "section" | "severity" | "discharged" | "withdrawn"> & {
+    anchored: boolean;
+  },
+): boolean {
   if (item.discharged || item.withdrawn) return false;
   if (LIVE_SECTION.test(item.section)) return true;
   return (
-    SEVERITY_TOKEN.test(item.severity) &&
-    item.anchored &&
-    !DISPOSITION_SECTION.test(item.section)
+    SEVERITY_TOKEN.test(item.severity) && item.anchored && !DISPOSITION_SECTION.test(item.section)
   );
 }
 

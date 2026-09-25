@@ -312,6 +312,17 @@ describe("the guard in front of the delete", () => {
     }
   }, 60_000);
 
+  // THE VARIABLE THAT IS PRESENT AND NAMES NOTHING (LAUNCH-D148). `DATABASE_URL=""` passes a bare
+  // `=== undefined` test, so the runner reached the connection with an empty string — `postgres("")`
+  // opens a default local socket rather than refusing, which is the opposite of what a runner whose
+  // whole job is refusing the wrong database should do. The provisioning runner has asked this way
+  // since C2.3; this one asked the other way until now.
+  it("refuses an empty DATABASE_URL, which a presence test would have accepted", () => {
+    const output = runRunner({ DATABASE_URL: "" });
+
+    expect(output).toContain("DATABASE_URL is unset or empty");
+  }, 60_000);
+
   it("refuses a non-loopback host, naming the host it refused", () => {
     const output = runRunner({ DATABASE_URL: REMOTE_HOST, APP_ENV: "local" });
 

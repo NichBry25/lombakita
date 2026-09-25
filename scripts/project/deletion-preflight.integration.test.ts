@@ -268,7 +268,7 @@ const recordingClient = (sql: Sql): { sql: Sql; statements: string[] } => {
   const statements: string[] = [];
 
   const recorder = {
-    unsafe: (body: string, parameters?: readonly unknown[]) => {
+    unsafe: (body: string, parameters?: Parameters<Sql["unsafe"]>[1]) => {
       statements.push(body);
       return sql.unsafe(body, parameters);
     },
@@ -431,9 +431,9 @@ describe.skipIf(skipWithoutDatabase)("the pre-flight refusal", () => {
       // The ORDER is the claim, and it is the half `outcome.steps` cannot carry: a refusal from
       // inside a transaction would have issued `begin` first, and would then have performed a write
       // the pre-flight exists to precede (LAUNCH-D167).
-      expect(
-        statements.some((statement) => OPENS_OR_CLOSES_A_TRANSACTION.test(statement)),
-      ).toBe(false);
+      expect(statements.some((statement) => OPENS_OR_CLOSES_A_TRANSACTION.test(statement))).toBe(
+        false,
+      );
 
       expect(outcome.message).toBe(
         `subject is the last active owner of 1 institution(s)\n${expectedLine(fixture.institutions[0]!)}`,

@@ -37,7 +37,10 @@ vi.mock("@/server/recruiter-tier/recruiter-tier-service", () => ({
   RecruiterTierElevationError,
 }));
 
-import { OperatorActorError } from "@/server/platform-ops/operator-actor";
+import {
+  OperatorActorError,
+  type OperatorActorRefusalCode,
+} from "@/server/platform-ops/operator-actor";
 import { PATCH } from "./route";
 
 const platformOpsSession = {
@@ -186,6 +189,13 @@ describe("PATCH /api/platform-ops/accounts/[accountId]/recruiter-tier", () => {
   //
   // Every code is asserted, because the branch echoes whichever one it was given and a hard-coded
   // code would satisfy a single case.
+  //
+  // THE LIST IS PINNED TO THE UNION AT COMPILE TIME (LAUNCH-D148), because nothing in this file can
+  // pin it at run time: the branch echoes what it is handed, so a member renamed or deleted in
+  // `operator-actor.ts` would leave a string here asserting a code nothing produces, over a green
+  // suite. `satisfies` refuses a string the union does not contain; the `Record` over the `Exclude`
+  // below refuses a union member this list does not name, because that type stops being the single
+  // code it is the moment the union gains a second one this route cannot raise.
   it("returns the actor refusal's own code and status for each way the actor can fail", async () => {
     requireSessionRole.mockResolvedValue(platformOpsSession);
 
@@ -203,7 +213,26 @@ describe("PATCH /api/platform-ops/accounts/[accountId]/recruiter-tier", () => {
         code: "operator_actor_is_target",
         message: "A platform-ops account cannot elevate its own recruiter tier",
       },
-    ] as const;
+    ] as const satisfies readonly { code: OperatorActorRefusalCode; message: string }[];
+
+    // The one member this route cannot raise — the institution-verification paths raise it — and
+    // therefore the one not asserted above. Written as a total record over a type derived from the
+    // union rather than as a literal, so a second unasserted member is a compile error naming the
+    // key it wants and not a code that quietly goes unasserted here.
+    const notRaisedHere: Record<
+      Exclude<OperatorActorRefusalCode, (typeof refusals)[number]["code"]>,
+      true
+    > = { operator_actor_conflicted: true };
+
+    const assertedCodes: OperatorActorRefusalCode[] = refusals.map(
+      (refusal) => refusal.code as OperatorActorRefusalCode,
+    );
+    for (const code of Object.keys(notRaisedHere) as OperatorActorRefusalCode[]) {
+      expect(
+        assertedCodes,
+        "this test now asserts a code the route cannot reach, so the note above is stale",
+      ).not.toContain(code);
+    }
 
     for (const refusal of refusals) {
       elevateRecruiterTier.mockRejectedValue(
