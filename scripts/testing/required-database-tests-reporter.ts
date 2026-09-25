@@ -24,12 +24,21 @@
 // parsing a machine-readable report back out of a second process. It also means the rule holds for
 // `npm run test` itself, so `/precheck`, CI, and a developer's own run are the same gate.
 //
+// A TEST-NAME FILTER IS NOT THE THING THIS RULE IS ABOUT, AND THE TWO ARE INDISTINGUISHABLE BY MODE.
+// `vitest run <file> -t <name>` marks every test the pattern excludes `skip` (the worker's
+// `interpretTaskModes`), which is the same mode a literal `it.skip` produces. A rule that failed a
+// run for every `skip` therefore failed every filtered run — and the detectors in
+// `scripts/testing/probes/` are built on `-t`, so the probes' own controls refused. The filter is
+// READ from the resolved config (`Vitest#config.testNamePattern`, public on `ResolvedConfig`),
+// never inferred from the skip count, because a count cannot tell a deliberate exclusion from a
+// silenced test. Under a filter the rule becomes: no test executed at all is still a failure.
+//
 // It reads the predicate from its own module, not from `@/server/testing/database-url`: that module
 // throws at load when a database is required and absent, and this runs before any test is collected,
 // so the throw would replace every suite's own failure with one reporter-load error.
 
 import { relative } from "node:path";
-import type { Reporter, TestModule, TestRunEndReason } from "vitest/node";
+import type { Reporter, TestModule, TestRunEndReason, Vitest } from "vitest/node";
 import { databaseTestsRequired } from "@/server/testing/database-tests-required";
 
 /** A test that was collected and then not run, named so the reader can go and look at it. */
@@ -38,7 +47,17 @@ type InertTest = { file: string; test: string; mode: "skip" | "todo" | "skipped"
 /** The modes collection can hand a test that mean it will never execute. */
 const NOT_RUN = new Set(["skip", "todo"]);
 
+/** The states a test reaches by executing. Anything else was collected and did not run. */
+const RAN = new Set(["passed", "failed"]);
+
 export default class RequiredDatabaseTestsReporter implements Reporter {
+  /** The run itself, handed over by `onInit`, which is the only place the filter can be read from. */
+  private vitest: Vitest | undefined;
+
+  onInit(vitest: Vitest): void {
+    this.vitest = vitest;
+  }
+
   onTestRunEnd(
     testModules: ReadonlyArray<TestModule>,
     _errors: ReadonlyArray<unknown>,
@@ -50,19 +69,43 @@ export default class RequiredDatabaseTestsReporter implements Reporter {
     if (reason === "interrupted" || !databaseTestsRequired) return;
 
     const inert: InertTest[] = [];
+    let ran = 0;
 
     for (const testModule of testModules) {
       const file = relative(process.cwd(), testModule.moduleId);
 
       for (const test of testModule.children.allTests()) {
         const mode = test.options.mode;
+        const state = test.result().state;
         if (NOT_RUN.has(mode)) {
           inert.push({ file, test: test.fullName, mode: mode as "skip" | "todo" });
-        } else if (test.result().state === "skipped") {
+        } else if (state === "skipped") {
           // `ctx.skip()` at run time leaves the mode at "run", so the two checks are not the same one.
           inert.push({ file, test: test.fullName, mode: "skipped" });
+        } else if (RAN.has(state)) {
+          ran += 1;
         }
       }
+    }
+
+    const filter = this.vitest?.config.testNamePattern;
+
+    if (filter) {
+      console.error("");
+      console.error(`FILTERED  Test name pattern: ${filter}`);
+      console.error(
+        `  A filter excludes tests on purpose, so the ${inert.length} it left inert are not counted ` +
+          `against this run. What is left of the rule is that something ran.`,
+      );
+
+      if (ran > 0) return;
+
+      console.error(
+        `NO TEST RAN  the filter matched nothing: ${inert.length} test(s) were collected and none ` +
+          `executed, so this run is evidence about nothing.`,
+      );
+      process.exitCode = 1;
+      return;
     }
 
     if (inert.length === 0) return;
@@ -76,10 +119,7 @@ export default class RequiredDatabaseTestsReporter implements Reporter {
 
     console.error(
       `REQUIRE_DB_TESTS is not "0", so no test may be skipped: a suite whose every test was skipped ` +
-        `reports the same green tick as a suite that passed. A test-name filter reports every test ` +
-        `it excludes as skipped, so a filtered run is not evidence — it is run deliberately, with ` +
-        `REQUIRE_DB_TESTS=0. That switch is also the one to set to run the rest of the suite ` +
-        `without the database-backed tests.`,
+        `reports the same green tick as a suite that passed.`,
     );
 
     process.exitCode = 1;
