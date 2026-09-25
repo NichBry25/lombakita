@@ -157,6 +157,34 @@ const ROW_DEC_0114 =
  * the gate print a larger number and exit zero. That probe is gone on purpose: a red run is the only
  * thing this harness accepts as evidence, and there is no longer a guard for it to go red against.
  */
+/**
+ * A live item's head line inside a `##` block's BODY, which is the population arm (b) created.
+ *
+ * LAUNCH-D69 sits in the body of `## Known Debt (Step 7.7 Block C Phase 2, 2026-09-13)` — no `###`
+ * heading between it and the block — so before arm (b) existed this item was in no live population
+ * at all. The anchor runs to the end of the line rather than to the end of the sentence, because a
+ * prefix is what `substituteOnce` needs and this one is unique in the file.
+ */
+const D69_BLOCK_BODY_HEAD =
+  "- **LAUNCH-D69 [LOW] → Step 7.7 Block C Phase 3. The routing census classifies, but only two";
+
+/** The same defect, planted into that body. Id out of the register's range, as above. */
+const PLANTED_BLOCK_BODY_ITEM =
+  "- **LAUNCH-D9998 [HIGH] → Block C2.** filed by the register-gate probe in a debt block's body.\n";
+
+/**
+ * A live item under a literal `### Open`, which is where a withdrawal mark actually appears.
+ *
+ * LAUNCH-D142's anchor is canonical, it is filed exactly once, and it sits under `### Open` — so
+ * marking it withdrawn must take it out of the live set, and the anchored floor is the one asserted
+ * population that records it leaving.
+ */
+const D142_ANCHORED = "- **LAUNCH-D142 [LOW] → Step 7.7 Block C2 (Phase 4).";
+
+/** The same anchor line, withdrawn. `· WITHDRAWN` is the mark LAUNCH-D143 carries today. */
+const D142_WITHDRAWN =
+  "- **LAUNCH-D142 [LOW] → Step 7.7 Block C2 (Phase 4) · WITHDRAWN 2026-09-25, probe.**";
+
 const SUPERSEDES_CELL_OF_DEC_0124 =
   "Extends DEC-0123 (same session) with the post-event half of the lifecycle. Reuses the DEC-0121 " +
   "derived-not-stored principle. Protects DEC-0122's retention trigger, which is measured from " +
@@ -199,6 +227,42 @@ export const probes = [
     detect: () =>
       gateRefused(
         /FAIL\s+\d+\s+items a discharged section declares discharged whose anchor line carries no mark\s+\(up 1\)/,
+      ),
+  },
+  {
+    // ARM (b) OF THE LIVE PREDICATE, which is the half of LAUNCH-D138 nothing else can reach. The
+    // plant is a live item by every field the census reads — a severity bracket and an anchor of its
+    // own — and wrong only in where it sits: the body of a `##` block, with no `###` heading over it.
+    // Before arm (b) this item was in no live population, so gate (b) read `(0)` on it and the probe
+    // could not go red; the detector is therefore gate (b)'s own number, not the item's existence.
+    name: "an item filed in a debt block's body is live",
+    klass: "D",
+    harmfulMove:
+      "filing an item in the body of a `## Known Debt` block rather than under a `###` heading, where the census of the day counted nothing — not the item, not its anchor, and not the missing destination of either",
+    files: [REGISTER],
+    repo: DOC_LANE,
+    appliedMarkers: ["LAUNCH-D9998"],
+    mutate: () =>
+      substituteOnce(REGISTER, D69_BLOCK_BODY_HEAD, PLANTED_BLOCK_BODY_ITEM + D69_BLOCK_BODY_HEAD),
+    detect: () => gateRefused(/FAIL\s+no live item names a block without naming a step \(1\)/),
+  },
+  {
+    // THE WITHDRAWAL MARK, which is not a discharge and has to hold on both arms. LAUNCH-D142 is
+    // live under `### Open` with a canonical anchor and is filed once, so marking it withdrawn takes
+    // it out of the live set and the anchored floor — the one asserted population that shrinks — is
+    // what says so. A `· DISCHARGED` plant here would go red for the obligation three probes up
+    // instead, which is why this one plants the other mark.
+    name: "an item withdrawn on its anchor line leaves the live set",
+    klass: "D",
+    harmfulMove:
+      "marking an anchor line `· WITHDRAWN` while the census reads only `· DISCHARGED`, so an item the register has withdrawn keeps counting as open work and keeps its place in every ratchet",
+    files: [REGISTER],
+    repo: DOC_LANE,
+    appliedMarkers: ["· WITHDRAWN 2026-09-25, probe."],
+    mutate: () => substituteOnce(REGISTER, D142_ANCHORED, D142_WITHDRAWN),
+    detect: () =>
+      gateRefused(
+        /FAIL\s+\d+\s+live debt ids carrying an anchor that names a step and a block\s+\(down 1 — below the floor of \d+\)/,
       ),
   },
   {

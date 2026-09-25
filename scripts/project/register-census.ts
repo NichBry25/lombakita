@@ -62,7 +62,9 @@ export type DebtItem = {
   anchorNamesStep: boolean;
   /** The item's own line carries the discharge mark. */
   discharged: boolean;
-  /** The item sits under a live disposition section and its own line states no closure. */
+  /** The item's own line carries the withdrawal mark. */
+  withdrawn: boolean;
+  /** The item is open work by either arm of `isLiveItem`, and carries neither mark. */
   live: boolean;
 };
 
@@ -93,6 +95,75 @@ function endsItem(line: string): boolean {
 const LIVE_SECTION = /^### (Open|Still open|New)\b/;
 
 const DISCHARGED_SECTION = /^### Discharged\b/;
+
+/**
+ * A severity bracket's content, which is a closed set and not "whatever the bracket holds".
+ *
+ * Arm (b) of `isLiveItem` keys on this, and the register writes brackets that are not severities all
+ * over its live work: `[NEW-TEST]`, `[VERIFIED 2026-08-06]`, `[MOSTLY DISCHARGED 2026-08-03]`,
+ * `[PARTIAL → minimum surfacing landed]`, `[DESIGN]`. A bracket the register uses for anything else
+ * states something other than severity, so an item carrying one is not live by this arm — which is
+ * the direction that keeps this arm from sweeping in prose the register never filed as debt.
+ */
+const SEVERITY_TOKEN = /^(HIGH|MEDIUM|LOW|PROCESS)$/;
+
+/**
+ * The `###` headings that keep an item out of arm (b) however it is written.
+ *
+ * A block-body item carries its severity and its anchor, and for the debt blocks that is the whole
+ * statement — but a heading that names a disposition states the opposite about everything under it.
+ * `Withdrawn — do not carry` is the register saying so in words; `Discharged`, `Fixed` and
+ * `Learnings` are the census's own three kinds. The test is the heading's KIND and not a list of
+ * headings, so a new section of any of the four kinds is covered the day it is written.
+ */
+const DISPOSITION_SECTION = /^### (Discharged|Withdrawn|Learnings|Fixed)\b/;
+
+/**
+ * The register's second item-level disposition mark.
+ *
+ * The difference from `DISCHARGE_MARK` is one the file itself forces rather than a preference:
+ * LAUNCH-D143 writes it plain (`→ Step 7.7 Block C2 (Phase 2) · WITHDRAWN 2026-09-22, premise
+ * false.`) and LAUNCH-D89 writes it inside a bold run (`→ Step 7.7 Block D · **WITHDRAWN
+ * 2026-09-15, filed in error.**`). To a reader those are the same mark, so they have to be the same
+ * mark here, or the census counts one of two identically-marked items as live.
+ */
+const WITHDRAWAL_MARK = /·\s*\*{0,2}\s*WITHDRAWN/;
+
+/**
+ * Whether an item is open work — the predicate every live population is a set over.
+ *
+ * TWO ARMS, because the register files its open work in two shapes and the census counted one.
+ *
+ *  - (a) The item sits under a `###` heading of the live kind (`Open`, `Still open`, `New`). This is
+ *    what the census has always read, and it stays exactly as it was.
+ *  - (b) The item carries a SEVERITY bracket and an anchor of its own, wherever it sits — which in
+ *    practice is the body of a `## Known Debt (…)` block. Before this arm existed, an item filed
+ *    there was in no live population at all: it was not counted, not listed by any red ratchet, and
+ *    not reachable by the gate whose whole subject is which items are open. Arm (b) is deliberately
+ *    narrower than "not under a discharge heading": it requires BOTH the severity and the anchor, so
+ *    a prose bullet the register files inside a debt block is not swept into the live set by a
+ *    heading it happens to sit under.
+ *
+ * BOTH ARMS YIELD TO A MARK. An item whose own declaration line carries `· DISCHARGED` or
+ * `· WITHDRAWN` is not live whichever arm would otherwise reach it — the mark is the register saying
+ * the item is closed, and an arm that outranked it would count closed work as open.
+ *
+ * `WITHDRAWN` is its own mark and NOT a kind of discharged: it takes the item out of the live set,
+ * and it does not answer the separate obligation that asks which items a DISCHARGE SECTION declares
+ * discharged while their anchor line says nothing — `discharged` above is that field, and it stays
+ * DISCHARGED-only.
+ */
+function isLiveItem(item: Pick<DebtItem, "section" | "severity" | "discharged" | "withdrawn"> & {
+  anchored: boolean;
+}): boolean {
+  if (item.discharged || item.withdrawn) return false;
+  if (LIVE_SECTION.test(item.section)) return true;
+  return (
+    SEVERITY_TOKEN.test(item.severity) &&
+    item.anchored &&
+    !DISPOSITION_SECTION.test(item.section)
+  );
+}
 
 /**
  * A `Learnings` subsection, which files prose lessons rather than debt items.
@@ -263,6 +334,8 @@ function censusRegister(text: string, file: string): RegisterWalk {
     const declared = flat.slice(0, headEnd);
 
     const declaredDischarged = DISCHARGE_MARK.test(declared);
+    const declaredWithdrawn = WITHDRAWAL_MARK.test(declared);
+    const severityToken = severity ?? "";
 
     // The remainder is what follows the id and its severity bracket. Its opening character is the
     // test, and the only thing allowed between the two is the closing `**` of the bold run: the
@@ -286,14 +359,21 @@ function censusRegister(text: string, file: string): RegisterWalk {
       file,
       line,
       id,
-      severity: severity ?? "",
+      severity: severityToken,
       block,
       section,
       anchor,
       anchorIsBareBlock: anchor !== null && BARE_BLOCK_ANCHOR.test(anchor),
       anchorNamesStep: anchor !== null && NAMES_STEP.test(anchor),
       discharged: declaredDischarged,
-      live: LIVE_SECTION.test(section) && !declaredDischarged,
+      withdrawn: declaredWithdrawn,
+      live: isLiveItem({
+        section,
+        severity: severityToken,
+        anchored,
+        discharged: declaredDischarged,
+        withdrawn: declaredWithdrawn,
+      }),
     });
   }
 
@@ -848,7 +928,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 104,
+    bound: 127,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
