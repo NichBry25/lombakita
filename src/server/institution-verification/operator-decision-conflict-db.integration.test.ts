@@ -901,14 +901,23 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
       // submission row and `cleanup` cascades to that row, so a body that threw before
       // `releaseBarrier()` left the barrier open and the DELETE waiting on its own lock — the
       // teardown was suppressed by the failure it exists to survive, and the institution outlived
-      // the run. Released first, then awaited, so the cleanup below runs against a settled row.
+      // the run. Released first, so the cleanup below runs against a settled row.
+      //
+      // THE AWAIT CAN REJECT, and awaiting it outside the teardown made the same defect recur one
+      // line after its fix: a barrier transaction that rolled back skipped `cleanup` and all three
+      // `sql.end()` calls, leaving the race rows in the database and three connections open. It is
+      // awaited INSIDE the try, so the barrier's error is reported after the teardown rather than
+      // instead of it.
       releaseBarrier();
-      await barrierSettled;
 
       try {
-        await cleanup();
+        await barrierSettled;
       } finally {
-        await Promise.all(connections.map((connection) => connection.sql.end()));
+        try {
+          await cleanup();
+        } finally {
+          await Promise.all(connections.map((connection) => connection.sql.end()));
+        }
       }
     }
   });
