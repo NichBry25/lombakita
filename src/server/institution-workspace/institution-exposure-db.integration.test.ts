@@ -282,9 +282,10 @@ describe.skipIf(skipWithoutDatabase)("contact disclosure by viewer", () => {
     });
   });
 
-  // NO ROLE CARRIES A VERIFICATION LINK (LAUNCH-D161). The notice used to branch on whether the
-  // owner/staff check passed, which no viewer reaching this page can satisfy, so what is pinned here
-  // is what the notice actually says to each role and nothing about a link.
+  // NO ROLE CARRIES A VERIFICATION LINK (LAUNCH-D161). The notice does not branch on whether the
+  // owner/staff check passed, because no viewer who reaches the public view satisfies it — the page
+  // that renders this decision serves the workspace hub to owner and staff — so what is pinned here
+  // is what the notice says to each role and nothing about a link.
   it("restores contacts to every membership role", async () => {
     const cases = [
       "institution_owner" as const,

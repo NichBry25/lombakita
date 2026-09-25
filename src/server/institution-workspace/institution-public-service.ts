@@ -161,9 +161,11 @@ export const isIndexableInstitution = (institution: {
  * gets — which defeats the only reason the flag exists.
  *
  * An owner or staff member is an insider, and `members_only` is where an insider's view lands — but
- * the notice carries no route into the verification flow for them, because the only page that
- * renders this decision serves the workspace hub to owner and staff and reserves the public view
- * for a preview in which the disclosure is `preview_hidden` (LAUNCH-D161).
+ * the notice carries no route into the verification flow for them, because the one page that renders
+ * this decision serves the workspace hub to owner and staff and admits the public view to them only
+ * as a preview, in which the disclosure is `preview_hidden` (LAUNCH-D161). That page decides between
+ * the two on the same normalised slug this function resolves, so the routing holds for any casing of
+ * the URL and not only for the canonical one.
  */
 const resolveContactDisclosure = async (
   institution: {

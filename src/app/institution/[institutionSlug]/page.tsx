@@ -17,6 +17,10 @@ import {
 } from "@/server/institution-workspace/institution-public-service";
 import { listPublicCompetitions } from "@/server/competitions/competition-public-service";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
+import {
+  InstitutionWorkspaceInputError,
+  parseInstitutionSlugParam,
+} from "@/server/institution-workspace/institution-core";
 
 type InstitutionHubPageProps = {
   params: Promise<{ institutionSlug: string }>;
@@ -33,10 +37,30 @@ const PUBLIC_COMPETITION_LIMIT = 12;
 // could.
 const PUBLIC_VIEW_PARAM = "publik";
 
+/**
+ * The slug this URL names, normalised exactly as the lookup normalises it, or `null` for a value
+ * that cannot be a slug at all.
+ *
+ * The hub/public decision, the hub's own links and every lookup on this page read this one string
+ * and never the raw route parameter: the column it is compared against stores slugs lowercase, so a
+ * membership check made against the parameter as typed answers no for an owner who typed the URL in
+ * capitals (LAUNCH-D161).
+ */
+function resolveSlugParam(rawSlug: string): string | null {
+  try {
+    return parseInstitutionSlugParam(rawSlug);
+  } catch (error) {
+    if (error instanceof InstitutionWorkspaceInputError) return null;
+    throw error;
+  }
+}
+
 export async function generateMetadata({ params }: InstitutionHubPageProps): Promise<Metadata> {
   const { institutionSlug } = await params;
-  const institution = await getPublicInstitution(institutionSlug);
-  if (!institution) {
+  const slug = resolveSlugParam(institutionSlug);
+  const institution = slug ? await getPublicInstitution(slug) : null;
+
+  if (!slug || !institution) {
     return { title: "Institusi tidak ditemukan · Lombakita" };
   }
 
@@ -90,21 +114,23 @@ export default async function InstitutionHubPage({
 }: InstitutionHubPageProps) {
   const { institutionSlug } = await params;
   const { tampilan } = await searchParams;
-  const base = `/institution/${institutionSlug}`;
+
+  const slug = resolveSlugParam(institutionSlug);
+  if (!slug) notFound();
+
+  const base = `/institution/${slug}`;
 
   // The guard deliberately runs AFTER the membership check rather than before it: this URL is now
   // a public page for anyone who is not running the institution, so requiring a recruiter session
   // up front would bounce every visitor to sign-in.
   const session = await getCurrentSession();
-  const isAdmin = session?.user?.id
-    ? await isInstitutionAdminBySlug(session.user.id, institutionSlug)
-    : false;
+  const isAdmin = session?.user?.id ? await isInstitutionAdminBySlug(session.user.id, slug) : false;
 
   if (!isAdmin || tampilan === PUBLIC_VIEW_PARAM) {
     // `isPlatformOps` and `isPreview` are read here and resolved in the service, so the contact
     // decision is made against the database for THIS viewer rather than by a client that could be
     // wrong about who is looking.
-    return renderPublicView(institutionSlug, {
+    return renderPublicView(slug, {
       userId: session?.user?.id ?? null,
       isPlatformOps: session?.user?.role === "platform_ops",
       isPreview: tampilan === PUBLIC_VIEW_PARAM,
@@ -117,7 +143,7 @@ export default async function InstitutionHubPage({
   // verification for a full one, so its entry in this hub is labelled for whichever it will render —
   // and, once a full institution is verified, for the result rather than for an action it no longer
   // has.
-  const verificationSummary = await loadInstitutionVerificationSummaryBySlug(institutionSlug);
+  const verificationSummary = await loadInstitutionVerificationSummaryBySlug(slug);
   const isPersonal = isPersonalInstitutionType(verificationSummary?.institutionType ?? null);
   const isVerified = verificationSummary?.verificationStatus === "verified";
 
@@ -184,7 +210,7 @@ export default async function InstitutionHubPage({
   return (
     <main className="page-shell app-page institution-hub-page">
       <PageHeader
-        title={verificationSummary?.displayName || institutionSlug}
+        title={verificationSummary?.displayName || slug}
         description="Kelola profil institusi, kompetisi, dan anggota."
         backHref="/recruiter-dashboard"
         backLabel="Dasbor"
@@ -201,10 +227,7 @@ export default async function InstitutionHubPage({
         }
       />
       {chargingReadiness && !chargingReadiness.ready ? (
-        <ChargingReadinessPanel
-          blockers={chargingReadiness.blockers}
-          institutionSlug={institutionSlug}
-        />
+        <ChargingReadinessPanel blockers={chargingReadiness.blockers} institutionSlug={slug} />
       ) : null}
 
       <nav aria-label="Fitur institusi">
@@ -230,8 +253,8 @@ export default async function InstitutionHubPage({
 
 // A personal institution has no identity of its own — its name, photo and banner are all the
 // owner's — so its public page is that person's profile rather than a near-duplicate of it.
-async function renderPublicView(institutionSlug: string, viewer: InstitutionPublicViewer) {
-  const institution = await getPublicInstitution(institutionSlug, viewer);
+async function renderPublicView(slug: string, viewer: InstitutionPublicViewer) {
+  const institution = await getPublicInstitution(slug, viewer);
   if (!institution) notFound();
 
   if (isPersonalInstitutionType(institution.institutionType)) {

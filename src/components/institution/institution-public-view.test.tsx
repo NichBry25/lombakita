@@ -12,10 +12,11 @@
 // that only checked the operator's sentence would pass over an unconditional string that had simply
 // been rewritten for everyone.
 //
-// NEITHER BRANCH OFFERS A LINK (LAUNCH-D161). The notice used to carry "Ajukan verifikasi" for a
-// viewer whose disclosure said the owner/staff check passed, and no viewer could ever be in that
-// state: the page reserves the public view for a preview, and a preview is `preview_hidden`. Both
-// cases below assert the link's absence, so restoring it fails here.
+// NEITHER BRANCH OFFERS A LINK (LAUNCH-D161). No viewer of this notice has a route into the
+// verification flow: the notice is reached only from the public view, and the page that renders it
+// serves the workspace hub to owner and staff and admits them to the public view only as a preview,
+// where the disclosure is `preview_hidden`. Both cases below assert the link's absence, so restoring
+// it fails here.
 
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
