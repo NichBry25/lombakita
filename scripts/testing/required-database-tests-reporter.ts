@@ -8,8 +8,9 @@
 // operator and not a property of the tooling.
 //
 // So the rule is mechanical and lives in the runner rather than in a sentence: when
-// `databaseTestsRequired` (the default; `REQUIRE_DB_TESTS=0` is the deliberate opt-out), any test that
-// does not run fails the run it is in.
+// `databaseTestsRequired` (the default; `REQUIRE_DB_TESTS=0` is the deliberate opt-out, and what it
+// permits is a SKIPPED test — not a run without one), any test that does not run fails the run it is
+// in.
 //
 // AND THE REST OF THE DEBT'S SUBJECT, so this file's coverage is not guessed at (Rule 38). The debt is
 // titled "a skipped DB suite reads as a pass" and names two shapes. The second — a file that collects
@@ -64,8 +65,11 @@ export default class RequiredDatabaseTestsReporter implements Reporter {
     reason: TestRunEndReason,
   ): void {
     // An interrupted run is not evidence about the tests that never got their turn, and it already
-    // exits non-zero. Opting out of the database opts out of this rule with it, which is the same
-    // switch that decides whether the database-backed suites skip.
+    // exits non-zero. Opting out of the database opts out of this rule with it: `REQUIRE_DB_TESTS=0`
+    // PERMITS a database-backed suite to skip, and a run that permits skips is not one this rule can
+    // hold. It does not itself skip anything — a suite skips only when the switch is off AND no
+    // DATABASE_URL resolves, and it runs unchanged whenever one does, from the environment or from
+    // `.env.local`.
     if (reason === "interrupted" || !databaseTestsRequired) return;
 
     const inert: InertTest[] = [];

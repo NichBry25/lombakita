@@ -226,8 +226,14 @@ const TEST_SUFFIX = ".test.ts";
  * The population is `filesGitWouldCommit()` — the same one `verify:secrets` reads (LAUNCH-D139), so
  * the two repository-wide gates answer about one set and not two. Its exclusions are `.gitignore`'s,
  * which is a file that already carries a reason per entry, is reviewed in a diff, and is the thing
- * `git add` itself consults. The deny list this replaced named eight directories, every one of which
- * `.gitignore` already excluded.
+ * `git add` itself consults.
+ *
+ * NOT THE SAME SET AS THE DENY LIST THIS REPLACED, which named eight directories. Six are ignored by
+ * name: `node_modules`, `.next`, `coverage`, `build` and `docs` by a rule anchored to the repository
+ * root, so a nested `build/` or `coverage/` is not covered, and `.vercel` wherever it sits. `dist` is
+ * named in no rule, and `.git` is excluded by git rather than by `.gitignore`. No file in this
+ * repository sits under any of the eight, so the two subjects currently return the same list; what
+ * differs is which file decides.
  */
 export const walkRepositoryFiles = (): string[] => filesGitWouldCommit();
 
