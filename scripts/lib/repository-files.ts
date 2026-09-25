@@ -14,6 +14,8 @@
 // Neither question is about the filesystem. Both are about what a commit would carry, so both ask git.
 
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 let repositoryRoot: string | undefined;
 
@@ -31,13 +33,24 @@ const repositoryRootOf = (): string => {
  *
  * `-C <root>` rather than a `cwd` option: `git ls-files` confines itself to the current directory
  * when run from a subdirectory, which would make the population depend on where the caller stood.
+ *
+ * MINUS TRACKED FILES ABSENT FROM THE WORKING TREE. `--cached` lists what the INDEX
+ * holds, so a tracked file deleted in the working tree and not yet staged is still listed while
+ * holding no bytes on disk — a file a commit would carry the DELETION of, not the content of. Every
+ * reader of this opens what it returns, so the file that cannot be opened is the file that is not
+ * there: the fixture gate crashed with ENOENT on one and the secret scan reported it unreadable,
+ * each failing a run over a file the repository no longer contains.
  */
-export const filesGitWouldCommit = (): string[] =>
-  execFileSync(
+export const filesGitWouldCommit = (): string[] => {
+  const root = repositoryRootOf();
+
+  return execFileSync(
     "git",
-    ["-C", repositoryRootOf(), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+    ["-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
     { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
   )
     .split("\0")
     .filter((path) => path.length > 0)
+    .filter((path) => existsSync(join(root, path)))
     .sort();
+};
