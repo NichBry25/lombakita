@@ -38,6 +38,9 @@ export default defineConfig({
     //
     // Measured cost, 250 files / 2800 tests: 91s parallel, 161s serial. Both runs green.
     fileParallelism: false,
+    // LAUNCH-D156. `default` prints the run; the second one fails it when a test was collected and
+    // did not run, which is otherwise indistinguishable from a pass. See the reporter.
+    reporters: ["default", "./scripts/testing/required-database-tests-reporter.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

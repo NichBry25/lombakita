@@ -246,7 +246,7 @@ describe("the register gate's detectors", () => {
 
   const detectorPatterns = (detect: unknown): string[] =>
     [...String(detect).matchAll(/\/((?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\])*)\//g)].map(
-      ([, body]) => body,
+      ([, body]) => body ?? "",
     );
 
   /** Everything that legitimately holds a digit: the departure, and the pattern syntax itself. */
