@@ -394,7 +394,7 @@ export function liveIds(items: DebtItem[]): string[] {
 }
 
 function idsWithAnchor(items: DebtItem[]): Set<string> {
-  return new Set(items.filter((item) => item.anchor !== null).map((item) => item.id));
+  return new Set(items.filter((item) => item.live && item.anchor !== null).map((item) => item.id));
 }
 
 /**
@@ -413,9 +413,12 @@ export function bareAnchoredLiveIds(items: DebtItem[]): string[] {
 /**
  * The live items carrying no anchor on any entry. The ratchet's population.
  *
- * A live id leaves this population when ANY of its entries gains an anchor — which is why the
- * ratchet moves down as the register is repaired and never up except by a deliberate edit to the
- * ceiling literal.
+ * A live id leaves this population when any of its LIVE entries gains an anchor. An entry that has
+ * been withdrawn or discharged does not carry a destination for work that is still open, and reading
+ * one as if it did let a dead entry hide a live anchorless entry filed under the same id.
+ *
+ * Which is why the ratchet moves down as the register is repaired and never up except by a
+ * deliberate edit to the ceiling literal.
  */
 export function anchorlessLiveIds(items: DebtItem[]): string[] {
   const anchored = idsWithAnchor(items);
