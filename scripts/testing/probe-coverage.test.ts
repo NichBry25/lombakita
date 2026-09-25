@@ -226,3 +226,59 @@ describe("the retry on a runner that never started", () => {
     ).toThrow(/A run that crashed is not a guard that refused/);
   });
 });
+
+/**
+ * The register gate's detectors pin deltas, never figures.
+ *
+ * Two numbers in a line the gate prints are not the same kind of value. The FIGURE is what the gate
+ * measured — a population read off a live register, so it moves every time an item is closed, and a
+ * detector that spells it out stops matching while `detectors.mjs` throws over a fixture that has
+ * stopped describing its subject (LAUNCH-D128, whose fifth instance was exactly this at
+ * `register-gate.mjs`). A DEPARTURE — `(up 1)`, `(down 1 …)` — is what the probe's own mutation
+ * caused, which is what makes the detector specific, and is the only figure worth pinning.
+ *
+ * The rule is therefore mechanical: in a pattern a register-gate detector waits on, a digit appears
+ * only inside a departure, a character class or an escape. Source rather than convention, because a
+ * convention is what let eight of these drift back to literals.
+ */
+describe("the register gate's detectors", () => {
+  const REGISTER_GATE = "register-gate";
+
+  const detectorPatterns = (detect: unknown): string[] =>
+    [...String(detect).matchAll(/\/((?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\])*)\//g)].map(
+      ([, body]) => body,
+    );
+
+  /** Everything that legitimately holds a digit: the departure, and the pattern syntax itself. */
+  const DEPARTURE = /\\\((?:up|down)\s[^)]*\)/g;
+  const CHARACTER_CLASS = /\[(?:\\.|[^\]\\])*\]/g;
+  const ESCAPE = /\\./g;
+
+  const figures = (pattern: string): string[] =>
+    [
+      ...pattern
+        .replace(DEPARTURE, "")
+        .replace(CHARACTER_CLASS, "")
+        .replace(ESCAPE, "")
+        .matchAll(/\d+/g),
+    ].map(([figure]) => figure);
+
+  it("carry no figure outside a departure", () => {
+    const suite = SUITES[REGISTER_GATE] ?? [];
+    let inspected = 0;
+
+    for (const probe of suite) {
+      for (const pattern of detectorPatterns(probe.detect)) {
+        inspected += 1;
+        const pinned = figures(pattern);
+
+        expect(
+          pinned,
+          `${REGISTER_GATE}: ${probe.name} pins ${pinned.join(", ")} in /${pattern}/`,
+        ).toEqual([]);
+      }
+    }
+
+    expect(inspected, "no detector was inspected, so nothing was pinned").toBeGreaterThan(0);
+  });
+});

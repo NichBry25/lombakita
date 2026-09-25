@@ -202,7 +202,7 @@ export const probes = [
     appliedMarkers: ["LAUNCH-D9999"],
     mutate: () => substituteOnce(REGISTER, D47_ANCHORED, PLANTED_ITEM + D47_ANCHORED),
     detect: () =>
-      gateRefused(/FAIL\s+a live item filed since docs@[0-9a-f]+ names a step \(1 filed\)/),
+      gateRefused(/FAIL\s+a live item filed since docs@[0-9a-f]+ names a step \(\d+ filed\)/),
   },
   {
     name: "an item naming a block without naming a step fails the close",
@@ -213,7 +213,7 @@ export const probes = [
     repo: DOC_LANE,
     appliedMarkers: ["- **LAUNCH-D47 [HIGH] → Block C2."],
     mutate: () => substituteOnce(REGISTER, D47_ANCHORED, "- **LAUNCH-D47 [HIGH] → Block C2."),
-    detect: () => gateRefused(/FAIL\s+no live item names a block without naming a step \(1\)/),
+    detect: () => gateRefused(/FAIL\s+no live item names a block without naming a step \(\d+\)/),
   },
   {
     name: "a discharge declared in prose but not on the anchor line fails the close",
@@ -244,7 +244,7 @@ export const probes = [
     appliedMarkers: ["LAUNCH-D9998"],
     mutate: () =>
       substituteOnce(REGISTER, D69_BLOCK_BODY_HEAD, PLANTED_BLOCK_BODY_ITEM + D69_BLOCK_BODY_HEAD),
-    detect: () => gateRefused(/FAIL\s+no live item names a block without naming a step \(1\)/),
+    detect: () => gateRefused(/FAIL\s+no live item names a block without naming a step \(\d+\)/),
   },
   {
     // THE WITHDRAWAL MARK, which is not a discharge and has to hold on both arms. LAUNCH-D142 is
@@ -293,7 +293,7 @@ export const probes = [
       ),
     detect: () =>
       gateRefused(
-        /FAIL\s+1\s+decision-log rows whose cells do not match their columns' declared count\s+\(up 1\)/,
+        /FAIL\s+\d+\s+decision-log rows whose cells do not match their columns' declared count\s+\(up 1\)/,
       ),
   },
   {
@@ -321,7 +321,7 @@ export const probes = [
     mutate: () => substituteOnce(DECISION_LOG, `\n${ROW_DEC_0125}`, ROW_DEC_0125),
     detect: () =>
       gateRefused(
-        /FAIL\s+2\s+decision-log rows written on another record's line instead of below it/,
+        /FAIL\s+\d+\s+decision-log rows written on another record's line instead of below it/,
       ),
   },
   {
@@ -338,7 +338,8 @@ export const probes = [
         "between 6.5h and 6.5.INFRA | accepted | 2026-07-07 |",
         "between 6.5h and 6.5.INFRA | accepted | accepted |",
       ),
-    detect: () => gateRefused(/FAIL\s+2\s+decision-log rows whose Date cell does not hold a date/),
+    detect: () =>
+      gateRefused(/FAIL\s+\d+\s+decision-log rows whose Date cell does not hold a date/),
   },
   {
     name: "a supersede claim naming its own row fails the close",
@@ -350,7 +351,7 @@ export const probes = [
     appliedMarkers: ["1759 tests passing. | DEC-0124 |"],
     mutate: () => substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0124 |"),
     detect: () =>
-      gateRefused(/FAIL\s+1\s+decision-log supersede claims naming their own row\s+\(up 1\)/),
+      gateRefused(/FAIL\s+\d+\s+decision-log supersede claims naming their own row\s+\(up 1\)/),
   },
   {
     name: "a supersede claim naming an id with no row fails the close",
@@ -363,7 +364,7 @@ export const probes = [
     mutate: () => substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0900 |"),
     detect: () =>
       gateRefused(
-        /FAIL\s+1\s+decision-log supersede claims naming an id the log has no row for\s+\(up 1\)/,
+        /FAIL\s+\d+\s+decision-log supersede claims naming an id the log has no row for\s+\(up 1\)/,
       ),
   },
   {
