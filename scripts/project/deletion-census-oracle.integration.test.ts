@@ -1088,13 +1088,14 @@ describe.skipIf(skipWithoutDatabase)("the deletion census oracle", () => {
     ]);
   });
 
-  it("prints the full edge table when asked for it", async () => {
+  it("observes every edge the closure reaches, and no edge outside it", async () => {
     const run = await oracle();
 
-    // "Full" is the claim in the title, and it is checkable: the table has to name every edge the
-    // closure reaches, read here from the catalog rather than from the run. Only the PRINTING is
-    // conditional — a test that returns before asserting anything has asserted nothing and still
-    // counts as a pass (LAUNCH-D167).
+    // What the title now claims is what this comparison checks: the run's edges against the
+    // catalog's, read from the catalog rather than from the run, in both directions. The PRINTING
+    // below is conditional and nothing asserts it — a test that returns before asserting anything
+    // has asserted nothing and still counts as a pass (LAUNCH-D167), which is why the assertion
+    // sits here rather than under the flag.
     const edges = await readCatalogEdges(client as unknown as Sql);
     const reached = new Set(closureFromCatalog(edges));
     const inTheClosure = edges
