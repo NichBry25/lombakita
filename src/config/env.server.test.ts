@@ -12,16 +12,27 @@ const baseEnv = {
   AUTH_SECRET: "secret",
 } satisfies NodeJS.ProcessEnv;
 
+/**
+ * A URL value these resolvers must read as ABSENT.
+ *
+ * `undefined` cannot say that. Every URL option is resolved `options?.x ?? process.env.X`, so an
+ * explicitly-passed `undefined` falls through to the ambient environment, and a developer whose
+ * `.env.local` sets `NEXT_PUBLIC_APP_URL` gets a different answer from CI on the same assertion —
+ * which is how these tests came to fail locally and pass in CI (LAUNCH-D159). The empty string is a
+ * SUPPLIED value that `read` normalises to nothing, so it reaches the branch the test is about.
+ */
+const ABSENT = "";
+
 describe("env runtime validation", () => {
   it("requires core web keys in staging", () => {
     const env = buildServerEnv({
       ...baseEnv,
       APP_ENV: "staging",
       NEXT_PUBLIC_APP_ENV: "staging",
-      NEXT_PUBLIC_APP_URL: undefined,
-      AUTH_URL: undefined,
-      APP_BASE_URL: undefined,
-      VERCEL_URL: undefined,
+      NEXT_PUBLIC_APP_URL: ABSENT,
+      AUTH_URL: ABSENT,
+      APP_BASE_URL: ABSENT,
+      VERCEL_URL: ABSENT,
     });
 
     const validation = getRuntimeEnvValidation("web", env);
@@ -65,14 +76,14 @@ describe("env runtime validation", () => {
 describe("public env helpers", () => {
   it("resolves local fallback url for local env", () => {
     const appEnv = resolveAppEnvironment("local");
-    const appUrl = resolvePublicAppUrl({ appEnv, explicitUrl: undefined, vercelUrl: undefined });
+    const appUrl = resolvePublicAppUrl({ appEnv, explicitUrl: ABSENT, vercelUrl: ABSENT });
 
     expect(appUrl).toBe("http://localhost:3000");
   });
 
   it("avoids localhost fallback for staging when no url is configured", () => {
     const appEnv = resolveAppEnvironment("staging");
-    const appUrl = resolvePublicAppUrl({ appEnv, explicitUrl: undefined, vercelUrl: undefined });
+    const appUrl = resolvePublicAppUrl({ appEnv, explicitUrl: ABSENT, vercelUrl: ABSENT });
 
     expect(appUrl).toBeUndefined();
   });
