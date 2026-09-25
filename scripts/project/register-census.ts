@@ -848,7 +848,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 98,
+    bound: 104,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
@@ -915,7 +915,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: NON_REGISTER_ID_BULLETS,
-    bound: 25,
+    bound: 29,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
@@ -955,7 +955,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "decision-log rows a blank line left outside every table",
-    bound: 105,
+    bound: 106,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
