@@ -826,14 +826,18 @@ const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection
 if (process.argv[1]?.endsWith("run-provisioning-procedure.ts")) {
   main().catch((error: unknown) => {
     // A shared-guard refusal already opens with this runner's verb — the guard takes it as a
-    // parameter (LAUNCH-D144) — so prefixing it here would say "refusing to provision" twice. Every
-    // other failure is this runner's own and is prefixed here, so an operator always reads what was
-    // refused and in whose name rather than a bare object dump.
+    // parameter (LAUNCH-D144) — so prefixing it here would say "refusing to provision" twice, and a
+    // ResetRefused carries its whole sentence already.
     const refused = error instanceof ProcedureRefusal || error instanceof ResetRefused;
+    const detail = error instanceof Error ? error.message : String(error);
+
+    // A CRASH IS NOT A REFUSAL (LAUNCH-D168). Prefixing every failure with the refusal verb made a
+    // refused CONNECTION read as a refused REQUEST — the first line is the whole of what an operator
+    // acts on, and it was describing a decision this runner never made.
     const message =
       error instanceof ResetRefused
-        ? error.message
-        : `refusing to provision: ${error instanceof Error ? error.message : String(error)}`;
+        ? detail
+        : `${refused ? "refusing to provision" : "provisioning failed"}: ${detail}`;
 
     console.error(message);
 
