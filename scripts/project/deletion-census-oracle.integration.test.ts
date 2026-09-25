@@ -32,7 +32,12 @@ import { afterAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
 import { isLocalDatabaseHost, parseDatabaseHost } from "../lib/local-database-host";
-import { blockingForeignKeys, detachingForeignKeys } from "./deletion-census";
+import {
+  blockingForeignKeys,
+  cascadeClosure,
+  detachingForeignKeys,
+  schemaForeignKeys,
+} from "./deletion-census";
 
 const DATABASE_URL = TEST_DATABASE_URL;
 
@@ -1026,20 +1031,45 @@ describe.skipIf(skipWithoutDatabase)("the deletion census oracle", () => {
     expect(run.detaching).toEqual(censusDetaching);
   });
 
-  it("names the three edges the table-wise rule got wrong", async () => {
+  it("names every edge the table-wise rule got wrong", async () => {
     const run = await oracle();
+    const closure = new Set(cascadeClosure("users"));
     const outcomeOf = (key: string) => run.observations.find((o) => o.key === key)?.outcome;
 
-    // A note the deleted operator WROTE is not a note about them, so nothing cascades it and the
-    // delete is refused outright. The table-wise rule called `platform_ops_notes` a table whose
-    // rows cannot outlive the deletion, which is true of one of its two edges and false here.
-    expect(outcomeOf("platform_ops_notes.created_by_id")).toBe("refused");
+    // THE BLIND SPOT, derived from the schema rather than listed: the rule asked whether the SOURCE
+    // TABLE was inside the closure, so it dropped every blocking or detaching edge whose source
+    // table is — without asking what that edge's rows do.
+    const insideTheClosure = schemaForeignKeys()
+      .filter((key) => ["no action", "restrict", "set null"].includes(key.onDelete))
+      .filter((key) => closure.has(key.sourceTable))
+      .map(censusKey)
+      .sort();
 
-    // Both team_invitations pointers are SET NULL, but the source table is inside the CASCADE
-    // closure (through its team), so the table-wise rule returned the whole table as removed and
-    // never looked at either edge.
-    expect(outcomeOf("team_invitations.target_user_id")).toBe("nulled");
-    expect(outcomeOf("team_invitations.invited_by_user_id")).toBe("nulled");
+    // The database's answer to the same question. Every edge in the blind spot refuses the statement
+    // or nulls its pointer: none is taken by the cascade, which is what made the rule wrong about
+    // all of them rather than about a subset of them.
+    const measured = run.observations
+      .filter((o) => closure.has(o.sourceTable))
+      .filter((o) => o.outcome === "refused" || o.outcome === "nulled")
+      .map((o) => o.key)
+      .sort();
+
+    expect(measured).toEqual(insideTheClosure);
+    expect(measured.length).toBeGreaterThan(0);
+
+    // And the census has to put each of them where the database did. A note the deleted operator
+    // WROTE is not a note about them, so `platform_ops_notes.created_by_id` refuses the statement —
+    // the rule read that table as one whose rows cannot outlive the deletion, which is true of its
+    // other edge and false here. The rest are SET NULL pointers whose source tables reach the
+    // closure anyway — through a team, a registration or a profile — so the rule returned those
+    // tables as removed and never looked at the edge. THIS is the half that fails if the rule goes
+    // back to reading the table: it reports none of them.
+    expect(censusBlocking.filter((key) => insideTheClosure.includes(key))).toEqual(
+      measured.filter((key) => outcomeOf(key) === "refused"),
+    );
+    expect(censusDetaching.filter((key) => insideTheClosure.includes(key))).toEqual(
+      measured.filter((key) => outcomeOf(key) === "nulled"),
+    );
   });
 
   it("reports the one pair of edges a single planted row is evidence for", async () => {
@@ -1060,6 +1090,19 @@ describe.skipIf(skipWithoutDatabase)("the deletion census oracle", () => {
 
   it("prints the full edge table when asked for it", async () => {
     const run = await oracle();
+
+    // "Full" is the claim in the title, and it is checkable: the table has to name every edge the
+    // closure reaches, read here from the catalog rather than from the run. Only the PRINTING is
+    // conditional — a test that returns before asserting anything has asserted nothing and still
+    // counts as a pass (LAUNCH-D167).
+    const edges = await readCatalogEdges(client as unknown as Sql);
+    const reached = new Set(closureFromCatalog(edges));
+    const inTheClosure = edges
+      .filter((edge) => reached.has(edge.targetTable))
+      .map(edgeKeyOf)
+      .sort();
+
+    expect(run.observations.map((o) => o.key).sort()).toEqual(inTheClosure);
 
     if (process.env.CENSUS_ORACLE_TABLE !== "1") {
       return;
