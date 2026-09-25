@@ -710,6 +710,18 @@ const openRaceConnection = (max = 1): RaceConnection => {
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** The backend a racer's single connection is pinned to, which is the pid the tripwire counts. */
+const backendPidOf = async (connection: RaceConnection): Promise<number> => {
+  const [row] = await connection.sql<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+  return row!.pid;
+};
+
+/** Everything this suite can leave behind, removed in the order the foreign keys require. */
+const sweepRaceResidue = async (control: RaceConnection): Promise<void> => {
+  await control.sql`DELETE FROM institutions WHERE slug LIKE ${`${RACE_MARKER}-inst-%`}`;
+  await control.sql`DELETE FROM users WHERE username LIKE ${`${RACE_MARKER}%`}`;
+};
+
 describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submission", () => {
   it("produces exactly one success, one 409 and one audit row", async () => {
     const connections = [openRaceConnection(2), openRaceConnection(), openRaceConnection()];
@@ -721,6 +733,7 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
 
     let institutionId: string | null = null;
     let releaseBarrier: () => void = () => {};
+    let barrierSettled: Promise<void> = Promise.resolve();
 
     const cleanup = async (): Promise<void> => {
       if (!institutionId) return;
@@ -738,8 +751,14 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
     process.once("SIGTERM", onSignal);
 
     try {
-      // Sweep anything a previous, killed run left behind before this one starts.
-      await control.sql`DELETE FROM users WHERE username LIKE ${`${RACE_MARKER}%`}`;
+      // Sweep anything a previous, killed run left behind before this one starts — the whole sweep,
+      // not half of it (LAUNCH-D171).
+      //
+      // INSTITUTIONS FIRST, and by slug. Nothing cascades from a user to the institution that user
+      // belongs to, so a sweep that cleared only the users removed the owner and left the
+      // institution standing — permanently, because no later sweep could reach it either. The
+      // residue the debt names, `opsconflictrace-inst-1790054505960-30`, is exactly that row.
+      await sweepRaceResidue(control);
 
       const tag = `${Date.now()}-${seq++}`;
       const reviewerRows = await control.sql<{ id: string }[]>`
@@ -805,8 +824,16 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
           await barrierReleased;
         }),
       );
+      barrierSettled = barrier;
 
       await delay(50);
+
+      // SCOPED TO THIS TEST'S OWN BACKENDS (LAUNCH-D158). `pg_stat_activity` is cluster-wide, so the
+      // unscoped count answered "is ANYONE blocked" — a running app, or a second suite on the same
+      // database, satisfied the tripwire before either racer had parked, and the test then proved
+      // nothing about the pin while reading as green. These two pids are the race; nobody else's
+      // lock can stand in for them.
+      const racerPids = [await backendPidOf(firstRacer), await backendPidOf(secondRacer)];
 
       const countBlocked = async (): Promise<number> => {
         const rows = await control.sql<{ n: number }[]>`
@@ -814,7 +841,7 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
           FROM pg_stat_activity
           WHERE wait_event_type = 'Lock'
             AND state = 'active'
-            AND pid <> pg_backend_pid()
+            AND pid = ANY(${racerPids}::int[])
         `;
         return rows[0]?.n ?? 0;
       };
@@ -869,6 +896,15 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
     } finally {
       process.off("SIGINT", onSignal);
       process.off("SIGTERM", onSignal);
+
+      // RELEASE BEFORE CLEANING (Rule 35, LAUNCH-D171). The barrier holds `FOR UPDATE` on the
+      // submission row and `cleanup` cascades to that row, so a body that threw before
+      // `releaseBarrier()` left the barrier open and the DELETE waiting on its own lock — the
+      // teardown was suppressed by the failure it exists to survive, and the institution outlived
+      // the run. Released first, then awaited, so the cleanup below runs against a settled row.
+      releaseBarrier();
+      await barrierSettled;
+
       try {
         await cleanup();
       } finally {
