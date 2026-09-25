@@ -385,9 +385,13 @@ function censusRegister(text: string, file: string): RegisterWalk {
  *
  * Every population below is a set of IDS, not of entries, because the register files some ids more
  * than once — a headline entry carrying the anchor and a detail entry restating the item, or a live
- * entry and a disposition entry under different sub-headings. Seventeen ids are filed twice today.
+ * entry and a disposition entry under different sub-headings. How many ids those are is a fact about
+ * the register at one moment, so it is not written here: a number in a docstring is a second copy of
+ * something the register owns and stops being true without anything failing.
  * Counting entries would ask whether the DETAIL entry carries an anchor, which is not the question:
  * an item that has been given a destination has been given one, whichever of its entries says so.
+ * Which entries may answer it is the other half: judgment is made on LIVE entries alone, for the
+ * reason `anchorlessLiveIds` states below.
  */
 export function liveIds(items: DebtItem[]): string[] {
   return [...new Set(items.filter((item) => item.live).map((item) => item.id))];
@@ -400,13 +404,18 @@ function idsWithAnchor(items: DebtItem[]): Set<string> {
 /**
  * The live items whose anchor names a block and no step. Gate (b)'s population.
  *
- * An id qualifies when it is live and NO entry for it names a step — so an item whose headline
+ * An id qualifies when it is live and NO live entry for it names a step — so an item whose headline
  * anchor is `→ Step 7.7 Block C` is not in this population, whatever its detail entry says.
+ *
+ * Every entry it reads is LIVE: a withdrawn entry naming a step, or carrying the bare block anchor
+ * itself, is a destination for work that is no longer open, and reading one let a dead entry put a
+ * live item in front of a gate about live ones (see `anchorlessLiveIds`).
  */
 export function bareAnchoredLiveIds(items: DebtItem[]): string[] {
-  const namesStep = new Set(items.filter((item) => item.anchorNamesStep).map((item) => item.id));
+  const live = items.filter((item) => item.live);
+  const namesStep = new Set(live.filter((item) => item.anchorNamesStep).map((item) => item.id));
   return liveIds(items).filter(
-    (id) => !namesStep.has(id) && items.some((item) => item.id === id && item.anchorIsBareBlock),
+    (id) => !namesStep.has(id) && live.some((item) => item.id === id && item.anchorIsBareBlock),
   );
 }
 
@@ -449,11 +458,15 @@ export function canonicalAnchoredLiveIds(items: DebtItem[]): string[] {
  *
  * Identity is the id, so an item that merely moved lines is not newly filed, and an item whose id
  * already existed is not re-judged here — pre-existing debt is the ratchet's business.
+ *
+ * A step anchor excuses a new item only when it is on a LIVE entry, for the reason `anchorlessLiveIds`
+ * states: a withdrawn entry's destination is not a destination for this item.
  */
 export function newlyFiledWithoutStepAnchor(before: DebtItem[], after: DebtItem[]): DebtItem[] {
   const known = new Set(before.map((item) => item.id));
-  const namesStep = new Set(after.filter((item) => item.anchorNamesStep).map((item) => item.id));
-  return after.filter((item) => item.live && !known.has(item.id) && !namesStep.has(item.id));
+  const live = after.filter((item) => item.live);
+  const namesStep = new Set(live.filter((item) => item.anchorNamesStep).map((item) => item.id));
+  return live.filter((item) => !known.has(item.id) && !namesStep.has(item.id));
 }
 
 /**
