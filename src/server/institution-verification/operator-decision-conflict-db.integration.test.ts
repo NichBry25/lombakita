@@ -736,15 +736,28 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
     let barrierSettled: Promise<void> = Promise.resolve();
 
     const cleanup = async (): Promise<void> => {
-      if (!institutionId) return;
-      // Institutions cascade to memberships, submissions and the verification audit trail; users do
-      // not cascade from it, so they are deleted by the same marker.
-      await control.sql`DELETE FROM institutions WHERE id = ${institutionId}`;
-      await control.sql`DELETE FROM users WHERE username LIKE ${`${RACE_MARKER}%`}`;
-      institutionId = null;
+      if (institutionId) {
+        // Institutions cascade to memberships, submissions and the verification audit trail; users do
+        // not cascade from it, so they are deleted by the same marker.
+        await control.sql`DELETE FROM institutions WHERE id = ${institutionId}`;
+        await control.sql`DELETE FROM users WHERE username LIKE ${`${RACE_MARKER}%`}`;
+        institutionId = null;
+        return;
+      }
+
+      // NO ROW WAS IDENTIFIED, WHICH IS NOT THE SAME AS NOTHING BEING THERE (Rule 35, LAUNCH-D171).
+      // A failure between the user inserts and the institution insert leaves rows that no id points
+      // at, and returning here left them behind permanently — nothing later sweeps them. The marker
+      // sweep reaches them by name.
+      await sweepRaceResidue(control);
     };
 
     const onSignal = (): void => {
+      // RELEASE BEFORE CLEANING, for the reason the `finally` below does. In the barrier window the
+      // barrier holds `FOR UPDATE` on the submission row that `cleanup` cascades to, so the DELETE
+      // waits on this suite's own lock and `process.exit(130)` is never reached. `releaseBarrier` is
+      // a no-op until the executor below assigns it, so calling it early is safe.
+      releaseBarrier();
       void cleanup().finally(() => process.exit(130));
     };
     process.once("SIGINT", onSignal);
@@ -905,19 +918,22 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
       //
       // THE AWAIT CAN REJECT, and awaiting it outside the teardown made the same defect recur one
       // line after its fix: a barrier transaction that rolled back skipped `cleanup` and all three
-      // `sql.end()` calls, leaving the race rows in the database and three connections open. It is
-      // awaited INSIDE the try, so the barrier's error is reported after the teardown rather than
-      // instead of it.
+      // `sql.end()` calls, leaving the race rows in the database and three connections open. So it is
+      // awaited inside the teardown.
+      //
+      // ITS ERROR IS THEN DISCARDED, because this is a `finally`: a rejection thrown from here
+      // REPLACES whatever the body was already failing with, and the run would report the fixture
+      // instead of the assertion. Nothing is lost by discarding it — the body awaits this same
+      // promise at its own `await barrier`, so when the barrier is what failed, that failure is
+      // already the body's error.
       releaseBarrier();
 
+      await barrierSettled.catch(() => {});
+
       try {
-        await barrierSettled;
+        await cleanup();
       } finally {
-        try {
-          await cleanup();
-        } finally {
-          await Promise.all(connections.map((connection) => connection.sql.end()));
-        }
+        await Promise.all(connections.map((connection) => connection.sql.end()));
       }
     }
   });
