@@ -28,6 +28,21 @@ export const run = (command, args, env = {}) =>
   spawnSync(command, args, { encoding: "utf8", env: { ...process.env, ...env } });
 
 /**
+ * SGR styling, which a test runner emits around a failed case's name whenever colour is forced.
+ *
+ * LAUNCH-D169. Vitest writes `×`, then the escape, then the space, so a detector anchored on the
+ * literal `/× /` matches only on a machine where colour happens to be off. That made the same probe
+ * set green in CI and red in a colour-forcing shell — and red for a reason that reads as a crash,
+ * which is the one reading Rule 36 clause 3 forbids.
+ *
+ * Stripped here, once, at the point of matching, rather than in each probe: every detector in this
+ * repository reads its verdict through `refusedWhen`, so this is the one place that covers them all.
+ */
+const SGR = /\u001B\[[0-9;]*m/g;
+
+const withoutSgr = (text) => text.replace(SGR, "");
+
+/**
  * Vitest's orchestrator giving up on its own worker, before any case was reported.
  *
  * Narrow on purpose: it names the worker RPC, not "Unhandled Errors" generally. An unhandled
@@ -52,7 +67,7 @@ const WORKER_NEVER_STARTED = /\[vitest-worker\]: Timeout calling/;
  *                           immediately, which is what every caller that is not a test runner wants.
  */
 export const refusedWhen = (result, { status, reached, forbidden, label, retry }) => {
-  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  const output = withoutSgr(`${result.stdout ?? ""}${result.stderr ?? ""}`);
   const exitedAsExpected = status === undefined ? result.status !== 0 : result.status === status;
 
   if (!exitedAsExpected) {
