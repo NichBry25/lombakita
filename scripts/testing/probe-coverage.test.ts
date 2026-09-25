@@ -248,10 +248,7 @@ describe("a detector reading a case marker colour surrounds", () => {
   const CHAIN_DETECTOR = /× .*builds each join from the chain/;
 
   const colouredRun = () =>
-    run("node", [
-      "-e",
-      `process.stdout.write(${JSON.stringify(MEASURED)}); process.exit(1);`,
-    ]);
+    run("node", ["-e", `process.stdout.write(${JSON.stringify(MEASURED)}); process.exit(1);`]);
 
   it("matches through the escapes", () => {
     const verdict = refusedWhen(colouredRun(), {
