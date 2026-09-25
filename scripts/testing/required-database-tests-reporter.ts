@@ -76,8 +76,10 @@ export default class RequiredDatabaseTestsReporter implements Reporter {
 
     console.error(
       `REQUIRE_DB_TESTS is not "0", so no test may be skipped: a suite whose every test was skipped ` +
-        `reports the same green tick as a suite that passed. Set REQUIRE_DB_TESTS=0 only to run the ` +
-        `rest of the suite deliberately without them.`,
+        `reports the same green tick as a suite that passed. A test-name filter reports every test ` +
+        `it excludes as skipped, so a filtered run is not evidence — it is run deliberately, with ` +
+        `REQUIRE_DB_TESTS=0. That switch is also the one to set to run the rest of the suite ` +
+        `without the database-backed tests.`,
     );
 
     process.exitCode = 1;
