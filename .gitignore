@@ -57,7 +57,7 @@ docs/lombakita-ui-guide/
 # separate version control
 /.claude
 /CLAUDE.md
-/docs/
+/docs
 /AGENTS.md
 /src/worker/README.md
 # UI review screenshots (local only)
