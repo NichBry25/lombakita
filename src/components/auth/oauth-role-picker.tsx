@@ -174,39 +174,40 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
         </p>
 
         {stage === "choose" ? (
-          <div className="auth-role-list">
-            <button
-              type="button"
-              disabled={isSubmitting !== null}
-              onClick={() => {
-                // Prefill the candidate's declared full name from the Google display name where
-                // available; it stays editable.
-                setFullName((current) => current || email);
-                setStage("candidateOnboarding");
-              }}
-              className="auth-role-option"
-            >
-              <strong>Daftar sebagai kandidat</strong>
-              <span>Siapa pun yang mencari kompetisi, beasiswa, dan peluang lain.</span>
-            </button>
-            <button
-              type="button"
-              disabled={isSubmitting !== null}
-              onClick={() => {
-                // Prefill the recruiter's declared full name from the Google display name where
-                // available; it stays editable.
-                setRecruiterFullName((current) => current || email);
-                setStage("recruiterOnboarding");
-              }}
-              className="auth-role-option"
-            >
-              <strong>Daftar sebagai rekruter</strong>
-              <span>Perwakilan institusi yang ingin menerbitkan dan mengelola peluang.</span>
-            </button>
-          </div>
+          <>
+            <div className="auth-role-list">
+              <button
+                type="button"
+                disabled={isSubmitting !== null}
+                onClick={() => {
+                  // Prefill the candidate's declared full name from the Google display name where
+                  // available; it stays editable.
+                  setFullName((current) => current || email);
+                  setStage("candidateOnboarding");
+                }}
+                className="auth-role-option"
+              >
+                <strong>Daftar sebagai kandidat</strong>
+                <span>Siapa pun yang mencari kompetisi, beasiswa, dan peluang lain.</span>
+              </button>
+              <button
+                type="button"
+                disabled={isSubmitting !== null}
+                onClick={() => {
+                  // Prefill the recruiter's declared full name from the Google display name where
+                  // available; it stays editable.
+                  setRecruiterFullName((current) => current || email);
+                  setStage("recruiterOnboarding");
+                }}
+                className="auth-role-option"
+              >
+                <strong>Daftar sebagai rekruter</strong>
+                <span>Perwakilan institusi yang ingin menerbitkan dan mengelola peluang.</span>
+              </button>
+            </div>
+            <AssentNotice />
+          </>
         ) : null}
-
-        {stage === "choose" ? <AssentNotice /> : null}
 
         {stage === "candidateOnboarding" ? (
           <form onSubmit={onSubmitCandidateOnboarding} className="auth-form">
