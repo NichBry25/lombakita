@@ -14,6 +14,7 @@
 // file under a total-count ratchet, because a per-entry list lets the register grow invisibly.
 
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import {
   ACCEPTED_ROUTABLE_TEST_ADDRESSES,
@@ -21,7 +22,6 @@ import {
   GOVERNED_FIXTURE_FILES,
   PINNED_ADDRESS_CEILING,
   SIMULATOR_RECIPIENTS,
-  WALK_DENIED_DIRECTORIES,
   discoverSendCapableFiles,
   discoverTestFiles,
   partitionWalkedFiles,
@@ -31,6 +31,31 @@ import {
   scanGovernedTestFiles,
   walkRepositoryFiles,
 } from "./fixture-recipients";
+
+/**
+ * Asks git which of these paths it ignores. `check-ignore` reads the ignore rules and the index
+ * directly and is asked ABOUT the paths the walk already returned, which is the reverse of the
+ * question the walk's own listing answers — a different invocation, not a respelling of it.
+ *
+ * A tracked path is never reported: the index takes precedence over the ignore rules unless
+ * `--no-index` is passed, which is the behaviour wanted here.
+ */
+const pathsGitIgnoresAmong = (paths: readonly string[]): string[] => {
+  if (paths.length === 0) return [];
+
+  try {
+    return execFileSync("git", ["check-ignore", "--stdin"], {
+      input: paths.join("\n"),
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter((line) => line.length > 0);
+  } catch (error) {
+    // Exit 1 is check-ignore naming nothing, which is the passing case.
+    if ((error as { status?: number }).status === 1) return [];
+    throw error;
+  }
+};
 
 describe("the governed fixture population", () => {
   it("names files that all still exist", () => {
@@ -65,11 +90,11 @@ describe("the governed fixture population", () => {
     ).toEqual([]);
   });
 
-  // THE OTHER HALF OF COMPLETENESS, and the one that makes the deny list itself checked. The
-  // assertion above only asks whether what discovery FINDS is declared, so narrowing the walk makes
-  // it pass more easily — a deny list that swallowed half the repository would look like success.
-  // This asks the reverse: everything already governed must still be reachable by the walk.
-  it("walks every file it already governs, so the deny list cannot hide one", () => {
+  // THE OTHER HALF OF COMPLETENESS, and the one that makes the exclusion list itself checked. The
+  // assertion above only asks whether what discovery FINDS is declared, so narrowing the population
+  // makes it pass more easily — a population that swallowed half the repository would look like
+  // success. This asks the reverse: everything already governed must still be reachable.
+  it("walks every file it already governs, so the exclusions cannot hide one", () => {
     const walked = new Set(partitionWalkedFiles(walkRepositoryFiles()).sendCapable);
 
     const unreachable = GOVERNED_FIXTURE_FILES.filter((file) => !walked.has(file));
@@ -77,17 +102,25 @@ describe("the governed fixture population", () => {
     expect(
       unreachable,
       "These files are governed but the repository walk no longer reaches them, so the " +
-        "completeness assertion above has stopped covering them. A denied directory or a " +
+        "completeness assertion above has stopped covering them. A .gitignore entry or a " +
         "narrowed extension list is the usual cause.",
     ).toEqual([]);
   });
 
-  it("denies directories by name only, each with a reason", () => {
-    // A path here would silently match nothing, because the walk compares directory NAMES.
-    for (const entry of WALK_DENIED_DIRECTORIES) {
-      expect(entry.file, `${entry.file} is a path, not a directory name`).not.toContain("/");
-      expect(entry.reason.length, `${entry.file} is denied without a reason`).toBeGreaterThan(10);
-    }
+  // THE POPULATION IS GIT'S, NOT THE FILESYSTEM'S (LAUNCH-D170). The walk used to read the directory
+  // tree, so it governed local scratch the repository will never contain: a gitignored
+  // `test-artifacts/checklist/step-7b.mjs` failed this gate on every local run while a clean
+  // checkout passed. The two populations differ only where an ignored file is present, so this
+  // assertion bites exactly where the defect lived, and it goes quiet on a clean checkout for the
+  // same reason the defect did.
+  it("walks no file git ignores, which is what a filesystem walk returns", () => {
+    const ignored = pathsGitIgnoresAmong(walkRepositoryFiles());
+
+    expect(
+      ignored,
+      "These files are on disk but ignored by the repository, so a commit would never carry " +
+        "them. The walk is reading the filesystem rather than the population git would commit.",
+    ).toEqual([]);
   });
 
   it("names exemptions that all still exist, so a rename cannot retire one silently", () => {
