@@ -23,7 +23,7 @@
  * Usage: node scripts/testing/probes/registration-rate-limit.mjs
  * Runs only over committed work — the harness refuses if any listed file differs from HEAD.
  */
-import { runProbes, substituteOnce } from "../guard-probe.mjs";
+import { requireGreenBeforeProbing, runProbes, substituteOnce } from "../guard-probe.mjs";
 import { fails } from "./detectors.mjs";
 
 const REGISTER = "src/app/api/v1/auth/register/route.ts";
@@ -190,5 +190,6 @@ export const probes = [
 ];
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  requireGreenBeforeProbing("registration-rate-limit", [["npx", ["vitest", "run", TEST]]]);
   await runProbes(probes);
 }

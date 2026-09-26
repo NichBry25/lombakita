@@ -25,7 +25,10 @@ import { describe, expect, it } from "vitest";
 // and when it is absent entirely (a CI clone, where these paths do not exist because they are
 // ignored). The correct slashless rule reports IGNORED in both states.
 
-const SYMLINKED_DOC_LANE_PATHS = [".claude", "CLAUDE.md", "AGENTS.md"] as const;
+// Every doc-lane path at the repository root. `.claude`, `CLAUDE.md` and `AGENTS.md` are symlinks in
+// every checkout. `docs` is a real directory in the main checkout and a SYMLINK in a git worktree,
+// where `/docs/` stops matching for the same reason `/.claude/` did.
+const DOC_LANE_PATHS = [".claude", "CLAUDE.md", "AGENTS.md", "docs"] as const;
 
 type CheckIgnoreResult = {
   ignored: boolean;
@@ -74,7 +77,7 @@ describe("the product repo ignores the symlinked doc lane (DEC-0159)", () => {
     expect(result.stdout.trim()).toBe("true");
   });
 
-  it.each(SYMLINKED_DOC_LANE_PATHS)("ignores %s", (path) => {
+  it.each(DOC_LANE_PATHS)("ignores %s", (path) => {
     const { ignored } = checkIgnore(path);
 
     expect(
@@ -86,7 +89,7 @@ describe("the product repo ignores the symlinked doc lane (DEC-0159)", () => {
     ).toBe(true);
   });
 
-  it.each(SYMLINKED_DOC_LANE_PATHS)("matches %s with a rule carrying no trailing slash", (path) => {
+  it.each(DOC_LANE_PATHS)("matches %s with a rule carrying no trailing slash", (path) => {
     const { pattern } = checkIgnore(path);
 
     // An unmatched path yields an empty pattern, and "" does not end in a slash — so without
@@ -104,16 +107,16 @@ describe("the product repo ignores the symlinked doc lane (DEC-0159)", () => {
     ).toBe(false);
   });
 
-  it("still ignores docs/, whose rule may legitimately keep its trailing slash", () => {
-    // `docs/` is a real directory, not a symlink, so `/docs/` is correct there. Asserted so a
-    // future sweep that "consistently" removes trailing slashes does not read this file as
-    // demanding it everywhere — the rule is about symlinks, not about slashes.
-    //
-    // The queried path keeps its trailing slash, and must. `check-ignore` classifies a path as a
-    // directory by looking at the working tree, so a bare `docs` matches a directory-only rule
-    // only where the directory exists on disk — true in a developer checkout, false in CI, where
-    // `docs/` is absent precisely because it is ignored. The slash states the kind in the query
-    // itself, so the assertion tests the rule rather than the checkout.
-    expect(checkIgnore("docs/").ignored).toBe(true);
+  it("ignores docs in both of its forms with one rule", () => {
+    // `docs` is a directory in the main checkout and a symlink in a worktree, so one slashless rule
+    // has to cover both. Asserted so neither form is left to the checkout it happens to be read in:
+    // a directory-only rule matches the bare path here and stops matching it in a worktree, and in
+    // CI — where `docs` is absent because it is ignored — it matches neither.
+    const asDirectory = checkIgnore("docs/");
+    const asPath = checkIgnore("docs");
+
+    expect(asDirectory.ignored).toBe(true);
+    expect(asPath.ignored).toBe(true);
+    expect(asPath.pattern).toBe(asDirectory.pattern);
   });
 });

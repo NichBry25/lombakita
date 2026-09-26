@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Feedback, Icon } from "@/components/ui";
 import {
   CompetitionCard,
@@ -174,11 +173,6 @@ export function InstitutionPublicView({
                   ? "Kontak ini terlihat oleh Anda sebagai tim Lombakita. Publik akan melihatnya setelah institusi terverifikasi."
                   : "Kontak ini hanya terlihat oleh anggota institusi. Publik akan melihatnya setelah institusi terverifikasi."}
               </p>
-              {contactDisclosure.canRequestVerification && (
-                <Link href={`/institution/${institution.slug}/verification`}>
-                  Ajukan verifikasi
-                </Link>
-              )}
             </Feedback>
           )}
           {contactDisclosure.kind === "preview_hidden" && (

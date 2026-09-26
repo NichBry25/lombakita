@@ -34,13 +34,16 @@
 // raw SQL and removed in `afterAll`, which also asserts that none survived (Rule 35).
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { resolveMfaStatus } from "@/server/auth/mfa/mfa-status";
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
 import {
   DEMONSTRATION_CASES,
+  demonstrateAll,
   parseProcedure,
   PROCEDURE_PATH,
   ProcedureRefusal,
@@ -308,9 +311,13 @@ const REMOTE_HOST = "postgres://db.invalid.example.com:5432/lombakita_absent";
  * `APP_ENV` and `NEXT_PUBLIC_APP_ENV` are passed as empty strings rather than omitted, because
  * `process.loadEnvFile` does not override a variable already present in the process: declaring them
  * empty is what stops a developer's own `.env.local` deciding the result of these assertions.
+ *
+ * It returns the child whole, and `runRunner` below flattens it for the cases that only ask whether
+ * a sentence was said. The case that asks WHERE it was said, and what else came with it, keeps the
+ * streams and the status apart (LAUNCH-D168).
  */
-const runRunner = (environment: Record<string, string>): string => {
-  const result = spawnSync(
+const runRunnerResult = (environment: Record<string, string>) =>
+  spawnSync(
     process.execPath,
     ["--import", "tsx", "scripts/project/run-provisioning-procedure.ts", "--select", "provisioned"],
     {
@@ -324,6 +331,10 @@ const runRunner = (environment: Record<string, string>): string => {
       },
     },
   );
+
+/** The two streams as one string, for the assertions that only ask whether a sentence was said. */
+const runRunner = (environment: Record<string, string>): string => {
+  const result = runRunnerResult(environment);
 
   return `${result.stdout ?? ""}${result.stderr ?? ""}`;
 };
@@ -357,6 +368,48 @@ describe("the guard in front of the promotion", () => {
         environmentRefusal("production"),
       );
     }
+  }, 90_000);
+
+  // THE OPERATOR'S HALF OF A REFUSAL, which the merged output cannot answer: it says neither which
+  // stream a sentence arrived on nor what came after it. Until C2.4 this runner ended in
+  // `console.error(error)`, so a refusal printed thirteen lines of stderr, ten of them frames, for
+  // an answer whose whole content is one sentence (LAUNCH-D168).
+  //
+  // WHY IT IS ASSERTED AT THE PROCESS AND NOT AT THE FUNCTION THAT BUILDS THE REFUSAL. Both refusal
+  // types carry a message and both print it, so a case that only asks whether the sentence appeared
+  // passes against either behaviour; the difference is entirely in what else is printed. That is
+  // the property an operator feels, and the only place it exists is the child's two streams.
+  //
+  it("refuses the production run with the sentence alone, no stack under it, and a non-zero exit", () => {
+    const result = runRunnerResult({ APP_ENV: "production" });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/^refusing to provision: APP_ENV/);
+    expect(result.stdout, "the refusal reached stdout as well as stderr").toBe("");
+    expect(
+      result.stderr,
+      "the refusal printed a stack under its sentence, so the operator reads frames where the refusal should be",
+    ).not.toMatch(/^\s+at /m);
+  }, 90_000);
+
+  // THE OTHER DIRECTION OF THE SAME CONDITION (LAUNCH-D168). The refusal above is one arm of the
+  // catch's `refused` test; this is the arm that had no test, and the one an operator meets when a
+  // database that was supposed to be there is not. Both guard layers pass — the environment is
+  // disposable and the host is loopback — so what refuses is the socket, and the first line has to
+  // say a crash rather than a decision this runner never made.
+  //
+  // THE PREFIX IS THE WHOLE PROOF, because a run that cleared both layers and failed can only have
+  // failed at the connection. `DEAD_LOOPBACK` is the same address the control cases use; nothing
+  // listens there.
+  it("reports a failure that is not a refusal as a failure, keeping the stack that says where it came from", () => {
+    const result = runRunnerResult({ APP_ENV: "local" });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/^provisioning failed: /);
+    expect(
+      result.stderr,
+      "the crash printed no stack frame, so the operator cannot see where the failure came from",
+    ).toMatch(/^\s+at /m);
   }, 90_000);
 
   it("refuses a non-loopback host, naming the host it refused", () => {
@@ -613,4 +666,123 @@ describe.skipIf(skipWithoutDatabase)("the residue an omitted step leaves", () =>
       "candidate",
     );
   }, 30_000);
+});
+
+// ---------------------------------------------------------------------------------------------
+// The gate the demonstration refuses on, against a real database.
+// ---------------------------------------------------------------------------------------------
+
+/** A statement that closes the transaction a case ran in. */
+const CLOSES_A_TRANSACTION = /^\s*rollback\b/i;
+
+/**
+ * The same client, with the statement that closes a transaction dropped.
+ *
+ * WHY THIS EXISTS (LAUNCH-D146). The demonstration's gate refuses when a case's own measurement
+ * says the case left a write behind, and the only way to produce that measurement is for the
+ * transaction not to be rolled back — which, before this file, meant editing the `rollback` in
+ * `runProcedure` by hand. Rule 36 permits that as a probe and it is not a test: nothing runs it
+ * again after the next change. Interposing at the client the runner is HANDED reaches the same
+ * state through a seam the runner already exposes, so the gate is exercised by the suite.
+ *
+ * Every other statement, and every read the gate is computed from, reaches the real server: the
+ * procedure's own steps execute, the subjects are the ones `selectTarget` derives, and
+ * `rolledBack` is the runner's own comparison of the account's row on either side of the
+ * transaction.
+ */
+const withoutRollback = (raw: postgres.Sql): postgres.Sql =>
+  new Proxy(raw, {
+    get: (target, property, receiver) => {
+      const value = Reflect.get(target, property, receiver) as unknown;
+      if (property !== "unsafe") return value;
+
+      return (body: string, parameters?: readonly unknown[]) =>
+        CLOSES_A_TRANSACTION.test(body)
+          ? Promise.resolve([])
+          : (value as (body: string, parameters?: readonly unknown[]) => unknown).call(
+              target,
+              body,
+              parameters,
+            );
+    },
+  });
+
+/** Every role in the table, counted. The teardown's post-condition (Rule 35). */
+const rolesHeld = async (): Promise<string> => {
+  if (!client) throw new Error("no database");
+  const rows = await client<{ role: string; accounts: string }[]>`
+    select role::text as role, count(*)::text as accounts from users group by role order by role
+  `;
+
+  return rows.map((row) => `${row.role}=${row.accounts}`).join(" ");
+};
+
+describe.skipIf(skipWithoutDatabase)("the gate the demonstration refuses on", () => {
+  it("refuses the whole run when a case's transaction was not rolled back, and writes no document", async () => {
+    if (!client) throw new Error("no database");
+
+    // THE SUBJECT CASE A NEEDS, created here rather than assumed. The demonstration derives each
+    // case's subject at run time, and Case A's is an account that already holds `platform_ops` with
+    // a verified factor — the opt-in `db:seed:operators` lane, which the CI job that runs this file
+    // does not seed. Without this row the run would refuse on a missing subject and this test would
+    // pass or fail for a reason that has nothing to do with the gate.
+    const provisioned = fixtureId();
+    await insertAccount(provisioned, "platform_ops");
+    await insertVerifiedFactor(provisioned);
+
+    const rolesBefore = await rolesHeld();
+    const outDir = mkdtempSync(join(tmpdir(), "provisioning-demonstration-"));
+    const out = join(outDir, "demonstration.md");
+
+    try {
+      // THE CASE THAT WRITES. `promote` is the procedure's single writing step; a case that omits
+      // it changes nothing, so its account reads the same on either side of the transaction even
+      // with the rollback dropped, and the gate must not name it.
+      const writesTheAccount = DEMONSTRATION_CASES.filter(
+        (spec) => !spec.omit.includes("promote"),
+      ).map((spec) => spec.label);
+      const changesNothing = DEMONSTRATION_CASES.filter((spec) =>
+        spec.omit.includes("promote"),
+      ).map((spec) => spec.label);
+      expect(writesTheAccount.length, "no case writes, so the gate has nothing to refuse").toBe(1);
+
+      let refusal: unknown = null;
+      await demonstrateAll(withoutRollback(client), steps, out).catch((error: unknown) => {
+        refusal = error;
+      });
+
+      expect(
+        refusal,
+        "the demonstration completed over a case that left a write behind",
+      ).toBeInstanceOf(ProcedureRefusal);
+
+      const message = (refusal as Error).message;
+      for (const label of writesTheAccount) {
+        expect(message, `the refusal did not name the case that wrote: ${label}`).toContain(label);
+      }
+      for (const label of changesNothing) {
+        expect(
+          message,
+          `the refusal named a case that wrote nothing, so it is not the measurement speaking: ${label}`,
+        ).not.toContain(label);
+      }
+
+      // THE CLAUSE THE OPERATOR READS. The gate exists to leave a previous document untouched, so
+      // the file it says was not written is the second half of what is being asserted, and the
+      // first half is that the file is not there.
+      expect(message).toContain(`No demonstration was written to ${out}`);
+      expect(existsSync(out), "a document was written over a run that left a write behind").toBe(
+        false,
+      );
+    } finally {
+      // The interposition left the transaction open on purpose; this is what closes it, and it runs
+      // whether the assertions above passed or threw. Everything the run wrote is inside it.
+      await client.unsafe("rollback").catch(() => undefined);
+      rmSync(outDir, { recursive: true, force: true });
+    }
+
+    expect(await rolesHeld(), "the run's promotion outlived the rollback that closed it").toBe(
+      rolesBefore,
+    );
+  }, 60_000);
 });

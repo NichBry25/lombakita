@@ -28,6 +28,7 @@
 
 import { spawnSync } from "node:child_process";
 
+import { reachedStepLine } from "./reached-step-line.mjs";
 import {
   PROBE_DATABASES,
   baseDatabaseUrl,
@@ -42,8 +43,14 @@ try {
   // Absent in CI, where these come from the workflow environment instead.
 }
 
-/** The step whose output proves the run reached the database rather than dying before it. */
-const REACHED_THE_REBUILD = "[4/4] Rebuilding from the database";
+const REINDEX = "scripts/reindex-search-index.ts";
+
+/**
+ * The step whose output proves a run reached the database rather than dying before it, derived from
+ * the reindex's own source rather than restated here (LAUNCH-D128). The anchor is the step's own
+ * title; its number, the total and the print format belong to the reindex.
+ */
+const reachedTheRebuildLine = () => reachedStepLine(REINDEX, "Rebuilding from the database");
 
 // The unprotected name, so the reindex's own disposability guard permits the run and the flag is
 // the only thing that differs between the control and the probe. A protected name would refuse both
@@ -67,6 +74,10 @@ const reindexAgainstEmpty = ({ expectPopulated }) => {
 };
 
 const main = async () => {
+  // Derived before a probe database exists, so a line that cannot be derived refuses without
+  // anything having been created or migrated.
+  const reachedTheRebuild = reachedTheRebuildLine();
+
   await createProbeDatabase(PROBE_DATABASE);
 
   // The probe database is created empty and never migrated, so the rebuild's query has to fail on a
@@ -95,7 +106,7 @@ const main = async () => {
       ["control", control],
       ["probe", probe],
     ]) {
-      if (!run.output.includes(REACHED_THE_REBUILD)) {
+      if (!run.output.includes(reachedTheRebuild)) {
         throw new Error(
           `the ${label} run never reached the rebuild, so nothing was measured. Tail:\n` +
             run.output.slice(-800),

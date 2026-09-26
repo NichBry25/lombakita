@@ -40,7 +40,7 @@ import { resolve } from "node:path";
 import type postgres from "postgres";
 import { resolveMfaStatus, type MfaStatus } from "@/server/auth/mfa/mfa-status";
 import { loadEnvFile } from "@/server/scripts/env-file";
-import { declaredAppEnvironment, presentOrUndefined } from "../reset/reset-guard";
+import { ResetRefused, declaredAppEnvironment, presentOrUndefined } from "../reset/reset-guard";
 import {
   ProcedureRefusal,
   connectToGuardedDatabase,
@@ -584,8 +584,18 @@ const main = async (): Promise<void> => {
   }
 };
 
-/** Run every case in `DEMONSTRATION_CASES`, in order, and write the record of all of them to one document. */
-const demonstrateAll = async (
+/**
+ * Run every case in `DEMONSTRATION_CASES`, in order, and write the record of all of them to one document.
+ *
+ * Exported for the same reason `runProcedure` above is: the rollback gate inside it is a check on
+ * what the cases MEASURED, and a test that could not call this would have to assert the check by
+ * grepping for it (Rule 32, and LAUNCH-D146).
+ *
+ * `out` is a path, not a path-or-default. The default is applied by the caller that knows whether
+ * one was given on the command line; a second `?? DEMONSTRATION_PATH` in here read as a fallback
+ * this function could take, and could not (LAUNCH-D148).
+ */
+export const demonstrateAll = async (
   sql: postgres.Sql,
   declared: readonly ProcedureStep[],
   out: string,
@@ -626,7 +636,7 @@ const demonstrateAll = async (
     throw new ProcedureRefusal(
       `${notRolledBack.map((entry) => entry.label).join(", ")}: the account's row read after the ` +
         "transaction closed differs from the row read before it opened, so the run left a write " +
-        `behind. No demonstration was written to ${out ?? DEMONSTRATION_PATH}`,
+        `behind. No demonstration was written to ${out}`,
     );
   }
 
@@ -815,7 +825,30 @@ const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection
 
 if (process.argv[1]?.endsWith("run-provisioning-procedure.ts")) {
   main().catch((error: unknown) => {
-    console.error(error);
+    // A shared-guard refusal already opens with this runner's verb — the guard takes it as a
+    // parameter (LAUNCH-D144) — so prefixing it here would say "refusing to provision" twice, and a
+    // ResetRefused carries its whole sentence already.
+    const refused = error instanceof ProcedureRefusal || error instanceof ResetRefused;
+    const detail = error instanceof Error ? error.message : String(error);
+
+    // A CRASH IS NOT A REFUSAL (LAUNCH-D168). Prefixing every failure with the refusal verb made a
+    // refused CONNECTION read as a refused REQUEST — the first line is the whole of what an operator
+    // acts on, and it was describing a decision this runner never made.
+    const message =
+      error instanceof ResetRefused
+        ? detail
+        : `${refused ? "refusing to provision" : "provisioning failed"}: ${detail}`;
+
+    console.error(message);
+
+    // A refusal is the answer to the request, not a crash: the line above is the whole of what an
+    // operator needs, and the frames that led to it would bury it (LAUNCH-D168). An error that is
+    // NOT a refusal keeps its stack, which is the only thing that says where it came from.
+    if (!refused && error instanceof Error && error.stack !== undefined) {
+      // The stack WITHOUT its first line, which repeats the message just printed.
+      console.error(error.stack.split("\n").slice(1).join("\n"));
+    }
+
     process.exitCode = 1;
   });
 }

@@ -76,16 +76,31 @@ vi.mock("@/server/async/enqueue", async (importOriginal) => ({
 // The default answer is a valid head, so every existing test describes an upload that completed.
 // The refusals (an object that is not there, and one that is too large) are driven by tests that
 // set this deliberately, so the guard is exercised rather than merely configured around.
-const { mockHeadObject, mockDeleteObject } = vi.hoisted(() => ({
-  mockHeadObject: vi.fn(),
-  mockDeleteObject: vi.fn(),
-}));
+//
+// `isR2Available` is on the seam for the same reason and not because it reaches the network: it
+// reads the process environment once, at import, so a test that asserts what it returns is asserting
+// what the DEVELOPER'S MACHINE is configured with. `realIsR2Available` keeps the default answer
+// identical to the unmocked one, so the seam changes nothing for any test that does not set it.
+const { mockHeadObject, mockDeleteObject, mockIsR2Available, realIsR2Available } = vi.hoisted(
+  () => ({
+    mockHeadObject: vi.fn(),
+    mockDeleteObject: vi.fn(),
+    mockIsR2Available: vi.fn(),
+    realIsR2Available: { current: undefined as undefined | (() => boolean) },
+  }),
+);
 
-vi.mock("@/server/storage/r2.client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/server/storage/r2.client")>()),
-  headObject: mockHeadObject,
-  deleteObject: mockDeleteObject,
-}));
+vi.mock("@/server/storage/r2.client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/storage/r2.client")>();
+  realIsR2Available.current = actual.isR2Available;
+
+  return {
+    ...actual,
+    headObject: mockHeadObject,
+    deleteObject: mockDeleteObject,
+    isR2Available: mockIsR2Available,
+  };
+});
 
 beforeEach(() => {
   mockEnqueuePaymentProofSubmitted.mockReset();
@@ -94,6 +109,8 @@ beforeEach(() => {
   mockHeadObject.mockResolvedValue({ sizeBytes: 2048, contentType: "image/jpeg" });
   mockDeleteObject.mockReset();
   mockDeleteObject.mockResolvedValue(undefined);
+  mockIsR2Available.mockReset();
+  mockIsR2Available.mockImplementation(() => realIsR2Available.current?.() ?? false);
 });
 
 const DATABASE_URL = TEST_DATABASE_URL;
@@ -7133,16 +7150,19 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
   });
 
   it("writes no audit row when storage is down, because no file was read", async () => {
-    // The ordering property, and the branch this environment actually runs. With object storage
-    // unconfigured the presigner is never reached, so an audit row here would put an operator at a
-    // receipt they could not have opened.
+    // The ordering property. With object storage unavailable the presigner is never reached, so an
+    // audit row here would put an operator at a receipt they could not have opened.
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx);
       const { isR2Available } = await import("@/server/storage/r2.client");
       const { generateDisputeProofViewUrl } = await import("@/server/finance/dispute-view");
 
-      // Stated rather than assumed: if this environment ever gains storage credentials, the
-      // assertion below stops describing it and the test says so instead of quietly inverting.
+      // SET, not observed (LAUNCH-D159). `isR2Available` reads the process environment once at
+      // import, so asserting its ambient value made this test describe whichever machine ran it:
+      // green in CI, red on any machine with `.env.local` exported, and red in the direction that
+      // reads as a regression. Setting it here is what lets the assertion below be about the branch
+      // rather than about the reader's laptop.
+      mockIsR2Available.mockReturnValue(false);
       expect(isR2Available()).toBe(false);
 
       const paymentId = await seedManualPayment(tx, fixture);

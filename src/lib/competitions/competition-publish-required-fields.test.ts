@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getMissingCompetitionPublishFields } from "./competition-publish-readiness";
+import { getMissingCompetitionPublishFields } from "./competition-publish-required-fields";
 
 const completeForm = () => ({
   title: "Lomba Inovasi",

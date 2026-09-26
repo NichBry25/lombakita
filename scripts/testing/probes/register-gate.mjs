@@ -30,10 +30,10 @@
  * Usage: npm run verify:register-probe
  * Runs only over committed work; the harness refuses if any register differs from HEAD.
  */
-import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { runProbes, substituteOnce } from "../guard-probe.mjs";
+import { requireGreenBeforeProbing, runProbes, substituteOnce } from "../guard-probe.mjs";
 import { fails } from "./detectors.mjs";
+import { liveAnchorItem } from "./live-anchor-item.mjs";
 
 const REGISTER = "docs/project/open-debt.md";
 const DECISION_LOG = "docs/project/decision-log.md";
@@ -157,6 +157,30 @@ const ROW_DEC_0114 =
  * the gate print a larger number and exit zero. That probe is gone on purpose: a red run is the only
  * thing this harness accepts as evidence, and there is no longer a guard for it to go red against.
  */
+/**
+ * A live item's head line inside a `##` block's BODY, which is the population arm (b) created.
+ *
+ * LAUNCH-D69 sits in the body of `## Known Debt (Step 7.7 Block C Phase 2, 2026-09-13)` — no `###`
+ * heading between it and the block — so before arm (b) existed this item was in no live population
+ * at all. The anchor runs to the end of the line rather than to the end of the sentence, because a
+ * prefix is what `substituteOnce` needs and this one is unique in the file.
+ */
+const D69_BLOCK_BODY_HEAD =
+  "- **LAUNCH-D69 [LOW] → Step 7.7 Block C Phase 3. The routing census classifies, but only two";
+
+/** The same defect, planted into that body. Id out of the register's range, as above. */
+const PLANTED_BLOCK_BODY_ITEM =
+  "- **LAUNCH-D9998 [HIGH] → Block C2.** filed by the register-gate probe in a debt block's body.\n";
+
+/**
+ * What a withdrawal looks like on an anchor line: the mark, then the closing `**`.
+ *
+ * `· WITHDRAWN` is the register's own mark for an item it has taken out without discharging it and
+ * is not a kind of `· DISCHARGED` — which is the whole reason this probe exists alongside the
+ * discharge obligation three probes up.
+ */
+const WITHDRAWAL_SUFFIX = " · WITHDRAWN 2026-09-25, probe.**";
+
 const SUPERSEDES_CELL_OF_DEC_0124 =
   "Extends DEC-0123 (same session) with the post-event half of the lifecycle. Reuses the DEC-0121 " +
   "derived-not-stored principle. Protects DEC-0122's retention trigger, which is measured from " +
@@ -174,7 +198,7 @@ export const probes = [
     appliedMarkers: ["LAUNCH-D9999"],
     mutate: () => substituteOnce(REGISTER, D47_ANCHORED, PLANTED_ITEM + D47_ANCHORED),
     detect: () =>
-      gateRefused(/FAIL\s+a live item filed since docs@[0-9a-f]+ names a step \(1 filed\)/),
+      gateRefused(/FAIL\s+a live item filed since docs@[0-9a-f]+ names a step \(\d+ filed\)/),
   },
   {
     name: "an item naming a block without naming a step fails the close",
@@ -185,7 +209,7 @@ export const probes = [
     repo: DOC_LANE,
     appliedMarkers: ["- **LAUNCH-D47 [HIGH] → Block C2."],
     mutate: () => substituteOnce(REGISTER, D47_ANCHORED, "- **LAUNCH-D47 [HIGH] → Block C2."),
-    detect: () => gateRefused(/FAIL\s+no live item names a block without naming a step \(1\)/),
+    detect: () => gateRefused(/FAIL\s+no live item names a block without naming a step \(\d+\)/),
   },
   {
     name: "a discharge declared in prose but not on the anchor line fails the close",
@@ -199,6 +223,49 @@ export const probes = [
     detect: () =>
       gateRefused(
         /FAIL\s+\d+\s+items a discharged section declares discharged whose anchor line carries no mark\s+\(up 1\)/,
+      ),
+  },
+  {
+    // ARM (b) OF THE LIVE PREDICATE, which is the half of LAUNCH-D138 nothing else can reach. The
+    // plant is a live item by every field the census reads — a severity bracket and an anchor of its
+    // own — and wrong only in where it sits: the body of a `##` block, with no `###` heading over it.
+    // Before arm (b) this item was in no live population, so gate (b) read `(0)` on it and the probe
+    // could not go red; the detector is therefore gate (b)'s own number, not the item's existence.
+    name: "an item filed in a debt block's body is live",
+    klass: "D",
+    harmfulMove:
+      "filing an item in the body of a `## Known Debt` block rather than under a `###` heading, where the census of the day counted nothing — not the item, not its anchor, and not the missing destination of either",
+    files: [REGISTER],
+    repo: DOC_LANE,
+    appliedMarkers: ["LAUNCH-D9998"],
+    mutate: () =>
+      substituteOnce(REGISTER, D69_BLOCK_BODY_HEAD, PLANTED_BLOCK_BODY_ITEM + D69_BLOCK_BODY_HEAD),
+    detect: () => gateRefused(/FAIL\s+no live item names a block without naming a step \(\d+\)/),
+  },
+  {
+    // THE WITHDRAWAL MARK, which is not a discharge and has to hold on both arms. The subject is
+    // whichever live item the register is holding when the probe runs — `liveAnchorItem` derives it
+    // and refuses by name when none qualifies — so marking it withdrawn takes it out of the live
+    // set and the anchored floor, the one asserted population that shrinks, is what says so. A
+    // `· DISCHARGED` plant here would go red for the obligation three probes up instead, which is
+    // why this one plants the other mark.
+    name: "an item withdrawn on its anchor line leaves the live set",
+    klass: "D",
+    harmfulMove:
+      "marking an anchor line `· WITHDRAWN` while the census reads only `· DISCHARGED`, so an item the register has withdrawn keeps counting as open work and keeps its place in every ratchet",
+    files: [REGISTER],
+    repo: DOC_LANE,
+    appliedMarkers: ["· WITHDRAWN 2026-09-25, probe."],
+    mutate: () => {
+      // Resolved inside the mutation rather than at import: `probe-coverage.test.ts` imports this
+      // suite as data, and a refusal over the register's current contents is this suite's to
+      // report, not that test's to fail.
+      const { anchored } = liveAnchorItem(REGISTER);
+      substituteOnce(REGISTER, anchored, anchored + WITHDRAWAL_SUFFIX);
+    },
+    detect: () =>
+      gateRefused(
+        /FAIL\s+\d+\s+live debt ids carrying an anchor that names a step and a block\s+\(down 1 — below the floor of \d+\)/,
       ),
   },
   {
@@ -229,7 +296,7 @@ export const probes = [
       ),
     detect: () =>
       gateRefused(
-        /FAIL\s+1\s+decision-log rows whose cells do not match their columns' declared count\s+\(up 1\)/,
+        /FAIL\s+\d+\s+decision-log rows whose cells do not match their columns' declared count\s+\(up 1\)/,
       ),
   },
   {
@@ -257,7 +324,7 @@ export const probes = [
     mutate: () => substituteOnce(DECISION_LOG, `\n${ROW_DEC_0125}`, ROW_DEC_0125),
     detect: () =>
       gateRefused(
-        /FAIL\s+2\s+decision-log rows written on another record's line instead of below it/,
+        /FAIL\s+\d+\s+decision-log rows written on another record's line instead of below it\s+\(up 1\)/,
       ),
   },
   {
@@ -274,7 +341,8 @@ export const probes = [
         "between 6.5h and 6.5.INFRA | accepted | 2026-07-07 |",
         "between 6.5h and 6.5.INFRA | accepted | accepted |",
       ),
-    detect: () => gateRefused(/FAIL\s+2\s+decision-log rows whose Date cell does not hold a date/),
+    detect: () =>
+      gateRefused(/FAIL\s+\d+\s+decision-log rows whose Date cell does not hold a date\s+\(up 1\)/),
   },
   {
     name: "a supersede claim naming its own row fails the close",
@@ -286,7 +354,7 @@ export const probes = [
     appliedMarkers: ["1759 tests passing. | DEC-0124 |"],
     mutate: () => substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0124 |"),
     detect: () =>
-      gateRefused(/FAIL\s+1\s+decision-log supersede claims naming their own row\s+\(up 1\)/),
+      gateRefused(/FAIL\s+\d+\s+decision-log supersede claims naming their own row\s+\(up 1\)/),
   },
   {
     name: "a supersede claim naming an id with no row fails the close",
@@ -299,7 +367,7 @@ export const probes = [
     mutate: () => substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0900 |"),
     detect: () =>
       gateRefused(
-        /FAIL\s+1\s+decision-log supersede claims naming an id the log has no row for\s+\(up 1\)/,
+        /FAIL\s+\d+\s+decision-log supersede claims naming an id the log has no row for\s+\(up 1\)/,
       ),
   },
   {
@@ -404,27 +472,12 @@ export const probes = [
   },
 ];
 
-/**
- * Proves the gate was GREEN before the first probe touched anything.
- *
- * Without this the suite cannot distinguish "the mutation made it red" from "it was already red",
- * and every probe below would report itself proven over a register that fails on its own.
- */
-const requireGreenBeforeProbing = () => {
-  const result = spawnSync("npm", VERIFY, { encoding: "utf8" });
-  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-
-  if (result.status !== 0) {
-    throw new Error(
-      "the register is already red before anything was mutated, so a probe going red afterwards " +
-        `would prove nothing about the mutation:\n${output.slice(-1500)}`,
-    );
-  }
-};
-
 // Exported as DATA and run only when this file IS the entry point, so the coverage test can read
 // the probe set without mutating the tree to find out.
+//
+// `verify:register` reads three text files and nothing else — the shared precondition's soundness
+// argument holds for it, and `scripts/testing/guard-probe.mjs` carries it.
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  requireGreenBeforeProbing();
+  requireGreenBeforeProbing("register-gate", [["npm", VERIFY]]);
   await runProbes(probes);
 }

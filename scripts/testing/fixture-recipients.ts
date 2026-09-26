@@ -20,17 +20,17 @@
  * fails the gate even if it is obviously harmless, because "obviously harmless" is a judgement the
  * gate is not able to make and skipping it is how the population silently stops being covered.
  *
- * TWO POPULATIONS, EACH COMPLETE, EACH WITH ITS OWN RULE. Both come from ONE walk of the repository
- * with an explicit deny list, so a file cannot fall between them and no directory is in scope only
- * because somebody remembered to name it. Send-capable programs must each be governed or exempted,
+ * TWO POPULATIONS, EACH COMPLETE, EACH WITH ITS OWN RULE. Both come from ONE listing of the
+ * repository — every file git would commit, whose exclusions are `.gitignore`'s — so a file cannot
+ * fall between them and no directory is in scope only because somebody remembered to name it.
  * and the reverse check proves the walk still reaches everything already governed. Unit tests pin
  * their routable addresses per file under a total-count ratchet. Asking a single question of both
  * would have meant either forcing rewrites that invert what a classifier test measures, or the
  * state this replaces, where the whole test tree was outside the gate and nothing said so.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { filesGitWouldCommit } from "../lib/repository-files";
 import { reservedRecipientSuffixOf } from "../../src/server/email/reserved-recipients";
 import { SIMULATOR_RECIPIENTS } from "../../src/server/email/simulator-recipients";
 
@@ -66,35 +66,6 @@ export const GOVERNED_FIXTURE_FILES = Object.freeze([
   "src/server/scripts/verify-step-4.5-saved-cap.ts",
   "scripts/finance/clear-local-finance-residue.ts",
   "scripts/testing/probes/config-gates.mjs",
-] as const);
-
-/**
- * Directories the walk does not enter, and the reason each is out of the population.
- *
- * A DENY LIST WALKED FROM THE REPOSITORY ROOT, not an allow list of roots. The previous version
- * named `scripts` and `src/server/scripts` and so had exactly the defect it was written to close,
- * one level up: the roots were themselves an undeclared list, and a seed placed in any other
- * directory was invisible. That was demonstrated — a file at `src/server/seeds/` carrying a real
- * routable address passed the whole gate green.
- *
- * Everything not denied is in scope, so adding a directory to the repository adds it to the
- * population automatically. Removing one from the population is an edit here, with a reason, in a
- * diff — which is the property an allow list cannot have.
- */
-export const WALK_DENIED_DIRECTORIES: readonly DeclaredExemption[] = Object.freeze([
-  { file: "node_modules", reason: "dependencies, not this repository's code" },
-  { file: ".git", reason: "object store" },
-  { file: ".next", reason: "build output" },
-  { file: ".vercel", reason: "build output" },
-  { file: "coverage", reason: "test output" },
-  { file: "dist", reason: "build output" },
-  { file: "build", reason: "build output" },
-  {
-    file: "docs",
-    reason:
-      "a separate git repository (DEC-0101) holding prose, not programs. Nothing under it is " +
-      "imported or executed by the application",
-  },
 ] as const);
 
 /**
@@ -243,40 +214,28 @@ export const scanFixtureFile = (file: string): FixtureRecipient[] => {
 
 const TEST_SUFFIX = ".test.ts";
 
-const DENIED_DIRECTORY_NAMES: ReadonlySet<string> = new Set(
-  WALK_DENIED_DIRECTORIES.map((entry) => entry.file),
-);
-
 /**
- * Every file under `directory`, recursively, skipping the denied directories.
+ * Repository-relative paths of every file the walk reaches — read from git (LAUNCH-D170).
  *
- * Pruned DURING the walk rather than filtered after it: `node_modules` is large enough that
- * descending into it and discarding the result afterwards is the difference between a gate that
- * runs in CI and one nobody waits for.
+ * A FILESYSTEM WALK WAS THE WRONG SUBJECT, and it failed in the direction that hides itself. Every
+ * file on disk is not every file in the repository: the walk read a gitignored
+ * `test-artifacts/checklist/step-7b.mjs` and failed this gate on every local run while CI, which has
+ * no such file, passed. A gate whose two runs disagree about what it covers cannot be trusted in
+ * either direction, and the local half is the half a developer sees.
+ *
+ * The population is `filesGitWouldCommit()` — the same one `verify:secrets` reads (LAUNCH-D139), so
+ * the two repository-wide gates answer about one set and not two. Its exclusions are `.gitignore`'s,
+ * which is a file that already carries a reason per entry, is reviewed in a diff, and is the thing
+ * `git add` itself consults.
+ *
+ * NOT THE SAME SET AS THE DENY LIST THIS REPLACED, which named eight directories. Six are ignored by
+ * name: `node_modules`, `.next`, `coverage`, `build` and `docs` by a rule anchored to the repository
+ * root, so a nested `build/` or `coverage/` is not covered, and `.vercel` wherever it sits. `dist` is
+ * named in no rule, and `.git` is excluded by git rather than by `.gitignore`. No file in this
+ * repository sits under any of the eight, so the two subjects currently return the same list; what
+ * differs is which file decides.
  */
-const walkRepository = (directory: string): string[] => {
-  const found: string[] = [];
-
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      if (DENIED_DIRECTORY_NAMES.has(entry.name)) continue;
-      found.push(...walkRepository(join(directory, entry.name)));
-      continue;
-    }
-
-    if (entry.isFile()) {
-      found.push(join(directory, entry.name));
-    }
-  }
-
-  return found;
-};
-
-/** Repository-relative paths of every file the walk reaches, in sorted order. */
-export const walkRepositoryFiles = (): string[] =>
-  walkRepository(".")
-    .map((file) => (file.startsWith("./") ? file.slice(2) : file))
-    .sort();
+export const walkRepositoryFiles = (): string[] => filesGitWouldCommit();
 
 /** The two populations, split out of one walk so no file can fall between them. */
 export const partitionWalkedFiles = (

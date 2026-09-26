@@ -34,7 +34,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type postgres from "postgres";
 import { loadEnvFile } from "@/server/scripts/env-file";
-import { ResetRefused, declaredAppEnvironment } from "../reset/reset-guard";
+import { ResetRefused, declaredAppEnvironment, presentOrUndefined } from "../reset/reset-guard";
 import {
   ProcedureRefusal,
   connectToGuardedDatabase,
@@ -618,9 +618,16 @@ const main = async (): Promise<void> => {
   }
 
   const { loadedFrom } = loadEnvFile({});
-  const url = process.env.DATABASE_URL;
+  // `presentOrUndefined`, not a bare `=== undefined` test, which is what the provisioning runner
+  // does for the same variable. `DATABASE_URL=""` IS a value, so an empty variable passes that test
+  // and reaches the driver with nothing to connect to, which opens a default local socket instead
+  // of refusing. Whether the variable is present is not the question; whether it names anything is
+  // (LAUNCH-D148).
+  const url = presentOrUndefined(process.env.DATABASE_URL);
   if (url === undefined) {
-    throw new ProcedureRefusal(`DATABASE_URL is not set and no env file was found (${loadedFrom})`);
+    throw new ProcedureRefusal(
+      `DATABASE_URL is unset or empty and no env file supplied one (${loadedFrom})`,
+    );
   }
   // The three-layer disposability guard is `assertResetTargetIsDisposable`, reached through
   // `connectToGuardedDatabase` below — the reset lane's own, not a second copy of its layers
@@ -1039,16 +1046,20 @@ const selectTarget = async (
 if (process.argv[1]?.endsWith("run-deletion-procedure.ts")) {
   main().catch((error: unknown) => {
     // A shared-guard refusal already opens with this runner's verb — the guard takes it as a
-    // parameter (LAUNCH-D144) — so prefixing it here would say "refusing to delete" twice. Every
-    // other failure is this runner's own and is prefixed here, so an operator always reads what was
-    // refused and in whose name rather than a bare object dump. The shared guard's refusal is a
-    // refusal for the stack rule below as well: an operator reading it needs the sentence, not
-    // the frames that led to it.
+    // parameter (LAUNCH-D144) — so prefixing it here would say "refusing to delete" twice, and a
+    // ResetRefused carries its whole sentence already. The shared guard's refusal is a refusal for
+    // the stack rule below as well: an operator reading it needs the sentence, not the frames that
+    // led to it.
     const refused = error instanceof ProcedureRefusal || error instanceof ResetRefused;
+    const detail = error instanceof Error ? error.message : String(error);
+
+    // A CRASH IS NOT A REFUSAL (LAUNCH-D168). Prefixing every failure with the refusal verb made a
+    // refused CONNECTION read as a refused REQUEST — the first line is the whole of what an operator
+    // acts on, and it was describing a decision this runner never made.
     const message =
       error instanceof ResetRefused
-        ? error.message
-        : `refusing to delete: ${error instanceof Error ? error.message : String(error)}`;
+        ? detail
+        : `${refused ? "refusing to delete" : "deletion failed"}: ${detail}`;
 
     console.error(message);
 

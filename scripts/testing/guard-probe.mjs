@@ -21,7 +21,7 @@
  * Teardown runs in a `finally` AND from signal handlers (Rule 35): the failure mode this is built
  * against is a probe that leaves the tree mutated because someone hit Ctrl-C while it measured.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { relative, sep } from "node:path";
 import { transform as parseCss } from "lightningcss";
@@ -380,6 +380,38 @@ export const runProbe = async (spec) => {
  *
  * A probe suite that tolerates a green probe is a suite that tolerates an unproven guard.
  */
+/**
+ * The green precondition: every gate the suite's probes run must be PASSING before the first probe
+ * runs. A suite seated over a gate that was already red reports the same red for a reason that has
+ * nothing to do with the mutation, and the two are indistinguishable in the output.
+ *
+ * Exit code alone is not the test. `detectors.mjs` reads a line the gate prints when it refuses —
+ * `/^\s*FAIL\s/` — as its evidence, so a gate that exits 0 while printing one of those is not green
+ * for the purpose the probes put it to, and passing it here would seat the suite over exactly the
+ * state this guards against.
+ *
+ * A precondition that runs per SUITE rather than per probe is sound only where the gate reads the
+ * tree and nothing else: the harness restores every mutated file from git after each probe and
+ * throws if the restore did not land, so the tree in front of the next probe is byte-identical to
+ * the tree this measured. A gate that reads a database, a browser, the clock or the environment has
+ * no such guarantee and must not be seated this way.
+ */
+export const requireGreenBeforeProbing = (suite, gates) => {
+  for (const [command, args] of gates) {
+    const result = spawnSync(command, args, { encoding: "utf8" });
+    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+    const failLines = output.split("\n").filter((line) => /^\s*FAIL\s/.test(line));
+
+    if (result.status !== 0 || failLines.length > 0) {
+      throw new Error(
+        `CONTROL: ${suite} gate ${command} ${args.join(" ")} already fails at HEAD\n` +
+          `  exit code ${result.status}, ${failLines.length} FAIL line(s) — a probe that goes red ` +
+          `after this would prove nothing about its mutation.\n${output.slice(-1500)}`,
+      );
+    }
+  }
+};
+
 export const runProbes = async (probes) => {
   const results = [];
   for (const probe of probes) {
