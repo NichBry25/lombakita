@@ -757,9 +757,9 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
 
     // THE CLEANUP IS MEASURED, NOT BELIEVED (Rule 35, LAUNCH-D171). Both teardown tests in this
     // suite exist because a path that reported success left rows behind; a `cleanup()` that returns
-    // is not evidence that the rows are gone. The predicate is the one the out-of-band counter uses
-    // (`test-artifacts/c2-4/fix/f6-count.ts`), so the in-suite post-condition and the manual one
-    // cannot disagree about what "left behind" means.
+    // is not evidence that the rows are gone. "Left behind" means exactly this and nothing else: a
+    // `users` row whose `username` starts with `RACE_MARKER`, or an `institutions` row whose `slug`
+    // starts with `${RACE_MARKER}-inst-`. Both counts must be zero.
     const assertNoRaceResidue = async (): Promise<void> => {
       const [markerUsers] = await control.sql<{ n: number }[]>`
         SELECT COUNT(*)::int AS n FROM users WHERE username LIKE ${`${RACE_MARKER}%`}
@@ -800,12 +800,22 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
     // waited on this suite's own lock in the opposite order and the run reported
     // `PostgresError: deadlock detected` — the fixture's failure standing in for the body's, which
     // is the same defect as the barrier rejection above, one lock further out.
-    const settleAndClean = async (): Promise<void> => {
-      releaseBarrier();
-      await barrierSettled.catch(() => {});
-      await Promise.allSettled(racerStatements);
-      await cleanup();
-      await assertNoRaceResidue();
+    // ONE PASS, HOWEVER MANY CALLERS ASK. Three do — the `finally` below, the interrupt handler, and
+    // a second signal reaching that handler — and only the first of them may run it: a second pass
+    // concurrent with the first would issue the DELETE and the residue check again while the rows are
+    // still in flight. What is memoized is the PROMISE, so a caller that arrives mid-pass awaits the
+    // pass rather than starting one.
+    let teardown: Promise<void> | undefined;
+    const settleAndClean = (): Promise<void> => {
+      teardown ??= (async () => {
+        releaseBarrier();
+        await barrierSettled.catch(() => {});
+        await Promise.allSettled(racerStatements);
+        await cleanup();
+        await assertNoRaceResidue();
+      })();
+
+      return teardown;
     };
 
     // `process.on`, NOT `process.once`, mirroring `guard-probe.mjs:132-143`: a spent handler leaves a
