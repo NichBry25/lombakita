@@ -32,18 +32,68 @@
 // `scripts/testing/probes/` are built on `-t`, so the probes' own controls refused. The filter is
 // READ from the resolved config (`Vitest#config.testNamePattern`, public on `ResolvedConfig`),
 // never inferred from the skip count, because a count cannot tell a deliberate exclusion from a
-// silenced test. Under a filter the rule becomes: no test executed at all is still a failure.
+// silenced test.
+//
+// SO THE FILTER EXCUSES AN INERT TEST ONLY WHERE IT IS THE FILTER THAT EXCLUDED IT. Each inert test
+// is asked whether the pattern matched it, and only the ones it did not are dropped. That arm is not
+// decoration: `-t` and `it.skip` leave a test in the same mode, so without it, "the filter silenced
+// this test" and "the filter selected this test and something silenced it anyway" are the same
+// observation — which is the whole failure this file exists to close, one flag further in. Nothing
+// executed at all under a filter is still a failure of its own: the run is then evidence about
+// nothing.
 //
 // It reads the predicate from its own module, not from `@/server/testing/database-url`: that module
 // throws at load when a database is required and absent, and this runs before any test is collected,
 // so the throw would replace every suite's own failure with one reporter-load error.
 
 import { relative } from "node:path";
-import type { Reporter, TestModule, TestRunEndReason, Vitest } from "vitest/node";
+import type {
+  Reporter,
+  TestCase,
+  TestModule,
+  TestRunEndReason,
+  TestSuite,
+  Vitest,
+} from "vitest/node";
 import { databaseTestsRequired } from "@/server/testing/database-tests-required";
 
-/** A test that was collected and then not run, named so the reader can go and look at it. */
-type InertTest = { file: string; test: string; mode: "skip" | "todo" | "skipped" };
+/**
+ * A test that was collected and then not run, named so the reader can go and look at it.
+ *
+ * `underFilter` is the string the test-name pattern was matched against, rebuilt from the node API so
+ * the filter can be asked which inert tests it is actually responsible for.
+ */
+type InertTest = {
+  file: string;
+  test: string;
+  underFilter: string;
+  mode: "skip" | "todo" | "skipped";
+};
+
+/**
+ * The string vitest matches `-t` against, rebuilt from the node API.
+ *
+ * The pattern is matched against the runner's own task name (`@vitest/runner/dist/chunk-hooks.js`:
+ * `if (namePattern && !getTaskFullName(t).match(namePattern)) {`), and that name is the space-joined
+ * chain of enclosing suite names and the test's own name — `getTaskFullName` is
+ * `` `${task.suite ? `${getTaskFullName(task.suite)} ` : ""}${task.name}` ``. THE FILE IS NOT IN THE
+ * CHAIN: the file-level collector's `.suite` is deleted when it is built, so the walk stops at the
+ * first `describe`. Measured, not read: `-t` naming the file selects nothing.
+ *
+ * `TestCase#parent` and `TestSuite#parent` are built from that same `task.suite` chain with the
+ * module as the fallback, so walking the parents until the module rebuilds exactly the string the
+ * pattern was matched against. Neither public shortcut is that string: `Test#fullName` joins with
+ * `" > "`, and `moduleId` is an absolute path.
+ */
+function testNameMatchedByFilter(test: TestCase): string {
+  const names: string[] = [];
+
+  for (let node: TestCase | TestSuite | TestModule = test; node.type !== "module"; node = node.parent) {
+    names.unshift(node.name);
+  }
+
+  return names.join(" ");
+}
 
 /** The modes collection can hand a test that mean it will never execute. */
 const NOT_RUN = new Set(["skip", "todo"]);
@@ -81,11 +131,12 @@ export default class RequiredDatabaseTestsReporter implements Reporter {
       for (const test of testModule.children.allTests()) {
         const mode = test.options.mode;
         const state = test.result().state;
+        const named = { file, test: test.fullName, underFilter: testNameMatchedByFilter(test) };
         if (NOT_RUN.has(mode)) {
-          inert.push({ file, test: test.fullName, mode: mode as "skip" | "todo" });
+          inert.push({ ...named, mode: mode as "skip" | "todo" });
         } else if (state === "skipped") {
           // `ctx.skip()` at run time leaves the mode at "run", so the two checks are not the same one.
-          inert.push({ file, test: test.fullName, mode: "skipped" });
+          inert.push({ ...named, mode: "skipped" });
         } else if (RAN.has(state)) {
           ran += 1;
         }
@@ -94,15 +145,23 @@ export default class RequiredDatabaseTestsReporter implements Reporter {
 
     const filter = this.vitest?.config.testNamePattern;
 
+    // THE FILTER IS ASKED WHICH INERT TESTS IT IS RESPONSIBLE FOR, and only those are excused. An
+    // inert test the pattern did not match was excluded by something else, and `-t` cannot explain it.
+    const unexcused = filter
+      ? inert.filter((entry) => entry.underFilter.match(filter) !== null)
+      : inert;
+
     if (filter) {
       console.error("");
       console.error(`FILTERED  Test name pattern: ${filter}`);
       console.error(
-        `  A filter excludes tests on purpose, so the ${inert.length} it left inert are not counted ` +
-          `against this run. What is left of the rule is that something ran.`,
+        `  ${inert.length - unexcused.length} of ${inert.length} inert test(s) were excluded by the ` +
+          `pattern and are not counted against this run.`,
       );
+    }
 
-      if (ran > 0) return;
+    if (unexcused.length === 0) {
+      if (!filter || ran > 0) return;
 
       console.error(
         `NO TEST RAN  the filter matched nothing: ${inert.length} test(s) were collected and none ` +
@@ -112,12 +171,10 @@ export default class RequiredDatabaseTestsReporter implements Reporter {
       return;
     }
 
-    if (inert.length === 0) return;
-
     console.error("");
-    console.error(`FAIL  ${inert.length} test(s) did not run.`);
+    console.error(`FAIL  ${unexcused.length} test(s) did not run.`);
 
-    for (const { file, test, mode } of inert) {
+    for (const { file, test, mode } of unexcused) {
       console.error(`  ${mode}: ${file} > ${test}`);
     }
 
