@@ -19,7 +19,7 @@
  * Usage: node scripts/testing/probes/fixture-recipients.mjs
  * Runs only over committed work — the harness refuses if any listed file differs from HEAD.
  */
-import { runProbes, substituteOnce } from "../guard-probe.mjs";
+import { requireGreenBeforeProbing, runProbes, substituteOnce } from "../guard-probe.mjs";
 import { fails } from "./detectors.mjs";
 
 const SEEDS = "scripts/testing/seeds.mjs";
@@ -116,5 +116,8 @@ export const probes = [
 ];
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  requireGreenBeforeProbing("fixture-recipients", [
+    ["npx", ["vitest", "run", "scripts/testing/fixture-recipients.test.ts"]],
+  ]);
   await runProbes(probes);
 }

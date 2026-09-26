@@ -30,9 +30,8 @@
  * Usage: npm run verify:register-probe
  * Runs only over committed work; the harness refuses if any register differs from HEAD.
  */
-import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { runProbes, substituteOnce } from "../guard-probe.mjs";
+import { requireGreenBeforeProbing, runProbes, substituteOnce } from "../guard-probe.mjs";
 import { fails } from "./detectors.mjs";
 
 const REGISTER = "docs/project/open-debt.md";
@@ -469,27 +468,12 @@ export const probes = [
   },
 ];
 
-/**
- * Proves the gate was GREEN before the first probe touched anything.
- *
- * Without this the suite cannot distinguish "the mutation made it red" from "it was already red",
- * and every probe below would report itself proven over a register that fails on its own.
- */
-const requireGreenBeforeProbing = () => {
-  const result = spawnSync("npm", VERIFY, { encoding: "utf8" });
-  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-
-  if (result.status !== 0) {
-    throw new Error(
-      "the register is already red before anything was mutated, so a probe going red afterwards " +
-        `would prove nothing about the mutation:\n${output.slice(-1500)}`,
-    );
-  }
-};
-
 // Exported as DATA and run only when this file IS the entry point, so the coverage test can read
 // the probe set without mutating the tree to find out.
+//
+// `verify:register` reads three text files and nothing else — the shared precondition's soundness
+// argument holds for it, and `scripts/testing/guard-probe.mjs` carries it.
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  requireGreenBeforeProbing();
+  requireGreenBeforeProbing("register-gate", [["npm", VERIFY]]);
   await runProbes(probes);
 }
