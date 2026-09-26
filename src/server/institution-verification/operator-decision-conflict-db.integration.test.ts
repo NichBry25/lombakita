@@ -808,13 +808,23 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
       await assertNoRaceResidue();
     };
 
+    // `process.on`, NOT `process.once`, mirroring `guard-probe.mjs:132-143`: a spent handler leaves a
+    // second signal to Node's default action, which kills the process mid-settle and leaves exactly
+    // the residue this teardown exists to prevent.
     const onSignal = (): void => {
       // The handler cannot await, so the exit rides the settle. `releaseBarrier` is a no-op until the
       // executor below assigns it, so calling it this early is safe.
-      void settleAndClean().finally(() => process.exit(130));
+      //
+      // A rejecting settle — the residue assertion is the one that fires — is PRINTED first: the exit
+      // code is 130 either way, so stderr is the only place the reason can go.
+      void settleAndClean()
+        .catch((error: unknown) => {
+          console.error("the race suite's teardown failed on the interrupt path:", error);
+        })
+        .finally(() => process.exit(130));
     };
-    process.once("SIGINT", onSignal);
-    process.once("SIGTERM", onSignal);
+    process.on("SIGINT", onSignal);
+    process.on("SIGTERM", onSignal);
 
     try {
       // Sweep anything a previous, killed run left behind before this one starts — the whole sweep,
