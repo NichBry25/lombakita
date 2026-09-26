@@ -474,6 +474,7 @@ describe.skipIf(skipWithoutDatabase)("the pre-flight refusal", () => {
       // The statements themselves are what can fail here (LAUNCH-D167).
       const issued = new Set(statements);
       expect(withoutPreflight.some((step) => issued.has(step.body))).toBe(false);
+      expect(outcome.steps).toEqual([]);
 
       expect(outcome.message).toContain(PREFLIGHT_STEP_NAME);
       expect(await rowExists(sql, "users", fixture.subject)).toBe(true);
