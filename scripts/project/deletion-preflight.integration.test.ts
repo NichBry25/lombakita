@@ -482,8 +482,11 @@ describe.skipIf(skipWithoutDatabase)("the pre-flight refusal", () => {
       // does not carry it: `attemptDeletion` reports `[]` for every refusal that is not the
       // pre-flight's, so a `delete` that ran and rolled back would leave the list just as empty.
       // The statements themselves are what can fail here (LAUNCH-D167).
-      const issued = new Set(statements);
-      expect(withoutPreflight.some((step) => issued.has(step.body))).toBe(false);
+      expect(
+        statements,
+        "The refusal came before any statement reached the database, so nothing reached the client " +
+          "at all.",
+      ).toEqual([]);
       expect(outcome.steps).toEqual([]);
 
       expect(outcome.message).toContain(PREFLIGHT_STEP_NAME);
