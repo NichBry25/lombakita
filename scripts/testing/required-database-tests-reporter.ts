@@ -145,8 +145,9 @@ export default class RequiredDatabaseTestsReporter implements Reporter {
 
     const filter = this.vitest?.config.testNamePattern;
 
-    // THE FILTER IS ASKED WHICH INERT TESTS IT IS RESPONSIBLE FOR, and only those are excused. An
-    // inert test the pattern did not match was excluded by something else, and `-t` cannot explain it.
+    // THE FILTER IS ASKED WHICH INERT TESTS IT EXCLUDED, and only those are excused. `-t P` marks
+    // `skip` exactly the tests whose name does not match P, so an inert test the pattern DID match
+    // was silenced by something else, and `-t` cannot explain it.
     const unexcused = filter
       ? inert.filter((entry) => entry.underFilter.match(filter) !== null)
       : inert;

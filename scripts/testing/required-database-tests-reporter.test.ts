@@ -26,7 +26,10 @@ const FIXTURE_CONFIG = "scripts/testing/fixtures/required-db-reporter/vitest.con
 type FixtureRunOptions = {
   /** The fixture to collect, as a substring of its path. */
   fixture: string;
-  /** Handed to `-t`: the string vitest matches against each test's own task name. */
+  /**
+   * Handed to `-t`: the string vitest matches the pattern against — the space-joined chain of
+   * enclosing suite names and the test's own name, with the file left out of it.
+   */
   testNamePattern?: string;
   /** Handed to `--reporter`: the flag that used to remove the gate (LAUNCH-D156). */
   reporter?: string;

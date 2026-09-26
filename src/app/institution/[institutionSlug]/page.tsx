@@ -45,9 +45,7 @@ const PUBLIC_VIEW_PARAM = "publik";
  * and never the raw route parameter: the column it is compared against stores slugs lowercase, so a
  * membership check made against the parameter as typed answers no for an owner who typed the URL in
  * capitals (LAUNCH-D161). The canonical is the exception and reads the slug the ROW stores instead,
- * so the address it declares is the one the institution is actually filed under — a canonical built
- * from the parameter as typed was the same defect one layer out: it told a crawler that the address
- * it had just fetched in capitals is the address to index.
+ * so the address it declares is the one the institution is actually filed under.
  */
 function resolveSlugParam(rawSlug: string): string | null {
   try {

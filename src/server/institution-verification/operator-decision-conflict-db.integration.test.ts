@@ -771,8 +771,9 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
       if (markerUsers!.n !== 0 || markerInstitutions!.n !== 0) {
         throw new Error(
           `the race suite left residue behind: ${markerUsers!.n} marker user(s), ` +
-            `${markerInstitutions!.n} marker institution(s). Sweep with ` +
-            "`node --import tsx test-artifacts/c2-4/fix/f6-count.ts --sweep` before rerunning.",
+            `${markerInstitutions!.n} marker institution(s). Rerun only after deleting them: users ` +
+            `whose username starts with \`${RACE_MARKER}\`, and institutions whose slug starts with ` +
+            `\`${RACE_MARKER}-inst-\`.`,
         );
       }
     };

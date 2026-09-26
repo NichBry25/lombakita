@@ -96,8 +96,8 @@ export const liveAnchorItem = (registerPath) => {
     .join("\n");
 
   throw new Error(
-    `${registerPath}: no item satisfies the probe's properties. ${candidates} item(s) were seen ` +
-      `under a \`### Open\` heading, and each fell to one of:\n${tally}\n` +
+    `${registerPath}: no item satisfies the probe's properties. ${candidates} line(s) under a ` +
+      `\`### Open\` heading were shaped like an item head, and each fell to one of:\n${tally}\n` +
       `Refusing by name rather than leaving the probe without a subject.`,
   );
 };
