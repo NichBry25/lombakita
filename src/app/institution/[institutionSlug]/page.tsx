@@ -69,7 +69,7 @@ export async function generateMetadata({ params }: InstitutionHubPageProps): Pro
   const title = `${institution.name} · Lombakita`;
   const description =
     institution.description ?? `Kompetisi yang diselenggarakan ${institution.name} di Lombakita.`;
-  const path = `/institution/${slug}`;
+  const path = `/institution/${institution.slug}`;
 
   // A personal institution's public page is a redirect to the owner's profile, which is withheld
   // from search (DEC-0196). It gets a title and nothing else: no `robots` (so it inherits the root
