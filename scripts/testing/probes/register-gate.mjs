@@ -33,6 +33,7 @@
 import { pathToFileURL } from "node:url";
 import { requireGreenBeforeProbing, runProbes, substituteOnce } from "../guard-probe.mjs";
 import { fails } from "./detectors.mjs";
+import { liveAnchorItem } from "./live-anchor-item.mjs";
 
 const REGISTER = "docs/project/open-debt.md";
 const DECISION_LOG = "docs/project/decision-log.md";
@@ -172,17 +173,13 @@ const PLANTED_BLOCK_BODY_ITEM =
   "- **LAUNCH-D9998 [HIGH] → Block C2.** filed by the register-gate probe in a debt block's body.\n";
 
 /**
- * A live item under a literal `### Open`, which is where a withdrawal mark actually appears.
+ * What a withdrawal looks like on an anchor line: the mark, then the closing `**`.
  *
- * LAUNCH-D142's anchor is canonical, it is filed exactly once, and it sits under `### Open` — so
- * marking it withdrawn must take it out of the live set, and the anchored floor is the one asserted
- * population that records it leaving.
+ * `· WITHDRAWN` is the register's own mark for an item it has taken out without discharging it and
+ * is not a kind of `· DISCHARGED` — which is the whole reason this probe exists alongside the
+ * discharge obligation three probes up.
  */
-const D142_ANCHORED = "- **LAUNCH-D142 [LOW] → Step 7.7 Block C2 (Phase 4).";
-
-/** The same anchor line, withdrawn. `· WITHDRAWN` is the mark LAUNCH-D143 carries today. */
-const D142_WITHDRAWN =
-  "- **LAUNCH-D142 [LOW] → Step 7.7 Block C2 (Phase 4) · WITHDRAWN 2026-09-25, probe.**";
+const WITHDRAWAL_SUFFIX = " · WITHDRAWN 2026-09-25, probe.**";
 
 const SUPERSEDES_CELL_OF_DEC_0124 =
   "Extends DEC-0123 (same session) with the post-event half of the lifecycle. Reuses the DEC-0121 " +
@@ -246,11 +243,12 @@ export const probes = [
     detect: () => gateRefused(/FAIL\s+no live item names a block without naming a step \(\d+\)/),
   },
   {
-    // THE WITHDRAWAL MARK, which is not a discharge and has to hold on both arms. LAUNCH-D142 is
-    // live under `### Open` with a canonical anchor and is filed once, so marking it withdrawn takes
-    // it out of the live set and the anchored floor — the one asserted population that shrinks — is
-    // what says so. A `· DISCHARGED` plant here would go red for the obligation three probes up
-    // instead, which is why this one plants the other mark.
+    // THE WITHDRAWAL MARK, which is not a discharge and has to hold on both arms. The subject is
+    // whichever live item the register is holding when the probe runs — `liveAnchorItem` derives it
+    // and refuses by name when none qualifies — so marking it withdrawn takes it out of the live
+    // set and the anchored floor, the one asserted population that shrinks, is what says so. A
+    // `· DISCHARGED` plant here would go red for the obligation three probes up instead, which is
+    // why this one plants the other mark.
     name: "an item withdrawn on its anchor line leaves the live set",
     klass: "D",
     harmfulMove:
@@ -258,7 +256,13 @@ export const probes = [
     files: [REGISTER],
     repo: DOC_LANE,
     appliedMarkers: ["· WITHDRAWN 2026-09-25, probe."],
-    mutate: () => substituteOnce(REGISTER, D142_ANCHORED, D142_WITHDRAWN),
+    mutate: () => {
+      // Resolved inside the mutation rather than at import: `probe-coverage.test.ts` imports this
+      // suite as data, and a refusal over the register's current contents is this suite's to
+      // report, not that test's to fail.
+      const { anchored } = liveAnchorItem(REGISTER);
+      substituteOnce(REGISTER, anchored, anchored + WITHDRAWAL_SUFFIX);
+    },
     detect: () =>
       gateRefused(
         /FAIL\s+\d+\s+live debt ids carrying an anchor that names a step and a block\s+\(down 1 — below the floor of \d+\)/,
