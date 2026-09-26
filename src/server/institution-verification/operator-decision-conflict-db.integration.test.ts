@@ -736,7 +736,7 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
     let barrierSettled: Promise<void> = Promise.resolve();
     // Every racer that has been STARTED, in the order it started, so the teardown can wait for the
     // ones the body never reached its own `Promise.allSettled` for (LAUNCH-D171).
-    let racerStatements: Promise<unknown>[] = [];
+    const racerStatements: Promise<unknown>[] = [];
 
     const cleanup = async (): Promise<void> => {
       if (institutionId) {
