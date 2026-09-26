@@ -67,26 +67,9 @@ export const probes = [
       ),
     detect: async () => gate(/declares every address-bearing file that can actually send/),
   },
-  {
-    name: "a deny entry that hides a governed file is caught",
-    klass: "D",
-    harmfulMove:
-      "narrowing the walk until governed files fall outside it, which makes the completeness " +
-      "assertion above pass over a smaller and smaller population while still reading as green",
-    files: [DECLARATION],
-    appliedMarkers: ['{ file: "concurrency"'],
-    // Denies one directory name, which prunes scripts/concurrency and with it seven governed files.
-    // Deliberately narrow: only the reverse-completeness assertion should go red, so the probe
-    // cannot be satisfied by some other check failing for some other reason.
-    mutate: () =>
-      substituteOnce(
-        DECLARATION,
-        '  { file: "coverage", reason: "test output" },',
-        '  { file: "coverage", reason: "test output" },\n' +
-          '  { file: "concurrency", reason: "probe: a deny entry broad enough to hide governed files" },',
-      ),
-    detect: async () => gate(/walks every file it already governs/),
-  },
+  // The directory deny list this probe mutated was replaced by the git-ignore-driven walk (see the
+  // header at scripts/testing/fixture-recipients.ts:231), so there is no entry left to plant. A probe
+  // for the narrowing that remains — an ignored path, or an extension dropped from the allow list — is owed.
   {
     name: "an address added to an existing pin entry is caught",
     klass: "D",
