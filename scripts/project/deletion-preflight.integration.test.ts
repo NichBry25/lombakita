@@ -428,6 +428,16 @@ describe.skipIf(skipWithoutDatabase)("the pre-flight refusal", () => {
       expect(outcome.kind).toBe("refused");
       if (outcome.kind !== "refused") return;
 
+      // THE RECORDER HAS TO HAVE HEARD SOMETHING FOR ITS SILENCE TO MEAN ANYTHING. An empty list
+      // satisfies every "does not contain" assertion below, so a recorder that stopped recording and
+      // a pre-flight that issued nothing are the same observation until this clause separates them.
+      expect(
+        statements.length,
+        "The recorder captured no statement at all, so every claim below would pass over an empty " +
+          "list — a pre-flight that never reached the database and one that refused before a write " +
+          "read the same.",
+      ).toBeGreaterThan(0);
+
       // The ORDER is the claim, and it is the half `outcome.steps` cannot carry: a refusal from
       // inside a transaction would have issued `begin` first, and would then have performed a write
       // the pre-flight exists to precede (LAUNCH-D167).
