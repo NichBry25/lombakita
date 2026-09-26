@@ -734,6 +734,9 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
     let institutionId: string | null = null;
     let releaseBarrier: () => void = () => {};
     let barrierSettled: Promise<void> = Promise.resolve();
+    // Every racer that has been STARTED, in the order it started, so the teardown can wait for the
+    // ones the body never reached its own `Promise.allSettled` for (LAUNCH-D171).
+    let racerStatements: Promise<unknown>[] = [];
 
     const cleanup = async (): Promise<void> => {
       if (institutionId) {
@@ -869,8 +872,10 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
       };
 
       const first = handled(reject(firstRacer, reviewerRows[0]!.id));
+      racerStatements.push(first);
       const firstParked = await waitForBlocked(1);
       const second = handled(reject(secondRacer, reviewerRows[1]!.id));
+      racerStatements.push(second);
       const bothParked = await waitForBlocked(2);
 
       releaseBarrier();
@@ -929,6 +934,15 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
       releaseBarrier();
 
       await barrierSettled.catch(() => {});
+
+      // THE RACERS END BEFORE THE DELETE RUNS (LAUNCH-D171). Each racer runs on its own connection and
+      // the body only awaits them at its own `Promise.allSettled`, which a body that threw never
+      // reached. Parked, they still hold the submission row that `cleanup` cascades to, so the DELETE
+      // waited on this suite's own lock in the opposite order and the run reported
+      // `PostgresError: deadlock detected` — the fixture's failure standing in for the body's, which
+      // is the same defect as the barrier rejection above, one lock further out. Settled first, the
+      // body's error is the error on every path.
+      await Promise.allSettled(racerStatements);
 
       try {
         await cleanup();
