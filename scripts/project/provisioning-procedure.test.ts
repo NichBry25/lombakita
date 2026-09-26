@@ -380,10 +380,6 @@ describe("the guard in front of the promotion", () => {
   // passes against either behaviour; the difference is entirely in what else is printed. That is
   // the property an operator feels, and the only place it exists is the child's two streams.
   //
-  // WHAT IS NOT MEASURED HERE, stated rather than implied: that a failure which is NOT a refusal
-  // still prints its stack. Making the runner fail that way means pointing it at something that
-  // breaks, which is a different test's subject — the catch's `refused` condition is what decides
-  // it, and the case below pins the direction that has an operator waiting on it.
   it("refuses the production run with the sentence alone, no stack under it, and a non-zero exit", () => {
     const result = runRunnerResult({ APP_ENV: "production" });
 
@@ -394,6 +390,26 @@ describe("the guard in front of the promotion", () => {
       result.stderr,
       "the refusal printed a stack under its sentence, so the operator reads frames where the refusal should be",
     ).not.toMatch(/^\s+at /m);
+  }, 90_000);
+
+  // THE OTHER DIRECTION OF THE SAME CONDITION (LAUNCH-D168). The refusal above is one arm of the
+  // catch's `refused` test; this is the arm that had no test, and the one an operator meets when a
+  // database that was supposed to be there is not. Both guard layers pass — the environment is
+  // disposable and the host is loopback — so what refuses is the socket, and the first line has to
+  // say a crash rather than a decision this runner never made.
+  //
+  // THE PREFIX IS THE WHOLE PROOF, because a run that cleared both layers and failed can only have
+  // failed at the connection. `DEAD_LOOPBACK` is the same address the control cases use; nothing
+  // listens there.
+  it("reports a failure that is not a refusal as a failure, keeping the stack that says where it came from", () => {
+    const result = runRunnerResult({ APP_ENV: "local" });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/^provisioning failed: /);
+    expect(
+      result.stderr,
+      "the crash printed no stack frame, so the operator cannot see where the failure came from",
+    ).toMatch(/^\s+at /m);
   }, 90_000);
 
   it("refuses a non-loopback host, naming the host it refused", () => {

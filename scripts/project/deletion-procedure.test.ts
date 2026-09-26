@@ -363,6 +363,26 @@ describe("the guard in front of the delete", () => {
     expect(output.trim(), "the run produced no output at all").not.toBe("");
   }, 60_000);
 
+  // THE OTHER DIRECTION OF THE SAME CONDITION (LAUNCH-D168). The refusal cases above are one arm of
+  // the catch's `refused` test; this is the arm that had no test, and the one an operator meets when
+  // a database that was supposed to be there is not. Both guard layers pass — the environment is
+  // disposable and the host is loopback — so what refuses is the socket, and the first line has to
+  // say a crash rather than a decision this runner never made.
+  //
+  // THE PREFIX IS THE WHOLE PROOF, because a run that cleared both layers and failed can only have
+  // failed at the connection. `DEAD_LOOPBACK` is the same address the control above uses; nothing
+  // listens there.
+  it("reports a failure that is not a refusal as a failure, keeping the stack that says where it came from", () => {
+    const result = runRunnerResult({ APP_ENV: "local" });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/^deletion failed: /);
+    expect(
+      result.stderr,
+      "the crash printed no stack frame, so the operator cannot see where the failure came from",
+    ).toMatch(/^\s+at /m);
+  }, 90_000);
+
   // WHAT IS NOT MEASURED HERE, stated rather than implied (Rule 32 permits a stated absence with a
   // reason). The identity layer — `select current_database()` answered by the server, checked by
   // `findDatabaseNameRefusal` — cannot be made to refuse without a reachable database carrying a
