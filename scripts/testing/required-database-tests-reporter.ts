@@ -88,7 +88,11 @@ type InertTest = {
 function testNameMatchedByFilter(test: TestCase): string {
   const names: string[] = [];
 
-  for (let node: TestCase | TestSuite | TestModule = test; node.type !== "module"; node = node.parent) {
+  for (
+    let node: TestCase | TestSuite | TestModule = test;
+    node.type !== "module";
+    node = node.parent
+  ) {
     names.unshift(node.name);
   }
 
