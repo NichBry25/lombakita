@@ -113,4 +113,16 @@ describe("the skipped-test gate", () => {
     });
     expect(run.exitCode, describeRun(run)).toBe(0);
   });
+
+  it("fails a filtered run in which the pattern matched no test at all", () => {
+    // Every inert test is one the pattern excluded, so the excusing arm above has nothing left to
+    // count and this run is evidence about nothing. Vitest cannot supply this on its own: a `-t`
+    // that matches nothing is a green run in which every test was skipped.
+    const run = runFixture({
+      fixture: "clean.fixture.ts",
+      testNamePattern: "no test in this fixture is named this",
+    });
+    expect(run.exitCode, describeRun(run)).toBe(1);
+    expect(run.stderr, describeRun(run)).toMatch(/NO TEST RAN/);
+  });
 });
