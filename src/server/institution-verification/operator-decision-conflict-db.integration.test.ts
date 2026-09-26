@@ -755,13 +755,62 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
       await sweepRaceResidue(control);
     };
 
-    const onSignal = (): void => {
-      // RELEASE BEFORE CLEANING, for the reason the `finally` below does. In the barrier window the
-      // barrier holds `FOR UPDATE` on the submission row that `cleanup` cascades to, so the DELETE
-      // waits on this suite's own lock and `process.exit(130)` is never reached. `releaseBarrier` is
-      // a no-op until the executor below assigns it, so calling it early is safe.
+    // THE CLEANUP IS MEASURED, NOT BELIEVED (Rule 35, LAUNCH-D171). Both teardown tests in this
+    // suite exist because a path that reported success left rows behind; a `cleanup()` that returns
+    // is not evidence that the rows are gone. The predicate is the one the out-of-band counter uses
+    // (`test-artifacts/c2-4/fix/f6-count.ts`), so the in-suite post-condition and the manual one
+    // cannot disagree about what "left behind" means.
+    const assertNoRaceResidue = async (): Promise<void> => {
+      const [markerUsers] = await control.sql<{ n: number }[]>`
+        SELECT COUNT(*)::int AS n FROM users WHERE username LIKE ${`${RACE_MARKER}%`}
+      `;
+      const [markerInstitutions] = await control.sql<{ n: number }[]>`
+        SELECT COUNT(*)::int AS n FROM institutions WHERE slug LIKE ${`${RACE_MARKER}-inst-%`}
+      `;
+
+      if (markerUsers!.n !== 0 || markerInstitutions!.n !== 0) {
+        throw new Error(
+          `the race suite left residue behind: ${markerUsers!.n} marker user(s), ` +
+            `${markerInstitutions!.n} marker institution(s). Sweep with ` +
+            "`node --import tsx test-artifacts/c2-4/fix/f6-count.ts --sweep` before rerunning.",
+        );
+      }
+    };
+
+    // THE ORDER IS ONE THING, AND BOTH PATHS TAKE IT (Rule 35, LAUNCH-D171). The `finally` below and
+    // the signal handler both call this, so the interrupt path cannot drift from the path an
+    // ordinary run takes — the drift that already cost this suite once, when the `finally` awaited
+    // the barrier outside the teardown and a rolled-back barrier skipped `cleanup` and all three
+    // `sql.end()` calls, leaving the race rows in the database and three connections open.
+    //
+    // RELEASE BEFORE CLEANING. The barrier holds `FOR UPDATE` on the submission row and `cleanup`
+    // cascades to that row, so a body that threw before `releaseBarrier()` left the barrier open and
+    // the DELETE waiting on its own lock — the teardown suppressed by the failure it exists to
+    // survive, and the institution outliving the run.
+    //
+    // THE BARRIER'S REJECTION IS DISCARDED, because this is reached from a `finally`: a rejection
+    // thrown here REPLACES whatever the body was already failing with, and the run would report the
+    // fixture instead of the assertion. Nothing is lost — the body awaits this same promise at its
+    // own `await barrier`, so when the barrier is what failed, that failure is already the body's.
+    //
+    // THE RACERS END BEFORE THE DELETE RUNS (LAUNCH-D171). Each racer runs on its own connection and
+    // the body only awaits them at its own `Promise.allSettled`, which a body that threw never
+    // reached. Parked, they still hold the submission row that `cleanup` cascades to, so the DELETE
+    // waited on this suite's own lock in the opposite order and the run reported
+    // `PostgresError: deadlock detected` — the fixture's failure standing in for the body's, which
+    // is the same defect as the barrier rejection above, one lock further out.
+    const settleAndClean = async (): Promise<void> => {
       releaseBarrier();
-      void cleanup().finally(() => process.exit(130));
+      await barrierSettled.catch(() => {});
+      await Promise.allSettled(racerStatements);
+      await cleanup();
+      await assertNoRaceResidue();
+    };
+
+    const onSignal = (): void => {
+      // The handler cannot await, so the exit rides the settle. `releaseBarrier` is a no-op until the
+      // executor below assigns it, so calling it this early is safe.
+      void settleAndClean().finally(() => process.exit(130));
     };
     process.once("SIGINT", onSignal);
     process.once("SIGTERM", onSignal);
@@ -915,38 +964,11 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
       process.off("SIGINT", onSignal);
       process.off("SIGTERM", onSignal);
 
-      // RELEASE BEFORE CLEANING (Rule 35, LAUNCH-D171). The barrier holds `FOR UPDATE` on the
-      // submission row and `cleanup` cascades to that row, so a body that threw before
-      // `releaseBarrier()` left the barrier open and the DELETE waiting on its own lock — the
-      // teardown was suppressed by the failure it exists to survive, and the institution outlived
-      // the run. Released first, so the cleanup below runs against a settled row.
-      //
-      // THE AWAIT CAN REJECT, and awaiting it outside the teardown made the same defect recur one
-      // line after its fix: a barrier transaction that rolled back skipped `cleanup` and all three
-      // `sql.end()` calls, leaving the race rows in the database and three connections open. So it is
-      // awaited inside the teardown.
-      //
-      // ITS ERROR IS THEN DISCARDED, because this is a `finally`: a rejection thrown from here
-      // REPLACES whatever the body was already failing with, and the run would report the fixture
-      // instead of the assertion. Nothing is lost by discarding it — the body awaits this same
-      // promise at its own `await barrier`, so when the barrier is what failed, that failure is
-      // already the body's error.
-      releaseBarrier();
-
-      await barrierSettled.catch(() => {});
-
-      // THE RACERS END BEFORE THE DELETE RUNS (LAUNCH-D171). Each racer runs on its own connection and
-      // the body only awaits them at its own `Promise.allSettled`, which a body that threw never
-      // reached. Parked, they still hold the submission row that `cleanup` cascades to, so the DELETE
-      // waited on this suite's own lock in the opposite order and the run reported
-      // `PostgresError: deadlock detected` — the fixture's failure standing in for the body's, which
-      // is the same defect as the barrier rejection above, one lock further out. Settled first, the
-      // body's error is the error on every path.
-      await Promise.allSettled(racerStatements);
-
       try {
-        await cleanup();
+        await settleAndClean();
       } finally {
+        // THE CONNECTIONS END WHETHER OR NOT THE CLEANUP SUCCEEDED, and the residue assertion above
+        // is what says so: a throw from `settleAndClean` must not also strand three backends.
         await Promise.all(connections.map((connection) => connection.sql.end()));
       }
     }
