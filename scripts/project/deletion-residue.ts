@@ -39,14 +39,18 @@
  *   node --import tsx scripts/project/deletion-residue.ts capture --user <userId> --out <file>
  *   node --import tsx scripts/project/deletion-residue.ts verify --baseline <file> --out <file>
  *
- * This module only reads. It deletes nothing, so it carries no host restriction, and every statement
- * it issues is a `select`.
+ * This module only reads, and it reads a live account's own strings — an email address, a username,
+ * the name and phone number on a candidate profile — and writes them into a file. Reading is not
+ * what makes that safe to point at production: the report is a copy of a real person's identifiers,
+ * and the copy outlives the query. So the connection is refused unless it is loopback, and the
+ * instructions it prints substitute an index for every literal it would otherwise have shown.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import postgres from "postgres";
 import { loadEnvFile } from "@/server/scripts/env-file";
+import { isLoopbackUrl, parseDatabaseHost } from "../lib/local-database-host";
 import {
   R2_PREFIXES,
   schemaForeignKeys,
@@ -275,6 +279,17 @@ const connect = (): postgres.Sql => {
       `DATABASE_URL is not set and no env file was found (candidates: ${loadedFrom})`,
     );
   }
+
+  // A read-only instrument is not a safe instrument. What it reads is a person's own strings, and
+  // what it does with them is write them to a file that outlives the connection, so the database it
+  // may point at is the one on this machine and nothing else.
+  if (!isLoopbackUrl(url)) {
+    throw new ResidueRefusal(
+      `refusing to open ${parseDatabaseHost(url) ?? "an unparseable host"}: this instrument reads a ` +
+        "live account's own identifiers and may only do that on a loopback database",
+    );
+  }
+
   return postgres(url, { max: 1 });
 };
 
@@ -430,6 +445,21 @@ const asBaseline = (value: unknown, where: string): ResidueBaseline => {
     throw new ResidueRefusal(`${where} has a \`literals\` or \`attribution\` that is not a list`);
   }
 
+  // `verify` feeds every `attribution[].sql` to `sql.unsafe`, so a baseline file is executable
+  // content. The file is written by `capture`, but it is also hand-editable and it travels between
+  // machines, and nothing else between here and `unsafe` looks at what a statement is. Every
+  // statement this instrument authors is a `select`; one that is not has been put there by
+  // something other than this instrument.
+  const notSelect = record.attribution.findIndex(
+    (entry) => typeof entry?.sql !== "string" || !/^\s*select\b/i.test(entry.sql),
+  );
+
+  if (notSelect !== -1) {
+    throw new ResidueRefusal(
+      `${where} has an \`attribution[${notSelect}].sql\` that is not a select statement`,
+    );
+  }
+
   return record as ResidueBaseline;
 };
 
@@ -508,7 +538,10 @@ const renderCaseVerification = (label: string, report: ResidueReport): string[] 
   }
 
   for (const entry of report.sweep) {
-    lines.push(`### \`${entry.literal}\``, "");
+    // The value is not printed. Its index in the baseline's `literals` is, so the report still says
+    // which of the account's strings each section is about without the document becoming a copy of
+    // them — the baseline file keeps the values, and the baseline file is not committed.
+    lines.push(`### \`<identity ${baseline.literals.indexOf(entry.literal)}>\``, "");
     if (entry.locations.length === 0) {
       lines.push("No column in the database contains this string.", "");
       continue;
@@ -627,10 +660,10 @@ const reportLive = async (sql: postgres.Sql, userId: string): Promise<string> =>
   );
 
   const targets = schemaTextColumns();
-  for (const literal of literals) {
+  for (const [identity, literal] of literals.entries()) {
     const rows = await sql.unsafe<{ location: string; n: number }[]>(sweepSql(targets), [literal]);
     const hits = rows.filter((row) => row.n > 0);
-    lines.push(`- \`${literal}\` — ${hits.length} column(s) carry it`);
+    lines.push(`- \`<identity ${identity}>\` — ${hits.length} column(s) carry it`);
     for (const hit of hits) lines.push(`  - ${hit.n} in \`${hit.location}\``);
   }
 
@@ -657,13 +690,15 @@ const main = async (): Promise<void> => {
   const out = flag(argv, "--out");
   const sql = connect();
 
-  const emit = (text: string): void => {
+  // `note` exists for the capture file, which is the one output of this instrument that holds the
+  // account's own strings verbatim and is therefore the one output that must not be committed.
+  const emit = (text: string, note?: string): void => {
     if (out === null) {
       console.log(text);
       return;
     }
     writeFileSync(resolve(process.cwd(), out), `${text}\n`, "utf8");
-    console.log(`wrote ${out}`);
+    console.log(note === undefined ? `wrote ${out}` : `wrote ${out} — ${note}`);
   };
 
   try {
@@ -675,7 +710,7 @@ const main = async (): Promise<void> => {
         generatedAt: baseline.capturedAt,
         cases: [{ label: flag(argv, "--label") ?? "the account", baseline }],
       };
-      emit(JSON.stringify(file, null, 2));
+      emit(JSON.stringify(file, null, 2), "contains personal data: do not commit");
       return;
     }
 

@@ -15,7 +15,13 @@ export type UserLookupResult = {
   id: string;
   email: string;
   name: string | null;
+  /** The account's current username. The de-identification action asks the operator to type it. */
+  username: string;
   appRole: AppRole;
+  /** `active`, `suspended` or `deactivated` — the tombstone state is read from here. */
+  status: string;
+  /** The tier the recruiter-elevation control compares against its target. */
+  recruiterVerificationTier: string;
   candidateVerifiedAt: Date | null;
   recruiterVerifiedAt: Date | null;
   suspendedAt: Date | null;
@@ -46,7 +52,10 @@ export const lookupUserByEmail = async (
       id: users.id,
       email: users.email,
       name: users.name,
+      username: users.username,
       appRole: users.role,
+      status: users.status,
+      recruiterVerificationTier: users.recruiterVerificationTier,
       candidateVerifiedAt: users.candidateVerifiedAt,
       recruiterVerifiedAt: users.recruiterVerifiedAt,
       suspendedAt: users.suspendedAt,

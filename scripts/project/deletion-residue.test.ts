@@ -10,6 +10,7 @@
 // is run.
 
 import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
 import {
   cascadeClosure,
   R2_PREFIXES,
@@ -21,8 +22,12 @@ import {
   attributionPath,
   attributionSql,
   objectKeySql,
+  parseBaselineFile,
+  renderVerification,
+  ResidueRefusal,
   sweepSql,
   type Attribution,
+  type ResidueReport,
 } from "./deletion-residue";
 
 describe("the attribution walk", () => {
@@ -309,4 +314,100 @@ describe("the value sweep", () => {
     // A timestamp cannot hold a person's address, so sweeping it would add cost and no evidence.
     expect(columns).not.toContain("users.created_at");
   });
+});
+
+describe("the guards on what a baseline may carry and what a report may print", () => {
+  const baselineFile = (sql: string) =>
+    JSON.stringify({
+      generatedAt: "2026-09-01T00:00:00.000Z",
+      cases: [
+        {
+          label: "case one",
+          baseline: {
+            userId: "u1",
+            capturedAt: "2026-09-01T00:00:00.000Z",
+            tables: 1,
+            reachableFrom: 1,
+            literals: ["someone@example.test"],
+            attribution: [{ path: "users", sql, expected: 1 }],
+          },
+        },
+      ],
+    });
+
+  it("refuses a baseline whose statement is not a select, before anything runs it", () => {
+    // `verify` hands every `attribution[].sql` to `sql.unsafe`, and a baseline travels between
+    // machines and is hand-editable. The file is executable content, so what it may contain is
+    // bounded here rather than at the point it is executed.
+    expect(() =>
+      parseBaselineFile(baselineFile("delete from users where id = 'u1'"), "baseline.json"),
+    ).toThrow(ResidueRefusal);
+  });
+
+  it("refuses a baseline whose statement is not a string at all", () => {
+    expect(() => parseBaselineFile(baselineFile(undefined as never), "baseline.json")).toThrow(
+      ResidueRefusal,
+    );
+  });
+
+  it("accepts a select, whatever its case and leading whitespace", () => {
+    expect(() =>
+      parseBaselineFile(baselineFile("  SELECT count(*) from users"), "baseline.json"),
+    ).not.toThrow();
+  });
+
+  it("prints an index in place of the account's own string", () => {
+    const report: ResidueReport = {
+      baseline: {
+        userId: "u1",
+        capturedAt: "2026-09-01T00:00:00.000Z",
+        tables: 1,
+        reachableFrom: 1,
+        literals: ["first@example.test", "someone@example.test"],
+        attribution: [],
+      },
+      userRowRemains: false,
+      attribution: [],
+      sweep: [{ literal: "someone@example.test", locations: [] }],
+      sweepColumns: 3,
+      tables: 1,
+    };
+
+    const document = renderVerification([{ label: "case one", report }]);
+
+    // The document is written to a file that is read by people who are not the account holder, so
+    // it names the string by position and never by value.
+    expect(document).toContain("### `<identity 1>`");
+    expect(document).not.toContain("someone@example.test");
+  });
+});
+
+describe("the host the residue instrument will open", () => {
+  it("refuses a database that is not on this machine, before it reads anyone's identifiers", () => {
+    // The guard is inside the CLI's own `connect`, so it is reached the way an operator reaches it
+    // rather than through an export that exists for the test. What it protects is not the query —
+    // every statement this module issues is a `select` — but the report: the file it writes is a
+    // copy of a real person's email address, name and phone number, and the copy outlives the
+    // connection it was read over.
+    const result = spawnSync(
+      "node",
+      [
+        "--import",
+        "tsx",
+        "scripts/project/deletion-residue.ts",
+        "verify",
+        "--baseline",
+        "/dev/null",
+      ],
+      {
+        encoding: "utf8",
+        env: { ...process.env, DATABASE_URL: "postgres://u:p@db.example.com:5432/lombakita" },
+      },
+    );
+
+    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+
+    expect(output).toContain("refusing to open db.example.com");
+    expect(result.status).not.toBe(0);
+  }, 120_000);
 });

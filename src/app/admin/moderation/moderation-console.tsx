@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button, IconButton } from "@/components/ui";
-import { useToast } from "@/components/ui/primitives";
+import { useModal, useToast } from "@/components/ui/primitives";
 import { getAppRoleLabel } from "@/lib/access/role-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 
@@ -10,7 +10,10 @@ type UserResult = {
   id: string;
   email: string;
   name: string | null;
+  username: string;
   appRole: string;
+  status: string;
+  recruiterVerificationTier: string;
   candidateVerifiedAt: string | null;
   recruiterVerifiedAt: string | null;
   suspendedAt: string | null;
@@ -237,6 +240,185 @@ function ActionForm({
   );
 }
 
+// The recruiter tier the elevation control targets. Duplicated from the service rather than
+// imported: `src/server/recruiter-tier/recruiter-tier-service.ts` pulls in the database client, and
+// this is a client component.
+const ELEVATION_TARGET_TIER = "elevated";
+
+// Every refusal of the de-identification action that has one fixed sentence. The two codes absent
+// from this map are the ones that name the institutions or competitions still standing in the way:
+// only the server knows those, and its message already has them substituted, so it is shown as it
+// arrives.
+const DEIDENTIFY_ERROR_COPY: Record<string, string> = {
+  deidentify_reason_required: "Alasan wajib diisi.",
+  deidentify_confirmation_mismatch: "Nama pengguna konfirmasi tidak cocok.",
+  deidentify_already_done: "Data akun ini sudah dihapus sebelumnya.",
+  deidentify_target_is_operator: "Akun operator tidak dapat dihapus lewat tindakan ini.",
+  operator_actor_is_target: "Anda tidak dapat menghapus akun Anda sendiri.",
+  deidentify_storage_unavailable: "Penyimpanan berkas tidak tersedia. Coba lagi nanti.",
+  deidentify_storage_failed: "Sebagian berkas gagal dihapus. Jalankan lagi untuk menyelesaikan.",
+  deidentify_rehearsal_failed:
+    "Penghapusan tidak dapat diproses. Tidak ada data yang diubah. Laporkan ke tim teknis.",
+};
+
+const DEIDENTIFY_SERVER_MESSAGE_CODES = [
+  "deidentify_last_owner",
+  "deidentify_personal_institution_has_published_competition",
+];
+
+async function readDeidentifyError(res: Response): Promise<string> {
+  try {
+    const data = await res.json();
+    const code = typeof data?.error?.code === "string" ? data.error.code : "";
+    const message = typeof data?.error?.message === "string" ? data.error.message : "";
+
+    if (DEIDENTIFY_SERVER_MESSAGE_CODES.includes(code)) {
+      return message;
+    }
+
+    const copy = DEIDENTIFY_ERROR_COPY[code];
+    if (copy !== undefined) {
+      return copy;
+    }
+
+    return code.length > 0 ? `${code}: ${message}` : `Error ${res.status}`;
+  } catch {
+    return `Error ${res.status}`;
+  }
+}
+
+function RecruiterTierAction({ account, onDone }: { account: UserResult; onDone: () => void }) {
+  const { addToast } = useToast();
+  const { openModal, closeModal } = useModal();
+  const [busy, setBusy] = useState(false);
+
+  const elevate = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/platform-ops/accounts/${account.id}/recruiter-tier`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tier: ELEVATION_TARGET_TIER }),
+      });
+      if (!res.ok) {
+        addToast({ type: "error", message: await readError(res) });
+        return;
+      }
+      const data = await res.json();
+      addToast({
+        type: "success",
+        message:
+          data?.changed === false
+            ? "Akun ini sudah di tingkat penuh."
+            : "Tingkat rekruter dinaikkan.",
+      });
+      onDone();
+    } catch {
+      addToast({ type: "error", message: "Kesalahan jaringan." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Button
+      size="sm"
+      loading={busy}
+      onClick={() =>
+        openModal({
+          title: "Naikkan tingkat rekruter?",
+          body: "Akun ini akan dapat membuat institusi dan menerbitkan kompetisi.",
+          actions: [
+            { label: "Batal", variant: "secondary", onClick: closeModal },
+            { label: "Naikkan", variant: "primary", onClick: () => void elevate() },
+          ],
+        })
+      }
+    >
+      Naikkan ke tingkat penuh
+    </Button>
+  );
+}
+
+function DeidentifyAction({ account, onDone }: { account: UserResult; onDone: () => void }) {
+  const { addToast } = useToast();
+  const { openModal, closeModal } = useModal();
+  const [confirmUsername, setConfirmUsername] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const deidentify = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/platform-ops/accounts/${account.id}/deidentify`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirmUsername, reason }),
+      });
+      if (!res.ok) {
+        addToast({ type: "error", message: await readDeidentifyError(res) });
+        return;
+      }
+      const data = await res.json();
+      addToast({
+        type: "success",
+        message: `Data akun dihapus. ${data?.objectsDeleted ?? 0} berkas dihapus.`,
+      });
+      onDone();
+    } catch {
+      addToast({ type: "error", message: "Kesalahan jaringan." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="moderation-action-form moderation-deidentify-form">
+      <div className="form-field">
+        <label className="form-label" htmlFor="deidentify-confirm-username">
+          Ketik nama pengguna akun untuk konfirmasi
+        </label>
+        <input
+          id="deidentify-confirm-username"
+          className="form-input"
+          value={confirmUsername}
+          autoComplete="off"
+          onChange={(e) => setConfirmUsername(e.target.value)}
+        />
+      </div>
+      <div className="form-field">
+        <label className="form-label" htmlFor="deidentify-reason">
+          Alasan (contoh: permintaan melalui email tanggal 28 September 2026)
+        </label>
+        <input
+          id="deidentify-reason"
+          className="form-input"
+          value={reason}
+          autoComplete="off"
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </div>
+      <Button
+        variant="danger"
+        size="sm"
+        loading={busy}
+        onClick={() =>
+          openModal({
+            title: "Hapus data akun ini?",
+            body: "Nama, email, profil, dan berkas akun ini akan dihapus permanen, dan akun tidak dapat masuk lagi. Catatan pendaftaran, hasil lomba, keuangan, dan audit tetap disimpan tanpa data pribadi. Tindakan ini tidak dapat dibatalkan.",
+            actions: [
+              { label: "Batal", variant: "secondary", onClick: closeModal },
+              { label: "Hapus data", variant: "danger", onClick: () => void deidentify() },
+            ],
+          })
+        }
+      >
+        Hapus data akun
+      </Button>
+    </div>
+  );
+}
+
 function UserPanel() {
   const { addToast } = useToast();
   const [email, setEmail] = useState("");
@@ -349,6 +531,18 @@ function UserPanel() {
               />
             )}
           </div>
+          {result.appRole === "recruiter" &&
+            result.recruiterVerificationTier !== ELEVATION_TARGET_TIER && (
+              <div>
+                <RecruiterTierAction account={result} onDone={() => void lookup()} />
+              </div>
+            )}
+          {result.appRole !== "platform_ops" && result.status !== "deactivated" && (
+            // Not re-looked-up afterwards: the account's address is now the tombstone, so the email
+            // in the search box resolves to nothing. The panel closes instead of reporting a
+            // not-found for the account that was just deleted.
+            <DeidentifyAction account={result} onDone={() => setResult(null)} />
+          )}
           <NotesPanel target={{ targetUserId: result.id }} />
         </div>
       )}

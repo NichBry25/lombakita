@@ -41,6 +41,20 @@ import { join, resolve } from "node:path";
 import { getTableName } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import * as schema from "@/server/db/schema";
+import {
+  R2_PREFIX_AVATARS,
+  R2_PREFIX_BANNERS,
+  R2_PREFIX_INSTITUTION_BANNERS,
+  R2_PREFIX_INSTITUTION_LOGOS,
+  R2_PREFIX_PAYMENT_INSTRUCTIONS,
+  R2_PREFIX_PAYMENT_PROOFS,
+  R2_PREFIX_PROFILE_CERTIFICATIONS,
+  R2_PREFIX_RECRUITER_VERIFICATION,
+  R2_PREFIX_REGISTRATION_DOCUMENTS,
+  R2_PREFIX_RESUMES,
+  R2_PREFIX_SUBMISSIONS,
+  R2_PREFIX_VERIFICATION,
+} from "@/server/storage/r2-key-prefixes";
 
 /** The `ON DELETE` actions Postgres recognises, lowercased as Drizzle writes them. */
 export type ReferentialAction = "cascade" | "set null" | "set default" | "restrict" | "no action";
@@ -1387,7 +1401,7 @@ export type R2Prefix = {
  */
 export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
   {
-    prefix: "avatars/{userId}/",
+    prefix: R2_PREFIX_AVATARS,
     reachedByDeletion: true,
     scope: "user",
     module: "src/server/user-profile/profile-files-service.ts",
@@ -1398,7 +1412,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     reason: "profile photo, keyed by the owning user",
   },
   {
-    prefix: "banners/{userId}/",
+    prefix: R2_PREFIX_BANNERS,
     reachedByDeletion: true,
     scope: "user",
     module: "src/server/user-profile/profile-files-service.ts",
@@ -1410,7 +1424,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
       "on their institution's public page",
   },
   {
-    prefix: "resumes/{userId}/",
+    prefix: R2_PREFIX_RESUMES,
     reachedByDeletion: true,
     scope: "user",
     module: "src/server/user-profile/profile-files-service.ts",
@@ -1420,7 +1434,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     reason: "CV, keyed by the owning user",
   },
   {
-    prefix: "profile-certifications/{userId}/",
+    prefix: R2_PREFIX_PROFILE_CERTIFICATIONS,
     reachedByDeletion: true,
     scope: "user",
     module: "src/server/user-profile/profile-files-service.ts",
@@ -1431,7 +1445,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     reason: "certification scans, keyed by the owning user",
   },
   {
-    prefix: "recruiter-verification/{userId}/{submissionId}/",
+    prefix: R2_PREFIX_RECRUITER_VERIFICATION,
     reachedByDeletion: true,
     scope: "user",
     module: "src/server/recruiter-verification/recruiter-verification-service.ts",
@@ -1442,7 +1456,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     reason: "identity documents a recruiter uploaded to verify; the most sensitive objects here",
   },
   {
-    prefix: "submissions/{competitionId}/{registrationId}/",
+    prefix: R2_PREFIX_SUBMISSIONS,
     reachedByDeletion: true,
     scope: "registration",
     module: "src/server/submissions/submission-service.ts",
@@ -1454,7 +1468,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
       "competition entry files; keyed by registration, reached through the user's registration",
   },
   {
-    prefix: "registration-documents/{competitionId}/{registrationId}/{requestId}/",
+    prefix: R2_PREFIX_REGISTRATION_DOCUMENTS,
     reachedByDeletion: true,
     scope: "registration",
     module: "src/server/registration-documents/registration-document-service.ts",
@@ -1465,7 +1479,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     reason: "documents an organiser requested from a participant and the participant uploaded",
   },
   {
-    prefix: "payment-proofs/{competitionId}/{paymentId}/",
+    prefix: R2_PREFIX_PAYMENT_PROOFS,
     reachedByDeletion: false,
     scope: "competition",
     module: "src/server/finance/manual-payment-proof-service.ts",
@@ -1481,7 +1495,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
       "them reachable and what makes them impossible to remove",
   },
   {
-    prefix: "payment-instructions/{institutionId}/",
+    prefix: R2_PREFIX_PAYMENT_INSTRUCTIONS,
     reachedByDeletion: false,
     scope: "institution",
     module: "src/server/institutions/payment-instructions-service.ts",
@@ -1490,7 +1504,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     reason: "QRIS images; institution-scoped, not user data",
   },
   {
-    prefix: "institution-logos/{institutionId}/",
+    prefix: R2_PREFIX_INSTITUTION_LOGOS,
     reachedByDeletion: false,
     scope: "institution",
     module: "src/server/institution-workspace/institution-media-service.ts",
@@ -1499,7 +1513,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     reason: "institution logo; institution-scoped",
   },
   {
-    prefix: "institution-banners/{institutionId}/",
+    prefix: R2_PREFIX_INSTITUTION_BANNERS,
     reachedByDeletion: false,
     scope: "institution",
     module: "src/server/institution-workspace/institution-media-service.ts",
@@ -1508,7 +1522,7 @@ export const R2_PREFIXES: readonly R2Prefix[] = Object.freeze([
     reason: "institution banner; institution-scoped",
   },
   {
-    prefix: "verification/{institutionId}/{submissionId}/",
+    prefix: R2_PREFIX_VERIFICATION,
     reachedByDeletion: false,
     scope: "institution",
     module: "src/server/institution-verification/submission-service.ts",
