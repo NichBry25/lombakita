@@ -10,9 +10,10 @@
  * CLASS B: a guard before a series of writes with no transaction around them, so nothing rolls
  * back and the detector must be the POST-STATE. Every run here that keeps the guard anywhere ends
  * in the same thrown refusal, naming the same database, exiting non-zero, whether the guard ran
- * before the users were written or after. Only the database knows which. So each probe migrates a
- * throwaway that carries a PROTECTED NAME, points the real `npm run db:seed` at it, and asks
- * afterwards whether `seed-user-%` rows exist. Guarded, none do. Unguarded or late, they do.
+ * before the users were written or after. Only the database knows which. So each probe points the
+ * real `npm run db:seed` at a throwaway carrying a PROTECTED NAME and asks afterwards whether
+ * `seed-user-%` rows exist. Guarded, none do. Unguarded or late, they do. That name is arrived at by
+ * renaming rather than by migrating under it, because the migrator refuses a canonical name.
  *
  * Usage: node scripts/testing/probes/seed-guard.mjs
  * Requires a reachable local Postgres whose role may CREATE DATABASE.
@@ -23,11 +24,13 @@ import { spawnSync } from "node:child_process";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
 import {
   PROBE_DATABASES,
+  PROTECTED_NAME_DATABASES,
   baseDatabaseUrl,
   createProbeDatabase,
   dropProbeDatabase,
   migrateProbeDatabase,
   onDatabase,
+  renameProbeDatabase,
   withDatabase,
 } from "./throwaway-database.mjs";
 
@@ -55,17 +58,32 @@ const seedRowsWritten = async (databaseName) =>
 /**
  * Runs the real seed against a throwaway carrying a protected name and reports whether it wrote.
  *
- * Teardown is in a `finally` (Rule 35): the database is dropped whether the assertion passed,
- * failed, or threw.
+ * The protected name cannot be held while the throwaway is migrated: the migrator refuses any
+ * database whose SERVER-reported name is canonical, at every environment, and that refusal is the
+ * correct behaviour of the layer this probe's subject sits behind. So a protected-name throwaway is
+ * created and migrated under a name nothing refuses, and renamed onto the protected one after the
+ * migration succeeds and before the seed is spawned — the seed then reads a canonical name from the
+ * server while the migrator never saw one.
+ *
+ * Teardown is in a `finally` (Rule 35): both names are dropped whether the assertion passed, failed,
+ * or threw — the second drop covers the run that threw before reaching the rename.
  */
 const seedWroteInto = async (databaseName) => {
-  const childUrl = withDatabase(baseDatabaseUrl(), databaseName);
+  const carriesProtectedName = PROTECTED_NAME_DATABASES.includes(databaseName);
+  const migrateUnder = carriesProtectedName
+    ? PROBE_DATABASES.protectedMigrateStaging
+    : databaseName;
 
-  await createProbeDatabase(databaseName);
+  await createProbeDatabase(migrateUnder);
 
   try {
-    migrateProbeDatabase(childUrl);
+    migrateProbeDatabase(withDatabase(baseDatabaseUrl(), migrateUnder));
 
+    if (carriesProtectedName) {
+      await renameProbeDatabase(migrateUnder, databaseName);
+    }
+
+    const childUrl = withDatabase(baseDatabaseUrl(), databaseName);
     const result = spawnSync("npm", ["run", "db:seed"], {
       encoding: "utf8",
       env: { ...process.env, DATABASE_URL: childUrl, MIGRATION_DATABASE_URL: "" },
@@ -93,6 +111,10 @@ const seedWroteInto = async (databaseName) => {
     };
   } finally {
     await dropProbeDatabase(databaseName);
+
+    if (carriesProtectedName) {
+      await dropProbeDatabase(migrateUnder);
+    }
   }
 };
 

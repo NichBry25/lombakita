@@ -29,6 +29,15 @@ export const MARKER_TABLE = "reset_probe_marker";
 export const PROBE_DATABASES = Object.freeze({
   /** A protected name, so the reset guard's identity layer is the thing that has to refuse. */
   protectedTarget: "lombakita_production",
+  /**
+   * The name `protectedTarget` is migrated under, before it is renamed onto the protected one.
+   *
+   * A suite that needs a protected LABEL has to arrive at it without holding it while the migrator
+   * runs, because the migrator refuses any database whose SERVER-reported name is canonical however
+   * the caller is configured. Named on `unprotectedTarget`'s pattern, and neither protected nor
+   * canonical itself, so the migrator's own layers have nothing to say about it.
+   */
+  protectedMigrateStaging: "lombakita_protected_staging",
   /** A name nothing protects, so the environment layer is the only thing that can refuse. */
   unprotectedTarget: "lombakita_disposable",
   /** Reached through a non-loopback address, so the host layer is the only thing that can refuse. */
@@ -46,6 +55,16 @@ export const PROBE_DATABASES = Object.freeze({
 });
 
 const PROBE_DATABASE_NAMES = Object.freeze(Object.values(PROBE_DATABASES));
+
+/**
+ * The throwaways whose own NAME is one a deployed environment answers to.
+ *
+ * The migrator refuses a database whose SERVER-reported name is canonical, at every environment, and
+ * that refusal is correct — so a suite that needs the guard's identity layer to be the thing that
+ * refuses cannot hold the protected name while it migrates. It migrates `protectedMigrateStaging`
+ * and renames onto the protected name afterwards, through `renameProbeDatabase`.
+ */
+export const PROTECTED_NAME_DATABASES = Object.freeze([PROBE_DATABASES.protectedTarget]);
 
 export const baseDatabaseUrl = () => {
   const url = process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -166,14 +185,41 @@ export const dropProbeDatabase = async (databaseName) => {
 };
 
 /**
+ * Renames one of this harness's throwaways onto another of its own names.
+ *
+ * `ALTER DATABASE ... RENAME TO` refuses while any other session holds the source open, and the
+ * migration that runs before this is a child process rather than a connection this file owns: a run
+ * that was interrupted mid-migration can leave a backend behind, and the rename would then fail for
+ * a reason that reads as a probe defect. Terminating the source's backends first makes the rename
+ * depend on the database being free rather than on it happening to be free.
+ *
+ * Both names go through `assertProbeTargetIsDisposable`, so this cannot be pointed at anything the
+ * harness has not already declared it may create and drop.
+ */
+export const renameProbeDatabase = async (from, to) => {
+  assertProbeTargetIsDisposable(from);
+  assertProbeTargetIsDisposable(to);
+
+  await onDatabase("postgres", async (sql) => {
+    await sql.unsafe(
+      "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1 and pid <> pg_backend_pid()",
+      [from],
+    );
+    await sql.unsafe(`alter database ${from} rename to ${to}`);
+  });
+};
+
+/**
  * Applies the migrations to a throwaway, so a probe's subject has tables to write into.
  *
  * EVERY THROWAWAY BELOW IS MIGRATED UNDER THE GUARD'S DEFAULT ENVIRONMENT, which a probe cannot
  * confederate its way around: local refuses a non-loopback host and refuses any database whose
- * SERVER-reported name is one of `CANONICAL_DATABASE_NAME`'s. The throwaways here are all loopback
- * and none of them is a canonical name — `protectedTarget` deliberately carries one, and is created
- * and dropped without ever being migrated, because it exists for the reset guard's identity layer
- * rather than the migrator's.
+ * SERVER-reported name is one of `CANONICAL_DATABASE_NAME`'s. The throwaways are all loopback, and
+ * every migration here runs against a name the migrator has nothing to refuse — `protectedTarget`
+ * deliberately carries a canonical name, so a suite that needs it migrates `protectedMigrateStaging`
+ * instead and renames onto the protected name once the migration has succeeded, through
+ * `renameProbeDatabase`. The protected name is therefore what the subject under test reads from the
+ * SERVER, and never the name the migrator was handed.
  *
  * The managed path is not reachable from here and is not meant to be: preview and production both
  * require the server's own database name typed as `--confirm`, which is exactly the value a probe
