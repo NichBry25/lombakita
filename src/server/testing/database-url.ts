@@ -108,8 +108,13 @@ export const TEST_DDL_DATABASE_URL = readEnvValue("MIGRATION_DATABASE_URL") ?? T
  * A separate variable rather than keying off `CI` itself, so that a workflow which deliberately has
  * no database — the contrast self-test job, for instance — can opt out without pretending not to
  * be CI.
+ *
+ * Defined in its own module since LAUNCH-D156 and re-exported here, because the test runner's
+ * reporter needs the predicate without this module's tripwire; see that file for why.
  */
-export const databaseTestsRequired = process.env.REQUIRE_DB_TESTS !== "0";
+import { databaseTestsRequired } from "./database-tests-required";
+
+export { databaseTestsRequired };
 
 if (databaseTestsRequired && !TEST_DATABASE_URL) {
   // Thrown at module load, so the importing suite fails loudly as a file-level error instead of

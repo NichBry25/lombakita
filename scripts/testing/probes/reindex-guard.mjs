@@ -27,6 +27,7 @@ import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import postgres from "postgres";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
+import { reachedStepLine } from "./reached-step-line.mjs";
 import {
   PROBE_DATABASES,
   baseDatabaseUrl,
@@ -44,8 +45,14 @@ const PROBE_DATABASE = PROBE_DATABASES.protectedTarget;
 /** Planted before each run; its absence afterwards is the whole verdict. */
 const PLANTED_ID = "00000000-0000-4000-8000-00000000feed";
 
-/** Printed by the reindex when it reaches the delete. Its absence means nothing was measured. */
-const REACHED_THE_DELETE = "[3/4] Emptying the index";
+/**
+ * Printed by the reindex when it reaches the delete, derived from the reindex's own source.
+ *
+ * Its absence from the child's output means nothing was measured, so the step's number, the total
+ * and the print format are read rather than restated here (LAUNCH-D128). The anchor is the step's
+ * own title, which is the one part of the line that names which step is being waited for.
+ */
+const reachedTheDeleteLine = () => reachedStepLine(REINDEX, "Emptying the index");
 
 try {
   process.loadEnvFile(".env.local");
@@ -207,6 +214,11 @@ const restoreIndex = async () => {
  * one.
  */
 const indexWasEmptied = async () => {
+  // Derived before anything is created, planted or emptied, for the same reason the reset probes
+  // derive theirs first: a line that cannot be derived must cost nothing, and this suite's teardown
+  // rebuilds a shared index.
+  const reachedTheDelete = reachedTheDeleteLine();
+
   await createProbeDatabase(PROBE_DATABASE);
   await plantDocument();
 
@@ -224,7 +236,7 @@ const indexWasEmptied = async () => {
 
     // CLAUSE 3 — reached. A run that never attempted the delete has not measured whether the guard
     // stopped it, and must not be read as the guard holding.
-    if (!output.includes(REACHED_THE_DELETE)) {
+    if (!output.includes(reachedTheDelete)) {
       throw new Error(
         "the reindex never reached the delete step, so nothing was measured. Tail of its output:\n" +
           output.slice(-800),

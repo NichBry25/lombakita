@@ -270,13 +270,18 @@ export const probes = [
     // NOT throw before a consumer ran, so a move analogue does not exist here; the removal test is
     // the whole test, and Rule 36 asks for that to be said rather than for a probe that measures
     // nothing.
+    //
+    // The predicate has its own module (LAUNCH-D156), so the mutation goes where the predicate is
+    // DEFINED rather than where it used to sit. Anchoring it at `database-url.ts` would make this
+    // probe the thing the phase exists to remove: a check that cannot find its own subject and
+    // reports that as nothing to check.
     klass: "C",
     harmfulMove: "restoring opt-in, so a worktree without .env.local silently skips 285 tests",
-    files: ["src/server/testing/database-url.ts"],
+    files: ["src/server/testing/database-tests-required.ts"],
     appliedMarkers: ['process.env.REQUIRE_DB_TESTS === "1"'],
     mutate: () =>
       substituteOnce(
-        "src/server/testing/database-url.ts",
+        "src/server/testing/database-tests-required.ts",
         'export const databaseTestsRequired = process.env.REQUIRE_DB_TESTS !== "0";',
         'export const databaseTestsRequired = process.env.REQUIRE_DB_TESTS === "1";',
       ),

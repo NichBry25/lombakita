@@ -312,6 +312,17 @@ describe("the guard in front of the delete", () => {
     }
   }, 60_000);
 
+  // THE VARIABLE THAT IS PRESENT AND NAMES NOTHING (LAUNCH-D148). `DATABASE_URL=""` passes a bare
+  // `=== undefined` test, so the runner reached the connection with an empty string — `postgres("")`
+  // opens a default local socket rather than refusing, which is the opposite of what a runner whose
+  // whole job is refusing the wrong database should do. The provisioning runner has asked this way
+  // since C2.3; this one asked the other way until now.
+  it("refuses an empty DATABASE_URL, which a presence test would have accepted", () => {
+    const output = runRunner({ DATABASE_URL: "" });
+
+    expect(output).toContain("DATABASE_URL is unset or empty");
+  }, 60_000);
+
   it("refuses a non-loopback host, naming the host it refused", () => {
     const output = runRunner({ DATABASE_URL: REMOTE_HOST, APP_ENV: "local" });
 
@@ -351,6 +362,26 @@ describe("the guard in front of the delete", () => {
     // and then failed has demonstrably reached the end of the guard chain.
     expect(output.trim(), "the run produced no output at all").not.toBe("");
   }, 60_000);
+
+  // THE OTHER DIRECTION OF THE SAME CONDITION (LAUNCH-D168). The refusal cases above are one arm of
+  // the catch's `refused` test; this is the arm that had no test, and the one an operator meets when
+  // a database that was supposed to be there is not. Both guard layers pass — the environment is
+  // disposable and the host is loopback — so what refuses is the socket, and the first line has to
+  // say a crash rather than a decision this runner never made.
+  //
+  // THE PREFIX IS THE WHOLE PROOF, because a run that cleared both layers and failed can only have
+  // failed at the connection. `DEAD_LOOPBACK` is the same address the control above uses; nothing
+  // listens there.
+  it("reports a failure that is not a refusal as a failure, keeping the stack that says where it came from", () => {
+    const result = runRunnerResult({ APP_ENV: "local" });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/^deletion failed: /);
+    expect(
+      result.stderr,
+      "the crash printed no stack frame, so the operator cannot see where the failure came from",
+    ).toMatch(/^\s+at /m);
+  }, 90_000);
 
   // WHAT IS NOT MEASURED HERE, stated rather than implied (Rule 32 permits a stated absence with a
   // reason). The identity layer — `select current_database()` answered by the server, checked by

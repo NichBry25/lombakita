@@ -255,6 +255,31 @@ const guardedClient = (): Sql => {
   return client as unknown as Sql;
 };
 
+/**
+ * The client, with every statement the runner issues recorded in the order it issued them.
+ *
+ * THE PRE-FLIGHT'S CLAIM IS POSITIONAL — it refuses before a transaction is opened — and a refusal
+ * that arrives before `begin` leaves no post-state to read afterwards, so the order of the
+ * statements is the only evidence of it there is. `runProcedure` reaches the connection through
+ * `unsafe` alone, so this forwards that one method; the real client is returned alongside it for
+ * the assertions that read rows after the refusal (LAUNCH-D167).
+ */
+const recordingClient = (sql: Sql): { sql: Sql; statements: string[] } => {
+  const statements: string[] = [];
+
+  const recorder = {
+    unsafe: (body: string, parameters?: Parameters<Sql["unsafe"]>[1]) => {
+      statements.push(body);
+      return sql.unsafe(body, parameters);
+    },
+  };
+
+  return { sql: recorder as unknown as Sql, statements };
+};
+
+/** A statement that opens or closes a transaction, which the pre-flight has to precede. */
+const OPENS_OR_CLOSES_A_TRANSACTION = /^\s*(begin|commit|rollback)\b/i;
+
 /** What a case observed. */
 type Outcome =
   | { kind: "refused"; message: string; steps: string[] }
@@ -398,9 +423,27 @@ describe.skipIf(skipWithoutDatabase)("the pre-flight refusal", () => {
       // the pre-flight ALONE. No transaction step is even offered, so a refusal that still arrives
       // cannot have come from one — and the run reports the single step that executed.
       const preflightOnly = procedureSteps().filter((step) => step.name === PREFLIGHT_STEP_NAME);
-      const outcome = await attemptDeletion(sql, fixture.subject, preflightOnly);
+      const { sql: recorded, statements } = recordingClient(sql);
+      const outcome = await attemptDeletion(recorded, fixture.subject, preflightOnly);
       expect(outcome.kind).toBe("refused");
       if (outcome.kind !== "refused") return;
+
+      // THE RECORDER HAS TO HAVE HEARD SOMETHING FOR ITS SILENCE TO MEAN ANYTHING. An empty list
+      // satisfies every "does not contain" assertion below, so a recorder that stopped recording and
+      // a pre-flight that issued nothing are the same observation until this clause separates them.
+      expect(
+        statements.length,
+        "The recorder captured no statement at all, so every claim below would pass over an empty " +
+          "list — a pre-flight that never reached the database and one that refused before a write " +
+          "read the same.",
+      ).toBeGreaterThan(0);
+
+      // The ORDER is the claim, and it is the half `outcome.steps` cannot carry: a refusal from
+      // inside a transaction would have issued `begin` first, and would then have performed a write
+      // the pre-flight exists to precede (LAUNCH-D167).
+      expect(statements.some((statement) => OPENS_OR_CLOSES_A_TRANSACTION.test(statement))).toBe(
+        false,
+      );
 
       expect(outcome.message).toBe(
         `subject is the last active owner of 1 institution(s)\n${expectedLine(fixture.institutions[0]!)}`,
@@ -430,12 +473,23 @@ describe.skipIf(skipWithoutDatabase)("the pre-flight refusal", () => {
       // must still refuse: `delete` is in this list, and the institution is exactly as orphanable as
       // it was a case ago.
       const withoutPreflight = procedureSteps().filter((step) => step.name !== PREFLIGHT_STEP_NAME);
-      const outcome = await attemptDeletion(sql, fixture.subject, withoutPreflight);
+      const { sql: recorded, statements } = recordingClient(sql);
+      const outcome = await attemptDeletion(recorded, fixture.subject, withoutPreflight);
       expect(outcome.kind).toBe("refused");
       if (outcome.kind !== "refused") return;
 
-      expect(outcome.message).toContain(PREFLIGHT_STEP_NAME);
+      // "RATHER THAN PERFORMING THE DELETION" is the title's other half, and the empty step list
+      // does not carry it: `attemptDeletion` reports `[]` for every refusal that is not the
+      // pre-flight's, so a `delete` that ran and rolled back would leave the list just as empty.
+      // The statements themselves are what can fail here (LAUNCH-D167).
+      expect(
+        statements,
+        "The refusal came before any statement reached the database, so nothing reached the client " +
+          "at all.",
+      ).toEqual([]);
       expect(outcome.steps).toEqual([]);
+
+      expect(outcome.message).toContain(PREFLIGHT_STEP_NAME);
       expect(await rowExists(sql, "users", fixture.subject)).toBe(true);
     } finally {
       await removeFixture(sql, fixture);

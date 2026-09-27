@@ -226,3 +226,97 @@ describe("the retry on a runner that never started", () => {
     ).toThrow(/A run that crashed is not a guard that refused/);
   });
 });
+
+/**
+ * A detector matches a case marker that colour surrounds.
+ *
+ * LAUNCH-D169. A test runner writes the marker, then an SGR escape, then the space — measured as
+ * `ESC[31m   ESC[31m×ESC[31m builds each join from the chain`. A detector anchored on `/× /`
+ * therefore matches only where colour happens to be off, so the same probe set is green in CI and
+ * red in a colour-forcing shell, and red in the one reading Rule 36 clause 3 forbids: it throws
+ * "a run that crashed is not a guard that refused" for a run that measured fine.
+ *
+ * CI sets no FORCE_COLOR, so deleting the strip in `detectors.mjs` would go unnoticed there and
+ * unnoticed by every probe suite this repository runs. This is the notice. The bytes below are the
+ * measured ones and a real child writes them, read back through `run`, so the input arrives the way
+ * a probe's does rather than being handed to the matcher.
+ */
+describe("a detector reading a case marker colour surrounds", () => {
+  const MEASURED = "\u001b[31m   \u001b[31m×\u001b[31m builds each join from the chain 4ms\n";
+
+  /** The detector as `deletion-instruments.mjs` spells it, over the run it actually waits on. */
+  const CHAIN_DETECTOR = /× .*builds each join from the chain/;
+
+  const colouredRun = () =>
+    run("node", ["-e", `process.stdout.write(${JSON.stringify(MEASURED)}); process.exit(1);`]);
+
+  it("matches through the escapes", () => {
+    const verdict = refusedWhen(colouredRun(), {
+      status: 1,
+      reached: CHAIN_DETECTOR,
+      label: "the deletion-residue detector",
+    });
+
+    expect(verdict.refused).toBe(true);
+    expect(verdict.evidence).toContain("builds each join from the chain");
+    // The escapes are still there on the way in, so this is the strip doing the matching and not a
+    // child that happened not to colour its output.
+    expect(colouredRun().stdout).toContain("\u001b[31m");
+  });
+});
+
+/**
+ * The register gate's detectors pin deltas, never figures.
+ *
+ * Two numbers in a line the gate prints are not the same kind of value. The FIGURE is what the gate
+ * measured — a population read off a live register, so it moves every time an item is closed, and a
+ * detector that spells it out stops matching while `detectors.mjs` throws over a fixture that has
+ * stopped describing its subject (LAUNCH-D128, whose fifth instance was exactly this at
+ * `register-gate.mjs`). A DEPARTURE — `(up 1)`, `(down 1 …)` — is what the probe's own mutation
+ * caused, which is what makes the detector specific, and is the only figure worth pinning.
+ *
+ * The rule is therefore mechanical: in a pattern a register-gate detector waits on, a digit appears
+ * only inside a departure, a character class or an escape. Source rather than convention, because a
+ * convention is what let eight of these drift back to literals.
+ */
+describe("the register gate's detectors", () => {
+  const REGISTER_GATE = "register-gate";
+
+  const detectorPatterns = (detect: unknown): string[] =>
+    [...String(detect).matchAll(/\/((?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\])*)\//g)].map(
+      ([, body]) => body ?? "",
+    );
+
+  /** Everything that legitimately holds a digit: the departure, and the pattern syntax itself. */
+  const DEPARTURE = /\\\((?:up|down)\s[^)]*\)/g;
+  const CHARACTER_CLASS = /\[(?:\\.|[^\]\\])*\]/g;
+  const ESCAPE = /\\./g;
+
+  const figures = (pattern: string): string[] =>
+    [
+      ...pattern
+        .replace(DEPARTURE, "")
+        .replace(CHARACTER_CLASS, "")
+        .replace(ESCAPE, "")
+        .matchAll(/\d+/g),
+    ].map(([figure]) => figure);
+
+  it("carry no figure outside a departure", () => {
+    const suite = SUITES[REGISTER_GATE] ?? [];
+    let inspected = 0;
+
+    for (const probe of suite) {
+      for (const pattern of detectorPatterns(probe.detect)) {
+        inspected += 1;
+        const pinned = figures(pattern);
+
+        expect(
+          pinned,
+          `${REGISTER_GATE}: ${probe.name} pins ${pinned.join(", ")} in /${pattern}/`,
+        ).toEqual([]);
+      }
+    }
+
+    expect(inspected, "no detector was inspected, so nothing was pinned").toBeGreaterThan(0);
+  });
+});

@@ -349,9 +349,9 @@ export const SEED_FILE_OBLIGATIONS: readonly SeedFileObligation[] = Object.freez
       "the matrix seed. What an institution is created holding comes from the production " +
       "constant rather than a literal, and nothing in this file elevates a tier or enrols a " +
       "factor any more; those travel the review and enrolment services from the operator " +
-      "module. The raw writes that remain are this phase's outstanding work across 28 tables, " +
-      "and this number is the measure of it: routing a table lowers it, and adding a raw write " +
-      "fails the suite unless someone raises it deliberately, in a diff, with a reason",
+      "module. The raw writes that remain are this phase's outstanding work, and this number " +
+      "is the measure of it: routing a table lowers it, and adding a raw write fails the " +
+      "suite unless someone raises it deliberately, in a diff, with a reason",
   },
   {
     file: "scripts/seed/manual-payment-lane.ts",

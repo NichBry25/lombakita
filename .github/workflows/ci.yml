@@ -123,7 +123,10 @@ jobs:
       # eslint does not, and neither the vitest include list nor the tsconfig include list reaches
       # it. A lane present during Test is the whole of what the suite needs.
       #
-      # No `continue-on-error`, no fallback and no condition. An unavailable doc repo, a revoked
+      # No `continue-on-error` and no fallback. This step carries no `if:` of its own, so it runs
+      # under the implicit `if: success()` Actions applies to every step, and an earlier failure in
+      # this job SKIPS it rather than running it — measured on run 35442062808, where a failed
+      # `Secret scan` skipped this checkout. When it does run, an unavailable doc repo, a revoked
       # token or an absent branch must fail the job: a checkout that quietly proceeds without `docs/`
       # restores the exact false green this step exists to remove.
       - name: Check out the doc lane

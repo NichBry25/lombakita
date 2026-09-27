@@ -19,7 +19,7 @@ import { useModal, useToast } from "@/components/ui/primitives";
 import { COMPETITION_CATEGORY_OPTIONS } from "@/lib/competitions/categories";
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { COMPETITION_MODE_OPTIONS } from "@/lib/competitions/modes";
-import { getMissingCompetitionPublishFields } from "@/lib/competitions/competition-publish-readiness";
+import { getMissingCompetitionPublishFields } from "@/lib/competitions/competition-publish-required-fields";
 import {
   validateCompetitionTimeline,
   type CompetitionTimelineError,

@@ -86,17 +86,17 @@ const UPSERT_CASE = /× .*still catches a ledger mutation despite the exception 
 /**
  * DEC-0131's refuse, exactly as it stands in `cancelRegistration`.
  *
+ * Anchored on the guard as fada388 left it: one condition, no `isPaidCompetition` wrapper.
+ *
  * The trailing blank line is part of it, so removing it does not leave the file with two blank
  * lines where the guard was — the mutation has to be the move and nothing else.
  */
 const INDIVIDUAL_PAID_REFUSE = [
-  "  if (isPaidCompetition(competition.feeAmount)) {",
-  "    if (await hasSubmittedPaymentProof(registration.id, db)) {",
-  "      throw new RegistrationError(",
-  '        "cancellation_not_supported_for_paid",',
-  '        "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",',
-  "      );",
-  "    }",
+  "  if (await hasSubmittedPaymentProof(registration.id, db)) {",
+  "    throw new RegistrationError(",
+  '      "cancellation_not_supported_for_paid",',
+  '      "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",',
+  "    );",
   "  }",
   "",
   "",
@@ -104,13 +104,11 @@ const INDIVIDUAL_PAID_REFUSE = [
 
 const INDIVIDUAL_REFUSE_MOVED = [
   "  // probe: the paid-registration refuse now runs after the cancellation has committed",
-  "  if (isPaidCompetition(competition.feeAmount)) {",
-  "    if (await hasSubmittedPaymentProof(registration.id, db)) {",
-  "      throw new RegistrationError(",
-  '        "cancellation_not_supported_for_paid",',
-  '        "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",',
-  "      );",
-  "    }",
+  "  if (await hasSubmittedPaymentProof(registration.id, db)) {",
+  "    throw new RegistrationError(",
+  '      "cancellation_not_supported_for_paid",',
+  '      "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",',
+  "    );",
   "  }",
   "",
   "",
@@ -123,23 +121,17 @@ const INDIVIDUAL_REFUSE_MOVED = [
  * functions with separate transactions, and the team arm's predicate goes through an ANCHOR lookup
  * first, so a probe over the individual arm says nothing about whether this one still runs before
  * its own commit.
+ *
+ * Anchored on the guard as fada388 left it: one condition, no `isPaidCompetition` wrapper.
  */
 const TEAM_PAID_REFUSE = [
-  "  if (isPaidCompetition(competition.feeAmount)) {",
-  "    // A team with no registration rows at all has no payment and therefore no proof. The anchor",
-  "    // lookup is shared with the surface that decides whether to OFFER the cancel control, so the",
-  "    // control cannot appear on a team this guard would refuse.",
-  "    const anchorRegistrationId = await findTeamPaymentGroupAnchor(teamId, db);",
+  "  const anchorRegistrationId = await findTeamPaymentGroupAnchor(teamId, db);",
   "",
-  "    if (",
-  "      anchorRegistrationId !== null &&",
-  "      (await hasSubmittedPaymentProof(anchorRegistrationId, db))",
-  "    ) {",
-  "      throw new TeamError(",
-  '        "cancellation_not_supported_for_paid",',
-  '        "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",',
-  "      );",
-  "    }",
+  "  if (anchorRegistrationId !== null && (await hasSubmittedPaymentProof(anchorRegistrationId, db))) {",
+  "    throw new TeamError(",
+  '      "cancellation_not_supported_for_paid",',
+  '      "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",',
+  "    );",
   "  }",
   "",
   "",
@@ -147,21 +139,13 @@ const TEAM_PAID_REFUSE = [
 
 const TEAM_REFUSE_MOVED = [
   "  // probe: the team paid-registration refuse now runs after the cancellation has committed",
-  "  if (isPaidCompetition(competition.feeAmount)) {",
-  "    // A team with no registration rows at all has no payment and therefore no proof. The anchor",
-  "    // lookup is shared with the surface that decides whether to OFFER the cancel control, so the",
-  "    // control cannot appear on a team this guard would refuse.",
-  "    const anchorRegistrationId = await findTeamPaymentGroupAnchor(teamId, db);",
+  "  const anchorRegistrationId = await findTeamPaymentGroupAnchor(teamId, db);",
   "",
-  "    if (",
-  "      anchorRegistrationId !== null &&",
-  "      (await hasSubmittedPaymentProof(anchorRegistrationId, db))",
-  "    ) {",
-  "      throw new TeamError(",
-  '        "cancellation_not_supported_for_paid",',
-  '        "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",',
-  "      );",
-  "    }",
+  "  if (anchorRegistrationId !== null && (await hasSubmittedPaymentProof(anchorRegistrationId, db))) {",
+  "    throw new TeamError(",
+  '      "cancellation_not_supported_for_paid",',
+  '      "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim",',
+  "    );",
   "  }",
   "",
   "",

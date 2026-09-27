@@ -1,7 +1,8 @@
 /**
  * Fails the build when a credential is committed as source text.
  *
- * Run over the tracked working tree by default, which is the population that ships publicly:
+ * Run over the working tree by default — every file git would commit, tracked and untracked-unignored
+ * alike, which is the population that ships publicly:
  *
  *   npm run verify:secrets
  *
@@ -28,6 +29,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { filesGitWouldCommit } from "../lib/repository-files";
 import {
   applyAllowlist,
   classifyContent,
@@ -47,7 +49,7 @@ const ALLOWLIST_PATH = join(REPO_ROOT, ".secret-allowlist.json");
 const scanHistory = process.argv.includes("--history");
 
 /**
- * Explicit paths to scan instead of the tracked tree. Lets a caller check one file, which is how
+ * Explicit paths to scan instead of the tree population. Lets a caller check one file, which is how
  * this gate's own tests drive it: a test that builds a Finding by hand proves the rule, not the
  * wiring, so the tests invoke this runner the way CI does and read its exit code.
  */
@@ -85,16 +87,7 @@ const loadAllowlist = (): readonly AllowlistEntry[] => {
 
 const scanTrackedTree = (): { findings: Finding[]; subject: Subject } => {
   const usingExplicitPaths = explicitPaths.length > 0;
-  const listed = usingExplicitPaths
-    ? ""
-    : execFileSync("git", ["ls-files", "-z"], {
-        cwd: REPO_ROOT,
-        encoding: "utf8",
-        maxBuffer: 64 * 1024 * 1024,
-      });
-  const paths = usingExplicitPaths
-    ? explicitPaths
-    : listed.split("\0").filter((path) => path.length > 0);
+  const paths = usingExplicitPaths ? explicitPaths : filesGitWouldCommit();
   const resolveFrom = usingExplicitPaths ? process.cwd() : REPO_ROOT;
 
   const findings: Finding[] = [];
@@ -143,7 +136,7 @@ const scanTrackedTree = (): { findings: Finding[]; subject: Subject } => {
     subject: {
       label: usingExplicitPaths
         ? `${paths.length} explicitly named file(s)`
-        : `${paths.length} tracked files`,
+        : `${paths.length} files git would commit (tracked + untracked, unignored)`,
       scanned,
       declaredBinary,
       unclassifiable,
@@ -256,7 +249,9 @@ const main = async (): Promise<void> => {
   // The subject is printed as data. A reader must be able to see what population this gate
   // actually covered, rather than inferring it from the gate's name.
   console.log("secret scan");
-  console.log(`  mode              ${scanHistory ? "--history (all objects)" : "tracked tree"}`);
+  console.log(
+    `  mode              ${scanHistory ? "--history (all objects)" : "tree (tracked + untracked, unignored)"}`,
+  );
   console.log(`  subject           ${subject.label}`);
   console.log(`  scanned as text   ${subject.scanned}`);
   console.log(`  declared binary   ${subject.declaredBinary}`);

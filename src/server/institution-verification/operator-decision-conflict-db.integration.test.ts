@@ -710,6 +710,18 @@ const openRaceConnection = (max = 1): RaceConnection => {
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** The backend a racer's single connection is pinned to, which is the pid the tripwire counts. */
+const backendPidOf = async (connection: RaceConnection): Promise<number> => {
+  const [row] = await connection.sql<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+  return row!.pid;
+};
+
+/** Everything this suite can leave behind, removed in the order the foreign keys require. */
+const sweepRaceResidue = async (control: RaceConnection): Promise<void> => {
+  await control.sql`DELETE FROM institutions WHERE slug LIKE ${`${RACE_MARKER}-inst-%`}`;
+  await control.sql`DELETE FROM users WHERE username LIKE ${`${RACE_MARKER}%`}`;
+};
+
 describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submission", () => {
   it("produces exactly one success, one 409 and one audit row", async () => {
     const connections = [openRaceConnection(2), openRaceConnection(), openRaceConnection()];
@@ -721,25 +733,118 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
 
     let institutionId: string | null = null;
     let releaseBarrier: () => void = () => {};
+    let barrierSettled: Promise<void> = Promise.resolve();
+    // Every racer that has been STARTED, in the order it started, so the teardown can wait for the
+    // ones the body never reached its own `Promise.allSettled` for (LAUNCH-D171).
+    const racerStatements: Promise<unknown>[] = [];
 
     const cleanup = async (): Promise<void> => {
-      if (!institutionId) return;
-      // Institutions cascade to memberships, submissions and the verification audit trail; users do
-      // not cascade from it, so they are deleted by the same marker.
-      await control.sql`DELETE FROM institutions WHERE id = ${institutionId}`;
-      await control.sql`DELETE FROM users WHERE username LIKE ${`${RACE_MARKER}%`}`;
-      institutionId = null;
+      if (institutionId) {
+        // Institutions cascade to memberships, submissions and the verification audit trail; users do
+        // not cascade from it, so they are deleted by the same marker.
+        await control.sql`DELETE FROM institutions WHERE id = ${institutionId}`;
+        await control.sql`DELETE FROM users WHERE username LIKE ${`${RACE_MARKER}%`}`;
+        institutionId = null;
+        return;
+      }
+
+      // NO ROW WAS IDENTIFIED, WHICH IS NOT THE SAME AS NOTHING BEING THERE (Rule 35, LAUNCH-D171).
+      // A failure between the user inserts and the institution insert leaves rows that no id points
+      // at, and returning here left them behind permanently — nothing later sweeps them. The marker
+      // sweep reaches them by name.
+      await sweepRaceResidue(control);
     };
 
-    const onSignal = (): void => {
-      void cleanup().finally(() => process.exit(130));
+    // THE CLEANUP IS MEASURED, NOT BELIEVED (Rule 35, LAUNCH-D171). Both teardown tests in this
+    // suite exist because a path that reported success left rows behind; a `cleanup()` that returns
+    // is not evidence that the rows are gone. "Left behind" means exactly this and nothing else: a
+    // `users` row whose `username` starts with `RACE_MARKER`, or an `institutions` row whose `slug`
+    // starts with `${RACE_MARKER}-inst-`. Both counts must be zero.
+    const assertNoRaceResidue = async (): Promise<void> => {
+      const [markerUsers] = await control.sql<{ n: number }[]>`
+        SELECT COUNT(*)::int AS n FROM users WHERE username LIKE ${`${RACE_MARKER}%`}
+      `;
+      const [markerInstitutions] = await control.sql<{ n: number }[]>`
+        SELECT COUNT(*)::int AS n FROM institutions WHERE slug LIKE ${`${RACE_MARKER}-inst-%`}
+      `;
+
+      if (markerUsers!.n !== 0 || markerInstitutions!.n !== 0) {
+        throw new Error(
+          `the race suite left residue behind: ${markerUsers!.n} marker user(s), ` +
+            `${markerInstitutions!.n} marker institution(s). Rerun only after deleting them: users ` +
+            `whose username starts with \`${RACE_MARKER}\`, and institutions whose slug starts with ` +
+            `\`${RACE_MARKER}-inst-\`.`,
+        );
+      }
     };
-    process.once("SIGINT", onSignal);
-    process.once("SIGTERM", onSignal);
+
+    // THE ORDER IS ONE THING, AND BOTH PATHS TAKE IT (Rule 35, LAUNCH-D171). The `finally` below and
+    // the signal handler both call this, so the interrupt path cannot drift from the path an
+    // ordinary run takes — the drift that already cost this suite once, when the `finally` awaited
+    // the barrier outside the teardown and a rolled-back barrier skipped `cleanup` and all three
+    // `sql.end()` calls, leaving the race rows in the database and three connections open.
+    //
+    // RELEASE BEFORE CLEANING. The barrier holds `FOR UPDATE` on the submission row and `cleanup`
+    // cascades to that row, so a body that threw before `releaseBarrier()` left the barrier open and
+    // the DELETE waiting on its own lock — the teardown suppressed by the failure it exists to
+    // survive, and the institution outliving the run.
+    //
+    // THE BARRIER'S REJECTION IS DISCARDED, because this is reached from a `finally`: a rejection
+    // thrown here REPLACES whatever the body was already failing with, and the run would report the
+    // fixture instead of the assertion. Nothing is lost — the body awaits this same promise at its
+    // own `await barrier`, so when the barrier is what failed, that failure is already the body's.
+    //
+    // THE RACERS END BEFORE THE DELETE RUNS (LAUNCH-D171). Each racer runs on its own connection and
+    // the body only awaits them at its own `Promise.allSettled`, which a body that threw never
+    // reached. Parked, they still hold the submission row that `cleanup` cascades to, so the DELETE
+    // waited on this suite's own lock in the opposite order and the run reported
+    // `PostgresError: deadlock detected` — the fixture's failure standing in for the body's, which
+    // is the same defect as the barrier rejection above, one lock further out.
+    // ONE PASS, HOWEVER MANY CALLERS ASK. Three do — the `finally` below, the interrupt handler, and
+    // a second signal reaching that handler — and only the first of them may run it: a second pass
+    // concurrent with the first would issue the DELETE and the residue check again while the rows are
+    // still in flight. What is memoized is the PROMISE, so a caller that arrives mid-pass awaits the
+    // pass rather than starting one.
+    let teardown: Promise<void> | undefined;
+    const settleAndClean = (): Promise<void> => {
+      teardown ??= (async () => {
+        releaseBarrier();
+        await barrierSettled.catch(() => {});
+        await Promise.allSettled(racerStatements);
+        await cleanup();
+        await assertNoRaceResidue();
+      })();
+
+      return teardown;
+    };
+
+    // `process.on`, NOT `process.once`, mirroring `guard-probe.mjs:132-143`: a spent handler leaves a
+    // second signal to Node's default action, which kills the process mid-settle and leaves exactly
+    // the residue this teardown exists to prevent.
+    const onSignal = (): void => {
+      // The handler cannot await, so the exit rides the settle. `releaseBarrier` is a no-op until the
+      // executor below assigns it, so calling it this early is safe.
+      //
+      // A rejecting settle — the residue assertion is the one that fires — is PRINTED first: the exit
+      // code is 130 either way, so stderr is the only place the reason can go.
+      void settleAndClean()
+        .catch((error: unknown) => {
+          console.error("the race suite's teardown failed on the interrupt path:", error);
+        })
+        .finally(() => process.exit(130));
+    };
+    process.on("SIGINT", onSignal);
+    process.on("SIGTERM", onSignal);
 
     try {
-      // Sweep anything a previous, killed run left behind before this one starts.
-      await control.sql`DELETE FROM users WHERE username LIKE ${`${RACE_MARKER}%`}`;
+      // Sweep anything a previous, killed run left behind before this one starts — the whole sweep,
+      // not half of it (LAUNCH-D171).
+      //
+      // INSTITUTIONS FIRST, and by slug. Nothing cascades from a user to the institution that user
+      // belongs to, so a sweep that cleared only the users removed the owner and left the
+      // institution standing — permanently, because no later sweep could reach it either. The
+      // residue the debt names, `opsconflictrace-inst-1790054505960-30`, is exactly that row.
+      await sweepRaceResidue(control);
 
       const tag = `${Date.now()}-${seq++}`;
       const reviewerRows = await control.sql<{ id: string }[]>`
@@ -805,8 +910,16 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
           await barrierReleased;
         }),
       );
+      barrierSettled = barrier;
 
       await delay(50);
+
+      // SCOPED TO THIS TEST'S OWN BACKENDS (LAUNCH-D158). `pg_stat_activity` is cluster-wide, so the
+      // unscoped count answered "is ANYONE blocked" — a running app, or a second suite on the same
+      // database, satisfied the tripwire before either racer had parked, and the test then proved
+      // nothing about the pin while reading as green. These two pids are the race; nobody else's
+      // lock can stand in for them.
+      const racerPids = [await backendPidOf(firstRacer), await backendPidOf(secondRacer)];
 
       const countBlocked = async (): Promise<number> => {
         const rows = await control.sql<{ n: number }[]>`
@@ -814,7 +927,7 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
           FROM pg_stat_activity
           WHERE wait_event_type = 'Lock'
             AND state = 'active'
-            AND pid <> pg_backend_pid()
+            AND pid = ANY(${racerPids}::int[])
         `;
         return rows[0]?.n ?? 0;
       };
@@ -829,8 +942,10 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
       };
 
       const first = handled(reject(firstRacer, reviewerRows[0]!.id));
+      racerStatements.push(first);
       const firstParked = await waitForBlocked(1);
       const second = handled(reject(secondRacer, reviewerRows[1]!.id));
+      racerStatements.push(second);
       const bothParked = await waitForBlocked(2);
 
       releaseBarrier();
@@ -869,9 +984,12 @@ describe.skipIf(skipWithoutDatabase)("two concurrent rejections of one submissio
     } finally {
       process.off("SIGINT", onSignal);
       process.off("SIGTERM", onSignal);
+
       try {
-        await cleanup();
+        await settleAndClean();
       } finally {
+        // THE CONNECTIONS END WHETHER OR NOT THE CLEANUP SUCCEEDED, and the residue assertion above
+        // is what says so: a throw from `settleAndClean` must not also strand three backends.
         await Promise.all(connections.map((connection) => connection.sql.end()));
       }
     }
