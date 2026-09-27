@@ -7,16 +7,42 @@
 // deploy gate meets once and must not get wrong: the RIGHT database as the WRONG role, and a server
 // that did not name itself at all.
 //
-// WHAT THIS FILE DOES NOT COVER, and cannot: that `probeDatabaseIdentity` opens a real connection
-// with DATABASE_URL and closes it. That half is the socket, and it is proved against a real loopback
-// database in the manual demonstration reported with this pass.
+// WHAT THIS FILE DOES NOT COVER, and cannot: that the client `probeDatabaseIdentity` asks for opens a
+// real socket, and that a server is on the far end of it. That half is the connection, and it is
+// proved against a real loopback database in the manual demonstration reported with this pass.
+//
+// What IS covered of that half is its wiring: that the probe builds its client through
+// `createSqlClient`, handing it the URL it read, and closes it again.
 //
 // The stub answers in the field names the SERVER answers in (`db`, `usr`), not in the reader's own
 // names for them, so a reader that stopped reading those columns would go red here.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { assertDatabaseIdentity } from "@/server/db/database-identity-probe";
+import { assertDatabaseIdentity, probeDatabaseIdentity } from "@/server/db/database-identity-probe";
+
+// Both of these are hoisted above the import by vitest's transform, in this order, so the module
+// under test receives the mock rather than the real client factory, and the factory's captured
+// array already exists when it runs.
+const sqlClients = vi.hoisted(() => [] as Array<{ url: string; ended: number }>);
+
+vi.mock("@/server/db/client", () => ({
+  createSqlClient: (url: string) => {
+    const client = { url, ended: 0 };
+    sqlClients.push(client);
+    return {
+      unsafe: async () => [{ db: "lombakita_staging", usr: "lombakita_app" }],
+      end: async () => {
+        client.ended += 1;
+      },
+    };
+  },
+}));
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  sqlClients.length = 0;
+});
 
 const connectionAnswering = (row: Record<string, unknown>) => ({
   unsafe: async () => [row],
@@ -58,5 +84,20 @@ describe("assertDatabaseIdentity", () => {
     await expect(assertDatabaseIdentity({ unsafe: async () => [] }, "production")).rejects.toThrow(
       "Connected but the server returned no identity row.",
     );
+  });
+});
+
+describe("probeDatabaseIdentity", () => {
+  // THE PROBE MUST MEASURE THE STRING IT READ. A probe that built its own client from anything else —
+  // the app's pooled connection, a configured value — would report on a database nobody asked about,
+  // which is the fault DEC-0207 exists for one layer down.
+  it("builds its client through createSqlClient with the URL it read, and closes it", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://app_role@127.0.0.1:5432/claim_db");
+
+    await probeDatabaseIdentity("preview");
+
+    expect(sqlClients).toHaveLength(1);
+    expect(sqlClients[0]?.url).toBe("postgres://app_role@127.0.0.1:5432/claim_db");
+    expect(sqlClients[0]?.ended).toBe(1);
   });
 });

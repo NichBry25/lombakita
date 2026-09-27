@@ -13,16 +13,14 @@
  * comparison have independent origins. A caller that has not declared an environment has no
  * expectation to assert against and must not call this.
  *
- * Its own client, built from DATABASE_URL under the same options the app's pooled connection uses
- * (`server/db/client.ts`), closed in a `finally`. The pooled client is shared with request handling,
- * and a probe that closed it would take the process's database away with it.
+ * Its own client, built from DATABASE_URL by `createSqlClient` (`server/db/client.ts`), closed in a
+ * `finally`. Its own rather than the app's pooled client, which is shared with request handling: a
+ * probe that closed that one would take the process's database away with it.
  */
-
-import postgres from "postgres";
 
 import { CANONICAL_DATABASE_NAME, CANONICAL_DATABASE_ROLE } from "@/config/env-shape";
 import type { DeployEnvironment } from "@/config/env-shape";
-import { resolveDatabaseSslOption } from "@/server/db/ssl-options";
+import { createSqlClient } from "@/server/db/client";
 import { identityMismatch, readServerIdentity } from "@/server/scripts/database-identity";
 import type { IdentifiableConnection } from "../../../scripts/reset/reset-guard";
 
@@ -65,14 +63,7 @@ export const probeDatabaseIdentity = async (environment: DeployEnvironment): Pro
     throw new Error("DATABASE_URL is not configured");
   }
 
-  const ssl = resolveDatabaseSslOption();
-  const sql = postgres(url, {
-    max: 5,
-    idle_timeout: 20,
-    connect_timeout: 10,
-    prepare: false,
-    ...(ssl !== undefined ? { ssl } : {}),
-  });
+  const sql = createSqlClient(url);
 
   try {
     await assertDatabaseIdentity(sql, environment);
