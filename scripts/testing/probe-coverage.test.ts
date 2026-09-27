@@ -42,6 +42,7 @@ import { probes as decConformanceProbes } from "./probes/dec-conformance.mjs";
 import { probes as deletionInstrumentProbes } from "./probes/deletion-instruments.mjs";
 import { probes as deletionResidueSectionProbes } from "./probes/deletion-residue-section.mjs";
 import { probes as migrationGuardProbes } from "./probes/migration-guard.mjs";
+import { probes as databaseIdentityProbes } from "./probes/database-identity.mjs";
 
 const SUITES: Record<string, Probe[]> = {
   "config-gates": configGateProbes,
@@ -63,6 +64,7 @@ const SUITES: Record<string, Probe[]> = {
   "deletion-instruments": deletionInstrumentProbes,
   "deletion-residue-section": deletionResidueSectionProbes,
   "migration-guard": migrationGuardProbes,
+  "database-identity": databaseIdentityProbes,
 };
 
 const everyProbe: [string, Probe][] = Object.entries(SUITES).flatMap(([suite, probes]) =>

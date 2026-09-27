@@ -2,12 +2,14 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/connectors/status");
 
+import type { DeployEnvironment } from "@/config/env-shape";
 import { isAsyncWorkersConfigured, probeAsyncWorkerLiveness } from "@/server/async/probe";
 import {
   isMfaEncryptionConfigured,
   probeMfaEncryption,
 } from "@/server/auth/mfa/mfa-encryption-probe";
 import { runConnectorProbe, type ConnectorReadiness } from "@/server/connectors/shared";
+import { probeDatabaseIdentity } from "@/server/db/database-identity-probe";
 import { isDatabaseConfigured, probeDatabase } from "@/server/db/probe";
 import {
   isMigrationDatabaseConfigured,
@@ -37,12 +39,18 @@ export type ConnectorStatusOptions = {
    * so a redeploy in flight would fail a check measuring the outgoing process.
    */
   includeWorkerLiveness: boolean;
+  /**
+   * The environment the CALLER declared on its command line. Never derived from APP_ENV or from any
+   * other environment variable, and absent for `/api/health`, which declares nothing — the runtime
+   * identity check below runs only where a caller has stated what it expects to be talking to.
+   */
+  declaredEnvironment?: DeployEnvironment;
 };
 
 export const getConnectorStatusPayload = async (
   options: ConnectorStatusOptions,
 ): Promise<ConnectorStatusPayload> => {
-  const { includeLiveChecks, includeWorkerLiveness } = options;
+  const { includeLiveChecks, includeWorkerLiveness, declaredEnvironment } = options;
 
   const connectors = await Promise.all([
     runConnectorProbe({
@@ -110,6 +118,21 @@ export const getConnectorStatusPayload = async (
       probe: probeAsyncWorkerLiveness,
     }),
   ]);
+
+  // BOTH CONDITIONS ARE LOAD-BEARING, and the second is the whole point. A check keyed on APP_ENV
+  // would silently not run wherever that variable is absent — the fail-open shape (LAUNCH-D150) this
+  // check exists to remove — so it runs only where a caller has DECLARED what it expects, and only
+  // where live checks were asked for at all. Among the callers, only the deploy gate declares one.
+  if (includeLiveChecks && declaredEnvironment !== undefined) {
+    connectors.push(
+      await runConnectorProbe({
+        name: "database identity",
+        configured: isDatabaseConfigured(),
+        includeLiveChecks,
+        probe: () => probeDatabaseIdentity(declaredEnvironment),
+      }),
+    );
+  }
 
   const summary = {
     configured: connectors.filter((item) => item.configured).length,
