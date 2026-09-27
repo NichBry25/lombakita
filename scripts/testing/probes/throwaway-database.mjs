@@ -168,9 +168,17 @@ export const dropProbeDatabase = async (databaseName) => {
 /**
  * Applies the migrations to a throwaway, so a probe's subject has tables to write into.
  *
- * The migration guard refuses only under APP_ENV=production, so a throwaway named whatever the
- * guards under test must refuse still migrates like any other. What is under test in these suites
- * is the identity check a seed makes before writing, not the migrator's.
+ * EVERY THROWAWAY BELOW IS MIGRATED UNDER THE GUARD'S DEFAULT ENVIRONMENT, which a probe cannot
+ * confederate its way around: local refuses a non-loopback host and refuses any database whose
+ * SERVER-reported name is one of `CANONICAL_DATABASE_NAME`'s. The throwaways here are all loopback
+ * and none of them is a canonical name — `protectedTarget` deliberately carries one, and is created
+ * and dropped without ever being migrated, because it exists for the reset guard's identity layer
+ * rather than the migrator's.
+ *
+ * The managed path is not reachable from here and is not meant to be: preview and production both
+ * require the server's own database name typed as `--confirm`, which is exactly the value a probe
+ * has no honest way to supply. What is under test in these suites is the identity check a seed makes
+ * before writing, not the migrator's.
  *
  * Lives here rather than in the suite that needed it first: a second suite needs the same
  * migration now, and a second copy is the half of a pair that drifts (Rule 37).

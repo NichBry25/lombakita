@@ -24,8 +24,8 @@
  *
  * THERE IS NO PRODUCTION MODE AND NO OVERRIDE FLAG. Not as a matter of policy but of construction:
  * nothing here accepts a "yes I am sure" value, so there is no argument anyone can pass to make it
- * run against a protected database. `db:migrate:guarded`'s CONFIRM_PROD_MIGRATION escape hatch is
- * deliberately not mirrored — a migration is additive and a drop is not.
+ * run against a protected database. A migration is additive and a drop is not, which is why
+ * `db:migrate:guarded`'s typed confirmation for a managed database has no counterpart here.
  */
 
 import { execFileSync } from "node:child_process";

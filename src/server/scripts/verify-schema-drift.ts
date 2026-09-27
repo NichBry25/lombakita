@@ -9,7 +9,10 @@
  * is a worse failure than the one being closed, and the operator ordering in docs/operations exists
  * because some of these casts are destructive.
  *
- * IT ASSERTS WHICH DATABASE IT IS TALKING TO, FIRST, AND REFUSES ON MISMATCH (DEC-0207). Everything
+ * IT ASSERTS WHICH DATABASE AND WHICH ROLE IT IS TALKING TO, FIRST, AND REFUSES ON MISMATCH
+ * (DEC-0207). The role is asserted beside the name: this lane connects as the migration credential,
+ * and one that reaches the right database as the wrong role is a different lane's problem arriving
+ * here. Everything
  * below that assertion is only meaningful once the subject is known: a per-row comparison against
  * the wrong database is not a weaker check, it is a confident wrong answer. Railway production's
  * migration credential named and hosted staging while every layer of the gate agreed with it,
@@ -19,13 +22,22 @@
  */
 
 import postgres from "postgres";
-import { CANONICAL_DATABASE_NAME, type DeployEnvironment } from "@/config/env-shape";
+import {
+  CANONICAL_DATABASE_NAME,
+  CANONICAL_DATABASE_ROLE,
+  type DeployEnvironment,
+} from "@/config/env-shape";
 import {
   compareAppliedToJournal,
   readJournalMigrations,
   type AppliedMigration,
 } from "@/server/db/schema-drift";
 import { resolveDatabaseSslOption } from "@/server/db/ssl-options";
+import {
+  identityMismatch,
+  readServerIdentity,
+  type ServerIdentity,
+} from "@/server/scripts/database-identity";
 import {
   ENV_PATH_FLAG,
   assertEnvFileLoaded,
@@ -100,6 +112,8 @@ const main = async (): Promise<void> => {
   }
 
   const expectedDatabase = CANONICAL_DATABASE_NAME[environment];
+  // This lane connects with MIGRATION_DATABASE_URL (:103), so the expectation is the migration role.
+  const expectedRole = CANONICAL_DATABASE_ROLE[environment].migration;
   const url = process.env.MIGRATION_DATABASE_URL;
 
   if (!url) {
@@ -117,26 +131,30 @@ const main = async (): Promise<void> => {
   });
 
   try {
-    const [identity] = await sql<{ db: string; usr: string }[]>`
-      select current_database() as db, current_user as usr
-    `;
+    let identity: ServerIdentity;
 
-    if (!identity) {
-      fail("Connected but the server returned no identity row.");
+    try {
+      identity = await readServerIdentity(sql);
+    } catch (error) {
+      // The reader's own message IS this check's message, reported through `fail` so it keeps the
+      // `FAIL:` prefix the deploy log is read for.
+      fail(error instanceof Error ? error.message : String(error));
     }
 
     // THE ASSERTION THIS CHECK IS BUILT AROUND. Answered by the server, so the connection string
-    // cannot talk its way past it.
-    if (identity.db !== expectedDatabase) {
+    // cannot talk its way past it — and the role is asserted beside the name, because a credential
+    // that reaches the right database as the wrong role is able to do a different set of things
+    // there than this lane assumes.
+    if (identityMismatch(identity, { database: expectedDatabase, role: expectedRole }) !== null) {
       fail(
-        `Connected to database "${identity.db}" as "${identity.usr}", but ${environment} must be ` +
-          `checked against "${expectedDatabase}". Refusing to report on a database this is not ` +
-          "for. Fix MIGRATION_DATABASE_URL rather than this check.",
+        `Connected to database "${identity.database}" as "${identity.role}", but ${environment} ` +
+          `must be checked against "${expectedDatabase}" as "${expectedRole}". Refusing to report ` +
+          "on a database this is not for. Fix MIGRATION_DATABASE_URL rather than this check.",
       );
     }
 
     console.log(
-      `Subject: database "${identity.db}" as "${identity.usr}" (${environment}), ` +
+      `Subject: database "${identity.database}" as "${identity.role}" (${environment}), ` +
         `${journal.length} migrations declared in ${DRIZZLE_DIR}/meta/_journal.json.`,
     );
 
@@ -161,7 +179,7 @@ const main = async (): Promise<void> => {
         );
       }
       fail(
-        `${problems.length} migration(s) differ between "${identity.db}" and this checkout. ` +
+        `${problems.length} migration(s) differ between "${identity.database}" and this checkout. ` +
           "Deploying a checkout whose schema history the database does not share is what this " +
           "gate exists to stop.",
       );
