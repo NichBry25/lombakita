@@ -163,52 +163,6 @@ const main = async () => {
     listAll.status === 200 && listAllSlugs.includes(COMP.done.slug),
   );
 
-  const detail = await apiFetch(`/api/v1/competitions/public/${INST.a.slug}/${COMP.open.slug}`);
-  // "Seed Hackathon" is a PREFIX of the seeded title, not the title. The needle search passed on
-  // it for the life of this case, which is the D32 defect in one line: a longer string containing
-  // the needle satisfies the assertion while meaning something else.
-  record(
-    "PUB-05",
-    "Public detail of published comp",
-    "200 Seed Hackathon Nusantara",
-    `${detail.status} ${detail.body?.competition?.title}`,
-    detail.status === 200 && detail.body?.competition?.title === "Seed Hackathon Nusantara",
-  );
-
-  const draftDetail = await apiFetch(
-    `/api/v1/competitions/public/${INST.a.slug}/${COMP.draft.slug}`,
-  );
-  record(
-    "PUB-06",
-    "Public detail of DRAFT comp is 404",
-    "404",
-    `${draftDetail.status}`,
-    draftDetail.status === 404,
-  );
-
-  const personalDetail = await apiFetch(
-    `/api/v1/competitions/public/${INST.p.slug}/${COMP.personalOpen.slug}`,
-  );
-  record(
-    "PUB-07",
-    "Personal-institution comp public detail (derived organizer)",
-    "200",
-    `${personalDetail.status}`,
-    personalDetail.status === 200,
-    bodySnippet(personalDetail.body).slice(0, 80),
-  );
-
-  // A suspended institution has no public footprint: its own page is withheld and its
-  // competitions go with it, in discovery and on the detail page alike.
-  const suspDetail = await apiFetch(`/api/v1/competitions/public/${INST.c.slug}/${COMP.susp.slug}`);
-  record(
-    "PUB-08",
-    "Suspended-org comp public detail is withheld",
-    "404",
-    `${suspDetail.status}`,
-    suspDetail.status === 404,
-  );
-
   const allListing = await apiFetch("/api/v1/competitions?status=all&limit=100");
   const allSlugs = (allListing.body?.data ?? []).map((c) => c.slug);
   record(

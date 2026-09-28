@@ -71,6 +71,19 @@ export const PAYMENT_STATUS_LABELS: Record<PaymentDisplayStatus, string> = {
   refunded: "Dikembalikan",
 };
 
+// What the LEDGER says about the money, named for an operator rather than for a payer. Deliberately
+// not `PAYMENT_STATUS_LABELS`: that map answers "what do I have to do next", which is a question a
+// payer has and a finance_ops reader does not. `expired` and `refunded` carry the same words here,
+// because those two names mean the same thing to either reader; the others do not,
+// `awaiting_transfer` and `pending` being the clearest case.
+export const PAYMENT_LEDGER_STATUS_LABELS: Record<PaymentDerivedStatus, string> = {
+  pending: "Menunggu",
+  succeeded: "Berhasil",
+  failed: "Gagal",
+  expired: "Kedaluwarsa",
+  refunded: "Dikembalikan",
+};
+
 // Maps onto the shared `.status-badge` vocabulary in globals.css rather than introducing a parallel
 // set, so a payment badge reads the same as every other badge in the app.
 //

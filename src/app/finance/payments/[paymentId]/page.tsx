@@ -1,10 +1,13 @@
 import { notFound } from "next/navigation";
 import { Card, Feedback, PageHeader } from "@/components/ui";
 import { loadDisputeLedgerState, loadDisputePaymentDetail } from "@/server/finance/dispute-view";
-import { formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
+import {
+  PAYMENT_LEDGER_STATUS_LABELS,
+  formatFinanceDateTime,
+  formatRupiah,
+} from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import { formatFileSize } from "@/lib/text/format-file-size";
-import { capitalizeWord } from "@/lib/text/capitalize";
 import { DisputeProofFileButton } from "./dispute-proof-file-button";
 
 type Props = { params: Promise<{ paymentId: string }> };
@@ -62,7 +65,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
             {/* FOLDED from the append-only event stream, never read from a column. There is no
                 status column to read (DEC-0133). This is what the ledger actually says happened,
                 which is the figure a billing dispute turns on. */}
-            <dd className="data-text">{capitalizeWord(ledger.status)}</dd>
+            <dd className="data-text">{PAYMENT_LEDGER_STATUS_LABELS[ledger.status]}</dd>
           </div>
           <div>
             <dt>Tercatat diterima</dt>

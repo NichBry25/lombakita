@@ -5,6 +5,7 @@ import {
 } from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
 import { SubmissionError, toSubmissionErrorResponse } from "@/server/submissions/submission-core";
+import { assertUploadUrlAllowed } from "@/server/storage/upload-rate-limit";
 import { generateSubmissionUploadUrl } from "@/server/submissions/submission-service";
 
 type RouteContext = {
@@ -25,6 +26,10 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   try {
     const session = await requireSessionRole(["candidate"]);
     assertSessionMatchesExpectedUser(request, session);
+
+    const limited = await assertUploadUrlAllowed(session.user.id);
+    if (limited) return limited;
+
     const { competitionId, registrationId } = await context.params;
 
     let payload: unknown = {};

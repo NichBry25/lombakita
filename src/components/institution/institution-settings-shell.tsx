@@ -17,22 +17,15 @@ import {
   InstitutionLogoUpload,
 } from "@/components/institution/institution-media-controls";
 import { PaymentInstructionsSection } from "@/components/institution/payment-instructions-section";
+import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
+import { INSTITUTION_STATUS_LABELS } from "@/lib/institutions/status-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import {
   SESSION_MISMATCH_CODE,
   SESSION_MISMATCH_MESSAGE,
   sessionFetch,
 } from "@/lib/session/session-fetch";
-
-// User-facing pill label per institution type. Single-word values are capitalized (§13.3); the
-// pill shows just the type ("Personal", "Perusahaan", …) with no "Tipe " prefix.
-const INSTITUTION_TYPE_LABELS: Record<string, string> = {
-  personal: "Personal",
-  company: "Perusahaan",
-  foundation: "Yayasan",
-  university: "Universitas",
-  campus_organization: "Organisasi kampus",
-};
+import type { InstitutionType } from "@/server/db/schema";
 
 type SocialPlatform = "linkedin" | "github" | "instagram" | "x" | "website";
 
@@ -335,7 +328,8 @@ export const InstitutionSettingsShell = ({
         actions={
           institutionType ? (
             <span className="status-badge">
-              {INSTITUTION_TYPE_LABELS[institutionType] ?? formatDisplayToken(institutionType)}
+              {INSTITUTION_TYPE_LABELS[institutionType as InstitutionType] ??
+                formatDisplayToken(institutionType)}
             </span>
           ) : undefined
         }
@@ -402,7 +396,7 @@ export const InstitutionSettingsShell = ({
               <input
                 id="institution-settings-status"
                 className="form-input form-input-readonly"
-                value={formatDisplayToken(status)}
+                value={INSTITUTION_STATUS_LABELS[status]}
                 readOnly
               />
             </div>

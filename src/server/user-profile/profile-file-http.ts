@@ -4,6 +4,7 @@ import {
   assertSessionMatchesExpectedUser,
   toAccessDeniedResponse,
 } from "@/server/auth/access-core";
+import { assertUploadUrlAllowed } from "@/server/storage/upload-rate-limit";
 import {
   ProfileFileError,
   parseFileMetadata,
@@ -53,6 +54,12 @@ const runOwned = async (
   try {
     const session = await requireAuthenticatedSession();
     assertSessionMatchesExpectedUser(request, session);
+
+    // MANUAL-D57: this wrapper is the single choke point for every profile upload-URL entry point,
+    // so the shared budget is drawn here rather than four times over in the route files above it.
+    const limited = await assertUploadUrlAllowed(session.user.id);
+    if (limited) return limited;
+
     return await handler(session.user.id);
   } catch (error) {
     return mapError(error);

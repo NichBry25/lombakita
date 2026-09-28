@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, IconButton } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { getAppRoleLabel } from "@/lib/access/role-labels";
+import { INSTITUTION_VERIFICATION_STATUS_LABELS } from "@/lib/institutions/verification-status-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
+import type { InstitutionVerificationStatus } from "@/server/db/schema";
 
 type UserResult = {
   id: string;
@@ -627,7 +629,9 @@ function InstitutionPanel() {
         <div className="moderation-result">
           <div>
             <strong>{result.name}</strong> · {result.slug} · verifikasi:{" "}
-            {formatDisplayToken(result.verificationStatus)}
+            {INSTITUTION_VERIFICATION_STATUS_LABELS[
+              result.verificationStatus as InstitutionVerificationStatus
+            ] ?? formatDisplayToken(result.verificationStatus)}
           </div>
           <div className="record-meta">
             Pemilik: {result.ownerName ?? "—"} ({result.ownerEmail ?? "—"})

@@ -9,6 +9,7 @@ import {
   SubmissionError,
   type DocumentInput,
 } from "@/server/institution-verification/submission-service";
+import { assertUploadUrlAllowed } from "@/server/storage/upload-rate-limit";
 
 type RouteContext = { params: Promise<{ institutionSlug: string }> };
 
@@ -21,6 +22,9 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     // session no longer matches the rendered-for user.
     const session = await requireSessionRole(["recruiter"]);
     assertSessionMatchesExpectedUser(request, session);
+
+    const limited = await assertUploadUrlAllowed(session.user.id);
+    if (limited) return limited;
 
     const { institutionSlug } = await context.params;
 

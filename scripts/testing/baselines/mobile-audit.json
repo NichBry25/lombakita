@@ -320,27 +320,6 @@
       "seenIn": "ci"
     },
     {
-      "key": "62-institution-team|360|overflow",
-      "class": "overflow",
-      "magnitude": 621,
-      "viewport": 360,
-      "occurrences": 1
-    },
-    {
-      "key": "62-institution-team|375|overflow",
-      "class": "overflow",
-      "magnitude": 621,
-      "viewport": 375,
-      "occurrences": 1
-    },
-    {
-      "key": "62-institution-team|390|overflow",
-      "class": "overflow",
-      "magnitude": 621,
-      "viewport": 390,
-      "occurrences": 1
-    },
-    {
       "key": "91-mfa-challenge|360|overflow",
       "class": "overflow",
       "magnitude": 367,

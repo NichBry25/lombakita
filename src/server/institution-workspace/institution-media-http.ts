@@ -3,6 +3,7 @@ import {
   assertSessionMatchesExpectedUser,
   toAccessDeniedResponse,
 } from "@/server/auth/access-core";
+import { assertUploadUrlAllowed } from "@/server/storage/upload-rate-limit";
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import {
   INSTITUTION_MEDIA_RULES,
@@ -41,6 +42,12 @@ const runOwned = async (
   try {
     const session = await requireAuthenticatedSession();
     assertSessionMatchesExpectedUser(request, session);
+
+    // MANUAL-D57: this wrapper is the single choke point for every institution media upload-URL
+    // entry point, so the shared budget is drawn here rather than once per route file above it.
+    const limited = await assertUploadUrlAllowed(session.user.id);
+    if (limited) return limited;
+
     return await handler(session.user.id);
   } catch (error) {
     if (error instanceof InstitutionProfileInputError) {

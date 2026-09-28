@@ -9,6 +9,7 @@ import {
   ManualProofError,
   generateManualProofUploadUrl,
 } from "@/server/finance/manual-payment-proof-service";
+import { assertUploadUrlAllowed } from "@/server/storage/upload-rate-limit";
 
 type RouteContext = {
   params: Promise<{ competitionId: string; registrationId: string }>;
@@ -32,6 +33,10 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   try {
     const session = await requireSessionRole(["candidate"]);
     assertSessionMatchesExpectedUser(request, session);
+
+    const limited = await assertUploadUrlAllowed(session.user.id);
+    if (limited) return limited;
+
     const { registrationId } = await context.params;
 
     let payload: unknown = {};

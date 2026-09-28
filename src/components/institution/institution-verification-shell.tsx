@@ -22,6 +22,7 @@ import type { InstitutionType } from "@/server/db/schema";
 // exhaustive Record below is the compile-time guarantee instead — a new full subtype fails to build
 // until it is given a label here.
 import type { FullInstitutionType } from "@/server/institution-workspace/institution-type";
+import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import {
   readErrorCode,
@@ -45,16 +46,6 @@ const STATUS_LABELS: Record<SubmissionItem["status"], string> = {
   pending_review: "Menunggu Ditinjau",
   approved: "Disetujui",
   rejected: "Ditolak",
-};
-
-// Covers `personal` too: the submission history can still contain rows filed before a personal
-// institution's document verification was retired.
-const TYPE_LABELS: Record<InstitutionType, string> = {
-  personal: "Personal",
-  company: "Perusahaan",
-  foundation: "Yayasan",
-  university: "Universitas",
-  campus_organization: "Organisasi kampus",
 };
 
 type DocField = {
@@ -353,7 +344,7 @@ export const InstitutionVerificationShell = ({
           <dl className="profile-detail-list">
             <div>
               <dt>Tipe institusi</dt>
-              <dd>{TYPE_LABELS[institutionType]}</dd>
+              <dd>{INSTITUTION_TYPE_LABELS[institutionType]}</dd>
             </div>
           </dl>
 
@@ -431,7 +422,7 @@ export const InstitutionVerificationShell = ({
               <tbody>
                 {submissions.map((s) => (
                   <tr key={s.id}>
-                    <td>{TYPE_LABELS[s.targetInstitutionType]}</td>
+                    <td>{INSTITUTION_TYPE_LABELS[s.targetInstitutionType]}</td>
                     <td>
                       <span
                         className="status-badge"

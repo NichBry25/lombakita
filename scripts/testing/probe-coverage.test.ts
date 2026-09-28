@@ -44,6 +44,7 @@ import { probes as deletionResidueSectionProbes } from "./probes/deletion-residu
 import { probes as migrationGuardProbes } from "./probes/migration-guard.mjs";
 import { probes as databaseIdentityProbes } from "./probes/database-identity.mjs";
 import { probes as deidentificationGuardProbes } from "./probes/deidentification-guards.mjs";
+import { probes as uploadRateLimitProbes } from "./probes/upload-rate-limit.mjs";
 
 const SUITES: Record<string, Probe[]> = {
   "config-gates": configGateProbes,
@@ -67,6 +68,7 @@ const SUITES: Record<string, Probe[]> = {
   "migration-guard": migrationGuardProbes,
   "database-identity": databaseIdentityProbes,
   "deidentification-guards": deidentificationGuardProbes,
+  "upload-rate-limit": uploadRateLimitProbes,
 };
 
 const everyProbe: [string, Probe][] = Object.entries(SUITES).flatMap(([suite, probes]) =>

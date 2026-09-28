@@ -7,6 +7,8 @@
 // open. Neither file is wrong on its own in either case, which is why the agreement is asserted
 // here rather than left to a reading of the two.
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { STATIC_INDEXABLE_PATHS, isPathDisallowed } from "@/config/indexable-routes";
 
@@ -23,6 +25,7 @@ vi.mock("@/server/institution-workspace/institution-public-service", () => ({
 
 import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
+import * as sitemapModule from "@/app/sitemap";
 
 const UPDATED_AT = new Date("2026-09-01T00:00:00.000Z");
 
@@ -179,5 +182,35 @@ describe("robots.txt and the sitemap agree", () => {
         expect(knownStatic, `${path} looks like a profile URL`).toContain(path);
       }
     }
+  });
+});
+
+// LAUNCH-D1: the sitemap follows publication on a WINDOW rather than immediately.
+//
+// Without a revalidate the route is evaluated per request, so a crawler fetching it during a busy
+// minute pays for two full-table reads every time; with a window that is too long, a withdrawn
+// competition stays advertised to a crawler after the homepage has stopped showing it. The number
+// is not the point — the agreement with the homepage is, which is why the second assertion reads
+// the homepage's own declaration rather than repeating the literal.
+describe("the sitemap's freshness window", () => {
+  const parseWindow = (source: string, file: string): number => {
+    const match = source.match(/export const revalidate = (\d+);/);
+    if (match?.[1] === undefined) throw new Error(`no revalidate declaration in ${file}`);
+    return Number(match[1]);
+  };
+
+  it("declares a window at all, rather than being evaluated per request", () => {
+    expect(sitemapModule.revalidate).toBe(300);
+  });
+
+  it("is the same window the homepage uses, so the two agree on what is published", () => {
+    const homepage = readFileSync(resolve(process.cwd(), "src/app/(home)/page.tsx"), "utf8");
+
+    expect(parseWindow(homepage, "src/app/(home)/page.tsx")).toBe(sitemapModule.revalidate);
+  });
+
+  it("is short enough that a withdrawal leaves the sitemap, and long enough not to be a per-request read", () => {
+    expect(sitemapModule.revalidate).toBeGreaterThan(0);
+    expect(sitemapModule.revalidate).toBeLessThanOrEqual(3600);
   });
 });

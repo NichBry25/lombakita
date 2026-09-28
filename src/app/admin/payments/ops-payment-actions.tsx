@@ -12,8 +12,8 @@ import {
   FormTextarea,
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
+import { getCompetitionStatusLabel } from "@/lib/competitions/status-labels";
 import { asSentence, formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
-import { capitalizeWord } from "@/lib/text/capitalize";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
 
@@ -301,7 +301,7 @@ export function OpsPaymentActions({
                     </div>
                   ) : (
                     <Feedback tone="neutral">
-                      {`Kompetisi ini berstatus ${capitalizeWord(competition.status)}, bukan Terbit, sehingga tidak ada penarikan yang perlu diambil alih.`}
+                      {`Kompetisi ini berstatus ${getCompetitionStatusLabel(competition.status)}, bukan Terbit, sehingga tidak ada penarikan yang perlu diambil alih.`}
                     </Feedback>
                   )}
                 </Card>

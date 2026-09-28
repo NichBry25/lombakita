@@ -20,18 +20,12 @@ import {
   sessionFetch,
 } from "@/lib/session/session-fetch";
 // Type-only: importing the enum VALUE would pull the Drizzle schema into the client bundle. The
-// exhaustive Record below is the compile-time guarantee instead — a new full subtype fails to build
-// until it is given a label here.
+// exhaustive Record the options are built from is keyed by FullInstitutionType, so a new full
+// subtype fails to build until it is given a label.
 import type { FullInstitutionType } from "@/server/institution-workspace/institution-type";
+import { FULL_INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
 
-const TYPE_LABELS: Record<FullInstitutionType, string> = {
-  company: "Perusahaan",
-  foundation: "Yayasan",
-  university: "Universitas",
-  campus_organization: "Organisasi kampus",
-};
-
-const FULL_TYPE_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => ({
+const FULL_TYPE_OPTIONS = Object.entries(FULL_INSTITUTION_TYPE_LABELS).map(([value, label]) => ({
   value: value as FullInstitutionType,
   label,
 }));
@@ -118,7 +112,7 @@ export const InstitutionUpgradeShell = ({
       const data = (await response.json()) as UpgradeResponse;
       addToast({
         type: "success",
-        message: `Institusi ditingkatkan menjadi ${TYPE_LABELS[data.institutionType]}.`,
+        message: `Institusi ditingkatkan menjadi ${FULL_INSTITUTION_TYPE_LABELS[data.institutionType]}.`,
       });
       // The slug is re-derived from the official name, so the old URL no longer resolves.
       router.replace(`/institution/${data.slug}`);
@@ -150,8 +144,8 @@ export const InstitutionUpgradeShell = ({
       body: (
         <div className="stack-sm">
           <p>
-            Institusi ini akan menjadi <strong>{TYPE_LABELS[targetType]}</strong> dengan nama{" "}
-            <strong>{trimmedName}</strong>.
+            Institusi ini akan menjadi <strong>{FULL_INSTITUTION_TYPE_LABELS[targetType]}</strong>{" "}
+            dengan nama <strong>{trimmedName}</strong>.
           </p>
           <p>
             Peningkatan bersifat permanen. Institusi tidak dapat dikembalikan menjadi personal, dan

@@ -13,7 +13,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import { capitalizeWord } from "@/lib/text/capitalize";
+import { getCompetitionStatusLabel } from "@/lib/competitions/status-labels";
 
 type Competition = {
   id: string;
@@ -191,7 +191,7 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
                         : "closing"
                   }
                 >
-                  {hasFinished(c, loadedAt) ? "Selesai" : capitalizeWord(c.status)}
+                  {hasFinished(c, loadedAt) ? "Selesai" : getCompetitionStatusLabel(c.status)}
                 </span>
                 <ButtonLink
                   href={`/institution/${institutionSlug}/competitions/${c.slug}/participants`}

@@ -10,6 +10,7 @@ import {
   toRegistrationDocumentErrorResponse,
 } from "@/server/registration-documents/registration-document-core";
 import { prepareRequestDocumentUpload } from "@/server/registration-documents/registration-document-service";
+import { assertUploadUrlAllowed } from "@/server/storage/upload-rate-limit";
 
 // Presign step of the candidate's upload. Returns a presigned PUT and the server-chosen key, and
 // writes no row — the row is created only once finalize has inspected the bytes that landed.
@@ -20,6 +21,9 @@ export async function POST(request: Request, context: { params: Promise<{ reques
   try {
     const session = await requireSessionRole(["candidate"]);
     assertSessionMatchesExpectedUser(request, session);
+
+    const limited = await assertUploadUrlAllowed(session.user.id);
+    if (limited) return limited;
 
     const { requestId } = await context.params;
     const payload = await request.json().catch(() => null);
