@@ -77,20 +77,47 @@ describe("deidentificationObjectPrefixes", () => {
     ]);
   });
 
-  it("lists a submission and a registration-document prefix per registration", () => {
+  it("lists a registration-document prefix per registration the account holds alone", () => {
     const prefixes = deidentificationObjectPrefixes({
       userId: USER,
       registrations: [
-        { registrationId: "reg-1", competitionId: "comp-1" },
-        { registrationId: "reg-2", competitionId: "comp-2" },
+        { registrationId: "reg-1", competitionId: "comp-1", teamId: null },
+        { registrationId: "reg-2", competitionId: "comp-2", teamId: null },
       ],
       personalInstitutionId: null,
     });
 
-    expect(prefixes).toContain("submissions/comp-1/reg-1/");
     expect(prefixes).toContain("registration-documents/comp-1/reg-1/");
-    expect(prefixes).toContain("submissions/comp-2/reg-2/");
     expect(prefixes).toContain("registration-documents/comp-2/reg-2/");
+  });
+
+  it("never lists a submissions prefix, on any target", () => {
+    // That prefix is scoped by registration, and a registration with a team is shared — listing it
+    // deletes a teammate's entry. Submission objects are reached by key instead.
+    const prefixes = deidentificationObjectPrefixes({
+      userId: USER,
+      registrations: [
+        { registrationId: "reg-1", competitionId: "comp-1", teamId: null },
+        { registrationId: "reg-2", competitionId: "comp-2", teamId: null },
+      ],
+      personalInstitutionId: INSTITUTION,
+    });
+
+    expect(prefixes.some((prefix) => prefix.startsWith("submissions/"))).toBe(false);
+  });
+
+  it("leaves a team registration out entirely, so no scope of it is listed", () => {
+    const prefixes = deidentificationObjectPrefixes({
+      userId: USER,
+      registrations: [
+        { registrationId: "reg-solo", competitionId: "comp-1", teamId: null },
+        { registrationId: "reg-team", competitionId: "comp-2", teamId: "team-1" },
+      ],
+      personalInstitutionId: null,
+    });
+
+    expect(prefixes).toContain("registration-documents/comp-1/reg-solo/");
+    expect(prefixes.some((prefix) => prefix.includes("reg-team"))).toBe(false);
   });
 
   it("truncates the registration-document prefix after the registration, so it lists a superset", () => {
@@ -98,7 +125,7 @@ describe("deidentificationObjectPrefixes", () => {
     // under-listed one leaves a file behind — so the cut is deliberate and is asserted, not implied.
     const prefixes = deidentificationObjectPrefixes({
       userId: USER,
-      registrations: [{ registrationId: "reg-1", competitionId: "comp-1" }],
+      registrations: [{ registrationId: "reg-1", competitionId: "comp-1", teamId: null }],
       personalInstitutionId: null,
     });
 
@@ -125,8 +152,8 @@ describe("deidentificationObjectPrefixes", () => {
     const prefixes = deidentificationObjectPrefixes({
       userId: USER,
       registrations: [
-        { registrationId: "reg-1", competitionId: "comp-1" },
-        { registrationId: "reg-2", competitionId: "comp-2" },
+        { registrationId: "reg-1", competitionId: "comp-1", teamId: null },
+        { registrationId: "reg-2", competitionId: "comp-2", teamId: null },
       ],
       personalInstitutionId: INSTITUTION,
     });
@@ -137,7 +164,7 @@ describe("deidentificationObjectPrefixes", () => {
   it("leaves no placeholder unfilled, so no prefix is a template rather than a path", () => {
     const prefixes = deidentificationObjectPrefixes({
       userId: USER,
-      registrations: [{ registrationId: "reg-1", competitionId: "comp-1" }],
+      registrations: [{ registrationId: "reg-1", competitionId: "comp-1", teamId: null }],
       personalInstitutionId: INSTITUTION,
     });
 

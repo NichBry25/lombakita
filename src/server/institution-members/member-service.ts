@@ -10,6 +10,7 @@ import {
 } from "@/server/db/schema";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { MemberError, type MemberRecord } from "@/server/institution-members/member-core";
+import { countActiveOwners } from "@/server/institution-members/owner-count";
 
 assertServerOnly("server/institution-members/member-service");
 
@@ -259,18 +260,9 @@ export const changeMemberRole = async (
 
     // Last-owner guard: only relevant when demoting an institution_owner.
     if (target.role === "institution_owner" && newRole !== "institution_owner") {
-      const admins = await tx
-        .select({ id: institutionMemberships.id })
-        .from(institutionMemberships)
-        .where(
-          and(
-            eq(institutionMemberships.institutionId, institutionId),
-            eq(institutionMemberships.membershipRole, "institution_owner"),
-            eq(institutionMemberships.status, "active"),
-          ),
-        );
+      const owners = await countActiveOwners(tx, institutionId);
 
-      if (admins.length <= 1) {
+      if (owners <= 1) {
         throw new MemberError(
           "last_owner_demotion_forbidden",
           422,

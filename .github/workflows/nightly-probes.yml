@@ -163,6 +163,10 @@ jobs:
         if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
         run: node scripts/testing/probes/database-identity.mjs
 
+      - name: "Probe suite: deactivated-account-guards"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/deactivated-account-guards.mjs
+
       - name: "Probe suite: dec-conformance"
         if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
         run: node scripts/testing/probes/dec-conformance.mjs

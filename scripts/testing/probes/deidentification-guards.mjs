@@ -13,13 +13,16 @@
  * new test written for the probe's benefit; a probe whose detector exists only to be broken by it
  * measures the probe.
  *
- * THE CLASS OF EACH GUARD IS DECLARED RATHER THAN ASSUMED (clause 8). Three of the five are B: a
+ * THE CLASS OF EACH GUARD IS DECLARED RATHER THAN ASSUMED (clause 8). Five of the eight are B: a
  * refusal, a lock, or a source-of-truth choice that stands in front of a write and takes no
- * transaction of its own. The rehearsal sentinel is A1-in: it throws INSIDE the transaction and the
- * rollback is what restores the post-state, so its detector is the refusal identity — the run that
- * follows a committed rehearsal refuses instead of de-identifying. The one class D probe is the
- * prefix list's CONTENT — which prefixes a target produces — where the source-of-truth probe is the
- * ordering claim around the same builder: not what it returns, but which read's answer it was given.
+ * transaction of its own — the two SCOPE choices among them (which rows a target's upload is, and
+ * which objects a surviving ledger row keeps) are B for the same reason and are read the same way,
+ * through the post-state the run leaves. Two are A1-in: the rehearsal sentinel and the operator-role
+ * refusal both throw INSIDE a transaction, so their detectors are the refusal identity — the run that
+ * follows a committed rehearsal refuses instead of de-identifying, and the refused role is named by
+ * the code the caller receives. The one class D probe is the prefix list's CONTENT — which prefixes a
+ * target produces — where the source-of-truth probe is the ordering claim around the same builder:
+ * not what it returns, but which read's answer it was given.
  *
  * WHAT IS NOT PROBED, AND WHY. The compare-and-set (`where id = U and status <> 'deactivated'`) is
  * not separately probed. Every interleaving that reaches it has already been refused by the
@@ -194,6 +197,127 @@ export const probes = [
     // what it observes is the object the deletion failed to remove, not a status code.
     detect: async () =>
       fails("npx", ["vitest", "run", INTEGRATION_TEST], /× .*comes from the rehearsal's read/),
+  },
+  {
+    name: "a submission is the target's own upload, not everything filed under their registrations",
+    klass: "B",
+    harmfulMove:
+      "scoping the submissions by registration, which is the entry rather than the person. A team " +
+      "registration is shared, so its submission row is whichever member uploaded it — and every " +
+      "other member's entry under the target's own registrations is the same shape in reverse. Keyed " +
+      "by registration, a de-identification deletes a teammate's file and scrubs a teammate's row: " +
+      "the person was removed, and someone who was never named in the request lost their work",
+    files: [SERVICE],
+    // Both halves of the scope reverted, the read and the scrub, because the defect is the key rather
+    // than one of its uses: re-pointing only the scrub would leave the read deciding by uploader,
+    // which is a shape no reviewer writes. `registrationIds` is still bound and still used by the
+    // document-request scrub, so the mutation compiles for a reason rather than by luck (clause 1).
+    appliedMarkers: [
+      "      .where(inArray(competitionSubmissions.registrationId, registrationIds))\n" +
+        "  ).map((row) => row.fileKey);",
+      "      .where(inArray(competitionSubmissions.registrationId, registrationIds))\n" +
+        "      .returning({ id: competitionSubmissions.id }),",
+    ],
+    mutate: () => {
+      substituteOnce(
+        SERVICE,
+        "      .from(competitionSubmissions)\n" +
+          "      .where(eq(competitionSubmissions.submittedById, accountId))\n" +
+          "  ).map((row) => row.fileKey);",
+        "      .from(competitionSubmissions)\n" +
+          "      .where(inArray(competitionSubmissions.registrationId, registrationIds))\n" +
+          "  ).map((row) => row.fileKey);",
+      );
+      substituteOnce(
+        SERVICE,
+        "      .set({ fileKey: DEIDENTIFIED_TEXT, fileName: DEIDENTIFIED_TEXT, updatedAt: sql`now()` })\n" +
+          "      .where(eq(competitionSubmissions.submittedById, accountId))",
+        "      .set({ fileKey: DEIDENTIFIED_TEXT, fileName: DEIDENTIFIED_TEXT, updatedAt: sql`now()` })\n" +
+          "      .where(inArray(competitionSubmissions.registrationId, registrationIds))",
+      );
+    },
+    // Class B, and the detector is the post-state B's class names: the suite reads the mocked bucket
+    // and the database, so what it observes is the teammate's object gone and the teammate's row
+    // scrubbed — not a status code, because nothing refuses here.
+    detect: async () =>
+      fails(
+        "npx",
+        ["vitest", "run", INTEGRATION_TEST],
+        /× .*keeps a teammate's entry when the captain is de-identified/,
+      ),
+  },
+  {
+    name: "an object a surviving ledger row still names is kept",
+    klass: "B",
+    harmfulMove:
+      "deleting every object under the personal institution's payment-instructions prefix, including " +
+      "the QRIS image a finance snapshot quotes. That snapshot is what an institution's payment " +
+      "instructions SAID when a payment was reviewed, and it outlives the account — so the row is " +
+      "left citing an image that is gone, on a ledger DEC-0133 forbids removing to tidy it up",
+    files: [SERVICE],
+    // The subtraction removed rather than its condition inverted: the skip goes whole, so what
+    // remains is the delete the skip exists to prevent. The marker is the loop with the guard no
+    // longer inside it — an adjacency the unmutated file does not hold.
+    appliedMarkers: [
+      "      for (const object of objects) {\n        await deleteOne(object.key);\n      }",
+    ],
+    mutate: () =>
+      substituteOnce(
+        SERVICE,
+        [
+          "      for (const object of objects) {",
+          "        // A key a surviving row still points at is not this action's to delete. The ledger is",
+          "        // append-only (DEC-0133), so the row outlives the account and would be left quoting an",
+          "        // image that is gone.",
+          "        if (retainedKeys.has(object.key)) {",
+          "          continue;",
+          "        }",
+          "",
+          "        await deleteOne(object.key);",
+          "      }",
+        ].join("\n"),
+        [
+          "      for (const object of objects) {",
+          "        await deleteOne(object.key);",
+          "      }",
+        ].join("\n"),
+      ),
+    // Post-state, like the scope probe above: the suite reads the mocked bucket, and the harm is the
+    // object that is no longer in it.
+    detect: async () =>
+      fails(
+        "npx",
+        ["vitest", "run", INTEGRATION_TEST],
+        /× .*keeps the QRIS object the snapshot names/,
+      ),
+  },
+  {
+    name: "neither internal operator role can be the subject of a de-identification",
+    klass: "A1-in",
+    harmfulMove:
+      "refusing only `platform_ops`, so a finance_ops account is inside the de-identification's reach. " +
+      "Both are accounts the platform's own tooling operates rather than consumer accounts it acts " +
+      "on, and the one that is left reachable is the one holding the payment ledger",
+    files: [SERVICE],
+    // The second clause dropped from the condition, so the comparison still happens and `target.role`
+    // is still read — the mutation is the reach it leaves open, not a condition that stopped being
+    // evaluated.
+    appliedMarkers: ['  if (target.role === "platform_ops") {'],
+    mutate: () =>
+      substituteOnce(
+        SERVICE,
+        '  if (target.role === "platform_ops" || target.role === "finance_ops") {',
+        '  if (target.role === "platform_ops") {',
+      ),
+    // Class A1-in: the refusal is thrown inside the pre-read's transaction, before the write stage is
+    // reached at all, so what the detector can read is the refusal identity — the code the caller
+    // receives. The suite asserts the same run's effect as well, and it is empty.
+    detect: async () =>
+      fails(
+        "npx",
+        ["vitest", "run", INTEGRATION_TEST],
+        /× .*refuses 403 when the target is itself an operator account: finance_ops/,
+      ),
   },
 ];
 

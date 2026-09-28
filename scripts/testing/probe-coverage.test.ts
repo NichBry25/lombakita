@@ -44,6 +44,7 @@ import { probes as deletionResidueSectionProbes } from "./probes/deletion-residu
 import { probes as migrationGuardProbes } from "./probes/migration-guard.mjs";
 import { probes as databaseIdentityProbes } from "./probes/database-identity.mjs";
 import { probes as deidentificationGuardProbes } from "./probes/deidentification-guards.mjs";
+import { probes as deactivatedAccountGuardProbes } from "./probes/deactivated-account-guards.mjs";
 import { probes as uploadRateLimitProbes } from "./probes/upload-rate-limit.mjs";
 import { probes as probeWiringProbes } from "./probes/probe-wiring.mjs";
 
@@ -69,6 +70,7 @@ const SUITES: Record<string, Probe[]> = {
   "migration-guard": migrationGuardProbes,
   "database-identity": databaseIdentityProbes,
   "deidentification-guards": deidentificationGuardProbes,
+  "deactivated-account-guards": deactivatedAccountGuardProbes,
   "upload-rate-limit": uploadRateLimitProbes,
   "probe-wiring": probeWiringProbes,
 };

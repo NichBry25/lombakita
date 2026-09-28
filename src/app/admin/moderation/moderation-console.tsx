@@ -44,9 +44,20 @@ type NoteItem = {
   createdAt: string;
 };
 
+// The refusal every operator action produces when it is aimed at an account whose data has been
+// deleted. Duplicated from `src/server/accounts/deactivated-account.ts` rather than imported: that
+// module pulls in the database client, and this is a client component.
+const OPERATOR_ACTION_ERROR_COPY: Record<string, string> = {
+  account_deactivated: "Data akun ini sudah dihapus. Tindakan ini tidak tersedia.",
+};
+
 async function readError(res: Response): Promise<string> {
   try {
     const data = await res.json();
+    const copy = OPERATOR_ACTION_ERROR_COPY[data?.error?.code];
+    if (copy !== undefined) {
+      return copy;
+    }
     return data?.error?.code
       ? `${data.error.code}: ${data.error.message ?? ""}`
       : `Error ${res.status}`;
@@ -521,7 +532,8 @@ function UserPanel() {
           </div>
           <div>
             {result.appRole === "platform_ops" ||
-            result.appRole === "finance_ops" ? null : result.suspendedAt ? (
+            result.appRole === "finance_ops" ||
+            result.status === "deactivated" ? null : result.suspendedAt ? (
               <ActionForm
                 buttonLabel="Cabut penangguhan"
                 onSubmit={(reason) => runAction("unsuspend", reason)}
@@ -534,17 +546,20 @@ function UserPanel() {
             )}
           </div>
           {result.appRole === "recruiter" &&
-            result.recruiterVerificationTier !== ELEVATION_TARGET_TIER && (
+            result.recruiterVerificationTier !== ELEVATION_TARGET_TIER &&
+            result.status !== "deactivated" && (
               <div>
                 <RecruiterTierAction account={result} onDone={() => void lookup()} />
               </div>
             )}
-          {result.appRole !== "platform_ops" && result.status !== "deactivated" && (
-            // Not re-looked-up afterwards: the account's address is now the tombstone, so the email
-            // in the search box resolves to nothing. The panel closes instead of reporting a
-            // not-found for the account that was just deleted.
-            <DeidentifyAction account={result} onDone={() => setResult(null)} />
-          )}
+          {result.appRole !== "platform_ops" &&
+            result.appRole !== "finance_ops" &&
+            result.status !== "deactivated" && (
+              // Not re-looked-up afterwards: the account's address is now the tombstone, so the email
+              // in the search box resolves to nothing. The panel closes instead of reporting a
+              // not-found for the account that was just deleted.
+              <DeidentifyAction account={result} onDone={() => setResult(null)} />
+            )}
           <NotesPanel target={{ targetUserId: result.id }} />
         </div>
       )}

@@ -12,6 +12,8 @@ export type ModerationErrorCode =
   | "institution_not_found"
   | "institution_already_suspended"
   | "institution_not_suspended"
+  | "institution_has_no_owner"
+  | "account_deactivated"
   | "invalid_note_target"
   | "note_required"
   | "note_not_found";

@@ -41,6 +41,9 @@ import {
   competitionSaves,
   competitionSubmissions,
   competitions,
+  financeFeeRules,
+  financePaymentInstructionSnapshots,
+  financePayments,
   institutionInvitations,
   institutionMemberships,
   institutionPaymentInstructions,
@@ -584,7 +587,8 @@ const expectedPrefixes = (f: Fixture): string[] => [
   `resumes/${f.target}/`,
   `profile-certifications/${f.target}/`,
   `recruiter-verification/${f.target}/`,
-  `submissions/${f.competition}/${f.registration}/`,
+  // No `submissions/` prefix: that scope is the registration's, and under a team registration it is
+  // shared. Submission objects are reached by key, from the rows the writing transaction read.
   `registration-documents/${f.competition}/${f.registration}/`,
   `institution-logos/${f.institution}/`,
   `institution-banners/${f.institution}/`,
@@ -604,6 +608,127 @@ const readUser = async (tx: Tx, id: string) => {
   const [row] = await tx.select().from(users).where(eq(users.id, id)).limit(1);
 
   return row;
+};
+
+/** The `file_key` of the one submission under a registration. The table allows only one. */
+const readSubmissionKey = async (tx: Tx, registrationId: string): Promise<string | null> => {
+  const [row] = await tx
+    .select({ fileKey: competitionSubmissions.fileKey })
+    .from(competitionSubmissions)
+    .where(eq(competitionSubmissions.registrationId, registrationId))
+    .limit(1);
+
+  return row?.fileKey ?? null;
+};
+
+/**
+ * The base fixture plus a competition two people entered as a team.
+ *
+ * In a competition of its own, because a candidate may hold only one non-cancelled registration per
+ * competition (`competition_registrations_student_competition_active_unique_idx`) — the captain's
+ * individual registration in the base fixture's competition is what stops a team one being added
+ * there.
+ *
+ * EACH PERSON'S ENTRY IS FILED UNDER THE OTHER PERSON'S REGISTRATION, and that is the point rather
+ * than a curiosity: one submission per registration is all the table allows, so the pairing is the
+ * only shape in which a run keyed on the registration and a run keyed on the uploader disagree.
+ * De-identifying either one therefore has to leave the other's row standing under a registration
+ * the run listed no prefix for.
+ */
+const buildSharedRegistrationFixture = async (tx: Tx) => {
+  const f = await buildFixture(tx);
+
+  const suffix = uniqueSuffix();
+  const teammate = randomUUID();
+  const teammateUsername = `deident_mate_${suffix}`;
+  const competition = randomUUID();
+  const team = randomUUID();
+  const captainRegistration = randomUUID();
+  const teammateRegistration = randomUUID();
+  const captainSubmissionKey = `submissions/${competition}/${teammateRegistration}/captain.pdf`;
+  const teammateSubmissionKey = `submissions/${competition}/${captainRegistration}/mate.pdf`;
+
+  await tx.insert(users).values({
+    id: teammate,
+    email: `deident_mate_${suffix}@example.test`,
+    username: teammateUsername,
+    name: `Bagas ${suffix}`,
+    candidateVerifiedAt: new Date(),
+  });
+
+  await tx.insert(competitions).values({
+    id: competition,
+    institutionId: f.institution,
+    slug: `team-${suffix}`,
+    title: `Tim ${suffix}`,
+    status: "draft",
+    createdByUserId: f.target,
+  });
+
+  await tx.insert(teams).values({
+    id: team,
+    competitionId: competition,
+    name: `Regu ${suffix}`,
+    captainId: f.target,
+    status: "forming",
+  });
+
+  await tx.insert(teamMemberships).values([
+    { id: randomUUID(), teamId: team, userId: f.target, role: "captain", status: "active" },
+    { id: randomUUID(), teamId: team, userId: teammate, role: "member", status: "active" },
+  ]);
+
+  await tx.insert(competitionRegistrations).values([
+    {
+      id: captainRegistration,
+      competitionId: competition,
+      studentId: f.target,
+      teamId: team,
+      registrationType: "team",
+      status: "confirmed",
+    },
+    {
+      id: teammateRegistration,
+      competitionId: competition,
+      studentId: teammate,
+      teamId: team,
+      registrationType: "team",
+      status: "confirmed",
+    },
+  ]);
+
+  await tx.insert(competitionSubmissions).values([
+    {
+      id: randomUUID(),
+      registrationId: captainRegistration,
+      submittedById: teammate,
+      fileKey: teammateSubmissionKey,
+      fileName: "mate.pdf",
+      fileMimeType: "application/pdf",
+      finalizedAt: new Date(),
+    },
+    {
+      id: randomUUID(),
+      registrationId: teammateRegistration,
+      submittedById: f.target,
+      fileKey: captainSubmissionKey,
+      fileName: "captain.pdf",
+      fileMimeType: "application/pdf",
+      finalizedAt: new Date(),
+    },
+  ]);
+
+  r2.objects.push(captainSubmissionKey, teammateSubmissionKey);
+
+  return {
+    f,
+    teammate,
+    teammateUsername,
+    captainRegistration,
+    teammateRegistration,
+    captainSubmissionKey,
+    teammateSubmissionKey,
+  };
 };
 
 beforeEach(() => {
@@ -682,33 +807,38 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
       });
     });
 
-    it("refuses 403 when the target is itself an operator account", async () => {
-      await inRollback(async (tx) => {
-        const f = await buildFixture(tx);
-        const otherOperator = randomUUID();
-        const otherUsername = `deident_ops2_${f.suffix}`;
+    // Both internal operator roles, because the refusal names a pair: an account the platform's own
+    // tooling operates is not one that tooling deletes, whichever of the two it holds.
+    it.each(["platform_ops", "finance_ops"] as const)(
+      "refuses 403 when the target is itself an operator account: %s",
+      async (operatorRole) => {
+        await inRollback(async (tx) => {
+          const f = await buildFixture(tx);
+          const otherOperator = randomUUID();
+          const otherUsername = `deident_ops2_${f.suffix}`;
 
-        await tx.insert(users).values({
-          id: otherOperator,
-          email: `deident_ops2_${f.suffix}@example.test`,
-          username: otherUsername,
-          name: "Second Ops Fixture",
-          role: "platform_ops",
-          candidateVerifiedAt: new Date(),
+          await tx.insert(users).values({
+            id: otherOperator,
+            email: `deident_ops2_${f.suffix}@example.test`,
+            username: otherUsername,
+            name: "Second Ops Fixture",
+            role: operatorRole,
+            candidateVerifiedAt: new Date(),
+          });
+
+          await expectCode(
+            run(tx, f.operator, otherOperator, {
+              confirmUsername: otherUsername,
+              reason: "permintaan pemilik",
+            }),
+            "deidentify_target_is_operator",
+            403,
+          );
+
+          expect(r2.deleted).toEqual([]);
         });
-
-        await expectCode(
-          run(tx, f.operator, otherOperator, {
-            confirmUsername: otherUsername,
-            reason: "permintaan pemilik",
-          }),
-          "deidentify_target_is_operator",
-          403,
-        );
-
-        expect(r2.deleted).toEqual([]);
-      });
-    });
+      },
+    );
 
     it("refuses 400 when the typed confirmation differs, casing included", async () => {
       await inRollback(async (tx) => {
@@ -1201,6 +1331,120 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
     });
   });
 
+  describe("a shared registration", () => {
+    it("keeps a teammate's entry when the captain is de-identified, and removes the captain's", async () => {
+      await inRollback(async (tx) => {
+        const t = await buildSharedRegistrationFixture(tx);
+
+        await run(tx, t.f.operator, t.f.target, {
+          confirmUsername: t.f.targetUsername,
+          reason: "permintaan pemilik",
+        });
+
+        // The captain's entry sits under the TEAMMATE's registration, and goes.
+        expect(r2.deleted).toContain(t.captainSubmissionKey);
+        expect(r2.objects).not.toContain(t.captainSubmissionKey);
+        expect(await readSubmissionKey(tx, t.teammateRegistration)).toBe("[dihapus]");
+
+        // The teammate's entry sits under the CAPTAIN's registration, and stays.
+        expect(r2.deleted).not.toContain(t.teammateSubmissionKey);
+        expect(r2.objects).toContain(t.teammateSubmissionKey);
+        expect(await readSubmissionKey(tx, t.captainRegistration)).toBe(t.teammateSubmissionKey);
+
+        // Neither registration's prefix was listed, so neither registration's documents were
+        // reached — the registration-documents table records no uploader to tell them apart.
+        expect(r2.listed.some((prefix) => prefix.includes(t.captainRegistration))).toBe(false);
+        expect(r2.listed.some((prefix) => prefix.includes(t.teammateRegistration))).toBe(false);
+      });
+    });
+
+    it("removes only the teammate's entry when the teammate is de-identified", async () => {
+      await inRollback(async (tx) => {
+        const t = await buildSharedRegistrationFixture(tx);
+
+        await run(tx, t.f.operator, t.teammate, {
+          confirmUsername: t.teammateUsername,
+          reason: "permintaan pemilik",
+        });
+
+        // Under the CAPTAIN's registration, and still the teammate's row — so it goes.
+        expect(r2.deleted).toContain(t.teammateSubmissionKey);
+        expect(r2.objects).not.toContain(t.teammateSubmissionKey);
+        expect(await readSubmissionKey(tx, t.captainRegistration)).toBe("[dihapus]");
+
+        expect(r2.deleted).not.toContain(t.captainSubmissionKey);
+        expect(r2.objects).toContain(t.captainSubmissionKey);
+        expect(await readSubmissionKey(tx, t.teammateRegistration)).toBe(t.captainSubmissionKey);
+      });
+    });
+  });
+
+  describe("a payment instruction a finance snapshot still quotes", () => {
+    it("keeps the QRIS object the snapshot names, and removes the one it does not", async () => {
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+        const referencedKey = `payment-instructions/${f.institution}/qris.png`;
+        const orphanKey = `payment-instructions/${f.institution}/old-qris.png`;
+
+        r2.objects.push(orphanKey);
+
+        const [rule] = await tx
+          .insert(financeFeeRules)
+          .values({
+            institutionId: f.institution,
+            currency: "IDR",
+            basisPoints: 0,
+            flatAmount: 0,
+            effectiveFrom: new Date("2020-01-01T00:00:00Z"),
+          })
+          .returning({ id: financeFeeRules.id });
+
+        const [payment] = await tx
+          .insert(financePayments)
+          .values({
+            payerUserId: f.bystander,
+            receivingInstitutionId: f.institution,
+            origin: "gateway",
+            subjectType: "competition_registration",
+            competitionRegistrationId: f.registration,
+            currency: "IDR",
+            grossAmount: 100_000,
+            feeRuleId: rule!.id,
+            feeBasisPoints: 0,
+            feeFlatAmount: 0,
+            platformFeeAmount: 0,
+            institutionNetAmount: 100_000,
+          })
+          .returning({ id: financePayments.id });
+
+        // The snapshot names the SAME key the fixture already put in the bucket, so the object is
+        // both inside the prefix this run lists and quoted by a row that outlives the account.
+        await tx.insert(financePaymentInstructionSnapshots).values({
+          paymentId: payment!.id,
+          qrisR2Key: referencedKey,
+        });
+
+        const result = await run(tx, f.operator, f.target, {
+          confirmUsername: f.targetUsername,
+          reason: "permintaan pemilik",
+        });
+
+        expect(r2.deleted).not.toContain(referencedKey);
+        expect(r2.objects).toContain(referencedKey);
+        expect(r2.deleted).toContain(orphanKey);
+        expect(r2.objects).not.toContain(orphanKey);
+
+        const expected = [
+          ...expectedDeletedKeys(f).filter((key) => key !== referencedKey),
+          orphanKey,
+        ];
+
+        expect([...r2.deleted].sort()).toEqual([...expected].sort());
+        expect(result.objectsDeleted).toBe(expected.length);
+      });
+    });
+  });
+
   describe("the rehearsal", () => {
     it("deletes no object and changes no row when a write would fail", async () => {
       // THE CONSTRAINT IS ADDED ON A SECOND CONNECTION, and it has to be. `DATABASE_URL` is
@@ -1409,17 +1653,28 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
                   registrationType: "individual",
                   status: "confirmed",
                 });
+
+                // The row that names the late registration's entry. Its key reaches the storage
+                // stage by the same route the prefixes do — out of the rehearsal's read — which is
+                // what this test is for now that submissions are not listed by prefix.
+                await tx.insert(competitionSubmissions).values({
+                  id: randomUUID(),
+                  registrationId: lateRegistration,
+                  submittedById: f.target,
+                  fileKey: lateSubmission,
+                  fileName: "entry.pdf",
+                  fileMimeType: "application/pdf",
+                  finalizedAt: new Date(),
+                });
               },
             },
           },
         );
 
         expect(r2.listed, "the late registration was never listed").toContain(
-          `submissions/${lateCompetition}/${lateRegistration}/`,
-        );
-        expect(r2.listed).toContain(
           `registration-documents/${lateCompetition}/${lateRegistration}/`,
         );
+        expect(r2.listed).not.toContain(`submissions/${lateCompetition}/${lateRegistration}/`);
         expect(r2.deleted).toContain(lateSubmission);
         expect(r2.deleted).toContain(lateDocument);
         expect(r2.objects).not.toContain(lateSubmission);

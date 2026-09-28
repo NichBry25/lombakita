@@ -106,7 +106,16 @@ export const probes = [
     files: [RESIDUE],
     // The removal put `connect`'s return directly after the DATABASE_URL refusal, which is a
     // sequence the file did not contain before this mutation and no other removal would produce.
-    appliedMarkers: ["    );\n  }\n\n  return postgres(url, { max: 1 });\n};"],
+    //
+    // Anchored on the DATABASE_URL refusal's TAIL, not on the loopback one's. The loopback refusal
+    // ends with the same `);` / `}` / blank line / return, so a marker cut there is present in the
+    // unmutated file as well — clause 2's marker half then passes on a file the mutation never
+    // touched, which is the failure the marker exists to catch. Only this adjacency is created by
+    // the removal.
+    appliedMarkers: [
+      "`DATABASE_URL is not set and no env file was found (candidates: ${loadedFrom})`,\n" +
+        "    );\n  }\n\n  return postgres(url, { max: 1 });",
+    ],
     // The clause removed WHOLE — condition, refusal and message. Removing the message alone would
     // leave `isLoopbackUrl` deciding nothing, and removing only the `if` would leave a statement
     // that no longer refuses, which is the same experiment spelled less clearly.

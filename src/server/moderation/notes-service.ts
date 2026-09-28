@@ -2,6 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
 import { platformOpsAuditLogs, platformOpsNotes, users } from "@/server/db/schema";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
+import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
 import { ModerationError } from "@/server/moderation/moderation-core";
 
 assertServerOnly("server/moderation/notes-service");
@@ -58,15 +59,24 @@ export const addNote = async (
     throw new ModerationError("note_required", 400, "Note text is required");
   }
 
-  const [row] = await db
-    .insert(platformOpsNotes)
-    .values({ targetUserId, targetInstitutionId, note, createdById: actorUserId })
-    .returning({
-      id: platformOpsNotes.id,
-      note: platformOpsNotes.note,
-      createdById: platformOpsNotes.createdById,
-      createdAt: platformOpsNotes.createdAt,
-    });
+  // One transaction so the deactivation check and the insert cannot interleave with a
+  // de-identification running against the same account. A note about an institution is not a note
+  // about a person, so the guard only applies to the user-target shape.
+  const [row] = await db.transaction(async (tx) => {
+    if (targetUserId !== null) {
+      await assertAccountNotDeactivated(tx, targetUserId, ModerationError);
+    }
+
+    return tx
+      .insert(platformOpsNotes)
+      .values({ targetUserId, targetInstitutionId, note, createdById: actorUserId })
+      .returning({
+        id: platformOpsNotes.id,
+        note: platformOpsNotes.note,
+        createdById: platformOpsNotes.createdById,
+        createdAt: platformOpsNotes.createdAt,
+      });
+  });
 
   if (!row) {
     throw new Error("Failed to insert platform ops note");

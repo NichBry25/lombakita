@@ -7,9 +7,17 @@ vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn(
 import { addNote, editNote, listNotes, NOTE_EDITED_EVENT } from "./notes-service";
 import type { Database } from "@/server/db/client";
 
+// The insert runs inside the transaction the deactivation guard opens, so the handle carries a
+// select as well: it is what the guard reads the target's status through. An empty result is a target
+// the guard finds nothing to refuse.
 const makeInsertDb = () => {
   const values: Array<Record<string, unknown>> = [];
-  const db = {
+  const tx = {
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue([]) }),
+      }),
+    }),
     insert: vi.fn().mockReturnValue({
       values: vi.fn((v: Record<string, unknown>) => {
         values.push(v);
@@ -22,6 +30,9 @@ const makeInsertDb = () => {
         };
       }),
     }),
+  };
+  const db = {
+    transaction: vi.fn(async (fn: (t: unknown) => Promise<unknown>) => fn(tx)),
   } as unknown as Database;
   return { db, values };
 };

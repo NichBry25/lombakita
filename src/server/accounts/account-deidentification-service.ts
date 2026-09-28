@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
 import {
@@ -11,6 +11,7 @@ import {
   competitionReviews,
   competitionSaves,
   competitionSubmissions,
+  financePaymentInstructionSnapshots,
   institutionInvitations,
   institutionMemberships,
   institutionPaymentInstructions,
@@ -55,7 +56,6 @@ import {
   R2_PREFIX_RECRUITER_VERIFICATION,
   R2_PREFIX_REGISTRATION_DOCUMENTS,
   R2_PREFIX_RESUMES,
-  R2_PREFIX_SUBMISSIONS,
   R2_PREFIX_VERIFICATION,
 } from "@/server/storage/r2-key-prefixes";
 import { findOwnedPersonalInstitution } from "@/server/institution-workspace/institution-service";
@@ -99,12 +99,23 @@ assertServerOnly("server/accounts/account-deidentification-service");
 // `docs/operations/account-deletion-procedure.md`: an object uploaded through a presigned URL that
 // was minted before this operation ran, and a registration created between the rehearsal and the
 // commit. The second is why the prefix list comes from the rehearsal's read rather than the
-// pre-read's — the narrower gap, not a closed one. Neither is a reason to re-open an account the
-// commit has already finished with.
+// pre-read's — the narrower gap, not a closed one.
+//
+// THE FIRST IS BOUNDED BY THE URL'S OWN EXPIRY, and nothing here shortens it. A presigned PUT is
+// valid until the moment it was signed to expire, so a URL minted a second before this action ran
+// still uploads after it: at `SUBMISSIONS_UPLOAD_EXPIRY_SECONDS = 900`
+// (`src/server/submissions/submission-constants.ts:9`), at `PRESIGNED_UPLOAD_EXPIRY_SECONDS = 300`
+// (`src/server/registration-documents/registration-document-service.ts:75`), or at
+// `PRESIGNED_URL_EXPIRY_SECONDS = 3600`
+// (`src/server/institution-verification/submission-service.ts:34`) — the surfaces that write into
+// the prefixes this action deletes. The object lands under a prefix that was already listed, and it
+// is open debt until that URL expires; a rerun finds the account deactivated and does not collect
+// it. Neither survivor is a reason to re-open an account the commit has already finished with.
 
 export type DeidentificationErrorCode =
   | "deidentify_invalid_payload"
   | "deidentify_reason_required"
+  | "deidentify_reason_too_long"
   | "deidentify_account_not_found"
   | "deidentify_target_is_operator"
   | "deidentify_already_done"
@@ -113,7 +124,8 @@ export type DeidentificationErrorCode =
   | "deidentify_personal_institution_has_published_competition"
   | "deidentify_storage_unavailable"
   | "deidentify_rehearsal_failed"
-  | "deidentify_storage_failed";
+  | "deidentify_storage_failed"
+  | "deidentify_commit_failed";
 
 export class DeidentificationError extends Error {
   constructor(
@@ -169,13 +181,30 @@ export const parseDeidentifyInput = (payload: unknown): DeidentifyAccountInput =
     );
   }
 
+  // After trim, so trailing whitespace cannot make an acceptable reason unacceptable.
+  if (reason.trim().length > 500) {
+    throw new DeidentificationError(
+      "deidentify_reason_too_long",
+      400,
+      "Alasan terlalu panjang (maksimal 500 karakter).",
+    );
+  }
+
   return { confirmUsername, reason };
 };
 
-/** One registration the target holds. Carried as a pair because the R2 scope needs both ids. */
+/**
+ * One registration the target holds. The two ids are what an R2 scope is built from; `teamId` is
+ * what says whether that scope may be used at all.
+ *
+ * A registration with a team is one other people also hold, and the rows hanging off it are not
+ * all the target's: a teammate's submission under this registration is theirs. Only the target's
+ * own rows are touched there, and `deidentificationObjectPrefixes` lists no prefix for it.
+ */
 type TargetRegistration = {
   registrationId: string;
   competitionId: string;
+  teamId: string | null;
 };
 
 type TargetFacts = {
@@ -191,6 +220,12 @@ type WriteOutcome = {
   // Carried out of the transaction because the storage stage needs them and must not read them for
   // itself: a listing taken before the stage runs is a listing a concurrent registration can overtake.
   registrations: TargetRegistration[];
+  // The keys of the objects the submission scrub above emptied, read before it ran. Carried for the
+  // same reason as the registrations: the store is cleaned after the transaction closes, and the
+  // rows that named these objects no longer do.
+  submissionKeys: string[];
+  // The QRIS objects a finance snapshot still quotes, which the storage stage must not remove.
+  retainedKeys: string[];
 };
 
 // Thrown inside the rehearsal transaction to force its rollback. Never escapes `performWrites`:
@@ -220,10 +255,6 @@ const assertReasonPresent = (input: DeidentifyAccountInput): void => {
 // revoked but the row survives, and a PERSONAL institution belongs to exactly that one person, so
 // it is suspended and scrubbed by the caller rather than treated as orphaned. A full institution
 // has staff and members who would be stranded, which is what the refusal is for.
-//
-// `is distinct from 'personal'` and not `<> 'personal'`: a legacy institution carries a NULL type,
-// and `NULL <> 'personal'` is NULL, which excludes the row — the exact mistake the taxonomy note in
-// institution-type.ts warns about.
 const findInstitutionsWhereTargetIsLastActiveOwner = async (
   tx: OperatorActorTransaction,
   accountId: string,
@@ -307,11 +338,14 @@ const assertNoPublishedPersonalCompetition = async (
  * three stages, so every failure before it leaves the account not deactivated and a rerun finds it
  * eligible; there is no interrupted state this action has to resume. An account that does read
  * deactivated with objects still under its prefixes is one an upload raced — an object uploaded
- * through a presigned URL minted before this operation — and `deleteObjectsUnder` has already run by
- * then, so the object is not reachable from any prefix this action listed. The other survivor is a
- * registration created between the rehearsal and the commit: the commit scrubs its row and the
- * objects under its prefixes were never listed. Both are open debt (see the module header) rather
- * than a reason to re-open a finished account.
+ * through a presigned URL minted before this operation, which stays valid for the expiry it was
+ * signed with (900 seconds on the submission surface, `SUBMISSIONS_UPLOAD_EXPIRY_SECONDS`; 300 on
+ * registration documents, `PRESIGNED_UPLOAD_EXPIRY_SECONDS`; 3600 on institution verification,
+ * `PRESIGNED_URL_EXPIRY_SECONDS`) — and `deleteTargetObjects` has already run by then, so the
+ * object is not reachable from any prefix this action listed, and no rerun collects it: it is open
+ * debt. The other survivor is a registration created between the rehearsal and the commit: the
+ * commit scrubs its row and the objects under its prefixes were never listed. Neither is a reason to
+ * re-open a finished account.
  */
 const assertTargetIsEligible = async (
   tx: OperatorActorTransaction,
@@ -333,7 +367,9 @@ const assertTargetIsEligible = async (
     throw new DeidentificationError("deidentify_account_not_found", 404, "Akun tidak ditemukan.");
   }
 
-  if (target.role === "platform_ops") {
+  // Both internal operator roles. The same pair the moderation surface refuses to suspend, and for
+  // the same reason: these are not accounts the platform's own operator tooling acts on.
+  if (target.role === "platform_ops" || target.role === "finance_ops") {
     throw new DeidentificationError(
       "deidentify_target_is_operator",
       403,
@@ -370,6 +406,7 @@ const assertTargetIsEligible = async (
     .select({
       registrationId: competitionRegistrations.id,
       competitionId: competitionRegistrations.competitionId,
+      teamId: competitionRegistrations.teamId,
     })
     .from(competitionRegistrations)
     .where(eq(competitionRegistrations.studentId, accountId));
@@ -414,9 +451,16 @@ const prefixUpTo = (template: string, placeholder: string): string => {
 /**
  * Every R2 prefix the action deletes under, for one target.
  *
- * `payment-proofs/` is absent on purpose and must stay absent. Those objects sit behind rows
- * DEC-0133 forbids deleting — the ledger is append-only and a payment proof is evidence — so
- * removing the image would leave an immutable row pointing at nothing.
+ * `submissions/` IS ABSENT ON PURPOSE AND MUST STAY ABSENT. A competition entry file is one the
+ * person uploaded, but the prefix is scoped by REGISTRATION, and a registration with a team is
+ * shared — listing it deletes a teammate's entry along with the target's. Those objects are deleted
+ * by key instead, from the `submission_keys` the writing transaction reads (`deleteObjectsByKey`),
+ * which reaches exactly the rows the target's own uploader id is on, under a team registration
+ * included.
+ *
+ * `payment-proofs/` is absent for a different reason and must also stay absent. Those objects sit
+ * behind rows DEC-0133 forbids deleting — the ledger is append-only and a payment proof is evidence
+ * — so removing the image would leave an immutable row pointing at nothing.
  */
 export const deidentificationObjectPrefixes = (target: {
   userId: string;
@@ -432,8 +476,15 @@ export const deidentificationObjectPrefixes = (target: {
   ];
 
   for (const registration of target.registrations) {
+    // Only a registration the target holds alone. A requested document is uploaded by whichever
+    // member answered the request, and `competition_document_request_files` records no uploader —
+    // so under a team registration there is nothing in the row or in the key that distinguishes the
+    // target's file from a teammate's. Listing the prefix there would delete the teammate's.
+    if (registration.teamId !== null) {
+      continue;
+    }
+
     prefixes.push(
-      fillRegistrationPrefix(R2_PREFIX_SUBMISSIONS, registration),
       fillRegistrationPrefix(
         prefixUpTo(R2_PREFIX_REGISTRATION_DOCUMENTS, "{registrationId}/"),
         registration,
@@ -466,30 +517,81 @@ class StorageDeletionFailure extends Error {
 }
 
 /**
- * Delete every object under `prefixes`, counting as it goes.
+ * Delete the objects this action owns, counting as it goes.
+ *
+ * TWO REACHES, ONE STAGE. `prefixes` is every scope the target holds alone; `keys` are the rows the
+ * writing transaction named outright, which is how a submission is reached — its prefix is scoped by
+ * registration, and under a team registration that scope is shared. `retainedKeys` is subtracted
+ * from the prefixes because a surviving ledger row still points at those objects.
+ *
+ * One function rather than two so that there is ONE count. `StorageDeletionFailure` carries how many
+ * objects are already gone, and two call sites would report only the failing half: an operator told
+ * "5 deleted" when 12 are would not know what state they are in, which is the whole point of the
+ * count.
  *
  * The underlying error is deliberately not carried. An S3 failure quotes the key it failed on, and
  * a key contains the account or registration id it was built from — so propagating it would put a
  * value from the deleted person's record into a log, an error detail and an HTTP response. The
  * count is what the caller can act on and is all that is kept.
  */
-const deleteObjectsUnder = async (prefixes: readonly string[]): Promise<number> => {
+const deleteTargetObjects = async (
+  prefixes: readonly string[],
+  keys: readonly string[],
+  retainedKeys: ReadonlySet<string>,
+): Promise<number> => {
   let objectsDeleted = 0;
+
+  const deleteOne = async (key: string): Promise<void> => {
+    await deleteObject(key);
+    objectsDeleted += 1;
+  };
 
   try {
     for (const prefix of prefixes) {
       const objects = await listObjects(prefix);
 
       for (const object of objects) {
-        await deleteObject(object.key);
-        objectsDeleted += 1;
+        // A key a surviving row still points at is not this action's to delete. The ledger is
+        // append-only (DEC-0133), so the row outlives the account and would be left quoting an
+        // image that is gone.
+        if (retainedKeys.has(object.key)) {
+          continue;
+        }
+
+        await deleteOne(object.key);
       }
+    }
+
+    for (const key of keys) {
+      await deleteOne(key);
     }
   } catch {
     throw new StorageDeletionFailure(objectsDeleted);
   }
 
   return objectsDeleted;
+};
+
+/**
+ * Every QRIS object key a finance snapshot still points at.
+ *
+ * `finance_payment_instruction_snapshots` records what an institution's payment instructions said
+ * when a payment was reviewed, so a snapshot naming the personal institution's QRIS is a row that
+ * outlives the account, holding an image that has to outlive it too.
+ *
+ * Read from the writing transaction's handle, like every other fact the storage stage runs on. The
+ * one residue is a snapshot written between this read and the delete, whose key can then be removed
+ * from under it — the same class of gap as the other two, and recorded with them.
+ */
+const findReferencedPaymentInstructionKeys = async (
+  tx: OperatorActorTransaction,
+): Promise<string[]> => {
+  const rows = await tx
+    .select({ qrisR2Key: financePaymentInstructionSnapshots.qrisR2Key })
+    .from(financePaymentInstructionSnapshots)
+    .where(isNotNull(financePaymentInstructionSnapshots.qrisR2Key));
+
+  return rows.map((row) => row.qrisR2Key as string);
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -520,8 +622,11 @@ const runDeidentificationWrites = async (
     );
   }
 
-  // Held for the rest of the transaction, so a concurrent run blocks here and then finds the row
-  // deactivated at the CAS rather than interleaving deletes with this one.
+  // Held for the rest of the transaction: a concurrent run on the same account blocks here, and
+  // when the lock releases it is refused by the eligibility re-check below, which reads the row this
+  // transaction has by then deactivated. The conditional UPDATE on the flip is the backstop for a
+  // run that arrives without this lock held — it flips at most one row, so the loser of that race is
+  // refused there instead.
   await tx.select({ id: users.id }).from(users).where(eq(users.id, accountId)).for("update");
 
   // The pre-read's values are not reused: this transaction answers every question itself, from its
@@ -543,6 +648,28 @@ const runDeidentificationWrites = async (
   };
 
   const registrationIds = facts.registrations.map((registration) => registration.registrationId);
+
+  // The registrations the target holds ALONE. A registration with a team is shared, so the notes on
+  // it and the documents filed against it are not all the target's to erase — only the rows that
+  // record the target as the author or the uploader are, and those are scoped by user id below.
+  const soloRegistrationIds = facts.registrations
+    .filter((registration) => registration.teamId === null)
+    .map((registration) => registration.registrationId);
+
+  // Read BEFORE the scrub that empties these keys, because after it the rows no longer name them and
+  // the storage stage has nothing to delete. Scoped by uploader and not by registration, so an entry
+  // the target filed under a TEAMMATE's registration is reached while the teammate's own entries —
+  // under that same registration — are not.
+  const submissionKeys = (
+    await tx
+      .select({ fileKey: competitionSubmissions.fileKey })
+      .from(competitionSubmissions)
+      .where(eq(competitionSubmissions.submittedById, accountId))
+  ).map((row) => row.fileKey);
+
+  // Objects this action must leave where they are, because a ledger row that outlives the account
+  // still names them.
+  const retainedKeys = await findReferencedPaymentInstructionKeys(tx);
 
   const flipped = await tx
     .update(users)
@@ -730,8 +857,12 @@ const runDeidentificationWrites = async (
       .returning({ id: platformOpsNotes.id }),
   );
 
+  // Solo registrations only, matching `deidentificationObjectPrefixes`: the table records no
+  // uploader, so under a shared registration there is no way to name the target's files and not a
+  // teammate's. Deleting the rows here while the prefix listing skipped the objects would be worse
+  // than either — it would leave the teammate's object with no row.
   await deleteFrom("competition_document_request_files", () =>
-    registrationIds.length === 0
+    soloRegistrationIds.length === 0
       ? Promise.resolve([])
       : tx
           .delete(competitionDocumentRequestFiles)
@@ -741,7 +872,7 @@ const runDeidentificationWrites = async (
               tx
                 .select({ id: competitionDocumentRequests.id })
                 .from(competitionDocumentRequests)
-                .where(inArray(competitionDocumentRequests.registrationId, registrationIds)),
+                .where(inArray(competitionDocumentRequests.registrationId, soloRegistrationIds)),
             ),
           )
           .returning({ id: competitionDocumentRequestFiles.id }),
@@ -773,34 +904,40 @@ const runDeidentificationWrites = async (
       .returning({ id: userProfiles.userId }),
   );
 
+  // Only the registrations held alone: an internal note on a shared registration belongs to the
+  // entry, and the teammates still hold that entry.
   await scrubIn("competition_registrations", () =>
-    tx
-      .update(competitionRegistrations)
-      .set({ internalNotes: null, updatedAt: sql`now()` })
-      .where(eq(competitionRegistrations.studentId, accountId))
-      .returning({ id: competitionRegistrations.id }),
+    soloRegistrationIds.length === 0
+      ? Promise.resolve([])
+      : tx
+          .update(competitionRegistrations)
+          .set({ internalNotes: null, updatedAt: sql`now()` })
+          .where(inArray(competitionRegistrations.id, soloRegistrationIds))
+          .returning({ id: competitionRegistrations.id }),
   );
 
   // `result_label` is kept: it is the placement other people's records report, and the row exists
   // because the entry counted, not because the person wrote anything on it.
+  // The same scope as the note above, and for the same reason: a shared registration's result note
+  // is about the entry, which survives the target.
   await scrubIn("competition_results", () =>
-    registrationIds.length === 0
+    soloRegistrationIds.length === 0
       ? Promise.resolve([])
       : tx
           .update(competitionResults)
           .set({ resultNotes: null, updatedAt: sql`now()` })
-          .where(inArray(competitionResults.registrationId, registrationIds))
+          .where(inArray(competitionResults.registrationId, soloRegistrationIds))
           .returning({ id: competitionResults.id }),
   );
 
+  // By uploader, not by registration. Every row the target uploaded goes, wherever it was filed;
+  // every row a teammate uploaded stays, including one under the target's own registration.
   await scrubIn("competition_submissions", () =>
-    registrationIds.length === 0
-      ? Promise.resolve([])
-      : tx
-          .update(competitionSubmissions)
-          .set({ fileKey: DEIDENTIFIED_TEXT, fileName: DEIDENTIFIED_TEXT, updatedAt: sql`now()` })
-          .where(inArray(competitionSubmissions.registrationId, registrationIds))
-          .returning({ id: competitionSubmissions.id }),
+    tx
+      .update(competitionSubmissions)
+      .set({ fileKey: DEIDENTIFIED_TEXT, fileName: DEIDENTIFIED_TEXT, updatedAt: sql`now()` })
+      .where(eq(competitionSubmissions.submittedById, accountId))
+      .returning({ id: competitionSubmissions.id }),
   );
 
   // `title` and `instructions` are the organiser's words to whoever holds the registration, so
@@ -924,7 +1061,14 @@ const runDeidentificationWrites = async (
     },
   });
 
-  return { rowsDeleted, rowsScrubbed, personalInstitutionId, registrations: facts.registrations };
+  return {
+    rowsDeleted,
+    rowsScrubbed,
+    personalInstitutionId,
+    registrations: facts.registrations,
+    submissionKeys,
+    retainedKeys,
+  };
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -1036,7 +1180,7 @@ export const deidentifyAccount = async (
     // No R2 listing here. `deactivated` on its own is the whole of the signal: the commit is the
     // last of the three stages, so anything that failed before it left the row active and a rerun
     // completes the work. Reading storage to tell a finished account from an interrupted one would
-    // buy a resumed path this action has no other half of — `deleteObjectsUnder` runs before the
+    // buy a resumed path this action has no other half of — `deleteTargetObjects` runs before the
     // commit, never after it.
     await assertTargetIsEligible(tx, accountId, input);
   });
@@ -1075,10 +1219,12 @@ export const deidentifyAccount = async (
     personalInstitutionId: rehearsal.personalInstitutionId,
   });
 
+  const retainedKeys = new Set(rehearsal.retainedKeys);
+
   let objectsDeleted: number;
 
   try {
-    objectsDeleted = await deleteObjectsUnder(prefixes);
+    objectsDeleted = await deleteTargetObjects(prefixes, rehearsal.submissionKeys, retainedKeys);
   } catch (error) {
     const deleted = error instanceof StorageDeletionFailure ? error.objectsDeleted : 0;
 
@@ -1089,7 +1235,29 @@ export const deidentifyAccount = async (
     );
   }
 
-  const outcome = await performWrites(db, actorUserId, accountId, input, false);
+  // PAST THIS LINE THE OBJECTS ARE GONE AND THE ROWS ARE NOT. Every refusal `performWrites` can
+  // raise is a fact about the target and is the answer; anything else is a fault, and reporting it
+  // as a rehearsal failure would tell the operator no data was changed when the files are deleted.
+  let outcome: WriteOutcome;
+
+  try {
+    outcome = await performWrites(db, actorUserId, accountId, input, false);
+  } catch (error) {
+    if (error instanceof DeidentificationError || error instanceof OperatorActorError) {
+      throw error;
+    }
+
+    logger.error("deidentify_commit_failed", {
+      accountId,
+      code: sqlStateOf(error),
+    });
+
+    throw new DeidentificationError(
+      "deidentify_commit_failed",
+      500,
+      "Berkas sudah dihapus tetapi data akun belum diubah. Jalankan lagi untuk menyelesaikan.",
+    );
+  }
 
   logger.info(ACCOUNT_DEIDENTIFIED_EVENT, {
     accountId,
