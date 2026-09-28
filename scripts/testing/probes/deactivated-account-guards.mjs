@@ -70,6 +70,10 @@ export const probes = [
           '      return { status: "missing" };',
           "    }",
           "",
+          // The blank line that separated the clause from the return. Taking it with the clause is
+          // what makes the removal the two-line gap the marker names rather than a gap with an extra
+          // empty line in it.
+          "",
         ].join("\n"),
         "",
       ),
@@ -165,6 +169,9 @@ export const probes = [
           '        "Institusi ini tidak memiliki pemilik aktif, sehingga tidak dapat dipulihkan.",',
           "      );",
           "    }",
+          "",
+          // The blank line after the refusal, so the removal leaves the transaction opening directly
+          // against the update rather than with an empty line between them.
           "",
         ].join("\n"),
         "",
