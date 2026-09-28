@@ -20,10 +20,9 @@ export const RETENTION_PURGE_TIMEZONE = "Asia/Jakarta";
 /**
  * Registers (or re-registers) the daily retention sweep.
  *
- * One of the two scheduled jobs in the system. The other is the payment-expiry sweep, and every
- * other job is enqueued by a request. It is registered from the worker runtime rather than from
- * the web app because the web app runs on serverless instances that come and go, so there is no
- * single process there whose startup means "the platform is up".
+ * One of the jobs no request triggers: it runs on a timer. Registered from the worker runtime
+ * rather than from the web app because the web app runs on serverless instances that come and go,
+ * so there is no single process there whose startup means "the platform is up".
  *
  * A single run is enough per day, and missing one is harmless: retention windows are measured in
  * months, so the next run collects whatever the last one missed. That is why this deliberately

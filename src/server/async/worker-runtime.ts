@@ -23,6 +23,7 @@ import { emailFailureClassOf } from "@/server/email/send-failure";
 import { getQueueRegistrations, getRegisteredQueueNames } from "@/server/async/registry";
 import { registerRetentionPurgeSchedule } from "@/server/async/retention-scheduler";
 import { registerPaymentExpirySchedule } from "@/server/async/payment-expiry-scheduler";
+import { registerEmailEgressSchedule } from "@/server/async/email-egress-scheduler";
 import { captureWorkerJobFailure } from "@/server/observability/worker-sentry";
 import { createBullmqRedisClient } from "@/server/redis/client";
 
@@ -249,6 +250,16 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
       await registerPaymentExpirySchedule();
     } catch (error) {
       logger.error("Payment expiry schedule registration failed", {
+        detail: toSafeErrorMessage(error),
+      });
+    }
+
+    // Its own try, on the same reasoning as the block above: the egress probe is unrelated to
+    // either sweep, and a shared block would report whichever failed first and skip the rest.
+    try {
+      await registerEmailEgressSchedule();
+    } catch (error) {
+      logger.error("Email egress schedule registration failed", {
         detail: toSafeErrorMessage(error),
       });
     }

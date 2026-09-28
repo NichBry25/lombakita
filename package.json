@@ -20,6 +20,7 @@
     "connectors:status:worker": "node --import tsx src/server/scripts/connectors-status.ts --live --worker",
     "worker:start": "RUNTIME_NAME=worker node --import tsx src/worker/index.ts",
     "jobs:probe:enqueue": "node --import tsx src/server/scripts/enqueue-probe-job.ts",
+    "queue:schedules": "node --import tsx src/server/scripts/queue-schedules.ts",
     "db:migrate:guarded": "node --import tsx src/server/scripts/migration-guard.ts",
     "db:reset": "node --import tsx scripts/reset/reset-local.ts",
     "db:seed": "node --import tsx scripts/seed-test-matrix.ts",

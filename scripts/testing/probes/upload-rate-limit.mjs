@@ -122,6 +122,30 @@ const WIRING_CAUGHT_REMOVAL = /'submission file': the route file is its own guar
 const WIRING_CAUGHT_MOVE = /'submission file': the limiter call precedes the presign call/;
 const WIRING_CAUGHT_RECORD = /'candidate avatar record': does not draw the budget/;
 const WIRING_CAUGHT_DELETE = /'institution media delete': does not draw the budget/;
+const WIRING_CAUGHT_AVATAR_MOVE =
+  /'candidate avatar': the wrapper charges, refuses, then hands the id on/;
+const WIRING_CAUGHT_LOGO_MOVE =
+  /'institution logo': the wrapper charges, refuses, then hands the id on/;
+
+/**
+ * A moved wrapper has to be red in BOTH detectors, and each answers a question the other cannot.
+ *
+ * The route test exercises the wrapper and observes a 200 where a 429 was owed — but it is a
+ * status-code reader, and a nested guard moved somewhere it still runs before the response is built
+ * answers the same code. The wiring test reads `runOwnedUploadUrl` as source and sees the handler
+ * called before the budget is charged, which the status code cannot distinguish from a refusal that
+ * arrived in time. One red without the other means the mutation landed in a shape neither detector
+ * was written for, so the probe reports GREEN rather than claiming a refusal it did not observe.
+ */
+const bothRed = (route, wiring) =>
+  route.refused && wiring.refused
+    ? { refused: true, evidence: `${route.evidence} | ${wiring.evidence}` }
+    : {
+        refused: false,
+        evidence:
+          `route test ${route.refused ? "red" : "GREEN"} (${route.evidence}) | ` +
+          `wiring test ${wiring.refused ? "red" : "GREEN"} (${wiring.evidence})`,
+      };
 
 /** A record handler re-pointed at the minting entry point. */
 const RECORD_BEFORE = `export const avatarRecord = (request: Request): Promise<Response> =>
@@ -197,7 +221,11 @@ export const probes = [
     appliedMarkers: [WRAPPER_MOVED],
     mutate: () =>
       moveGuardBelow(PROFILE_WRAPPER, WRAPPER_GUARD, "    return handler(userId);", WRAPPER_MOVED),
-    detect: async () => fails("npx", ["vitest", "run", AVATAR_TEST], REACHED_MINT),
+    detect: async () => {
+      const route = await fails("npx", ["vitest", "run", AVATAR_TEST], REACHED_MINT);
+      const wiring = await fails("npx", ["vitest", "run", WIRING_TEST], WIRING_CAUGHT_AVATAR_MOVE);
+      return bothRed(route, wiring);
+    },
   },
 
   // ── The institution media wrapper, serving the logo and banner routes ────────────────────────
@@ -222,7 +250,11 @@ export const probes = [
     appliedMarkers: [WRAPPER_MOVED],
     mutate: () =>
       moveGuardBelow(MEDIA_WRAPPER, WRAPPER_GUARD, "    return handler(userId);", WRAPPER_MOVED),
-    detect: async () => fails("npx", ["vitest", "run", LOGO_TEST], REACHED_MINT),
+    detect: async () => {
+      const route = await fails("npx", ["vitest", "run", LOGO_TEST], REACHED_MINT);
+      const wiring = await fails("npx", ["vitest", "run", WIRING_TEST], WIRING_CAUGHT_LOGO_MOVE);
+      return bothRed(route, wiring);
+    },
   },
 
   // ── The budget charged for work it does not bound ───────────────────────────────────────────

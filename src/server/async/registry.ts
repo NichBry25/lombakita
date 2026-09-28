@@ -27,6 +27,7 @@ import { processPaymentProofSubmittedJob } from "@/server/async/jobs/payment-pro
 import { processPaymentOutcomeJob } from "@/server/async/jobs/payment-outcome";
 import { processRetentionPurgeJob } from "@/server/async/jobs/retention-purge";
 import { processPaymentExpirySweepJob } from "@/server/async/jobs/payment-expiry-sweep";
+import { processEmailEgressProbeJob } from "@/server/async/jobs/email-egress-probe";
 
 export type AsyncJobProcessor<Name extends AsyncJobName = AsyncJobName> = (
   job: Job<AsyncJobPayloadByName[Name], void, Name>,
@@ -77,6 +78,7 @@ export const ASYNC_JOB_REGISTRATIONS = [
   ),
   defineAsyncJob(ASYNC_JOB_NAMES.retentionPurge, processRetentionPurgeJob),
   defineAsyncJob(ASYNC_JOB_NAMES.paymentExpirySweep, processPaymentExpirySweepJob),
+  defineAsyncJob(ASYNC_JOB_NAMES.emailEgressProbe, processEmailEgressProbeJob),
   defineAsyncJob(ASYNC_JOB_NAMES.paymentProofSubmitted, processPaymentProofSubmittedJob),
   defineAsyncJob(ASYNC_JOB_NAMES.paymentOutcome, processPaymentOutcomeJob),
 ] as const;

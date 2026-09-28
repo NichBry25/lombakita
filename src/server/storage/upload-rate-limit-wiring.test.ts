@@ -158,7 +158,8 @@ const ENTRY_POINTS: EntryPoint[] = [
 
 // The two families are separated rather than branched inside one assertion. A shared `it.each` that
 // returned early for the family it did not apply to would report a pass for every direct route on an
-// assertion that never ran against it.
+// assertion that never ran against it. A direct route IS its own guard; a wrapped route's assertions
+// read `runOwnedUploadUrl` — the minting entry point in each wrapper — rather than the wrapper file.
 const DIRECT = ENTRY_POINTS.filter((entry) => entry.handler === undefined);
 const WRAPPED = ENTRY_POINTS.filter((entry) => entry.handler !== undefined);
 
@@ -215,18 +216,34 @@ const NON_MINTING: NonMinting[] = [
 
 const MINTING_CALL = "runOwnedUploadUrl(request";
 const NON_MINTING_CALL = "runOwned(request";
+const MINTING_ENTRY_POINT = "runOwnedUploadUrl";
 
 /**
- * The source of one exported handler, from its `export const` to the next one.
+ * The source of one name a wrapper declares, from its declaration to the next `export const`.
  *
- * Every handler in these two files is `export const <name> = …;`, so the next `export const` is the
- * end of the body. Reading the whole file instead would let `runOwnedUploadUrl` satisfy the minting
- * assertion on behalf of every export in it.
+ * EITHER FORM, because both exist in these files. The handlers the wrappers serve are
+ * `export const <name> = …;`; the entry point that draws the budget, `runOwnedUploadUrl`, is not
+ * exported — nothing outside the file calls it — and an assertion about the budget has to be able to
+ * read it.
+ *
+ * THE `(?:^| )` IS A DECLARATION BOUNDARY, because `readCode` has already replaced every line break
+ * with a single space: what was the start of a line upstream is a space here, and `^` alone would
+ * match nothing but the first line of the file. One pattern therefore covers both forms — the space
+ * that begins a declaration is the same one that follows `export`.
+ *
+ * The trailing ` =` is part of the pattern rather than a prefix match on the name: `runOwned` is a
+ * prefix of `runOwnedUploadUrl`, and a bare `indexOf` for the shorter name would read the wrong body.
+ *
+ * The end is the next `export const`, so a declaration that is not exported runs past the end of its
+ * own function to the next export. Wider than the function, still narrower than the file — and
+ * narrower is the half that matters: every wrapper declares `runOwnedUploadUrl`, so reading the whole
+ * file would put its call into the body of every handler that must not draw the budget.
  */
 const exportBody = (source: string, handler: string): string => {
-  const start = source.indexOf(`export const ${handler} =`);
-  if (start === -1) throw new Error(`no export named ${handler} in this file`);
-  const rest = source.slice(start + 1);
+  const declaration = new RegExp(`(?:^| )const ${handler} =`);
+  const match = declaration.exec(source);
+  if (!match) throw new Error(`no export named ${handler} in this file`);
+  const rest = source.slice(match.index + 1);
   const next = rest.indexOf("export const ");
   return next === -1 ? rest : rest.slice(0, next);
 };
@@ -290,15 +307,31 @@ describe("every upload-URL entry point draws the shared budget", () => {
     expect(source).toContain("if (limited) return limited;");
   });
 
-  it.each(WRAPPED)("$name: the refusal returns before the handler work", ({ guard }) => {
-    const source = readCode(guard);
+  it.each(WRAPPED)("$name: the wrapper charges, refuses, then hands the id on", ({ guard }) => {
+    // Read as the body of `runOwnedUploadUrl` rather than as the file. The wrapper charges the id its
+    // own auth gate resolved and hands that SAME id to the handler — split across two ids, the budget
+    // would be spent from one account's allowance while the URL was minted for another.
+    //
+    // The ORDER is the assertion a file-wide scan cannot make. A move that puts the handler call first
+    // leaves every one of these three facts true of the file while the presigned URL is minted before
+    // the budget is consulted, and the whole-file `toContain` this replaces stayed green on exactly
+    // that tree. Each index is read inside the body, so a guard copied anywhere else in the file
+    // cannot stand in for this one.
+    const body = exportBody(readCode(guard), MINTING_ENTRY_POINT);
 
-    // The wrapper charges the id its own auth gate resolved, and hands that SAME id to the handler.
-    // Split across two ids, the budget would be spent from one account's allowance while the URL was
-    // minted for another.
-    expect(source).toContain(`${CALL}userId)`);
-    expect(source).toContain("return await handler(session.user.id)");
-    expect(source).toContain("if (limited) return limited;");
+    const chargedAt = body.indexOf(`${CALL}userId)`);
+    const refusedAt = body.indexOf("if (limited) return limited;");
+    const handedAt = body.indexOf("handler(userId)");
+
+    expect(chargedAt, `${guard}: ${MINTING_ENTRY_POINT} does not draw the budget`).toBeGreaterThan(
+      -1,
+    );
+    expect(refusedAt, `${guard}: ${MINTING_ENTRY_POINT} does not refuse`).toBeGreaterThan(-1);
+    expect(handedAt, `${guard}: ${MINTING_ENTRY_POINT} does not call the handler`).toBeGreaterThan(
+      -1,
+    );
+    expect(chargedAt).toBeLessThan(refusedAt);
+    expect(refusedAt).toBeLessThan(handedAt);
   });
 });
 

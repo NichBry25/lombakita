@@ -1,0 +1,230 @@
+name: Nightly probe suites
+
+# THE NIGHTLY HALF OF THE PROBE SUITES. DEC-0209 decided that probe suites run nightly rather than
+# on the pull-request path, because four suites x (mutate + tsc + vitest) is a real cost to pay on
+# every PR for a class of rot that is caught within a day anyway. Until this file existed, that
+# decision had no implementation: `verify.yml` is the only scheduled workflow and runs neither a
+# probe suite, and the suites that ran nowhere were exactly where the rot was found — the two
+# DEC-0131 anchors stopped matching at `fada388` and nothing saw it for a week (LAUNCH-D173).
+#
+# WHY EVERY SUITE HAS ITS OWN STEP. A job that ran them in a loop would report one line naming the
+# loop, not the suite; the step name is what a failed-workflow notification shows and what a reader
+# scans for. Each step also runs even when an earlier one failed (`!cancelled()` below), so one
+# night's run reports every broken suite rather than stopping at the first.
+#
+# THE SIX PR-PATH SUITES ARE DELIBERATELY NOT REPEATED HERE. `config-gates`, `reset-guard`,
+# `harness-guard`, `browser-audit-refusals`, `reindex-guard` and `shell-content` already run in
+# `ci.yml`, and a second copy would be two definitions to drift apart — the state
+# DEBT-VERIFY-YML-UNPINNED is about. `scripts/testing/probe-coverage.test.ts` asserts that every
+# probe suite in `scripts/testing/probes/` is run by EXACTLY ONE workflow, so this file cannot
+# quietly grow a duplicate and neither can `ci.yml`.
+#
+# NO pull_request TRIGGER, and that is the decision rather than an omission. A probe suite mutates
+# tracked files and restores them; on the PR path that cost buys a merge gate the decision
+# explicitly declined to create. `workflow_dispatch` is here so the whole set can be run by hand
+# from the Actions tab while investigating one of them.
+#
+# A FAILURE HERE REACHES A PERSON ONLY THROUGH GITHUB'S OWN FAILED-WORKFLOW NOTIFICATION. There is
+# no Slack, email or webhook step and none is implied: the schedule exists so rot is caught within a
+# day, and the notification GitHub already sends to the repository's watchers is the delivery.
+
+on:
+  schedule:
+    # 19:30 UTC = 02:30 Asia/Jakarta. The two existing schedules are 02:00 (verify.yml, which also
+    # proves the migrations apply from zero) and the retention sweep at 03:00 WIB; this sits between
+    # them rather than beside either, so a night that goes wrong does not present two failures whose
+    # logs interleave.
+    - cron: "30 19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-probes-${{ github.ref }}
+  # A nightly run is never superseded by another of its own kind, and cancelling one halfway would
+  # leave a mutated tree and a report that says nothing. Manual runs queue behind each other.
+  cancel-in-progress: false
+
+jobs:
+  probe-suites:
+    name: probe suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lombakita_probes
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      # Mirrors ci.yml's `browser-audits` service: `backfill-rejected-batch` and
+      # `reindex-expects-rows` read and rebuild a real index, and a probe measured against the
+      # postgres fallback would be measuring a different search engine than the one shipped.
+      meilisearch:
+        image: getmeili/meilisearch:v1.11
+        env:
+          MEILI_MASTER_KEY: audits-only-master-key-not-a-real-key
+          MEILI_NO_ANALYTICS: "true"
+        ports:
+          - 7700:7700
+
+    # The DATABASE_URL / REQUIRE_DB_TESTS / APP_ENV / AUTH_SECRET / R2 shape is verify.yml's
+    # `concurrency-races` block, with the database name changed; MEILISEARCH_* are ci.yml's
+    # `browser-audits` values. Nothing else is set here, and a suite needing a variable neither job
+    # sets is a failure of that assumption rather than something to add quietly.
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lombakita_probes
+      # A probe suite that cannot see a database SKIPS by default, which reports green. This job
+      # stood one up, so an absent connection string here is a broken job rather than an
+      # environment without Postgres — fail instead of quietly probing nothing.
+      REQUIRE_DB_TESTS: "1"
+      APP_ENV: test
+      AUTH_SECRET: probes-only-secret-not-used-for-signing-anything-real
+      # PLACEHOLDERS. Presigning is a local signature computation over these values and reaches no
+      # network; the URLs it produces point at a host that does not exist and are never fetched.
+      R2_ENDPOINT: https://placeholder.invalid
+      R2_BUCKET: placeholder
+      R2_ACCESS_KEY_ID: placeholder
+      R2_SECRET_ACCESS_KEY: placeholder
+      MEILISEARCH_HOST: http://localhost:7700
+      MEILISEARCH_API_KEY: audits-only-master-key-not-a-real-key
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Two suites read a register rather than the tree: `deletion-instruments` and
+      # `deletion-residue-section` resolve their subject from the doc lane, which is a git
+      # repository of its own (Rule 26) and is absent from an ordinary checkout.
+      - name: Check out the doc lane
+        uses: actions/checkout@v4
+        with:
+          repository: NichBry25/lombakita-docs
+          path: docs
+          token: ${{ secrets.DOC_REPO_READ_TOKEN }}
+          persist-credentials: false
+
+      - name: Confirm the doc lane holds what the suites read
+        run: |
+          for path in \
+            docs/project/open-debt.md \
+            docs/project/decision-log.md \
+            docs/operations/account-deletion-procedure.md \
+            docs/operations/operator-provisioning-procedure.md \
+            docs/.claude/commands/precheck.md
+          do
+            if [ ! -f "$path" ]; then
+              echo "::error::$path is absent — the doc lane did not check out"
+              exit 1
+            fi
+          done
+
+      - name: Apply migrations
+        run: npm run db:migrate:guarded
+
+      - name: Confirm READ COMMITTED
+        # The scripts assert the isolation level themselves and refuse to run otherwise; failing
+        # here makes the cause obvious in the log rather than buried in the first suite's output.
+        #
+        # It is also the readiness gate for every step below. A skipped step reports `skipped`
+        # rather than `success`, so requiring this one to have succeeded requires the migration
+        # above to have succeeded too — a probe suite that ran against an unmigrated database would
+        # report a mutation as unproven when the database was the problem.
+        id: database-ready
+        run: |
+          psql "$DATABASE_URL" -tAc "SELECT current_setting('default_transaction_isolation')" \
+            | grep -qx 'read committed'
+
+      - name: "Probe suite: backfill-rejected-batch"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/backfill-rejected-batch.mjs
+
+      - name: "Probe suite: database-identity"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/database-identity.mjs
+
+      - name: "Probe suite: dec-conformance"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/dec-conformance.mjs
+
+      - name: "Probe suite: deidentification-guards"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/deidentification-guards.mjs
+
+      - name: "Probe suite: deletion-instruments"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/deletion-instruments.mjs
+
+      - name: "Probe suite: deletion-residue-section"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/deletion-residue-section.mjs
+
+      - name: "Probe suite: email-failure-visibility"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/email-failure-visibility.mjs
+
+      - name: "Probe suite: fixture-recipients"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/fixture-recipients.mjs
+
+      - name: "Probe suite: harness-preconditions"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/harness-preconditions.mjs
+
+      - name: "Probe suite: migration-guard"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/migration-guard.mjs
+
+      - name: "Probe suite: price-claim"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/price-claim.mjs
+
+      # Probes this workflow's own definition: that every suite in the directory is wired into
+      # exactly one workflow, and that the library list cannot hide one.
+      - name: "Probe suite: probe-wiring"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/probe-wiring.mjs
+
+      - name: "Probe suite: register-gate"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/register-gate.mjs
+
+      - name: "Probe suite: registration-rate-limit"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/registration-rate-limit.mjs
+
+      - name: "Probe suite: reindex-expects-rows"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/reindex-expects-rows.mjs
+
+      - name: "Probe suite: schema-drift"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/schema-drift.mjs
+
+      - name: "Probe suite: seed-guard"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/seed-guard.mjs
+
+      - name: "Probe suite: upload-rate-limit"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/upload-rate-limit.mjs

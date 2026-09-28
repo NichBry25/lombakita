@@ -15,9 +15,9 @@ describe("async queue registration baseline", () => {
     // institution.invitation.dispatch + team.invitation.dispatch; the recruiter-verification
     // rejection notice added recruiter.verification.rejected; participant document verification
     // added registration.document.requested + registration.document.reviewed — all on the
-    // notifications queue. The retention sweep added retention.purge on infrastructure — the only
-    // job in the system fired by a timer rather than a request.
-    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(17);
+    // notifications queue. The scheduled jobs are on infrastructure: retention.purge,
+    // payment.expiry.sweep and email.egress.probe.
+    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(18);
 
     const probe = getRegistrationByJobName(ASYNC_JOB_NAMES.probePing);
     expect(probe).toBeDefined();
@@ -92,6 +92,12 @@ describe("async queue registration baseline", () => {
     const retentionJob = getRegistrationByJobName(ASYNC_JOB_NAMES.retentionPurge);
     expect(retentionJob).toBeDefined();
     expect(retentionJob?.queueName).toBe(ASYNC_QUEUE_NAMES.infrastructure);
+
+    // The other maintenance job that fires on a timer: it asks whether this runtime can still send,
+    // which is a statement about the platform rather than about any participant's request.
+    const egressJob = getRegistrationByJobName(ASYNC_JOB_NAMES.emailEgressProbe);
+    expect(egressJob).toBeDefined();
+    expect(egressJob?.queueName).toBe(ASYNC_QUEUE_NAMES.infrastructure);
   });
 
   it("exposes queue-level processor registrations", () => {
@@ -103,8 +109,9 @@ describe("async queue registration baseline", () => {
         ASYNC_QUEUE_NAMES.notifications,
       ]),
     );
-    // probe.ping + retention.purge — the latter is the one scheduled job in the system.
-    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.infrastructure)).toHaveLength(3);
+    // probe.ping + the three scheduled jobs: retention.purge, payment.expiry.sweep and
+    // email.egress.probe.
+    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.infrastructure)).toHaveLength(4);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.competition)).toHaveLength(1);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.results)).toHaveLength(1);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.notifications)).toHaveLength(12);

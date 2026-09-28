@@ -27,6 +27,7 @@ export const ASYNC_JOB_NAMES = {
   registrationDocumentReviewed: "registration.document.reviewed",
   retentionPurge: "retention.purge",
   paymentExpirySweep: "payment.expiry.sweep",
+  emailEgressProbe: "email.egress.probe",
   paymentProofSubmitted: "payment.proof.submitted",
   paymentOutcome: "payment.outcome",
 } as const;
@@ -198,19 +199,29 @@ export type RegistrationDocumentReviewedPayload = {
   epoch: number;
 };
 
-// The only job in the system that is not triggered by a request — it fires on a timer (see
-// `retention-scheduler.ts`). Retention is time-based by nature: nothing a user does marks a
-// competition's files as due, only the calendar passing its event date does. The payload carries
-// the fire time purely so a run can be correlated in logs; the job reads the due list itself.
+// Not triggered by a request — it fires on a timer (see `retention-scheduler.ts`). Retention is
+// time-based by nature: nothing a user does marks a competition's files as due, only the calendar
+// passing its event date does. The payload carries the fire time purely so a run can be correlated
+// in logs; the job reads the due list itself.
 export type RetentionPurgePayload = {
   scheduledFor: string;
 };
 
-// The second job in the system that no request triggers. A payment deadline lapsing is a fact about
-// the calendar, not an action anyone takes, and the candidate who needs telling is precisely the one
-// not looking at the page, so it cannot be derived lazily at read time. The payload carries the
-// fire time only for log correlation; the sweep reads the overdue list itself.
+// No request triggers this one either — it fires on a timer (see `payment-expiry-scheduler.ts`). A
+// payment deadline lapsing is a fact about the calendar, not an action anyone takes, and the
+// candidate who needs telling is precisely the one not looking at the page, so it cannot be derived
+// lazily at read time. The payload carries the fire time only for log correlation; the sweep reads
+// the overdue list itself.
 export type PaymentExpirySweepPayload = {
+  scheduledFor: string;
+};
+
+// A scheduled job whose subject is the platform's own ability to send, not a row in the database.
+// Nothing a user does can observe whether the worker can still reach the email provider: the next
+// signal would otherwise be an organizer whose invitations vanish. It fires on a timer (see
+// `email-egress-scheduler.ts`) and reads nothing; the payload carries the fire time only for log
+// correlation.
+export type EmailEgressProbePayload = {
   scheduledFor: string;
 };
 
@@ -230,6 +241,7 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.registrationDocumentReviewed]: RegistrationDocumentReviewedPayload;
   [ASYNC_JOB_NAMES.retentionPurge]: RetentionPurgePayload;
   [ASYNC_JOB_NAMES.paymentExpirySweep]: PaymentExpirySweepPayload;
+  [ASYNC_JOB_NAMES.emailEgressProbe]: EmailEgressProbePayload;
   [ASYNC_JOB_NAMES.paymentProofSubmitted]: PaymentProofSubmittedPayload;
   [ASYNC_JOB_NAMES.paymentOutcome]: PaymentOutcomePayload;
 };
@@ -255,6 +267,9 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   // participant-facing, so it stays off the notification queue whose backlog users feel. The
   // notifications it causes are enqueued separately, as ordinary participant events.
   [ASYNC_JOB_NAMES.paymentExpirySweep]: ASYNC_QUEUE_NAMES.infrastructure,
+  // Platform maintenance on the same reasoning again: the probe's subject is the worker's own
+  // egress, which no participant sees, so it stays off the notification queue.
+  [ASYNC_JOB_NAMES.emailEgressProbe]: ASYNC_QUEUE_NAMES.infrastructure,
   // Participant-facing, so both sit on the notifications queue, including the one the expiry
   // sweep causes, which is exactly what the note above means by "enqueued separately".
   [ASYNC_JOB_NAMES.paymentProofSubmitted]: ASYNC_QUEUE_NAMES.notifications,
