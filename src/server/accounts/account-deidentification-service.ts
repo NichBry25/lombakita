@@ -751,6 +751,9 @@ const runDeidentificationWrites = async (
         location: null,
         resumeR2Key: null,
         resumeFileName: null,
+        resumeSizeBytes: null,
+        resumeMimeType: null,
+        resumeUploadedAt: null,
         resumePublic: false,
         updatedAt: sql`now()`,
       })
@@ -879,11 +882,23 @@ const runDeidentificationWrites = async (
         )
         .returning({ id: institutionVerificationDocuments.id }),
     );
+
+    // The submission wrapper survives the documents it carries: it is a row in the institution's own
+    // verification history, and the history is kept. What it holds of the person is the name they
+    // asked to trade under and the reviewer's prose about them.
+    await scrubIn("institution_verification_submissions", () =>
+      tx
+        .update(institutionVerificationSubmissions)
+        .set({ proposedDisplayName: null, reviewerNotes: null })
+        .where(eq(institutionVerificationSubmissions.institutionId, personalInstitutionId))
+        .returning({ id: institutionVerificationSubmissions.id }),
+    );
   } else {
     rowsScrubbed.institutions = 0;
     rowsDeleted.institution_social_links = 0;
     rowsDeleted.institution_payment_instructions = 0;
     rowsScrubbed.institution_verification_documents = 0;
+    rowsScrubbed.institution_verification_submissions = 0;
   }
 
   await recordOperatorAuditEntry(tx, actor, {
@@ -1036,6 +1051,14 @@ export const deidentifyAccount = async (
   try {
     await performWrites(db, actorUserId, accountId, input, true);
   } catch (error) {
+    // A refusal this service already knows how to name is the answer, even from inside the
+    // rehearsal: the re-run preconditions run in the same statement order here as they do in the
+    // real transaction, so a target that became ineligible between the two stages is ineligible,
+    // not unprocessable. Only a fault the service cannot classify is the rehearsal's own.
+    if (error instanceof DeidentificationError || error instanceof OperatorActorError) {
+      throw error;
+    }
+
     logger.error("deidentify_rehearsal_failed", {
       code: sqlStateOf(error),
       constraint: constraintNameOf(error),

@@ -313,6 +313,7 @@ const buildFixture = async (tx: Tx): Promise<Fixture> => {
     targetInstitutionType: "personal",
     proposedDisplayName: `Rina ${f.suffix}`,
     status: "pending_review",
+    reviewerNotes: "Berkas lengkap, disetujui peninjau.",
   });
 
   await tx.insert(institutionVerificationDocuments).values({
@@ -851,9 +852,8 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
     it("does not refuse a deactivated target whose objects are still there", async () => {
       // The clause is the conjunction, not the status on its own. A deactivated row with objects
       // still under the target's prefixes passes the pre-read; the writing transaction is told to
-      // re-run every precondition EXCEPT this one, so it refuses there — and a refusal raised inside
-      // the rehearsal reaches the caller as the rehearsal's own 500, with nothing removed and
-      // nothing written.
+      // re-run every precondition EXCEPT this one, so it refuses there — and the refusal keeps the
+      // code it was raised with, because the rehearsal's 500 is for faults the service cannot name.
       await inRollback(async (tx) => {
         const f = await buildFixture(tx);
 
@@ -864,8 +864,8 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
             confirmUsername: f.targetUsername,
             reason: "permintaan pemilik",
           }),
-          "deidentify_rehearsal_failed",
-          500,
+          "deidentify_already_done",
+          409,
         );
 
         expect(r2.deleted).toEqual([]);
@@ -982,6 +982,9 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
         expect(profile!.location).toBeNull();
         expect(profile!.resumeR2Key).toBeNull();
         expect(profile!.resumeFileName).toBeNull();
+        expect(profile!.resumeSizeBytes).toBeNull();
+        expect(profile!.resumeMimeType).toBeNull();
+        expect(profile!.resumeUploadedAt).toBeNull();
         expect(profile!.resumePublic).toBe(false);
 
         const [registration] = await tx
@@ -1081,6 +1084,19 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
         expect(verificationDocument!.originalFileName).toBe("[dihapus]");
         expect(verificationDocument!.contentType).toBe("[dihapus]");
 
+        // The submission the documents hang off survives, with what it held of the person removed:
+        // the name they would have traded under, and the reviewer's prose about them.
+        const [verificationSubmission] = await tx
+          .select()
+          .from(institutionVerificationSubmissions)
+          .where(eq(institutionVerificationSubmissions.id, f.verificationSubmission))
+          .limit(1);
+
+        expect(verificationSubmission).toBeDefined();
+        expect(verificationSubmission!.proposedDisplayName).toBeNull();
+        expect(verificationSubmission!.reviewerNotes).toBeNull();
+        expect(verificationSubmission!.status).toBe("pending_review");
+
         // ---- what other people depend on ------------------------------------------------------
         expect(await countRows(tx, "team_memberships", "user_id", f.target)).toBe(1);
 
@@ -1129,6 +1145,7 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
         expect(metadata.rowsScrubbed.user_profiles).toBe(1);
         expect(metadata.rowsScrubbed.competition_submissions).toBe(1);
         expect(metadata.rowsScrubbed.institutions).toBe(1);
+        expect(metadata.rowsScrubbed.institution_verification_submissions).toBe(1);
 
         const serialised = JSON.stringify(audit[0]);
 
@@ -1355,8 +1372,12 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
           ),
         );
 
-        expect(error).toBeInstanceOf(DeidentificationError);
-        expect((error as DeidentificationError).code).toBe("deidentify_rehearsal_failed");
+        // The refusal keeps the identity it was raised with. The re-resolution happens inside the
+        // rehearsal transaction, and a suspended operator is a fact this service already knows how to
+        // name; the rehearsal's 500 is reserved for faults it cannot classify.
+        expect(error).toBeInstanceOf(OperatorActorError);
+        expect((error as OperatorActorError).code).toBe("operator_actor_suspended");
+        expect((error as OperatorActorError).status).toBe(403);
 
         // The proof that matters: the suspension was seen before anything irreversible happened.
         expect(r2.deleted).toEqual([]);
