@@ -13,12 +13,13 @@
  * new test written for the probe's benefit; a probe whose detector exists only to be broken by it
  * measures the probe.
  *
- * THE CLASS OF EACH GUARD IS DECLARED RATHER THAN ASSUMED (clause 8). Two of the four are B: a
- * refusal, or a lock, that stands in front of a write and takes no transaction of its own. The
- * rehearsal sentinel is A1-in: it throws INSIDE the transaction and the rollback is what restores the
- * post-state, so its detector is the refusal identity — the run that follows a committed rehearsal
- * refuses instead of de-identifying. The one class D probe is the prefix list, whose guard is the
- * CONTENT of a returned array.
+ * THE CLASS OF EACH GUARD IS DECLARED RATHER THAN ASSUMED (clause 8). Three of the five are B: a
+ * refusal, a lock, or a source-of-truth choice that stands in front of a write and takes no
+ * transaction of its own. The rehearsal sentinel is A1-in: it throws INSIDE the transaction and the
+ * rollback is what restores the post-state, so its detector is the refusal identity — the run that
+ * follows a committed rehearsal refuses instead of de-identifying. The one class D probe is the
+ * prefix list's CONTENT — which prefixes a target produces — where the source-of-truth probe is the
+ * ordering claim around the same builder: not what it returns, but which read's answer it was given.
  *
  * WHAT IS NOT PROBED, AND WHY. The compare-and-set (`where id = U and status <> 'deactivated'`) is
  * not separately probed. Every interleaving that reaches it has already been refused by the
@@ -154,6 +155,45 @@ export const probes = [
         ["vitest", "run", INTEGRATION_TEST],
         /× .*removes, scrubs and accounts for everything the fixture planted/,
       ),
+  },
+  {
+    name: "the files stage lists the prefixes the rehearsal resolved, not the pre-read's",
+    klass: "B",
+    harmfulMove:
+      "the R2 prefix list built from the pre-read's facts, a stage earlier than the writes, so a " +
+      "registration created in the gap is scrubbed by the commit while the objects under its two " +
+      "prefixes are never listed and never deleted — the person's file stays in the bucket with no " +
+      "row left naming it, which is the residue the commit's own re-read cannot repair",
+    files: [SERVICE],
+    appliedMarkers: [
+      "  const facts = await db.transaction(async (tx) => {",
+      "    registrations: facts.registrations,",
+    ],
+    // The pre-fix shape restored whole, rather than the one consuming line re-pointed: the pre-read's
+    // result is bound, returned and read, and the rehearsal's outcome goes back to being discarded —
+    // which is what this file said before the guard existed. Re-pointing the consuming line alone
+    // would leave `rehearsal` assigned and never read, a mutation nobody would write.
+    mutate: () => {
+      substituteOnce(
+        SERVICE,
+        "  await db.transaction(async (tx) => {\n    assertReasonPresent(input);",
+        "  const facts = await db.transaction(async (tx) => {\n    assertReasonPresent(input);",
+      );
+      substituteOnce(
+        SERVICE,
+        "    await assertTargetIsEligible(tx, accountId, input);\n  });\n\n  let rehearsal: WriteOutcome;\n\n  try {\n    rehearsal = await performWrites(db, actorUserId, accountId, input, true);",
+        "    return assertTargetIsEligible(tx, accountId, input);\n  });\n\n  try {\n    await performWrites(db, actorUserId, accountId, input, true);",
+      );
+      substituteOnce(
+        SERVICE,
+        "    registrations: rehearsal.registrations,\n    personalInstitutionId: rehearsal.personalInstitutionId,",
+        "    registrations: facts.registrations,\n    personalInstitutionId: facts.personalInstitutionId,",
+      );
+    },
+    // The detector is post-state, which is this guard's class: the suite reads the mocked bucket, so
+    // what it observes is the object the deletion failed to remove, not a status code.
+    detect: async () =>
+      fails("npx", ["vitest", "run", INTEGRATION_TEST], /× .*comes from the rehearsal's read/),
   },
 ];
 

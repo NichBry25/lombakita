@@ -94,6 +94,13 @@ assertServerOnly("server/accounts/account-deidentification-service");
 // own handle rather than accepting the earlier value: a resolution taken outside the writing
 // transaction is one a suspension can overtake, and the audit row this action writes must not name
 // an actor the database has since stopped vouching for.
+//
+// WHAT CAN SURVIVE, stated rather than implied, and recorded as open debt in
+// `docs/operations/account-deletion-procedure.md`: an object uploaded through a presigned URL that
+// was minted before this operation ran, and a registration created between the rehearsal and the
+// commit. The second is why the prefix list comes from the rehearsal's read rather than the
+// pre-read's — the narrower gap, not a closed one. Neither is a reason to re-open an account the
+// commit has already finished with.
 
 export type DeidentificationErrorCode =
   | "deidentify_invalid_payload"
@@ -181,6 +188,9 @@ type WriteOutcome = {
   rowsDeleted: Record<string, number>;
   rowsScrubbed: Record<string, number>;
   personalInstitutionId: string | null;
+  // Carried out of the transaction because the storage stage needs them and must not read them for
+  // itself: a listing taken before the stage runs is a listing a concurrent registration can overtake.
+  registrations: TargetRegistration[];
 };
 
 // Thrown inside the rehearsal transaction to force its rollback. Never escapes `performWrites`:
@@ -290,14 +300,18 @@ const assertNoPublishedPersonalCompetition = async (
  *
  * ONE FUNCTION FOR BOTH CALLERS. The pre-read and the writing transaction run the same checks in
  * the same order, rather than two copies of the sequence that would drift apart invisibly. The
- * writing transaction is the one that has to be right.
+ * writing transaction is the one that has to be right, and it is the only one whose answer is
+ * carried out of it.
  *
  * `deactivated` MEANS DONE, in both callers and on status alone. The commit is the last of the
  * three stages, so every failure before it leaves the account not deactivated and a rerun finds it
  * eligible; there is no interrupted state this action has to resume. An account that does read
- * deactivated with objects still under its prefixes is one an upload raced, and `deleteObjectsUnder`
- * has already run by then — deleting the residue is not this action's job, and the residue itself is
- * open debt rather than a reason to re-open a finished account.
+ * deactivated with objects still under its prefixes is one an upload raced — an object uploaded
+ * through a presigned URL minted before this operation — and `deleteObjectsUnder` has already run by
+ * then, so the object is not reachable from any prefix this action listed. The other survivor is a
+ * registration created between the rehearsal and the commit: the commit scrubs its row and the
+ * objects under its prefixes were never listed. Both are open debt (see the module header) rather
+ * than a reason to re-open a finished account.
  */
 const assertTargetIsEligible = async (
   tx: OperatorActorTransaction,
@@ -910,7 +924,7 @@ const runDeidentificationWrites = async (
     },
   });
 
-  return { rowsDeleted, rowsScrubbed, personalInstitutionId };
+  return { rowsDeleted, rowsScrubbed, personalInstitutionId, registrations: facts.registrations };
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -1003,7 +1017,10 @@ export const deidentifyAccount = async (
     );
   }
 
-  const facts = await db.transaction(async (tx) => {
+  // Read for its refusals and nothing else. The facts it resolves are not carried forward: the
+  // storage stage lists the prefixes the REHEARSAL resolved, because an account can gain a
+  // registration between this read and that one (LAUNCH-D104).
+  await db.transaction(async (tx) => {
     assertReasonPresent(input);
 
     const actor = await resolvePlatformOpsActor(tx, actorUserId);
@@ -1021,11 +1038,13 @@ export const deidentifyAccount = async (
     // completes the work. Reading storage to tell a finished account from an interrupted one would
     // buy a resumed path this action has no other half of — `deleteObjectsUnder` runs before the
     // commit, never after it.
-    return assertTargetIsEligible(tx, accountId, input);
+    await assertTargetIsEligible(tx, accountId, input);
   });
 
+  let rehearsal: WriteOutcome;
+
   try {
-    await performWrites(db, actorUserId, accountId, input, true);
+    rehearsal = await performWrites(db, actorUserId, accountId, input, true);
   } catch (error) {
     // A refusal this service already knows how to name is the answer, even from inside the
     // rehearsal: the re-run preconditions run in the same statement order here as they do in the
@@ -1047,10 +1066,13 @@ export const deidentifyAccount = async (
     );
   }
 
+  // From the rehearsal, never from the pre-read. The pre-read answers "may this be the target" and
+  // is a stage earlier than the writes; what the bucket is listed for is what the writes resolved,
+  // and the gap between the two is where a registration can be created (LAUNCH-D104).
   const prefixes = deidentificationObjectPrefixes({
     userId: accountId,
-    registrations: facts.registrations,
-    personalInstitutionId: facts.personalInstitutionId,
+    registrations: rehearsal.registrations,
+    personalInstitutionId: rehearsal.personalInstitutionId,
   });
 
   let objectsDeleted: number;

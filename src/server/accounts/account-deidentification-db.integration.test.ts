@@ -1361,6 +1361,77 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
     });
   });
 
+  describe("the files stage's prefix list", () => {
+    it("comes from the rehearsal's read, so a registration added after the pre-read is still swept", async () => {
+      // The registration is inserted between the pre-read and the rehearsal, through the same
+      // `beforeTransaction` seam the actor test uses: the action makes exactly three transactions —
+      // pre-read, rehearsal, commit — so `nth: 2` fires once the pre-read has returned and before the
+      // rehearsal opens. Everything downstream runs for real.
+      //
+      // It is a competition of its own because the fixture's target already holds an active
+      // registration in `f.competition` and `competition_registrations_student_competition_active_unique_idx`
+      // allows one. A draft competition keeps the personal institution clear of the published check.
+      //
+      // A list built from the pre-read's facts would not contain this registration, and its two
+      // objects would be left in the bucket while the commit scrubbed the rows that pointed at them.
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+
+        const lateCompetition = randomUUID();
+        const lateRegistration = randomUUID();
+        const lateSubmission = `submissions/${lateCompetition}/${lateRegistration}/entry.pdf`;
+        const lateDocument = `registration-documents/${lateCompetition}/${lateRegistration}/${randomUUID()}/scan.pdf`;
+
+        r2.objects.push(lateSubmission, lateDocument);
+
+        const result = await run(
+          tx,
+          f.operator,
+          f.target,
+          { confirmUsername: f.targetUsername, reason: "permintaan pemilik" },
+          {
+            beforeTransaction: {
+              nth: 2,
+              run: async () => {
+                await tx.insert(competitions).values({
+                  id: lateCompetition,
+                  institutionId: f.institution,
+                  slug: `susulan-${f.suffix}`,
+                  title: `Kuis susulan ${f.suffix}`,
+                  status: "draft",
+                  createdByUserId: f.target,
+                });
+
+                await tx.insert(competitionRegistrations).values({
+                  id: lateRegistration,
+                  competitionId: lateCompetition,
+                  studentId: f.target,
+                  registrationType: "individual",
+                  status: "confirmed",
+                });
+              },
+            },
+          },
+        );
+
+        expect(r2.listed, "the late registration was never listed").toContain(
+          `submissions/${lateCompetition}/${lateRegistration}/`,
+        );
+        expect(r2.listed).toContain(
+          `registration-documents/${lateCompetition}/${lateRegistration}/`,
+        );
+        expect(r2.deleted).toContain(lateSubmission);
+        expect(r2.deleted).toContain(lateDocument);
+        expect(r2.objects).not.toContain(lateSubmission);
+        expect(r2.objects).not.toContain(lateDocument);
+
+        // Spelled out rather than implied: the two objects the late registration owns are on top of
+        // the eleven the fixture planted.
+        expect(result.objectsDeleted).toBe(expectedDeletedKeys(f).length + 2);
+      });
+    });
+  });
+
   describe("the actor", () => {
     it("is resolved by the writing transaction, not carried in from the pre-read", async () => {
       // Suspending the actor between the pre-read and the rehearsal is the move a stale actor cannot

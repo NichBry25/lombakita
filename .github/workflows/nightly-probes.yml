@@ -24,9 +24,9 @@ name: Nightly probe suites
 # explicitly declined to create. `workflow_dispatch` is here so the whole set can be run by hand
 # from the Actions tab while investigating one of them.
 #
-# A FAILURE HERE REACHES A PERSON ONLY THROUGH GITHUB'S OWN FAILED-WORKFLOW NOTIFICATION. There is
-# no Slack, email or webhook step and none is implied: the schedule exists so rot is caught within a
-# day, and the notification GitHub already sends to the repository's watchers is the delivery.
+# A failure here reaches a person only through GitHub's own notification for scheduled workflows,
+# which goes to the user who last changed this file's cron schedule. There is no Slack, email or
+# webhook step, and none is implied.
 
 on:
   schedule:
