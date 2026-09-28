@@ -13,7 +13,7 @@
  * new test written for the probe's benefit; a probe whose detector exists only to be broken by it
  * measures the probe.
  *
- * THE CLASS OF EACH GUARD IS DECLARED RATHER THAN ASSUMED (clause 8). Four of the five are B: a
+ * THE CLASS OF EACH GUARD IS DECLARED RATHER THAN ASSUMED (clause 8). Two of the four are B: a
  * refusal, or a lock, that stands in front of a write and takes no transaction of its own. The
  * rehearsal sentinel is A1-in: it throws INSIDE the transaction and the rollback is what restores the
  * post-state, so its detector is the refusal identity — the run that follows a committed rehearsal
@@ -26,6 +26,17 @@
  * locked row — so removing the CAS predicate turns no assertion red, and a probe reporting otherwise
  * would be reporting a property the code does not have. It is recorded here rather than fabricated
  * into a green.
+ *
+ * RETIRED BY CONTROLLER RULING: the probe that targeted the pre-read's files-remaining clause. That
+ * clause is gone from the service, deleted because it contradicted the writing transaction's own
+ * re-check: an account reading deactivated with objects still under its prefixes is reachable only by
+ * an upload racing the operation — every failure before the commit leaves the account NOT
+ * deactivated, where a rerun already completes the work — and such an account is refused 409
+ * `deidentify_already_done` on its status alone, by design. The probe could not have been red for the
+ * move it claimed: the writing transaction refuses the same target from the same locked row, so
+ * inverting the pre-read changed no observable at all. Its red before the clause was deleted came
+ * from the rehearsal relabelling a refusal to 500, which is a different defect and a fixed one. It is
+ * recorded here rather than re-cut into a green.
  *
  * Usage: node scripts/testing/probes/deidentification-guards.mjs
  * Runs only over committed work — the harness refuses if any listed file differs from HEAD.
@@ -69,31 +80,6 @@ export const probes = [
     // the lock from one queued at the write the lock exists to precede.
     detect: async () =>
       fails("npx", ["vitest", "run", RACE_TEST], /rather than on the target's row lock/),
-  },
-  {
-    name: "a deactivated target with objects still in the bucket is finished, not refused",
-    klass: "B",
-    harmfulMove:
-      "the deactivated clause read the wrong way round, so an interrupted run — one that reached " +
-      "storage and died before its commit, or committed and died before deleting — is refused as " +
-      "already done and the files it left under the target's prefixes are never removed",
-    files: [SERVICE],
-    appliedMarkers: ["      (await anyObjectRemainsUnder("],
-    // The negation is the whole of the clause, so removing it is the whole of the harm. The marker
-    // carries the six leading spaces: bare `(await anyObjectRemainsUnder(` IS a substring of the
-    // un-negated call's `!(await ...`, and a marker that survives the mutation proves nothing.
-    mutate: () =>
-      substituteOnce(
-        SERVICE,
-        "      !(await anyObjectRemainsUnder(",
-        "      (await anyObjectRemainsUnder(",
-      ),
-    detect: async () =>
-      fails(
-        "npx",
-        ["vitest", "run", INTEGRATION_TEST],
-        /× .*refuses 409 already-done for an account that is deactivated with no objects left/,
-      ),
   },
   {
     name: "the deletion set never reaches the payment-proofs prefix",

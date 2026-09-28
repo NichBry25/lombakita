@@ -849,11 +849,12 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
       });
     });
 
-    it("does not refuse a deactivated target whose objects are still there", async () => {
-      // The clause is the conjunction, not the status on its own. A deactivated row with objects
-      // still under the target's prefixes passes the pre-read; the writing transaction is told to
-      // re-run every precondition EXCEPT this one, so it refuses there — and the refusal keeps the
-      // code it was raised with, because the rehearsal's 500 is for faults the service cannot name.
+    it("refuses 409 already-done even for a deactivated target whose objects are still there", async () => {
+      // The status is the whole of the signal, and the R2 listing the pre-read used to make is gone:
+      // an account in this state is one an upload raced, and re-opening it would run a delete against
+      // a person the action has already finished with. What the assertion below adds to the one
+      // before it is the bucket: the refusal lands before anything is removed, so the object that
+      // raced in is still there afterwards.
       await inRollback(async (tx) => {
         const f = await buildFixture(tx);
 
@@ -1318,6 +1319,14 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
           }),
         );
 
+        // Storage is the second of the three stages, so this failure lands before the commit and
+        // leaves the account exactly as it found it. That is the whole reason the rerun below is an
+        // ordinary run rather than a resume: there is no deactivated row for it to be refused on.
+        const afterFailure = await readUser(tx, f.target);
+
+        expect(afterFailure!.status).toBe("active");
+        expect(r2.objects.length).toBeGreaterThan(0);
+
         r2.failFrom = null;
         r2.deleted = [];
 
@@ -1335,6 +1344,15 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
 
         expect(result.objectsDeleted).toBe(remaining.length);
         expect([...r2.deleted].sort()).toEqual([...remaining].sort());
+
+        // The rerun completed what the failure left behind: nothing the account owned is still in
+        // the bucket, and the two objects the action must never touch are.
+        for (const key of expectedDeletedKeys(f)) {
+          expect(r2.objects).not.toContain(key);
+        }
+
+        expect(r2.objects).toContain(`payment-proofs/${f.competition}/${f.payment}/proof.jpg`);
+        expect(r2.objects).toContain(`avatars/${f.bystander}/other.jpg`);
 
         const user = await readUser(tx, f.target);
 

@@ -289,22 +289,20 @@ const assertNoPublishedPersonalCompetition = async (
  * caller needs afterwards.
  *
  * ONE FUNCTION FOR BOTH CALLERS. The pre-read and the writing transaction run the same checks in
- * the same order; they differ in one clause, and `deactivatedCountsAsDone` is that clause rather
- * than a second copy of the sequence. A copy would drift, and the drift would be invisible: the
+ * the same order, rather than two copies of the sequence that would drift apart invisibly. The
  * writing transaction is the one that has to be right.
  *
- * `deactivatedCountsAsDone` IS THAT CLAUSE. The pre-read answers it from storage: deactivated
- * counts as done only when nothing is left under the target's own R2 prefixes, so an interrupted
- * run whose objects are still in the bucket reads as work remaining rather than as a finished
- * de-identification. The writing transaction answers `true` unconditionally, because it is told to
- * re-run every precondition except this one — and a deactivated row reaching it is a lost race that
- * the CAS below settles anyway.
+ * `deactivated` MEANS DONE, in both callers and on status alone. The commit is the last of the
+ * three stages, so every failure before it leaves the account not deactivated and a rerun finds it
+ * eligible; there is no interrupted state this action has to resume. An account that does read
+ * deactivated with objects still under its prefixes is one an upload raced, and `deleteObjectsUnder`
+ * has already run by then — deleting the residue is not this action's job, and the residue itself is
+ * open debt rather than a reason to re-open a finished account.
  */
 const assertTargetIsEligible = async (
   tx: OperatorActorTransaction,
   accountId: string,
   input: DeidentifyAccountInput,
-  deactivatedCountsAsDone: () => Promise<boolean>,
 ): Promise<TargetFacts> => {
   const [target] = await tx
     .select({
@@ -329,7 +327,7 @@ const assertTargetIsEligible = async (
     );
   }
 
-  if (target.status === "deactivated" && (await deactivatedCountsAsDone())) {
+  if (target.status === "deactivated") {
     throw new DeidentificationError(
       "deidentify_already_done",
       409,
@@ -516,7 +514,7 @@ const runDeidentificationWrites = async (
   // own handle and under its own lock. That covers the personal institution, which is resolved
   // here rather than handed in — an upgrade or a revocation between the two stages would otherwise
   // leave this run writing to an institution the pre-read chose.
-  const facts = await assertTargetIsEligible(tx, accountId, input, async () => true);
+  const facts = await assertTargetIsEligible(tx, accountId, input);
   const personalInstitutionId = facts.personalInstitutionId;
 
   const rowsDeleted: Record<string, number> = {};
@@ -983,18 +981,6 @@ const sqlStateOf = (error: unknown): string | null => {
   return typeof code === "string" ? code : null;
 };
 
-const anyObjectRemainsUnder = async (prefixes: readonly string[]): Promise<boolean> => {
-  for (const prefix of prefixes) {
-    const objects = await listObjects(prefix);
-
-    if (objects.length > 0) {
-      return true;
-    }
-  }
-
-  return false;
-};
-
 /**
  * De-identify one account.
  *
@@ -1030,22 +1016,12 @@ export const deidentifyAccount = async (
       );
     }
 
-    return assertTargetIsEligible(
-      tx,
-      accountId,
-      input,
-      async () =>
-        // The negation is the whole of the clause. "Deactivated" on its own is not a finished
-        // de-identification: an interruption can leave the row flipped with objects still under the
-        // target's prefixes, and that is a run to finish rather than one to refuse.
-        !(await anyObjectRemainsUnder(
-          deidentificationObjectPrefixes({
-            userId: accountId,
-            registrations: [],
-            personalInstitutionId: null,
-          }),
-        )),
-    );
+    // No R2 listing here. `deactivated` on its own is the whole of the signal: the commit is the
+    // last of the three stages, so anything that failed before it left the row active and a rerun
+    // completes the work. Reading storage to tell a finished account from an interrupted one would
+    // buy a resumed path this action has no other half of — `deleteObjectsUnder` runs before the
+    // commit, never after it.
+    return assertTargetIsEligible(tx, accountId, input);
   });
 
   try {
