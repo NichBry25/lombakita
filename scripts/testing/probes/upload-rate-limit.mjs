@@ -15,18 +15,19 @@
  * CLASS C — route gates. The detector is that the SERVICE IS NOT CALLED, never the status alone.
  *
  * THREE GUARD LOCATIONS, BOTH DIRECTIONS EACH, WHICH IS SIX PROBES. The eight call sites are three
- * shapes: six direct routes (one shape, five copies) and two wrappers (`runOwned` in
+ * shapes: six direct routes (one shape, five copies) and two wrappers (`runOwnedUploadUrl` in
  * profile-file-http.ts and institution-media-http.ts, each serving several routes). Each guard
  * location is probed directly; that every one of the twelve CALL SITES carries the call, and
  * carries it before its own presign, is asserted mechanically over the whole table by
  * src/server/storage/upload-rate-limit-wiring.test.ts, which names the entry point that broke.
  *
  * TWO MORE PROBES ASK THE SECOND DIRECTION OF THE SAME QUESTION. The budget is an allowance to mint
- * presigned URLs, and the wrappers draw it in a shared helper that also serves handlers which mint
- * nothing — recording a key, deleting a file, flipping resume visibility. A record or delete handler
- * that drifts onto the minting entry point still refuses correctly and still refuses before any
- * presign, because it performs none; the harm is that the allowance is spent by work the budget does
- * not bound, so the upload it exists to bound is what gets refused. Every route assertion above stays
+ * presigned URLs, so each wrapper separates minting from everything else: `runOwnedUploadUrl` draws
+ * it and calls the handler, and `runOwned` serves the handlers that mint nothing — recording a key,
+ * deleting a file, flipping resume visibility — without drawing anything. A record or delete handler
+ * re-pointed at the minting entry point still refuses correctly and still refuses before any presign,
+ * because it performs none; the harm is that the allowance is spent by work the budget does not
+ * bound, so the upload it exists to bound is what gets refused. Every route assertion above stays
  * green through it. The wiring test's `does not draw the budget` cases are the detector.
  *
  * TWO MORE PROBES ASK THAT SCAN TO FAIL. The wiring test is the instrument, not a behavioural test,
@@ -57,8 +58,20 @@ const SUBMISSION_TEST =
 const AVATAR_TEST = "src/app/api/v1/users/me/profile/uploads/avatar/upload-url/route.test.ts";
 const LOGO_TEST = "src/app/api/v1/institutions/[institutionSlug]/profile/logo/route.test.ts";
 
-/** The guard block as every one of the eight call sites writes it. */
+/** The guard block as each of the six direct routes writes it. */
 const GUARD = `    const limited = await assertUploadUrlAllowed(session.user.id);
+    if (limited) return limited;
+
+`;
+
+/**
+ * The same block as the two wrappers write it inside their minting entry point.
+ *
+ * The id is `userId`, not `session.user.id`: `runOwnedUploadUrl` charges the id `runOwned` resolved
+ * from the session and handed to it, so a mutation anchored on the direct-route text would find
+ * nothing here and the probe would throw rather than measure.
+ */
+const WRAPPER_GUARD = `    const limited = await assertUploadUrlAllowed(userId);
     if (limited) return limited;
 
 `;
@@ -73,8 +86,8 @@ const NEUTERED = "if (limited && !limited) return limited;";
  * Removed from its own position FIRST, so the probe cannot pass on a file that simply gained a
  * second copy of the guard while keeping the original one above the mint.
  */
-const moveGuardBelow = (file, mintAnchor, moved) => {
-  substituteOnce(file, GUARD, "");
+const moveGuardBelow = (file, guard, mintAnchor, moved) => {
+  substituteOnce(file, guard, "");
   substituteOnce(file, mintAnchor, moved);
 };
 
@@ -83,9 +96,9 @@ const DIRECT_MOVED = `    const limited = await assertUploadUrlAllowed(session.u
 
     return NextResponse.json(grant);`;
 
-const WRAPPER_MOVED = `    const response = await handler(session.user.id);
+const WRAPPER_MOVED = `    const response = await handler(userId);
 
-    const limited = await assertUploadUrlAllowed(session.user.id);
+    const limited = await assertUploadUrlAllowed(userId);
     if (limited) return limited;
 
     return response;`;
@@ -158,7 +171,7 @@ export const probes = [
     files: [SUBMISSION_ROUTE],
     appliedMarkers: [DIRECT_MOVED],
     mutate: () =>
-      moveGuardBelow(SUBMISSION_ROUTE, "    return NextResponse.json(grant);", DIRECT_MOVED),
+      moveGuardBelow(SUBMISSION_ROUTE, GUARD, "    return NextResponse.json(grant);", DIRECT_MOVED),
     detect: async () => fails("npx", ["vitest", "run", SUBMISSION_TEST], REACHED_MINT),
   },
 
@@ -167,8 +180,8 @@ export const probes = [
     name: "profile uploads: the budget is what refuses",
     klass: "C",
     harmfulMove:
-      "the limiter running in runOwned but never refusing, so avatar, banner, resume and " +
-      "certification upload URLs are all unbounded at once while each route looks bounded",
+      "the limiter running in runOwnedUploadUrl but never refusing, so avatar, banner, resume " +
+      "and certification upload URLs are all unbounded at once while each route looks bounded",
     files: [PROFILE_WRAPPER],
     appliedMarkers: [NEUTERED],
     mutate: () => substituteOnce(PROFILE_WRAPPER, "if (limited) return limited;", NEUTERED),
@@ -178,12 +191,12 @@ export const probes = [
     name: "profile uploads: the budget refuses BEFORE the URL is signed",
     klass: "C",
     harmfulMove:
-      "the refusal sitting below the handler call in runOwned, so every profile presign runs and " +
-      "the caller is told it was refused after the URL has already been signed",
+      "the refusal sitting below the handler call in runOwnedUploadUrl, so every profile presign " +
+      "runs and the caller is told it was refused after the URL has already been signed",
     files: [PROFILE_WRAPPER],
     appliedMarkers: [WRAPPER_MOVED],
     mutate: () =>
-      moveGuardBelow(PROFILE_WRAPPER, "    return await handler(session.user.id);", WRAPPER_MOVED),
+      moveGuardBelow(PROFILE_WRAPPER, WRAPPER_GUARD, "    return handler(userId);", WRAPPER_MOVED),
     detect: async () => fails("npx", ["vitest", "run", AVATAR_TEST], REACHED_MINT),
   },
 
@@ -192,8 +205,8 @@ export const probes = [
     name: "institution media: the budget is what refuses",
     klass: "C",
     harmfulMove:
-      "the limiter running in runOwned but never refusing, so logo and banner upload URLs are " +
-      "unbounded while both routes appear to be rate limited",
+      "the limiter running in runOwnedUploadUrl but never refusing, so logo and banner upload " +
+      "URLs are unbounded while both routes appear to be rate limited",
     files: [MEDIA_WRAPPER],
     appliedMarkers: [NEUTERED],
     mutate: () => substituteOnce(MEDIA_WRAPPER, "if (limited) return limited;", NEUTERED),
@@ -203,12 +216,12 @@ export const probes = [
     name: "institution media: the budget refuses BEFORE the URL is signed",
     klass: "C",
     harmfulMove:
-      "the refusal sitting below the handler call in runOwned, so the institution logo presign " +
-      "runs and the caller is told it was refused after the URL has already been signed",
+      "the refusal sitting below the handler call in runOwnedUploadUrl, so the institution logo " +
+      "presign runs and the caller is told it was refused after the URL has already been signed",
     files: [MEDIA_WRAPPER],
     appliedMarkers: [WRAPPER_MOVED],
     mutate: () =>
-      moveGuardBelow(MEDIA_WRAPPER, "    return await handler(session.user.id);", WRAPPER_MOVED),
+      moveGuardBelow(MEDIA_WRAPPER, WRAPPER_GUARD, "    return handler(userId);", WRAPPER_MOVED),
     detect: async () => fails("npx", ["vitest", "run", LOGO_TEST], REACHED_MINT),
   },
 
@@ -259,7 +272,7 @@ export const probes = [
     files: [SUBMISSION_ROUTE],
     appliedMarkers: [DIRECT_MOVED],
     mutate: () =>
-      moveGuardBelow(SUBMISSION_ROUTE, "    return NextResponse.json(grant);", DIRECT_MOVED),
+      moveGuardBelow(SUBMISSION_ROUTE, GUARD, "    return NextResponse.json(grant);", DIRECT_MOVED),
     detect: async () => fails("npx", ["vitest", "run", WIRING_TEST], WIRING_CAUGHT_MOVE),
   },
 ];
