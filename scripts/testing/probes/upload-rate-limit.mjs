@@ -21,6 +21,14 @@
  * carries it before its own presign, is asserted mechanically over the whole table by
  * src/server/storage/upload-rate-limit-wiring.test.ts, which names the entry point that broke.
  *
+ * TWO MORE PROBES ASK THE SECOND DIRECTION OF THE SAME QUESTION. The budget is an allowance to mint
+ * presigned URLs, and the wrappers draw it in a shared helper that also serves handlers which mint
+ * nothing — recording a key, deleting a file, flipping resume visibility. A record or delete handler
+ * that drifts onto the minting entry point still refuses correctly and still refuses before any
+ * presign, because it performs none; the harm is that the allowance is spent by work the budget does
+ * not bound, so the upload it exists to bound is what gets refused. Every route assertion above stays
+ * green through it. The wiring test's `does not draw the budget` cases are the detector.
+ *
  * TWO MORE PROBES ASK THAT SCAN TO FAIL. The wiring test is the instrument, not a behavioural test,
  * and an instrument that runs but cannot fail is not one (Rule 38). Every route above asserts a
  * response; nothing above would notice if the wiring test's table were quietly satisfied by a file
@@ -99,6 +107,25 @@ const REACHED_MINT = /× .*does not mint an upload URL for a request the budget 
 const WIRING_TEST = "src/server/storage/upload-rate-limit-wiring.test.ts";
 const WIRING_CAUGHT_REMOVAL = /'submission file': the route file is its own guard/;
 const WIRING_CAUGHT_MOVE = /'submission file': the limiter call precedes the presign call/;
+const WIRING_CAUGHT_RECORD = /'candidate avatar record': does not draw the budget/;
+const WIRING_CAUGHT_DELETE = /'institution media delete': does not draw the budget/;
+
+/** A record handler re-pointed at the minting entry point. */
+const RECORD_BEFORE = `export const avatarRecord = (request: Request): Promise<Response> =>
+  runOwned(request, async (userId) => {`;
+const RECORD_AFTER = `export const avatarRecord = (request: Request): Promise<Response> =>
+  runOwnedUploadUrl(request, async (userId) => {`;
+
+/**
+ * A delete handler re-pointed the same way.
+ *
+ * Anchored on the service call rather than on the signature: this export's parameters span four
+ * lines, and the call it makes is what makes the anchor unique either way.
+ */
+const DELETE_BEFORE = `  runOwned(request, async (userId) => {
+    await deleteInstitutionMedia(userId, institutionSlug, kind);`;
+const DELETE_AFTER = `  runOwnedUploadUrl(request, async (userId) => {
+    await deleteInstitutionMedia(userId, institutionSlug, kind);`;
 
 /**
  * What the deleted guard leaves behind, so the mutation is one the harness can see APPLIED.
@@ -183,6 +210,30 @@ export const probes = [
     mutate: () =>
       moveGuardBelow(MEDIA_WRAPPER, "    return await handler(session.user.id);", WRAPPER_MOVED),
     detect: async () => fails("npx", ["vitest", "run", LOGO_TEST], REACHED_MINT),
+  },
+
+  // ── The budget charged for work it does not bound ───────────────────────────────────────────
+  {
+    name: "avatar record: a handler that mints nothing does not draw the budget",
+    klass: "C",
+    harmfulMove:
+      "the record handler re-pointed at the minting entry point, so recording an avatar key the " +
+      "browser already uploaded spends the allowance that exists to bound handing out presigned URLs",
+    files: [PROFILE_WRAPPER],
+    appliedMarkers: [RECORD_AFTER],
+    mutate: () => substituteOnce(PROFILE_WRAPPER, RECORD_BEFORE, RECORD_AFTER),
+    detect: async () => fails("npx", ["vitest", "run", WIRING_TEST], WIRING_CAUGHT_RECORD),
+  },
+  {
+    name: "institution media delete: a handler that mints nothing does not draw the budget",
+    klass: "C",
+    harmfulMove:
+      "the delete handler re-pointed at the minting entry point, so removing an institution logo " +
+      "spends the same allowance as minting an upload URL",
+    files: [MEDIA_WRAPPER],
+    appliedMarkers: [DELETE_AFTER],
+    mutate: () => substituteOnce(MEDIA_WRAPPER, DELETE_BEFORE, DELETE_AFTER),
+    detect: async () => fails("npx", ["vitest", "run", WIRING_TEST], WIRING_CAUGHT_DELETE),
   },
 
   // ── The wiring scan itself, which is an instrument and must be able to fail ──────────────────

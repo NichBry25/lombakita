@@ -34,19 +34,15 @@ const readJson = async (request: Request): Promise<Record<string, unknown>> => {
   }
 };
 
-// Runs an owner-scoped handler behind the auth gate + cross-session guard (Rule #16).
-const runOwned = async (
-  request: Request,
-  handler: (userId: string) => Promise<Response>,
-): Promise<Response> => {
+type OwnedHandler = (userId: string) => Promise<Response>;
+
+// Runs an owner-scoped handler behind the auth gate + cross-session guard (Rule #16). Does NOT draw
+// the upload-URL budget: recording an uploaded key and deleting media mint no presigned URL, so they
+// must not consume an allowance whose purpose is to bound minting.
+const runOwned = async (request: Request, handler: OwnedHandler): Promise<Response> => {
   try {
     const session = await requireAuthenticatedSession();
     assertSessionMatchesExpectedUser(request, session);
-
-    // MANUAL-D57: this wrapper is the single choke point for every institution media upload-URL
-    // entry point, so the shared budget is drawn here rather than once per route file above it.
-    const limited = await assertUploadUrlAllowed(session.user.id);
-    if (limited) return limited;
 
     return await handler(session.user.id);
   } catch (error) {
@@ -56,6 +52,17 @@ const runOwned = async (
     return toAccessDeniedResponse(error);
   }
 };
+
+// The same, for the handler that DOES mint a presigned PUT URL. MANUAL-D57: this is the only caller of
+// the limiter in this file, so a record or delete handler cannot reach the budget by accident, and
+// the id it charges is the one `runOwned` resolved from the session and handed to the handler.
+const runOwnedUploadUrl = (request: Request, handler: OwnedHandler): Promise<Response> =>
+  runOwned(request, async (userId) => {
+    const limited = await assertUploadUrlAllowed(userId);
+    if (limited) return limited;
+
+    return handler(userId);
+  });
 
 const requireAllowedMimeType = (kind: InstitutionMediaKind, value: unknown): string => {
   if (typeof value !== "string" || !INSTITUTION_MEDIA_RULES[kind].mimeTypes.includes(value)) {
@@ -105,7 +112,7 @@ export const institutionMediaUploadUrl = (
   institutionSlug: string,
   kind: InstitutionMediaKind,
 ): Promise<Response> =>
-  runOwned(request, async (userId) => {
+  runOwnedUploadUrl(request, async (userId) => {
     const body = await readJson(request);
     const contentType = requireAllowedMimeType(kind, body.mimeType);
     const grant = await generateInstitutionMediaUploadUrl(userId, institutionSlug, kind, {

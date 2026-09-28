@@ -10,6 +10,9 @@
 //      other eleven keep the ceiling, so the platform reports a bound it is not enforcing.
 //   2. The call is MOVED below the presign service call. It still returns 429 — after the URL has
 //      already been signed and returned to nobody. The refusal is real and the harm already done.
+//   3. A handler that mints NOTHING draws the budget anyway. The refusal is correct and correctly
+//      ordered, and it is charged for work the budget does not bound — so the allowance is spent by
+//      profile edits and media deletions, and the upload it exists to bound is refused instead.
 //
 // The second is the shape Rule 32 is written about: a guard can only be written at function scope,
 // so it cannot be moved inside a conditional, but it CAN be moved down a line, and the 429 that
@@ -159,6 +162,75 @@ const ENTRY_POINTS: EntryPoint[] = [
 const DIRECT = ENTRY_POINTS.filter((entry) => entry.handler === undefined);
 const WRAPPED = ENTRY_POINTS.filter((entry) => entry.handler !== undefined);
 
+type NonMinting = {
+  name: string;
+  /** The exported handler the wrapper serves this route with. */
+  handler: string;
+  /** The wrapper file that exports it. */
+  guard: string;
+};
+
+/**
+ * Every handler the two wrappers export that MINTS NOTHING.
+ *
+ * The budget is an allowance to hand out presigned URLs. Recording a key the browser already PUT,
+ * deleting a file and flipping resume visibility mint nothing, so charging them spends the allowance
+ * on work it does not bound — a user who edits their profile repeatedly loses the ability to upload
+ * at all. The wrappers used to draw it for every handler; `runOwnedUploadUrl` is the minting-only
+ * path, and this table is what stops a record or delete handler drifting back onto it.
+ */
+const NON_MINTING: NonMinting[] = [
+  { name: "candidate avatar record", handler: "avatarRecord", guard: PROFILE_WRAPPER },
+  { name: "candidate avatar delete", handler: "avatarDelete", guard: PROFILE_WRAPPER },
+  { name: "candidate banner record", handler: "bannerRecord", guard: PROFILE_WRAPPER },
+  { name: "candidate banner delete", handler: "bannerDelete", guard: PROFILE_WRAPPER },
+  { name: "candidate resume record", handler: "resumeRecord", guard: PROFILE_WRAPPER },
+  { name: "candidate resume delete", handler: "resumeDelete", guard: PROFILE_WRAPPER },
+  {
+    name: "candidate resume visibility change",
+    handler: "resumeSetVisibility",
+    guard: PROFILE_WRAPPER,
+  },
+  {
+    name: "candidate certification file record",
+    handler: "certificationFileRecord",
+    guard: PROFILE_WRAPPER,
+  },
+  {
+    name: "candidate certification file delete",
+    handler: "certificationFileDelete",
+    guard: PROFILE_WRAPPER,
+  },
+  {
+    name: "institution media record",
+    handler: "institutionMediaRecord",
+    guard: MEDIA_WRAPPER,
+  },
+  {
+    name: "institution media delete",
+    handler: "institutionMediaDelete",
+    guard: MEDIA_WRAPPER,
+  },
+];
+
+const MINTING_CALL = "runOwnedUploadUrl(request";
+const NON_MINTING_CALL = "runOwned(request";
+
+/**
+ * The source of one exported handler, from its `export const` to the next one.
+ *
+ * Every handler in these two files is `export const <name> = …;`, so the next `export const` is the
+ * end of the body. Reading the whole file instead would let `runOwnedUploadUrl` satisfy the minting
+ * assertion on behalf of every export in it.
+ */
+const exportBody = (source: string, handler: string): string => {
+  const start = source.indexOf(`export const ${handler} =`);
+  if (start === -1) throw new Error(`no export named ${handler} in this file`);
+  const rest = source.slice(start + 1);
+  const next = rest.indexOf("export const ");
+  return next === -1 ? rest : rest.slice(0, next);
+};
+
 describe("the entry-point table is classified exhaustively", () => {
   it("puts every entry point in exactly one family, and neither family is empty", () => {
     expect(DIRECT.length).toBe(6);
@@ -209,13 +281,78 @@ describe("every upload-URL entry point draws the shared budget", () => {
     },
   );
 
-  it.each(ENTRY_POINTS)("$name: the refusal returns before the handler work", ({ guard }) => {
+  it.each(DIRECT)("$name: the refusal returns before the handler work", ({ guard }) => {
     // Position alone does not make it a refusal: `const limited = await …` followed by nothing is a
     // call that runs and is discarded. The early return is what makes the 429 stop the request.
     const source = readCode(guard);
 
     expect(source).toContain(`${CALL}session.user.id)`);
     expect(source).toContain("if (limited) return limited;");
+  });
+
+  it.each(WRAPPED)("$name: the refusal returns before the handler work", ({ guard }) => {
+    const source = readCode(guard);
+
+    // The wrapper charges the id its own auth gate resolved, and hands that SAME id to the handler.
+    // Split across two ids, the budget would be spent from one account's allowance while the URL was
+    // minted for another.
+    expect(source).toContain(`${CALL}userId)`);
+    expect(source).toContain("return await handler(session.user.id)");
+    expect(source).toContain("if (limited) return limited;");
+  });
+});
+
+describe("no entry point that mints nothing draws the shared budget", () => {
+  it.each(NON_MINTING)("$name: does not draw the budget", ({ handler, guard }) => {
+    const body = exportBody(readCode(guard), handler);
+
+    // Both halves. The negative alone is satisfied by an empty body, and the positive alone describes
+    // the state before the wrapper was split — where the budget was drawn for every handler alike.
+    expect(body).toContain(NON_MINTING_CALL);
+    expect(body).not.toContain(MINTING_CALL);
+  });
+
+  it.each(WRAPPED)("$name: the handler is the minting entry point", ({ guard, handler }) => {
+    if (handler === undefined) throw new Error("a wrapped entry point is missing its handler name");
+
+    // The positive direction. Without it, repointing every upload handler at `runOwned` would leave
+    // the assertions above green on a tree where nothing draws the budget at all.
+    expect(exportBody(readCode(guard), handler)).toContain(MINTING_CALL);
+  });
+
+  it("classifies every handler the two wrappers export", () => {
+    // A new export — a profile field added later, an institution asset — that appears in neither
+    // table is a handler whose budget behaviour nothing here asserts. Its default would be whatever
+    // entry point its author reached for.
+    for (const guard of [PROFILE_WRAPPER, MEDIA_WRAPPER]) {
+      const exported = [...readCode(guard).matchAll(/export const (\w+) =/g)].map(
+        (match) => match[1],
+      );
+      const classified = new Set([
+        ...WRAPPED.filter((entry) => entry.guard === guard).map((entry) => entry.handler),
+        ...NON_MINTING.filter((entry) => entry.guard === guard).map((entry) => entry.handler),
+      ]);
+
+      const unclassified = exported.filter((name) => !classified.has(name));
+
+      expect(unclassified, `${guard} exports handlers in neither table`).toEqual([]);
+      // A file whose exports had all been deleted would satisfy the line above and assert nothing.
+      expect(exported.length, guard).toBeGreaterThan(0);
+    }
+  });
+
+  it("distinguishes the two entry points by name, not by substring", () => {
+    // Load-bearing for every assertion above: `runOwnedUploadUrl(request` must NOT contain
+    // `runOwned(request`, or the negative half would fail on the minting path too and the two
+    // directions would be one assertion wearing two names.
+    expect(MINTING_CALL).not.toContain(NON_MINTING_CALL);
+
+    for (const guard of [PROFILE_WRAPPER, MEDIA_WRAPPER]) {
+      const source = readCode(guard);
+
+      expect(source, guard).toContain("const runOwned =");
+      expect(source, guard).toContain("const runOwnedUploadUrl =");
+    }
   });
 });
 

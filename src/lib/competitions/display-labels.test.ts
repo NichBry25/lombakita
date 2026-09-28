@@ -19,24 +19,36 @@ describe("competition display labels", () => {
   });
 });
 
-// MANUAL-D50: the three Indonesian category names this pass supplied. The rest of the map is
-// unchanged — `law`, `marketing`, `digital_art`, `infographics` and `performing_arts` still carry
-// English words, which is out of this pass's scope and reported rather than fixed.
+// MANUAL-D50: the eight category names that were still in English before this work. Five arrived in
+// the fix pass; the three above them came with the first commit.
 describe("competition category labels supplied by MANUAL-D50", () => {
-  it("names the three categories that were still in English", () => {
+  it("names every category that was still in English", () => {
     expect(getCompetitionCategoryLabel("business")).toBe("Bisnis");
     expect(getCompetitionCategoryLabel("engineering")).toBe("Teknik");
     expect(getCompetitionCategoryLabel("finance")).toBe("Keuangan");
+    expect(getCompetitionCategoryLabel("law")).toBe("Hukum");
+    expect(getCompetitionCategoryLabel("marketing")).toBe("Pemasaran");
+    expect(getCompetitionCategoryLabel("digital_art")).toBe("Seni digital");
+    expect(getCompetitionCategoryLabel("infographics")).toBe("Infografis");
+    expect(getCompetitionCategoryLabel("performing_arts")).toBe("Seni pertunjukan");
   });
 
   it("leaves a name that is already correct in both languages alone", () => {
     expect(getCompetitionCategoryLabel("hackathon")).toBe("Hackathon");
   });
+
+  it("keeps the loan words an Indonesian reader already uses", () => {
+    // Reported and deliberately unchanged: these read the same to an Indonesian organizer, and the
+    // existing localizations beside them ("UI/UX & desain", "Olahraga & e-sports") show the map
+    // mixes the two languages on purpose rather than by omission.
+    expect(getCompetitionCategoryLabel("design")).toBe("UI/UX & desain");
+    expect(getCompetitionCategoryLabel("data_science")).toBe("Data science & AI");
+    expect(getCompetitionCategoryLabel("esports")).toBe("Olahraga & e-sports");
+  });
 });
 
-// MANUAL-D50: the competition lifecycle status, one home instead of a `capitalizeWord` at each of
-// five call sites. Two of those sites rendered "Published" and "Archived" to an Indonesian
-// organizer.
+// MANUAL-D50: the competition lifecycle status has one home rather than a per-call-site
+// capitalization, which rendered "Published" and "Archived" to an Indonesian organizer.
 describe("COMPETITION_STATUS_LABELS", () => {
   it("names every lifecycle state in Indonesian", () => {
     expect(COMPETITION_STATUS_LABELS).toEqual({

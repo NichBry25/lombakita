@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import type { InstitutionMembershipRole } from "@/server/db/schema";
 import { publicEnv } from "@/config/env";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
@@ -8,7 +9,11 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/institution-invitations/invitation-email");
 
-const ROLE_LABELS: Record<string, string> = {
+// Keyed by the role enum itself, so a role added to `institution_membership_role` without a line
+// here is a compile error rather than a raw `institution_foo` token in an invitation email. The
+// wording is the email's own and deliberately differs from `getInstitutionRoleLabel`, which answers
+// the shorter in-app question: an email names the institution, a badge in a members table does not.
+const ROLE_LABELS: Record<InstitutionMembershipRole, string> = {
   institution_owner: "Pemilik institusi",
   institution_staff: "Staf institusi",
   institution_member: "Anggota institusi",
@@ -46,7 +51,7 @@ export type InstitutionInvitationEmailMode = "targeted" | "claim";
 export const sendInstitutionInvitationEmail = async (options: {
   toEmail: string;
   institutionDisplayName: string;
-  invitedRole: string;
+  invitedRole: InstitutionMembershipRole;
   expiresAt: Date;
   mode: InstitutionInvitationEmailMode;
   // Required for `claim` mode (the signup link); ignored for `targeted`.
@@ -56,7 +61,7 @@ export const sendInstitutionInvitationEmail = async (options: {
     throw new Error("claim-mode invitation email requires a rawToken");
   }
 
-  const roleLabel = ROLE_LABELS[options.invitedRole] ?? options.invitedRole;
+  const roleLabel = ROLE_LABELS[options.invitedRole];
   const expiryFormatted = formatExpiryDate(options.expiresAt);
 
   const isClaim = options.mode === "claim";

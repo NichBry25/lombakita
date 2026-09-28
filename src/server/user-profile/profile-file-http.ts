@@ -46,19 +46,15 @@ const mapError = (error: unknown): NextResponse => {
   return toAccessDeniedResponse(error);
 };
 
-// Runs an owner-scoped handler behind the auth gate + cross-session guard (Rule #16).
-const runOwned = async (
-  request: Request,
-  handler: (userId: string) => Promise<Response>,
-): Promise<Response> => {
+type OwnedHandler = (userId: string) => Promise<Response>;
+
+// Runs an owner-scoped handler behind the auth gate + cross-session guard (Rule #16). Does NOT draw
+// the upload-URL budget: recording an uploaded key, deleting a file and flipping resume visibility
+// mint no presigned URL, so they must not consume an allowance whose purpose is to bound minting.
+const runOwned = async (request: Request, handler: OwnedHandler): Promise<Response> => {
   try {
     const session = await requireAuthenticatedSession();
     assertSessionMatchesExpectedUser(request, session);
-
-    // MANUAL-D57: this wrapper is the single choke point for every profile upload-URL entry point,
-    // so the shared budget is drawn here rather than four times over in the route files above it.
-    const limited = await assertUploadUrlAllowed(session.user.id);
-    if (limited) return limited;
 
     return await handler(session.user.id);
   } catch (error) {
@@ -66,13 +62,24 @@ const runOwned = async (
   }
 };
 
+// The same, for the handlers that DO mint a presigned PUT URL. MANUAL-D57: this is the only caller of
+// the limiter in this file, so a record or delete handler cannot reach the budget by accident, and
+// the id it charges is the one `runOwned` resolved from the session and handed to the handler.
+const runOwnedUploadUrl = (request: Request, handler: OwnedHandler): Promise<Response> =>
+  runOwned(request, async (userId) => {
+    const limited = await assertUploadUrlAllowed(userId);
+    if (limited) return limited;
+
+    return handler(userId);
+  });
+
 const grantResponse = (grant: UploadUrlGrant): NextResponse => NextResponse.json(grant);
 const ok = (): NextResponse => NextResponse.json({ ok: true });
 
 // ── Avatar ────────────────────────────────────────────────────────────────
 
 export const avatarUploadUrl = (request: Request): Promise<Response> =>
-  runOwned(request, async (userId) => {
+  runOwnedUploadUrl(request, async (userId) => {
     const req = parseUploadRequest("avatar", await readJson(request));
     return grantResponse(await generateAvatarUploadUrl(userId, req));
   });
@@ -93,7 +100,7 @@ export const avatarDelete = (request: Request): Promise<Response> =>
 // ── Banner ────────────────────────────────────────────────────────────────
 
 export const bannerUploadUrl = (request: Request): Promise<Response> =>
-  runOwned(request, async (userId) => {
+  runOwnedUploadUrl(request, async (userId) => {
     const req = parseUploadRequest("banner", await readJson(request));
     return grantResponse(await generateBannerUploadUrl(userId, req));
   });
@@ -114,7 +121,7 @@ export const bannerDelete = (request: Request): Promise<Response> =>
 // ── Resume ──────────────────────────────────────────────────────────────────
 
 export const resumeUploadUrl = (request: Request): Promise<Response> =>
-  runOwned(request, async (userId) => {
+  runOwnedUploadUrl(request, async (userId) => {
     const req = parseUploadRequest("resume", await readJson(request));
     return grantResponse(await generateResumeUploadUrl(userId, req));
   });
@@ -149,7 +156,7 @@ export const resumeSetVisibility = (request: Request): Promise<Response> =>
 // ── Certificate file ──────────────────────────────────────────────────────────
 
 export const certificationFileUploadUrl = (request: Request, certId: string): Promise<Response> =>
-  runOwned(request, async (userId) => {
+  runOwnedUploadUrl(request, async (userId) => {
     const req = parseUploadRequest("certification", await readJson(request));
     return grantResponse(await generateCertificationFileUploadUrl(userId, certId, req));
   });

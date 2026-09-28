@@ -163,6 +163,50 @@ const main = async () => {
     listAll.status === 200 && listAllSlugs.includes(COMP.done.slug),
   );
 
+  // ---- the public competition PAGE ----------------------------------------
+  //
+  // The four cases below request the page a person actually opens, not the API behind it. The API
+  // and the page each decide visibility for themselves: the page calls `getPublicCompetitionDetail`
+  // and answers `notFound()` on null, so a service that withholds correctly and a page that forgets
+  // to withhold are two different defects, and only a request for the page can tell them apart.
+  // `UAT-RECONCILIATION.md` A8 cites PUB-06 as the automated evidence that a draft is not publicly
+  // visible, and A8 is about the page.
+  const publishedPage = await apiFetch(`/competitions/${INST.a.slug}/${COMP.open.slug}`);
+  record(
+    "PUB-05",
+    "Public page of a published comp of a verified institution",
+    "200 Seed Hackathon Nusantara",
+    `${publishedPage.status}`,
+    publishedPage.status === 200 && String(publishedPage.body).includes("Seed Hackathon Nusantara"),
+  );
+
+  const draftPage = await apiFetch(`/competitions/${INST.a.slug}/${COMP.draft.slug}`);
+  record(
+    "PUB-06",
+    "Public page of a DRAFT comp is 404",
+    "404",
+    `${draftPage.status}`,
+    draftPage.status === 404,
+  );
+
+  const personalPage = await apiFetch(`/competitions/${INST.p.slug}/${COMP.personalOpen.slug}`);
+  record(
+    "PUB-07",
+    "Public page of a personal-institution comp (derived organizer)",
+    "200",
+    `${personalPage.status}`,
+    personalPage.status === 200,
+  );
+
+  const suspPage = await apiFetch(`/competitions/${INST.c.slug}/${COMP.susp.slug}`);
+  record(
+    "PUB-08",
+    "Public page of a suspended institution's comp is withheld",
+    "404",
+    `${suspPage.status}`,
+    suspPage.status === 404,
+  );
+
   const allListing = await apiFetch("/api/v1/competitions?status=all&limit=100");
   const allSlugs = (allListing.body?.data ?? []).map((c) => c.slug);
   record(
