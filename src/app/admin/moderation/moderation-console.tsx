@@ -44,11 +44,14 @@ type NoteItem = {
   createdAt: string;
 };
 
-// The refusal every operator action produces when it is aimed at an account whose data has been
-// deleted. Duplicated from `src/server/accounts/deactivated-account.ts` rather than imported: that
-// module pulls in the database client, and this is a client component.
+// Refusals an operator action surfaces as plain Indonesian rather than as a code. Duplicated from
+// `src/server/accounts/deactivated-account.ts` and the de-identification service rather than
+// imported: those modules pull in the database client, and this is a client component.
 const OPERATOR_ACTION_ERROR_COPY: Record<string, string> = {
   account_deactivated: "Data akun ini sudah dihapus. Tindakan ini tidak tersedia.",
+  deidentify_reason_too_long: "Alasan terlalu panjang (maksimal 500 karakter).",
+  deidentify_commit_failed:
+    "Berkas sudah dihapus tetapi data akun belum diubah. Jalankan lagi untuk menyelesaikan.",
 };
 
 async function readError(res: Response): Promise<string> {
@@ -408,6 +411,7 @@ function DeidentifyAction({ account, onDone }: { account: UserResult; onDone: ()
           className="form-input"
           value={reason}
           autoComplete="off"
+          maxLength={500}
           onChange={(e) => setReason(e.target.value)}
         />
       </div>

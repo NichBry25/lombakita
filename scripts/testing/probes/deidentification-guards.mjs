@@ -168,14 +168,16 @@ export const probes = [
       "prefixes are never listed and never deleted — the person's file stays in the bucket with no " +
       "row left naming it, which is the residue the commit's own re-read cannot repair",
     files: [SERVICE],
+    // The pre-read's result bound, returned and handed to the prefix builder, so the source of the
+    // list is the stage the harm is about. The `rehearsal` binding is left in place and still read:
+    // it now carries two values the builder does not take (the submission keys and the retained
+    // keys), so discarding the rehearsal as well would leave it assigned and never read — a mutation
+    // nobody would write — and the helper's signature has no shape that drops them.
     appliedMarkers: [
-      "  const facts = await db.transaction(async (tx) => {",
-      "    registrations: facts.registrations,",
+      "  const facts = await db.transaction(async (tx) => {\n    assertReasonPresent(input);",
+      "    return assertTargetIsEligible(tx, accountId, input);\n  });\n\n  let rehearsal: WriteOutcome;",
+      "    registrations: facts.registrations,\n    personalInstitutionId: facts.personalInstitutionId,",
     ],
-    // The pre-fix shape restored whole, rather than the one consuming line re-pointed: the pre-read's
-    // result is bound, returned and read, and the rehearsal's outcome goes back to being discarded —
-    // which is what this file said before the guard existed. Re-pointing the consuming line alone
-    // would leave `rehearsal` assigned and never read, a mutation nobody would write.
     mutate: () => {
       substituteOnce(
         SERVICE,
@@ -184,8 +186,8 @@ export const probes = [
       );
       substituteOnce(
         SERVICE,
-        "    await assertTargetIsEligible(tx, accountId, input);\n  });\n\n  let rehearsal: WriteOutcome;\n\n  try {\n    rehearsal = await performWrites(db, actorUserId, accountId, input, true);",
-        "    return assertTargetIsEligible(tx, accountId, input);\n  });\n\n  try {\n    await performWrites(db, actorUserId, accountId, input, true);",
+        "    await assertTargetIsEligible(tx, accountId, input);\n  });\n\n  let rehearsal: WriteOutcome;",
+        "    return assertTargetIsEligible(tx, accountId, input);\n  });\n\n  let rehearsal: WriteOutcome;",
       );
       substituteOnce(
         SERVICE,
