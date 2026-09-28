@@ -144,11 +144,20 @@ export const probes = [
       "content: one edited line turns a read-only verifier into whatever the editor wanted, on the " +
       "loopback database the host guard permits",
     files: [RESIDUE],
+    // The removal starts at the comment rather than at `const notSelect`, so the comment goes with
+    // the clause it describes, and the marker is the list refusal's own last line against the
+    // `return` that follows it — an adjacency the file holds nowhere else, which is what tells this
+    // mutation applied from one that did not.
     appliedMarkers: ["is not a list`);\n  }\n\n  return record as ResidueBaseline;"],
     mutate: () =>
       substituteOnce(
         RESIDUE,
         [
+          "  // `verify` feeds every `attribution[].sql` to `sql.unsafe`, so a baseline file is executable",
+          "  // content. The file is written by `capture`, but it is also hand-editable and it travels between",
+          "  // machines, and nothing else between here and `unsafe` looks at what a statement is. Every",
+          "  // statement this instrument authors is a `select`; one that is not has been put there by",
+          "  // something other than this instrument.",
           "  const notSelect = record.attribution.findIndex(",
           '    (entry) => typeof entry?.sql !== "string" || !/^\\s*select\\b/i.test(entry.sql),',
           "  );",
