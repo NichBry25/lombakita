@@ -67,9 +67,10 @@ export const probes = [
     // and the statement stays a statement, so the mutation compiles for a reason rather than by luck
     // (clause 1). The marker carries the blank line and the comment that follow, because the
     // statement WITHOUT the suffix is a prefix of the statement with it and would be present before
-    // the mutation as well.
+    // the mutation as well. The comment it carries is the owner-membership lock's, which is what
+    // follows this statement: the pre-read comment sits below that lock, not below this line.
     appliedMarkers: [
-      "  await tx.select({ id: users.id }).from(users).where(eq(users.id, accountId));\n\n  // The pre-read",
+      "  await tx.select({ id: users.id }).from(users).where(eq(users.id, accountId));\n\n  // The last-owner refusal below is a count,",
     ],
     mutate: () =>
       substituteOnce(
@@ -211,8 +212,8 @@ export const probes = [
       "the refusal, and both revoke — leaving an institution with no active owner, which nothing in " +
       "the product can repair",
     files: [SERVICE],
-    // The call and the comment that explains it removed together, so what remains is the row lock
-    // directly against the pre-read comment. The marker is that adjacency, and it exists only after
+    // The call and the comment that explains it removed together, so what remains is the row lock one
+    // blank line above the pre-read comment. The marker is that adjacency, and it exists only after
     // the mutation: the unmutated file holds the lock comment and the call in the gap.
     appliedMarkers: [
       `  await tx.select({ id: users.id }).from(users).where(eq(users.id, accountId)).for("update");\n\n  // The pre-read's values are not reused:`,
@@ -225,6 +226,9 @@ export const probes = [
           "  // lock cannot serialize. Taken before the count, in this transaction, so a co-owner's",
           "  // de-identification or demotion either finished before this count or waits until after it.",
           "  await lockInstitutionOwnership(tx, await findNonPersonalInstitutionsOwnedBy(tx, accountId));",
+          // The blank line BELOW the call, taken with it, so the removal leaves one blank line
+          // between the row lock and the pre-read comment rather than two.
+          "",
           "",
         ].join("\n"),
         "",
