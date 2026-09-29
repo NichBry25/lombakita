@@ -189,17 +189,34 @@ export const probes = [
       "publish, invite or change anything in it. Restoring operations restores them for no one, and " +
       "the audit row reports a functioning institution",
     files: [MODERATION_SERVICE],
-    // The comment, the count and the refusal removed together, leaving the transaction opening
-    // directly against the update it guards. The marker includes the update's own set-values line
-    // rather than stopping at `.update(institutions)`, because `suspendInstitution` opens its
-    // transaction the same way and a shorter marker would already be present before the mutation.
+    // THE OWNER-MEMBERSHIP LOCK IS NOT THIS PROBE'S SUBJECT AND STAYS WHERE IT IS. The guard this
+    // probe is about is the count and the refusal below that lock; taking the lock away as well would
+    // measure a mutation the probe does not claim. Its comment goes with the count it names — it
+    // opens "before the count below", and after this removal there is no count below — which is the
+    // reason the session probe above takes its clause's comment with it.
+    //
+    // The marker is the lock call directly against the update, an adjacency the unmutated file does
+    // not hold: there the count and the refusal sit in that gap. The update's own set-values line is
+    // in the marker rather than stopping at `.update(institutions)`, because `suspendInstitution`
+    // opens its transaction with the same call and a shorter marker would be present already.
     appliedMarkers: [
-      "  await db.transaction(async (tx) => {\n" +
+      "    await lockInstitutionOwnership(tx, [targetInstitutionId]);\n\n" +
         "    await tx\n" +
         "      .update(institutions)\n" +
         "      .set({ suspendedAt: null, suspensionReason: null, updatedAt: now })",
     ],
-    mutate: () =>
+    mutate: () => {
+      substituteOnce(
+        MODERATION_SERVICE,
+        [
+          "    // Taken before the count below, because that count is a count of OTHER rows: a de-identification",
+          "    // revoking the institution's last owner membership and this reinstatement reading the count are",
+          "    // two transactions changing different rows, and neither snapshot sees the other's uncommitted",
+          "    // work. With nothing keyed on the institution each counts an owner the other is about to remove.",
+          "",
+        ].join("\n"),
+        "",
+      );
       substituteOnce(
         MODERATION_SERVICE,
         [
@@ -214,12 +231,13 @@ export const probes = [
           "      );",
           "    }",
           "",
-          // The blank line after the refusal, so the removal leaves the transaction opening directly
-          // against the update rather than with an empty line between them.
+          // The blank line after the refusal, so the removal leaves the lock call directly against the
+          // update rather than with an empty line between them.
           "",
         ].join("\n"),
         "",
-      ),
+      );
+    },
     detect: async () =>
       fails(
         "npx",
