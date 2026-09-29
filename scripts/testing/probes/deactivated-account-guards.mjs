@@ -14,12 +14,20 @@
  *   reinstating     an institution whose last owner was de-identified is restored to operations,
  *                    with nobody left who can perform any of them.
  *
- * THE CLASS OF EACH GUARD IS DECLARED RATHER THAN ASSUMED (clause 8). The two moderation guards are
- * A1-in: both throw INSIDE the transaction that would perform the write, so the rollback is what
- * restores the post-state and the detector is the refusal identity — the code and status the caller
- * receives. The session guard is D: nothing is written and nothing is rolled back, and what the
- * mutation changes is the CONTENT of the value the lookup produces, which is exactly what the
- * detector reads.
+ * THE CLASS OF EACH GUARD IS DECLARED RATHER THAN ASSUMED (clause 8). Three are A1-in: the guard
+ * itself and the two moderation refusals it sits beside all throw INSIDE the transaction that would
+ * perform the write, so the rollback is what restores the post-state and the detector is the refusal
+ * identity — the code and status the caller receives. The session guard is D: nothing is written and
+ * nothing is rolled back, and what the mutation changes is the CONTENT of the value the lookup
+ * produces, which is exactly what the detector reads. The owner-membership lock probe is B: the lock
+ * stands in front of a read inside the same transaction, and what the race suite reads is the parked
+ * backend's own statement and the state the institution is left in.
+ *
+ * THE ROW LOCK IS PROBED HERE RATHER THAN WITH THE RACE IT PROTECTS. The guard's read takes the row
+ * it reads, which is what makes an operator write queue behind a de-identification instead of
+ * answering from a version about to change. Its harm is only visible with two backends, so its
+ * detector is the race suite's — parked on the de-identification's row lock or refused — and the
+ * probe is filed here because the line it mutates is this file's.
  *
  * THE OWNER-COUNT LOCK IS PROBED FROM HERE. The lock that stops two co-owners of one institution
  * changing its ownership concurrently now exists —
@@ -44,9 +52,44 @@ const AUTH_TEST = "src/server/auth/auth-config-suspension.test.ts";
 const MODERATION_SERVICE = "src/server/moderation/moderation-service.ts";
 const MODERATION_TEST = "src/server/moderation/moderation-service.test.ts";
 const MEMBER_SERVICE = "src/server/institution-members/member-service.ts";
+const DEACTIVATED_ACCOUNT = "src/server/accounts/deactivated-account.ts";
 const RACE_TEST = "src/server/accounts/account-deidentification-race-db.integration.test.ts";
 
 export const probes = [
+  {
+    name: "the de-identified-account guard takes the row it reads with `for update`",
+    klass: "A1-in",
+    harmfulMove:
+      "the guard's read not taking the row. A plain read under READ COMMITTED answers with the last " +
+      "committed version, so an operator write racing a de-identification reads the target as live " +
+      "— the flip is not committed yet — passes the guard, and then writes its own change onto the " +
+      "tombstone once the de-identification lands. The account's data is gone and an operator has " +
+      "just acted on it, audited as an ordinary action on a live account",
+    files: [DEACTIVATED_ACCOUNT],
+    // The lock's EFFECT removed rather than its clause rewritten: the `for update` suffix is dropped
+    // and the statement stays a statement, so the mutation compiles for a reason rather than by luck
+    // (clause 1). The marker is the statement against the refusal that follows it, which the
+    // unmutated file does not hold — there the two are separated by the `.for("update")` line.
+    appliedMarkers: ['    .limit(1);\n\n  if (row?.status === "deactivated") {'],
+    mutate: () =>
+      substituteOnce(
+        DEACTIVATED_ACCOUNT,
+        '    .limit(1)\n    .for("update");',
+        "    .limit(1);",
+      ),
+    // Class A1-in: the guard throws inside the transaction the write would commit in, so the rollback
+    // is what leaves the row untouched. The detector is the refusal identity — the code the caller
+    // receives — and the race suite is the only place the interleaving exists: it holds the target's
+    // row in a second backend, lets the de-identification queue behind it, and only then submits the
+    // unsuspend. With the lock gone the unsuspend is not refused at all, which is the assertion that
+    // goes red first; the run's own end state, asserted after it, is red for the same reason.
+    detect: async () =>
+      fails(
+        "npx",
+        ["vitest", "run", RACE_TEST],
+        /× .*refuses an operator's unsuspend that arrives while the account is being de-identified/,
+      ),
+  },
   {
     name: "a de-identified account's sessions end where its status is read",
     klass: "D",

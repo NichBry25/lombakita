@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
 import {
@@ -32,6 +32,7 @@ import {
   recruiterVerificationSubmissions,
   sessions,
   teamInvitations,
+  teams,
   userEmailVerificationTokens,
   userPasswordCredentials,
   userPlatformRoles,
@@ -123,6 +124,8 @@ export type DeidentificationErrorCode =
   | "deidentify_confirmation_mismatch"
   | "deidentify_last_owner"
   | "deidentify_personal_institution_has_published_competition"
+  | "deidentify_team_captain"
+  | "deidentify_retry"
   | "deidentify_storage_unavailable"
   | "deidentify_rehearsal_failed"
   | "deidentify_storage_failed"
@@ -142,6 +145,13 @@ export class DeidentificationError extends Error {
 // reader of the trail must be able to tell "this account was de-identified" from "this account was
 // suspended", because only the first is irreversible.
 export const ACCOUNT_DEIDENTIFIED_EVENT = "account_deidentified";
+
+// The one sentence the action says when it cannot get a consistent view: a rollback it did not cause
+// (a deadlock or a serialization failure, both of which Postgres raises as a transient abort) and a
+// membership set that grew under it are the same answer to the operator — nothing was changed, and
+// running it again is the next step.
+export const DEIDENTIFY_RETRY_MESSAGE =
+  "Sedang ada perubahan lain pada akun atau institusi ini. Coba lagi.";
 
 export type DeidentifyAccountInput = {
   confirmUsername: string;
@@ -289,22 +299,26 @@ const findInstitutionsWhereTargetIsLastActiveOwner = async (
   return [...rows].map((row) => (row as { slug: string }).slug);
 };
 
-// The institutions whose active-owner count this target's de-identification can change: the
-// non-personal ones the target owns a share of. A personal institution is excluded because it
-// belongs to exactly one person and is suspended and scrubbed rather than counted.
-const findNonPersonalInstitutionsOwnedBy = async (
+// Every institution this target holds an ACTIVE membership of, whatever the role and personal ones
+// included.
+//
+// The width is the point. What the writing transaction has to serialize is the institution, because
+// every operation it can collide with — a demotion, a removal, another de-identification — is keyed
+// on the institution rather than on the role the target happens to hold there. Narrowing this to the
+// ones the target OWNS would leave a membership of any other role locked by nobody, and a personal
+// institution is a membership like any other: the target is its owner and it is the one institution
+// whose rows this action writes outside the count.
+const findInstitutionsWhereTargetIsActiveMember = async (
   tx: OperatorActorTransaction,
   accountId: string,
 ): Promise<string[]> => {
   const rows = await tx.execute(sql`
     select i.id
     from institutions i
-    where i.institution_type is distinct from 'personal'
-      and exists (
+    where exists (
         select 1 from institution_memberships mine
         where mine.institution_id = i.id
           and mine.user_id = ${accountId}
-          and mine.membership_role = 'institution_owner'
           and mine.status = 'active'
       )
     order by i.id
@@ -353,6 +367,26 @@ const assertNoPublishedPersonalCompetition = async (
       `Institusi pribadi akun ini masih punya kompetisi terbit: ${slugs.join(", ")}. Arsipkan atau batalkan dulu.`,
     );
   }
+};
+
+// How many teams this account is the captain of that are still being formed.
+//
+// `teams.captain_id` is the column that records the captain, and `teams.status` is what says whether
+// the team has been registered yet. A FORMING team is one whose captain has not taken it anywhere:
+// it holds no registration, so nothing in the write set below reaches it, and the team row survives
+// the account still naming a captain who can never sign in again and who can therefore never
+// register it or disband it. `submitted` and `cancelled` are the two states that do not refuse — a
+// submitted team's registration is in the write set, and a cancelled one is already dissolved.
+const countFormingTeamsCaptainedBy = async (
+  tx: OperatorActorTransaction,
+  accountId: string,
+): Promise<number> => {
+  const [row] = await tx
+    .select({ total: count() })
+    .from(teams)
+    .where(and(eq(teams.captainId, accountId), eq(teams.status, "forming")));
+
+  return row?.total ?? 0;
 };
 
 /**
@@ -431,6 +465,18 @@ const assertTargetIsEligible = async (
   const personalInstitutionId = personalInstitution?.institutionId ?? null;
 
   await assertNoPublishedPersonalCompetition(tx, personalInstitutionId);
+
+  // A team still being formed is a dependency on the target that the writes cannot resolve, so it
+  // has to be registered or disbanded before the account can go.
+  const formingTeams = await countFormingTeamsCaptainedBy(tx, accountId);
+
+  if (formingTeams > 0) {
+    throw new DeidentificationError(
+      "deidentify_team_captain",
+      409,
+      `Akun ini kapten dari ${formingTeams} tim yang masih dibentuk. Tim itu harus didaftarkan atau dibubarkan dulu.`,
+    );
+  }
 
   const registrations = await tx
     .select({
@@ -657,6 +703,22 @@ const runDeidentificationWrites = async (
     );
   }
 
+  // INSTITUTIONS FIRST, THEN THE ROW. The order is fixed for every writer, and both halves of it are
+  // load-bearing.
+  //
+  // The institution locks come first because they are what the operations this can collide with take
+  // first too, so two of them overlapping on institution sets queue in one order instead of each
+  // holding half of what the other wants.
+  //
+  // The set is read, locked, and then re-read under the row lock, because it is a predicate over
+  // other rows: an institution the target joins while this transaction waits on the row lock would
+  // otherwise be counted below while locked by nobody. A set that grew is refused rather than
+  // re-locked — taking the new locks here would be taking them out of order, which is the deadlock
+  // the ordering exists to prevent — and the refusal is safe because nothing has been written yet.
+  const lockedInstitutionIds = await findInstitutionsWhereTargetIsActiveMember(tx, accountId);
+
+  await lockInstitutionOwnership(tx, lockedInstitutionIds);
+
   // Held for the rest of the transaction: a concurrent run on the same account blocks here, and
   // when the lock releases it is refused by the eligibility re-check below, which reads the row this
   // transaction has by then deactivated. The conditional UPDATE on the flip is the backstop for a
@@ -664,10 +726,14 @@ const runDeidentificationWrites = async (
   // refused there instead.
   await tx.select({ id: users.id }).from(users).where(eq(users.id, accountId)).for("update");
 
-  // The last-owner refusal below is a count, and a count of OTHER rows is the one shape a single-row
-  // lock cannot serialize. Taken before the count, in this transaction, so a co-owner's
-  // de-identification or demotion either finished before this count or waits until after it.
-  await lockInstitutionOwnership(tx, await findNonPersonalInstitutionsOwnedBy(tx, accountId));
+  const currentInstitutionIds = await findInstitutionsWhereTargetIsActiveMember(tx, accountId);
+  const appearedWhileWaiting = currentInstitutionIds.some(
+    (institutionId) => !lockedInstitutionIds.includes(institutionId),
+  );
+
+  if (appearedWhileWaiting) {
+    throw new DeidentificationError("deidentify_retry", 503, DEIDENTIFY_RETRY_MESSAGE);
+  }
 
   // The pre-read's values are not reused: this transaction answers every question itself, from its
   // own handle and under its own lock. That covers the personal institution, which is resolved
@@ -707,18 +773,20 @@ const runDeidentificationWrites = async (
       .where(eq(competitionSubmissions.submittedById, accountId))
   ).map((row) => row.fileKey);
 
-  // The document-request objects under a TEAM registration the target captains, read before the rows
+  // The document-request objects under a TEAM registration the target holds, read before the rows
   // that name them are deleted and carried out for the same reason as the submission keys. Only the
   // team ones: a solo registration's prefix is listed by the storage stage, and naming its objects
   // here as well would delete and count the same object twice.
   //
   // THE REACH IS THE REGISTRATION, and that is the whole of what makes it safe. Every registration in
-  // `facts.registrations` is selected by `student_id`, so the target captains each of them; and
-  // attaching a file to a request is open to that account ALONE. `registration-document-service.ts`
-  // gates the presign and the finalize on `loadRequestForCandidate`, whose predicate is
-  // `eq(competitionRegistrations.studentId, userId)` (:254), and gates the candidate-side delete on
-  // the same predicate inline (:1119) — so a teammate under a team registration has neither uploaded
-  // there nor anything there to lose.
+  // `facts.registrations` is selected by `student_id`, so the target is the account it is held
+  // through — which is NOT the same claim as being the team's captain: `teams.captain_id` is the
+  // column that records the captain, and no read here consults it. What makes the reach safe is the
+  // second half: attaching a file to a request is open to the registration's own account ALONE.
+  // `registration-document-service.ts` gates the presign and the finalize on
+  // `loadRequestForCandidate`, whose predicate is `eq(competitionRegistrations.studentId, userId)`
+  // (:254), and gates the candidate-side delete on the same predicate inline (:1119) — so a teammate
+  // under a team registration has neither uploaded there nor anything there to lose.
   const captainTeamRegistrationIds = facts.registrations
     .filter((registration) => registration.teamId !== null)
     .map((registration) => registration.registrationId);
@@ -926,10 +994,20 @@ const runDeidentificationWrites = async (
       .returning({ id: teamInvitations.id }),
   );
 
+  // A note names exactly one target — the single-target check makes the two clauses disjoint — and
+  // the personal institution is the person's own shell, so a note filed against it is a note about
+  // the person and goes with the ones that name them outright.
   await deleteFrom("platform_ops_notes", () =>
     tx
       .delete(platformOpsNotes)
-      .where(eq(platformOpsNotes.targetUserId, accountId))
+      .where(
+        personalInstitutionId === null
+          ? eq(platformOpsNotes.targetUserId, accountId)
+          : or(
+              eq(platformOpsNotes.targetUserId, accountId),
+              eq(platformOpsNotes.targetInstitutionId, personalInstitutionId),
+            ),
+      )
       .returning({ id: platformOpsNotes.id }),
   );
 
@@ -1214,6 +1292,18 @@ const sqlStateOf = (error: unknown): string | null => {
   return typeof code === "string" ? code : null;
 };
 
+// Postgres aborts a transaction that loses a lock conflict, and both classes of abort are transient:
+// `40P01` is a deadlock detected and `40001` a serialization failure. Neither is a fault in this
+// service and neither leaves anything written — the abort IS the rollback — so the operator is told
+// to run it again rather than that the deletion failed.
+const TRANSIENT_TRANSACTION_SQLSTATES: readonly string[] = ["40P01", "40001"];
+
+const isTransientTransactionAbort = (error: unknown): boolean => {
+  const state = sqlStateOf(error);
+
+  return state !== null && TRANSIENT_TRANSACTION_SQLSTATES.includes(state);
+};
+
 /**
  * De-identify one account.
  *
@@ -1273,6 +1363,10 @@ export const deidentifyAccount = async (
       throw error;
     }
 
+    if (isTransientTransactionAbort(error)) {
+      throw new DeidentificationError("deidentify_retry", 503, DEIDENTIFY_RETRY_MESSAGE);
+    }
+
     logger.error("deidentify_rehearsal_failed", {
       code: sqlStateOf(error),
       constraint: constraintNameOf(error),
@@ -1324,6 +1418,10 @@ export const deidentifyAccount = async (
   } catch (error) {
     if (error instanceof DeidentificationError || error instanceof OperatorActorError) {
       throw error;
+    }
+
+    if (isTransientTransactionAbort(error)) {
+      throw new DeidentificationError("deidentify_retry", 503, DEIDENTIFY_RETRY_MESSAGE);
     }
 
     logger.error("deidentify_commit_failed", {

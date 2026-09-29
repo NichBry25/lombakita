@@ -39,7 +39,8 @@ export const assertAccountNotDeactivated = async (
     .select({ status: users.status })
     .from(users)
     .where(eq(users.id, userId))
-    .limit(1);
+    .limit(1)
+    .for("update");
 
   if (row?.status === "deactivated") {
     throw new Refusal(ACCOUNT_DEACTIVATED_CODE, 409, ACCOUNT_DEACTIVATED_MESSAGE);

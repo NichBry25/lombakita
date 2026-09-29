@@ -27,6 +27,7 @@ import {
 import { enqueueInstitutionInvitationDispatch } from "@/server/async/enqueue";
 import { markRecruiterSubmissionVouched } from "@/server/recruiter-verification/recruiter-verification-service";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
+import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
 
 assertServerOnly("server/institution-invitations/invitation-service");
 
@@ -241,6 +242,12 @@ export const acceptInstitutionInvitationForUser = async (
   db: Database = getDb(),
 ): Promise<void> => {
   await db.transaction(async (tx) => {
+    // The membership below is a row this account would gain. A de-identified account is a tombstone
+    // the person is no longer reachable through, so it is refused before anything is read or
+    // written, and refused whole: an invitation is not a reason to hand membership to an account
+    // whose data has been deleted.
+    await assertAccountNotDeactivated(tx, userId, InstitutionInvitationError);
+
     const [invitation] = await tx
       .select()
       .from(institutionInvitations)

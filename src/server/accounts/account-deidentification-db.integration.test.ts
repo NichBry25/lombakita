@@ -357,12 +357,15 @@ const buildFixture = async (tx: Tx): Promise<Fixture> => {
     },
   ]);
 
+  // The target captains this team, so its status decides whether the run is refused. `cancelled` is
+  // the state a team reaches when it is disbanded with no registration behind it, which is this
+  // team's shape — the run's own eligibility refusal is exercised on a `forming` team elsewhere.
   await tx.insert(teams).values({
     id: f.team,
     competitionId: f.competition,
     name: `Tim ${f.suffix}`,
     captainId: f.target,
-    status: "forming",
+    status: "cancelled",
   });
 
   await tx.insert(teamMemberships).values({
@@ -438,12 +441,22 @@ const buildFixture = async (tx: Tx): Promise<Fixture> => {
     contentType: "application/pdf",
   });
 
-  await tx.insert(platformOpsNotes).values({
-    id: randomUUID(),
-    targetUserId: f.target,
-    note: "Catatan operator tentang akun ini",
-    createdById: f.operator,
-  });
+  await tx.insert(platformOpsNotes).values([
+    {
+      id: randomUUID(),
+      targetUserId: f.target,
+      note: "Catatan operator tentang akun ini",
+      createdById: f.operator,
+    },
+    {
+      // The other half of the note rule: a note filed against the personal institution rather than
+      // against the person, which names them just as surely and goes with them.
+      id: randomUUID(),
+      targetInstitutionId: f.institution,
+      note: "Catatan operator tentang institusi personal akun ini",
+      createdById: f.operator,
+    },
+  ]);
 
   await tx.insert(institutionInvitations).values([
     {
@@ -671,12 +684,14 @@ const buildSharedRegistrationFixture = async (tx: Tx) => {
     createdByUserId: f.target,
   });
 
+  // `submitted`, not `forming`: the two registrations below are this team's, so it has gone past
+  // the stage where the target's de-identification is refused for captaining it.
   await tx.insert(teams).values({
     id: team,
     competitionId: competition,
     name: `Regu ${suffix}`,
     captainId: f.target,
-    status: "forming",
+    status: "submitted",
   });
 
   await tx.insert(teamMemberships).values([
@@ -1012,6 +1027,61 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
       });
     });
 
+    it("refuses 409 when the target captains teams that are still forming", async () => {
+      // Two, against a fixture whose own team is cancelled: the refusal counts them and puts the
+      // count in the message, so a check that found the cancelled team as well would say three.
+      await inRollback(async (tx) => {
+        const f = await buildFixture(tx);
+
+        await tx.insert(teams).values([
+          {
+            id: randomUUID(),
+            competitionId: f.competition,
+            name: `Forming A ${f.suffix}`,
+            captainId: f.target,
+            status: "forming",
+          },
+          {
+            id: randomUUID(),
+            competitionId: f.competition,
+            name: `Forming B ${f.suffix}`,
+            captainId: f.target,
+            status: "forming",
+          },
+        ]);
+
+        const error = await expectCode(
+          run(tx, f.operator, f.target, {
+            confirmUsername: f.targetUsername,
+            reason: "permintaan pemilik",
+          }),
+          "deidentify_team_captain",
+          409,
+        );
+
+        expect(error.message).toContain("dari 2 tim");
+        expect(r2.deleted).toEqual([]);
+      });
+    });
+
+    it.each(["submitted", "cancelled"] as const)(
+      "does not refuse for a team the target captains whose status is %s",
+      async (status) => {
+        await inRollback(async (tx) => {
+          const f = await buildFixture(tx);
+
+          await tx.update(teams).set({ status }).where(eq(teams.id, f.team));
+
+          const result = await run(tx, f.operator, f.target, {
+            confirmUsername: f.targetUsername,
+            reason: "permintaan pemilik",
+          });
+
+          expect(result.personalInstitutionId).toBe(f.institution);
+        });
+      },
+    );
+
     it("refuses 409 already-done for an account that is deactivated with no objects left", async () => {
       await inRollback(async (tx) => {
         const f = await buildFixture(tx);
@@ -1126,6 +1196,12 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
             0,
           );
         }
+
+        // The second platform_ops_notes clause, which the loop above cannot reach: a note that names
+        // the personal institution and carries no target_user_id at all.
+        expect(
+          await countRows(tx, "platform_ops_notes", "target_institution_id", f.institution),
+        ).toBe(0);
 
         // Both invitation rows went, and the second carried no targetUserId at all — it was
         // addressed by an address that resolves to the person.

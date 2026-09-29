@@ -8,14 +8,20 @@ import { addNote, editNote, listNotes, NOTE_EDITED_EVENT } from "./notes-service
 import type { Database } from "@/server/db/client";
 
 // The insert runs inside the transaction the deactivation guard opens, so the handle carries a
-// select as well: it is what the guard reads the target's status through. An empty result is a target
-// the guard finds nothing to refuse.
+// select as well: it is what the guard reads the target's status through, and the guard takes that
+// row with `.for("update")`. An empty result is a target the guard finds nothing to refuse.
 const makeInsertDb = () => {
   const values: Array<Record<string, unknown>> = [];
   const tx = {
     select: vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue([]) }),
+        where: vi.fn().mockReturnValue({
+          // Both shapes: the chain is awaited on its own somewhere and the guard appends `.for`.
+          limit: vi.fn().mockReturnValue({
+            for: vi.fn().mockResolvedValue([]),
+            then: (onFulfilled: (rows: unknown[]) => unknown) => Promise.resolve([]).then(onFulfilled),
+          }),
+        }),
       }),
     }),
     insert: vi.fn().mockReturnValue({

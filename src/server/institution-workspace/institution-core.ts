@@ -89,7 +89,11 @@ type InstitutionWorkspaceInputErrorCode =
   | "personal_institution_already_exists"
   // A full institution's slug shares one flat namespace with usernames; it may not take a slug an
   // existing user's username already occupies.
-  | "institution_slug_conflicts_with_username";
+  | "institution_slug_conflicts_with_username"
+  // Thrown by the shared de-identified-account guard, not by this module: creating an institution
+  // gives the account an owner membership in it, and an account whose data has been deleted is not
+  // one an institution can be created for.
+  | "account_deactivated";
 
 export class InstitutionWorkspaceInputError extends Error {
   constructor(

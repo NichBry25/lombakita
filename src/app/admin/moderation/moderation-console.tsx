@@ -261,10 +261,10 @@ function ActionForm({
 // this is a client component.
 const ELEVATION_TARGET_TIER = "elevated";
 
-// Every refusal of the de-identification action that has one fixed sentence. The two codes absent
-// from this map are the ones that name the institutions or competitions still standing in the way:
-// only the server knows those, and its message already has them substituted, so it is shown as it
-// arrives.
+// Every refusal of the de-identification action that has one fixed sentence. The codes absent from
+// this map are the ones that count or name the institutions, teams or competitions still standing in
+// the way: only the server knows those, and its message already has them substituted, so it is shown
+// as it arrives.
 const DEIDENTIFY_ERROR_COPY: Record<string, string> = {
   deidentify_reason_required: "Alasan wajib diisi.",
   deidentify_confirmation_mismatch: "Nama pengguna konfirmasi tidak cocok.",
@@ -275,10 +275,12 @@ const DEIDENTIFY_ERROR_COPY: Record<string, string> = {
   deidentify_storage_failed: "Sebagian berkas gagal dihapus. Jalankan lagi untuk menyelesaikan.",
   deidentify_rehearsal_failed:
     "Penghapusan tidak dapat diproses. Tidak ada data yang diubah. Laporkan ke tim teknis.",
+  deidentify_retry: "Sedang ada perubahan lain pada akun atau institusi ini. Coba lagi.",
 };
 
 const DEIDENTIFY_SERVER_MESSAGE_CODES = [
   "deidentify_last_owner",
+  "deidentify_team_captain",
   "deidentify_personal_institution_has_published_competition",
 ];
 

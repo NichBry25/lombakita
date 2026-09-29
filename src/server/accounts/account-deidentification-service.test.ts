@@ -1,7 +1,8 @@
 // @vitest-environment node
 //
 // The parts of the de-identification service that decide something without a database: the body
-// shape the route admits, and the exact set of storage prefixes the action deletes under.
+// shape the route admits, the exact set of storage prefixes the action deletes under, and the order
+// the writing transaction takes its two locks in.
 //
 // The storage list is asserted here rather than only through the integration suite because the one
 // claim that matters most about it is a claim about ABSENCE — `payment-proofs/` must never appear —
@@ -9,6 +10,8 @@
 // entry. Everything below names a literal prefix, so an edit that changes one is a failure here and
 // not a deletion that reached further than it was told to.
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DeidentificationError,
@@ -19,6 +22,21 @@ import {
 
 const USER = "user-1";
 const INSTITUTION = "inst-1";
+
+const SERVICE = "src/server/accounts/account-deidentification-service.ts";
+
+/**
+ * The service's source with its comments removed.
+ *
+ * Comments are stripped because the ordering asserted below is EXPLAINED in prose in the file, and
+ * prose naming both calls satisfies a whole-file scan for them — a scan that reads comments measures
+ * the explanation rather than the code.
+ */
+const readServiceCode = (): string =>
+  readFileSync(resolve(process.cwd(), SERVICE), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/^\s*\/\/.*$/gm, " ")
+    .replace(/\s*\n\s*/g, " ");
 
 describe("parseDeidentifyInput", () => {
   it("accepts an object carrying both strings", () => {
@@ -172,5 +190,36 @@ describe("deidentificationObjectPrefixes", () => {
     for (const prefix of prefixes) {
       expect(prefix, `${prefix} still carries a placeholder`).not.toMatch(/[{}]/);
     }
+  });
+});
+
+// THE ORDER OF TWO LOCK CALLS, WHICH NO RUN OF THIS SUITE CAN OBSERVE.
+//
+// The action takes the institution's owner-membership lock and the target's row, and the harm this
+// asserts against is a MOVE rather than a removal: both calls present, both doing their job, and a
+// writer that takes them in the other order can end up holding one while waiting for the other. That
+// is a deadlock between two writers, so it needs two writers to happen at all — and a race test
+// cannot be made to produce it on demand, because the failure needs an interleaving the test cannot
+// schedule. What the move is, exactly, is a change of position in the source, so the position is
+// what is asserted.
+describe("the order the writing transaction takes its locks in", () => {
+  it("takes the institution's owner-membership lock before the target's row", () => {
+    const source = readServiceCode();
+
+    const institutionLockAt = source.indexOf("await lockInstitutionOwnership(tx, lockedInstitutionIds);");
+    const rowLockAt = source.indexOf('.for("update");');
+
+    // Both ends asserted before the comparison: a rename that left either identifier absent would
+    // otherwise be measured as -1, which is smaller than any index and passes as the right order.
+    expect(institutionLockAt, "no owner-membership lock in the writing transaction").toBeGreaterThan(
+      -1,
+    );
+    expect(rowLockAt, "no row lock in the writing transaction").toBeGreaterThan(-1);
+
+    expect(
+      institutionLockAt,
+      "the writing transaction takes the target's row before the institution's owner-membership " +
+        "lock: two writers can then hold one lock each and wait for the other",
+    ).toBeLessThan(rowLockAt);
   });
 });

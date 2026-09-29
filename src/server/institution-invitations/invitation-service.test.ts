@@ -41,7 +41,12 @@ const baseInvitation = (
 });
 
 // Sequential select results feed `limit()` in call order; update().set().where() resolves to [].
-const makeTx = (selectResults: unknown[][]) => {
+//
+// The first read in the acceptance transaction is the de-identified-account guard, so its row is
+// answered here rather than at every call site: `active` unless a test passes the second argument.
+// What `.limit` returns is both awaitable and carries the `.for("update")` the guard calls.
+const makeTx = (selectResults: unknown[][], deactivatedStatus: "active" | "deactivated" = "active") => {
+  const results: unknown[][] = [[{ status: deactivatedStatus }], ...selectResults];
   let callIndex = 0;
   return {
     select: vi.fn().mockReturnThis(),
@@ -49,9 +54,13 @@ const makeTx = (selectResults: unknown[][]) => {
     where: vi.fn().mockReturnThis(),
     innerJoin: vi.fn().mockReturnThis(),
     limit: vi.fn().mockImplementation(() => {
-      const result = selectResults[callIndex] ?? [];
+      const result = results[callIndex] ?? [];
       callIndex++;
-      return Promise.resolve(result);
+      return {
+        for: vi.fn().mockResolvedValue(result),
+        then: (onFulfilled: (rows: unknown[]) => unknown) =>
+          Promise.resolve(result).then(onFulfilled),
+      };
     }),
     update: vi.fn().mockReturnThis(),
     set: vi.fn().mockReturnThis(),
@@ -125,6 +134,24 @@ describe("acceptInstitutionInvitationForUser — session-id match", () => {
         makeDb(tx) as never,
       ),
     ).rejects.toMatchObject({ code: "invitation_not_actionable", httpStatus: 410 });
+    expect(tx.insert).not.toHaveBeenCalled();
+  });
+
+  it("refuses a de-identified account with 409 account_deactivated, before it reads the invitation", async () => {
+    // Acceptance hands this account a membership, so a tombstone is refused whole rather than
+    // refused at the membership write. The one read the run made is the guard's own — asserted by
+    // count, because a guard that ran after the invitation read would refuse for the same reason
+    // while the run had already read a row it should never have touched.
+    const tx = makeTx([[baseInvitation()], []], "deactivated");
+    await expect(
+      acceptInstitutionInvitationForUser(
+        INVITATION_ID,
+        TARGET_USER,
+        ["recruiter"],
+        makeDb(tx) as never,
+      ),
+    ).rejects.toMatchObject({ code: "account_deactivated", httpStatus: 409 });
+    expect(tx.limit).toHaveBeenCalledTimes(1);
     expect(tx.insert).not.toHaveBeenCalled();
   });
 });

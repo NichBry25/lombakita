@@ -256,10 +256,10 @@ describe("de-identifying an account", () => {
 // THE REFUSAL TABLE.
 //
 // `message` is the server's own prose packed into the error envelope. It is deliberately NOT equal to
-// the expected toast on the eight codes that have fixed copy: a row that sent the sentence it then
+// the expected toast on the nine codes that have fixed copy: a row that sent the sentence it then
 // asserts would pass against a console that echoed whatever arrived, which is the behaviour the map
-// exists to replace. The two institution codes are the exception and are marked as such — their copy
-// carries slugs only the server knows, so its message IS the toast.
+// exists to replace. The three codes that count or name something are the exception and are marked as
+// such — their copy carries slugs only the server knows, so its message IS the toast.
 const DEIDENTIFY_REFUSALS: {
   code: string;
   status: number;
@@ -328,12 +328,27 @@ const DEIDENTIFY_REFUSALS: {
     toast: "Penghapusan tidak dapat diproses. Tidak ada data yang diubah. Laporkan ke tim teknis.",
   },
   {
+    code: "deidentify_retry",
+    status: 503,
+    message: "40P01 deadlock detected",
+    toast: "Sedang ada perubahan lain pada akun atau institusi ini. Coba lagi.",
+  },
+  {
     code: "deidentify_last_owner",
     status: 409,
     message:
       "Akun ini pemilik terakhir institusi: seed-academy, lk-univ. Pindahkan kepemilikan terlebih dahulu.",
     toast:
       "Akun ini pemilik terakhir institusi: seed-academy, lk-univ. Pindahkan kepemilikan terlebih dahulu.",
+    fromServerMessage: true,
+  },
+  {
+    code: "deidentify_team_captain",
+    status: 409,
+    message:
+      "Akun ini kapten dari 2 tim yang masih dibentuk. Tim itu harus didaftarkan atau dibubarkan dulu.",
+    toast:
+      "Akun ini kapten dari 2 tim yang masih dibentuk. Tim itu harus didaftarkan atau dibubarkan dulu.",
     fromServerMessage: true,
   },
   {

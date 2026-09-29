@@ -5,6 +5,7 @@ import type { AppRole } from "@/lib/access/roles";
 import { logger } from "@/lib/logger";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { countActiveOwners } from "@/server/institution-members/owner-count";
+import { lockInstitutionOwnership } from "@/server/institution-members/owner-membership-lock";
 import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
 import {
   assertReasonProvided,
@@ -203,6 +204,12 @@ export const reinstateInstitution = async (
 
   const now = new Date();
   await db.transaction(async (tx) => {
+    // Taken before the count below, because that count is a count of OTHER rows: a de-identification
+    // revoking the institution's last owner membership and this reinstatement reading the count are
+    // two transactions changing different rows, and neither snapshot sees the other's uncommitted
+    // work. With nothing keyed on the institution each counts an owner the other is about to remove.
+    await lockInstitutionOwnership(tx, [targetInstitutionId]);
+
     // Reinstating an institution nobody owns restores operations no one can perform. Every owner
     // membership of a de-identified account is revoked, so this is the state the de-identification
     // action leaves a shared institution in when the last owner was the target.
