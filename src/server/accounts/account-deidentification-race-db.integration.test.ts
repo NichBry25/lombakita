@@ -55,6 +55,8 @@ vi.mock("@/server/storage/r2.client", () => ({
 }));
 
 import { deidentifyAccount, DeidentificationError } from "./account-deidentification-service";
+import { changeMemberRole } from "@/server/institution-members/member-service";
+import { MemberError } from "@/server/institution-members/member-core";
 
 /**
  * Every row this file creates carries this marker in an institution slug or a username, and the
@@ -327,5 +329,312 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount under concurrency", () =
       where target_user_id = ${target} and event_type = 'account_deidentified'`;
 
     expect(audit[0]!.n, "the losing racer wrote an audit row of its own").toBe(1);
+  }, 60_000);
+
+  /**
+   * The owner count is a count of OTHER rows, so the row lock above cannot serialize it: two
+   * transactions that each revoke a different co-owner's membership never touch the same row. What
+   * serializes them is the institution-keyed advisory lock
+   * (`@/server/institution-members/owner-membership-lock`), and these two tests are what makes it
+   * observable.
+   *
+   * THE BARRIER TAKES THAT LOCK'S KEY ITSELF. It has to: an advisory lock cannot be released
+   * transaction-scoped and re-taken, and the property under test is that a racer STOPS at the lock —
+   * before the count it protects. A racer parked on the advisory lock is that observation; a racer
+   * that runs past it is the defect, and it is the same defect whether the call was removed or moved.
+   */
+  const OWNER_MEMBERSHIP_LOCK_NAMESPACE = "inst_owner_membership:";
+
+  const parkOnOwnerMembershipLock = async (
+    institutionId: string,
+    launch: () => Promise<PromiseSettledResult<unknown>[]>,
+  ): Promise<PromiseSettledResult<unknown>[]> => {
+    const barrierPid = await backendPidOf(barrier);
+    let race: Promise<PromiseSettledResult<unknown>[]> | undefined;
+
+    await barrier.sql.begin(async (tx) => {
+      await tx.unsafe(`select pg_advisory_xact_lock(hashtext($1))`, [
+        `${OWNER_MEMBERSHIP_LOCK_NAMESPACE}${institutionId}`,
+      ]);
+
+      const racerPids = [await backendPidOf(racerOne), await backendPidOf(racerTwo)];
+
+      race = launch();
+
+      // PARKED means blocked, transitively, by the barrier's own backend. A racer that never takes
+      // the lock runs straight past it and is never blocked at all, so this poll running out is the
+      // failure that names the missing call.
+      const deadline = Date.now() + BARRIER_TIMEOUT_MS;
+      let blockers: number[][] = [];
+
+      while (Date.now() < deadline) {
+        blockers = await Promise.all(racerPids.map((pid) => transitiveBlockersOf(control, pid)));
+
+        if (blockers.every((chain) => chain.includes(barrierPid))) break;
+
+        await sleep(BARRIER_POLL_MS);
+      }
+
+      blockers = await Promise.all(racerPids.map((pid) => transitiveBlockersOf(control, pid)));
+
+      for (const [index, chain] of blockers.entries()) {
+        expect(
+          chain,
+          `racer ${index + 1} never parked on the institution's owner-membership lock: the operation ` +
+            `is not taking it, or is taking it after the owner count it protects`,
+        ).toContain(barrierPid);
+      }
+
+      // WHICH STATEMENT IS BLOCKED, not merely that one is — the same distinction the row-lock test
+      // above had to make, and for the same reason: a racer blocked anywhere downstream of the
+      // barrier still reports it, so only the parked statement itself says the racer stopped AT the
+      // lock rather than after the count.
+      const parkedStatements = await control.sql<{ pid: number; query: string | null }[]>`
+        select pid, query from pg_stat_activity where pid = any(${racerPids})`;
+
+      for (const row of parkedStatements) {
+        expect(
+          row.query ?? "",
+          `a racer is parked on \`${row.query}\` rather than on the institution's owner-membership ` +
+            `lock: the operation is not taking it before the owner count it protects`,
+        ).toMatch(/pg_advisory_xact_lock/);
+      }
+
+      // The de-identification deletes objects between its rehearsal and its commit, so a racer parked
+      // in its rehearsal cannot have deleted anything yet — a claim the barrier makes observable
+      // rather than merely stated.
+      expect(r2.deleted, "a racer deleted objects before the lock it should be parked on").toEqual(
+        [],
+      );
+    });
+
+    return race!;
+  };
+
+  it("lets exactly one of two co-owners be de-identified, and refuses the other", async () => {
+    const suffix = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+    const operator = randomUUID();
+    const ownerOne = randomUUID();
+    const ownerTwo = randomUUID();
+    const institution = randomUUID();
+    const ownerOneUsername = `${MARKER}_one_${suffix}`;
+    const ownerTwoUsername = `${MARKER}_two_${suffix}`;
+
+    await control.db.insert(schema.users).values([
+      {
+        id: operator,
+        email: `${MARKER}-ops2-${suffix}@example.test`,
+        username: `${MARKER}_ops2_${suffix}`,
+        name: "Race Operator",
+        role: "platform_ops",
+        candidateVerifiedAt: new Date(),
+      },
+      {
+        id: ownerOne,
+        email: `${MARKER}-one-${suffix}@example.test`,
+        username: ownerOneUsername,
+        name: "Owner One",
+        candidateVerifiedAt: new Date(),
+      },
+      {
+        id: ownerTwo,
+        email: `${MARKER}-two-${suffix}@example.test`,
+        username: ownerTwoUsername,
+        name: "Owner Two",
+        candidateVerifiedAt: new Date(),
+      },
+    ]);
+
+    // Two owners and nobody else: each of them is the last owner only if the other's membership is
+    // gone, which is exactly the state the missing lock makes reachable.
+    await control.db.insert(schema.institutions).values({
+      id: institution,
+      slug: `${MARKER}-${suffix}`,
+      institutionType: "company",
+      displayName: "Race Institution",
+      status: "active",
+    });
+
+    await control.db.insert(schema.institutionMemberships).values([
+      {
+        id: randomUUID(),
+        institutionId: institution,
+        userId: ownerOne,
+        membershipRole: "institution_owner",
+        status: "active",
+      },
+      {
+        id: randomUUID(),
+        institutionId: institution,
+        userId: ownerTwo,
+        membershipRole: "institution_owner",
+        status: "active",
+      },
+    ]);
+
+    r2.objects = [`avatars/${ownerOne}/a.jpg`, `avatars/${ownerTwo}/a.jpg`];
+    r2.deleted = [];
+
+    const results = await parkOnOwnerMembershipLock(institution, () =>
+      Promise.allSettled([
+        deidentifyAccount(
+          operator,
+          ownerOne,
+          { confirmUsername: ownerOneUsername, reason: "permintaan pemilik" },
+          racerOne.db,
+        ),
+        deidentifyAccount(
+          operator,
+          ownerTwo,
+          { confirmUsername: ownerTwoUsername, reason: "permintaan pemilik" },
+          racerTwo.db,
+        ),
+      ]),
+    );
+
+    const fulfilled = results.filter((result) => result.status === "fulfilled");
+    const rejected = results.filter((result) => result.status === "rejected");
+
+    expect(fulfilled.length).toBe(1);
+    expect(rejected.length).toBe(1);
+
+    const refusal = (rejected[0] as PromiseRejectedResult).reason;
+
+    expect(refusal).toBeInstanceOf(DeidentificationError);
+    expect((refusal as DeidentificationError).code).toBe("deidentify_last_owner");
+    expect((refusal as DeidentificationError).status).toBe(409);
+
+    const owners = await control.sql<{ n: number }[]>`
+      select count(*)::int as n from institution_memberships
+      where institution_id = ${institution}
+        and membership_role = 'institution_owner'
+        and status = 'active'`;
+
+    expect(owners[0]!.n, "the institution was left with no active owner").toBe(1);
+  }, 60_000);
+
+  it("refuses whichever of a de-identification and a demotion would leave the institution ownerless", async () => {
+    const suffix = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+    const operator = randomUUID();
+    const ownerOne = randomUUID();
+    const ownerTwo = randomUUID();
+    const staff = randomUUID();
+    const institution = randomUUID();
+    const slug = `${MARKER}-both-${suffix}`;
+    const ownerOneUsername = `${MARKER}_both1_${suffix}`;
+    const ownerTwoMembership = randomUUID();
+
+    await control.db.insert(schema.users).values([
+      {
+        id: operator,
+        email: `${MARKER}-ops3-${suffix}@example.test`,
+        username: `${MARKER}_ops3_${suffix}`,
+        name: "Race Operator",
+        role: "platform_ops",
+        candidateVerifiedAt: new Date(),
+      },
+      {
+        id: ownerOne,
+        email: `${MARKER}-both1-${suffix}@example.test`,
+        username: ownerOneUsername,
+        name: "Owner One",
+        candidateVerifiedAt: new Date(),
+        recruiterVerifiedAt: new Date(),
+        recruiterVerificationTier: "minimal",
+      },
+      {
+        id: ownerTwo,
+        email: `${MARKER}-both2-${suffix}@example.test`,
+        username: `${MARKER}_both2_${suffix}`,
+        name: "Owner Two",
+        candidateVerifiedAt: new Date(),
+        recruiterVerifiedAt: new Date(),
+        recruiterVerificationTier: "minimal",
+      },
+      {
+        id: staff,
+        email: `${MARKER}-staff-${suffix}@example.test`,
+        username: `${MARKER}_staff_${suffix}`,
+        name: "Staff",
+        candidateVerifiedAt: new Date(),
+        recruiterVerifiedAt: new Date(),
+        recruiterVerificationTier: "minimal",
+      },
+    ]);
+
+    await control.db.insert(schema.institutions).values({
+      id: institution,
+      slug,
+      institutionType: "company",
+      displayName: "Race Institution",
+      status: "active",
+    });
+
+    await control.db.insert(schema.institutionMemberships).values([
+      {
+        id: randomUUID(),
+        institutionId: institution,
+        userId: ownerOne,
+        membershipRole: "institution_owner",
+        status: "active",
+      },
+      {
+        id: ownerTwoMembership,
+        institutionId: institution,
+        userId: ownerTwo,
+        membershipRole: "institution_owner",
+        status: "active",
+      },
+      {
+        id: randomUUID(),
+        institutionId: institution,
+        userId: staff,
+        membershipRole: "institution_staff",
+        status: "active",
+      },
+    ]);
+
+    r2.objects = [`avatars/${ownerOne}/a.jpg`];
+    r2.deleted = [];
+
+    const results = await parkOnOwnerMembershipLock(institution, () =>
+      Promise.allSettled([
+        deidentifyAccount(
+          operator,
+          ownerOne,
+          { confirmUsername: ownerOneUsername, reason: "permintaan pemilik" },
+          racerOne.db,
+        ),
+        changeMemberRole(staff, slug, ownerTwoMembership, "institution_staff", racerTwo.db),
+      ]),
+    );
+
+    const fulfilled = results.filter((result) => result.status === "fulfilled");
+    const rejected = results
+      .filter((result) => result.status === "rejected")
+      .map((result) => (result as PromiseRejectedResult).reason);
+
+    // WHICH operation loses is a coin toss and the test does not pretend otherwise: the advisory lock
+    // orders the two, and either order leaves the other one looking at a single remaining owner. What
+    // is not a coin toss is that exactly one of them is refused, by the code it already had, and that
+    // the institution still has an owner afterwards.
+    expect(fulfilled.length).toBe(1);
+    expect(rejected.length).toBe(1);
+
+    const refusal = rejected[0];
+
+    expect(
+      (refusal instanceof DeidentificationError && refusal.code === "deidentify_last_owner") ||
+        (refusal instanceof MemberError && refusal.code === "last_owner_demotion_forbidden"),
+      `the losing operation was refused for the wrong reason: ${String(refusal)}`,
+    ).toBe(true);
+
+    const owners = await control.sql<{ n: number }[]>`
+      select count(*)::int as n from institution_memberships
+      where institution_id = ${institution}
+        and membership_role = 'institution_owner'
+        and status = 'active'`;
+
+    expect(owners[0]!.n, "the institution was left with no active owner").toBe(1);
   }, 60_000);
 });

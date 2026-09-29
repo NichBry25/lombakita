@@ -21,13 +21,12 @@
  * mutation changes is the CONTENT of the value the lookup produces, which is exactly what the
  * detector reads.
  *
- * WHAT IS NOT PROBED, AND WHY. The owner-count lock — the concurrency guard that would stop two
- * co-owners of one institution de-identifying concurrently — is not probed because it does not
- * exist. The ownership code takes no advisory lock keyed on an institution when an owner membership
- * changes; the four advisory locks in this repository are keyed on a registration, a competition, an
- * institution-verification submission and a user's owned-institution count. There is no lock to
- * remove, so there is no probe to write, and a probe reporting otherwise would be reporting a
- * property the code does not have. It is recorded here rather than fabricated into a green.
+ * THE OWNER-COUNT LOCK IS PROBED FROM HERE. The lock that stops two co-owners of one institution
+ * changing its ownership concurrently now exists —
+ * `@/server/institution-members/owner-membership-lock`, keyed `inst_owner_membership:{institutionId}`
+ * — and this file carries the half of it that lives in `member-service.ts`. The de-identification's
+ * own call to it is probed in `deidentification-guards.mjs`; both probes name the same race suite,
+ * because the harm is the one state and either call alone can fail to prevent it.
  *
  * The deactivated guard itself is applied to every operator write that names a target user, and only
  * the `unsuspendUser` call site is probed: the guard is ONE function called from many places, so a
@@ -44,6 +43,8 @@ const AUTH_CONFIG = "src/server/auth/auth.config.ts";
 const AUTH_TEST = "src/server/auth/auth-config-suspension.test.ts";
 const MODERATION_SERVICE = "src/server/moderation/moderation-service.ts";
 const MODERATION_TEST = "src/server/moderation/moderation-service.test.ts";
+const MEMBER_SERVICE = "src/server/institution-members/member-service.ts";
+const RACE_TEST = "src/server/accounts/account-deidentification-race-db.integration.test.ts";
 
 export const probes = [
   {
@@ -183,12 +184,54 @@ export const probes = [
         /× .*refuses with 409 institution_has_no_owner when no active owner remains/,
       ),
   },
+  {
+    name: "a demotion takes the institution's owner-membership lock before it counts owners",
+    klass: "B",
+    harmfulMove:
+      "a demotion of one co-owner running against a de-identification of the other. Both refuse on a " +
+      "count of the institution's active owner rows and both change a DIFFERENT one of those rows, so " +
+      "with nothing keyed on the institution each counts the other's still-active membership, both " +
+      "pass, and the institution is left with no owner — the state the reinstatement refusal above " +
+      "exists to detect, reached by the two operations that should have prevented it",
+    files: [MEMBER_SERVICE],
+    // The lock call and its comment removed together, so the transaction opens directly against the
+    // target read. The marker is that adjacency, and it exists only after the mutation: the
+    // unmutated file holds the lock comment and the call in the gap. `recruiterVerifiedAt` is what
+    // makes the marker this function's rather than `removeMember`'s, which opens identically.
+    appliedMarkers: ["  await db.transaction(async (tx) => {\n    const [target] = await tx"],
+    mutate: () =>
+      substituteOnce(
+        MEMBER_SERVICE,
+        [
+          "  await db.transaction(async (tx) => {",
+          "    // Taken before the target read so the whole transaction, including the owner count below, sees",
+          "    // one consistent set of memberships: a demotion and a concurrent de-identification of a",
+          "    // co-owner each count the other's row, and counting a row the other transaction is about to",
+          "    // change is how an institution ends up with no owner at all.",
+          "    await lockInstitutionOwnership(tx, [institutionId]);",
+          "",
+          "    const [target] = await tx",
+        ].join("\n"),
+        ["  await db.transaction(async (tx) => {", "    const [target] = await tx"].join("\n"),
+      ),
+    // Class B: the lock stands in front of the count inside the same transaction, so the read is the
+    // post-state the two operations leave. The race suite reads the parked backend's own statement
+    // from `pg_stat_activity`, which is what tells a racer queued AT this lock from one that ran past
+    // it, and then the owner count the institution is left with.
+    detect: async () =>
+      fails(
+        "npx",
+        ["vitest", "run", RACE_TEST],
+        /never parked on the institution's owner-membership lock/,
+      ),
+  },
 ];
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   requireGreenBeforeProbing("deactivated-account-guards", [
     ["npx", ["vitest", "run", AUTH_TEST]],
     ["npx", ["vitest", "run", MODERATION_TEST]],
+    ["npx", ["vitest", "run", RACE_TEST]],
   ]);
   await runProbes(probes);
 }

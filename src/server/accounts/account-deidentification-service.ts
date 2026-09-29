@@ -59,6 +59,7 @@ import {
   R2_PREFIX_VERIFICATION,
 } from "@/server/storage/r2-key-prefixes";
 import { findOwnedPersonalInstitution } from "@/server/institution-workspace/institution-service";
+import { lockInstitutionOwnership } from "@/server/institution-members/owner-membership-lock";
 import {
   DEIDENTIFIED_DISPLAY_NAME,
   DEIDENTIFIED_INSTITUTION_NAME,
@@ -199,7 +200,8 @@ export const parseDeidentifyInput = (payload: unknown): DeidentifyAccountInput =
  *
  * A registration with a team is one other people also hold, and the rows hanging off it are not
  * all the target's: a teammate's submission under this registration is theirs. Only the target's
- * own rows are touched there, and `deidentificationObjectPrefixes` lists no prefix for it.
+ * own rows are touched there, and `deidentificationObjectPrefixes` lists no prefix for it — the
+ * objects it does own are named by key from those rows.
  */
 type TargetRegistration = {
   registrationId: string;
@@ -224,6 +226,10 @@ type WriteOutcome = {
   // same reason as the registrations: the store is cleaned after the transaction closes, and the
   // rows that named these objects no longer do.
   submissionKeys: string[];
+  // The same, for the document-request files this run deleted under a registration the target
+  // CAPTAINS — a registration the action keeps out of the prefix list, so its objects have to be
+  // named individually.
+  documentKeys: string[];
   // The QRIS objects a finance snapshot still quotes, which the storage stage must not remove.
   retainedKeys: string[];
 };
@@ -281,6 +287,30 @@ const findInstitutionsWhereTargetIsLastActiveOwner = async (
   `);
 
   return [...rows].map((row) => (row as { slug: string }).slug);
+};
+
+// The institutions whose active-owner count this target's de-identification can change: the
+// non-personal ones the target owns a share of. A personal institution is excluded because it
+// belongs to exactly one person and is suspended and scrubbed rather than counted.
+const findNonPersonalInstitutionsOwnedBy = async (
+  tx: OperatorActorTransaction,
+  accountId: string,
+): Promise<string[]> => {
+  const rows = await tx.execute(sql`
+    select i.id
+    from institutions i
+    where i.institution_type is distinct from 'personal'
+      and exists (
+        select 1 from institution_memberships mine
+        where mine.institution_id = i.id
+          and mine.user_id = ${accountId}
+          and mine.membership_role = 'institution_owner'
+          and mine.status = 'active'
+      )
+    order by i.id
+  `);
+
+  return [...rows].map((row) => (row as { id: string }).id);
 };
 
 const assertNotLastActiveOwner = async (
@@ -458,6 +488,10 @@ const prefixUpTo = (template: string, placeholder: string): string => {
  * which reaches exactly the rows the target's own uploader id is on, under a team registration
  * included.
  *
+ * `registration-documents/` under a TEAM registration is absent for the reason the submission prefix
+ * is: its objects are named by key from the rows the writing transaction removes, not listed here.
+ * The rows themselves are removed for every registration the target captains, team or solo.
+ *
  * `payment-proofs/` is absent for a different reason and must also stay absent. Those objects sit
  * behind rows DEC-0133 forbids deleting — the ledger is append-only and a payment proof is evidence
  * — so removing the image would leave an immutable row pointing at nothing.
@@ -476,10 +510,9 @@ export const deidentificationObjectPrefixes = (target: {
   ];
 
   for (const registration of target.registrations) {
-    // Only a registration the target holds alone. A requested document is uploaded by whichever
-    // member answered the request, and `competition_document_request_files` records no uploader —
-    // so under a team registration there is nothing in the row or in the key that distinguishes the
-    // target's file from a teammate's. Listing the prefix there would delete the teammate's.
+    // Only a registration the target holds alone, because a team registration's document-request
+    // objects are deleted by KEY instead — the transaction reads them off the rows it removes, and
+    // naming the same objects here as well would delete and count them twice.
     if (registration.teamId !== null) {
       continue;
     }
@@ -519,10 +552,12 @@ class StorageDeletionFailure extends Error {
 /**
  * Delete the objects this action owns, counting as it goes.
  *
- * TWO REACHES, ONE STAGE. `prefixes` is every scope the target holds alone; `keys` are the rows the
- * writing transaction named outright, which is how a submission is reached — its prefix is scoped by
- * registration, and under a team registration that scope is shared. `retainedKeys` is subtracted
- * from the prefixes because a surviving ledger row still points at those objects.
+ * TWO REACHES, ONE STAGE. `prefixes` is every scope the target holds alone; `keys` are the objects
+ * the writing transaction named outright. A submission is reached the second way because its prefix
+ * is scoped by registration and a team's entry files all sit under the same one; a team
+ * registration's document-request files are reached the second way because the transaction already
+ * holds the rows that name them. `retainedKeys` is subtracted from the prefixes because a surviving
+ * ledger row still points at those objects.
  *
  * One function rather than two so that there is ONE count. `StorageDeletionFailure` carries how many
  * objects are already gone, and two call sites would report only the failing half: an operator told
@@ -629,6 +664,11 @@ const runDeidentificationWrites = async (
   // refused there instead.
   await tx.select({ id: users.id }).from(users).where(eq(users.id, accountId)).for("update");
 
+  // The last-owner refusal below is a count, and a count of OTHER rows is the one shape a single-row
+  // lock cannot serialize. Taken before the count, in this transaction, so a co-owner's
+  // de-identification or demotion either finished before this count or waits until after it.
+  await lockInstitutionOwnership(tx, await findNonPersonalInstitutionsOwnedBy(tx, accountId));
+
   // The pre-read's values are not reused: this transaction answers every question itself, from its
   // own handle and under its own lock. That covers the personal institution, which is resolved
   // here rather than handed in — an upgrade or a revocation between the two stages would otherwise
@@ -666,6 +706,42 @@ const runDeidentificationWrites = async (
       .from(competitionSubmissions)
       .where(eq(competitionSubmissions.submittedById, accountId))
   ).map((row) => row.fileKey);
+
+  // The document-request objects under a TEAM registration the target captains, read before the rows
+  // that name them are deleted and carried out for the same reason as the submission keys. Only the
+  // team ones: a solo registration's prefix is listed by the storage stage, and naming its objects
+  // here as well would delete and count the same object twice.
+  //
+  // THE REACH IS THE REGISTRATION, and that is the whole of what makes it safe. Every registration in
+  // `facts.registrations` is selected by `student_id`, so the target captains each of them; and
+  // attaching a file to a request is open to that account ALONE. `registration-document-service.ts`
+  // gates the presign and the finalize on `loadRequestForCandidate`, whose predicate is
+  // `eq(competitionRegistrations.studentId, userId)` (:254), and gates the candidate-side delete on
+  // the same predicate inline (:1119) — so a teammate under a team registration has neither uploaded
+  // there nor anything there to lose.
+  const captainTeamRegistrationIds = facts.registrations
+    .filter((registration) => registration.teamId !== null)
+    .map((registration) => registration.registrationId);
+
+  const documentKeys =
+    captainTeamRegistrationIds.length === 0
+      ? []
+      : (
+          await tx
+            .select({ r2Key: competitionDocumentRequestFiles.r2Key })
+            .from(competitionDocumentRequestFiles)
+            .where(
+              inArray(
+                competitionDocumentRequestFiles.requestId,
+                tx
+                  .select({ id: competitionDocumentRequests.id })
+                  .from(competitionDocumentRequests)
+                  .where(
+                    inArray(competitionDocumentRequests.registrationId, captainTeamRegistrationIds),
+                  ),
+              ),
+            )
+        ).map((row) => row.r2Key);
 
   // Objects this action must leave where they are, because a ledger row that outlives the account
   // still names them.
@@ -857,12 +933,10 @@ const runDeidentificationWrites = async (
       .returning({ id: platformOpsNotes.id }),
   );
 
-  // Solo registrations only, matching `deidentificationObjectPrefixes`: the table records no
-  // uploader, so under a shared registration there is no way to name the target's files and not a
-  // teammate's. Deleting the rows here while the prefix listing skipped the objects would be worse
-  // than either — it would leave the teammate's object with no row.
+  // The rows go for every registration the target holds, team or solo alike; the objects are reached
+  // two different ways and the split below is between those ways rather than between the rows.
   await deleteFrom("competition_document_request_files", () =>
-    soloRegistrationIds.length === 0
+    registrationIds.length === 0
       ? Promise.resolve([])
       : tx
           .delete(competitionDocumentRequestFiles)
@@ -872,7 +946,7 @@ const runDeidentificationWrites = async (
               tx
                 .select({ id: competitionDocumentRequests.id })
                 .from(competitionDocumentRequests)
-                .where(inArray(competitionDocumentRequests.registrationId, soloRegistrationIds)),
+                .where(inArray(competitionDocumentRequests.registrationId, registrationIds)),
             ),
           )
           .returning({ id: competitionDocumentRequestFiles.id }),
@@ -1067,6 +1141,7 @@ const runDeidentificationWrites = async (
     personalInstitutionId,
     registrations: facts.registrations,
     submissionKeys,
+    documentKeys,
     retainedKeys,
   };
 };
@@ -1224,7 +1299,11 @@ export const deidentifyAccount = async (
   let objectsDeleted: number;
 
   try {
-    objectsDeleted = await deleteTargetObjects(prefixes, rehearsal.submissionKeys, retainedKeys);
+    objectsDeleted = await deleteTargetObjects(
+      prefixes,
+      [...rehearsal.submissionKeys, ...rehearsal.documentKeys],
+      retainedKeys,
+    );
   } catch (error) {
     const deleted = error instanceof StorageDeletionFailure ? error.objectsDeleted : 0;
 

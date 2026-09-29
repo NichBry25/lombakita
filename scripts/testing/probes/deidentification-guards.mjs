@@ -13,11 +13,12 @@
  * new test written for the probe's benefit; a probe whose detector exists only to be broken by it
  * measures the probe.
  *
- * THE CLASS OF EACH GUARD IS DECLARED RATHER THAN ASSUMED (clause 8). Five of the eight are B: a
+ * THE CLASS OF EACH GUARD IS DECLARED RATHER THAN ASSUMED (clause 8). Seven of the ten are B: a
  * refusal, a lock, or a source-of-truth choice that stands in front of a write and takes no
- * transaction of its own — the two SCOPE choices among them (which rows a target's upload is, and
- * which objects a surviving ledger row keeps) are B for the same reason and are read the same way,
- * through the post-state the run leaves. Two are A1-in: the rehearsal sentinel and the operator-role
+ * transaction of its own — the three SCOPE choices among them (which rows a target's upload is,
+ * which objects a surviving ledger row keeps, and which registrations' document-request files go)
+ * are B for the same reason and are read the same way, through the post-state the run leaves. Two
+ * are A1-in: the rehearsal sentinel and the operator-role
  * refusal both throw INSIDE a transaction, so their detectors are the refusal identity — the run that
  * follows a committed rehearsal refuses instead of de-identifying, and the refused role is named by
  * the code the caller receives. The one class D probe is the prefix list's CONTENT — which prefixes a
@@ -199,6 +200,96 @@ export const probes = [
     // what it observes is the object the deletion failed to remove, not a status code.
     detect: async () =>
       fails("npx", ["vitest", "run", INTEGRATION_TEST], /× .*comes from the rehearsal's read/),
+  },
+  {
+    name: "the writing transaction takes the institution's owner-membership lock before it counts owners",
+    klass: "B",
+    harmfulMove:
+      "two co-owners of one institution de-identified concurrently. The last-owner refusal is a count " +
+      "of OTHER membership rows, which is the one shape the target's own row lock cannot serialize: " +
+      "each run's count cannot see the other's uncommitted revocation of a different row, both pass " +
+      "the refusal, and both revoke — leaving an institution with no active owner, which nothing in " +
+      "the product can repair",
+    files: [SERVICE],
+    // The call and the comment that explains it removed together, so what remains is the row lock
+    // directly against the pre-read comment. The marker is that adjacency, and it exists only after
+    // the mutation: the unmutated file holds the lock comment and the call in the gap.
+    appliedMarkers: [
+      `  await tx.select({ id: users.id }).from(users).where(eq(users.id, accountId)).for("update");\n\n  // The pre-read's values are not reused:`,
+    ],
+    mutate: () =>
+      substituteOnce(
+        SERVICE,
+        [
+          "  // The last-owner refusal below is a count, and a count of OTHER rows is the one shape a single-row",
+          "  // lock cannot serialize. Taken before the count, in this transaction, so a co-owner's",
+          "  // de-identification or demotion either finished before this count or waits until after it.",
+          "  await lockInstitutionOwnership(tx, await findNonPersonalInstitutionsOwnedBy(tx, accountId));",
+          "",
+        ].join("\n"),
+        "",
+      ),
+    // Class B, and the detector is the post-state B's class names — as far as a race can be read that
+    // way. What the race suite observes is the parked backend's own statement from `pg_stat_activity`,
+    // which is what tells a run queued AT this lock from one that never took it, and then the owner
+    // count the institution is left with.
+    detect: async () =>
+      fails(
+        "npx",
+        ["vitest", "run", RACE_TEST],
+        /never parked on the institution's owner-membership lock/,
+      ),
+  },
+  {
+    name: "a team registration's document-request files go when the target captains it",
+    klass: "B",
+    harmfulMove:
+      "the document-request files scoped to the registrations the target holds ALONE. A team " +
+      "registration the target captains is left out of both reaches — no prefix is listed for it and " +
+      "no row of it is deleted — so its files outlive the account they belong to, kept by a scope " +
+      "narrower than the authorization it stands for",
+    files: [SERVICE],
+    // The scope reverted to the solo set, which is the shape this guard replaced. The marker is the
+    // reverted clause against the subquery it narrows, an adjacency the unmutated file does not hold.
+    appliedMarkers: [
+      "                .where(inArray(competitionDocumentRequests.registrationId, soloRegistrationIds)),",
+    ],
+    mutate: () =>
+      substituteOnce(
+        SERVICE,
+        [
+          "          .delete(competitionDocumentRequestFiles)",
+          "          .where(",
+          "            inArray(",
+          "              competitionDocumentRequestFiles.requestId,",
+          "              tx",
+          "                .select({ id: competitionDocumentRequests.id })",
+          "                .from(competitionDocumentRequests)",
+          "                .where(inArray(competitionDocumentRequests.registrationId, registrationIds)),",
+          "            ),",
+          "          )",
+        ].join("\n"),
+        [
+          "          .delete(competitionDocumentRequestFiles)",
+          "          .where(",
+          "            inArray(",
+          "              competitionDocumentRequestFiles.requestId,",
+          "              tx",
+          "                .select({ id: competitionDocumentRequests.id })",
+          "                .from(competitionDocumentRequests)",
+          "                .where(inArray(competitionDocumentRequests.registrationId, soloRegistrationIds)),",
+          "            ),",
+          "          )",
+        ].join("\n"),
+      ),
+    // Post-state, like the two scope probes above: nothing refuses here, and what the suite observes
+    // is the file object still in the mocked bucket with its row still in the database.
+    detect: async () =>
+      fails(
+        "npx",
+        ["vitest", "run", INTEGRATION_TEST],
+        /× .*removes the captain's document-request file under a team registration/,
+      ),
   },
   {
     name: "a submission is the target's own upload, not everything filed under their registrations",

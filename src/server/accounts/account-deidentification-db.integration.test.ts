@@ -647,6 +647,12 @@ const buildSharedRegistrationFixture = async (tx: Tx) => {
   const teammateRegistration = randomUUID();
   const captainSubmissionKey = `submissions/${competition}/${teammateRegistration}/captain.pdf`;
   const teammateSubmissionKey = `submissions/${competition}/${captainRegistration}/mate.pdf`;
+  // A document request on each registration, so the two directions the captain-only upload rule
+  // turns into two different answers are both present in the fixture.
+  const captainRequest = randomUUID();
+  const memberRequest = randomUUID();
+  const captainDocumentKey = `registration-documents/${competition}/${captainRegistration}/${captainRequest}/scan.pdf`;
+  const memberDocumentKey = `registration-documents/${competition}/${teammateRegistration}/${memberRequest}/scan.pdf`;
 
   await tx.insert(users).values({
     id: teammate,
@@ -718,7 +724,50 @@ const buildSharedRegistrationFixture = async (tx: Tx) => {
     },
   ]);
 
-  r2.objects.push(captainSubmissionKey, teammateSubmissionKey);
+  await tx.insert(competitionDocumentRequests).values([
+    {
+      id: captainRequest,
+      registrationId: captainRegistration,
+      title: "Kartu pelajar",
+      dueAt: new Date(Date.now() + 7 * 86_400_000),
+      status: "requested",
+      requestedByUserId: f.bystander,
+    },
+    {
+      id: memberRequest,
+      registrationId: teammateRegistration,
+      title: "Kartu pelajar",
+      dueAt: new Date(Date.now() + 7 * 86_400_000),
+      status: "requested",
+      requestedByUserId: f.bystander,
+    },
+  ]);
+
+  await tx.insert(competitionDocumentRequestFiles).values([
+    {
+      id: randomUUID(),
+      requestId: captainRequest,
+      r2Key: captainDocumentKey,
+      originalFileName: "scan-kapten.pdf",
+      fileSizeBytes: 512,
+      contentType: "application/pdf",
+    },
+    {
+      id: randomUUID(),
+      requestId: memberRequest,
+      r2Key: memberDocumentKey,
+      originalFileName: "scan-anggota.pdf",
+      fileSizeBytes: 512,
+      contentType: "application/pdf",
+    },
+  ]);
+
+  r2.objects.push(
+    captainSubmissionKey,
+    teammateSubmissionKey,
+    captainDocumentKey,
+    memberDocumentKey,
+  );
 
   return {
     f,
@@ -728,6 +777,10 @@ const buildSharedRegistrationFixture = async (tx: Tx) => {
     teammateRegistration,
     captainSubmissionKey,
     teammateSubmissionKey,
+    captainRequest,
+    memberRequest,
+    captainDocumentKey,
+    memberDocumentKey,
   };
 };
 
@@ -1351,10 +1404,48 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
         expect(r2.objects).toContain(t.teammateSubmissionKey);
         expect(await readSubmissionKey(tx, t.captainRegistration)).toBe(t.teammateSubmissionKey);
 
-        // Neither registration's prefix was listed, so neither registration's documents were
-        // reached — the registration-documents table records no uploader to tell them apart.
+        // Neither registration's prefix was listed: a team registration's document-request objects
+        // are reached by key, off the rows the transaction removes.
         expect(r2.listed.some((prefix) => prefix.includes(t.captainRegistration))).toBe(false);
         expect(r2.listed.some((prefix) => prefix.includes(t.teammateRegistration))).toBe(false);
+      });
+    });
+
+    it("removes the captain's document-request file under a team registration", async () => {
+      await inRollback(async (tx) => {
+        const t = await buildSharedRegistrationFixture(tx);
+
+        await run(tx, t.f.operator, t.f.target, {
+          confirmUsername: t.f.targetUsername,
+          reason: "permintaan pemilik",
+        });
+
+        // The target captained this registration, and the service admits an upload to that account
+        // alone — so the file filed against it is the target's, team or no team.
+        expect(r2.deleted).toContain(t.captainDocumentKey);
+        expect(r2.objects).not.toContain(t.captainDocumentKey);
+        expect(
+          await countRows(tx, "competition_document_request_files", "request_id", t.captainRequest),
+        ).toBe(0);
+      });
+    });
+
+    it("keeps a teammate's document-request file under the registration they captain", async () => {
+      await inRollback(async (tx) => {
+        const t = await buildSharedRegistrationFixture(tx);
+
+        await run(tx, t.f.operator, t.f.target, {
+          confirmUsername: t.f.targetUsername,
+          reason: "permintaan pemilik",
+        });
+
+        // The teammate captains this one. The target is on the team and holds no registration here,
+        // and the file is the teammate's own upload, so it is not the target's to remove.
+        expect(r2.deleted).not.toContain(t.memberDocumentKey);
+        expect(r2.objects).toContain(t.memberDocumentKey);
+        expect(
+          await countRows(tx, "competition_document_request_files", "request_id", t.memberRequest),
+        ).toBe(1);
       });
     });
 
