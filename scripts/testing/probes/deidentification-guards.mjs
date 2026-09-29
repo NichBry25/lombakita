@@ -97,7 +97,11 @@ export const probes = [
     // lock gone the racer that holds the institution's owner-membership lock runs past the read and
     // parks at the compare-and-set, which is neither lock this line accepts.
     detect: async () =>
-      fails("npx", ["vitest", "run", RACE_TEST], /rather than on a lock: the writing transaction has/),
+      fails(
+        "npx",
+        ["vitest", "run", RACE_TEST],
+        /rather than on a lock: the writing transaction has/,
+      ),
   },
   {
     name: "the deletion set never reaches the payment-proofs prefix",

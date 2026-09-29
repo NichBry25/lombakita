@@ -53,7 +53,8 @@ const buildUpdateDb = ({
     where: vi.fn(),
     limit: vi.fn().mockReturnValue({
       for: vi.fn().mockResolvedValue([{ status: "active" }]),
-      then: (onFulfilled: (rows: ActorRow[]) => unknown) => Promise.resolve(actorRows).then(onFulfilled),
+      then: (onFulfilled: (rows: ActorRow[]) => unknown) =>
+        Promise.resolve(actorRows).then(onFulfilled),
     }),
   };
   selectChain.from.mockReturnValue(selectChain);

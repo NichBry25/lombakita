@@ -206,14 +206,17 @@ describe("the order the writing transaction takes its locks in", () => {
   it("takes the institution's owner-membership lock before the target's row", () => {
     const source = readServiceCode();
 
-    const institutionLockAt = source.indexOf("await lockInstitutionOwnership(tx, lockedInstitutionIds);");
+    const institutionLockAt = source.indexOf(
+      "await lockInstitutionOwnership(tx, lockedInstitutionIds);",
+    );
     const rowLockAt = source.indexOf('.for("update");');
 
     // Both ends asserted before the comparison: a rename that left either identifier absent would
     // otherwise be measured as -1, which is smaller than any index and passes as the right order.
-    expect(institutionLockAt, "no owner-membership lock in the writing transaction").toBeGreaterThan(
-      -1,
-    );
+    expect(
+      institutionLockAt,
+      "no owner-membership lock in the writing transaction",
+    ).toBeGreaterThan(-1);
     expect(rowLockAt, "no row lock in the writing transaction").toBeGreaterThan(-1);
 
     expect(

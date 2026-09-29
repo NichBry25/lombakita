@@ -152,7 +152,10 @@ const transitiveBlockersOf = async (control: Connection, waiterPid: number): Pro
  * guards this file contends over are different locks, and one shared message would name the wrong
  * one.
  */
-const chainsOnceParked = async (pids: readonly number[], blockerPid: number): Promise<number[][]> => {
+const chainsOnceParked = async (
+  pids: readonly number[],
+  blockerPid: number,
+): Promise<number[][]> => {
   const deadline = Date.now() + BARRIER_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
@@ -867,7 +870,10 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount under concurrency", () =
     expect(surviving!.status).toBe("deactivated");
     // Cleared by the unsuspend is the harm: the account would read as reachable again on a surface
     // that keys off the suspension alone.
-    expect(surviving!.suspended_at, "the de-identified account was left unsuspended").not.toBeNull();
+    expect(
+      surviving!.suspended_at,
+      "the de-identified account was left unsuspended",
+    ).not.toBeNull();
     expect(r2.deleted).toEqual([`avatars/${target}/a.jpg`]);
   }, 60_000);
 

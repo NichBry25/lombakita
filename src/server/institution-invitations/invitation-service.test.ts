@@ -45,7 +45,10 @@ const baseInvitation = (
 // The first read in the acceptance transaction is the de-identified-account guard, so its row is
 // answered here rather than at every call site: `active` unless a test passes the second argument.
 // What `.limit` returns is both awaitable and carries the `.for("update")` the guard calls.
-const makeTx = (selectResults: unknown[][], deactivatedStatus: "active" | "deactivated" = "active") => {
+const makeTx = (
+  selectResults: unknown[][],
+  deactivatedStatus: "active" | "deactivated" = "active",
+) => {
   const results: unknown[][] = [[{ status: deactivatedStatus }], ...selectResults];
   let callIndex = 0;
   return {

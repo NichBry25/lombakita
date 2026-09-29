@@ -72,11 +72,7 @@ export const probes = [
     // unmutated file does not hold — there the two are separated by the `.for("update")` line.
     appliedMarkers: ['    .limit(1);\n\n  if (row?.status === "deactivated") {'],
     mutate: () =>
-      substituteOnce(
-        DEACTIVATED_ACCOUNT,
-        '    .limit(1)\n    .for("update");',
-        "    .limit(1);",
-      ),
+      substituteOnce(DEACTIVATED_ACCOUNT, '    .limit(1)\n    .for("update");', "    .limit(1);"),
     // Class A1-in: the guard throws inside the transaction the write would commit in, so the rollback
     // is what leaves the row untouched. The detector is the refusal identity — the code the caller
     // receives — and the race suite is the only place the interleaving exists: it holds the target's

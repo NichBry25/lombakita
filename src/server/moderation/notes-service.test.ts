@@ -19,7 +19,8 @@ const makeInsertDb = () => {
           // Both shapes: the chain is awaited on its own somewhere and the guard appends `.for`.
           limit: vi.fn().mockReturnValue({
             for: vi.fn().mockResolvedValue([]),
-            then: (onFulfilled: (rows: unknown[]) => unknown) => Promise.resolve([]).then(onFulfilled),
+            then: (onFulfilled: (rows: unknown[]) => unknown) =>
+              Promise.resolve([]).then(onFulfilled),
           }),
         }),
       }),

@@ -282,7 +282,9 @@ describe("institution-service", () => {
         selectCalls += 1;
         return makeSeqNode(selectCalls === 1 ? [{ value: 0 }] : []);
       }),
-      transaction: vi.fn(async (callback: (context: typeof tx) => Promise<unknown>) => callback(tx)),
+      transaction: vi.fn(async (callback: (context: typeof tx) => Promise<unknown>) =>
+        callback(tx),
+      ),
     } as unknown as Database;
 
     await expect(
