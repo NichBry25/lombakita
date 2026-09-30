@@ -36,6 +36,7 @@ export default function PrivacyPage() {
           <p className="document-meta">
             <span>Versi {LEGAL_DOCUMENT.version}</span>
             <span>Berlaku sejak {LEGAL_DOCUMENT.effectiveDateLabel}</span>
+            <span>Diperbarui {LEGAL_DOCUMENT.updatedDateLabel}</span>
           </p>
         </div>
       </section>
@@ -133,13 +134,24 @@ export default function PrivacyPage() {
           </p>
           <ul className="document-list">
             <li>foto profil, sampul profil, CV, dan berkas sertifikasi;</li>
-            <li>logo dan sampul institusi serta gambar QRIS;</li>
-            <li>dokumen verifikasi institusi dan dokumen verifikasi rekruter.</li>
+            <li>dokumen verifikasi rekruter.</li>
           </ul>
+          <p>
+            <strong>Berkas institusi.</strong> Logo, sampul, gambar QRIS, dan dokumen verifikasi
+            sebuah institusi adalah milik institusi itu, bukan milik satu akun. Berkas ini tersimpan
+            selama institusinya ada. Untuk institusi pribadi, berkas ini dihapus bersama data akun
+            pemiliknya, kecuali gambar QRIS yang masih dirujuk catatan pembayaran.
+          </p>
           <p>
             Bukti transfer disimpan sebagai catatan keuangan selama masih diperlukan untuk keperluan
             pembukuan dan penyelesaian sengketa pembayaran, termasuk bukti transfer dari percobaan
             sebelumnya.
+          </p>
+          <p>
+            <strong>Cadangan.</strong> Basis data kami menyimpan riwayat perubahan selama 6 jam
+            untuk memulihkan layanan dari kesalahan atau gangguan. Data yang sudah dihapus dapat
+            tetap ada dalam riwayat itu sampai jangka waktu tersebut berlalu. Kami tidak memakai
+            riwayat ini untuk tujuan lain.
           </p>
           <p>
             Data akun dan profil disimpan selama akun Anda ada. Untuk meminta penghapusan data atau
@@ -206,15 +218,28 @@ export default function PrivacyPage() {
           </p>
           <p>
             Untuk meminta salinan data Anda, memperbaiki data yang keliru, atau meminta penghapusan
-            akun beserta berkasnya, hubungi{" "}
-            <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a> dari alamat email
-            akun Anda, agar kami dapat memastikan permintaan itu datang dari pemilik akun.
+            akun, hubungi <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a> dari
+            alamat email akun Anda, agar kami dapat memastikan permintaan itu datang dari pemilik
+            akun.
           </p>
           <p>
-            Kami menyampaikan apa adanya: permintaan seperti ini ditangani secara manual oleh tim
-            kami, satu per satu. Belum ada tombol atau proses otomatis di dalam aplikasi untuk
-            menghapus akun, dan kami tidak menjanjikan batas waktu penyelesaian. Kami akan
-            memberitahu Anda apa yang kami lakukan atas permintaan Anda.
+            Jika kami menghapus akun Anda, nama, email, profil, dan semua berkas Anda dihapus, dan
+            akun tidak dapat digunakan untuk masuk lagi. Catatan yang juga menyangkut orang lain
+            tetap disimpan, tetapi tanpa data yang mengidentifikasi Anda: pendaftaran dan hasil
+            lomba, keanggotaan tim, karya yang diunggah anggota tim lain, catatan keuangan termasuk
+            bukti transfer, dan catatan audit keamanan.
+          </p>
+          <p>
+            Jika Anda pemilik terakhir sebuah institusi, kepemilikannya perlu dipindahkan terlebih
+            dahulu. Jika Anda kapten sebuah tim yang masih dibentuk, tim itu perlu didaftarkan atau
+            dibubarkan terlebih dahulu. Jika institusi pribadi Anda masih memiliki kompetisi yang
+            sedang terbit, kompetisi itu kami tutup dengan semestinya lebih dulu agar peserta tidak
+            dirugikan, sehingga permintaan Anda dapat memerlukan waktu.
+          </p>
+          <p>
+            Kami menyampaikan apa adanya: belum ada tombol di halaman akun untuk menghapus akun
+            sendiri. Permintaan diproses oleh tim kami satu per satu, dan kami akan memberitahu Anda
+            apa yang kami lakukan.
           </p>
         </section>
 

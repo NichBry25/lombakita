@@ -62,3 +62,6 @@ docs/lombakita-ui-guide/
 /src/worker/README.md
 # UI review screenshots (local only)
 /ui-review/
+
+# Session handoff notes (local only)
+/.handoff/
