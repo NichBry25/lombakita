@@ -19,6 +19,13 @@ import { BASE, USERS, INST, COMP, REG } from "./seeds.mjs";
 const REPO = resolve(new URL("../..", import.meta.url).pathname);
 const results = [];
 
+// `seed-comp-open`'s title and `seed-inst-a`'s displayName — the two values the public competition
+// page's metadata template composes its `<title>` from. scripts/seed-test-matrix.ts:705 and :419;
+// `organizer.name` resolves to that displayName for a full institution
+// (src/server/competitions/competition-public-service.ts:842).
+const SEEDED_OPEN_COMPETITION_TITLE = "Seed Hackathon Nusantara";
+const SEEDED_ORGANIZER_NAME = "Seed Academy";
+
 const record = (id, name, expected, actual, pass, note = "") => {
   results.push({ id, name, expected, actual, pass, note });
   console.log(
@@ -172,12 +179,20 @@ const main = async () => {
   // `UAT-RECONCILIATION.md` A8 cites PUB-06 as the automated evidence that a draft is not publicly
   // visible, and A8 is about the page.
   const publishedPage = await apiFetch(`/competitions/${INST.a.slug}/${COMP.open.slug}`);
+  // Exact equality with the `<title>` the page's own metadata produces, rather than a needle search
+  // over the response bytes: the title also appears in the embedded server-component payload, in
+  // `og:title`, and in any card this page renders for another competition, so a substring search
+  // passes for reasons this case does not name. The template is
+  // src/app/competitions/[institutionSlug]/[slug]/page.tsx:329, and the root layout sets no
+  // `title.template` (src/app/layout.tsx:27), so the element carries it verbatim.
+  const publishedPageTitle = `${SEEDED_OPEN_COMPETITION_TITLE} · ${SEEDED_ORGANIZER_NAME} · Lombakita`;
+  const titleElement = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(String(publishedPage.body));
   record(
     "PUB-05",
     "Public page of a published comp of a verified institution",
-    "200 Seed Hackathon Nusantara",
-    `${publishedPage.status}`,
-    publishedPage.status === 200 && String(publishedPage.body).includes("Seed Hackathon Nusantara"),
+    `200 <title>${publishedPageTitle}</title>`,
+    `${publishedPage.status} ${titleElement ? `<title>${titleElement[1]}</title>` : "no <title> element"}`,
+    publishedPage.status === 200 && titleElement?.[1] === publishedPageTitle,
   );
 
   const draftPage = await apiFetch(`/competitions/${INST.a.slug}/${COMP.draft.slug}`);
