@@ -8,7 +8,7 @@ const TOAST_PRESENTATION: Record<ToastType, { label: string; icon: IconName }> =
   success: { label: "Berhasil", icon: "check" },
   info: { label: "Info", icon: "info" },
   warning: { label: "Peringatan", icon: "alert-triangle" },
-  error: { label: "Error", icon: "alert-circle" },
+  error: { label: "Gagal", icon: "alert-circle" },
 };
 
 // Errors and warnings interrupt the screen reader; success and info wait for a pause.
