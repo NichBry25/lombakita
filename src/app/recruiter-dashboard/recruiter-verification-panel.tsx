@@ -407,7 +407,7 @@ export function RecruiterVerificationPanel({
           >
             Dokumen
           </Button>
-          <span className="form-hint">
+          <span className="pf-media-hint">
             {selectedFile ? selectedFile.name : "Belum ada berkas yang dipilih"}
           </span>
         </div>

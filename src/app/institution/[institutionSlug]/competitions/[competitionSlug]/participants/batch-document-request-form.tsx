@@ -254,7 +254,7 @@ export function BatchDocumentRequestForm({
             </label>
             <textarea
               id="batch-instructions"
-              className="form-input"
+              className="form-textarea"
               rows={3}
               value={instructions}
               onChange={(event) => setInstructions(event.target.value)}
