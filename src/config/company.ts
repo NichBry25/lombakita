@@ -35,16 +35,21 @@ export const COMPANY = {
 export const CANONICAL_SITE_ORIGIN = "https://lombakita.com";
 
 /**
- * Version and effective date shown on the terms and the privacy policy.
+ * Version, effective date and last-updated date shown on the terms and the privacy policy.
  *
  * One constant for both documents: they were written together against the same reading of the
  * product, so a reader who compares them should not find two different dates and have to guess
- * which one is current. Bump both together when either document changes substantively.
+ * which one is current. Bump the version when either document changes substantively, and move
+ * `updatedDate` with it.
  */
 export const LEGAL_DOCUMENT = {
-  version: "1.0",
+  version: "1.1",
   // The date these documents became publicly readable. A live, operative document that claims a
   // future effective date misstates its own standing, so this never runs ahead of the deploy.
   effectiveDate: "2026-09-04",
   effectiveDateLabel: "4 September 2026",
+  // When the text last changed, which is not the same event as taking effect: a correction to a
+  // live document leaves `effectiveDate` where it was and moves this one.
+  updatedDate: "2026-09-30",
+  updatedDateLabel: "30 September 2026",
 } as const;
