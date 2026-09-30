@@ -21,6 +21,7 @@ import { AssentNotice } from "@/components/legal/assent-notice";
 type OAuthRolePickerProps = {
   carrier: string;
   email: string;
+  name: string | null;
 };
 
 type Stage = "choose" | "candidateOnboarding" | "recruiterOnboarding";
@@ -58,7 +59,7 @@ const mapFinalizeError = (error: string | null | undefined): string => {
   return "Pendaftaran dengan Google gagal. Silakan coba lagi.";
 };
 
-export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
+export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) => {
   const [stage, setStage] = useState<Stage>("choose");
   const [isSubmitting, setIsSubmitting] = useState<"candidate" | "recruiter" | null>(null);
   const { begin: beginPageTransition } = usePageTransition();
@@ -180,9 +181,9 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
                 type="button"
                 disabled={isSubmitting !== null}
                 onClick={() => {
-                  // Prefill the candidate's declared full name from the Google display name where
-                  // available; it stays editable.
-                  setFullName((current) => current || email);
+                  // The Google display name when the provider sent one; empty otherwise. Never the
+                  // email — the field asks for a name. It stays editable.
+                  setFullName((current) => current || name?.trim() || "");
                   setStage("candidateOnboarding");
                 }}
                 className="auth-role-option"
@@ -194,9 +195,9 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
                 type="button"
                 disabled={isSubmitting !== null}
                 onClick={() => {
-                  // Prefill the recruiter's declared full name from the Google display name where
-                  // available; it stays editable.
-                  setRecruiterFullName((current) => current || email);
+                  // The Google display name when the provider sent one; empty otherwise. Never the
+                  // email — the field asks for a name. It stays editable.
+                  setRecruiterFullName((current) => current || name?.trim() || "");
                   setStage("recruiterOnboarding");
                 }}
                 className="auth-role-option"
@@ -220,6 +221,7 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
               <input
                 id="candidate-full-name"
                 type="text"
+                autoComplete="name"
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
                 className="form-input"
@@ -306,6 +308,7 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
               <input
                 id="recruiter-full-name"
                 type="text"
+                autoComplete="name"
                 value={recruiterFullName}
                 onChange={(event) => setRecruiterFullName(event.target.value)}
                 className="form-input"
@@ -339,7 +342,7 @@ export const OAuthRolePicker = ({ carrier, email }: OAuthRolePickerProps) => {
                 className="form-input"
                 placeholder="nama@perusahaan.co.id"
               />
-              <p className="form-hint">
+              <p className="form-help">
                 Email domain korporat mempercepat antrean peninjauan Anda.
               </p>
             </div>

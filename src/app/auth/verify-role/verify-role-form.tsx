@@ -115,6 +115,7 @@ export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
           <input
             id="recruiter-full-name"
             type="text"
+            autoComplete="name"
             value={fullName}
             onChange={(event) => setFullName(event.target.value)}
             className="form-input"
@@ -148,7 +149,7 @@ export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
             className="form-input"
             placeholder="nama@perusahaan.co.id"
           />
-          <p className="form-hint">
+          <p className="form-help">
             Email dari domain korporat mempercepat antrean peninjauan Anda.
           </p>
         </div>
@@ -201,6 +202,7 @@ export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
         <input
           id="candidate-full-name"
           type="text"
+          autoComplete="name"
           value={fullName}
           onChange={(event) => setFullName(event.target.value)}
           className="form-input"

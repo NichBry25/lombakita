@@ -196,7 +196,7 @@ export const CompetitionPrizesEditor = ({
                 </label>
                 <textarea
                   id={`prize-desc-${index}`}
-                  className="form-input"
+                  className="form-textarea"
                   rows={2}
                   value={row.description}
                   maxLength={1000}

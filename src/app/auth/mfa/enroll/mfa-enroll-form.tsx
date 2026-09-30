@@ -266,7 +266,7 @@ export function MfaEnrollForm({
           placeholder="123456"
           aria-describedby="mfa-enroll-code-hint"
         />
-        <p id="mfa-enroll-code-hint" className="form-hint">
+        <p id="mfa-enroll-code-hint" className="form-help">
           Masukkan kode 6 digit yang ditampilkan aplikasi autentikator Anda saat ini.
         </p>
       </div>

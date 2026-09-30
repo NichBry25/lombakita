@@ -5866,6 +5866,12 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   grid-column: 1 / -1;
 }
 
+/* .stack-sm stretches its grid items; the destructive fill keeps its own width there for the
+ * same reason .remove-row-button does (globals.css:5622). */
+.moderation-deidentify-form > .ui-button {
+  justify-self: start;
+}
+
 .moderation-result {
   display: grid;
   gap: var(--space-3);

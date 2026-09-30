@@ -248,6 +248,34 @@ describe("elevating a recruiter to the full tier", () => {
 });
 
 describe("de-identifying an account", () => {
+  // The two-column `.moderation-action-form` is written for one input plus one button: a second
+  // field takes the `auto` track sized by its own label, and the button is pushed onto the next row
+  // inside the narrow first track. The de-identify form carries two fields, so it must not use it.
+  it("places the two fields as separate labelled controls, not in the two-column action form", async () => {
+    await lookUp(userFixture());
+
+    const form = userPanel().querySelector(".moderation-deidentify-form") as HTMLElement;
+    const fields = [...form.querySelectorAll(".form-field")];
+
+    expect(fields).toHaveLength(2);
+
+    const ids = fields.map((field) => {
+      const label = field.querySelector("label") as HTMLLabelElement;
+      const input = field.querySelector("input") as HTMLInputElement;
+
+      expect(label.htmlFor).toBe(input.id);
+      expect(input.id).not.toBe("");
+
+      return input.id;
+    });
+
+    // Distinct ids: a shared one makes the second label describe the first field's input.
+    expect(new Set(ids).size).toBe(2);
+
+    expect(form.className).not.toContain("moderation-action-form");
+    expect(form.className).toContain("stack-sm");
+  });
+
   it("asks for the username and the reason before it offers the confirmation", async () => {
     await lookUp(userFixture());
 

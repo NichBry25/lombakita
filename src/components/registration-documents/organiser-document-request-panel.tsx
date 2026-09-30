@@ -391,7 +391,7 @@ export function OrganiserDocumentRequestPanel({
             </label>
             <textarea
               id="document-request-instructions"
-              className="form-input"
+              className="form-textarea"
               rows={3}
               value={instructions}
               onChange={(event) => setInstructions(event.target.value)}
@@ -465,7 +465,7 @@ function RejectForm({
         </label>
         <textarea
           id={`reject-note-${request.id}`}
-          className="form-input"
+          className="form-textarea"
           rows={3}
           value={note}
           onChange={(event) => setNote(event.target.value)}

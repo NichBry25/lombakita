@@ -86,6 +86,7 @@ export const CandidateProfileEditor = ({ expectedUserId, initial }: Props) => {
           <input
             id="candidate-full-name"
             type="text"
+            autoComplete="name"
             value={fullName}
             onChange={(event) => setFullName(event.target.value)}
             className="form-input"

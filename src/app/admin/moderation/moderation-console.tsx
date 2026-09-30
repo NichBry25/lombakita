@@ -395,7 +395,7 @@ function DeidentifyAction({ account, onDone }: { account: UserResult; onDone: ()
   };
 
   return (
-    <div className="moderation-action-form moderation-deidentify-form">
+    <div className="stack-sm moderation-deidentify-form">
       <div className="form-field">
         <label className="form-label" htmlFor="deidentify-confirm-username">
           Ketik nama pengguna akun untuk konfirmasi
@@ -442,9 +442,9 @@ function DeidentifyAction({ account, onDone }: { account: UserResult; onDone: ()
   );
 }
 
-function UserPanel() {
+function UserPanel({ initialEmail }: { initialEmail?: string }) {
   const { addToast } = useToast();
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(initialEmail ?? "");
   const [result, setResult] = useState<UserResult | null>(null);
   const [searching, setSearching] = useState(false);
 
@@ -475,6 +475,13 @@ function UserPanel() {
       setSearching(false);
     }
   };
+
+  // `?email=` is the deep-link the design gallery's moderation-user entry uses; it is
+  // the only way that entry can render the looked-up panel.
+  useEffect(() => {
+    if (initialEmail) void lookup();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const runAction = async (action: "suspend" | "unsuspend", reason: string) => {
     if (!result) return;
@@ -693,10 +700,10 @@ function InstitutionPanel() {
   );
 }
 
-export function ModerationConsole() {
+export function ModerationConsole({ initialEmail }: { initialEmail?: string }) {
   return (
     <div className="moderation-console">
-      <UserPanel />
+      <UserPanel initialEmail={initialEmail} />
       <InstitutionPanel />
     </div>
   );

@@ -85,7 +85,7 @@ export function CompetitionReviewForm({ competitionId, expectedUserId, initialRe
         </label>
         <textarea
           id="review-body"
-          className="form-input"
+          className="form-textarea"
           rows={3}
           value={body}
           maxLength={2000}

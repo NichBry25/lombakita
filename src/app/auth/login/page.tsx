@@ -92,7 +92,7 @@ export default async function LoginPage(props: {
       );
     }
 
-    return <OAuthRolePicker carrier={oauthCarrier} email={claims.email} />;
+    return <OAuthRolePicker carrier={oauthCarrier} email={claims.email} name={claims.name} />;
   }
 
   const error = searchParams?.error;
