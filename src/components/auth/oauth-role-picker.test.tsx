@@ -39,8 +39,7 @@ const chooseRole = (label: string) => {
   fireEvent.click(screen.getByRole("button", { name: new RegExp(label) }));
 };
 
-const nameFieldValue = () =>
-  (screen.getByLabelText(/Nama lengkap/) as HTMLInputElement).value;
+const nameFieldValue = () => (screen.getByLabelText(/Nama lengkap/) as HTMLInputElement).value;
 
 describe("the name the Google role picker prefills", () => {
   it("carries the identity's name into the candidate form", () => {
