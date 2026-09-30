@@ -45,10 +45,17 @@ const buildUpdateDb = ({
   flippedRows = [{ id: "u1" }],
   actorRows = [RESOLVED_ACTOR],
 }: { flippedRows?: { id: string }[]; actorRows?: ActorRow[] } = {}) => {
+  // Both reads inside the transaction come through this chain: the actor resolution, which is
+  // awaited, and the de-identified-account guard, which takes its row with `.for("update")`. What
+  // `limit` returns is therefore both a promise and carries one.
   const selectChain = {
     from: vi.fn(),
     where: vi.fn(),
-    limit: vi.fn().mockResolvedValue(actorRows),
+    limit: vi.fn().mockReturnValue({
+      for: vi.fn().mockResolvedValue([{ status: "active" }]),
+      then: (onFulfilled: (rows: ActorRow[]) => unknown) =>
+        Promise.resolve(actorRows).then(onFulfilled),
+    }),
   };
   selectChain.from.mockReturnValue(selectChain);
   selectChain.where.mockReturnValue(selectChain);

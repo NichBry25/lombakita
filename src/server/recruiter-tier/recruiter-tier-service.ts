@@ -14,6 +14,7 @@ import {
   type RecruiterVerificationTier,
 } from "@/server/auth/recruiter-tier";
 import { sweepOrphanedObjectsForAccount } from "@/server/recruiter-verification/recruiter-verification-service";
+import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
 
 assertServerOnly("server/recruiter-tier/recruiter-tier-service");
 
@@ -28,12 +29,13 @@ export type TierElevationErrorCode =
   | "tier_invalid_payload"
   | "tier_invalid_target"
   | "tier_account_not_found"
-  | "tier_target_not_recruiter_verified";
+  | "tier_target_not_recruiter_verified"
+  | "account_deactivated";
 
 export class RecruiterTierElevationError extends Error {
   constructor(
     public readonly code: TierElevationErrorCode,
-    public readonly status: 400 | 404 | 422,
+    public readonly status: 400 | 404 | 409 | 422,
     message: string,
   ) {
     super(message);
@@ -127,6 +129,8 @@ export const elevateRecruiterTier = async (
         "A platform-ops account cannot elevate its own recruiter tier",
       );
     }
+
+    await assertAccountNotDeactivated(tx, accountId, RecruiterTierElevationError);
 
     const current = await getRecruiterTierForAccount(accountId, tx);
 

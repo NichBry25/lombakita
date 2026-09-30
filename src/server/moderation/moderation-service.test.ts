@@ -15,12 +15,35 @@ import { ModerationError } from "./moderation-core";
 import type { Database } from "@/server/db/client";
 
 // Minimal db mock: a single SELECT (chain ending in .limit) plus a transaction whose tx exposes
-// update()/insert(). The audit insert and the update are recorded for assertions.
-const makeDb = (selectRow: Record<string, unknown> | null) => {
+// select()/update()/insert(). The audit insert and the update are recorded for assertions.
+//
+// `txRows` is what a SELECT issued through the transaction handle resolves to — the deactivated
+// guard and the active-owner count both read through it. The chain is awaited with and without a
+// trailing `.limit`, so the object `.where` returns is both a promise and carries one.
+const makeDb = (
+  selectRow: Record<string, unknown> | null,
+  txRows: Array<Record<string, unknown>> = [],
+) => {
   const inserted: Array<Record<string, unknown>> = [];
   const updated: Array<Record<string, unknown>> = [];
 
   const tx = {
+    execute: vi.fn().mockResolvedValue([]),
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockReturnValue({
+            // The deactivated guard's read takes the row: the chain is awaited both ways, so what
+            // `.limit` returns is a promise and carries the `.for("update")` the guard calls.
+            for: vi.fn().mockResolvedValue(txRows),
+            then: (onFulfilled: (rows: unknown[]) => unknown) =>
+              Promise.resolve(txRows).then(onFulfilled),
+          }),
+          then: (onFulfilled: (rows: unknown[]) => unknown) =>
+            Promise.resolve(txRows).then(onFulfilled),
+        }),
+      }),
+    }),
     update: vi.fn().mockReturnValue({
       set: vi.fn((vals: Record<string, unknown>) => {
         updated.push(vals);
@@ -46,7 +69,7 @@ const makeDb = (selectRow: Record<string, unknown> | null) => {
     transaction: vi.fn(async (fn: (t: unknown) => Promise<unknown>) => fn(tx)),
   } as unknown as Database;
 
-  return { db, inserted, updated };
+  return { db, inserted, updated, tx };
 };
 
 const expectModerationError = async (p: Promise<unknown>, code: string, status: number) => {
@@ -121,6 +144,23 @@ describe("unsuspendUser", () => {
     expect(updated[0]).toMatchObject({ suspendedAt: null, suspensionReason: null });
     expect(inserted[0]).toMatchObject({ eventType: "user.unsuspended", reason: "appeal granted" });
   });
+
+  it("refuses a de-identified target with 409 account_deactivated", async () => {
+    // A de-identified account carries suspended_at NULL, so it never reaches the not-suspended
+    // refusal above and would otherwise be unsuspended: a write to a row whose data is gone.
+    const { db, inserted, updated } = makeDb({ id: "u1", suspendedAt: new Date() }, [
+      { status: "deactivated" },
+    ]);
+
+    await expectModerationError(
+      unsuspendUser("ops1", "u1", "appeal granted", db),
+      "account_deactivated",
+      409,
+    );
+
+    expect(updated).toHaveLength(0);
+    expect(inserted).toHaveLength(0);
+  });
 });
 
 describe("suspendInstitution", () => {
@@ -154,9 +194,34 @@ describe("reinstateInstitution", () => {
   });
 
   it("reinstates and writes institution.reinstated audit row", async () => {
-    const { db, inserted } = makeDb({ id: "i1", suspendedAt: new Date() });
+    const { db, inserted } = makeDb({ id: "i1", suspendedAt: new Date() }, [{ total: 1 }]);
     await reinstateInstitution("ops1", "i1", "resolved", db);
     expect(inserted[0]).toMatchObject({ eventType: "institution.reinstated" });
+  });
+
+  it("takes the institution's owner-membership lock before it counts owners", async () => {
+    const { db, tx } = makeDb({ id: "i1", suspendedAt: new Date() }, [{ total: 1 }]);
+
+    await reinstateInstitution("ops1", "i1", "resolved", db);
+
+    // Invocation order, not a call count: the count is the read the lock exists to serialize, so a
+    // lock taken after it serializes nothing.
+    expect(tx.execute.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.select.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("refuses with 409 institution_has_no_owner when no active owner remains", async () => {
+    const { db, inserted, updated } = makeDb({ id: "i1", suspendedAt: new Date() }, [{ total: 0 }]);
+
+    await expectModerationError(
+      reinstateInstitution("ops1", "i1", "resolved", db),
+      "institution_has_no_owner",
+      409,
+    );
+
+    expect(updated).toHaveLength(0);
+    expect(inserted).toHaveLength(0);
   });
 });
 

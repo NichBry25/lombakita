@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { Button, EmptyState, PageHeader, Skeleton } from "@/components/ui";
 import { DOCUMENT_TYPE_LABELS } from "@/server/institution-verification/verification-requirements";
+import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
 import type { InstitutionType } from "@/server/db/schema";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import { emailDeliveryWarning, type EmailDeliveryPayload } from "@/lib/email/delivery-notice";
@@ -43,14 +44,6 @@ type SubmissionDetail = {
   reviewerNotes: string | null;
   submittedAt: string;
   documents: DocumentRecord[];
-};
-
-const TYPE_LABELS: Record<InstitutionType, string> = {
-  personal: "Personal",
-  company: "Perusahaan",
-  foundation: "Yayasan",
-  university: "Universitas",
-  campus_organization: "Organisasi kampus",
 };
 
 function ReviewPanelBody({
@@ -104,7 +97,7 @@ function ReviewPanelBody({
     <div className="stack-md admin-review-panel">
       <p className="muted-copy">
         <strong>{detail.institutionDisplayName}</strong> →{" "}
-        {TYPE_LABELS[detail.targetInstitutionType]}
+        {INSTITUTION_TYPE_LABELS[detail.targetInstitutionType]}
         {detail.proposedDisplayName && (
           <span className="admin-proposed-name">
             Nama: &ldquo;{detail.proposedDisplayName}&rdquo;
@@ -280,7 +273,7 @@ export default function AdminVerificationPage() {
                     <span className="record-meta data-text">{item.institutionSlug}</span>
                   </td>
                   <td>{item.submitterEmail ?? "–"}</td>
-                  <td>{TYPE_LABELS[item.targetInstitutionType]}</td>
+                  <td>{INSTITUTION_TYPE_LABELS[item.targetInstitutionType]}</td>
                   <td>{item.proposedDisplayName ?? "–"}</td>
                   <td>
                     {item.emailDomainFlag === null ? (

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  PAYMENT_LEDGER_STATUS_LABELS,
   PAYMENT_STATUS_LABELS,
   PAYMENT_STATUS_TONES,
   derivePaymentDisplayStatus,
@@ -89,5 +90,36 @@ describe("formatRupiah", () => {
   it("does not round a figure into a different amount", () => {
     expect(formatRupiah(1_250_500, "IDR")).toBe("Rp 1.250.500");
     expect(formatRupiah(0, "IDR")).toBe("Rp 0");
+  });
+});
+
+// MANUAL-D50: the finance console names the LEDGER's state, and names it in Indonesian.
+//
+// This is a second map rather than a reuse of PAYMENT_STATUS_LABELS, because the two answer
+// different questions: that one answers "what do I have to do next", which is a payer's question,
+// and reads `pending` as "Menunggu pembayaran". A finance_ops reader looking at the same row is
+// asking what the money did.
+describe("PAYMENT_LEDGER_STATUS_LABELS", () => {
+  it("labels every ledger state an operator can be shown", () => {
+    expect(PAYMENT_LEDGER_STATUS_LABELS).toEqual({
+      pending: "Menunggu",
+      succeeded: "Berhasil",
+      failed: "Gagal",
+      expired: "Kedaluwarsa",
+      refunded: "Dikembalikan",
+    });
+  });
+
+  it("agrees with the payer-facing map wherever the two names mean the same thing", () => {
+    // `expired` and `refunded` are the same fact to either reader. If these ever diverge, one of the
+    // two surfaces is telling its reader something the other denies.
+    expect(PAYMENT_LEDGER_STATUS_LABELS.expired).toBe(PAYMENT_STATUS_LABELS.expired);
+    expect(PAYMENT_LEDGER_STATUS_LABELS.refunded).toBe(PAYMENT_STATUS_LABELS.refunded);
+  });
+
+  it("leaves no label empty, so nothing renders as a blank cell", () => {
+    for (const [key, label] of Object.entries(PAYMENT_LEDGER_STATUS_LABELS)) {
+      expect(label.trim(), key).not.toBe("");
+    }
   });
 });

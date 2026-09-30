@@ -155,6 +155,32 @@ describe("resolveEmailDelivery", () => {
     }
   });
 
+  // A de-identified account's address is a tombstone, not a person, and the difference between
+  // suppressing it and refusing it is whether the OTHER person's action succeeds. The address is
+  // reserved like the fixtures are — `.invalid` can never resolve — so a branch that only widened
+  // the reservation would throw at whatever organiser published results last, over a recipient who
+  // no longer exists.
+  it("suppresses a de-identified recipient, with delivery enabled, rather than throwing on it", async () => {
+    const { resolveEmailDelivery } = await loadDelivery({});
+
+    expect(
+      resolveEmailDelivery({
+        kind: "registration_confirmed",
+        to: "deleted+0f8b1a2c@deleted.invalid",
+      }),
+    ).toBeNull();
+  });
+
+  it("still refuses another .invalid recipient", async () => {
+    // The guard is the exact tombstone domain, not the reservation it shares. Without this case a
+    // branch widened to every `.invalid` address would read as correct.
+    const { resolveEmailDelivery } = await loadDelivery({});
+
+    expect(() =>
+      resolveEmailDelivery({ kind: "registration_confirmed", to: "someone@example.invalid" }),
+    ).toThrow(/reserved name "invalid"/);
+  });
+
   it("SUPPRESSES a reserved recipient when delivery is disabled, rather than throwing", async () => {
     const { resolveEmailDelivery } = await loadDelivery({
       emailDeliveryEnabled: false,

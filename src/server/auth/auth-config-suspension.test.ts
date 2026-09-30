@@ -1,12 +1,16 @@
 // @vitest-environment node
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Session } from "next-auth";
 
-// The session callback reads live suspended_at on every session resolution. This test drives the
-// callback directly with a getDb mock whose SELECT returns a configurable row.
+import { AccessError, assertAuthenticatedSession } from "@/server/auth/access-core";
 
-let accountRow: { role: string | null; suspendedAt: Date | null } | null = {
+// The session callback reads live suspended_at and status on every session resolution. This test
+// drives the callback directly with a getDb mock whose SELECT returns a configurable row.
+
+let accountRow: { role: string | null; status: string; suspendedAt: Date | null } | null = {
   role: "candidate",
+  status: "active",
   suspendedAt: null,
 };
 
@@ -40,6 +44,7 @@ vi.mock("@/server/db/schema", () => ({
   users: {
     id: "id",
     role: "role",
+    status: "status",
     suspendedAt: "suspended_at",
     candidateVerifiedAt: "c",
     recruiterVerifiedAt: "r",
@@ -71,8 +76,8 @@ type SessionCb = (args: {
   token: Record<string, unknown>;
 }) => Promise<{ user?: Record<string, unknown> }>;
 
-const callSession = async (suspendedAt: Date | null) => {
-  accountRow = { role: "candidate", suspendedAt };
+const callSession = async (suspendedAt: Date | null, status = "active") => {
+  accountRow = { role: "candidate", status, suspendedAt };
   const { authOptions } = await import("@/server/auth/auth.config");
   const cb = authOptions.callbacks?.session as unknown as SessionCb;
   return cb({
@@ -82,7 +87,7 @@ const callSession = async (suspendedAt: Date | null) => {
 };
 
 beforeEach(() => {
-  accountRow = { role: "candidate", suspendedAt: null };
+  accountRow = { role: "candidate", status: "active", suspendedAt: null };
 });
 afterEach(() => {
   vi.clearAllMocks();
@@ -98,5 +103,26 @@ describe("session callback suspendedAt", () => {
   it("leaves session.user.suspendedAt undefined when suspended_at is null", async () => {
     const result = await callSession(null);
     expect(result.user?.suspendedAt).toBeUndefined();
+  });
+});
+
+describe("session callback status", () => {
+  it("surfaces no role for a de-identified account whose suspended_at is null", async () => {
+    // The tombstone row carries suspended_at NULL, so the suspension gate above never fires for it —
+    // status is the only thing that ends its sessions.
+    const result = await callSession(null, "deactivated");
+
+    expect(result.user?.role).toBeUndefined();
+
+    // Refused through the existing path, unchanged: the callback surfaces no role, and the access
+    // layer's first gate turns a roleless session into a 401 on the account's very next request.
+    try {
+      assertAuthenticatedSession(result as unknown as Session);
+      throw new Error("expected a refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AccessError);
+      expect((error as AccessError).code).toBe("unauthenticated");
+      expect((error as AccessError).status).toBe(401);
+    }
   });
 });

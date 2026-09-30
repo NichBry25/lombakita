@@ -19,11 +19,10 @@
 // than hidden in markup, so a viewer who may not see a contact is never handed one to not render.
 // Every viewer class below is a real `users` row with a real `institution_memberships` row.
 //
-// Every test except the last runs inside a transaction that is ALWAYS rolled back. The last one calls
-// the public API route, which reads the pooled connection and therefore cannot see an uncommitted
-// row — it commits and deletes what it wrote.
+// Every test runs inside a transaction that is ALWAYS rolled back. The reads take that transaction as
+// an explicit `db` argument, so a fixture this file has not committed is still visible to them.
 
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { TransactionRollbackError, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -31,6 +30,7 @@ import * as schema from "@/server/db/schema";
 import { competitions, institutionMemberships, institutions, users } from "@/server/db/schema";
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
 import type { Database } from "@/server/db/client";
+import { getPublicCompetitionDetail } from "@/server/competitions/competition-public-service";
 import { NEW_INSTITUTION_DEFAULT_STATUS } from "@/server/institution-workspace/institution-service";
 import {
   ANONYMOUS_INSTITUTION_VIEWER,
@@ -430,34 +430,17 @@ describe.skipIf(skipWithoutDatabase)("contact disclosure by viewer", () => {
   });
 });
 
-// ─── The public API carries no contact ────────────────────────────────────────
+// ─── The public detail read carries no contact ────────────────────────────────
 //
-// THE ONE MOCK IN THIS FILE, and it is drawn at connection selection rather than at the route. The
-// fixtures are seeded inside a transaction this file opened on its own client, and that transaction
-// is never committed. The route reads the application's POOLED client instead — `getDb()` builds a
-// five-connection pool over `DATABASE_URL` (server/db/client.ts:28-54) — and a second connection
-// cannot see another session's uncommitted rows, so an unmocked route would answer 404 over fixtures
-// that are right there. The mock is what puts the route and the fixtures on ONE connection.
+// The payload an anonymous caller receives for a published competition, read from the same service
+// the public competition page renders from. `getPublicCompetitionDetail` has no session parameter at
+// all, so a call with no viewer IS what an unauthenticated caller gets — there is no route above it
+// to hold a session and no separate serialization step that could drop a field on the way out.
 //
-// It is not a workaround for a missing variable. Run this suite the way CI runs it, `DATABASE_URL` is
-// exported into the process alongside `REQUIRE_DB_TESTS=1` (.github/workflows/ci.yml:46-52), and
-// `getDb()` is fully configured and reachable. The reason the mock is needed is the connection, not
-// the environment.
-//
-// What that leaves real: the route handler, its 200/404/500 branches, the service, every query, and
-// the serialization — this is the response body an anonymous caller receives. What it replaces is
-// only which connection that response is produced on, which is why the fixtures below are built by
-// real inserts through the real schema rather than assembled as an object (Rule 33).
-let routeTransaction: Database | null = null;
-
-vi.mock("@/server/db/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/server/db/client")>()),
-  getDb: () => {
-    if (!routeTransaction) throw new Error("the route read the database outside a seeded test");
-    return routeTransaction;
-  },
-}));
-
+// The read takes this file's transaction as an explicit `db` argument, so the uncommitted fixtures
+// below are visible to it without a mock and without a second connection. What is real here: the
+// service, every query behind it, and the object it builds. The fixtures are built by real inserts
+// through the real schema rather than assembled as an object (Rule 33).
 const seedCompetition = async (tx: Tx, institutionId: string): Promise<string> => {
   const id = uniqueSuffix();
   const [row] = await tx
@@ -473,7 +456,7 @@ const seedCompetition = async (tx: Tx, institutionId: string): Promise<string> =
   return row!.slug;
 };
 
-describe.skipIf(skipWithoutDatabase)("the unauthenticated competition detail response", () => {
+describe.skipIf(skipWithoutDatabase)("the unauthenticated competition detail read", () => {
   it("contains no organizer contact key at any depth", async () => {
     await inRollback(async (tx) => {
       const institution = await seedInstitution(tx, {
@@ -481,31 +464,26 @@ describe.skipIf(skipWithoutDatabase)("the unauthenticated competition detail res
         contact: true,
       });
       const competitionSlug = await seedCompetition(tx, institution.id);
-      routeTransaction = tx as unknown as Database;
 
-      const { GET } =
-        await import("@/app/api/v1/competitions/public/[institutionSlug]/[slug]/route");
-      const response = await GET(
-        new Request("http://localhost/", { headers: { Accept: "application/json" } }) as never,
-        { params: Promise.resolve({ institutionSlug: institution.slug, slug: competitionSlug }) },
+      const detail = await getPublicCompetitionDetail(
+        institution.slug,
+        competitionSlug,
+        tx as unknown as Database,
       );
+      if (detail === null) throw new Error("a published competition was not publicly readable");
 
-      // The route has no session call at all, so this IS what an anonymous caller receives.
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.competition.organizer.name).toBe(await readDisplayName(tx, institution.id));
+      expect(detail.organizer.name).toBe(await readDisplayName(tx, institution.id));
 
       // Depth-first over the WHOLE payload rather than one object: moving a contact somewhere else
       // in the response would satisfy an assertion made about `organizer`.
-      expect(findKeys(body, ["contactName", "contactEmail", "contactPhone"])).toEqual([]);
+      expect(findKeys(detail, ["contactName", "contactEmail", "contactPhone"])).toEqual([]);
 
       // The control. The same institution's own public page DOES carry the contact for an anonymous
-      // viewer once verified, so the absence above is a property of this endpoint rather than of a
+      // viewer once verified, so the absence above is a property of this read rather than of a
       // fixture that never had a contact to leak.
       const page = (await pageFor(tx, institution.slug))!;
       expect(page.contactEmail).toContain("@example.test");
     });
-    routeTransaction = null;
   });
 });
 

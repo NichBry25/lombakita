@@ -52,6 +52,18 @@ import {
 } from "@/server/institution-workspace/institution-media";
 import { resolveInstitutionMediaUrls } from "@/server/institution-workspace/institution-media-urls";
 import { acquireOwnerCapLock } from "@/server/institution-workspace/owner-cap-lock";
+import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
+
+// `assertAccountNotDeactivated` throws the shape every refusal class in the repository carries —
+// (code, status, message) — and this module's own error takes its status last, so that class cannot
+// be handed to it as it stands. This is that shape and nothing else: what it constructs is still an
+// `InstitutionWorkspaceInputError`, so the create route's `instanceof` branch and the envelope it
+// builds are the ones this module already had.
+class InstitutionDeactivatedError extends InstitutionWorkspaceInputError {
+  constructor(code: "account_deactivated", status: 409, message: string) {
+    super(code, message, undefined, status);
+  }
+}
 
 const MAX_SLUG_ATTEMPTS = 20;
 /**
@@ -420,6 +432,11 @@ const insertInstitutionWithOwner = async (
 
     try {
       return await db.transaction(async (tx) => {
+        // A de-identified account is a tombstone the person is no longer reachable through, so the
+        // membership created below is one nobody could ever act as. Refused first, before the cap
+        // lock and before anything is counted or written.
+        await assertAccountNotDeactivated(tx, userId, InstitutionDeactivatedError);
+
         // Serialize same-owner cap-guarded mutations, then re-count the owner's qualifying
         // institutions UNDER the lock: this is the true cap guard. A plain count (in or out of the
         // transaction) cannot see a concurrent same-owner insert under READ COMMITTED — see

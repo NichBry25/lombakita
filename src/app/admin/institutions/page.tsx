@@ -12,6 +12,7 @@ import {
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { emailDeliveryWarning } from "@/lib/email/delivery-notice";
+import { INSTITUTION_VERIFICATION_STATUS_LABELS } from "@/lib/institutions/verification-status-labels";
 
 type VerificationStatus = "pending_verification" | "under_review" | "verified" | "rejected";
 
@@ -42,13 +43,6 @@ type ListResponse = {
   institutions: InstitutionRow[];
   total: number;
   page: number;
-};
-
-const STATUS_LABELS: Record<VerificationStatus, string> = {
-  pending_verification: "Menunggu Verifikasi",
-  under_review: "Sedang Ditinjau",
-  verified: "Terverifikasi Admin",
-  rejected: "Ditolak Admin",
 };
 
 type ValidTransition = { label: string; targetStatus: VerificationStatus; needsReason?: boolean };
@@ -382,7 +376,7 @@ export default function AdminInstitutionsPage() {
                                   : undefined
                           }
                         >
-                          {STATUS_LABELS[row.verificationStatus]}
+                          {INSTITUTION_VERIFICATION_STATUS_LABELS[row.verificationStatus]}
                         </span>
                         {row.rejectionReason && (
                           <div className="admin-rejection-reason">{row.rejectionReason}</div>
@@ -453,8 +447,12 @@ export default function AdminInstitutionsPage() {
                               <tbody>
                                 {row.auditLog.map((entry) => (
                                   <tr key={entry.id}>
-                                    <td>{STATUS_LABELS[entry.fromStatus]}</td>
-                                    <td>{STATUS_LABELS[entry.toStatus]}</td>
+                                    <td>
+                                      {INSTITUTION_VERIFICATION_STATUS_LABELS[entry.fromStatus]}
+                                    </td>
+                                    <td>
+                                      {INSTITUTION_VERIFICATION_STATUS_LABELS[entry.toStatus]}
+                                    </td>
                                     <td>{entry.reason ?? "–"}</td>
                                     <td className="data-text">{entry.actorUserId ?? "–"}</td>
                                     <td className="data-text">

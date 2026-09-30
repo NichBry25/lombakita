@@ -4,10 +4,13 @@ import { absoluteSiteUrl } from "@/config/site-url";
 import { listSitemapCompetitions } from "@/server/competitions/competition-public-service";
 import { listSitemapInstitutions } from "@/server/institution-workspace/institution-public-service";
 
-// The sitemap is read by crawlers on their own schedule, not per visitor, and enumerating every
-// published competition is two full-table reads. An hour-old sitemap costs a crawler nothing —
-// it revisits the pages it already knows — so this is cached rather than rebuilt per request.
-export const revalidate = 3600;
+// LAUNCH-D1: withdrawal must leave the sitemap within the same window the homepage uses, or the two
+// disagree about what is published — the homepage stops advertising a competition while the sitemap
+// still hands it to a crawler. This one constant covers every membership-changing path, the ones
+// that exist and the ones added later, because they all funnel through this function rather than
+// each remembering to revalidate. The window is short enough for that agreement and long enough that
+// enumerating every published competition is not two full-table reads per crawler request.
+export const revalidate = 300;
 
 /**
  * `/sitemap.xml`, enumerated from the database.

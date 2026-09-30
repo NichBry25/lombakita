@@ -10,9 +10,9 @@
 // declared check, and every probe carries the rest of what Rule 36 asks for.
 
 import { describe, expect, it, afterEach, beforeEach } from "vitest";
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   CODE_CHECKS,
   DATA_CHECKS,
@@ -41,6 +41,12 @@ import { probes as harnessPreconditionProbes } from "./probes/harness-preconditi
 import { probes as decConformanceProbes } from "./probes/dec-conformance.mjs";
 import { probes as deletionInstrumentProbes } from "./probes/deletion-instruments.mjs";
 import { probes as deletionResidueSectionProbes } from "./probes/deletion-residue-section.mjs";
+import { probes as migrationGuardProbes } from "./probes/migration-guard.mjs";
+import { probes as databaseIdentityProbes } from "./probes/database-identity.mjs";
+import { probes as deidentificationGuardProbes } from "./probes/deidentification-guards.mjs";
+import { probes as deactivatedAccountGuardProbes } from "./probes/deactivated-account-guards.mjs";
+import { probes as uploadRateLimitProbes } from "./probes/upload-rate-limit.mjs";
+import { probes as probeWiringProbes } from "./probes/probe-wiring.mjs";
 
 const SUITES: Record<string, Probe[]> = {
   "config-gates": configGateProbes,
@@ -61,6 +67,12 @@ const SUITES: Record<string, Probe[]> = {
   "dec-conformance": decConformanceProbes,
   "deletion-instruments": deletionInstrumentProbes,
   "deletion-residue-section": deletionResidueSectionProbes,
+  "migration-guard": migrationGuardProbes,
+  "database-identity": databaseIdentityProbes,
+  "deidentification-guards": deidentificationGuardProbes,
+  "deactivated-account-guards": deactivatedAccountGuardProbes,
+  "upload-rate-limit": uploadRateLimitProbes,
+  "probe-wiring": probeWiringProbes,
 };
 
 const everyProbe: [string, Probe][] = Object.entries(SUITES).flatMap(([suite, probes]) =>
@@ -318,5 +330,192 @@ describe("the register gate's detectors", () => {
     }
 
     expect(inspected, "no detector was inspected, so nothing was pinned").toBeGreaterThan(0);
+  });
+});
+
+/**
+ * EVERY PROBE SUITE IS RUN BY EXACTLY ONE WORKFLOW.
+ *
+ * DEC-0209 decided the probe suites run nightly rather than on the pull-request path, and for four
+ * months nothing asserted that any of them ran anywhere. The two DEC-0131 anchors stopped matching
+ * at `fada388` and the surface that would have said so was a suite no workflow invoked — a suite
+ * that is not run is the same object as an audit that is not gating (LAUNCH-D173). This block is
+ * the enforcement; the wiring itself lives in `.github/workflows/`.
+ *
+ * THE POPULATION IS THE DIRECTORY, NOT `SUITES`. `SUITES` above is a hand-kept list of suites that
+ * export a probe set, and a suite missing from it — `reindex-expects-rows` is one, a standalone
+ * harness with no exports — would be invisible to a check built on that list. Reading the directory
+ * instead makes a new suite wired or unwired the moment its file exists.
+ */
+const PROBE_LIBRARIES: readonly string[] = [
+  // The shared verdict reader. Imported by nearly every suite; run by none.
+  "detectors",
+  // The throwaway-database harness the destructive-guard probes measure against.
+  "throwaway-database",
+  // Two more shared modules, imported by the suites that read a register or a reindex run.
+  "live-anchor-item",
+  "reached-step-line",
+];
+
+const PROBES_DIR = "scripts/testing/probes";
+const WORKFLOWS_DIR = ".github/workflows";
+
+const atRoot = (relative: string): string => resolve(process.cwd(), relative);
+const readText = (relative: string): string => readFileSync(atRoot(relative), "utf8");
+
+const PROBE_SUITES: string[] = readdirSync(atRoot(PROBES_DIR), { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith(".mjs"))
+  .map((entry) => entry.name.slice(0, -".mjs".length))
+  .filter((name) => !PROBE_LIBRARIES.includes(name))
+  .sort();
+
+const WORKFLOW_FILES: string[] = readdirSync(atRoot(WORKFLOWS_DIR))
+  .filter((name) => name.endsWith(".yml") || name.endsWith(".yaml"))
+  .sort()
+  .map((name) => `${WORKFLOWS_DIR}/${name}`);
+
+/** What each npm script actually runs, so a `run:` that invokes one resolves to its command. */
+const PACKAGE_SCRIPTS: Record<string, string> = (
+  JSON.parse(readText("package.json")) as { scripts: Record<string, string> }
+).scripts;
+
+/**
+ * Every shell command a workflow's `run:` keys carry.
+ *
+ * Line-based rather than a YAML parse: this repository has no YAML dependency, and adding one to
+ * read a single key would be a new dependency for a check over three files. Block scalars are
+ * followed into, which is what makes a command that does not sit on the `run:` line itself visible
+ * — `npm run verify:shell-probe` is written that way and is one of the six suites already wired.
+ */
+const runCommands = (workflow: string): string[] => {
+  const lines = readText(workflow).split("\n");
+  const commands: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const key = /^(\s*)(?:-\s+)?run:\s*(.*)$/.exec(lines[index] ?? "");
+    if (!key) continue;
+
+    const indent = (key[1] ?? "").length;
+    const inline = (key[2] ?? "").trim();
+
+    if (inline !== "" && inline !== "|" && inline !== ">") {
+      commands.push(inline);
+      continue;
+    }
+
+    const block: string[] = [];
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      const body = lines[cursor] ?? "";
+      const bodyIndent = body.match(/^\s*/)?.[0].length ?? 0;
+      if (body.trim() !== "" && bodyIndent <= indent) break;
+      block.push(body);
+    }
+    commands.push(block.join("\n"));
+  }
+
+  return commands;
+};
+
+const RUN_COMMANDS_BY_WORKFLOW: Record<string, string[]> = Object.fromEntries(
+  WORKFLOW_FILES.map((workflow) => [workflow, runCommands(workflow)]),
+);
+
+/** The text a `run:` line stands for: itself, plus whatever npm script it invokes. */
+const resolvedCommands = (command: string): string[] => {
+  const resolved = [command];
+
+  for (const [, script] of command.matchAll(/npm run ([^\s&|;]+)/g)) {
+    const definition = PACKAGE_SCRIPTS[script ?? ""];
+    if (definition) resolved.push(definition);
+  }
+
+  return resolved;
+};
+
+/** Every workflow that runs `suite`, by path. */
+const workflowRunnersOf = (suite: string): string[] => {
+  const needle = `${PROBES_DIR}/${suite}.mjs`;
+
+  return WORKFLOW_FILES.filter((workflow) =>
+    (RUN_COMMANDS_BY_WORKFLOW[workflow] ?? []).some((command) =>
+      resolvedCommands(command).some((text) => text.includes(needle)),
+    ),
+  );
+};
+
+describe("every probe suite is wired", () => {
+  it("runs every probe suite in exactly one workflow", () => {
+    // A population of zero satisfies every assertion below while proving nothing, and it is what a
+    // rename of the probes directory would produce.
+    expect(PROBE_SUITES.length, "the probes directory yielded no suites").toBeGreaterThan(0);
+
+    const wiring = PROBE_SUITES.map((suite) => ({
+      suite,
+      workflows: workflowRunnersOf(suite),
+    }));
+
+    console.log(
+      [
+        "probe suite → workflow",
+        ...wiring.map(({ suite, workflows }) => `  ${suite} → ${workflows.join(", ") || "(none)"}`),
+      ].join("\n"),
+    );
+
+    for (const { suite, workflows } of wiring) {
+      // Both directions in one assertion, because they are one property. Zero means the suite runs
+      // nowhere and its guard is unproven; two means one of them is a copy that will drift.
+      expect(
+        workflows,
+        `${suite} is run by ${workflows.length} workflows: ${workflows.join(", ") || "none"}`,
+      ).toHaveLength(1);
+    }
+  });
+
+  it("names only probe files that exist", () => {
+    // The other half of a wiring mistake: a step naming a path nothing created runs nothing and
+    // reports the same green a wired suite does.
+    const named = new Set<string>();
+
+    for (const commands of Object.values(RUN_COMMANDS_BY_WORKFLOW)) {
+      for (const command of commands) {
+        for (const text of resolvedCommands(command)) {
+          for (const [path] of text.matchAll(/scripts\/testing\/probes\/[\w.-]+\.mjs/g)) {
+            named.add(path);
+          }
+        }
+      }
+    }
+
+    for (const path of named) {
+      expect(existsSync(atRoot(path)), `${path} is named by a workflow and is not on disk`).toBe(
+        true,
+      );
+    }
+
+    expect(named.size, "no workflow names a probe file, so nothing was checked").toBeGreaterThan(0);
+  });
+
+  it("declares only libraries that exist and that a suite imports", () => {
+    for (const library of PROBE_LIBRARIES) {
+      const path = `${PROBES_DIR}/${library}.mjs`;
+
+      expect(
+        existsSync(atRoot(path)),
+        `${path} is declared a probe library and is not on disk`,
+      ).toBe(true);
+
+      // THE HALF THAT STOPS THE LIST HIDING A SUITE. Declaring a suite a library removes it from
+      // the population, and the population is what the wiring check above covers — so without this
+      // assertion, editing this list would be a silent way to unwire a suite while every other
+      // check stayed green.
+      const importers = PROBE_SUITES.filter((suite) =>
+        readText(`${PROBES_DIR}/${suite}.mjs`).includes(`./${library}.mjs`),
+      );
+
+      expect(
+        importers.length,
+        `${library} is declared a probe library but no probe suite imports it`,
+      ).toBeGreaterThan(0);
+    }
   });
 });

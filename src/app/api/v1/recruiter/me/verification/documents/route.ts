@@ -9,6 +9,7 @@ import {
   toRecruiterVerificationErrorResponse,
 } from "@/server/recruiter-verification/recruiter-verification-core";
 import { prepareVerificationDocumentUpload } from "@/server/recruiter-verification/recruiter-verification-service";
+import { assertUploadUrlAllowed } from "@/server/storage/upload-rate-limit";
 
 // POST — presign step for an optional affiliation-proof document. Validates the declared file
 // against the allowlist and returns a presigned PUT URL plus the server-chosen R2 key; the browser
@@ -19,6 +20,9 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const session = await requireSessionRole(["recruiter"]);
     assertSessionMatchesExpectedUser(request, session);
+
+    const limited = await assertUploadUrlAllowed(session.user.id);
+    if (limited) return limited;
 
     let body: unknown;
     try {

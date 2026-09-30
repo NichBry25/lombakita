@@ -109,9 +109,9 @@ const sanitizeVerifiedRoles = (value: unknown): AppRole[] => {
 //   unavailable — the query threw. Callers FAIL OPEN for self-service roles and fall back to the
 //                 token's cached role: a transient DB fault must never sign every user out of the
 //                 platform, and self-service accounts are the overwhelming majority of sessions.
-//   missing     — no users row. Callers FAIL CLOSED and surface no role, so a deleted account's
-//                 existing cookie stops authenticating. Deletion is the only cause; a session
-//                 never legitimately resolves for an absent user row.
+//   missing     — no users row, or a row whose status is `deactivated`. Callers FAIL CLOSED and
+//                 surface no role, so a deleted or de-identified account's existing cookie stops
+//                 authenticating. A session never legitimately resolves for either.
 //
 // `role` is typed nullable even though users.role is NOT NULL, so an out-of-band write or a future
 // schema change that admits a null can only ever produce a roleless session, never a coerced one.
@@ -135,6 +135,7 @@ const loadLiveAccountState = async (userId: string): Promise<LiveAccountState> =
     const [row] = await getDb()
       .select({
         role: users.role,
+        status: users.status,
         suspendedAt: users.suspendedAt,
         mfaInvalidatedAt: users.mfaInvalidatedAt,
         hasVerifiedMfaFactor: hasVerifiedMfaFactorSql,
@@ -144,6 +145,12 @@ const loadLiveAccountState = async (userId: string): Promise<LiveAccountState> =
       .limit(1);
 
     if (!row) {
+      return { status: "missing" };
+    }
+
+    // `deactivated` is the de-identification action's tombstone. The row survives it, so this is
+    // what ends the account's sessions rather than a deleted row would have.
+    if (row.status === "deactivated") {
       return { status: "missing" };
     }
 

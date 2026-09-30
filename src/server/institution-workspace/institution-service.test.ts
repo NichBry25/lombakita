@@ -31,14 +31,23 @@ import {
 // guard). These helpers let each tx mock satisfy both without duplicating the thenable boilerplate.
 // `inTxCount` is what the in-transaction re-count returns; pass an optional `capturedLockKeys` array
 // to record the advisory-lock key the code derives (proves per-owner keying / cross-owner independence).
-const makeTxCountNode = (value: number) => {
+//
+// `status` is the answer the de-identified-account guard gets: that guard is the first read in every
+// create transaction and it takes its row with `.for("update")`, so the node carries one alongside
+// the thenable the count queries are awaited through.
+const makeTxCountNode = (value: number, status: "active" | "deactivated" = "active") => {
   const node: Record<string, unknown> = {};
   for (const m of ["from", "innerJoin", "where", "limit"]) node[m] = () => node;
+  node.for = vi.fn().mockResolvedValue([{ status }]);
   node.then = (resolve: (v: unknown) => void) => resolve([{ value }]);
   return node;
 };
 
-const txCapGuards = (inTxCount: number, capturedLockKeys?: string[]) => ({
+const txCapGuards = (
+  inTxCount: number,
+  capturedLockKeys?: string[],
+  status: "active" | "deactivated" = "active",
+) => ({
   execute: vi.fn((query?: unknown) => {
     // drizzle stores an interpolated raw string as a primitive string chunk (parameterized at build
     // time), not a Param object — so match the chunk that IS the "inst_owner_cap:<userId>" string.
@@ -49,7 +58,7 @@ const txCapGuards = (inTxCount: number, capturedLockKeys?: string[]) => ({
     if (key && capturedLockKeys) capturedLockKeys.push(key);
     return Promise.resolve([]);
   }),
-  select: vi.fn(() => makeTxCountNode(inTxCount)),
+  select: vi.fn(() => makeTxCountNode(inTxCount, status)),
 });
 
 type CreationConflictShape = "outer" | "wrapped";
@@ -248,6 +257,48 @@ describe("institution-service", () => {
     expect(membershipRows[0]?.status).toBe("active");
     expect(workspace.slug).toBe("universitas-nusantara-2");
     expect(workspace.ownerMembership.membershipRole).toBe("institution_owner");
+  });
+
+  it("refuses a de-identified account with 409 account_deactivated, before the cap lock", async () => {
+    // Creating an institution gives the account an owner membership in it, and a tombstone is not an
+    // account anyone can act as. The refusal is the transaction's first act, which the empty lock
+    // record shows: an account whose data is gone gets neither an institution nor a lock held on its
+    // behalf while that is decided.
+    const capturedLockKeys: string[] = [];
+    const tx = txCapGuards(0, capturedLockKeys, "deactivated");
+
+    // The two reads that precede the transaction: the owner count, then the username-collision
+    // probe. Both a thenable node, as elsewhere in this file.
+    let selectCalls = 0;
+    const makeSeqNode = (result: unknown[]) => {
+      const node: Record<string, unknown> = {};
+      for (const method of ["from", "innerJoin", "where", "limit"]) node[method] = () => node;
+      node.then = (resolve: (rows: unknown[]) => void) => resolve(result);
+      return node;
+    };
+
+    const db = {
+      select: vi.fn(() => {
+        selectCalls += 1;
+        return makeSeqNode(selectCalls === 1 ? [{ value: 0 }] : []);
+      }),
+      transaction: vi.fn(async (callback: (context: typeof tx) => Promise<unknown>) =>
+        callback(tx),
+      ),
+    } as unknown as Database;
+
+    await expect(
+      createInstitutionWorkspaceForUser(
+        "gone_user",
+        { displayName: "Kampus Hantu", institutionType: "company" },
+        db,
+      ),
+    ).rejects.toMatchObject({ code: "account_deactivated", httpStatus: 409 });
+
+    // The guard's own read is the only one the transaction made: the owner count it would otherwise
+    // have taken the lock for never ran.
+    expect(tx.select).toHaveBeenCalledTimes(1);
+    expect(capturedLockKeys).toEqual([]);
   });
 
   it("denies settings read when user is not owner of the institution slug", async () => {

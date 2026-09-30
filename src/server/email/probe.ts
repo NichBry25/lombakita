@@ -184,3 +184,14 @@ export const probeResend = async (): Promise<void> => {
   await probeTransport("http", sendProbeOverHttp);
   await probeTransport("smtp", sendProbeOverSmtp);
 };
+
+/**
+ * The HTTP transport alone, for a caller that runs where SMTP cannot reach the provider.
+ *
+ * LAUNCH-D49: outbound SMTP is blocked from the Railway worker container, and every send the worker
+ * makes goes over the HTTP SDK. A scheduled probe from there has to be scoped to the transport that
+ * runtime actually uses, or it reports red every night for a network policy that is not a defect.
+ */
+export const probeResendHttp = async (): Promise<void> => {
+  await probeTransport("http", sendProbeOverHttp);
+};

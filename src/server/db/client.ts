@@ -25,10 +25,12 @@ const requireDatabaseUrl = (): string => {
   return serverEnv.databaseUrl;
 };
 
-const createSqlClient = (): postgres.Sql => {
+// The URL is a parameter so a probe can build a client for the string it read itself rather than for
+// the one the app serves from; an argument-less call is the app's own client, on `DATABASE_URL`.
+export const createSqlClient = (url: string = requireDatabaseUrl()): postgres.Sql => {
   const ssl = resolveDatabaseSslOption();
 
-  return postgres(requireDatabaseUrl(), {
+  return postgres(url, {
     max: 5,
     idle_timeout: 20,
     connect_timeout: 10,

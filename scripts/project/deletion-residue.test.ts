@@ -10,6 +10,10 @@
 // is run.
 
 import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   cascadeClosure,
   R2_PREFIXES,
@@ -21,8 +25,12 @@ import {
   attributionPath,
   attributionSql,
   objectKeySql,
+  parseBaselineFile,
+  renderVerification,
+  ResidueRefusal,
   sweepSql,
   type Attribution,
+  type ResidueReport,
 } from "./deletion-residue";
 
 describe("the attribution walk", () => {
@@ -309,4 +317,137 @@ describe("the value sweep", () => {
     // A timestamp cannot hold a person's address, so sweeping it would add cost and no evidence.
     expect(columns).not.toContain("users.created_at");
   });
+});
+
+/** A whole baseline FILE, as `capture` writes one, with the statement of the caller's choosing. */
+const baselineFile = (sql: string) =>
+  JSON.stringify({
+    generatedAt: "2026-09-01T00:00:00.000Z",
+    cases: [
+      {
+        label: "case one",
+        baseline: {
+          userId: "u1",
+          capturedAt: "2026-09-01T00:00:00.000Z",
+          tables: 1,
+          reachableFrom: 1,
+          literals: ["someone@example.test"],
+          attribution: [{ path: "users", sql, expected: 1 }],
+        },
+      },
+    ],
+  });
+
+describe("the guards on what a baseline may carry and what a report may print", () => {
+  it("refuses a baseline whose statement is not a select, before anything runs it", () => {
+    // `verify` hands every `attribution[].sql` to `sql.unsafe`, and a baseline travels between
+    // machines and is hand-editable. The file is executable content, so what it may contain is
+    // bounded here rather than at the point it is executed.
+    expect(() =>
+      parseBaselineFile(baselineFile("delete from users where id = 'u1'"), "baseline.json"),
+    ).toThrow(ResidueRefusal);
+  });
+
+  it("refuses a baseline whose statement is not a string at all", () => {
+    expect(() => parseBaselineFile(baselineFile(undefined as never), "baseline.json")).toThrow(
+      ResidueRefusal,
+    );
+  });
+
+  it("accepts a select, whatever its case and leading whitespace", () => {
+    expect(() =>
+      parseBaselineFile(baselineFile("  SELECT count(*) from users"), "baseline.json"),
+    ).not.toThrow();
+  });
+
+  it("prints an index in place of the account's own string", () => {
+    const report: ResidueReport = {
+      baseline: {
+        userId: "u1",
+        capturedAt: "2026-09-01T00:00:00.000Z",
+        tables: 1,
+        reachableFrom: 1,
+        literals: ["first@example.test", "someone@example.test"],
+        attribution: [],
+      },
+      userRowRemains: false,
+      attribution: [],
+      sweep: [{ literal: "someone@example.test", locations: [] }],
+      sweepColumns: 3,
+      tables: 1,
+    };
+
+    const document = renderVerification([{ label: "case one", report }]);
+
+    // The document is written to a file that is read by people who are not the account holder, so
+    // it names the string by position and never by value.
+    expect(document).toContain("### `<identity 1>`");
+    expect(document).not.toContain("someone@example.test");
+  });
+});
+
+describe("the host the residue instrument will open", () => {
+  it("refuses a database that is not on this machine, before it reads anyone's identifiers", () => {
+    // The guard is inside the CLI's own `connect`, so it is reached the way an operator reaches it
+    // rather than through an export that exists for the test. What it protects is not the query —
+    // every statement this module issues is a `select` — but the report: the file it writes is a
+    // copy of a real person's email address, name and phone number, and the copy outlives the
+    // connection it was read over.
+    const result = spawnSync(
+      "node",
+      [
+        "--import",
+        "tsx",
+        "scripts/project/deletion-residue.ts",
+        "verify",
+        "--baseline",
+        "/dev/null",
+      ],
+      {
+        encoding: "utf8",
+        env: { ...process.env, DATABASE_URL: "postgres://u:p@db.example.com:5432/lombakita" },
+      },
+    );
+
+    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+
+    expect(output).toContain("refusing to open db.example.com");
+    expect(result.status).not.toBe(0);
+  }, 120_000);
+});
+
+describe("the statements a baseline file may carry, reached through the CLI", () => {
+  it("refuses a non-select statement without asking the database anything", () => {
+    // Rule 33: the assertions above build their input by hand, which proves `asBaseline` and not the
+    // wiring. This one runs the real `verify` against a real file on disk, the way an operator does.
+    //
+    // The database is deliberately unreachable — loopback, on a port no Postgres can serve without
+    // root — so the refusal arriving AT ALL is the evidence that the statement check ran before
+    // anything was sent to the server: a query issued first would have failed to connect and
+    // reported that instead.
+    const dir = mkdtempSync(join(tmpdir(), "residue-baseline-"));
+    const path = join(dir, "baseline.json");
+
+    writeFileSync(path, baselineFile("delete from users where id = 'u1'"), "utf8");
+
+    try {
+      const result = spawnSync(
+        "node",
+        ["--import", "tsx", "scripts/project/deletion-residue.ts", "verify", "--baseline", path],
+        {
+          encoding: "utf8",
+          env: { ...process.env, DATABASE_URL: "postgres://u:p@127.0.0.1:1/lombakita" },
+        },
+      );
+
+      const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+
+      expect(result.status).not.toBe(0);
+      expect(output).toContain("attribution[0].sql");
+      expect(output).toContain("is not a select statement");
+      expect(output).not.toContain("ECONNREFUSED");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

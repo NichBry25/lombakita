@@ -8,15 +8,16 @@
  * CLASS D — the comparison is a pure function read for its RESULT CONTENT: which rows diverge. A
  * pure read has no move analogue, so there is no ordering probe here and none is being withheld.
  *
- * WHAT THESE PROBES DO NOT COVER, stated rather than implied. The `current_database()` assertion
- * (DEC-0207) lives in `verify-schema-drift.ts` and in the `migration-database` connector probe, and
- * both need a live server to mean anything — the whole point is that the answer comes from the
- * database rather than from the string used to reach it, so there is nothing to mutate in-process
- * that would prove it. It was demonstrated against real databases instead: the same staging
- * credential is REFUSED when the checker is asked for production (naming "lombakita_staging" against
- * an expected "lombakita_production") and PASSES when asked for preview, and the connector probe
- * reports `live: down` with the same message. Those runs are the evidence for that half; these
- * probes are the evidence for the comparison half.
+ * THE IDENTITY ASSERTION IS COVERED IN TWO HALVES, and the split is where the coverage is rather
+ * than where it is missing. `verify-schema-drift.ts` and the `migration-database` connector probe
+ * need a live server for the READ — the whole point is that the answer comes from the database rather
+ * than from the string used to reach it — and that half was demonstrated against real databases: the
+ * same staging credential is REFUSED when the checker is asked for production (naming
+ * "lombakita_staging" against an expected "lombakita_production") and PASSES when asked for preview,
+ * and the connector probe reports `live: down` with the same message. What the read RETURNS is now
+ * read by one shared comparison, `identityMismatch` in `database-identity.ts`, and THAT is in-process
+ * and mutable — so the role half of the assertion is probed below, and the flake is not the whole
+ * story any more.
  *
  * Usage: node scripts/testing/probes/schema-drift.mjs
  * Runs only over committed work — the harness refuses if any listed file differs from HEAD.
@@ -26,6 +27,8 @@ import { fails } from "./detectors.mjs";
 
 const DRIFT = "src/server/db/schema-drift.ts";
 const TEST = "src/server/db/schema-drift.test.ts";
+const IDENTITY = "src/server/scripts/database-identity.ts";
+const IDENTITY_TEST = "src/server/scripts/database-identity.test.ts";
 
 export const probes = [
   {
@@ -86,9 +89,39 @@ export const probes = [
     detect: async () =>
       fails("npx", ["vitest", "run", TEST], /× .*catches a database that is behind the checkout/),
   },
+  {
+    name: "the role the server answers with is compared, not only the database",
+    klass: "D",
+    harmfulMove:
+      "a lane that reached the RIGHT database as the WRONG role reporting the identity as matching " +
+      "and going on to report on it — a credential that can do a different set of things there " +
+      "than this lane assumes, which is the case DEC-0207 put the role beside the name for, and the " +
+      "one the database-name comparison alone cannot see",
+    files: [IDENTITY],
+    // Flipped, for the reason the exception probe above gives: dropping the role half would leave
+    // `expected.role` referenced only inside the guard that was removed, and the polarity flip
+    // produces the harmful behaviour with every type intact — a wrong role waved through, and a
+    // correct one refused.
+    appliedMarkers: ["if (expected.role !== undefined && observed.role === expected.role) {"],
+    mutate: () =>
+      substituteOnce(
+        IDENTITY,
+        "if (expected.role !== undefined && observed.role !== expected.role) {",
+        "if (expected.role !== undefined && observed.role === expected.role) {",
+      ),
+    detect: async () =>
+      fails(
+        "npx",
+        ["vitest", "run", IDENTITY_TEST],
+        /× .*names the role when only the role differs/,
+      ),
+  },
 ];
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  requireGreenBeforeProbing("schema-drift", [["npx", ["vitest", "run", TEST]]]);
+  requireGreenBeforeProbing("schema-drift", [
+    ["npx", ["vitest", "run", TEST]],
+    ["npx", ["vitest", "run", IDENTITY_TEST]],
+  ]);
   await runProbes(probes);
 }

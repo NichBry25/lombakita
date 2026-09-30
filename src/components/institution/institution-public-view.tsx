@@ -4,16 +4,9 @@ import {
   type CompetitionCardItem,
 } from "@/components/competitions/competition-card";
 import { IdentityBanner } from "@/components/media/identity-banner";
+import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import type { PublicInstitution } from "@/server/institution-workspace/institution-public-service";
-
-const INSTITUTION_TYPE_LABELS: Record<string, string> = {
-  personal: "Personal",
-  company: "Perusahaan",
-  foundation: "Yayasan",
-  university: "Universitas",
-  campus_organization: "Organisasi kampus",
-};
 
 // Renders a validated http(s) URL as its bare host for compact display.
 function displayUrl(url: string): string {

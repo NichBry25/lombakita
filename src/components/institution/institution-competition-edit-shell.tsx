@@ -32,7 +32,7 @@ import {
   resolvePublishRefusalToastText,
 } from "@/components/institution/competition-publish-messages";
 import type { CompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
-import { capitalizeWord } from "@/lib/text/capitalize";
+import { getCompetitionStatusLabel } from "@/lib/competitions/status-labels";
 import type { CompetitionCategory } from "@/server/db/schema";
 
 type Category = CompetitionCategory;
@@ -444,7 +444,7 @@ export const InstitutionCompetitionEditShell = ({
     if (competition && competition.status !== "draft" && competition.status !== "published") {
       addToast({
         type: "error",
-        message: `Kompetisi berstatus ${capitalizeWord(competition.status)} tidak dapat diubah.`,
+        message: `Kompetisi berstatus ${getCompetitionStatusLabel(competition.status)} tidak dapat diubah.`,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -661,7 +661,7 @@ export const InstitutionCompetitionEditShell = ({
         title={competition.title}
         actions={
           <span className="status-badge" data-status={isPublished ? "open" : "closing"}>
-            {capitalizeWord(competition.status)}
+            {getCompetitionStatusLabel(competition.status)}
           </span>
         }
       />

@@ -15,10 +15,11 @@ import { useModal, useToast } from "@/components/ui/primitives";
 import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
+import { getCompetitionStatusLabel } from "@/lib/competitions/status-labels";
 import { resolveResultAnnouncement } from "@/lib/competitions/competition-phase";
 import { useWithdrawalAvailability } from "@/components/competitions/use-withdrawal-availability";
 import { resolveSessionMismatchMessage, sessionFetch } from "@/lib/session/session-fetch";
-import { capitalizeFirst, capitalizeWord } from "@/lib/text/capitalize";
+import { capitalizeFirst } from "@/lib/text/capitalize";
 import {
   getPublishBlockerReason,
   resolvePublishReasonHref,
@@ -349,7 +350,7 @@ export const InstitutionCompetitionDetailShell = ({
             className="status-badge"
             data-status={isCancelled ? "cancelled" : isPublished ? "open" : "closing"}
           >
-            {isCancelled ? "Dibatalkan" : capitalizeWord(competition.status)}
+            {isCancelled ? "Dibatalkan" : getCompetitionStatusLabel(competition.status)}
           </span>
         }
       />

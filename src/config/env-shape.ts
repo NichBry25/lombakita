@@ -117,6 +117,27 @@ export const CANONICAL_DATABASE_NAME: Readonly<Record<DeployEnvironment, string>
   production: "lombakita_production",
 });
 
+/**
+ * The role each deployed environment's connection is supposed to be answering as.
+ *
+ * PROVENANCE, because these are assertions rather than observations. The preview runtime and
+ * migration roles were measured from the pulled preview environment on 2026-09-21 (LAUNCH-D137).
+ * The migration credential is scope-pinned to both managed databases (LAUNCH-D126). The production
+ * runtime role is asserted, and is confirmed by the owner before this block merges and by the first
+ * production deploy gate, which fails closed before build if it is wrong.
+ *
+ * Literal values, never derived. A role read out of the connection string would be the same claim
+ * the comparison exists to test, which is the fault DEC-0207 closes for the database name and which
+ * applies to the user identically: the string that reaches the wrong server is the one that would
+ * supply the expectation.
+ */
+export const CANONICAL_DATABASE_ROLE: Readonly<
+  Record<DeployEnvironment, Readonly<{ runtime: string; migration: string }>>
+> = Object.freeze({
+  preview: Object.freeze({ runtime: "lombakita_app", migration: "lombakita_migrate" }),
+  production: Object.freeze({ runtime: "lombakita_app", migration: "lombakita_migrate" }),
+});
+
 export const DEPLOY_ENV_KEY_SPECS: readonly DeployKeySpec[] = [
   {
     key: "DATABASE_URL",

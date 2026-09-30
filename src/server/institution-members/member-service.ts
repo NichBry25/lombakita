@@ -10,6 +10,8 @@ import {
 } from "@/server/db/schema";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { MemberError, type MemberRecord } from "@/server/institution-members/member-core";
+import { countActiveOwners } from "@/server/institution-members/owner-count";
+import { lockInstitutionOwnership } from "@/server/institution-members/owner-membership-lock";
 
 assertServerOnly("server/institution-members/member-service");
 
@@ -216,6 +218,12 @@ export const changeMemberRole = async (
   const { institutionId } = await requireAdminInstitutionBySlug(actorUserId, institutionSlug, db);
 
   await db.transaction(async (tx) => {
+    // Taken before the target read so the whole transaction, including the owner count below, sees
+    // one consistent set of memberships: a demotion and a concurrent de-identification of a
+    // co-owner each count the other's row, and counting a row the other transaction is about to
+    // change is how an institution ends up with no owner at all.
+    await lockInstitutionOwnership(tx, [institutionId]);
+
     const [target] = await tx
       .select({
         id: institutionMemberships.id,
@@ -259,18 +267,9 @@ export const changeMemberRole = async (
 
     // Last-owner guard: only relevant when demoting an institution_owner.
     if (target.role === "institution_owner" && newRole !== "institution_owner") {
-      const admins = await tx
-        .select({ id: institutionMemberships.id })
-        .from(institutionMemberships)
-        .where(
-          and(
-            eq(institutionMemberships.institutionId, institutionId),
-            eq(institutionMemberships.membershipRole, "institution_owner"),
-            eq(institutionMemberships.status, "active"),
-          ),
-        );
+      const owners = await countActiveOwners(tx, institutionId);
 
-      if (admins.length <= 1) {
+      if (owners <= 1) {
         throw new MemberError(
           "last_owner_demotion_forbidden",
           422,
@@ -303,6 +302,11 @@ export const removeMember = async (
   const { institutionId } = await requireAdminInstitutionBySlug(actorUserId, institutionSlug, db);
 
   await db.transaction(async (tx) => {
+    // Same lock as changeMemberRole's, and for the same reason: the count below decides whether the
+    // removal is allowed, and it must not run against memberships a concurrent de-identification is
+    // in the middle of revoking.
+    await lockInstitutionOwnership(tx, [institutionId]);
+
     const [target] = await tx
       .select({
         id: institutionMemberships.id,
@@ -333,18 +337,9 @@ export const removeMember = async (
     }
 
     if (target.role === "institution_owner") {
-      const admins = await tx
-        .select({ id: institutionMemberships.id })
-        .from(institutionMemberships)
-        .where(
-          and(
-            eq(institutionMemberships.institutionId, institutionId),
-            eq(institutionMemberships.membershipRole, "institution_owner"),
-            eq(institutionMemberships.status, "active"),
-          ),
-        );
+      const owners = await countActiveOwners(tx, institutionId);
 
-      if (admins.length <= 1) {
+      if (owners <= 1) {
         throw new MemberError("member_last_admin", 409, "Cannot remove the last institution admin");
       }
     }

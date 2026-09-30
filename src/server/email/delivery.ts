@@ -1,6 +1,7 @@
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
+import { DEIDENTIFIED_EMAIL_DOMAIN } from "@/server/accounts/deidentified-identity";
 import { assertRecipientIsRoutable } from "@/server/email/reserved-recipients";
 
 assertServerOnly("server/email/delivery");
@@ -8,6 +9,23 @@ assertServerOnly("server/email/delivery");
 export type EmailDelivery = {
   apiKey: string;
   from: string;
+};
+
+/**
+ * The domain of an address, lowercased, or an empty string when there is no `@` in it.
+ *
+ * Local rather than shared because `reservedRecipientSuffixOf` answers a different question — it
+ * returns whichever reservation matched, so it reports `invalid` for a `deleted.invalid` address
+ * and cannot say whether the domain is exactly the tombstone one.
+ */
+const recipientDomainOf = (address: string): string => {
+  const at = address.lastIndexOf("@");
+  return at === -1
+    ? ""
+    : address
+        .slice(at + 1)
+        .trim()
+        .toLowerCase();
 };
 
 // The single boundary every outbound email passes through, mirroring isR2Available() and
@@ -52,6 +70,19 @@ export const resolveEmailDelivery = (context: {
   //
   // It guards the return rather than the entry, so the structural property is unchanged: this call
   // is the only source of the API key, and a send site that skips it has nothing to send with.
+  //
+  // A de-identified account's address is suppressed rather than refused, and the difference is the
+  // whole of why this branch exists above the check instead of inside it. The check THROWS, which
+  // would fail whatever the sender was doing — an organiser publishing results, a request for
+  // documents — over a recipient who no longer exists. Skipping is the honest outcome: the action
+  // the other person took still succeeds, and nothing is sent. Every other reserved domain still
+  // reaches the check and throws as before.
+  if (recipientDomainOf(context.to) === DEIDENTIFIED_EMAIL_DOMAIN) {
+    logger.info("email.recipient_deidentified", { kind: context.kind });
+
+    return null;
+  }
+
   assertRecipientIsRoutable(context.to, context.kind);
 
   return { apiKey: serverEnv.resendApiKey, from: serverEnv.authEmailFrom };

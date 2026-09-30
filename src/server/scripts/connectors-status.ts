@@ -10,7 +10,9 @@
  * environment.
  */
 import { setDefaultResultOrder } from "node:dns";
+import { pathToFileURL } from "node:url";
 
+import type { DeployEnvironment } from "@/config/env-shape";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/scripts/connectors-status");
@@ -33,9 +35,24 @@ import {
 
 const argv = process.argv.slice(2);
 
+/**
+ * The environment this command line DECLARED, or nothing.
+ *
+ * `--environment` names the file `vercel pull` wrote, so a value like `staging` is not an error
+ * here — it is simply not a declaration this process can hold an expectation for. Anything but the
+ * two deployed environments therefore passes nothing on, and the identity check it would reach is
+ * left with no expectation rather than an interpreted one.
+ */
+export const declaredEnvironmentFromFlag = (
+  value: string | undefined,
+): DeployEnvironment | undefined =>
+  value === "preview" || value === "production" ? value : undefined;
+
 const run = async (): Promise<void> => {
+  const environmentFlag = readFlagValue(argv, "--environment");
+
   const load = loadEnvFile({
-    environment: readFlagValue(argv, "--environment"),
+    environment: environmentFlag,
     explicitPath: readFlagValue(argv, ENV_PATH_FLAG),
   });
 
@@ -50,9 +67,12 @@ const run = async (): Promise<void> => {
   // above was read, and every probe would run against the wrong values.
   const { getConnectorStatusPayload } = await import("@/server/connectors/status");
 
+  const declaredEnvironment = declaredEnvironmentFromFlag(environmentFlag);
+
   const payload = await getConnectorStatusPayload({
     includeLiveChecks: hasFlag(argv, "--live"),
     includeWorkerLiveness: hasFlag(argv, "--worker"),
+    ...(declaredEnvironment ? { declaredEnvironment } : {}),
   });
 
   console.log(JSON.stringify(payload, null, 2));
@@ -66,15 +86,20 @@ const run = async (): Promise<void> => {
   }
 };
 
-run()
-  .catch((error: unknown) => {
-    console.error(
-      `\nConnector status check failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    process.exitCode = 1;
-  })
-  // Redis and Postgres clients hold open sockets, so the event loop never drains and the process
-  // would hang after reporting. Exiting explicitly is what makes this usable as a CI step.
-  .finally(() => {
-    process.exit(process.exitCode ?? 0);
-  });
+// Runs on load, because this file IS the command: `npm run connectors:status` executes it as the
+// entry module and nothing else imports it. The comparison keeps the flag-to-declaration mapping
+// above importable from a test without the runner opening a connection to anything.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  run()
+    .catch((error: unknown) => {
+      console.error(
+        `\nConnector status check failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      process.exitCode = 1;
+    })
+    // Redis and Postgres clients hold open sockets, so the event loop never drains and the process
+    // would hang after reporting. Exiting explicitly is what makes this usable as a CI step.
+    .finally(() => {
+      process.exit(process.exitCode ?? 0);
+    });
+}

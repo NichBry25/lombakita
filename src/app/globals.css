@@ -1248,7 +1248,11 @@ svg {
   vertical-align: top;
 }
 
+/* MANUAL-D41: a header cell is the containing block for its own children. Without this, an
+   absolutely positioned .sr-only child resolves against the initial containing block, escapes
+   .table-scroll's overflow clipping, and widens the document past the viewport. */
 .data-table th {
+  position: relative;
   background: var(--color-inset);
   color: var(--color-ink-soft);
   font-family: var(--font-data);

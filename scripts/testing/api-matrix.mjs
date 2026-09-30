@@ -19,6 +19,13 @@ import { BASE, USERS, INST, COMP, REG } from "./seeds.mjs";
 const REPO = resolve(new URL("../..", import.meta.url).pathname);
 const results = [];
 
+// `seed-comp-open`'s title and `seed-inst-a`'s displayName — the two values the public competition
+// page's metadata template composes its `<title>` from. scripts/seed-test-matrix.ts:705 and :419;
+// `organizer.name` resolves to that displayName for a full institution
+// (src/server/competitions/competition-public-service.ts:842).
+const SEEDED_OPEN_COMPETITION_TITLE = "Seed Hackathon Nusantara";
+const SEEDED_ORGANIZER_NAME = "Seed Academy";
+
 const record = (id, name, expected, actual, pass, note = "") => {
   results.push({ id, name, expected, actual, pass, note });
   console.log(
@@ -163,50 +170,56 @@ const main = async () => {
     listAll.status === 200 && listAllSlugs.includes(COMP.done.slug),
   );
 
-  const detail = await apiFetch(`/api/v1/competitions/public/${INST.a.slug}/${COMP.open.slug}`);
-  // "Seed Hackathon" is a PREFIX of the seeded title, not the title. The needle search passed on
-  // it for the life of this case, which is the D32 defect in one line: a longer string containing
-  // the needle satisfies the assertion while meaning something else.
+  // ---- the public competition PAGE ----------------------------------------
+  //
+  // The four cases below request the page a person actually opens, not the API behind it. The API
+  // and the page each decide visibility for themselves: the page calls `getPublicCompetitionDetail`
+  // and answers `notFound()` on null, so a service that withholds correctly and a page that forgets
+  // to withhold are two different defects, and only a request for the page can tell them apart.
+  // `UAT-RECONCILIATION.md` A8 cites PUB-06 as the automated evidence that a draft is not publicly
+  // visible, and A8 is about the page.
+  const publishedPage = await apiFetch(`/competitions/${INST.a.slug}/${COMP.open.slug}`);
+  // Exact equality with the `<title>` the page's own metadata produces, rather than a needle search
+  // over the response bytes: the title also appears in the embedded server-component payload, in
+  // `og:title`, and in any card this page renders for another competition, so a substring search
+  // passes for reasons this case does not name. The template is
+  // src/app/competitions/[institutionSlug]/[slug]/page.tsx:329, and the root layout sets no
+  // `title.template` (src/app/layout.tsx:27), so the element carries it verbatim.
+  const publishedPageTitle = `${SEEDED_OPEN_COMPETITION_TITLE} · ${SEEDED_ORGANIZER_NAME} · Lombakita`;
+  const titleElement = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(String(publishedPage.body));
   record(
     "PUB-05",
-    "Public detail of published comp",
-    "200 Seed Hackathon Nusantara",
-    `${detail.status} ${detail.body?.competition?.title}`,
-    detail.status === 200 && detail.body?.competition?.title === "Seed Hackathon Nusantara",
+    "Public page of a published comp of a verified institution",
+    `200 <title>${publishedPageTitle}</title>`,
+    `${publishedPage.status} ${titleElement ? `<title>${titleElement[1]}</title>` : "no <title> element"}`,
+    publishedPage.status === 200 && titleElement?.[1] === publishedPageTitle,
   );
 
-  const draftDetail = await apiFetch(
-    `/api/v1/competitions/public/${INST.a.slug}/${COMP.draft.slug}`,
-  );
+  const draftPage = await apiFetch(`/competitions/${INST.a.slug}/${COMP.draft.slug}`);
   record(
     "PUB-06",
-    "Public detail of DRAFT comp is 404",
+    "Public page of a DRAFT comp is 404",
     "404",
-    `${draftDetail.status}`,
-    draftDetail.status === 404,
+    `${draftPage.status}`,
+    draftPage.status === 404,
   );
 
-  const personalDetail = await apiFetch(
-    `/api/v1/competitions/public/${INST.p.slug}/${COMP.personalOpen.slug}`,
-  );
+  const personalPage = await apiFetch(`/competitions/${INST.p.slug}/${COMP.personalOpen.slug}`);
   record(
     "PUB-07",
-    "Personal-institution comp public detail (derived organizer)",
+    "Public page of a personal-institution comp (derived organizer)",
     "200",
-    `${personalDetail.status}`,
-    personalDetail.status === 200,
-    bodySnippet(personalDetail.body).slice(0, 80),
+    `${personalPage.status}`,
+    personalPage.status === 200,
   );
 
-  // A suspended institution has no public footprint: its own page is withheld and its
-  // competitions go with it, in discovery and on the detail page alike.
-  const suspDetail = await apiFetch(`/api/v1/competitions/public/${INST.c.slug}/${COMP.susp.slug}`);
+  const suspPage = await apiFetch(`/competitions/${INST.c.slug}/${COMP.susp.slug}`);
   record(
     "PUB-08",
-    "Suspended-org comp public detail is withheld",
+    "Public page of a suspended institution's comp is withheld",
     "404",
-    `${suspDetail.status}`,
-    suspDetail.status === 404,
+    `${suspPage.status}`,
+    suspPage.status === 404,
   );
 
   const allListing = await apiFetch("/api/v1/competitions?status=all&limit=100");
