@@ -309,7 +309,7 @@ export function PaymentInstructionsSection({
           </label>
           <textarea
             id="pi-note"
-            className="form-input"
+            className="form-textarea"
             rows={3}
             value={form.instructionsNote ?? ""}
             maxLength={500}

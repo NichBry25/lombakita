@@ -39,7 +39,9 @@ const chooseRole = (label: string) => {
   fireEvent.click(screen.getByRole("button", { name: new RegExp(label) }));
 };
 
-const nameFieldValue = () => (screen.getByLabelText(/Nama lengkap/) as HTMLInputElement).value;
+const nameField = () => screen.getByLabelText(/Nama lengkap/) as HTMLInputElement;
+
+const nameFieldValue = () => nameField().value;
 
 describe("the name the Google role picker prefills", () => {
   it("carries the identity's name into the candidate form", () => {
@@ -74,5 +76,39 @@ describe("the name the Google role picker prefills", () => {
 
     expect(nameFieldValue()).toBe("");
     expect(nameFieldValue()).not.toBe(EMAIL);
+  });
+});
+
+describe("the autofill token on the Google role picker's name field", () => {
+  it("carries autoComplete=name on the candidate form's field", () => {
+    renderPicker("Andi Saputra");
+
+    chooseRole("Daftar sebagai kandidat");
+
+    expect(nameField().getAttribute("autocomplete")).toBe("name");
+  });
+
+  it("carries autoComplete=name on the recruiter form's field", () => {
+    renderPicker("Andi Saputra");
+
+    chooseRole("Daftar sebagai rekruter");
+
+    expect(nameField().getAttribute("autocomplete")).toBe("name");
+  });
+
+  it("does not carry autoComplete=off on the candidate form's field", () => {
+    renderPicker("Andi Saputra");
+
+    chooseRole("Daftar sebagai kandidat");
+
+    expect(nameField().getAttribute("autocomplete")).not.toBe("off");
+  });
+
+  it("does not carry autoComplete=off on the recruiter form's field", () => {
+    renderPicker("Andi Saputra");
+
+    chooseRole("Daftar sebagai rekruter");
+
+    expect(nameField().getAttribute("autocomplete")).not.toBe("off");
   });
 });

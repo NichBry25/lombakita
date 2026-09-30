@@ -167,7 +167,7 @@ export function MfaChallengeForm({ callbackUrl }: MfaChallengeFormProps) {
             className="form-input"
             placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
           />
-          <p className="form-hint">
+          <p className="form-help">
             Menggunakan kode pemulihan akan menghapus verifikasi dua langkah Anda saat ini dan
             meminta Anda mengaktifkannya kembali.
           </p>

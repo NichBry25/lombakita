@@ -215,7 +215,7 @@ export const CompetitionRoundsEditor = ({
                 </label>
                 <textarea
                   id={`round-desc-${index}`}
-                  className="form-input"
+                  className="form-textarea"
                   rows={3}
                   value={row.description}
                   maxLength={2000}

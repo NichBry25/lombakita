@@ -448,7 +448,7 @@ export const InstitutionSettingsShell = ({
               </label>
               <textarea
                 id="institution-profile-about"
-                className="form-input"
+                className="form-textarea"
                 rows={5}
                 value={about}
                 maxLength={2000}

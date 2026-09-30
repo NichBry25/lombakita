@@ -1,7 +1,7 @@
 import { ModerationConsole } from "./moderation-console";
 import { PageHeader } from "@/components/ui";
 
-// Protected by /admin/layout.tsx — platform_ops only. Minimal proof moderation console.
+// Protected by /admin/layout.tsx — platform_ops only. The moderation and support console for platform_ops.
 export default async function AdminModerationPage(props: {
   searchParams?: Promise<{ email?: string }>;
 }) {

@@ -98,7 +98,7 @@ export const CompetitionEligibilityEditor = ({
             </label>
             <textarea
               id="competition-eligibility-note"
-              className="form-input"
+              className="form-textarea"
               rows={4}
               value={note}
               maxLength={2000}

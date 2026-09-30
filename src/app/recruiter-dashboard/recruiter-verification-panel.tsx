@@ -419,7 +419,7 @@ export function RecruiterVerificationPanel({
           onChange={handleFileSelect}
           className="sr-only"
         />
-        <p className="form-hint">
+        <p className="form-help">
           PDF, JPG, PNG, atau WebP (maks. 10 MB). Melampirkan dokumen yang jelas dapat mempercepat
           peninjauan.
         </p>
@@ -441,6 +441,7 @@ export function RecruiterVerificationPanel({
         <input
           id="rv-full-name"
           type="text"
+          autoComplete="name"
           value={fullName}
           onChange={(event) => setFullName(event.target.value)}
           className="form-input"
@@ -474,7 +475,7 @@ export function RecruiterVerificationPanel({
           className="form-input"
           placeholder="nama@perusahaan.co.id"
         />
-        <p className="form-hint">Email domain korporat mempercepat antrean peninjauan Anda.</p>
+        <p className="form-help">Email domain korporat mempercepat antrean peninjauan Anda.</p>
       </div>
 
       <Button type="submit" loading={busy}>

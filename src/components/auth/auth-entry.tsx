@@ -561,7 +561,7 @@ export const AuthEntry = ({
               id="auth-name"
               name="name"
               type="text"
-              autoComplete="off"
+              autoComplete="name"
               value={name}
               onChange={(event) => setName(event.target.value)}
               className="form-input"
@@ -621,6 +621,7 @@ export const AuthEntry = ({
             <input
               id="candidate-full-name"
               type="text"
+              autoComplete="name"
               value={fullName}
               onChange={(event) => setFullName(event.target.value)}
               className="form-input"
@@ -695,6 +696,7 @@ export const AuthEntry = ({
             <input
               id="recruiter-full-name"
               type="text"
+              autoComplete="name"
               value={fullName}
               onChange={(event) => setFullName(event.target.value)}
               className="form-input"
@@ -728,7 +730,7 @@ export const AuthEntry = ({
               className="form-input"
               placeholder="nama@perusahaan.co.id"
             />
-            <p className="form-hint">
+            <p className="form-help">
               Email dari domain korporat mempercepat antrean peninjauan Anda.
             </p>
           </div>

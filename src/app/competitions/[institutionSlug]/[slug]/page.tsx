@@ -225,7 +225,7 @@ function ResultAnnouncementSummary({
         {announcement.at ? formatDateTime(announcement.at) : "Belum dijadwalkan"}
       </p>
       {phase === "results_overdue" ? (
-        <p className="form-hint">
+        <p className="form-help">
           Hasil belum diumumkan. Kunjungi profil penyelenggara bila Anda membutuhkan kepastian.
         </p>
       ) : null}

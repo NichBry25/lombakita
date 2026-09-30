@@ -221,6 +221,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
               <input
                 id="candidate-full-name"
                 type="text"
+                autoComplete="name"
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
                 className="form-input"
@@ -307,6 +308,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
               <input
                 id="recruiter-full-name"
                 type="text"
+                autoComplete="name"
                 value={recruiterFullName}
                 onChange={(event) => setRecruiterFullName(event.target.value)}
                 className="form-input"
@@ -340,7 +342,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
                 className="form-input"
                 placeholder="nama@perusahaan.co.id"
               />
-              <p className="form-hint">
+              <p className="form-help">
                 Email domain korporat mempercepat antrean peninjauan Anda.
               </p>
             </div>
