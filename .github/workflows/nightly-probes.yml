@@ -155,6 +155,23 @@ jobs:
           psql "$DATABASE_URL" -tAc "SELECT current_setting('default_transaction_isolation')" \
             | grep -qx 'read committed'
 
+      # The same three seeds, in the same order, that ci.yml's `browser-audits` job runs. Two probe
+      # suites measure against seeded rows — `backfill-rejected-batch` needs a published competition
+      # and `deletion-instruments` needs a candidate holding a registration, a submission, a payment
+      # proof and a notification — and a migrated, empty database makes both refuse.
+      - name: Seed the test matrix
+        run: node --import tsx scripts/seed-test-matrix.ts
+
+      - name: Seed the operator accounts
+        # ci.yml declares this key at job level; here it is scoped to the one seed that enrols MFA
+        # factors, so no other step in this job sees it. Never a real secret.
+        env:
+          MFA_SECRET_ENCRYPTION_KEY: bG9tYmFraXRhLWNpLW1mYS1rZXktTk9ULUEtU0VDUkU=
+        run: npm run db:seed:operators
+
+      - name: Seed the manual payment lane
+        run: npm run db:seed:payments
+
       - name: "Probe suite: backfill-rejected-batch"
         if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
         run: node scripts/testing/probes/backfill-rejected-batch.mjs

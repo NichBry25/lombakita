@@ -23,12 +23,77 @@
  * Usage: node scripts/testing/probes/deletion-instruments.mjs
  * Runs only over committed work — the harness refuses if any listed file differs from HEAD.
  */
+import { readFileSync } from "node:fs";
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
 import { fails } from "./detectors.mjs";
 
 const RESIDUE = "scripts/project/deletion-residue.ts";
 const TEST = "scripts/project/deletion-residue.test.ts";
 const SHAPE = "src/config/env-shape.ts";
+
+const PRODUCTION_NAME_LITERAL = 'production: "lombakita_production"';
+
+try {
+  process.loadEnvFile(".env.local");
+} catch {
+  // Absent in CI, where DATABASE_URL comes from the workflow environment instead.
+}
+
+/**
+ * The database this suite is running against, read from DATABASE_URL's path.
+ *
+ * The identity probe protects THIS name rather than a fixed one: the layer under test can only
+ * refuse a database whose name is on its protected list, so a probe that protects `lombakita` goes
+ * red where the database is called `lombakita` and measures nothing where it is called anything
+ * else. The nightly job's database is `lombakita_probes`.
+ *
+ * Returns an error rather than throwing so the probe set can be imported as data (the
+ * probe-coverage test reads `appliedMarkers` without running anything); `mutate` throws it.
+ */
+const resolveRunningDatabase = () => {
+  const url = process.env.DATABASE_URL;
+  if (!url) return { error: "DATABASE_URL is not set, so there is no database name to protect" };
+
+  let name;
+  try {
+    name = decodeURIComponent(new URL(url).pathname.replace(/^\//, ""));
+  } catch {
+    return { error: "DATABASE_URL does not parse as a URL, so it names no database to protect" };
+  }
+
+  if (!/^[\w-]+$/.test(name)) {
+    return {
+      error: `DATABASE_URL names ${JSON.stringify(name)}, which is not a plain database name`,
+    };
+  }
+
+  return { name };
+};
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const protectedNameMarker = () => {
+  const { name } = resolveRunningDatabase();
+  return `production: "${name ?? "<DATABASE_URL unresolved>"}"`;
+};
+
+/**
+ * Proves the mutation's marker is not already in the file it will be found in, and that the running
+ * database is not already one of the names the table carries. Either would make the red below come
+ * from something other than the mutation: the marker would be found on a file nothing changed, and
+ * a name the guard already protects is refused with or without it.
+ */
+const assertNameIsNotAlreadyProtected = (name) => {
+  const before = readFileSync(SHAPE, "utf8");
+
+  if (before.includes(`production: "${name}"`) || before.includes(`"${name}"`)) {
+    throw new Error(
+      `${SHAPE} already carries "${name}", the database this suite runs against, so protecting ` +
+        "it changes nothing and a refusal would not come from the mutation. Run the suite " +
+        "against a database that is not named in CANONICAL_DATABASE_NAME.",
+    );
+  }
+};
 
 export const probes = [
   {
@@ -76,13 +141,20 @@ export const probes = [
       "three refusal layers and `reset-guard.ts` says so in its own header — it may add a refusal " +
       "and never grant one — because a tunnel, a port-forward and an `/etc/hosts` line all spell " +
       "`localhost`, and this repository has already shipped a production DSN whose host and name " +
-      "both read as staging (DEC-0207, LAUNCH-D24). This probe makes the local database a protected " +
-      "one and requires the run to refuse on the SERVER'S OWN answer: if the identity layer is " +
+      "both read as staging (DEC-0207, LAUNCH-D24). This probe makes the database this suite runs " +
+      "against a protected one and requires the run to refuse on the SERVER'S OWN answer: if the identity layer is " +
       "removed, nothing refuses and the procedure proceeds to the delete",
     files: [SHAPE],
-    appliedMarkers: ['production: "lombakita"'],
-    mutate: () =>
-      substituteOnce(SHAPE, 'production: "lombakita_production"', 'production: "lombakita"'),
+    get appliedMarkers() {
+      return [protectedNameMarker()];
+    },
+    mutate: () => {
+      const { name, error } = resolveRunningDatabase();
+      if (error) throw new Error(error);
+
+      assertNameIsNotAlreadyProtected(name);
+      substituteOnce(SHAPE, PRODUCTION_NAME_LITERAL, `production: "${name}"`);
+    },
     // Class B rather than D: the guard stands before a write with no transaction around it, so the
     // detector is the refusal arriving before anything ran. It quotes `current_database()` because
     // that is the layer under test — a refusal naming the connection string instead would be layer
@@ -91,7 +163,7 @@ export const probes = [
       fails(
         "npx",
         ["tsx", "scripts/project/run-deletion-procedure.ts", "--select", "blocked"],
-        /current_database\(\) = "lombakita"/,
+        new RegExp(`current_database\\(\\) = "${escapeRegExp(resolveRunningDatabase().name)}"`),
       ),
   },
   {
