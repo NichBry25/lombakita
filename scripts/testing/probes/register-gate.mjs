@@ -30,6 +30,7 @@
  * Usage: npm run verify:register-probe
  * Runs only over committed work; the harness refuses if any register differs from HEAD.
  */
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { requireGreenBeforeProbing, runProbes, substituteOnce } from "../guard-probe.mjs";
 import { fails } from "./detectors.mjs";
@@ -138,8 +139,23 @@ const ROW_DEC_0125 =
   "| DEC-0125 | Competition submissions become readable by the organizer, validated against their " +
   "own bytes, and stored under a competition-first key | accepted | 2026-07-30 | owner |";
 
-const ROW_DEC_0114 =
-  "| DEC-0114 | Every platform-ops mutation writes an audit row | accepted | 2026-07-26 | owner |";
+/**
+ * The last row of the contiguous run of table lines that opens under `## Seeded Decisions`.
+ *
+ * Found when the probe runs rather than named, because a row appended to the log moves the end of
+ * that run and a probe pinned to one row's text then orphans every row below it instead of one.
+ */
+const lastRowOfSeededDecisionsTable = () => {
+  const lines = readFileSync(DECISION_LOG, "utf8").split("\n");
+  const heading = lines.indexOf("## Seeded Decisions");
+  if (heading === -1) throw new Error(`no "## Seeded Decisions" heading in ${DECISION_LOG}`);
+
+  let last = lines.findIndex((line, index) => index > heading && line.startsWith("|"));
+  if (last === -1) throw new Error(`no table after "## Seeded Decisions" in ${DECISION_LOG}`);
+
+  while (lines[last + 1]?.startsWith("|")) last += 1;
+  return lines[last];
+};
 
 /**
  * The whole Supersedes cell of DEC-0124, replaced by a bare id.
@@ -306,8 +322,13 @@ export const probes = [
       "inserting a blank line inside a table, which drops every row below it out of the table for any reader that walks it",
     files: [DECISION_LOG],
     repo: DOC_LANE,
-    appliedMarkers: ["\n\n| DEC-0114 | Every platform-ops mutation writes an audit row"],
-    mutate: () => substituteOnce(DECISION_LOG, `\n${ROW_DEC_0114}`, `\n\n${ROW_DEC_0114}`),
+    get appliedMarkers() {
+      return [`\n\n${lastRowOfSeededDecisionsTable()}\n`];
+    },
+    mutate: () => {
+      const lastRow = lastRowOfSeededDecisionsTable();
+      substituteOnce(DECISION_LOG, `\n${lastRow}\n`, `\n\n${lastRow}\n`);
+    },
     detect: () =>
       gateRefused(
         /FAIL\s+\d+\s+decision-log rows a blank line left outside every table\s+\(up 1\)/,
