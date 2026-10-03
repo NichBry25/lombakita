@@ -63,6 +63,11 @@ export const INDEXABLE_SHELL_ROUTES = [
     needle: "1. Siapa yang mengelola data Anda",
     label: "the privacy policy's first clause",
   },
+  {
+    path: "/tentang",
+    needle: "Cara mendaftar kompetisi",
+    label: "the how-to-register heading",
+  },
 ];
 
 /**

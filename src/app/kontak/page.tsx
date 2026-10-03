@@ -53,6 +53,12 @@ export default function ContactPage() {
               </dd>
             </div>
             <div>
+              <dt>Telepon</dt>
+              <dd>
+                <a href={COMPANY.phone.href}>{COMPANY.phone.display}</a>
+              </dd>
+            </div>
+            <div>
               <dt>NIB</dt>
               <dd className="data-text">{COMPANY.nib}</dd>
             </div>

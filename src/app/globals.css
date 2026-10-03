@@ -1933,6 +1933,24 @@ button.header-nav-link {
   font-weight: 500;
 }
 
+/* The operator's name, address and contact channels as one block, so the bar's two halves are
+   "who operates this" and "where to read more" rather than four loose items wrapping unevenly. */
+.footer-legal-identity {
+  display: grid;
+  max-width: var(--content-narrow);
+  gap: var(--space-1);
+}
+
+.footer-legal-identity p {
+  margin: var(--space-0);
+}
+
+.footer-legal-contact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
+}
+
 .footer-legal-links {
   display: flex;
   flex-wrap: wrap;
@@ -1942,6 +1960,7 @@ button.header-nav-link {
 /* The bar's links are ordinary text links rather than controls, so they carry no 44px box of their
    own. The vertical padding restores the target height without changing how the row reads. */
 .footer-legal-links a,
+.footer-legal-contact a,
 .footer-legal-email {
   display: inline-flex;
   min-height: var(--touch-target);

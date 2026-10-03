@@ -86,7 +86,7 @@ describe("the indexable route set", () => {
     expect(INDEXABLE_ROBOTS).toMatchObject({ index: true, follow: true });
   });
 
-  it("lists exactly the seven pages this launch makes discoverable", () => {
+  it("lists exactly the six pages this launch makes discoverable", () => {
     // Pinned rather than counted: adding a page to the indexable set is a decision, and it should
     // fail here so it is made deliberately rather than noticed later in a search result.
     expect([...STATIC_INDEXABLE_PATHS]).toEqual([
@@ -95,6 +95,7 @@ describe("the indexable route set", () => {
       "/kontak",
       "/syarat-ketentuan",
       "/kebijakan-privasi",
+      "/tentang",
     ]);
   });
 

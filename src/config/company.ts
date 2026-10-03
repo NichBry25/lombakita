@@ -6,16 +6,16 @@
  * defect this module exists to prevent, because the copy that nobody remembers to update is the
  * one a reader eventually finds.
  *
- * There is deliberately no telephone field. `supportEmail` is the only contact channel the
- * platform publishes, so support arrives in writing on an address the company owns. A personal
- * mobile number is not a company channel: it reaches one individual, it cannot be handed over, and
- * it stays reachable long after that person stops answering for the company.
+ * supportEmail is the written channel. The telephone number printed is the owner's own mobile,
+ * published by owner ruling 2026-10-03 and recorded as ENTITY-D9; replace it with a business
+ * number when one exists.
  */
 export const COMPANY = {
   legalName: "KARYA TALENTA NUSANTARA",
   address:
     "Jl. Raya Satelit Utara KN-8, RT 088 / RW 03, Tanjungsari, Sukomanunggal, Kota Surabaya, Jawa Timur 60187",
   supportEmail: "dukungan@lombakita.com",
+  phone: { display: "0813-5773-4540", href: "tel:+6281357734540" },
   nib: "2008260000397",
 } as const;
 

@@ -140,7 +140,7 @@ export const PAGES = [
 
   // The public legal and identity surfaces. Nothing walks the route tree, so a page that is not
   // listed here is never visited by the contrast audit, the mobile audit or the gallery, and passes
-  // every one of them by never being measured. The letter suffixes keep all three inside the one
+  // every one of them by never being measured. The letter suffixes keep all four inside the one
   // free slot left in the signed-out band rather than renumbering every id below.
   { id: "28-kontak", as: null, path: "/kontak", label: "Company identity and contact" },
   {
@@ -155,6 +155,7 @@ export const PAGES = [
     path: "/kebijakan-privasi",
     label: "Privacy policy",
   },
+  { id: "28c-tentang", as: null, path: "/tentang", label: "About, how to register, fees" },
 
   // ---------------------------------------------------------------- candidate
   {

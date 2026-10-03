@@ -32,16 +32,17 @@ describe("ContactPage", () => {
     expect(html).toContain(COMPANY.nib);
   });
 
-  // The published contact channel is the company's email and nothing else. A personal mobile
-  // number reaches one individual rather than the company, so it is checked for the same way the
-  // NPWP is below: by the dial link, and by the shape of an Indonesian mobile number written
-  // without one.
-  it("never renders a telephone number, by link or by shape", () => {
+  // The telephone number is the one in COMPANY and no other: the row renders once, as a dial link,
+  // and with that value taken out no Indonesian mobile-number shape is left on the page.
+  it("renders the telephone row once, from COMPANY, and no other mobile number", () => {
     const html = renderToStaticMarkup(ContactPage());
+    const dialLink = `<a href="${COMPANY.phone.href}">${COMPANY.phone.display}</a>`;
 
-    expect(html).not.toContain("tel:");
-    expect(html).not.toMatch(/telepon/i);
-    expect(html).not.toMatch(/(?:\+62|\b0)8\d{1,2}[\s-]?\d{3,4}[\s-]?\d{3,4}/);
+    expect(html.split("<dt>Telepon</dt>")).toHaveLength(2);
+    expect(html.split(dialLink)).toHaveLength(2);
+
+    const withoutOwnNumber = html.replace(dialLink, "");
+    expect(withoutOwnNumber).not.toMatch(/(?:\+62|\b0)8\d{1,2}[\s-]?\d{3,4}[\s-]?\d{3,4}/);
   });
 
   it("names no PT prefix or Perseroan/Perorangan suffix on the entity name", () => {
