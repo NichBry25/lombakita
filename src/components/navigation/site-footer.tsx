@@ -34,6 +34,7 @@ const VERIFIED_BROWSERS = [
  * bottom of whatever page they are on.
  */
 const LEGAL_LINKS = [
+  { href: "/tentang", label: "Tentang" },
   { href: "/syarat-ketentuan", label: "Syarat & Ketentuan" },
   { href: "/kebijakan-privasi", label: "Kebijakan Privasi" },
   { href: "/kontak", label: "Kontak" },
@@ -67,9 +68,18 @@ export function SiteFooter() {
 
       <div className="footer-legal">
         <div className="footer-legal-inner">
-          <p className="footer-legal-entity">{COMPANY.legalName}</p>
-          <nav className="footer-legal-links" aria-label="Informasi legal">
-            {/* All three legal routes are indexable and so have no `loading.tsx` — the Suspense
+          <div className="footer-legal-identity">
+            <p className="footer-legal-entity">{COMPANY.legalName}</p>
+            <p>{COMPANY.address}</p>
+            <div className="footer-legal-contact">
+              <a href={COMPANY.phone.href}>{COMPANY.phone.display}</a>
+              <a className="footer-legal-email" href={`mailto:${COMPANY.supportEmail}`}>
+                {COMPANY.supportEmail}
+              </a>
+            </div>
+          </div>
+          <nav className="footer-legal-links" aria-label="Informasi">
+            {/* Every route here is indexable and so has no `loading.tsx` — the Suspense
                 boundary one creates strands their content outside the initial shell, which is the
                 defect that removed them. Their navigation is acknowledged at the link instead. */}
             {LEGAL_LINKS.map((link) => (
@@ -79,9 +89,6 @@ export function SiteFooter() {
               </Link>
             ))}
           </nav>
-          <a className="footer-legal-email" href={`mailto:${COMPANY.supportEmail}`}>
-            {COMPANY.supportEmail}
-          </a>
         </div>
       </div>
     </footer>

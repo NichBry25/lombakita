@@ -74,6 +74,7 @@ describe("sitemap.xml", () => {
         "/kontak",
         "/syarat-ketentuan",
         "/kebijakan-privasi",
+        "/tentang",
       ]),
     );
   });
@@ -174,6 +175,7 @@ describe("robots.txt and the sitemap agree", () => {
       "/kontak",
       "/syarat-ketentuan",
       "/kebijakan-privasi",
+      "/tentang",
     ];
 
     for (const path of paths) {

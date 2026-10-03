@@ -27,6 +27,7 @@ export const STATIC_INDEXABLE_PATHS = [
   "/kontak",
   "/syarat-ketentuan",
   "/kebijakan-privasi",
+  "/tentang",
 ] as const;
 
 /**

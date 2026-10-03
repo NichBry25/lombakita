@@ -45,6 +45,7 @@ export const RESERVED_WORDS: readonly string[] = [
   "kontak",
   "syarat-ketentuan",
   "kebijakan-privasi",
+  "tentang",
   // Static create-action segments under /institution/ that must never be claimed as an institution
   // slug, or the static route would shadow /institution/<slug> and make that institution
   // unreachable. Personal institutions share the flat /institution/<slug> namespace,
