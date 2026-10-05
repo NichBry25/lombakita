@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import {
   OVERLAY_NAMES,
   PLAIN_REQUIRED_NAMES,
+  SENSITIVE_PLACEHOLDER,
+  findSensitivePlaceholdersOutsideOverlay,
   hasBlockingOverlayStatus,
   isWritableMirrorValue,
   overlayDeployEnv,
@@ -227,6 +229,91 @@ describe("unwritable mirror values", () => {
   });
 });
 
+describe("the CLI 62 Sensitive placeholder", () => {
+  const placeholderPulled = { DATABASE_URL: SENSITIVE_PLACEHOLDER };
+
+  it("is exactly the bracketed string the CLI writes", () => {
+    expect(SENSITIVE_PLACEHOLDER).toBe("[SENSITIVE]");
+  });
+
+  it("is filled from the mirror when one exists", () => {
+    const mirror = { DATABASE_URL: WRITABLE_SENTINEL };
+    const { merged } = overlayDeployEnv(placeholderPulled, mirror);
+
+    expect(statusOf(placeholderPulled, mirror)).toBe("filled-from-github");
+    expect(merged.DATABASE_URL).toBe(WRITABLE_SENTINEL);
+  });
+
+  it.each([
+    ["empty", { DATABASE_URL: "" }],
+    ["missing", {}],
+  ])("is sensitive-unmirrored, and unchanged, when the mirror is %s", (_label, mirror) => {
+    const { merged } = overlayDeployEnv(placeholderPulled, mirror);
+
+    expect(statusOf(placeholderPulled, mirror)).toBe("sensitive-unmirrored");
+    expect(merged.DATABASE_URL).toBe(SENSITIVE_PLACEHOLDER);
+  });
+
+  it("is unwritable, not filled, when the mirror cannot be written", () => {
+    const mirror = { DATABASE_URL: "ab$cd" };
+
+    expect(statusOf(placeholderPulled, mirror)).toBe("unwritable");
+    expect(overlayDeployEnv(placeholderPulled, mirror).merged.DATABASE_URL).toBe(
+      SENSITIVE_PLACEHOLDER,
+    );
+  });
+
+  it("never reports drift: a placeholder is not a value to compare", () => {
+    const mirror = { DATABASE_URL: OTHER_WRITABLE_SENTINEL };
+
+    expect(statusOf(placeholderPulled, mirror)).not.toBe("drift");
+  });
+
+  // The legacy CLI 56 shape must keep behaving exactly as before.
+  it("leaves the empty-pull behaviour of CLI 56 unchanged", () => {
+    expect(statusOf({ DATABASE_URL: "" }, { DATABASE_URL: WRITABLE_SENTINEL })).toBe(
+      "filled-from-github",
+    );
+    expect(statusOf({ DATABASE_URL: "" }, {})).toBe("unset");
+    expect(statusOf({}, {})).toBe("unset");
+  });
+
+  // Matched as the WHOLE value, case-sensitive: anything else is an ordinary value, and an ordinary
+  // value with no mirror is not-mirrored, with a different mirror is drift.
+  it.each([
+    ["lower case", "[sensitive]"],
+    ["a leading space", " [SENSITIVE]"],
+    ["a trailing space", "[SENSITIVE] "],
+    ["a prefix", "x[SENSITIVE]"],
+    ["a suffix", "[SENSITIVE]x"],
+    ["no closing bracket", "[SENSITIVE"],
+    ["no brackets", "SENSITIVE"],
+  ])("does not treat %s as the placeholder", (_label, value) => {
+    expect(statusOf({ DATABASE_URL: value }, {})).toBe("not-mirrored");
+    expect(statusOf({ DATABASE_URL: value }, { DATABASE_URL: WRITABLE_SENTINEL })).toBe("drift");
+  });
+
+  it("is found by name on keys outside the nine, and only there", () => {
+    const env = {
+      GOOGLE_CLIENT_SECRET: SENSITIVE_PLACEHOLDER,
+      SENTRY_DSN: "[sensitive]",
+      R2_BUCKET: "lombakita-prod",
+      DATABASE_URL: SENSITIVE_PLACEHOLDER,
+      AUTH_SECRET: SENSITIVE_PLACEHOLDER,
+    };
+
+    expect(findSensitivePlaceholdersOutsideOverlay(env)).toEqual(["GOOGLE_CLIENT_SECRET"]);
+  });
+
+  it("reports no values for any placeholder case", () => {
+    const serialized = JSON.stringify(
+      overlayDeployEnv(placeholderPulled, { DATABASE_URL: WRITABLE_SENTINEL }).report,
+    );
+
+    expect(serialized).not.toContain(WRITABLE_SENTINEL);
+  });
+});
+
 describe("blocking statuses", () => {
   it.each<[OverlayStatus, boolean]>([
     ["filled-from-github", false],
@@ -235,6 +322,7 @@ describe("blocking statuses", () => {
     ["unset", false],
     ["drift", true],
     ["unwritable", true],
+    ["sensitive-unmirrored", true],
   ])("%s blocks the run: %s", (status, blocks) => {
     expect(hasBlockingOverlayStatus([{ name: "DATABASE_URL", status }])).toBe(blocks);
   });
@@ -293,6 +381,7 @@ describe("deploy.yml wiring", () => {
 
   describe.each(jobs)("$label", ({ environment, text }) => {
     const order = [
+      ["install vercel CLI", "npm install --global vercel@"],
       ["vercel pull", `vercel pull --yes --environment=${environment}`],
       ["npm ci", "npm ci"],
       ["overlay", "npm run deploy:overlay-env"],
@@ -308,6 +397,14 @@ describe("deploy.yml wiring", () => {
 
       expect(positions.every((position) => position > -1)).toBe(true);
       expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+    });
+
+    // Sensitive-variable behaviour changed between CLI 56 (empty) and 62 (a placeholder), so an
+    // unpinned install lets the next release change what the gate reads without a commit.
+    it("installs an exact vercel semver, never a tag or a range", () => {
+      expect(text).toMatch(/^\s*run: npm install --global vercel@\d+\.\d+\.\d+$/m);
+      expect(text).not.toMatch(/vercel@(latest|next|canary|beta)\b/);
+      expect(text).not.toMatch(/vercel@[\^~>]/);
     });
 
     it(`binds the job to the ${environment} environment`, () => {

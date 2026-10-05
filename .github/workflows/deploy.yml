@@ -49,8 +49,11 @@ jobs:
 
       # Same Vercel CLI sequence as production, minus every --prod flag, so this
       # pulls the "preview" env and produces a preview (not live) deploy.
+      # Pinned exactly: Sensitive-variable behavior changed between CLI 56 (empty string) and
+      # CLI 62 (the placeholder `[SENSITIVE]`), and the gate reads what `vercel pull` writes. Bump it
+      # deliberately and re-measure first (runbook, "Sensitive variables and the CLI version").
       - name: Install Vercel CLI
-        run: npm install --global vercel@latest
+        run: npm install --global vercel@62.2.0
 
       - name: Pull Vercel project settings
         run: vercel pull --yes --environment=preview
@@ -215,8 +218,11 @@ jobs:
       # Pull production settings/env, let `vercel build --prod` do its own
       # isolated install+build, then upload the prebuilt output. Secrets are
       # declared per-step so no other step can read them.
+      # Pinned exactly: Sensitive-variable behavior changed between CLI 56 (empty string) and
+      # CLI 62 (the placeholder `[SENSITIVE]`), and the gate reads what `vercel pull` writes. Bump it
+      # deliberately and re-measure first (runbook, "Sensitive variables and the CLI version").
       - name: Install Vercel CLI
-        run: npm install --global vercel@latest
+        run: npm install --global vercel@62.2.0
 
       - name: Pull Vercel project settings
         run: vercel pull --yes --environment=production

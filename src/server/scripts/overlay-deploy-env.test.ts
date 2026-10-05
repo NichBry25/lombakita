@@ -7,7 +7,11 @@ import { join, resolve } from "node:path";
 import { parseEnv } from "node:util";
 import { parse as parseWithDotenv } from "dotenv";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { OVERLAY_NAMES, type OverlayName } from "@/config/deploy-env-overlay";
+import {
+  OVERLAY_NAMES,
+  SENSITIVE_PLACEHOLDER,
+  type OverlayName,
+} from "@/config/deploy-env-overlay";
 import {
   DuplicateOverlayKeyError,
   OverlayVerificationError,
@@ -48,6 +52,13 @@ const pulledTextWith = (values: Partial<Record<OverlayName, string>>): string =>
 
 const sensitivePulledText = () => pulledTextWith({});
 const plainPulledText = () => pulledTextWith(MIRROR_VALUES);
+const placeholderPulledText = () =>
+  pulledTextWith(
+    Object.fromEntries(OVERLAY_NAMES.map((name) => [name, SENSITIVE_PLACEHOLDER])) as Record<
+      OverlayName,
+      string
+    >,
+  );
 
 const mirrorFrom = (values: Partial<Record<OverlayName, string>>) => values;
 
@@ -128,6 +139,40 @@ describe("overlayEnvFileText", () => {
   });
 });
 
+describe("overlayEnvFileText with the CLI 62 placeholder", () => {
+  it("fills every placeholder line in place and re-parses to the mirror in both parsers", () => {
+    const original = placeholderPulledText();
+    const { text, report } = overlayEnvFileText(original, MIRROR_VALUES);
+
+    expect(report.map((entry) => entry.status)).toEqual(
+      OVERLAY_NAMES.map(() => "filled-from-github"),
+    );
+    expect(unchangedLines(text)).toEqual(unchangedLines(original));
+    expect(text).not.toContain(SENSITIVE_PLACEHOLDER);
+    expect(parseWithDotenv(text)).toEqual(parseEnv(text));
+    OVERLAY_NAMES.forEach((name) => expect(parseEnv(text)[name]).toBe(MIRROR_VALUES[name]));
+  });
+
+  it("blocks, and leaves the file untouched, when a placeholder name has no mirror", () => {
+    const original = placeholderPulledText();
+    const { text, report } = overlayEnvFileText(original, {
+      ...MIRROR_VALUES,
+      REDIS_URL: undefined,
+    });
+
+    expect(report.find((entry) => entry.name === "REDIS_URL")?.status).toBe("sensitive-unmirrored");
+    expect(text).toBe(original);
+  });
+
+  it("names a non-overlay key holding the placeholder and does not modify it", () => {
+    const original = `${placeholderPulledText()}GOOGLE_CLIENT_SECRET="${SENSITIVE_PLACEHOLDER}"\n`;
+    const { text, placeholdersOutsideOverlay } = overlayEnvFileText(original, MIRROR_VALUES);
+
+    expect(placeholdersOutsideOverlay).toEqual(["GOOGLE_CLIENT_SECRET"]);
+    expect(text).toContain(`GOOGLE_CLIENT_SECRET="${SENSITIVE_PLACEHOLDER}"\n`);
+  });
+});
+
 describe("round trip", () => {
   it("reads back identically in Node's parser and dotenv, and equals the merged map", () => {
     const { text } = overlayEnvFileText(sensitivePulledText(), MIRROR_VALUES);
@@ -204,7 +249,7 @@ describe("the script, run as `npm run deploy:overlay-env` runs it", { timeout: 6
   const outputOf = (result: ReturnType<typeof runOverlay>) => `${result.stdout}${result.stderr}`;
 
   const ALLOWED_LINE =
-    /^(overlay: environment=(preview|production) file=\S+|overlay: [A-Z0-9_]+ [a-z-]+|::warning::overlay: [A-Z0-9_]+ is not mirrored.*|Deploy env overlay failed: [A-Za-z]+ \(\S+\)|)$/;
+    /^(overlay: environment=(preview|production) file=\S+|overlay: [A-Z0-9_]+ [a-z-]+|::warning::overlay: [A-Z0-9_]+ is not mirrored.*|::warning::overlay: [A-Z0-9_]+ sensitive-placeholder-outside-overlay|::error::overlay: [A-Z0-9_]+ is Sensitive on Vercel and has no GitHub environment secret|Deploy env overlay failed: [A-Za-z]+ \(\S+\)|)$/;
 
   const expectNoValueInOutput = (result: ReturnType<typeof runOverlay>, values: string[]) => {
     const output = outputOf(result);
@@ -219,6 +264,76 @@ describe("the script, run as `npm run deploy:overlay-env` runs it", { timeout: 6
     result.stdout.split("\n").filter((line) => /^overlay: [A-Z0-9_]+ [a-z-]+$/.test(line));
 
   const allValues = Object.values(MIRROR_VALUES);
+
+  describe("Sensitive on Vercel under CLI 62: the pulled value is the placeholder", () => {
+    it("all nine placeholder and none mirrored: exits 1, nine sensitive-unmirrored names, file untouched", () => {
+      writeFileSync(filePath, placeholderPulledText());
+
+      const overlay = runOverlay({});
+
+      expect(overlay.status).toBe(1);
+      expect(statusLines(overlay)).toEqual(
+        OVERLAY_NAMES.map((name) => `overlay: ${name} sensitive-unmirrored`),
+      );
+      expect(overlay.stdout.match(/^::error::/gm)).toHaveLength(OVERLAY_NAMES.length);
+      expect(readFileSync(filePath, "utf8")).toBe(placeholderPulledText());
+      expectNoValueInOutput(overlay, allValues);
+    });
+
+    it("all nine placeholder and all mirrored: nine filled-from-github, and layer 1 then passes", () => {
+      writeFileSync(filePath, placeholderPulledText());
+
+      const overlay = runOverlay(mirrorFrom(MIRROR_VALUES));
+
+      expect(overlay.status).toBe(0);
+      expect(statusLines(overlay)).toEqual(
+        OVERLAY_NAMES.map((name) => `overlay: ${name} filled-from-github`),
+      );
+      expectNoValueInOutput(overlay, allValues);
+
+      const rewritten = readFileSync(filePath, "utf8");
+      expect(parseEnv(rewritten)).toEqual(parseWithDotenv(rewritten));
+      OVERLAY_NAMES.forEach((name) => expect(parseEnv(rewritten)[name]).toBe(MIRROR_VALUES[name]));
+      expect(unchangedLines(rewritten)).toEqual(unchangedLines(placeholderPulledText()));
+
+      const layerOne = runLayerOne();
+      expect(layerOne.status).toBe(0);
+      expect(layerOne.stdout).not.toContain("FAILED");
+    });
+
+    it("eight mirrored and one not: exits 1 naming only that variable, file untouched", () => {
+      writeFileSync(filePath, placeholderPulledText());
+      const mirrored: Partial<Record<OverlayName, string>> = {
+        ...MIRROR_VALUES,
+        REDIS_URL: undefined,
+      };
+
+      const overlay = runOverlay(mirrorFrom(mirrored));
+
+      expect(overlay.status).toBe(1);
+      expect(statusLines(overlay).filter((line) => line.endsWith("sensitive-unmirrored"))).toEqual([
+        "overlay: REDIS_URL sensitive-unmirrored",
+      ]);
+      expect(readFileSync(filePath, "utf8")).toBe(placeholderPulledText());
+      expectNoValueInOutput(overlay, allValues);
+    });
+
+    it("a non-overlay key holding the placeholder is warned about by name and left alone", () => {
+      const original = `${placeholderPulledText()}GOOGLE_CLIENT_SECRET="${SENSITIVE_PLACEHOLDER}"\n`;
+      writeFileSync(filePath, original);
+
+      const overlay = runOverlay(mirrorFrom(MIRROR_VALUES));
+
+      expect(overlay.status).toBe(0);
+      expect(overlay.stdout).toContain(
+        "::warning::overlay: GOOGLE_CLIENT_SECRET sensitive-placeholder-outside-overlay",
+      );
+      expect(readFileSync(filePath, "utf8")).toContain(
+        `GOOGLE_CLIENT_SECRET="${SENSITIVE_PLACEHOLDER}"\n`,
+      );
+      expectNoValueInOutput(overlay, allValues);
+    });
+  });
 
   describe("Sensitive on Vercel and mirrored in GitHub", () => {
     it("fills all nine, exits 0, and layer 1 then passes against the rewritten file", () => {

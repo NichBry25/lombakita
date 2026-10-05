@@ -2,9 +2,10 @@
  * Which deploy-gate variables are mirrored in GitHub, and how a mirrored value merges with what
  * `vercel pull` returned.
  *
- * A Sensitive Vercel variable comes back EMPTY from `vercel pull` (INFRA-D1), which blinds every
- * step that reads the pulled file. The nine secrets are therefore also stored as write-only GitHub
- * environment secrets, and the overlay step fills the pulled file from them before the gate runs.
+ * A Sensitive Vercel variable is not returned by `vercel pull`: CLI 56 writes an empty string
+ * (INFRA-D1), CLI 62 writes SENSITIVE_PLACEHOLDER. Either blinds every step that reads the pulled
+ * file. The nine secrets are therefore also stored as write-only GitHub environment secrets, and
+ * the overlay step fills the pulled file from them before the gate runs.
  *
  * Pure and dependency-free so it can be unit-tested against fixture records. The report carries
  * names and statuses only; a value never leaves this module except inside `merged`.
@@ -34,19 +35,26 @@ export const PLAIN_REQUIRED_NAMES = [
 
 export type OverlayName = (typeof OVERLAY_NAMES)[number];
 
+/** What CLI 62 writes for a Sensitive variable. Public, not a secret; matched as the whole value. */
+export const SENSITIVE_PLACEHOLDER = "[SENSITIVE]";
+
 export type OverlayStatus =
   | "filled-from-github"
   | "equal"
   | "drift"
   | "not-mirrored"
   | "unset"
-  | "unwritable";
+  | "unwritable"
+  | "sensitive-unmirrored";
 
 export type OverlayReportEntry = { name: OverlayName; status: OverlayStatus };
 
 type EnvMap = Readonly<Record<string, string | undefined>>;
 
-const BLOCKING_STATUSES: readonly OverlayStatus[] = ["drift", "unwritable"];
+const isOverlayName = (name: string): boolean =>
+  (OVERLAY_NAMES as readonly string[]).includes(name);
+
+const BLOCKING_STATUSES: readonly OverlayStatus[] = ["drift", "unwritable", "sensitive-unmirrored"];
 
 /**
  * The only values the overlay will write: printable ASCII with no space, and none of the
@@ -61,8 +69,16 @@ const classify = (pulled: string, mirror: string): OverlayStatus => {
     return "unwritable";
   }
 
+  if (mirror !== "" && (pulled === "" || pulled === SENSITIVE_PLACEHOLDER)) {
+    return "filled-from-github";
+  }
+
+  if (pulled === SENSITIVE_PLACEHOLDER) {
+    return "sensitive-unmirrored";
+  }
+
   if (pulled === "") {
-    return mirror === "" ? "unset" : "filled-from-github";
+    return "unset";
   }
 
   if (mirror === "") {
@@ -91,6 +107,15 @@ export const overlayDeployEnv = (
 
   return { merged, report };
 };
+
+/**
+ * Names outside the nine whose pulled value is the placeholder. The overlay cannot fill them, so
+ * they are only reported; layer 1 decides whether the missing value matters.
+ */
+export const findSensitivePlaceholdersOutsideOverlay = (pulledEnv: EnvMap): string[] =>
+  Object.entries(pulledEnv)
+    .filter(([name, value]) => value === SENSITIVE_PLACEHOLDER && !isOverlayName(name))
+    .map(([name]) => name);
 
 export const hasBlockingOverlayStatus = (report: readonly OverlayReportEntry[]): boolean =>
   report.some((entry) => BLOCKING_STATUSES.includes(entry.status));

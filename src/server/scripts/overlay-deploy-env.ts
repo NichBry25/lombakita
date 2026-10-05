@@ -1,7 +1,8 @@
 /**
  * Deploy gate, step zero: fill the nine Sensitive secrets into the file `vercel pull` wrote.
  *
- * A Sensitive Vercel variable is pulled EMPTY (INFRA-D1), so the workflow also keeps the nine as
+ * A Sensitive Vercel variable is not pulled: CLI 56 writes an empty string (INFRA-D1), CLI 62 writes
+ * the placeholder `[SENSITIVE]`. The workflow therefore also keeps the nine as
  * write-only GitHub environment secrets and passes them in here as `MIRROR_<NAME>`. This rewrites
  * only those nine keys in the pulled file, so layer 1, layer 2, the schema gate and `vercel build`
  * all read real values from the one file they already read.
@@ -10,7 +11,8 @@
  *
  * Fails closed: drift between Vercel's plain value and the GitHub copy, a mirror value this writer
  * cannot emit safely, a duplicated key, or a rewrite that would change any other key all stop the
- * job before anything is written. Output is names and statuses only.
+ * job before anything is written. A Sensitive name with no GitHub copy stops the job here, by name,
+ * rather than at layer 1. Output is names and statuses only.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -18,6 +20,7 @@ import { parseEnv } from "node:util";
 
 import {
   OVERLAY_NAMES,
+  findSensitivePlaceholdersOutsideOverlay,
   hasBlockingOverlayStatus,
   overlayDeployEnv,
   type OverlayName,
@@ -93,13 +96,15 @@ const assertRewriteParsesToMerged = (rewritten: string, expected: EnvMap): void 
 export const overlayEnvFileText = (
   text: string,
   mirror: EnvMap,
-): { text: string; report: OverlayReportEntry[] } => {
+): { text: string; report: OverlayReportEntry[]; placeholdersOutsideOverlay: string[] } => {
   const pieces = text.split(LINE_BREAK);
   const lineIndexes = indexOverlayLines(pieces);
-  const { merged, report } = overlayDeployEnv(parseEnv(text), mirror);
+  const pulled = parseEnv(text);
+  const { merged, report } = overlayDeployEnv(pulled, mirror);
+  const placeholdersOutsideOverlay = findSensitivePlaceholdersOutsideOverlay(pulled);
 
   if (hasBlockingOverlayStatus(report)) {
-    return { text, report };
+    return { text, report, placeholdersOutsideOverlay };
   }
 
   const appendedLines: string[] = [];
@@ -119,13 +124,16 @@ export const overlayEnvFileText = (
 
   assertRewriteParsesToMerged(rewritten, merged);
 
-  return { text: rewritten, report };
+  return { text: rewritten, report, placeholdersOutsideOverlay };
 };
 
 const readMirrorFromProcessEnv = (): EnvMap =>
   Object.fromEntries(OVERLAY_NAMES.map((name) => [name, process.env[`MIRROR_${name}`]]));
 
-const printReport = (report: readonly OverlayReportEntry[]): void => {
+const printReport = (
+  report: readonly OverlayReportEntry[],
+  placeholdersOutsideOverlay: readonly string[],
+): void => {
   for (const { name, status } of report) {
     console.log(`overlay: ${name} ${status}`);
 
@@ -134,6 +142,16 @@ const printReport = (report: readonly OverlayReportEntry[]): void => {
         `::warning::overlay: ${name} is not mirrored in GitHub; the Vercel value is used unchecked`,
       );
     }
+
+    if (status === "sensitive-unmirrored") {
+      console.log(
+        `::error::overlay: ${name} is Sensitive on Vercel and has no GitHub environment secret`,
+      );
+    }
+  }
+
+  for (const name of placeholdersOutsideOverlay) {
+    console.log(`::warning::overlay: ${name} sensitive-placeholder-outside-overlay`);
   }
 };
 
@@ -145,9 +163,12 @@ const overlayPulledEnvFile = (environment: string, filePath: string): void => {
   console.log(`overlay: environment=${environment} file=${filePath}`);
 
   const original = readFileSync(filePath, "utf8");
-  const { text, report } = overlayEnvFileText(original, readMirrorFromProcessEnv());
+  const { text, report, placeholdersOutsideOverlay } = overlayEnvFileText(
+    original,
+    readMirrorFromProcessEnv(),
+  );
 
-  printReport(report);
+  printReport(report, placeholdersOutsideOverlay);
 
   if (hasBlockingOverlayStatus(report)) {
     process.exitCode = 1;
