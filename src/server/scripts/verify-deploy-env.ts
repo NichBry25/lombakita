@@ -14,7 +14,6 @@ import {
   DEPLOY_ENV_KEY_SPECS,
   findDeployConfigProblems,
   type DeployConfigProblem,
-  type DeployEnvironment,
 } from "@/config/env-shape";
 import {
   assertEnvFileLoaded,
@@ -22,20 +21,9 @@ import {
   ENV_PATH_FLAG,
   hasFlag,
   loadEnvFile,
+  parseDeployEnvironment,
   readFlagValue,
 } from "@/server/scripts/env-file";
-
-const DEPLOY_ENVIRONMENTS: readonly DeployEnvironment[] = ["preview", "production"];
-
-const parseEnvironment = (value: string | undefined): DeployEnvironment => {
-  if (value && DEPLOY_ENVIRONMENTS.includes(value as DeployEnvironment)) {
-    return value as DeployEnvironment;
-  }
-
-  throw new Error(
-    `--environment must be one of ${DEPLOY_ENVIRONMENTS.join(" | ")} (received: ${value ?? "nothing"})`,
-  );
-};
 
 const printProblem = (problem: DeployConfigProblem): void => {
   const severity = problem.severity === "error" ? "ERROR  " : "WARNING";
@@ -45,7 +33,7 @@ const printProblem = (problem: DeployConfigProblem): void => {
 
 const run = async (): Promise<void> => {
   const argv = process.argv.slice(2);
-  const environment = parseEnvironment(readFlagValue(argv, "--environment"));
+  const environment = parseDeployEnvironment(readFlagValue(argv, "--environment"));
 
   const load = loadEnvFile({
     environment,

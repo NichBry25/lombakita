@@ -73,6 +73,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # ── SECRET OVERLAY ──
+      # A Sensitive Vercel variable is pulled EMPTY, which would blind every step below. The nine
+      # secrets are therefore also kept as write-only `preview` environment secrets and filled into
+      # the pulled file here, so layers 1 and 2, the schema gate and `vercel build` all read real
+      # values from the file they already read. Fails on drift between the two copies; a plain
+      # Vercel value with no GitHub copy passes with a warning. See the runbook, "Secret custody
+      # and the GitHub mirror". Placed after `npm ci` only because the script runs under tsx.
+      #
+      # Step-scoped env: no later step can read these, and nothing here prints a value.
+      - name: Overlay GitHub-mirrored secrets onto the pulled environment
+        run: npm run deploy:overlay-env -- --environment=preview
+        env:
+          MIRROR_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          MIRROR_MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          MIRROR_AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+          MIRROR_REDIS_URL: ${{ secrets.REDIS_URL }}
+          MIRROR_MEILISEARCH_API_KEY: ${{ secrets.MEILISEARCH_API_KEY }}
+          MIRROR_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          MIRROR_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          MIRROR_RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          MIRROR_MFA_SECRET_ENCRYPTION_KEY: ${{ secrets.MFA_SECRET_ENCRYPTION_KEY }}
+
       - name: Verify environment configuration
         run: npm run verify:deploy-env -- --environment=preview --require-env-file
 
@@ -214,6 +236,22 @@ jobs:
       # rolling back is `gh workflow run deploy.yml --ref <last-good-sha>`.
       - name: Install dependencies
         run: npm ci
+
+      # ── SECRET OVERLAY ──
+      # See the preview job's copy. Here the secrets come from the `production` environment, so
+      # they are released only after the same human approval as the rest of this job.
+      - name: Overlay GitHub-mirrored secrets onto the pulled environment
+        run: npm run deploy:overlay-env -- --environment=production
+        env:
+          MIRROR_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          MIRROR_MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          MIRROR_AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+          MIRROR_REDIS_URL: ${{ secrets.REDIS_URL }}
+          MIRROR_MEILISEARCH_API_KEY: ${{ secrets.MEILISEARCH_API_KEY }}
+          MIRROR_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          MIRROR_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          MIRROR_RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          MIRROR_MFA_SECRET_ENCRYPTION_KEY: ${{ secrets.MFA_SECRET_ENCRYPTION_KEY }}
 
       - name: Verify environment configuration
         run: npm run verify:deploy-env -- --environment=production --require-env-file
