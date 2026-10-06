@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
 
+import type { DeployEnvironment } from "@/config/env-shape";
+
 /**
  * Locates and loads the env file a deploy-time check should read.
  *
@@ -31,12 +33,36 @@ export const readFlagValue = (argv: string[], flag: string): string | undefined 
 
 export const hasFlag = (argv: string[], flag: string): boolean => argv.includes(flag);
 
-const buildCandidates = (environment: string | undefined, explicitPath: string | undefined) => {
+const DEPLOY_ENVIRONMENTS: readonly DeployEnvironment[] = ["preview", "production"];
+
+/** Fixed message on purpose: it is printed as-is, so it must never carry what the caller passed. */
+export class InvalidDeployEnvironmentError extends Error {
+  constructor() {
+    super(`--environment must be one of ${DEPLOY_ENVIRONMENTS.join(" | ")}`);
+  }
+}
+
+export const parseDeployEnvironment = (value: string | undefined): DeployEnvironment => {
+  if (value && DEPLOY_ENVIRONMENTS.includes(value as DeployEnvironment)) {
+    return value as DeployEnvironment;
+  }
+
+  throw new InvalidDeployEnvironmentError();
+};
+
+/** Where `vercel pull --environment=<environment>` writes the file the whole gate reads. */
+export const pulledEnvFilePath = (environment: string): string =>
+  `.vercel/.env.${environment}.local`;
+
+export const buildCandidates = (
+  environment: string | undefined,
+  explicitPath: string | undefined,
+): string[] => {
   if (explicitPath) {
     return [explicitPath];
   }
 
-  const vercelPulled = environment ? [`.vercel/.env.${environment}.local`] : [];
+  const vercelPulled = environment ? [pulledEnvFilePath(environment)] : [];
 
   return [...vercelPulled, ".env.local", ".env"];
 };
