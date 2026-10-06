@@ -8,6 +8,7 @@ import {
   PLAIN_REQUIRED_NAMES,
   SENSITIVE_PLACEHOLDER,
   findSensitivePlaceholdersOutsideOverlay,
+  findSensitivePublicPlaceholders,
   hasBlockingOverlayStatus,
   isWritableMirrorValue,
   overlayDeployEnv,
@@ -314,6 +315,77 @@ describe("the CLI 62 Sensitive placeholder", () => {
   });
 });
 
+describe("a mirror value equal to the placeholder", () => {
+  it("is not a writable value", () => {
+    expect(isWritableMirrorValue(SENSITIVE_PLACEHOLDER)).toBe(false);
+  });
+
+  it.each([
+    ["pulled empty", { DATABASE_URL: "" }],
+    ["pulled missing", {}],
+    ["pulled the placeholder", { DATABASE_URL: SENSITIVE_PLACEHOLDER }],
+    ["pulled a plain value", { DATABASE_URL: WRITABLE_SENTINEL }],
+  ])("is unwritable, and never merged, when %s", (_label, pulled) => {
+    const mirror = { DATABASE_URL: SENSITIVE_PLACEHOLDER };
+    const { merged } = overlayDeployEnv(pulled, mirror);
+
+    expect(statusOf(pulled, mirror)).toBe("unwritable");
+    expect(merged.DATABASE_URL).toBe((pulled as Record<string, string>).DATABASE_URL);
+  });
+});
+
+describe("a NEXT_PUBLIC_ variable holding the placeholder", () => {
+  const pulled = {
+    NEXT_PUBLIC_APP_NAME: SENSITIVE_PLACEHOLDER,
+    NEXT_PUBLIC_SENTRY_DSN: SENSITIVE_PLACEHOLDER,
+    NEXT_PUBLIC_APP_URL: "https://lombakita.com",
+    GOOGLE_CLIENT_SECRET: SENSITIVE_PLACEHOLDER,
+    SENTRY_DSN: SENSITIVE_PLACEHOLDER,
+  };
+
+  it("is reported sensitive-public-placeholder, by name, after the nine", () => {
+    const { report } = overlayDeployEnv(pulled, {});
+    const extra = report.slice(OVERLAY_NAMES.length);
+
+    expect(extra).toEqual([
+      { name: "NEXT_PUBLIC_APP_NAME", status: "sensitive-public-placeholder" },
+      { name: "NEXT_PUBLIC_SENTRY_DSN", status: "sensitive-public-placeholder" },
+    ]);
+  });
+
+  it("blocks the run", () => {
+    expect(hasBlockingOverlayStatus(overlayDeployEnv(pulled, {}).report)).toBe(true);
+  });
+
+  it("is found by findSensitivePublicPlaceholders and not by the warn-only finder", () => {
+    expect(findSensitivePublicPlaceholders(pulled)).toEqual([
+      "NEXT_PUBLIC_APP_NAME",
+      "NEXT_PUBLIC_SENTRY_DSN",
+    ]);
+    expect(findSensitivePlaceholdersOutsideOverlay(pulled)).toEqual([
+      "GOOGLE_CLIENT_SECRET",
+      "SENTRY_DSN",
+    ]);
+  });
+
+  it("does not block when no NEXT_PUBLIC_ variable holds the placeholder", () => {
+    const { report } = overlayDeployEnv(
+      { NEXT_PUBLIC_APP_URL: "https://lombakita.com", GOOGLE_CLIENT_SECRET: SENSITIVE_PLACEHOLDER },
+      {},
+    );
+
+    expect(report.map((entry) => entry.name)).toEqual([...OVERLAY_NAMES]);
+  });
+
+  it("matches the whole value only", () => {
+    expect(findSensitivePublicPlaceholders({ NEXT_PUBLIC_APP_NAME: "[sensitive]" })).toEqual([]);
+    expect(findSensitivePublicPlaceholders({ NEXT_PUBLIC_APP_NAME: " [SENSITIVE]" })).toEqual([]);
+    expect(findSensitivePublicPlaceholders({ APP_NEXT_PUBLIC_X: SENSITIVE_PLACEHOLDER })).toEqual(
+      [],
+    );
+  });
+});
+
 describe("blocking statuses", () => {
   it.each<[OverlayStatus, boolean]>([
     ["filled-from-github", false],
@@ -323,6 +395,7 @@ describe("blocking statuses", () => {
     ["drift", true],
     ["unwritable", true],
     ["sensitive-unmirrored", true],
+    ["sensitive-public-placeholder", true],
   ])("%s blocks the run: %s", (status, blocks) => {
     expect(hasBlockingOverlayStatus([{ name: "DATABASE_URL", status }])).toBe(blocks);
   });
@@ -432,6 +505,70 @@ describe("deploy.yml wiring", () => {
     it("never traces shell execution or echoes a mirror variable", () => {
       expect(text).not.toMatch(/set -x/);
       expect(text).not.toMatch(/echo[^\n]*MIRROR_/);
+    });
+  });
+
+  // Token-level, not a regex over the whole line: `@vercel/build-utils` and `vercel pull` are not
+  // installs of the CLI, while `npm i -g vercel`, `npx vercel` and `vercel@^62` all are, or run,
+  // an unpinned one.
+  const INSTALLER_OR_RUNNER =
+    /\b(npm\s+(install|i|add|exec)|npx|pnpm\s+(add|dlx|exec)|yarn\s+(global\s+add|dlx)|bunx?)\b/;
+  const EXACT_VERCEL = /^vercel@\d+\.\d+\.\d+$/;
+
+  const findUnpinnedVercelUses = (workflowText: string): string[] =>
+    workflowText
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("#"))
+      .filter((line) => INSTALLER_OR_RUNNER.test(line))
+      .filter((line) =>
+        line
+          .split(/\s+/)
+          .map((token) => token.replace(/^["']|["']$/g, ""))
+          .some(
+            (token) =>
+              (token === "vercel" || token.startsWith("vercel@")) && !EXACT_VERCEL.test(token),
+          ),
+      );
+
+  describe("the CLI pin across the whole workflow", () => {
+    it("pins the SAME exact version in both jobs", () => {
+      const versions = jobs.map(({ text }) =>
+        [...text.matchAll(/^\s*run: npm install --global vercel@(\d+\.\d+\.\d+)$/gm)].map(
+          (match) => match[1],
+        ),
+      );
+
+      expect(versions.every((found) => found.length === 1)).toBe(true);
+      expect(new Set(versions.flat()).size).toBe(1);
+    });
+
+    it("has no step that installs or runs vercel without an exact version", () => {
+      expect(findUnpinnedVercelUses(workflow)).toEqual([]);
+    });
+
+    // Rule 32: the detector above is only evidence if it is red for the forms it claims to catch.
+    it.each([
+      "run: npm i -g vercel",
+      "run: npm install --global vercel",
+      "run: npm install --global vercel@latest",
+      "run: npm install --global vercel@^62.2.0",
+      "run: npm install --global vercel@62",
+      "run: npx vercel pull --yes",
+      "run: npx --yes vercel@latest build",
+      "run: pnpm dlx vercel deploy",
+      "run: npm exec vercel -- build",
+    ])("flags %s", (line) => {
+      expect(findUnpinnedVercelUses(line)).toEqual([line]);
+    });
+
+    it.each([
+      "run: npm install --global vercel@62.2.0",
+      "run: npm install --global @railway/cli",
+      "run: vercel pull --yes --environment=preview",
+      "run: npm ci",
+      "# run: npm i -g vercel",
+    ])("does not flag %s", (line) => {
+      expect(findUnpinnedVercelUses(line)).toEqual([]);
     });
   });
 

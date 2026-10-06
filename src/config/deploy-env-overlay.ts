@@ -45,24 +45,37 @@ export type OverlayStatus =
   | "not-mirrored"
   | "unset"
   | "unwritable"
-  | "sensitive-unmirrored";
+  | "sensitive-unmirrored"
+  | "sensitive-public-placeholder";
 
-export type OverlayReportEntry = { name: OverlayName; status: OverlayStatus };
+export type OverlayReportEntry = { name: string; status: OverlayStatus };
 
 type EnvMap = Readonly<Record<string, string | undefined>>;
 
 const isOverlayName = (name: string): boolean =>
   (OVERLAY_NAMES as readonly string[]).includes(name);
 
-const BLOCKING_STATUSES: readonly OverlayStatus[] = ["drift", "unwritable", "sensitive-unmirrored"];
+/** Next.js compiles every variable with this prefix into the browser bundle at build time. */
+const PUBLIC_PREFIX = "NEXT_PUBLIC_";
+
+const isPublicName = (name: string): boolean => name.startsWith(PUBLIC_PREFIX);
+
+const BLOCKING_STATUSES: readonly OverlayStatus[] = [
+  "drift",
+  "unwritable",
+  "sensitive-unmirrored",
+  "sensitive-public-placeholder",
+];
 
 /**
  * The only values the overlay will write: printable ASCII with no space, and none of the
  * characters that either parser reading the pulled file (Node's loadEnvFile in the gate steps,
- * dotenv inside `vercel build`) would treat differently inside single quotes.
+ * dotenv inside `vercel build`) would treat differently inside single quotes. The placeholder is
+ * excluded by value: a GitHub secret holding it would "fill" a name with the very string the
+ * overlay exists to replace.
  */
 export const isWritableMirrorValue = (value: string): boolean =>
-  /^[\x21-\x7E]+$/.test(value) && !/['"`\\$]/.test(value);
+  value !== SENSITIVE_PLACEHOLDER && /^[\x21-\x7E]+$/.test(value) && !/['"`\\$]/.test(value);
 
 const classify = (pulled: string, mirror: string): OverlayStatus => {
   if (mirror !== "" && !isWritableMirrorValue(mirror)) {
@@ -105,16 +118,33 @@ export const overlayDeployEnv = (
     report.push({ name, status });
   }
 
+  for (const name of findSensitivePublicPlaceholders(pulledEnv)) {
+    report.push({ name, status: "sensitive-public-placeholder" });
+  }
+
   return { merged, report };
 };
 
 /**
- * Names outside the nine whose pulled value is the placeholder. The overlay cannot fill them, so
- * they are only reported; layer 1 decides whether the missing value matters.
+ * `NEXT_PUBLIC_` names whose pulled value is the placeholder. They are compiled into the client
+ * bundle, so the placeholder would ship to every browser; the overlay refuses the run.
+ */
+export const findSensitivePublicPlaceholders = (pulledEnv: EnvMap): string[] =>
+  Object.entries(pulledEnv)
+    .filter(([name, value]) => value === SENSITIVE_PLACEHOLDER && isPublicName(name))
+    .map(([name]) => name);
+
+/**
+ * Other names outside the nine whose pulled value is the placeholder. The overlay cannot fill
+ * them, so they are only reported. The gate does not verify them either: layer 1 has no rule that
+ * rejects the placeholder for server-only optional names such as GOOGLE_CLIENT_SECRET or SENTRY_DSN.
  */
 export const findSensitivePlaceholdersOutsideOverlay = (pulledEnv: EnvMap): string[] =>
   Object.entries(pulledEnv)
-    .filter(([name, value]) => value === SENSITIVE_PLACEHOLDER && !isOverlayName(name))
+    .filter(
+      ([name, value]) =>
+        value === SENSITIVE_PLACEHOLDER && !isOverlayName(name) && !isPublicName(name),
+    )
     .map(([name]) => name);
 
 export const hasBlockingOverlayStatus = (report: readonly OverlayReportEntry[]): boolean =>

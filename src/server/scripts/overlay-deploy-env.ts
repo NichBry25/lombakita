@@ -10,9 +10,10 @@
  *   npm run deploy:overlay-env -- --environment=preview
  *
  * Fails closed: drift between Vercel's plain value and the GitHub copy, a mirror value this writer
- * cannot emit safely, a duplicated key, or a rewrite that would change any other key all stop the
- * job before anything is written. A Sensitive name with no GitHub copy stops the job here, by name,
- * rather than at layer 1. Output is names and statuses only.
+ * cannot emit safely (including the placeholder itself), a duplicated key, or a rewrite that would
+ * change any other key all stop the job before anything is written. A Sensitive name with no GitHub
+ * copy stops the job here, by name, rather than at layer 1, and so does a Sensitive NEXT_PUBLIC_
+ * name, which would ship the placeholder to every browser. Output is names and statuses only.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -25,9 +26,11 @@ import {
   overlayDeployEnv,
   type OverlayName,
   type OverlayReportEntry,
+  type OverlayStatus,
 } from "@/config/deploy-env-overlay";
 import {
   ENV_PATH_FLAG,
+  InvalidDeployEnvironmentError,
   parseDeployEnvironment,
   pulledEnvFilePath,
   readFlagValue,
@@ -45,8 +48,8 @@ const overlayKeyPattern = (name: OverlayName): RegExp =>
   new RegExp(`^\\s*(?:export\\s+)?${name}(?:\\s*=|:\\s)`);
 
 /** Index in `pieces` of each overlay key's line. Even indexes are lines, odd are their breaks. */
-const indexOverlayLines = (pieces: readonly string[]): Map<OverlayName, number> => {
-  const indexes = new Map<OverlayName, number>();
+const indexOverlayLines = (pieces: readonly string[]): Map<string, number> => {
+  const indexes = new Map<string, number>();
 
   for (const name of OVERLAY_NAMES) {
     const pattern = overlayKeyPattern(name);
@@ -130,6 +133,23 @@ export const overlayEnvFileText = (
 const readMirrorFromProcessEnv = (): EnvMap =>
   Object.fromEntries(OVERLAY_NAMES.map((name) => [name, process.env[`MIRROR_${name}`]]));
 
+const annotationFor = (name: string, status: OverlayStatus): string | undefined => {
+  switch (status) {
+    case "not-mirrored":
+      return `::warning::overlay: ${name} is not mirrored in GitHub; the Vercel value is used unchecked`;
+    case "sensitive-unmirrored":
+      return `::error::overlay: ${name} is Sensitive on Vercel and has no GitHub environment secret`;
+    case "drift":
+      return `::error::overlay: ${name} differs between the Vercel value and the GitHub environment secret`;
+    case "unwritable":
+      return `::error::overlay: ${name} has a GitHub environment secret the overlay cannot write to the pulled file`;
+    case "sensitive-public-placeholder":
+      return `::error::overlay: ${name} is Sensitive on Vercel but NEXT_PUBLIC_ values are compiled into the browser bundle; make it plain`;
+    default:
+      return undefined;
+  }
+};
+
 const printReport = (
   report: readonly OverlayReportEntry[],
   placeholdersOutsideOverlay: readonly string[],
@@ -137,16 +157,10 @@ const printReport = (
   for (const { name, status } of report) {
     console.log(`overlay: ${name} ${status}`);
 
-    if (status === "not-mirrored") {
-      console.log(
-        `::warning::overlay: ${name} is not mirrored in GitHub; the Vercel value is used unchecked`,
-      );
-    }
+    const annotation = annotationFor(name, status);
 
-    if (status === "sensitive-unmirrored") {
-      console.log(
-        `::error::overlay: ${name} is Sensitive on Vercel and has no GitHub environment secret`,
-      );
+    if (annotation) {
+      console.log(annotation);
     }
   }
 
@@ -180,12 +194,26 @@ const overlayPulledEnvFile = (environment: string, filePath: string): void => {
   }
 };
 
-// Class and path only, never the message: a message is free text this script does not control, and
-// everything in the file it names is a secret.
-const describeFailure = (error: unknown, filePath: string | undefined): string => {
-  const errorClass = error instanceof Error ? error.constructor.name : "NonErrorThrown";
+// Everything in the pulled file is a secret and a thrown message is free text this script does not
+// control, so a failure prints the class, a filesystem `code` when there is one, and the path.
+// The one message printed is InvalidDeployEnvironmentError's, which is fixed.
+const errorCodeOf = (error: unknown): string | undefined => {
+  const code = (error as { code?: unknown } | null)?.code;
 
-  return `Deploy env overlay failed: ${errorClass}${filePath ? ` (${filePath})` : ""}`;
+  return typeof code === "string" && /^[A-Z][A-Z0-9_]*$/.test(code) ? code : undefined;
+};
+
+export const describeFailure = (error: unknown, filePath: string | undefined): string => {
+  const location = filePath ? ` (${filePath})` : "";
+
+  if (error instanceof InvalidDeployEnvironmentError) {
+    return `Deploy env overlay failed: InvalidDeployEnvironmentError: ${error.message}${location}`;
+  }
+
+  const errorClass = error instanceof Error ? error.constructor.name : "NonErrorThrown";
+  const code = errorCodeOf(error);
+
+  return `Deploy env overlay failed: ${errorClass}${code ? ` [${code}]` : ""}${location}`;
 };
 
 const run = (): void => {

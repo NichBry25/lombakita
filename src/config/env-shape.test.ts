@@ -71,7 +71,28 @@ describe("findDeployConfigProblems", () => {
     const problem = problemFor(findDeployConfigProblems(env, "production"), "R2_ENDPOINT");
 
     expect(problem?.severity).toBe("error");
-    expect(problem?.problem).toContain("<account-id>");
+    expect(problem?.problem).toContain("unsubstituted placeholder");
+    expect(problem?.problem).not.toContain("account-id");
+  });
+
+  // The message is printed to a CI log. GitHub masks a whole secret, never a substring of one, so
+  // a fragment of the value in the message is a leak.
+  it.each([
+    ["an angle-bracket token", "p4ss-<zz-sentinel>-tail"],
+    ["replace-me", "p4ss-replace-me-zz-sentinel"],
+    ["change_me", "p4ss.change_me.zz-sentinel"],
+    ["the word placeholder", "p4ss placeholder zz-sentinel"],
+    ["TODO", "p4ss TODO zz-sentinel"],
+  ])("never prints any part of the value when %s is matched", (_label, value) => {
+    const problems = findDeployConfigProblems(
+      { ...wellFormedEnv(), R2_ACCESS_KEY_ID: value },
+      "production",
+    );
+    const problem = problemFor(problems, "R2_ACCESS_KEY_ID");
+
+    expect(problem?.problem).toBe("value still contains an unsubstituted placeholder");
+    expect(JSON.stringify(problems)).not.toContain("zz-sentinel");
+    expect(JSON.stringify(problems)).not.toContain("p4ss");
   });
 
   it.each([

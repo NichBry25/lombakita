@@ -311,17 +311,8 @@ const PLACEHOLDER_PATTERNS: readonly RegExp[] = [
   /\bTODO\b/,
 ];
 
-const findPlaceholderToken = (value: string): string | null => {
-  for (const pattern of PLACEHOLDER_PATTERNS) {
-    const match = pattern.exec(value);
-
-    if (match) {
-      return match[0];
-    }
-  }
-
-  return null;
-};
+const hasPlaceholderToken = (value: string): boolean =>
+  PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(value));
 
 const isWrappedInQuotes = (value: string): boolean => {
   if (value.length < 2) {
@@ -349,10 +340,10 @@ const findGenericValueProblem = (key: string, value: string): string | null => {
     return "value is wrapped in quotes, so the quotes are part of the value";
   }
 
-  const placeholder = findPlaceholderToken(value);
-
-  if (placeholder) {
-    return `value still contains the unsubstituted placeholder ${placeholder}`;
+  // The matched text is deliberately not quoted: it is a substring of the value, and a CI log masks
+  // a whole secret but never a fragment of one.
+  if (hasPlaceholderToken(value)) {
+    return "value still contains an unsubstituted placeholder";
   }
 
   return null;

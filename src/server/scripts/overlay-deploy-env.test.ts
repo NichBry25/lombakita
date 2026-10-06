@@ -1,9 +1,10 @@
 // @vitest-environment node
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { parseEnv } from "node:util";
 import { parse as parseWithDotenv } from "dotenv";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -15,8 +16,10 @@ import {
 import {
   DuplicateOverlayKeyError,
   OverlayVerificationError,
+  describeFailure,
   overlayEnvFileText,
 } from "@/server/scripts/overlay-deploy-env";
+import { InvalidDeployEnvironmentError } from "@/server/scripts/env-file";
 
 // Every value is shape-valid for its gate rule AND made only of characters the writer may emit, so
 // the same fixtures drive both the round-trip tests and the real layer-1 run. The `=#%@?&+/`
@@ -248,8 +251,26 @@ describe("the script, run as `npm run deploy:overlay-env` runs it", { timeout: 6
 
   const outputOf = (result: ReturnType<typeof runOverlay>) => `${result.stdout}${result.stderr}`;
 
-  const ALLOWED_LINE =
-    /^(overlay: environment=(preview|production) file=\S+|overlay: [A-Z0-9_]+ [a-z-]+|::warning::overlay: [A-Z0-9_]+ is not mirrored.*|::warning::overlay: [A-Z0-9_]+ sensitive-placeholder-outside-overlay|::error::overlay: [A-Z0-9_]+ is Sensitive on Vercel and has no GitHub environment secret|Deploy env overlay failed: [A-Za-z]+ \(\S+\)|)$/;
+  // Every line the script may print, spelled out. An open `.*` here would let a value ride along
+  // inside an allowed prefix, which is the leak this detector exists to catch.
+  const NAME = "[A-Z0-9_]+";
+  const STATUSES =
+    "filled-from-github|equal|drift|not-mirrored|unset|unwritable|sensitive-unmirrored|sensitive-public-placeholder";
+  const ALLOWED_LINE = new RegExp(
+    `^(${[
+      "overlay: environment=(preview|production) file=\\S+",
+      `overlay: ${NAME} (${STATUSES})`,
+      `::warning::overlay: ${NAME} is not mirrored in GitHub; the Vercel value is used unchecked`,
+      `::warning::overlay: ${NAME} sensitive-placeholder-outside-overlay`,
+      `::error::overlay: ${NAME} is Sensitive on Vercel and has no GitHub environment secret`,
+      `::error::overlay: ${NAME} differs between the Vercel value and the GitHub environment secret`,
+      `::error::overlay: ${NAME} has a GitHub environment secret the overlay cannot write to the pulled file`,
+      `::error::overlay: ${NAME} is Sensitive on Vercel but NEXT_PUBLIC_ values are compiled into the browser bundle; make it plain`,
+      "Deploy env overlay failed: [A-Za-z]+( \\[[A-Z0-9_]+\\])? \\(\\S+\\)",
+      "Deploy env overlay failed: InvalidDeployEnvironmentError: --environment must be one of preview \\| production",
+      "",
+    ].join("|")})$`,
+  );
 
   const expectNoValueInOutput = (result: ReturnType<typeof runOverlay>, values: string[]) => {
     const output = outputOf(result);
@@ -400,6 +421,9 @@ describe("the script, run as `npm run deploy:overlay-env` runs it", { timeout: 6
 
       expect(overlay.status).toBe(1);
       expect(statusLines(overlay)).toContain("overlay: AUTH_SECRET drift");
+      expect(overlay.stdout.match(/^::error::.*$/gm)).toEqual([
+        "::error::overlay: AUTH_SECRET differs between the Vercel value and the GitHub environment secret",
+      ]);
       expect(readFileSync(filePath, "utf8")).toBe(plainPulledText());
       expectNoValueInOutput(overlay, [...allValues, drifted.AUTH_SECRET]);
     });
@@ -421,6 +445,9 @@ describe("the script, run as `npm run deploy:overlay-env` runs it", { timeout: 6
 
       expect(overlay.status).toBe(1);
       expect(statusLines(overlay)).toContain("overlay: REDIS_URL unwritable");
+      expect(overlay.stdout.match(/^::error::.*$/gm)).toEqual([
+        "::error::overlay: REDIS_URL has a GitHub environment secret the overlay cannot write to the pulled file",
+      ]);
       expect(readFileSync(filePath, "utf8")).toBe(sensitivePulledText());
       expectNoValueInOutput(overlay, [...allValues, value]);
     });
@@ -464,5 +491,278 @@ describe("the script, run as `npm run deploy:overlay-env` runs it", { timeout: 6
       );
       expectNoValueInOutput(overlay, allValues);
     });
+  });
+  describe("a mirror value equal to the placeholder", () => {
+    it.each([
+      ["pulled empty", () => sensitivePulledText()],
+      ["pulled the placeholder", () => placeholderPulledText()],
+      ["pulled a plain value", () => plainPulledText()],
+    ])("is refused as unwritable, with the file untouched, when %s", (_label, pulledText) => {
+      writeFileSync(filePath, pulledText());
+
+      const overlay = runOverlay({ ...MIRROR_VALUES, REDIS_URL: SENSITIVE_PLACEHOLDER });
+
+      expect(overlay.status).toBe(1);
+      expect(statusLines(overlay)).toContain("overlay: REDIS_URL unwritable");
+      expect(readFileSync(filePath, "utf8")).toBe(pulledText());
+      expectNoValueInOutput(overlay, allValues);
+    });
+  });
+
+  describe("a NEXT_PUBLIC_ variable that is Sensitive on Vercel", () => {
+    const withPublic = (names: string[]) =>
+      `${plainPulledText()}${names.map((name) => `${name}="${SENSITIVE_PLACEHOLDER}"\n`).join("")}`;
+
+    it("stops the run at the overlay, by name, with the file untouched", () => {
+      const original = withPublic(["NEXT_PUBLIC_APP_NAME", "NEXT_PUBLIC_SENTRY_DSN"]);
+      writeFileSync(filePath, original);
+
+      const overlay = runOverlay(mirrorFrom(MIRROR_VALUES));
+
+      expect(overlay.status).toBe(1);
+      expect(
+        statusLines(overlay).filter((line) => line.endsWith("sensitive-public-placeholder")),
+      ).toEqual([
+        "overlay: NEXT_PUBLIC_APP_NAME sensitive-public-placeholder",
+        "overlay: NEXT_PUBLIC_SENTRY_DSN sensitive-public-placeholder",
+      ]);
+      expect(overlay.stdout.match(/^::error::.*$/gm)).toHaveLength(2);
+      expect(readFileSync(filePath, "utf8")).toBe(original);
+      expectNoValueInOutput(overlay, allValues);
+    });
+
+    it("does not block, only warns, for a Google or Sentry server variable", () => {
+      writeFileSync(
+        filePath,
+        `${plainPulledText()}GOOGLE_CLIENT_SECRET="${SENSITIVE_PLACEHOLDER}"\nSENTRY_DSN="${SENSITIVE_PLACEHOLDER}"\n`,
+      );
+
+      const overlay = runOverlay(mirrorFrom(MIRROR_VALUES));
+
+      expect(overlay.status).toBe(0);
+      expect(overlay.stdout.match(/^::warning::.*$/gm)).toEqual([
+        "::warning::overlay: GOOGLE_CLIENT_SECRET sensitive-placeholder-outside-overlay",
+        "::warning::overlay: SENTRY_DSN sensitive-placeholder-outside-overlay",
+      ]);
+      expect(overlay.stdout).not.toContain("::error::");
+      expectNoValueInOutput(overlay, allValues);
+    });
+  });
+
+  describe("the default file path, with no --env-path", () => {
+    const tsxLoader = pathToFileURL(
+      resolve(process.cwd(), "node_modules/tsx/dist/loader.mjs"),
+    ).href;
+
+    // Runs in the temporary directory so the real `.vercel/` of this checkout is never read or
+    // written; tsx still needs this repository's alias map.
+    const runInTemporaryDirectory = (
+      scriptFile: string,
+      args: string[],
+      extraEnv: Record<string, string> = {},
+    ) =>
+      spawnSync(process.execPath, ["--import", tsxLoader, scriptFile, ...args], {
+        cwd: directory,
+        env: {
+          ...cleanEnvironment(extraEnv),
+          TSX_TSCONFIG_PATH: resolve(process.cwd(), "tsconfig.json"),
+        },
+        encoding: "utf8",
+      });
+
+    it.each(["preview", "production"] as const)(
+      "reads and rewrites .vercel/.env.%s.local, the first candidate layer 1 reads",
+      (environment) => {
+        const relativePath = `.vercel/.env.${environment}.local`;
+        mkdirSync(join(directory, ".vercel"));
+        writeFileSync(join(directory, relativePath), sensitivePulledText());
+
+        const overlay = runInTemporaryDirectory(
+          scriptPath,
+          [`--environment=${environment}`],
+          mirrorEnvironment(MIRROR_VALUES),
+        );
+
+        expect(overlay.status).toBe(0);
+        expect(overlay.stdout).toContain(
+          `overlay: environment=${environment} file=${relativePath}`,
+        );
+
+        const rewritten = parseEnv(readFileSync(join(directory, relativePath), "utf8"));
+        OVERLAY_NAMES.forEach((name) => expect(rewritten[name]).toBe(MIRROR_VALUES[name]));
+
+        const layerOne = runInTemporaryDirectory(verifyPath, [
+          `--environment=${environment}`,
+          "--require-env-file",
+        ]);
+
+        expect(layerOne.stdout).toContain(`env file: ${relativePath}`);
+        expect(layerOne.stdout).not.toContain("none found");
+      },
+    );
+  });
+
+  describe("a bad or missing --environment", () => {
+    const FIXED = "--environment must be one of preview | production";
+
+    it.each([
+      ["a value outside the two", ["--environment=staging"]],
+      ["no value", ["--environment="]],
+      ["no flag at all", []],
+    ])("the overlay exits 1 with the fixed message for %s", (_label, args) => {
+      const overlay = spawnSync(process.execPath, ["--import", "tsx", scriptPath, ...args], {
+        cwd: process.cwd(),
+        env: cleanEnvironment(),
+        encoding: "utf8",
+      });
+
+      expect(overlay.status).toBe(1);
+      expect(overlay.stderr.trim()).toBe(
+        `Deploy env overlay failed: InvalidDeployEnvironmentError: ${FIXED}`,
+      );
+      expect(outputOf(overlay)).not.toContain("staging");
+    });
+
+    it("layer 1 prints the same fixed message and exits 1", () => {
+      const layerOne = spawnSync(
+        process.execPath,
+        ["--import", "tsx", verifyPath, "--environment=staging"],
+        { cwd: process.cwd(), env: cleanEnvironment(), encoding: "utf8" },
+      );
+
+      expect(layerOne.status).toBe(1);
+      expect(layerOne.stderr).toContain(`Deploy environment verification failed: ${FIXED}`);
+      expect(outputOf(layerOne)).not.toContain("staging");
+    });
+  });
+
+  describe("a filesystem error prints its code, never its message", () => {
+    it("when the pulled path is a directory", () => {
+      const overlay = spawnSync(
+        process.execPath,
+        ["--import", "tsx", scriptPath, "--environment=preview", `--env-path=${directory}`],
+        {
+          cwd: process.cwd(),
+          env: cleanEnvironment(mirrorEnvironment(MIRROR_VALUES)),
+          encoding: "utf8",
+        },
+      );
+
+      expect(overlay.status).toBe(1);
+      expect(overlay.stderr.trim()).toBe(
+        `Deploy env overlay failed: Error [EISDIR] (${directory})`,
+      );
+      expectNoValueInOutput(overlay, allValues);
+    });
+  });
+
+  describe("layer 1 on a placeholder-pattern hit", () => {
+    it("prints the variable name and the rule, and no fragment of the value", () => {
+      writeFileSync(
+        filePath,
+        pulledTextWith({
+          ...MIRROR_VALUES,
+          REDIS_URL: "redis://u:p4ss-<zz-sentinel>-tail@host:6379",
+        }),
+      );
+
+      const layerOne = runLayerOne();
+      const output = outputOf(layerOne);
+
+      expect(layerOne.status).toBe(1);
+      expect(output).toMatch(
+        /ERROR\s+REDIS_URL\s+value still contains an unsubstituted placeholder/,
+      );
+      expect(output).not.toContain("zz-sentinel");
+      expect(output).not.toContain("p4ss");
+      expect(output).not.toContain("<zz");
+    });
+  });
+});
+
+describe("pulled-file line forms", () => {
+  it("replaces an `export NAME=` line in place and drops the export", () => {
+    const original = 'A=1\nexport REDIS_URL=""\nB=2\n';
+
+    expect(overlayEnvFileText(original, { REDIS_URL: "r" }).text).toBe("A=1\nREDIS_URL='r'\nB=2\n");
+  });
+
+  // Node's parser does not read `NAME: value` as a variable: it folds the line into the NEXT key's
+  // name. The re-parse check is what notices, so the run stops instead of rewriting a file whose
+  // other keys it can no longer vouch for.
+  it("refuses a `NAME: value` line that is followed by another key", () => {
+    expect(() => overlayEnvFileText("A=1\nREDIS_URL: plain\nB=2\n", { REDIS_URL: "r" })).toThrow(
+      OverlayVerificationError,
+    );
+  });
+
+  it("replaces a `NAME: value` line in place when no key follows it, leaving no duplicate", () => {
+    const { text, report } = overlayEnvFileText("A=1\nREDIS_URL: plain\n", { REDIS_URL: "r" });
+
+    expect(report.find((entry) => entry.name === "REDIS_URL")?.status).toBe("filled-from-github");
+    expect(text).toBe("A=1\nREDIS_URL='r'\n");
+  });
+
+  it("writes only the mirrored names into an empty pulled file", () => {
+    expect(overlayEnvFileText("", { REDIS_URL: "r" }).text).toBe("REDIS_URL='r'\n");
+  });
+
+  it("leaves an empty pulled file empty when nothing is mirrored", () => {
+    const { text, report } = overlayEnvFileText("", {});
+
+    expect(text).toBe("");
+    expect(report.every((entry) => entry.status === "unset")).toBe(true);
+  });
+});
+
+describe("describeFailure", () => {
+  const SECRET_MESSAGE = "EACCES: permission denied, open '/x/zz-secret-sentinel'";
+
+  it("prints the class and the path for a plain error", () => {
+    expect(describeFailure(new DuplicateOverlayKeyError("zz-secret-sentinel"), "/f")).toBe(
+      "Deploy env overlay failed: DuplicateOverlayKeyError (/f)",
+    );
+  });
+
+  it("prints the filesystem code and never the message", () => {
+    const error = Object.assign(new Error(SECRET_MESSAGE), { code: "EACCES" });
+    const described = describeFailure(error, "/f");
+
+    expect(described).toBe("Deploy env overlay failed: Error [EACCES] (/f)");
+    expect(described).not.toContain("zz-secret-sentinel");
+  });
+
+  it.each([
+    ["lower case", "eacces"],
+    ["free text", "boom: zz-secret-sentinel"],
+    ["a number", 13],
+  ])("ignores a code that is %s", (_label, code) => {
+    const described = describeFailure(Object.assign(new Error("m"), { code }), "/f");
+
+    expect(described).toBe("Deploy env overlay failed: Error (/f)");
+  });
+
+  it("omits the location when no path is known yet", () => {
+    expect(describeFailure(new Error(SECRET_MESSAGE), undefined)).toBe(
+      "Deploy env overlay failed: Error",
+    );
+  });
+
+  it.each([
+    ["a string", "zz-secret-sentinel"],
+    ["null", null],
+    ["undefined", undefined],
+    ["an object", { message: "zz-secret-sentinel" }],
+  ])("falls back to NonErrorThrown for %s, printing none of it", (_label, thrown) => {
+    const described = describeFailure(thrown, "/f");
+
+    expect(described).toBe("Deploy env overlay failed: NonErrorThrown (/f)");
+    expect(described).not.toContain("zz-secret-sentinel");
+  });
+
+  it("prints the fixed message of a bad --environment, which carries nothing the caller passed", () => {
+    expect(describeFailure(new InvalidDeployEnvironmentError(), undefined)).toBe(
+      "Deploy env overlay failed: InvalidDeployEnvironmentError: --environment must be one of preview | production",
+    );
   });
 });
