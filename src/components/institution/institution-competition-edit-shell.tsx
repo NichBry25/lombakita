@@ -21,6 +21,8 @@ import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { COMPETITION_MODE_OPTIONS } from "@/lib/competitions/modes";
 import { getMissingCompetitionPublishFields } from "@/lib/competitions/competition-publish-required-fields";
 import {
+  isRegistrationEndPast,
+  REGISTRATION_END_PAST_MESSAGE,
   validateCompetitionTimeline,
   type CompetitionTimelineError,
   type CompetitionTimelineField,
@@ -270,7 +272,12 @@ export const InstitutionCompetitionEditShell = ({
     eventEndAt: evtEnd,
     resultAnnouncementAt: resultAnnounce,
   });
-  const registrationEndError = getTimelineFieldError(timelineErrors, "registrationEndAt");
+  // Blocks Terbitkan only. It is not a timeline error, because those also block Simpan, and a
+  // draft whose window has closed is still a draft the organiser may save.
+  const registrationEndIsPast = isRegistrationEndPast(regEnd);
+  const registrationEndError =
+    getTimelineFieldError(timelineErrors, "registrationEndAt") ??
+    (registrationEndIsPast ? REGISTRATION_END_PAST_MESSAGE : null);
   const participantConfirmationError = getTimelineFieldError(
     timelineErrors,
     "participantConfirmationAt",
@@ -279,24 +286,23 @@ export const InstitutionCompetitionEditShell = ({
   const eventEndError = getTimelineFieldError(timelineErrors, "eventEndAt");
   const resultAnnouncementError = getTimelineFieldError(timelineErrors, "resultAnnouncementAt");
   const timelineIsInvalid = timelineErrors.length > 0;
-  const clientPublishIsBlocked = isDirty || missingPublishFields.length > 0 || timelineIsInvalid;
+  const clientPublishIsBlocked =
+    isDirty || missingPublishFields.length > 0 || timelineIsInvalid || registrationEndIsPast;
 
   // Whether `editorStatusMessage` below is about to say, in this form's own terms, what the
-  // checklist reason would say. The two overlap on missing fields and out-of-order dates and nowhere
-  // else, which is why they cannot simply be deduplicated by code.
-  const clientChecklistReasonIsRendered = timelineIsInvalid || missingPublishFields.length > 0;
+  // checklist reason would say. The two overlap on missing fields, out-of-order dates and a closed
+  // registration window and nowhere else, which is why they cannot simply be deduplicated by code.
+  const clientChecklistReasonIsRendered =
+    timelineIsInvalid || missingPublishFields.length > 0 || registrationEndIsPast;
 
   // The server's reasons for refusing a publish, in the publish path's order. No reasons are shown
   // against an unknown answer: a reason is a claim about what the server will do, and the shell has
   // just failed to ask it.
   const serverPublishReasons = readinessIsKnown
     ? publishReadiness.blockers
-        // Dropped only when the sentence above really is on screen. The server's checklist also
-        // refuses a registration window that has CLOSED (competition-core.ts:877-883) — a check this
-        // form cannot make, because its own two validators read presence and relative order and
-        // never the clock. A field-complete, correctly ordered draft whose window has closed passes
-        // every client check, so dropping the reason there would leave a disabled control with
-        // nothing to explain it.
+        // Dropped only when the sentence above really is on screen. The server's checklist can
+        // refuse for reasons this form has no check for, and dropping the reason there would leave
+        // a disabled control with nothing to explain it.
         .filter(
           (code) =>
             code !== "competition_publish_validation_failed" || !clientChecklistReasonIsRendered,
@@ -326,6 +332,8 @@ export const InstitutionCompetitionEditShell = ({
     editorStatusMessage = "Simpan perubahan sebelum menerbitkan";
   } else if (missingPublishFields.length > 0) {
     editorStatusMessage = `Lengkapi untuk menerbitkan: ${missingPublishFields.join(", ")}`;
+  } else if (registrationEndIsPast) {
+    editorStatusMessage = REGISTRATION_END_PAST_MESSAGE;
   }
 
   const load = useCallback(async () => {
@@ -557,7 +565,9 @@ export const InstitutionCompetitionEditShell = ({
             ? `Perbaiki urutan jadwal: ${timelineErrors.map(({ message }) => message).join(" ")}`
             : isDirty
               ? "Simpan perubahan sebelum menerbitkan kompetisi."
-              : `Lengkapi bidang wajib sebelum menerbitkan: ${missingPublishFields.join(", ")}.`
+              : missingPublishFields.length > 0
+                ? `Lengkapi bidang wajib sebelum menerbitkan: ${missingPublishFields.join(", ")}.`
+                : REGISTRATION_END_PAST_MESSAGE
           : (serverPublishReasons[0]?.text ?? "Kompetisi belum dapat diterbitkan saat ini."),
       });
       return;

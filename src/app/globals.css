@@ -4072,6 +4072,12 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   padding-inline-start: var(--space-5);
 }
 
+/* The global reset strips list styles, so an ordered list shows no numerals unless this class
+   restores them. Kept apart from `.document-list`, which the bulleted lists share. */
+.prose-list {
+  list-style: decimal;
+}
+
 /* Shared modal and toast skins */
 .modal-backdrop {
   position: fixed;
@@ -5677,7 +5683,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 .participant-summary {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .summary-stat strong {

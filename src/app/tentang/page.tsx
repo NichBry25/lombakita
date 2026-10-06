@@ -52,7 +52,7 @@ export default function AboutPage() {
 
         <section className="surface-card card-padding-lg stack-md document-clause">
           <h2 className="section-title">Cara mendaftar kompetisi</h2>
-          <ol className="document-list">
+          <ol className="document-list prose-list">
             <li>Buka halaman kompetisi dan baca persyaratannya.</li>
             <li>Masuk, atau buat akun sebagai peserta.</li>
             <li>Tekan &quot;Daftar kompetisi&quot;, lalu daftar sebagai individu atau buat tim.</li>
@@ -62,7 +62,7 @@ export default function AboutPage() {
 
         <section className="surface-card card-padding-lg stack-md document-clause">
           <h2 className="section-title">Cara menerbitkan kompetisi</h2>
-          <ol className="document-list">
+          <ol className="document-list prose-list">
             <li>Buat akun sebagai penyelenggara, lalu buat ruang kerja institusi.</li>
             <li>Selesaikan verifikasi penyelenggara.</li>
             <li>Buat draf kompetisi, lengkapi detailnya, lalu terbitkan.</li>

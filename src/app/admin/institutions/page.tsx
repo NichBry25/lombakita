@@ -12,6 +12,7 @@ import {
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { emailDeliveryWarning } from "@/lib/email/delivery-notice";
+import { resolveVerificationRefusalMessage } from "@/lib/institutions/verification-refusal-copy";
 import { INSTITUTION_VERIFICATION_STATUS_LABELS } from "@/lib/institutions/verification-status-labels";
 
 type VerificationStatus = "pending_verification" | "under_review" | "verified" | "rejected";
@@ -99,7 +100,10 @@ function RejectInstitutionForm({
       });
       const data = await res.json();
       if (!res.ok) {
-        addToast({ type: "error", message: data?.error?.message ?? `Error ${res.status}` });
+        addToast({
+          type: "error",
+          message: resolveVerificationRefusalMessage(data?.error, `Error ${res.status}`),
+        });
         return;
       }
 
@@ -216,7 +220,10 @@ export default function AdminInstitutionsPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        return { ok: false, message: data?.error?.message ?? `Error ${res.status}` };
+        return {
+          ok: false,
+          message: resolveVerificationRefusalMessage(data?.error, `Error ${res.status}`),
+        };
       }
       return { ok: true, deliveryWarning: emailDeliveryWarning(data?.emailDelivery) };
     } finally {

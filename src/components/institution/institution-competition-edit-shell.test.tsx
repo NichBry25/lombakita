@@ -12,11 +12,9 @@
 // again, which would leave the reason permanently unreachable. The sequence therefore runs
 // known-blocked → unknown → known-blocked and asserts each state.
 //
-// A2: a DISABLED Terbitkan must always carry a visible reason. The client's own checks and the
-// server's checklist overlap on missing fields and out-of-order dates and nowhere else — the server
-// also refuses a registration window that has CLOSED (competition-core.ts:877-883), a fact neither
-// client validator can see. So the server's checklist reason is dropped only when the shell is
-// already saying the same thing about this form.
+// A2: a DISABLED Terbitkan must always carry a visible reason. The server's checklist reason is
+// dropped only when the shell is already saying the same thing about this form: on missing fields,
+// out-of-order dates and a registration window that has CLOSED (competition-core.ts:877-883).
 //
 // A6: a successful read clears the unknown state even when the response omits the optional
 // `publishReadiness` key.
@@ -73,6 +71,8 @@ const READY = { canPublish: true, blockers: [] as const };
 const UNVERIFIED_REASON =
   "Kompetisi berbayar hanya dapat diterbitkan oleh institusi yang sudah terverifikasi.";
 const VALIDATION_REASON = "Data kompetisi belum lengkap atau belum valid.";
+const REGISTRATION_END_PAST_MESSAGE =
+  "Pendaftaran berakhir sudah lewat. Pilih tanggal mendatang agar kompetisi dapat diterbitkan.";
 const LOAD_FAILED_MESSAGE = "Gagal memuat kompetisi.";
 
 const BLOCKED_BY_CHECKLIST = {
@@ -80,11 +80,10 @@ const BLOCKED_BY_CHECKLIST = {
   blockers: ["competition_publish_validation_failed" as const],
 };
 
-// The same competition with its registration window CLOSED and its ordering still valid. Every client
-// check passes on this row: `getMissingCompetitionPublishFields` reads presence only, and
-// `validateCompetitionTimeline` compares fields to each other and never to the clock. Only the
-// server's checklist judges the clock, which is what makes this the shape the shell cannot explain
-// on its own.
+// The same competition with its registration window CLOSED and its ordering still valid.
+// `getMissingCompetitionPublishFields` reads presence only and `validateCompetitionTimeline`
+// compares fields to each other and never to the clock, so the shell reads the clock for the
+// registration end on its own (D160) and names that field.
 const closedRegistrationWindow = () => {
   const now = Date.now();
   return {
@@ -218,11 +217,39 @@ describe("InstitutionCompetitionEditShell publish readiness", () => {
     expect(screen.getByText("Semua perubahan tersimpan dan siap diterbitkan")).toBeTruthy();
   });
 
-  it("shows a reason on a disabled Terbitkan that no client check can explain", async () => {
+  it("names the registration end field when the window has closed, and still lets the draft be saved", async () => {
     stubFetchSequence([
       () =>
         okJson({
           competition: { ...COMPETITION, ...closedRegistrationWindow() },
+          publishReadiness: BLOCKED_BY_CHECKLIST,
+        }),
+    ]);
+
+    mount();
+
+    await screen.findByRole("button", { name: "Terbitkan" });
+    await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
+
+    // The field the server refused is flagged, and the sentence says which field it is.
+    const registrationEnd = screen.getByLabelText(/Pendaftaran berakhir/);
+    expect(registrationEnd.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getAllByText(REGISTRATION_END_PAST_MESSAGE).length).toBeGreaterThan(0);
+
+    // The client now says what the server's generic sentence would have said, so that sentence is
+    // dropped rather than shown beside a more specific one.
+    expect(screen.queryByText(VALIDATION_REASON)).toBeNull();
+    expect(screen.queryAllByText(/siap diterbitkan/)).toHaveLength(0);
+
+    // A closed window blocks publishing, not saving.
+    expect(saveButton().hasAttribute("disabled")).toBe(false);
+  });
+
+  it("shows a reason on a disabled Terbitkan that no client check can explain", async () => {
+    stubFetchSequence([
+      () =>
+        okJson({
+          competition: COMPETITION,
           publishReadiness: BLOCKED_BY_CHECKLIST,
         }),
     ]);

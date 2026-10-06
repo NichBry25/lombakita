@@ -95,7 +95,6 @@ const mem2Member = {
 const oneConfirmedAgg = {
   total: 1,
   confirmed: 1,
-  pending: 0,
   cancelled: 0,
   withSubmissions: 0,
   withFinalizedSubmissions: 0,
@@ -104,7 +103,6 @@ const oneConfirmedAgg = {
 const fiveItemsAgg = {
   total: 5,
   confirmed: 3,
-  pending: 1,
   cancelled: 1,
   withSubmissions: 2,
   withFinalizedSubmissions: 1,
@@ -237,7 +235,7 @@ describe("listCompetitionParticipants", () => {
       db,
     );
     expect(result.counts.total).toBe(5);
-    expect(result.counts.pending).toBe(1);
+    expect(result.counts).not.toHaveProperty("pending");
     expect(result.counts.cancelled).toBe(1);
     expect(result.counts.withSubmissions).toBe(2);
   });

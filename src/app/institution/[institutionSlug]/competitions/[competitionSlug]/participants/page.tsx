@@ -217,10 +217,6 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
           <strong className="data-text">{result.counts.confirmed}</strong>
         </div>
         <div className="summary-stat">
-          <span>Menunggu</span>
-          <strong className="data-text">{result.counts.pending}</strong>
-        </div>
-        <div className="summary-stat">
           <span>Dibatalkan</span>
           <strong className="data-text">{result.counts.cancelled}</strong>
         </div>

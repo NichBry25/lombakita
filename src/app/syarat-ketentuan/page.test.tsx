@@ -27,6 +27,16 @@ describe("TermsPage", () => {
     expect(html).toContain(LEGAL_DOCUMENT.effectiveDateLabel);
   });
 
+  it("sets every ordered list in the prose-list class so its numerals show", () => {
+    const html = renderToStaticMarkup(TermsPage());
+    const openingTags = html.match(/<ol[^>]*>/g) ?? [];
+
+    expect(openingTags.length).toBeGreaterThan(0);
+    for (const tag of openingTags) {
+      expect(tag).toMatch(/class="[^"]*\bprose-list\b[^"]*"/);
+    }
+  });
+
   it("never renders an NPWP, by name or by shape", () => {
     const html = renderToStaticMarkup(TermsPage());
 

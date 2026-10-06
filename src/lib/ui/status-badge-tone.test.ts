@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { STATUS_BADGE_TONES, type StatusBadgeTone } from "@/lib/ui/status-badge-tone";
 import { PAYMENT_STATUS_TONES } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
+import { DOCUMENT_REQUEST_STATUS_TONES } from "@/lib/registration-documents/request-status";
 
 const CSS = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
 
@@ -87,5 +88,43 @@ describe("payment lane tone maps", () => {
 
   it("renders every proof review status with a tone the badge actually styles", () => {
     assertEveryToneIsReal(PROOF_STATUS_TONES, "PROOF_STATUS_TONES");
+  });
+});
+
+describe("document request tone map", () => {
+  it("renders every document request display status with a tone the badge actually styles", () => {
+    const inCss = tonesDefinedForStatusBadge();
+
+    for (const [status, tone] of Object.entries(DOCUMENT_REQUEST_STATUS_TONES)) {
+      expect(
+        inCss.has(tone),
+        `DOCUMENT_REQUEST_STATUS_TONES.${status} = "${tone}", which .status-badge does not style`,
+      ).toBe(true);
+    }
+  });
+});
+
+// `ol` and `ul` carry no list style under the global reset, so a numbered list shows no numerals
+// unless a class restores them. The reset itself must stay as it is; the class is the repair.
+describe("the .prose-list class", () => {
+  const ruleBody = (selector: string): string | null => {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`).exec(CSS);
+    return match ? match[1]! : null;
+  };
+
+  it("restores decimal numerals", () => {
+    const body = ruleBody(".prose-list");
+
+    expect(body, ".prose-list has no rule in globals.css").not.toBeNull();
+    expect(body).toMatch(/list-style(?:-type)?:\s*decimal\s*;/);
+  });
+
+  it("takes every length from a token", () => {
+    const body = ruleBody(".prose-list");
+
+    expect(body, ".prose-list has no rule in globals.css").not.toBeNull();
+    expect(body).not.toMatch(/\d+(?:\.\d+)?(?:px|rem|em)\b/);
+    expect(body).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 });

@@ -14,7 +14,7 @@ vi.mock("next/link", () => {
   };
 });
 
-import ContactPage from "@/app/kontak/page";
+import ContactPage, { metadata } from "@/app/kontak/page";
 import { COMPANY } from "@/config/company";
 
 // These strings are owner-ruled and byte-exact, and nothing downstream verifies them: a typo in
@@ -43,6 +43,14 @@ describe("ContactPage", () => {
 
     const withoutOwnNumber = html.replace(dialLink, "");
     expect(withoutOwnNumber).not.toMatch(/(?:\+62|\b0)8\d{1,2}[\s-]?\d{3,4}[\s-]?\d{3,4}/);
+  });
+
+  // The page shows an email row and a telephone row, so the description search engines display
+  // must name both. The Open Graph description is the same string, not a second copy to drift.
+  it("describes both the email and the telephone the page shows", () => {
+    expect(metadata.description).toMatch(/email/i);
+    expect(metadata.description).toMatch(/telepon/i);
+    expect(metadata.openGraph?.description).toBe(metadata.description);
   });
 
   it("names no PT prefix or Perseroan/Perorangan suffix on the entity name", () => {
