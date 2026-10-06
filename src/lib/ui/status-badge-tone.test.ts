@@ -128,3 +128,29 @@ describe("the .prose-list class", () => {
     expect(body).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 });
+
+// The organiser summary has five tiles. In the two-column tablet layout the fifth would sit alone
+// in its row, so it spans both columns. The rule is scoped to `.participant-summary` and lives in
+// the same media query that sets the two columns.
+describe("the participant summary tablet layout", () => {
+  const mediaBlock = (query: string): string | null => {
+    const open = CSS.indexOf(`@media ${query} {`);
+    if (open === -1) return null;
+    let depth = 0;
+    for (let i = CSS.indexOf("{", open); i < CSS.length; i += 1) {
+      if (CSS[i] === "{") depth += 1;
+      if (CSS[i] === "}") depth -= 1;
+      if (depth === 0) return CSS.slice(open, i + 1);
+    }
+    return null;
+  };
+
+  it("spans the last tile across both columns, inside the two-column query", () => {
+    const block = mediaBlock("(max-width: 940px)");
+
+    expect(block, "no (max-width: 940px) media query in globals.css").not.toBeNull();
+    expect(block).toMatch(
+      /\.participant-summary\s*>\s*:last-child\s*\{[^}]*grid-column:\s*1\s*\/\s*-1\s*;[^}]*\}/,
+    );
+  });
+});

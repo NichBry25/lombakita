@@ -8,7 +8,7 @@
 export const VERIFICATION_REFUSAL_COPY: Record<string, string> = {
   // DEC-0220.
   operator_actor_conflicted:
-    "Anda tidak dapat memutuskan verifikasi institusi ini, karena akun Anda pernah mengajukan, diundang ke, atau menjadi anggota institusi ini.",
+    "Anda tidak dapat memutuskan verifikasi institusi ini karena akun Anda pernah mengajukan verifikasi, diundang, atau menjadi anggota institusi tersebut.",
 };
 
 export const resolveVerificationRefusalMessage = (

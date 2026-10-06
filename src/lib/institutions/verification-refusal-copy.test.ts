@@ -21,6 +21,9 @@ describe("resolveVerificationRefusalMessage", () => {
     );
 
     expect(message).toBe(VERIFICATION_REFUSAL_COPY.operator_actor_conflicted);
+    expect(message).toBe(
+      "Anda tidak dapat memutuskan verifikasi institusi ini karena akun Anda pernah mengajukan verifikasi, diundang, atau menjadi anggota institusi tersebut.",
+    );
     expect(message).not.toBe(SERVER_ENGLISH);
     expect(message).not.toMatch(/platform-ops|cannot decide/i);
   });
@@ -41,14 +44,19 @@ describe("resolveVerificationRefusalMessage", () => {
 });
 
 // Both operator surfaces that decide a verification show this refusal, so both read the envelope
-// through the helper. A page that went back to `error.message` would show the English again.
-describe("the operator verification surfaces", () => {
-  it.each(["src/app/admin/verification/page.tsx", "src/app/admin/institutions/page.tsx"])(
-    "%s resolves a refusal through the helper",
-    (path) => {
-      const source = readFileSync(join(process.cwd(), path), "utf8");
+// through the helper. The call sites are counted, not just detected: the institutions page has two
+// (the transition and the reject form), and a page that went back to `error.message` at either one
+// would show the English again while a presence check stayed green.
+const CALL_SITES: Array<{ path: string; expected: number }> = [
+  { path: "src/app/admin/verification/page.tsx", expected: 1 },
+  { path: "src/app/admin/institutions/page.tsx", expected: 2 },
+];
 
-      expect(source).toContain("resolveVerificationRefusalMessage(");
-    },
-  );
+describe("the operator verification surfaces", () => {
+  it.each(CALL_SITES)("$path resolves a refusal at exactly $expected call site(s)", (site) => {
+    const source = readFileSync(join(process.cwd(), site.path), "utf8");
+    const callSites = source.split("resolveVerificationRefusalMessage(").length - 1;
+
+    expect(callSites).toBe(site.expected);
+  });
 });

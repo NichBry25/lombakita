@@ -28,7 +28,6 @@ const emptyResult = {
   counts: {
     total: 0,
     confirmed: 0,
-    pending: 0,
     cancelled: 0,
     withSubmissions: 0,
     withFinalizedSubmissions: 0,
@@ -51,7 +50,6 @@ const someResult = {
   counts: {
     total: 1,
     confirmed: 1,
-    pending: 0,
     cancelled: 0,
     withSubmissions: 0,
     withFinalizedSubmissions: 0,

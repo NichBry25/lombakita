@@ -6112,6 +6112,10 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .participant-summary > :last-child {
+    grid-column: 1 / -1;
+  }
+
   .moderation-console {
     grid-template-columns: minmax(0, 1fr);
   }

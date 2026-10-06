@@ -217,32 +217,137 @@ describe("InstitutionCompetitionEditShell publish readiness", () => {
     expect(screen.getByText("Semua perubahan tersimpan dan siap diterbitkan")).toBeTruthy();
   });
 
-  it("names the registration end field when the window has closed, and still lets the draft be saved", async () => {
-    stubFetchSequence([
-      () =>
-        okJson({
-          competition: { ...COMPETITION, ...closedRegistrationWindow() },
-          publishReadiness: BLOCKED_BY_CHECKLIST,
-        }),
-    ]);
+  describe("a registration end that is already past", () => {
+    const ORDERING_MESSAGE = "Pendaftaran berakhir harus setelah pendaftaran mulai.";
 
-    mount();
+    // The three places the message can appear, read separately so that one rendering cannot be
+    // mistaken for another.
+    const registrationEndField = () => screen.getByLabelText(/Pendaftaran berakhir/);
+    const registrationEndFieldError = () =>
+      document.getElementById("registration-end-timeline-error");
+    const statusLine = () => document.querySelector("#publish-readiness-message > span");
 
-    await screen.findByRole("button", { name: "Terbitkan" });
-    await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
+    const draftWithClosedWindow = () =>
+      okJson({
+        competition: { ...COMPETITION, ...closedRegistrationWindow() },
+        publishReadiness: BLOCKED_BY_CHECKLIST,
+      });
 
-    // The field the server refused is flagged, and the sentence says which field it is.
-    const registrationEnd = screen.getByLabelText(/Pendaftaran berakhir/);
-    expect(registrationEnd.getAttribute("aria-invalid")).toBe("true");
-    expect(screen.getAllByText(REGISTRATION_END_PAST_MESSAGE).length).toBeGreaterThan(0);
+    const publishedWithClosedWindow = () =>
+      okJson({
+        competition: { ...COMPETITION, status: "published", ...closedRegistrationWindow() },
+        publishReadiness: { canPublish: false, blockers: ["competition_invalid_transition"] },
+      });
 
-    // The client now says what the server's generic sentence would have said, so that sentence is
-    // dropped rather than shown beside a more specific one.
-    expect(screen.queryByText(VALIDATION_REASON)).toBeNull();
-    expect(screen.queryAllByText(/siap diterbitkan/)).toHaveLength(0);
+    it("flags the field on a draft, with the message as the field's own error", async () => {
+      stubFetchSequence([draftWithClosedWindow]);
 
-    // A closed window blocks publishing, not saving.
-    expect(saveButton().hasAttribute("disabled")).toBe(false);
+      mount();
+
+      await screen.findByRole("button", { name: "Terbitkan" });
+      await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
+
+      expect(registrationEndField().getAttribute("aria-invalid")).toBe("true");
+      expect(registrationEndFieldError()?.textContent).toBe(REGISTRATION_END_PAST_MESSAGE);
+    });
+
+    it("says it in the status line on a draft", async () => {
+      stubFetchSequence([draftWithClosedWindow]);
+
+      mount();
+
+      await screen.findByRole("button", { name: "Terbitkan" });
+      await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
+
+      expect(statusLine()?.textContent).toBe(REGISTRATION_END_PAST_MESSAGE);
+      // The client says what the server's generic sentence would have said, so that sentence is
+      // dropped rather than shown beside a more specific one.
+      expect(screen.queryByText(VALIDATION_REASON)).toBeNull();
+      expect(screen.queryAllByText(/siap diterbitkan/)).toHaveLength(0);
+    });
+
+    it("blocks publishing a draft but not saving it", async () => {
+      stubFetchSequence([draftWithClosedWindow]);
+
+      mount();
+
+      await screen.findByRole("button", { name: "Terbitkan" });
+      await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
+
+      expect(saveButton().hasAttribute("disabled")).toBe(false);
+    });
+
+    it("shows none of the three on a published competition", async () => {
+      stubFetchSequence([publishedWithClosedWindow]);
+
+      mount();
+
+      // A published competition has no Terbitkan control, so wait on its Simpan.
+      await screen.findByRole("button", { name: "Simpan" });
+      await waitFor(() =>
+        expect(
+          screen.getByText("Hanya kompetisi berstatus draf yang dapat diterbitkan."),
+        ).toBeTruthy(),
+      );
+
+      expect(registrationEndField().getAttribute("aria-invalid")).toBeNull();
+      expect(registrationEndFieldError()).toBeNull();
+      expect(statusLine()?.textContent ?? "").not.toContain(REGISTRATION_END_PAST_MESSAGE);
+      expect(screen.queryByText(REGISTRATION_END_PAST_MESSAGE)).toBeNull();
+    });
+
+    // The ordering error blocks saving as well, so it must read the same for every status and must
+    // outrank the past-date message wherever both could apply.
+    it("lets the ordering error take precedence on a draft", async () => {
+      const now = Date.now();
+      stubFetchSequence([
+        () =>
+          okJson({
+            competition: {
+              ...COMPETITION,
+              registrationStartAt: new Date(now - 10 * DAY).toISOString(),
+              registrationEndAt: new Date(now - 20 * DAY).toISOString(),
+              participantConfirmationAt: new Date(now - 15 * DAY).toISOString(),
+            },
+            publishReadiness: BLOCKED_BY_CHECKLIST,
+          }),
+      ]);
+
+      mount();
+
+      await screen.findByRole("button", { name: "Terbitkan" });
+      await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
+
+      expect(registrationEndFieldError()?.textContent).toBe(ORDERING_MESSAGE);
+      expect(statusLine()?.textContent).toContain(ORDERING_MESSAGE);
+      expect(screen.queryByText(REGISTRATION_END_PAST_MESSAGE)).toBeNull();
+      expect(registrationEndField().getAttribute("aria-invalid")).toBe("true");
+    });
+
+    it("still flags an ordering error on a published competition", async () => {
+      const now = Date.now();
+      stubFetchSequence([
+        () =>
+          okJson({
+            competition: {
+              ...COMPETITION,
+              status: "published",
+              registrationStartAt: new Date(now + 10 * DAY).toISOString(),
+              registrationEndAt: new Date(now + 5 * DAY).toISOString(),
+              participantConfirmationAt: new Date(now + 20 * DAY).toISOString(),
+            },
+            publishReadiness: { canPublish: false, blockers: ["competition_invalid_transition"] },
+          }),
+      ]);
+
+      mount();
+
+      await screen.findByRole("button", { name: "Simpan" });
+      await waitFor(() => expect(registrationEndFieldError()).not.toBeNull());
+
+      expect(registrationEndFieldError()?.textContent).toBe(ORDERING_MESSAGE);
+      expect(registrationEndField().getAttribute("aria-invalid")).toBe("true");
+    });
   });
 
   it("shows a reason on a disabled Terbitkan that no client check can explain", async () => {

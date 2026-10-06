@@ -1,7 +1,8 @@
 // @vitest-environment node
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CompetitionStatus } from "@/server/db/schema";
+import { isRegistrationEndPast } from "@/lib/competitions/competition-timeline";
 import {
   CompetitionError,
   COMPETITION_STATUS_VALUES,
@@ -435,6 +436,35 @@ describe("validatePublishChecklist", () => {
     expect(result.failures).toContainEqual(
       expect.objectContaining({ field: "registrationEndAt", code: "not_in_future" }),
     );
+  });
+
+  // The edit page reads the clock for the registration end on its own, so the client and the server
+  // must agree at the boundary itself. Both are run at one pinned instant: a window ending exactly
+  // now is already refused by the server, and the client says the same.
+  describe("not_in_future against the client's isRegistrationEndPast", () => {
+    const NOW = new Date("2026-08-10T09:00:00.000Z");
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it.each([
+      { offsetMs: -1, refused: true },
+      { offsetMs: 0, refused: true },
+      { offsetMs: 1, refused: false },
+    ])("agrees when the end is $offsetMs ms from now", ({ offsetMs, refused }) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(NOW);
+      const registrationEndAt = new Date(NOW.getTime() + offsetMs);
+
+      const result = validatePublishChecklist({ ...passing(), registrationEndAt });
+      const serverRefuses = result.failures.some(
+        (failure) => failure.field === "registrationEndAt" && failure.code === "not_in_future",
+      );
+
+      expect(serverRefuses).toBe(refused);
+      expect(isRegistrationEndPast(registrationEndAt, NOW.getTime())).toBe(refused);
+    });
   });
 
   it("aggregates multiple failures (does not short-circuit)", () => {

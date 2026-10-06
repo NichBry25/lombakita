@@ -273,8 +273,9 @@ export const InstitutionCompetitionEditShell = ({
     resultAnnouncementAt: resultAnnounce,
   });
   // Blocks Terbitkan only. It is not a timeline error, because those also block Simpan, and a
-  // draft whose window has closed is still a draft the organiser may save.
-  const registrationEndIsPast = isRegistrationEndPast(regEnd);
+  // draft whose window has closed is still a draft the organiser may save. A published competition
+  // has no Terbitkan, and its window closing is the normal course, so it is never flagged.
+  const registrationEndIsPast = competition?.status === "draft" && isRegistrationEndPast(regEnd);
   const registrationEndError =
     getTimelineFieldError(timelineErrors, "registrationEndAt") ??
     (registrationEndIsPast ? REGISTRATION_END_PAST_MESSAGE : null);

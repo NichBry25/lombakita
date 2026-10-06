@@ -39,7 +39,6 @@ type Props = {
 const REGISTRATION_STATUS_LABELS: Record<string, string> = {
   confirmed: "Dikonfirmasi",
   cancelled: "Dibatalkan",
-  pending: "Menunggu",
 };
 
 const getRegistrationStatusLabel = (status: string): string =>
