@@ -72,7 +72,7 @@ const UNVERIFIED_REASON =
   "Kompetisi berbayar hanya dapat diterbitkan oleh institusi yang sudah terverifikasi.";
 const VALIDATION_REASON = "Data kompetisi belum lengkap atau belum valid.";
 const REGISTRATION_END_PAST_MESSAGE =
-  "Pendaftaran berakhir sudah lewat. Pilih tanggal mendatang agar kompetisi dapat diterbitkan.";
+  "Tanggal berakhir pendaftaran sudah lewat. Pilih tanggal mendatang agar kompetisi dapat diterbitkan.";
 const LOAD_FAILED_MESSAGE = "Gagal memuat kompetisi.";
 
 const BLOCKED_BY_CHECKLIST = {

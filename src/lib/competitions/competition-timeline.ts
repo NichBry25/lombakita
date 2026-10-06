@@ -24,7 +24,7 @@ const toTimestamp = (value: Date | string | null | undefined): number | null => 
 };
 
 export const REGISTRATION_END_PAST_MESSAGE =
-  "Pendaftaran berakhir sudah lewat. Pilih tanggal mendatang agar kompetisi dapat diterbitkan.";
+  "Tanggal berakhir pendaftaran sudah lewat. Pilih tanggal mendatang agar kompetisi dapat diterbitkan.";
 
 // The client counterpart of the publish checklist's `not_in_future` rule on `registrationEndAt`
 // (competition-core.ts). It is the one timeline rule that reads the clock, so it stays out of
