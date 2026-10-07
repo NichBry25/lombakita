@@ -1,89 +1,133 @@
 // @vitest-environment node
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
-import ts from "typescript";
+import type { Breadcrumb, Event } from "@sentry/nextjs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const readRootSource = (name: string): string => readFileSync(resolve(process.cwd(), name), "utf8");
+const sentry = vi.hoisted(() => ({
+  init: vi.fn(),
+  captureRequestError: vi.fn(),
+  captureRouterTransitionStart: vi.fn(),
+  replayIntegration: vi.fn(() => ({ name: "Replay" })),
+}));
 
-const readClientSource = (): string => readRootSource("instrumentation-client.ts");
+vi.mock("@sentry/nextjs", () => sentry);
 
-const readClientInitOptions = (): ts.ObjectLiteralExpression => {
-  const source = ts.createSourceFile(
-    "instrumentation-client.ts",
-    readClientSource(),
-    ts.ScriptTarget.Latest,
-    true,
-  );
-  const calls = source.statements.filter(ts.isExpressionStatement);
-  const init = calls.find((statement) => {
-    const expression = statement.expression;
-    return (
-      ts.isCallExpression(expression) && expression.expression.getText(source) === "Sentry.init"
-    );
-  });
-  expect(init, "client initialisation must call Sentry.init at module scope").toBeDefined();
-  const call = init!.expression as ts.CallExpression;
-  const options = call.arguments[0];
-  expect(options && ts.isObjectLiteralExpression(options)).toBe(true);
-  return options as ts.ObjectLiteralExpression;
+type TransactionEvent = Event & { type: "transaction" };
+
+type InitOptions = {
+  dsn?: string;
+  tracesSampleRate?: number;
+  sendDefaultPii?: boolean;
+  integrations?: { name: string }[];
+  beforeSend?: (event: Event) => Event;
+  beforeSendTransaction?: (event: TransactionEvent) => TransactionEvent;
+  beforeBreadcrumb?: (breadcrumb: Breadcrumb) => Breadcrumb;
 };
 
-const clientOptionText = (name: string): string | undefined => {
-  const options = readClientInitOptions();
-  const explicitProperties = options.properties.every(
-    (property) =>
-      ts.isPropertyAssignment(property) &&
-      (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)),
+beforeEach(() => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  vi.stubEnv("SENTRY_DSN", "sentry-test-dsn");
+  vi.stubEnv("NEXT_PUBLIC_SENTRY_DSN", "browser-test-dsn");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.doUnmock("../sentry.server.config");
+  vi.doUnmock("../sentry.edge.config");
+});
+
+const configurations = [
+  { runtime: "browser", load: () => import("../instrumentation-client"), dsn: "browser-test-dsn" },
+  { runtime: "server", load: () => import("../sentry.server.config"), dsn: "sentry-test-dsn" },
+  { runtime: "edge", load: () => import("../sentry.edge.config"), dsn: "sentry-test-dsn" },
+];
+
+describe("Sentry config wiring", () => {
+  it.each(configurations)(
+    "initializes $runtime once with private error-only reporting",
+    async ({ load, dsn }) => {
+      await load();
+      expect(sentry.init).toHaveBeenCalledTimes(1);
+      const options: InitOptions = sentry.init.mock.calls[0]![0];
+      expect(options.dsn).toBe(dsn);
+      expect(options.tracesSampleRate).toBe(0);
+      expect(options.sendDefaultPii).not.toBe(true);
+      expect(options.integrations ?? []).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: expect.stringMatching(/replay/i) }),
+        ]),
+      );
+      expect(sentry.replayIntegration).not.toHaveBeenCalled();
+      expect(options.beforeSend).toBeTypeOf("function");
+      const result = options.beforeSend!({
+        request: {
+          cookies: { session: "cookie-sentinel" },
+          headers: { Cookie: "cookie-sentinel", Authorization: "authorization-sentinel" },
+          url: "/auth/verify-email?token=url-sentinel",
+        },
+        user: { ip_address: "ip-sentinel" },
+      });
+      expect(result.request).not.toHaveProperty("cookies");
+      expect(result.request?.headers).toEqual({});
+      expect(result.request?.url).toBe("/auth/verify-email");
+      expect(result).not.toHaveProperty("user");
+    },
   );
-  expect(explicitProperties, "client options must be explicit").toBe(true);
-  const assignments = options.properties.filter(ts.isPropertyAssignment);
-  const matches = assignments.filter(
-    (property) => (property.name as ts.Identifier | ts.StringLiteral).text === name,
+
+  it.each(configurations.filter(({ runtime }) => runtime !== "browser"))(
+    "scrubs $runtime transactions",
+    async ({ load }) => {
+      await load();
+      const options: InitOptions = sentry.init.mock.calls[0]![0];
+      expect(options.beforeSendTransaction).toBeTypeOf("function");
+      const result = options.beforeSendTransaction!({
+        type: "transaction",
+        request: {
+          cookies: { session: "cookie-sentinel" },
+          url: "/auth/verify-email?token=url-sentinel",
+        },
+      });
+      expect(result.type).toBe("transaction");
+      expect(result.request).not.toHaveProperty("cookies");
+      expect(result.request?.url).toBe("/auth/verify-email");
+    },
   );
-  expect(matches.length, `client option ${name} must not be duplicated`).toBeLessThanOrEqual(1);
-  const property = matches[0];
-  if (!property || !ts.isPropertyAssignment(property)) return undefined;
-  return property.initializer.getText();
-};
 
-// These tripwires check source configuration. Only a production run proves SDK initialisation.
-describe("Sentry Next.js instrumentation", () => {
-  it("has instrumentation-client.ts at the repository root", () => {
-    expect(existsSync(resolve(process.cwd(), "instrumentation-client.ts"))).toBe(true);
+  it("scrubs browser breadcrumbs through the installed callback", async () => {
+    await import("../instrumentation-client");
+    const options: InitOptions = sentry.init.mock.calls[0]![0];
+    expect(options.beforeBreadcrumb).toBeTypeOf("function");
+    const result = options.beforeBreadcrumb!({
+      data: {
+        url: "/verify?token=url-sentinel",
+        from: "/from#fragment-sentinel",
+        to: "/to?token=url-sentinel",
+      },
+    });
+    expect(result.data).toEqual({ url: "/verify", from: "/from", to: "/to" });
   });
+});
 
-  it("has no legacy sentry.client.config.* file at the repository root", () => {
-    const legacyFiles = readdirSync(process.cwd()).filter((name) =>
-      name.startsWith("sentry.client.config."),
-    );
-    expect(legacyFiles).toEqual([]);
-  });
-
-  it("exports the request-error hook and retains both runtime config imports", () => {
-    const source = readRootSource("instrumentation.ts");
-    expect(source).toMatch(/export const onRequestError = Sentry\.captureRequestError;/);
-    expect(source).toContain("export async function register()");
-    expect(source).toContain('await import("./sentry.server.config")');
-    expect(source).toContain('await import("./sentry.edge.config")');
-  });
-
-  it("reads NEXT_PUBLIC_SENTRY_DSN for the browser DSN", () => {
-    expect(clientOptionText("dsn")).toBe("process.env.NEXT_PUBLIC_SENTRY_DSN");
-  });
-
-  it("sets the browser tracesSampleRate to 0", () => {
-    expect(clientOptionText("tracesSampleRate")).toBe("0");
-  });
-
-  it("enables no replay integration", () => {
-    const source = readClientSource();
-    expect(source).not.toMatch(/replay/i);
-  });
-
-  it("does not enable sendDefaultPii", () => {
-    const value = clientOptionText("sendDefaultPii");
-    expect(value === undefined || value === "false").toBe(true);
+describe("Next.js instrumentation runtime selection", () => {
+  it.each(["nodejs", "edge"])("loads only the %s config", async (runtime) => {
+    const serverLoaded = vi.fn();
+    const edgeLoaded = vi.fn();
+    vi.doMock("../sentry.server.config", () => {
+      serverLoaded();
+      return {};
+    });
+    vi.doMock("../sentry.edge.config", () => {
+      edgeLoaded();
+      return {};
+    });
+    vi.stubEnv("NEXT_RUNTIME", runtime);
+    const instrumentation = await import("../instrumentation");
+    expect(serverLoaded).not.toHaveBeenCalled();
+    expect(edgeLoaded).not.toHaveBeenCalled();
+    await instrumentation.register();
+    expect(serverLoaded).toHaveBeenCalledTimes(runtime === "nodejs" ? 1 : 0);
+    expect(edgeLoaded).toHaveBeenCalledTimes(runtime === "edge" ? 1 : 0);
+    expect(instrumentation.onRequestError).toBeTypeOf("function");
   });
 });
