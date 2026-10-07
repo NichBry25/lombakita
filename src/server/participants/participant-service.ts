@@ -77,7 +77,6 @@ export type ParticipantListFilters = {
 export type ParticipantCounts = {
   total: number;
   confirmed: number;
-  pending: number;
   cancelled: number;
   withSubmissions: number;
   withFinalizedSubmissions: number;
@@ -100,7 +99,6 @@ const toISO = (val: Date | string | null | undefined): string =>
 const EMPTY_COUNTS: ParticipantCounts = {
   total: 0,
   confirmed: 0,
-  pending: 0,
   cancelled: 0,
   withSubmissions: 0,
   withFinalizedSubmissions: 0,
@@ -208,7 +206,6 @@ export const listCompetitionParticipants = async (
       .select({
         total: sql<number>`COUNT(*)::int`,
         confirmed: sql<number>`COUNT(*) FILTER (WHERE ${competitionRegistrations.status} = 'confirmed')::int`,
-        pending: sql<number>`COUNT(*) FILTER (WHERE ${competitionRegistrations.status} = 'pending_payment')::int`,
         cancelled: sql<number>`COUNT(*) FILTER (WHERE ${competitionRegistrations.status} = 'cancelled')::int`,
         withSubmissions: sql<number>`COUNT(DISTINCT ${competitionSubmissions.registrationId})::int`,
         withFinalizedSubmissions: sql<number>`COUNT(DISTINCT CASE WHEN ${competitionSubmissions.finalizedAt} IS NOT NULL THEN ${competitionSubmissions.registrationId} END)::int`,
@@ -327,7 +324,6 @@ export const listCompetitionParticipants = async (
     counts: {
       total: countsRow?.total ?? 0,
       confirmed: countsRow?.confirmed ?? 0,
-      pending: countsRow?.pending ?? 0,
       cancelled: countsRow?.cancelled ?? 0,
       withSubmissions: countsRow?.withSubmissions ?? 0,
       withFinalizedSubmissions: countsRow?.withFinalizedSubmissions ?? 0,

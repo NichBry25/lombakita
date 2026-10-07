@@ -8,6 +8,7 @@ import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
 import type { InstitutionType } from "@/server/db/schema";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import { emailDeliveryWarning, type EmailDeliveryPayload } from "@/lib/email/delivery-notice";
+import { resolveVerificationRefusalMessage } from "@/lib/institutions/verification-refusal-copy";
 
 type SubmissionStatus = "pending_review" | "approved" | "rejected";
 
@@ -69,11 +70,14 @@ function ReviewPanelBody({
         body: JSON.stringify({ decision, reviewerNotes: notes.trim() || null }),
       });
       const data = (await res.json()) as {
-        error?: { message?: string };
+        error?: { code?: string; message?: string };
         emailDelivery?: EmailDeliveryPayload;
       };
       if (!res.ok) {
-        addToast({ type: "error", message: data.error?.message ?? `Error ${res.status}` });
+        addToast({
+          type: "error",
+          message: resolveVerificationRefusalMessage(data.error, `Error ${res.status}`),
+        });
         return;
       }
 

@@ -69,6 +69,15 @@ describe("AboutPage", () => {
     expect(html).toContain(`<li>${item}</li>`);
   });
 
+  it("sets every ordered list in the prose-list class so its numerals show", () => {
+    const openingTags = html.match(/<ol[^>]*>/g) ?? [];
+
+    expect(openingTags.length).toBeGreaterThan(0);
+    for (const tag of openingTags) {
+      expect(tag).toMatch(/class="[^"]*\bprose-list\b[^"]*"/);
+    }
+  });
+
   it("states that online payment is coming, as its own sentence", () => {
     expect(html).toContain("Pembayaran online segera hadir.");
   });

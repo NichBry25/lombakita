@@ -107,7 +107,7 @@ export default function TermsPage() {
             menampung, menyimpan, atau meneruskan uang pendaftaran Anda.
           </p>
           <p>Saat ini pembayaran dilakukan melalui transfer manual. Alurnya sebagai berikut:</p>
-          <ol className="document-list">
+          <ol className="document-list prose-list">
             <li>
               Anda mendaftar, lalu halaman pendaftaran menampilkan rekening tujuan milik
               penyelenggara beserta jumlah yang harus dibayar.

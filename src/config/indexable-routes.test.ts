@@ -144,7 +144,7 @@ describe("the shell-content check covers the whole indexable set", () => {
   });
 
   it("never takes a needle from the shared page chrome", () => {
-    // The footer names the operating company on all seven pages and the header carries the nav, so
+    // The footer names the operating company on every indexable page and the header carries the nav, so
     // either would match on a page serving nothing but chrome — which is the exact page this check
     // exists to catch.
     const CHROME_TEXT = ["KARYA TALENTA NUSANTARA", "Lewati ke konten utama", "Jelajahi"];

@@ -39,7 +39,6 @@ type Props = {
 const REGISTRATION_STATUS_LABELS: Record<string, string> = {
   confirmed: "Dikonfirmasi",
   cancelled: "Dibatalkan",
-  pending: "Menunggu",
 };
 
 const getRegistrationStatusLabel = (status: string): string =>
@@ -215,10 +214,6 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
         <div className="summary-stat">
           <span>Dikonfirmasi</span>
           <strong className="data-text">{result.counts.confirmed}</strong>
-        </div>
-        <div className="summary-stat">
-          <span>Menunggu</span>
-          <strong className="data-text">{result.counts.pending}</strong>
         </div>
         <div className="summary-stat">
           <span>Dibatalkan</span>

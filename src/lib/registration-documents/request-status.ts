@@ -10,6 +10,7 @@
 // column would be wrong for exactly as long as that job was late.
 
 import type { RegistrationDocumentRequestStatus } from "@/server/db/schema";
+import type { StatusBadgeTone } from "@/lib/ui/status-badge-tone";
 
 export type RegistrationDocumentDisplayStatus =
   | "requested"
@@ -61,18 +62,19 @@ export const DOCUMENT_REQUEST_STATUS_LABELS: Record<RegistrationDocumentDisplayS
 
 // Maps a display status onto the shared `.status-badge` vocabulary in globals.css. Reuses the
 // existing tokens rather than introducing a parallel set, so a document badge reads the same as
-// every other badge in the app.
+// every other badge in the app. Values must be tones `.status-badge` styles;
+// `status-badge-tone.test.ts` enforces it against globals.css.
 export const DOCUMENT_REQUEST_STATUS_TONES: Record<
   RegistrationDocumentDisplayStatus,
-  "open" | "closing" | "eligible" | "ineligible" | "closed"
+  StatusBadgeTone
 > = {
   requested: "open",
   // Urgent rather than failed: the deadline has passed, but the candidate may still upload and the
   // organizer has not yet decided anything.
   unfulfilled: "closing",
   submitted: "open",
-  accepted: "eligible",
-  rejected: "ineligible",
+  accepted: "announced",
+  rejected: "cancelled",
   cancelled: "closed",
 };
 
