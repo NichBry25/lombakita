@@ -956,7 +956,7 @@ export const transitionCompetitionStatus = async (
   // fail the transition itself. The sync job handles its own retry via BullMQ backoff.
   const syncAction = targetStatus === "published" ? "upsert" : "remove";
   enqueueCompetitionSearchSync({ competitionId, action: syncAction }).catch((err) => {
-    logger.warn("competition.search-sync.enqueue-failed", {
+    logger.error("competition.search-sync.enqueue-failed", {
       competitionId,
       action: syncAction,
       error: err instanceof Error ? err.message : String(err),
@@ -1109,7 +1109,7 @@ export const unpublishCompetition = async (
 
   // Fire-and-forget post-commit dispatch — neither enqueue failure may fail the unpublish.
   enqueueCompetitionSearchSync({ competitionId, action: "remove" }).catch((err) => {
-    logger.warn("competition.search-sync.enqueue-failed", {
+    logger.error("competition.search-sync.enqueue-failed", {
       competitionId,
       action: "remove",
       error: err instanceof Error ? err.message : String(err),

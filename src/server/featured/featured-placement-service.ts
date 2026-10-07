@@ -117,7 +117,7 @@ export const setFeaturedPlacement = async (
   try {
     await enqueueCompetitionSearchSync({ competitionId, action: "upsert" });
   } catch (err) {
-    logger.warn("featured-placement.enqueue_failed", {
+    logger.error("featured-placement.enqueue_failed", {
       competitionId,
       error: err instanceof Error ? err.message : String(err),
     });
