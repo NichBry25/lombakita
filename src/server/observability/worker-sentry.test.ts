@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { scrubSentryEvent, scrubSentryBreadcrumb } from "@/lib/observability/scrub-sentry-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
@@ -9,7 +10,10 @@ const { initMock, captureExceptionMock } = vi.hoisted(() => ({
   initMock: vi.fn(),
   captureExceptionMock: vi.fn(),
 }));
-vi.mock("@sentry/node", () => ({ init: initMock, captureException: captureExceptionMock }));
+vi.mock("@sentry/node", () => ({
+  init: (options: Record<string, unknown>) => initMock({ ...options }),
+  captureException: captureExceptionMock,
+}));
 
 const { serverEnvMock } = vi.hoisted(() => ({
   serverEnvMock: { sentryDsn: undefined as string | undefined, appEnv: "preview" as string },
@@ -54,6 +58,25 @@ describe("worker Sentry", () => {
         dsn: "https://key@o1.ingest.sentry.io/2",
         environment: "production",
       }),
+    );
+  });
+
+  it("initializes with all scrub callbacks and refuses inherited trace sampling", () => {
+    serverEnvMock.sentryDsn = "https://fixture@example.invalid/1";
+    initializeWorkerSentry();
+    expect(initMock).toHaveBeenCalledTimes(1);
+    const options = initMock.mock.calls[0]![0];
+    expect(options.environment).toBe("preview");
+    expect(options.beforeSend).toBe(scrubSentryEvent);
+    expect(options.beforeSendTransaction).toBe(scrubSentryEvent);
+    expect(options.beforeBreadcrumb).toBe(scrubSentryBreadcrumb);
+    expect(options.tracesSampler).toBeTypeOf("function");
+    expect(options.tracesSampler()).toBe(0);
+    expect(options.tracesSampler({ parentSampled: true })).toBe(0);
+    expect(options.tracesSampleRate).toBeUndefined();
+    expect(options).not.toHaveProperty("sendDefaultPii");
+    expect(options.integrations ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: expect.stringMatching(/replay/i) })]),
     );
   });
 
