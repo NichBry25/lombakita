@@ -226,6 +226,10 @@ jobs:
         if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
         run: node scripts/testing/probes/probe-wiring.mjs
 
+      - name: "Probe suite: published-edit-unchanged"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/published-edit-unchanged.mjs
+
       - name: "Probe suite: register-gate"
         if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
         run: node scripts/testing/probes/register-gate.mjs
