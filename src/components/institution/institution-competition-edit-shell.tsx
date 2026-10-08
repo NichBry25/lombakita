@@ -478,7 +478,10 @@ export const InstitutionCompetitionEditShell = ({
       });
       return;
     }
-    if (isPublished && !isDirty) return;
+    if (isPublished && !isDirty) {
+      addToast({ type: "success", message: "Perubahan tersimpan." });
+      return;
+    }
     setIsSubmitting(true);
 
     const patch: Record<string, unknown> = {
@@ -515,8 +518,8 @@ export const InstitutionCompetitionEditShell = ({
         resultAnnouncementAt: resultAnnounce === savedSnapshot.resultAnnounce,
         allowCancellation: allowCancellation === savedSnapshot.allowCancellation,
         cancellationCutoffDays:
-          (allowCancellation ? cutoffDays : "") ===
-          (savedSnapshot.allowCancellation ? savedSnapshot.cutoffDays : ""),
+          cutoffDays === savedSnapshot.cutoffDays &&
+          allowCancellation === savedSnapshot.allowCancellation,
       };
       for (const [field, unchanged] of Object.entries(unchangedFields)) {
         if (unchanged) delete patch[field];

@@ -162,6 +162,31 @@ describe("InstitutionCompetitionEditShell save body", () => {
     fireEvent.click(saveButton());
     await waitFor(() => expect(saveButton().hasAttribute("disabled")).toBe(false));
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
+  });
+
+  it("sends the changed cutoff form field after cancellation is toggled back off", async () => {
+    const competition = { ...COMPETITION, status: "published" };
+    stubFetchSequence([
+      () => okJson({ competition, publishReadiness: READY }),
+      () => okJson({ competition }),
+      () => okJson({ competition, publishReadiness: READY }),
+    ]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+    const cancellationCheckbox = screen.getByRole("checkbox", {
+      name: "Izinkan peserta membatalkan pendaftaran sendiri",
+    });
+    fireEvent.click(cancellationCheckbox);
+    fireEvent.change(screen.getByLabelText("Batas pembatalan (hari sebelum acara mulai)"), {
+      target: { value: "3" },
+    });
+    fireEvent.click(cancellationCheckbox);
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3));
+    const patchCall = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === "PATCH");
+    const body = JSON.parse(patchCall![1]!.body as string);
+    expect(body).toEqual({ cancellationCutoffDays: null });
   });
 
   it.each(["published", "draft"])(
