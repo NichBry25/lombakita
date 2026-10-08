@@ -9,11 +9,17 @@ const SERVICE_REACHED =
   /× .*handles a 'unchanged past' registration deadline after registration closes/;
 const SHELL_REACHED =
   /× .*sends only changed fields for published saves and every field for drafts \(published\)/;
+const EMPTY_PATCH_REACHED = /× .*does not send an empty patch when a published form has no changes/;
 
 const DEADLINE_SKIP =
   "  if (immutableCompetitionValuesEqual(registrationEndAt, storedRegistrationEndAt)) return;\n";
 const DEADLINE_CHECK = "  validateRegistrationEndInFuture(registrationEndAt);\n";
 const FIELD_SKIP = "        if (unchanged) delete patch[field];";
+const EMPTY_PATCH_SKIP = `    if (isPublished && !isDirty) {
+      addToast({ type: "success", message: "Perubahan tersimpan." });
+      return;
+    }
+`;
 
 export const probes = [
   {
@@ -38,7 +44,7 @@ export const probes = [
   },
   {
     name: "published shell: unchanged-field skip REMOVED",
-    klass: "D",
+    klass: "B",
     harmfulMove: "serializing every mutable field instead of the changed form fields",
     files: [SHELL],
     appliedMarkers: ["        void [field, unchanged];"],
@@ -47,7 +53,7 @@ export const probes = [
   },
   {
     name: "published shell: unchanged-field skip MOVED after serialization",
-    klass: "D",
+    klass: "B",
     harmfulMove: "deleting unchanged keys after the outgoing JSON already contains them",
     files: [SHELL],
     appliedMarkers: ["body: serializedPatch"],
@@ -60,6 +66,28 @@ export const probes = [
       substituteOnce(SHELL, "body: JSON.stringify(patch)", "body: serializedPatch");
     },
     detect: async () => fails("npx", ["vitest", "run", SHELL_TEST], SHELL_REACHED),
+  },
+  {
+    name: "published shell: empty-patch skip REMOVED",
+    klass: "B",
+    harmfulMove: "sending an empty PATCH instead of accepting an unchanged published form locally",
+    files: [SHELL],
+    appliedMarkers: ["    void isDirty;"],
+    mutate: () => substituteOnce(SHELL, EMPTY_PATCH_SKIP, "    void isDirty;\n"),
+    detect: async () => fails("npx", ["vitest", "run", SHELL_TEST], EMPTY_PATCH_REACHED),
+  },
+  {
+    name: "published shell: empty-patch skip MOVED after the PATCH request",
+    klass: "B",
+    harmfulMove: "checking for no changes only after the empty PATCH has already been sent",
+    files: [SHELL],
+    appliedMarkers: ["    );\n\n" + EMPTY_PATCH_SKIP],
+    mutate: () => {
+      substituteOnce(SHELL, EMPTY_PATCH_SKIP, "");
+      const requestTail = "        body: JSON.stringify(patch),\n      },\n    );\n\n";
+      substituteOnce(SHELL, requestTail, requestTail + EMPTY_PATCH_SKIP);
+    },
+    detect: async () => fails("npx", ["vitest", "run", SHELL_TEST], EMPTY_PATCH_REACHED),
   },
 ];
 

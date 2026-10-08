@@ -160,8 +160,8 @@ describe("InstitutionCompetitionEditShell save body", () => {
     mount();
     await screen.findByRole("button", { name: "Simpan" });
     fireEvent.click(saveButton());
-    await waitFor(() => expect(saveButton().hasAttribute("disabled")).toBe(false));
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(saveButton().hasAttribute("disabled")).toBe(false));
     expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
   });
 

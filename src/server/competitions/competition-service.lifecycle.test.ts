@@ -281,6 +281,8 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
       return updateCompetitionDraft("u_1", "comp_1", patch, db);
     };
     await expect(save()).rejects.toMatchObject({
+      code: "competition_invalid_value",
+      httpStatus: 400,
       message: "registrationEndAt must be in the future",
     });
     expect(updateSpy).not.toHaveBeenCalled();
