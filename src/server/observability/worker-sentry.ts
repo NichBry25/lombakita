@@ -1,7 +1,7 @@
 /**
  * Sentry for the Railway worker runtime.
  *
- * The three `sentry.*.config.ts` files at the repo root are loaded by `instrumentation.ts`, which
+ * The Sentry configs in `src/` are loaded by `instrumentation.ts`, which
  * only fires under a Next.js runtime — so the worker process, which runs the retention purge and
  * every notification job, reported nothing to Sentry at all.
  *
@@ -18,6 +18,7 @@ assertServerOnly("server/observability/worker-sentry");
 import * as Sentry from "@sentry/node";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
+import { scrubSentryBreadcrumb, scrubSentryEvent } from "@/lib/observability/scrub-sentry-event";
 import type { AsyncJobName, AsyncQueueName } from "@/server/async/contracts";
 import type { EmailFailureClass } from "@/server/email/send-failure";
 
@@ -32,7 +33,10 @@ export const initializeWorkerSentry = (): void => {
   Sentry.init({
     dsn,
     environment: serverEnv.appEnv,
-    tracesSampleRate: 1.0,
+    tracesSampler: () => 0,
+    beforeSend: scrubSentryEvent,
+    beforeSendTransaction: scrubSentryEvent,
+    beforeBreadcrumb: scrubSentryBreadcrumb,
   });
 
   logger.info("Worker Sentry initialized", { appEnv: serverEnv.appEnv });

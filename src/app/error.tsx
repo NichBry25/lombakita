@@ -12,7 +12,9 @@ type ErrorPageProps = {
 export default function ErrorPage({ error, reset }: ErrorPageProps) {
   useEffect(() => {
     console.error(error);
-    Sentry.captureException(error);
+    if (!error.digest) {
+      Sentry.captureException(error);
+    }
   }, [error]);
 
   return (

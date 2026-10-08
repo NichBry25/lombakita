@@ -9,7 +9,7 @@ import { scrubSentryBreadcrumb, scrubSentryEvent } from "@/lib/observability/scr
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
   environment: publicEnv.appEnv,
-  tracesSampleRate: 0,
+  tracesSampler: () => 0,
   beforeSend: scrubSentryEvent,
   beforeBreadcrumb: scrubSentryBreadcrumb,
 });

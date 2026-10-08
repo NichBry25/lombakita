@@ -15,7 +15,11 @@ const allowedHeaders = {
 describe("scrubSentryEvent", () => {
   it("redacts every real Drizzle query exception without mutating the event", () => {
     const email = "drizzle-sentinel@example.invalid";
-    const error = new DrizzleQueryError("select $1", [email], new Error("query failed"));
+    const error = new DrizzleQueryError(
+      "select $1",
+      [email, "\nparams: repeated-value"],
+      new Error("query failed"),
+    );
     const event: Event = {
       exception: {
         values: [

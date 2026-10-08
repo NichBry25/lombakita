@@ -10,7 +10,10 @@ const sentry = vi.hoisted(() => ({
   replayIntegration: vi.fn(() => ({ name: "Replay" })),
 }));
 
-vi.mock("@sentry/nextjs", () => sentry);
+vi.mock("@sentry/nextjs", () => ({
+  ...sentry,
+  init: (options: InitOptions) => sentry.init({ ...options }),
+}));
 
 type TransactionEvent = Event & { type: "transaction" };
 
@@ -48,14 +51,20 @@ const configurations = [
 ];
 
 describe("Sentry config wiring", () => {
-  it.each(configurations)(
-    "initializes $runtime once with private error-only reporting",
-    async ({ load, dsn }) => {
+  it.each(
+    configurations.flatMap((configuration) =>
+      ["preview", "production"].map((environment) => ({ ...configuration, environment })),
+    ),
+  )(
+    "initializes $runtime once with private error-only reporting in $environment",
+    async ({ load, dsn, environment }) => {
+      vi.stubEnv("APP_ENV", environment);
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", environment);
       await load();
       expect(sentry.init).toHaveBeenCalledTimes(1);
       const options: InitOptions = sentry.init.mock.calls[0]![0];
       expect(options.dsn).toBe(dsn);
-      expect(options.environment).toBe("preview");
+      expect(options.environment).toBe(environment);
       expect(options.tracesSampler).toBeTypeOf("function");
       expect(options.tracesSampler!()).toBe(0);
       expect(options.tracesSampler!({ parentSampled: true })).toBe(0);

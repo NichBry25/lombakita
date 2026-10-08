@@ -10,7 +10,10 @@ const { initMock, captureExceptionMock } = vi.hoisted(() => ({
   initMock: vi.fn(),
   captureExceptionMock: vi.fn(),
 }));
-vi.mock("@sentry/node", () => ({ init: initMock, captureException: captureExceptionMock }));
+vi.mock("@sentry/node", () => ({
+  init: (options: Record<string, unknown>) => initMock({ ...options }),
+  captureException: captureExceptionMock,
+}));
 
 const { serverEnvMock } = vi.hoisted(() => ({
   serverEnvMock: { sentryDsn: undefined as string | undefined, appEnv: "preview" as string },

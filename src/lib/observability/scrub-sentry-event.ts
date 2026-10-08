@@ -18,6 +18,7 @@ function scrubSentryRequest(request: NonNullable<Event["request"]>): NonNullable
   delete scrubbedRequest.cookies;
   delete scrubbedRequest.data;
   delete scrubbedRequest.query_string;
+  delete scrubbedRequest.env;
 
   if (request.headers) {
     const allowedHeaders = Object.entries(request.headers).filter(([name]) =>
@@ -49,19 +50,41 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
     };
   }
 
+  if (event.exception?.values) {
+    scrubbedEvent.exception = {
+      ...event.exception,
+      values: event.exception.values.map((exception) => {
+        const value = exception.value;
+        const paramsStart = value?.indexOf("\nparams:") ?? -1;
+        if (!value?.startsWith("Failed query:") || paramsStart === -1) {
+          return exception;
+        }
+        return { ...exception, value: `${value.slice(0, paramsStart)}\nparams: [redacted]` };
+      }),
+    };
+  }
+
   if (event.breadcrumbs) {
-    scrubbedEvent.breadcrumbs = event.breadcrumbs.map(scrubSentryBreadcrumb);
+    scrubbedEvent.breadcrumbs = event.breadcrumbs
+      .map(scrubSentryBreadcrumb)
+      .filter((breadcrumb): breadcrumb is Breadcrumb => breadcrumb !== null);
   }
 
   return scrubbedEvent;
 }
 
-export function scrubSentryBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb {
+export function scrubSentryBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb | null {
+  if (breadcrumb.category === "console") {
+    return null;
+  }
+
   if (!breadcrumb.data) {
     return { ...breadcrumb };
   }
 
   const data = { ...breadcrumb.data };
+  delete data["http.query"];
+  delete data["http.fragment"];
   for (const key of ["url", "from", "to"]) {
     if (typeof data[key] === "string") {
       data[key] = stripUrlSuffix(data[key]);
