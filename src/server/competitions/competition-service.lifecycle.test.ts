@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CompetitionRow } from "@/server/competitions/competition-access";
 import { INSTITUTION_CANCELLATION_REASON } from "@/server/competitions/competition-lifecycle";
+import { parseCompetitionPatchInput } from "@/server/competitions/competition-core";
 
 const {
   assertCompetitionAccess,
@@ -210,6 +211,94 @@ describe("updateCompetitionDraft — draft path unchanged", () => {
 });
 
 describe("updateCompetitionDraft — published edit (F6/F17)", () => {
+  it("saves a description with a new confirmation Date at the stored instant", async () => {
+    const competition = baseCompetition();
+    const patch = parseCompetitionPatchInput({
+      description: "Deskripsi baru",
+      participantConfirmationAt: competition.participantConfirmationAt!.toISOString(),
+    });
+    expect(patch.participantConfirmationAt).toBeInstanceOf(Date);
+    expect(patch.participantConfirmationAt).not.toBe(competition.participantConfirmationAt);
+    const updated = { ...competition, description: "Deskripsi baru" };
+    const setSpy = vi.fn();
+    assertCompetitionAccess.mockResolvedValue({
+      competition,
+      membershipRole: "institution_owner",
+    });
+    const db = {
+      select: publishedEditSelect([]),
+      update: () => updateChain([updated], setSpy),
+    } as unknown as Database;
+
+    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).resolves.toEqual(updated);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description: "Deskripsi baru",
+        participantConfirmationAt: competition.participantConfirmationAt,
+      }),
+    );
+  });
+
+  it("accepts null confirmation against a stored null", async () => {
+    const competition = baseCompetition({ participantConfirmationAt: null });
+    const patch = parseCompetitionPatchInput({ participantConfirmationAt: null });
+    const setSpy = vi.fn();
+    assertCompetitionAccess.mockResolvedValue({
+      competition,
+      membershipRole: "institution_owner",
+    });
+    const db = {
+      select: publishedEditSelect([]),
+      update: () => updateChain([competition], setSpy),
+    } as unknown as Database;
+
+    await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).resolves.toEqual(competition);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ participantConfirmationAt: null }),
+    );
+  });
+
+  it.each([
+    {
+      field: "participantConfirmationAt",
+      stored: "2027-01-01T12:00:00.000Z",
+      changed: "2027-01-01T12:00:01.000Z",
+    },
+    { field: "participantConfirmationAt", stored: null, changed: "2027-01-01T12:00:00.000Z" },
+    { field: "participantConfirmationAt", stored: "2027-01-01T12:00:00.000Z", changed: null },
+    { field: "mode", stored: "both", changed: "individual" },
+    { field: "minTeamSize", stored: 1, changed: 2 },
+    { field: "maxTeamSize", stored: 4, changed: 5 },
+    { field: "minimumParticipantEntries", stored: 0, changed: 1 },
+  ])(
+    "refuses immutable $field from $stored to $changed before writing",
+    async ({ field, stored, changed }) => {
+      const storedValue =
+        field === "participantConfirmationAt" && stored !== null ? new Date(stored) : stored;
+      const competition = baseCompetition({
+        [field]: storedValue,
+        ...(field === "mode" ? { maxTeamSize: 1 } : {}),
+      });
+      const patch = parseCompetitionPatchInput({ description: "Deskripsi baru", [field]: changed });
+      const setSpy = vi.fn();
+      assertCompetitionAccess.mockResolvedValue({
+        competition,
+        membershipRole: "institution_owner",
+      });
+      const db = {
+        select: publishedEditSelect([]),
+        update: () => updateChain([competition], setSpy),
+      } as unknown as Database;
+
+      await expect(updateCompetitionDraft("u_1", "comp_1", patch, db)).rejects.toMatchObject({
+        code: "competition_field_immutable",
+        httpStatus: 422,
+        details: { fields: [field] },
+      });
+      expect(setSpy).not.toHaveBeenCalled();
+    },
+  );
+
   it("returns 422 competition_post_publish_blocked when a blocked field is touched", async () => {
     assertCompetitionAccess.mockResolvedValue({
       competition: baseCompetition({
