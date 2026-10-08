@@ -60,15 +60,35 @@ describe("processCompetitionSearchSyncJob — Meilisearch unavailable", () => {
 describe("processCompetitionSearchSyncJob — remove action", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("calls deleteDocument and resolves", async () => {
+  it("upserts without deleting when the competition is published again", async () => {
     isMeilisearchAvailable.mockReturnValue(true);
-    const deleteDocument = vi.fn().mockResolvedValue(undefined);
+    getDb.mockReturnValue(makeDb(publishedDbRow));
+    const addDocuments = vi.fn().mockResolvedValue(undefined);
+    const deleteDocument = vi.fn();
     getMeilisearchClient.mockReturnValue({
-      index: vi.fn().mockReturnValue({ deleteDocument, addDocuments: vi.fn() }),
+      index: vi.fn().mockReturnValue({ addDocuments, deleteDocument }),
+    });
+
+    await processCompetitionSearchSyncJob(makeJob({ competitionId: "comp_1", action: "remove" }));
+    expect(addDocuments).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: "comp_1", status: "published" })],
+      { primaryKey: "id" },
+    );
+    expect(deleteDocument).not.toHaveBeenCalled();
+  });
+
+  it("deletes without upserting when the competition is unpublished", async () => {
+    isMeilisearchAvailable.mockReturnValue(true);
+    getDb.mockReturnValue(makeDb(null));
+    const deleteDocument = vi.fn().mockResolvedValue(undefined);
+    const addDocuments = vi.fn();
+    getMeilisearchClient.mockReturnValue({
+      index: vi.fn().mockReturnValue({ deleteDocument, addDocuments }),
     });
 
     await processCompetitionSearchSyncJob(makeJob({ competitionId: "comp_1", action: "remove" }));
     expect(deleteDocument).toHaveBeenCalledWith("comp_1");
+    expect(addDocuments).not.toHaveBeenCalled();
   });
 });
 

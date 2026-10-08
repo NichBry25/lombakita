@@ -1315,7 +1315,7 @@ export const upgradeInstitutionTypeForOwnerBySlug = async (
   // correct and the index self-heals on the next sync.
   for (const competitionId of result.resyncCompetitionIds) {
     enqueueCompetitionSearchSync({ competitionId, action: "upsert" }).catch((err: unknown) => {
-      logger.warn("institution.upgrade.search-sync.enqueue-failed", {
+      logger.error("institution.upgrade.search-sync.enqueue-failed", {
         competitionId,
         institutionId: result.institutionId,
         error: err instanceof Error ? err.message : String(err),
