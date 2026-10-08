@@ -66,9 +66,13 @@ it.each(["direct", "wrapped"])("scrubs the real %s Drizzle transport envelope", 
         false,
       );
     }
-    const event = envelopes
-      .flatMap(([, items]) => items)
-      .find(([header]) => header.type === "event")![1] as Event;
+    const events: Event[] = [];
+    for (const [, items] of envelopes) {
+      for (const [header, body] of items) {
+        if (header.type === "event") events.push(body as Event);
+      }
+    }
+    const event = events[0]!;
     const drizzleEntry = event.exception!.values!.find(({ value }) =>
       value?.includes("Failed query:"),
     );
