@@ -27,3 +27,20 @@ it("captures the render error beside the existing console report", () => {
   expect(captureException).toHaveBeenCalledTimes(2);
   expect(captureException).toHaveBeenLastCalledWith(nextError);
 });
+
+it("keeps the console report without recapturing an error with a server digest", () => {
+  const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  const error = Object.assign(new Error("server-render-sentinel"), { digest: "server-digest" });
+  render(<ErrorPage error={error} reset={vi.fn()} />);
+  expect(consoleError).toHaveBeenCalledTimes(1);
+  expect(consoleError).toHaveBeenCalledWith(error);
+  expect(captureException).not.toHaveBeenCalled();
+});
+
+it("captures an error with an empty digest once", () => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const error = Object.assign(new Error("browser-render-sentinel"), { digest: "" });
+  render(<ErrorPage error={error} reset={vi.fn()} />);
+  expect(captureException).toHaveBeenCalledTimes(1);
+  expect(captureException).toHaveBeenCalledWith(error);
+});

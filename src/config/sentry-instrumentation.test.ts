@@ -16,17 +16,21 @@ type TransactionEvent = Event & { type: "transaction" };
 
 type InitOptions = {
   dsn?: string;
+  environment?: string;
+  tracesSampler?: (context?: unknown) => number;
   tracesSampleRate?: number;
   sendDefaultPii?: boolean;
   integrations?: { name: string }[];
   beforeSend?: (event: Event) => Event;
   beforeSendTransaction?: (event: TransactionEvent) => TransactionEvent;
-  beforeBreadcrumb?: (breadcrumb: Breadcrumb) => Breadcrumb;
+  beforeBreadcrumb?: (breadcrumb: Breadcrumb) => Breadcrumb | null;
 };
 
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
+  vi.stubEnv("APP_ENV", "preview");
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", "preview");
   vi.stubEnv("SENTRY_DSN", "sentry-test-dsn");
   vi.stubEnv("NEXT_PUBLIC_SENTRY_DSN", "browser-test-dsn");
 });
@@ -51,8 +55,12 @@ describe("Sentry config wiring", () => {
       expect(sentry.init).toHaveBeenCalledTimes(1);
       const options: InitOptions = sentry.init.mock.calls[0]![0];
       expect(options.dsn).toBe(dsn);
-      expect(options.tracesSampleRate).toBe(0);
-      expect(options.sendDefaultPii).not.toBe(true);
+      expect(options.environment).toBe("preview");
+      expect(options.tracesSampler).toBeTypeOf("function");
+      expect(options.tracesSampler!()).toBe(0);
+      expect(options.tracesSampler!({ parentSampled: true })).toBe(0);
+      expect(options.tracesSampleRate).toBeUndefined();
+      expect(options).not.toHaveProperty("sendDefaultPii");
       expect(options.integrations ?? []).not.toEqual(
         expect.arrayContaining([
           expect.objectContaining({ name: expect.stringMatching(/replay/i) }),
@@ -94,19 +102,31 @@ describe("Sentry config wiring", () => {
     },
   );
 
-  it("scrubs browser breadcrumbs through the installed callback", async () => {
-    await import("../instrumentation-client");
-    const options: InitOptions = sentry.init.mock.calls[0]![0];
-    expect(options.beforeBreadcrumb).toBeTypeOf("function");
-    const result = options.beforeBreadcrumb!({
-      data: {
-        url: "/verify?token=url-sentinel",
-        from: "/from#fragment-sentinel",
-        to: "/to?token=url-sentinel",
-      },
-    });
-    expect(result.data).toEqual({ url: "/verify", from: "/from", to: "/to" });
-  });
+  it.each(configurations)(
+    "scrubs $runtime breadcrumbs through the installed callback",
+    async ({ load }) => {
+      await load();
+      const options: InitOptions = sentry.init.mock.calls[0]![0];
+      expect(options.beforeBreadcrumb).toBeTypeOf("function");
+      expect(
+        options.beforeBreadcrumb!({ category: "console", message: "console-sentinel" }),
+      ).toBeNull();
+      expect(
+        options.beforeBreadcrumb!({
+          category: "fetch",
+          data: { "http.query": "query-sentinel", "http.fragment": "fragment-sentinel" },
+        }),
+      ).toEqual({ category: "fetch", data: {} });
+      const result = options.beforeBreadcrumb!({
+        data: {
+          url: "/verify?token=url-sentinel",
+          from: "/from#fragment-sentinel",
+          to: "/to?token=url-sentinel",
+        },
+      });
+      expect(result?.data).toEqual({ url: "/verify", from: "/from", to: "/to" });
+    },
+  );
 });
 
 describe("Next.js instrumentation runtime selection", () => {
@@ -128,6 +148,6 @@ describe("Next.js instrumentation runtime selection", () => {
     await instrumentation.register();
     expect(serverLoaded).toHaveBeenCalledTimes(runtime === "nodejs" ? 1 : 0);
     expect(edgeLoaded).toHaveBeenCalledTimes(runtime === "edge" ? 1 : 0);
-    expect(instrumentation.onRequestError).toBeTypeOf("function");
+    expect(instrumentation.onRequestError).toBe(sentry.captureRequestError);
   });
 });

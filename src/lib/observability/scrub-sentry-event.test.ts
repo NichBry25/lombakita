@@ -1,5 +1,6 @@
 import type { Breadcrumb, Event } from "@sentry/nextjs";
 import { describe, expect, it } from "vitest";
+import { DrizzleQueryError } from "drizzle-orm";
 
 import { scrubSentryBreadcrumb, scrubSentryEvent } from "./scrub-sentry-event";
 
@@ -12,6 +13,85 @@ const allowedHeaders = {
 };
 
 describe("scrubSentryEvent", () => {
+  it("redacts every real Drizzle query exception without mutating the event", () => {
+    const email = "drizzle-sentinel@example.invalid";
+    const error = new DrizzleQueryError("select $1", [email], new Error("query failed"));
+    const event: Event = {
+      exception: {
+        values: [
+          { type: "Error", value: error.message },
+          { type: "Error", value: "ordinary error\nparams: preserved" },
+          { type: "Error", value: error.message },
+          { type: "Error", value: "Failed query: select 1" },
+          { type: "Error" },
+        ],
+      },
+    };
+    const original = structuredClone(event);
+    const result = scrubSentryEvent(event);
+    for (const exception of result.exception!.values!) {
+      expect(exception.value ?? "").not.toContain(email);
+    }
+    expect(result.exception!.values!.map(({ value }) => value)).toEqual([
+      "Failed query: select $1\nparams: [redacted]",
+      "ordinary error\nparams: preserved",
+      "Failed query: select $1\nparams: [redacted]",
+      "Failed query: select 1",
+      undefined,
+    ]);
+    expect(event).toEqual(original);
+  });
+
+  it("drops console breadcrumbs while scrubbing fetch and navigation data", () => {
+    const event: Event = {
+      breadcrumbs: [
+        { category: "console", message: "console-sentinel@example.invalid" },
+        {
+          category: "fetch",
+          data: {
+            url: "/fetch?token=fetch-sentinel",
+            "http.query": "query-sentinel",
+            "http.fragment": "fragment-sentinel",
+            status_code: 200,
+          },
+        },
+        { category: "navigation", data: { to: "/verify?token=navigation-sentinel" } },
+      ],
+    };
+    const original = structuredClone(event);
+    expect(scrubSentryEvent(event).breadcrumbs).toEqual([
+      { category: "fetch", data: { url: "/fetch", status_code: 200 } },
+      { category: "navigation", data: { to: "/verify" } },
+    ]);
+    expect(event).toEqual(original);
+  });
+
+  it("deletes request.env without mutating the request", () => {
+    const event: Event = { request: { env: { REMOTE_ADDR: "env-sentinel" }, method: "GET" } };
+    const original = structuredClone(event);
+    expect(scrubSentryEvent(event).request).toEqual({ method: "GET" });
+    expect(event).toEqual(original);
+  });
+
+  it.each([
+    "cookie",
+    "authorization",
+    "set-cookie",
+    "referer",
+    "origin",
+    "x-csrf-token",
+    "x-forwarded-for",
+    "x-custom",
+  ])("removes denied header %s with exactly the supplied allowed keys", (deniedHeader) => {
+    const suppliedAllowedHeaders = { "User-Agent": "test-agent", Host: "example.test" };
+    const result = scrubSentryEvent({
+      request: { headers: { ...suppliedAllowedHeaders, [deniedHeader]: "denied-sentinel" } },
+    });
+    expect(result.request.headers).not.toHaveProperty(deniedHeader);
+    expect(Object.keys(result.request.headers!)).toEqual(Object.keys(suppliedAllowedHeaders));
+    expect(result.request.headers).toEqual(suppliedAllowedHeaders);
+  });
+
   it("removes personal request data while keeping only the five allowed headers", () => {
     const event: Event = {
       message: "render failure",
@@ -94,6 +174,31 @@ describe("scrubSentryEvent", () => {
 });
 
 describe("scrubSentryBreadcrumb", () => {
+  it("drops console breadcrumbs even without data", () => {
+    expect(
+      scrubSentryBreadcrumb({ category: "console", message: "email-sentinel@example.invalid" }),
+    ).toBeNull();
+    expect(
+      scrubSentryBreadcrumb({
+        category: "console",
+        data: { arguments: ["email-sentinel@example.invalid"] },
+      }),
+    ).toBeNull();
+  });
+
+  it("deletes separate HTTP query and fragment data", () => {
+    expect(
+      scrubSentryBreadcrumb({
+        category: "fetch",
+        data: {
+          "http.query": "query-sentinel",
+          "http.fragment": "fragment-sentinel",
+          url: "/fetch",
+        },
+      }),
+    ).toEqual({ category: "fetch", data: { url: "/fetch" } });
+  });
+
   it("strips URL data without mutating the breadcrumb", () => {
     const breadcrumb: Breadcrumb = {
       category: "navigation",
