@@ -39,13 +39,73 @@ describe("scrubSentryEvent", () => {
     }
     expect(result.exception!.values!.map(({ value }) => value)).toEqual([
       "Failed query: select $1\nparams: [redacted]",
-      "ordinary error\nparams: preserved",
-      "wrapped: Failed query: select 1\nparams: keep-me",
+      "[redacted: database error]",
+      "wrapped: Failed query: select 1\nparams: [redacted]",
       "Failed query: select $1\nparams: [redacted]",
       "Failed query: select 1",
-      undefined,
+      "[redacted: database error]",
     ]);
     expect(event).toEqual(original);
+  });
+
+  it("preserves every exception field except the redacted database values", () => {
+    const fields = {
+      type: "DatabaseError",
+      mechanism: { type: "chained", handled: true },
+      stacktrace: { frames: [{ filename: "query.ts", function: "load", lineno: 42 }] },
+    };
+    const event: Event = {
+      exception: {
+        values: [
+          { ...fields, value: 'invalid input syntax for type uuid: "driver-sentinel"' },
+          { ...fields, value: "Failed query: select $1\nparams: params-sentinel" },
+          { ...fields, value: "load failed: Failed query: select $1\nparams: wrapped-sentinel" },
+        ],
+      },
+    };
+    const original = structuredClone(event);
+    const result = scrubSentryEvent(event);
+    for (const [index, exception] of result.exception!.values!.entries()) {
+      const originalFields = Object.entries(original.exception!.values![index]!).filter(
+        ([key]) => key !== "value",
+      );
+      const remainingFields = Object.entries(exception).filter(([key]) => key !== "value");
+      expect(remainingFields).toStrictEqual(originalFields);
+    }
+    expect(result.exception!.values!.map(({ value }) => value)).toStrictEqual([
+      "[redacted: database error]",
+      "Failed query: select $1\nparams: [redacted]",
+      "load failed: Failed query: select $1\nparams: [redacted]",
+    ]);
+    expect(event).toStrictEqual(original);
+  });
+
+  it("leaves a non-Drizzle exception chain and the colonless keyword untouched", () => {
+    const event: Event = {
+      exception: {
+        values: [
+          {
+            type: "Error",
+            value: "Failed query select $1\nparams: preserved",
+            mechanism: { type: "generic", handled: false },
+            stacktrace: { frames: [{ filename: "load.ts", lineno: 7 }] },
+          },
+          { type: "TypeError", value: "ordinary failure", mechanism: { type: "generic" } },
+        ],
+      },
+    };
+    const original = structuredClone(event);
+    expect(scrubSentryEvent(event)).toStrictEqual(original);
+    expect(event).toStrictEqual(original);
+  });
+
+  it("cuts the first params line after the colon-bearing query keyword", () => {
+    const value =
+      "load failed\nparams: prefix\nFailed query: select $1\nparams: first\nparams: second";
+    const result = scrubSentryEvent({ exception: { values: [{ type: "Error", value }] } });
+    expect(result.exception.values[0]!.value).toBe(
+      "load failed\nparams: prefix\nFailed query: select $1\nparams: [redacted]",
+    );
   });
 
   it("drops console breadcrumbs while scrubbing fetch and navigation data", () => {
@@ -65,7 +125,7 @@ describe("scrubSentryEvent", () => {
       ],
     };
     const original = structuredClone(event);
-    expect(scrubSentryEvent(event).breadcrumbs).toEqual([
+    expect(scrubSentryEvent(event).breadcrumbs).toStrictEqual([
       { category: "fetch", data: { url: "/fetch", status_code: 200 } },
       { category: "navigation", data: { to: "/verify" } },
     ]);
@@ -75,7 +135,7 @@ describe("scrubSentryEvent", () => {
   it("deletes request.env without mutating the request", () => {
     const event: Event = { request: { env: { REMOTE_ADDR: "env-sentinel" }, method: "GET" } };
     const original = structuredClone(event);
-    expect(scrubSentryEvent(event).request).toEqual({ method: "GET" });
+    expect(scrubSentryEvent(event).request).toStrictEqual({ method: "GET" });
     expect(event).toEqual(original);
   });
 
@@ -202,7 +262,7 @@ describe("scrubSentryBreadcrumb", () => {
           url: "/fetch",
         },
       }),
-    ).toEqual({ category: "fetch", data: { url: "/fetch" } });
+    ).toStrictEqual({ category: "fetch", data: { url: "/fetch" } });
   });
 
   it("strips URL data without mutating the breadcrumb", () => {

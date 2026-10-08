@@ -125,7 +125,7 @@ describe("Sentry config wiring", () => {
           category: "fetch",
           data: { "http.query": "query-sentinel", "http.fragment": "fragment-sentinel" },
         }),
-      ).toEqual({ category: "fetch", data: {} });
+      ).toStrictEqual({ category: "fetch", data: {} });
       const result = options.beforeBreadcrumb!({
         data: {
           url: "/verify?token=url-sentinel",

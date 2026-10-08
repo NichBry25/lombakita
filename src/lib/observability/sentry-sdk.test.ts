@@ -1,11 +1,12 @@
 // @vitest-environment node
 import * as Sentry from "@sentry/node";
+import type { Envelope, Event } from "@sentry/node";
 import { captureRequestError } from "@sentry/nextjs";
 import { DrizzleQueryError } from "drizzle-orm";
 import { expect, it } from "vitest";
 import { scrubSentryEvent, scrubSentryBreadcrumb } from "./scrub-sentry-event";
 
-it("scrubs the real captureRequestError transport envelope", async () => {
+it.each(["direct", "wrapped"])("scrubs the real %s Drizzle transport envelope", async (kind) => {
   const sentinels = {
     console: ["console", "probe", "email"].join("-") + "@example.invalid",
     params: ["params", "probe", "email"].join("-") + "@example.invalid",
@@ -13,6 +14,7 @@ it("scrubs the real captureRequestError transport envelope", async () => {
     custom: ["custom", "probe", "value"].join("-"),
     authorization: ["authorization", "probe", "value"].join("-"),
     token: ["token", "probe", "value"].join("-"),
+    driver: ["sentinel", "uuid", "value"].join("-") + "@x.invalid",
   };
   const request = {
     path: `/verify?token=${sentinels.token}`,
@@ -24,7 +26,7 @@ it("scrubs the real captureRequestError transport envelope", async () => {
       "user-agent": "privacy-test-agent",
     },
   };
-  const envelopes: unknown[] = [];
+  const envelopes: Envelope[] = [];
   const client = Sentry.init({
     dsn: "https://fixture@example.invalid/1",
     environment: "test",
@@ -43,7 +45,10 @@ it("scrubs the real captureRequestError transport envelope", async () => {
   expect(client).toBeDefined();
   try {
     Sentry.addBreadcrumb({ category: "console", message: sentinels.console });
-    const error = new DrizzleQueryError("select $1", [sentinels.params], new Error("query failed"));
+    const cause = new Error(`invalid input syntax for type uuid: "${sentinels.driver}"`);
+    const drizzleError = new DrizzleQueryError("select $1", [sentinels.params], cause);
+    const error =
+      kind === "wrapped" ? new Error(`load failed: ${drizzleError.message}`) : drizzleError;
     captureRequestError(error, request, {
       routerKind: "App Router",
       routePath: "/verify",
@@ -59,6 +64,20 @@ it("scrubs the real captureRequestError transport envelope", async () => {
       expect(payload.includes(sentinel), "a personal-data sentinel reached the transport").toBe(
         false,
       );
+    }
+    const event = envelopes
+      .flatMap(([, items]) => items)
+      .find(([header]) => header.type === "event")![1] as Event;
+    const drizzleEntry = event.exception!.values!.find(({ value }) =>
+      value?.includes("Failed query:"),
+    );
+    expect(drizzleEntry?.type).toBe("Error");
+    expect(drizzleEntry?.stacktrace?.frames?.length).toBeGreaterThan(0);
+    if (kind === "direct") {
+      expect(event.exception!.values!.length).toBeGreaterThan(1);
+      expect(
+        event.exception!.values!.some(({ value }) => value === "[redacted: database error]"),
+      ).toBe(true);
     }
   } finally {
     await Sentry.close(2000);
