@@ -1,9 +1,9 @@
 /**
  * Sentry for the Railway worker runtime.
  *
- * The Sentry configs in `src/` are loaded by `instrumentation.ts`, which
- * only fires under a Next.js runtime — so the worker process, which runs the retention purge and
- * every notification job, reported nothing to Sentry at all.
+ * `src/instrumentation.ts` loads only the server and edge configs under Next.js.
+ * Next loads `src/instrumentation-client.ts` directly. This file initialises Sentry for
+ * the worker process, which runs the retention purge and every notification job.
  *
  * This imports `@sentry/node`, NOT `@sentry/nextjs`. In a bare Node process `@sentry/nextjs`
  * resolves to its browser build (verified: it exports `ErrorBoundary` and `showReportDialog`, and

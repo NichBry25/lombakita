@@ -50,13 +50,19 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
     };
   }
 
-  if (event.exception?.values) {
+  const chainHasDrizzle =
+    event.exception?.values?.some(({ value }) => value?.includes("Failed query:")) ?? false;
+  if (chainHasDrizzle && event.exception?.values) {
     scrubbedEvent.exception = {
       ...event.exception,
       values: event.exception.values.map((exception) => {
         const value = exception.value;
-        const paramsStart = value?.indexOf("\nparams:") ?? -1;
-        if (!value?.startsWith("Failed query:") || paramsStart === -1) {
+        const queryStart = value?.indexOf("Failed query:") ?? -1;
+        if (!value || queryStart === -1) {
+          return { ...exception, value: "[redacted: database error]" };
+        }
+        const paramsStart = value.indexOf("\nparams:", queryStart);
+        if (paramsStart === -1) {
           return exception;
         }
         return { ...exception, value: `${value.slice(0, paramsStart)}\nparams: [redacted]` };
