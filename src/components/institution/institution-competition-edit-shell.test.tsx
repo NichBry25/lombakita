@@ -209,8 +209,10 @@ describe("InstitutionCompetitionEditShell publish readiness", () => {
     // what proves the unknown state is not sticky.
     fireEvent.click(saveButton());
 
-    await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
-    expect(screen.getByText(UNVERIFIED_REASON)).toBeTruthy();
+    // Waits on the reason, not on `disabled`: Terbitkan is also disabled while the save is in
+    // flight, before the refetch that restores the refusal has landed.
+    expect(await screen.findByText(UNVERIFIED_REASON)).toBeTruthy();
+    expect(publishButton().hasAttribute("disabled")).toBe(true);
 
     expect(calls).toEqual([
       "GET /api/v1/competitions/comp_1",
@@ -434,8 +436,10 @@ describe("InstitutionCompetitionEditShell publish readiness", () => {
     // the latch this step left the control enabled forever: only a response carrying the optional
     // key could clear the flag, so a key-less success was indistinguishable from a failure.
     fireEvent.click(saveButton());
-    await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
-    expect(screen.getByText(UNVERIFIED_REASON)).toBeTruthy();
+    // Waits on the reason, not on `disabled`: Terbitkan is also disabled while the save is in
+    // flight, before the refetch that restores the refusal has landed.
+    expect(await screen.findByText(UNVERIFIED_REASON)).toBeTruthy();
+    expect(publishButton().hasAttribute("disabled")).toBe(true);
 
     expect(calls).toEqual([
       "GET /api/v1/competitions/comp_1",
