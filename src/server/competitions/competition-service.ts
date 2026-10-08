@@ -521,6 +521,13 @@ export const loadEditClassificationSnapshot = async (
   };
 };
 
+const immutableCompetitionValuesEqual = (left: unknown, right: unknown): boolean => {
+  if (left instanceof Date && right instanceof Date) {
+    return left.getTime() === right.getTime();
+  }
+  return left === right;
+};
+
 // Post-publish edit path. Two layers:
 //   outer (locked): IMMUTABLE_AFTER_PUBLISH fields can never change → 422.
 //   inner (data-aware): classify the remaining changes against existing registrations.
@@ -533,7 +540,8 @@ const updatePublishedCompetition = async (
   const row = competition as unknown as Record<string, unknown>;
   const patchRecord = patch as Record<string, unknown>;
   const immutableChanged = IMMUTABLE_AFTER_PUBLISH.filter(
-    (field) => field in patchRecord && patchRecord[field] !== row[field],
+    (field) =>
+      field in patchRecord && !immutableCompetitionValuesEqual(patchRecord[field], row[field]),
   );
   if (immutableChanged.length > 0) {
     throw new CompetitionError(
@@ -956,7 +964,7 @@ export const transitionCompetitionStatus = async (
   // fail the transition itself. The sync job handles its own retry via BullMQ backoff.
   const syncAction = targetStatus === "published" ? "upsert" : "remove";
   enqueueCompetitionSearchSync({ competitionId, action: syncAction }).catch((err) => {
-    logger.warn("competition.search-sync.enqueue-failed", {
+    logger.error("competition.search-sync.enqueue-failed", {
       competitionId,
       action: syncAction,
       error: err instanceof Error ? err.message : String(err),
@@ -1109,7 +1117,7 @@ export const unpublishCompetition = async (
 
   // Fire-and-forget post-commit dispatch — neither enqueue failure may fail the unpublish.
   enqueueCompetitionSearchSync({ competitionId, action: "remove" }).catch((err) => {
-    logger.warn("competition.search-sync.enqueue-failed", {
+    logger.error("competition.search-sync.enqueue-failed", {
       competitionId,
       action: "remove",
       error: err instanceof Error ? err.message : String(err),

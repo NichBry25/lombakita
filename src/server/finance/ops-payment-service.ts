@@ -183,7 +183,7 @@ export const cancelCompetitionAsOps = async (
   // Fire-and-forget post-commit dispatch, matching the sibling cancel paths: neither enqueue
   // failure may fail a cancellation that has already committed.
   enqueueCompetitionSearchSync({ competitionId, action: "remove" }).catch((error) => {
-    logger.warn("competition.search-sync.enqueue-failed", {
+    logger.error("competition.search-sync.enqueue-failed", {
       competitionId,
       action: "remove",
       error: error instanceof Error ? error.message : String(error),

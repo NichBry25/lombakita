@@ -144,6 +144,41 @@ const mount = () =>
 const publishButton = () => screen.getByRole("button", { name: "Terbitkan" });
 const saveButton = () => screen.getByRole("button", { name: "Simpan" });
 
+describe("InstitutionCompetitionEditShell save body", () => {
+  it.each(["published", "draft"])(
+    "sends the immutable fields only for a draft (%s)",
+    async (status) => {
+      const competition = { ...COMPETITION, status };
+      stubFetchSequence([
+        () => okJson({ competition, publishReadiness: READY }),
+        () => okJson({ competition }),
+        () => okJson({ competition, publishReadiness: READY }),
+      ]);
+      mount();
+      await screen.findByRole("button", { name: "Simpan" });
+      fireEvent.change(screen.getByLabelText(/Deskripsi/), { target: { value: "Deskripsi baru" } });
+      fireEvent.click(saveButton());
+
+      await waitFor(() => {
+        const patchCall = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === "PATCH");
+        expect(patchCall).toBeDefined();
+        const body = JSON.parse(patchCall![1]!.body as string) as Record<string, unknown>;
+        expect(body.description).toBe("Deskripsi baru");
+        for (const field of [
+          "mode",
+          "minTeamSize",
+          "maxTeamSize",
+          "minimumParticipantEntries",
+          "participantConfirmationAt",
+        ]) {
+          expect(Object.hasOwn(body, field), field).toBe(status === "draft");
+        }
+      });
+      await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3));
+    },
+  );
+});
+
 describe("InstitutionCompetitionEditShell publish readiness", () => {
   it("drops a server refusal it could not refresh, and takes it back when a later read succeeds", async () => {
     const calls = stubFetchSequence([

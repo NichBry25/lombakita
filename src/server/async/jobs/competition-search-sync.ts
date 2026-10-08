@@ -63,19 +63,14 @@ export const processCompetitionSearchSyncJob = async (
     const client = getMeilisearchClient();
     const index = client.index<CompetitionIndexDocument>(COMPETITION_INDEX_NAME);
 
-    if (action === "remove") {
-      await index.deleteDocument(competitionId);
-      logger.info("competition-search-sync.removed", { competitionId });
-      return;
-    }
-
-    // action === "upsert" — load and verify the competition is still published.
-    // The competition may have been unpublished between enqueue and job execution.
     const document = await loadPublishedCompetitionForIndex(competitionId);
     if (!document) {
-      // No longer published — remove from index defensively.
       await index.deleteDocument(competitionId);
-      logger.info("competition-search-sync.removed-not-published", { competitionId });
+      const event =
+        action === "remove"
+          ? "competition-search-sync.removed"
+          : "competition-search-sync.removed-not-published";
+      logger.info(event, { competitionId });
       return;
     }
 

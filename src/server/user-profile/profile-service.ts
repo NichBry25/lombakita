@@ -291,7 +291,7 @@ export const updateOwnerProfile = async (
   // the profile update (the DB slug is already correct; the index self-heals on the next sync).
   for (const competitionId of competitionIdsToResync) {
     enqueueCompetitionSearchSync({ competitionId, action: "upsert" }).catch((err) => {
-      logger.warn("profile.username-change.search-sync.enqueue-failed", {
+      logger.error("profile.username-change.search-sync.enqueue-failed", {
         competitionId,
         error: err instanceof Error ? err.message : String(err),
       });
