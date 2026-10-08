@@ -10,13 +10,19 @@ it("scrubs the real captureRequestError transport envelope", async () => {
     console: ["console", "probe", "email"].join("-") + "@example.invalid",
     params: ["params", "probe", "email"].join("-") + "@example.invalid",
     cookie: ["cookie", "probe", "value"].join("-"),
+    custom: ["custom", "probe", "value"].join("-"),
     authorization: ["authorization", "probe", "value"].join("-"),
     token: ["token", "probe", "value"].join("-"),
   };
   const request = {
     path: `/verify?token=${sentinels.token}`,
     method: "GET",
-    headers: { cookie: sentinels.cookie, authorization: sentinels.authorization },
+    headers: {
+      cookie: sentinels.cookie,
+      authorization: sentinels.authorization,
+      "x-custom": sentinels.custom,
+      "user-agent": "privacy-test-agent",
+    },
   };
   const envelopes: unknown[] = [];
   const client = Sentry.init({
@@ -48,6 +54,7 @@ it("scrubs the real captureRequestError transport envelope", async () => {
     const payload = JSON.stringify(envelopes);
     expect(payload).toContain("Failed query:");
     expect(payload).toContain("auto.function.nextjs.on_request_error");
+    expect(payload).toContain("privacy-test-agent");
     for (const sentinel of Object.values(sentinels)) {
       expect(payload.includes(sentinel), "a personal-data sentinel reached the transport").toBe(
         false,
