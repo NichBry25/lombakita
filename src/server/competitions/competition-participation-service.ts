@@ -221,7 +221,7 @@ export const cancelCompetitionForInsufficientParticipation = async (
   });
 
   enqueueCompetitionSearchSync({ competitionId, action: "upsert" }).catch((error) => {
-    logger.warn("competition.search-sync.enqueue-failed", {
+    logger.error("competition.search-sync.enqueue-failed", {
       competitionId,
       action: "upsert",
       error: error instanceof Error ? error.message : String(error),

@@ -3,7 +3,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
-vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), info: vi.fn() } }));
+vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 const { enqueueCompetitionSearchSync } = vi.hoisted(() => ({
   enqueueCompetitionSearchSync: vi.fn(),
@@ -17,6 +17,7 @@ import {
   setFeaturedPlacement,
 } from "./featured-placement-service";
 import type { Database } from "@/server/db/client";
+import { logger } from "@/lib/logger";
 
 const OPS_ACTOR_ID = "ops_1";
 
@@ -53,6 +54,7 @@ const makeSelectDb = (
 };
 
 beforeEach(() => {
+  vi.clearAllMocks();
   enqueueCompetitionSearchSync.mockResolvedValue({});
 });
 
@@ -243,5 +245,10 @@ describe("setFeaturedPlacement", () => {
       db,
     );
     expect(result).toEqual({ isFeatured: true, featuredOrder: 2 });
+    expect(logger.error).toHaveBeenCalledWith("featured-placement.enqueue_failed", {
+      competitionId: "comp_1",
+      error: "redis down",
+    });
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });

@@ -35,6 +35,11 @@ export const enqueueAsyncJob = async <Name extends AsyncJobName>(
   const idempotencyKey = sanitizeIdempotencyKey(input.idempotencyKey);
   const queueName = ASYNC_JOB_QUEUE_BY_NAME[jobName];
   const jobId = buildAsyncJobId(jobName, idempotencyKey);
+
+  if (jobId.includes(":")) {
+    throw new Error(`Cannot enqueue ${jobName}: custom job id cannot contain ':'`);
+  }
+
   const queue = getAsyncQueue(queueName);
 
   const existingJob = await queue.getJob(jobId);
@@ -84,15 +89,16 @@ export const enqueueProbeJob = async (input: {
   });
 };
 
-// Idempotency key: {competitionId}:{action} — deduplicates rapid same-action enqueues
-// for the same competition within the BullMQ job retention window.
+// Include the enqueue epoch so a retained job does not suppress later syncs.
 export const enqueueCompetitionSearchSync = async (input: {
   competitionId: string;
   action: "upsert" | "remove";
 }): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.competitionSearchSync>> => {
+  const epoch = Date.now();
+
   return enqueueAsyncJob({
     jobName: ASYNC_JOB_NAMES.competitionSearchSync,
-    idempotencyKey: `${input.competitionId}:${input.action}`,
+    idempotencyKey: `${input.competitionId}__${input.action}__${epoch}`,
     payload: {
       competitionId: input.competitionId,
       action: input.action,
