@@ -1,6 +1,7 @@
 // @vitest-environment node
 import * as Sentry from "@sentry/node";
-import type { Envelope, Event } from "@sentry/node";
+import type { Event } from "@sentry/node";
+import type { Envelope } from "@sentry/core";
 import { captureRequestError } from "@sentry/nextjs";
 import { DrizzleQueryError } from "drizzle-orm";
 import { expect, it } from "vitest";
