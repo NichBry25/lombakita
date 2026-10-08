@@ -235,6 +235,32 @@ describe("InstitutionCompetitionEditShell save body", () => {
     },
   );
 
+  it("sends only a changed future registration deadline on a published save", async () => {
+    const competition = { ...COMPETITION, status: "published", ...validTimeline() };
+    const deadline = new Date(competition.registrationEndAt);
+    deadline.setDate(deadline.getDate() + 1);
+    deadline.setSeconds(0, 0);
+    const updated = { ...competition, registrationEndAt: deadline.toISOString() };
+    stubFetchSequence([
+      () => okJson({ competition, publishReadiness: READY }),
+      () => okJson({ competition: updated }),
+      () => okJson({ competition: updated, publishReadiness: READY }),
+    ]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+    const deadlineInput = screen.getByLabelText(/Pendaftaran berakhir/);
+    const localDeadline = new Date(deadline);
+    localDeadline.setMinutes(localDeadline.getMinutes() - localDeadline.getTimezoneOffset());
+    fireEvent.change(deadlineInput, {
+      target: { value: localDeadline.toISOString().slice(0, 16) },
+    });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3));
+    const patchCall = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === "PATCH");
+    const body = JSON.parse(patchCall![1]!.body as string);
+    expect(body).toEqual({ registrationEndAt: deadline.toISOString() });
+  });
+
   it("sends no unchanged date key on a published save with stored seconds", async () => {
     const timeline = validTimeline();
     for (const field of Object.keys(timeline) as Array<keyof typeof timeline>) {

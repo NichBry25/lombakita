@@ -259,6 +259,10 @@ describe("updateCompetitionDraft — published edit (F6/F17)", () => {
       expect(setSpy).toHaveBeenCalledWith(
         expect.objectContaining({ description: "Deskripsi baru" }),
       );
+      expect(setSpy).toHaveBeenCalledTimes(1);
+      const updates = setSpy.mock.calls[0]![0] as { registrationEndAt: Date };
+      expect(updates.registrationEndAt).toBeInstanceOf(Date);
+      expect(updates.registrationEndAt.getTime()).toBe(deadline.getTime());
     },
   );
 
