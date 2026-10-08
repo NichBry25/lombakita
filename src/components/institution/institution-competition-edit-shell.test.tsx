@@ -146,6 +146,77 @@ const saveButton = () => screen.getByRole("button", { name: "Simpan" });
 
 describe("InstitutionCompetitionEditShell save body", () => {
   it.each(["published", "draft"])(
+    "sends only changed fields for published saves and every field for drafts (%s)",
+    async (status) => {
+      const competition = { ...COMPETITION, status, ...closedRegistrationWindow() };
+      stubFetchSequence([
+        () => okJson({ competition, publishReadiness: READY }),
+        () => okJson({ competition }),
+        () => okJson({ competition, publishReadiness: READY }),
+      ]);
+      mount();
+      await screen.findByRole("button", { name: "Simpan" });
+      fireEvent.change(screen.getByLabelText(/Deskripsi/), { target: { value: "Deskripsi baru" } });
+      fireEvent.click(saveButton());
+      await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3));
+      const patchCall = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === "PATCH");
+      const body = JSON.parse(patchCall![1]!.body as string);
+      if (status === "published") {
+        expect(body).toEqual({ description: "Deskripsi baru" });
+        return;
+      }
+      const minuteDate = (iso: string) => {
+        const date = new Date(iso);
+        date.setSeconds(0, 0);
+        return date.toISOString();
+      };
+      expect(body).toEqual({
+        title: competition.title,
+        slug: competition.slug,
+        description: "Deskripsi baru",
+        category: competition.category,
+        mode: competition.mode,
+        minTeamSize: null,
+        maxTeamSize: null,
+        minimumParticipantEntries: competition.minimumParticipantEntries,
+        participantConfirmationAt: minuteDate(competition.participantConfirmationAt),
+        registrationStartAt: minuteDate(competition.registrationStartAt),
+        registrationEndAt: minuteDate(competition.registrationEndAt),
+        eventStartAt: minuteDate(competition.eventStartAt),
+        eventEndAt: minuteDate(competition.eventEndAt),
+        resultAnnouncementAt: minuteDate(competition.resultAnnouncementAt),
+        allowCancellation: false,
+        cancellationCutoffDays: null,
+      });
+    },
+  );
+
+  it("sends no unchanged date key on a published save with stored seconds", async () => {
+    const timeline = validTimeline();
+    for (const field of Object.keys(timeline) as Array<keyof typeof timeline>) {
+      const date = new Date(timeline[field]);
+      date.setSeconds(37, 555);
+      timeline[field] = date.toISOString();
+    }
+    const competition = { ...COMPETITION, status: "published", ...timeline };
+    stubFetchSequence([
+      () => okJson({ competition, publishReadiness: READY }),
+      () => okJson({ competition }),
+      () => okJson({ competition, publishReadiness: READY }),
+    ]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+    fireEvent.change(screen.getByLabelText(/Deskripsi/), { target: { value: "Deskripsi baru" } });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3));
+    const patchCall = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === "PATCH");
+    const body = JSON.parse(patchCall![1]!.body as string);
+    for (const field of Object.keys(timeline)) {
+      expect(Object.hasOwn(body, field), field).toBe(false);
+    }
+  });
+
+  it.each(["published", "draft"])(
     "sends the immutable fields only for a draft (%s)",
     async (status) => {
       const competition = { ...COMPETITION, status };

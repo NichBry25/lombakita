@@ -501,6 +501,27 @@ export const InstitutionCompetitionEditShell = ({
       cancellationCutoffDays: allowCancellation ? cutoffOrNull(cutoffDays) : null,
     };
 
+    if (isPublished && savedSnapshot) {
+      const unchangedFields = {
+        title: title === savedSnapshot.title,
+        slug: slug === savedSnapshot.slug,
+        description: description === savedSnapshot.description,
+        category: category === savedSnapshot.category,
+        registrationStartAt: regStart === savedSnapshot.regStart,
+        registrationEndAt: regEnd === savedSnapshot.regEnd,
+        eventStartAt: evtStart === savedSnapshot.evtStart,
+        eventEndAt: evtEnd === savedSnapshot.evtEnd,
+        resultAnnouncementAt: resultAnnounce === savedSnapshot.resultAnnounce,
+        allowCancellation: allowCancellation === savedSnapshot.allowCancellation,
+        cancellationCutoffDays:
+          (allowCancellation ? cutoffDays : "") ===
+          (savedSnapshot.allowCancellation ? savedSnapshot.cutoffDays : ""),
+      };
+      for (const [field, unchanged] of Object.entries(unchangedFields)) {
+        if (unchanged) delete patch[field];
+      }
+    }
+
     const response = await sessionFetch(
       expectedUserId,
       `/api/v1/competitions/${encodeURIComponent(competitionId)}`,

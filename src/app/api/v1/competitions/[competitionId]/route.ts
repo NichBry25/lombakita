@@ -77,7 +77,7 @@ export async function PATCH(
         "Request body must be valid JSON",
       );
     }
-    const patch = parseCompetitionPatchInput(body);
+    const patch = parseCompetitionPatchInput(body, { deferRegistrationEndFutureValidation: true });
     const competition = await updateCompetitionDraft(session.user.id, competitionId, patch);
     return NextResponse.json({ competition });
   } catch (error) {
