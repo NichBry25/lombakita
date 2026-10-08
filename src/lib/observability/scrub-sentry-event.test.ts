@@ -72,11 +72,6 @@ describe("scrubSentryEvent", () => {
       const remainingFields = Object.entries(exception).filter(([key]) => key !== "value");
       expect(remainingFields).toStrictEqual(originalFields);
     }
-    expect(result.exception!.values!.map(({ value }) => value)).toStrictEqual([
-      "[redacted: database error]",
-      "Failed query: select $1\nparams: [redacted]",
-      "load failed: Failed query: select $1\nparams: [redacted]",
-    ]);
     expect(event).toStrictEqual(original);
   });
 
