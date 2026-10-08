@@ -25,6 +25,7 @@ describe("scrubSentryEvent", () => {
         values: [
           { type: "Error", value: error.message },
           { type: "Error", value: "ordinary error\nparams: preserved" },
+          { type: "Error", value: "wrapped: Failed query: select 1\nparams: keep-me" },
           { type: "Error", value: error.message },
           { type: "Error", value: "Failed query: select 1" },
           { type: "Error" },
@@ -39,6 +40,7 @@ describe("scrubSentryEvent", () => {
     expect(result.exception!.values!.map(({ value }) => value)).toEqual([
       "Failed query: select $1\nparams: [redacted]",
       "ordinary error\nparams: preserved",
+      "wrapped: Failed query: select 1\nparams: keep-me",
       "Failed query: select $1\nparams: [redacted]",
       "Failed query: select 1",
       undefined,
