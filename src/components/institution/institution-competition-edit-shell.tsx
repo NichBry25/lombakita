@@ -478,6 +478,7 @@ export const InstitutionCompetitionEditShell = ({
       });
       return;
     }
+    if (isPublished && !isDirty) return;
     setIsSubmitting(true);
 
     const patch: Record<string, unknown> = {

@@ -145,6 +145,25 @@ const publishButton = () => screen.getByRole("button", { name: "Terbitkan" });
 const saveButton = () => screen.getByRole("button", { name: "Simpan" });
 
 describe("InstitutionCompetitionEditShell save body", () => {
+  it("does not send an empty patch when a published form has no changes", async () => {
+    const competition = { ...COMPETITION, status: "published" };
+    stubFetchSequence([
+      () => okJson({ competition, publishReadiness: READY }),
+      () =>
+        failedJson({
+          error: {
+            code: "competition_invalid_payload",
+            message: "At least one editable competition field is required",
+          },
+        }),
+    ]);
+    mount();
+    await screen.findByRole("button", { name: "Simpan" });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(saveButton().hasAttribute("disabled")).toBe(false));
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["published", "draft"])(
     "sends only changed fields for published saves and every field for drafts (%s)",
     async (status) => {
