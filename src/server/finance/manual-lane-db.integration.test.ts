@@ -1837,7 +1837,7 @@ describe.skipIf(skipWithoutDatabase)("the proof review loop is CAS-guarded (real
       // The CAS is what stops the second click, before the accrual's unique index has to.
       await expect(
         verifyManualPaymentProof(fixture.institutionId, fixture.userId, proofId, tx as never, NOW),
-      ).rejects.toMatchObject({ code: "manual_proof_not_pending" });
+      ).rejects.toMatchObject({ code: "manual_proof_not_pending", status: 409 });
 
       const accruals = await tx
         .select({ id: financeFeeAccruals.id })
@@ -2162,7 +2162,7 @@ describe.skipIf(skipWithoutDatabase)("proof access is tenant-scoped (real databa
           tx as never,
           NOW,
         ),
-      ).rejects.toMatchObject({ code: "manual_proof_not_pending" });
+      ).rejects.toMatchObject({ code: "manual_proof_not_found", status: 404 });
 
       // The consequences of the missing scope, asserted rather than assumed: a succeeded event on
       // somebody else's payment, and a fee accrued against somebody else's institution.
@@ -2223,7 +2223,7 @@ describe.skipIf(skipWithoutDatabase)("proof access is tenant-scoped (real databa
           tx as never,
           NOW,
         ),
-      ).rejects.toMatchObject({ code: "manual_proof_not_pending" });
+      ).rejects.toMatchObject({ code: "manual_proof_not_found", status: 404 });
     });
   });
 
@@ -4506,7 +4506,7 @@ describe.skipIf(skipWithoutDatabase)(
         await inRollback(async (tx) => {
           const fixture = await seedFixture(tx);
           const { proofId } = await seedPendingProof(tx, fixture, fixture.other);
-          const { verifyManualPaymentProof, ManualProofError } =
+          const { verifyManualPaymentProof } =
             await import("@/server/finance/manual-payment-proof-service");
 
           await expect(
@@ -4517,7 +4517,7 @@ describe.skipIf(skipWithoutDatabase)(
               tx as unknown as Database,
               NOW,
             ),
-          ).rejects.toBeInstanceOf(ManualProofError);
+          ).rejects.toMatchObject({ code: "manual_proof_not_found", status: 404 });
 
           // The post-condition, not just the throw. A guard that refuses AFTER writing is not a guard.
           expect(await statusOf(tx, proofId)).toBe("pending_review");
@@ -4528,7 +4528,7 @@ describe.skipIf(skipWithoutDatabase)(
         await inRollback(async (tx) => {
           const fixture = await seedFixture(tx);
           const { proofId } = await seedPendingProof(tx, fixture, fixture);
-          const { verifyManualPaymentProof, ManualProofError } =
+          const { verifyManualPaymentProof } =
             await import("@/server/finance/manual-payment-proof-service");
 
           await expect(
@@ -4539,7 +4539,7 @@ describe.skipIf(skipWithoutDatabase)(
               tx as unknown as Database,
               NOW,
             ),
-          ).rejects.toBeInstanceOf(ManualProofError);
+          ).rejects.toMatchObject({ code: "manual_proof_not_found", status: 404 });
 
           expect(await statusOf(tx, proofId)).toBe("pending_review");
         });
@@ -4585,14 +4585,8 @@ describe.skipIf(skipWithoutDatabase)(
       });
 
       it("refuses a foreign PENDING proof and a foreign SETTLED proof INDISTINGUISHABLY", async () => {
-        // THE MOVE DETECTOR, and the reason it takes this shape rather than an assertion about the
-        // row: the service does its work inside a transaction, so a tenant check moved BELOW the
-        // write still rolls the write back, and every post-state assertion above stays green. What a
-        // move cannot preserve is this: with the scope inside the CAS's WHERE, a foreign proof
-        // matches no row whatever state it is in, so both cases return the identical "not pending"
-        // refusal. Move the scope to a check after the update and the pending one now reaches that
-        // check and answers differently from the settled one, which both fails this test and hands an
-        // outsider an oracle for whether a proof exists and is awaiting review.
+        // A throwing check inside the transaction can roll back writes while still leaking proof
+        // existence through its refusal. Compare missing and foreign ids by the full refusal.
         await inRollback(async (tx) => {
           const fixture = await seedFixture(tx);
           const pending = await seedPendingProof(tx, fixture, fixture);
@@ -4624,8 +4618,14 @@ describe.skipIf(skipWithoutDatabase)(
 
           const onPending = await refusalFor(pending.proofId);
           const onSettled = await refusalFor(settled.proofId);
+          const onMissing = await refusalFor("00000000-0000-4000-8000-000000000000");
 
-          expect(onPending).not.toBeNull();
+          expect(onMissing).toEqual({
+            code: "manual_proof_not_found",
+            status: 404,
+            message: "Bukti transfer tidak ditemukan",
+          });
+          expect(onPending).toEqual(onMissing);
           expect(onPending).toEqual(onSettled);
         });
       });
@@ -4696,7 +4696,7 @@ describe.skipIf(skipWithoutDatabase)(
         await inRollback(async (tx) => {
           const fixture = await seedFixture(tx);
           const { proofId } = await seedPendingProof(tx, fixture, fixture.other);
-          const { rejectManualPaymentProof, ManualProofError } =
+          const { rejectManualPaymentProof } =
             await import("@/server/finance/manual-payment-proof-service");
 
           await expect(
@@ -4709,7 +4709,7 @@ describe.skipIf(skipWithoutDatabase)(
               tx as unknown as Database,
               NOW,
             ),
-          ).rejects.toBeInstanceOf(ManualProofError);
+          ).rejects.toMatchObject({ code: "manual_proof_not_found", status: 404 });
 
           expect(await statusOf(tx, proofId)).toBe("pending_review");
         });
@@ -4719,7 +4719,7 @@ describe.skipIf(skipWithoutDatabase)(
         await inRollback(async (tx) => {
           const fixture = await seedFixture(tx);
           const { proofId } = await seedPendingProof(tx, fixture, fixture);
-          const { rejectManualPaymentProof, ManualProofError } =
+          const { rejectManualPaymentProof } =
             await import("@/server/finance/manual-payment-proof-service");
 
           await expect(
@@ -4732,7 +4732,7 @@ describe.skipIf(skipWithoutDatabase)(
               tx as unknown as Database,
               NOW,
             ),
-          ).rejects.toBeInstanceOf(ManualProofError);
+          ).rejects.toMatchObject({ code: "manual_proof_not_found", status: 404 });
 
           expect(await statusOf(tx, proofId)).toBe("pending_review");
         });
@@ -4782,9 +4782,43 @@ describe.skipIf(skipWithoutDatabase)(
 
           const onPending = await refusalFor(pending.proofId);
           const onSettled = await refusalFor(settled.proofId);
+          const onMissing = await refusalFor("00000000-0000-4000-8000-000000000000");
 
-          expect(onPending).not.toBeNull();
+          expect(onMissing).toEqual({
+            code: "manual_proof_not_found",
+            status: 404,
+            message: "Bukti transfer tidak ditemukan",
+          });
+          expect(onPending).toEqual(onMissing);
           expect(onPending).toEqual(onSettled);
+        });
+      });
+
+      it("refuses a same-tenant settled proof as not pending (409)", async () => {
+        await inRollback(async (tx) => {
+          const fixture = await seedFixture(tx);
+          const { proofId } = await seedPendingProof(tx, fixture, fixture);
+          const { rejectManualPaymentProof } =
+            await import("@/server/finance/manual-payment-proof-service");
+
+          await tx
+            .update(financeManualPaymentProofs)
+            .set({ status: "verified", reviewerUserId: fixture.userId, reviewedAt: NOW })
+            .where(eq(financeManualPaymentProofs.id, proofId));
+
+          await expect(
+            rejectManualPaymentProof(
+              fixture.institutionId,
+              fixture.userId,
+              proofId,
+              "Nominal tidak cocok",
+              true,
+              tx as unknown as Database,
+              NOW,
+            ),
+          ).rejects.toMatchObject({ code: "manual_proof_not_pending", status: 409 });
+
+          expect(await statusOf(tx, proofId)).toBe("verified");
         });
       });
 
