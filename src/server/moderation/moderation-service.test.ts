@@ -13,6 +13,7 @@ import {
 } from "./moderation-service";
 import { ModerationError } from "./moderation-core";
 import type { Database } from "@/server/db/client";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 
 // Minimal db mock: a single SELECT (chain ending in .limit) plus a transaction whose tx exposes
 // select()/update()/insert(). The audit insert and the update are recorded for assertions.
@@ -23,31 +24,46 @@ import type { Database } from "@/server/db/client";
 const makeDb = (
   selectRow: Record<string, unknown> | null,
   txRows: Array<Record<string, unknown>> = [],
+  actorRow: Record<string, unknown> | null = {
+    id: "ops1",
+    role: "platform_ops",
+    suspendedAt: null,
+  },
+  changedRows: Array<{ id: string }> = [{ id: "i1" }],
+  rereadTarget: Record<string, unknown> | null = selectRow,
 ) => {
   const inserted: Array<Record<string, unknown>> = [];
   const updated: Array<Record<string, unknown>> = [];
 
+  const ownerReads = vi.fn();
+  let targetReads = 0;
   const tx = {
     execute: vi.fn().mockResolvedValue([]),
-    select: vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          limit: vi.fn().mockReturnValue({
-            // The deactivated guard's read takes the row: the chain is awaited both ways, so what
-            // `.limit` returns is a promise and carries the `.for("update")` the guard calls.
-            for: vi.fn().mockResolvedValue(txRows),
-            then: (onFulfilled: (rows: unknown[]) => unknown) =>
-              Promise.resolve(txRows).then(onFulfilled),
-          }),
-          then: (onFulfilled: (rows: unknown[]) => unknown) =>
-            Promise.resolve(txRows).then(onFulfilled),
-        }),
-      }),
+    select: vi.fn((fields: Record<string, unknown>) => {
+      let rows: Array<Record<string, unknown>>;
+      if (fields.role) {
+        rows = actorRow ? [actorRow] : [];
+      } else if (fields.total) {
+        ownerReads();
+        rows = txRows;
+      } else if (fields.status) {
+        rows = txRows;
+      } else {
+        const target = targetReads++ === 0 ? selectRow : rereadTarget;
+        rows = target ? [target] : [];
+      }
+      const selected = Promise.resolve(rows);
+      const limited = Object.assign(selected, { for: vi.fn().mockResolvedValue(rows) });
+      const filtered = Object.assign(selected, { limit: vi.fn().mockReturnValue(limited) });
+      return { from: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue(filtered) }) };
     }),
     update: vi.fn().mockReturnValue({
       set: vi.fn((vals: Record<string, unknown>) => {
         updated.push(vals);
-        return { where: vi.fn().mockResolvedValue(undefined) };
+        const result = Object.assign(Promise.resolve(undefined), {
+          returning: vi.fn().mockResolvedValue(changedRows),
+        });
+        return { where: vi.fn().mockReturnValue(result) };
       }),
     }),
     insert: vi.fn().mockReturnValue({
@@ -69,7 +85,7 @@ const makeDb = (
     transaction: vi.fn(async (fn: (t: unknown) => Promise<unknown>) => fn(tx)),
   } as unknown as Database;
 
-  return { db, inserted, updated, tx };
+  return { db, inserted, updated, tx, ownerReads };
 };
 
 const expectModerationError = async (p: Promise<unknown>, code: string, status: number) => {
@@ -200,14 +216,14 @@ describe("reinstateInstitution", () => {
   });
 
   it("takes the institution's owner-membership lock before it counts owners", async () => {
-    const { db, tx } = makeDb({ id: "i1", suspendedAt: new Date() }, [{ total: 1 }]);
+    const { db, tx, ownerReads } = makeDb({ id: "i1", suspendedAt: new Date() }, [{ total: 1 }]);
 
     await reinstateInstitution("ops1", "i1", "resolved", db);
 
     // Invocation order, not a call count: the count is the read the lock exists to serialize, so a
     // lock taken after it serializes nothing.
     expect(tx.execute.mock.invocationCallOrder[0]).toBeLessThan(
-      tx.select.mock.invocationCallOrder[0]!,
+      ownerReads.mock.invocationCallOrder[0]!,
     );
   });
 
@@ -230,5 +246,124 @@ describe("ModerationError shape", () => {
     const e = new ModerationError("reason_required", 400, "x");
     expect(e.code).toBe("reason_required");
     expect(e.status).toBe(400);
+  });
+});
+
+const moderationActions = [
+  { name: "suspendUser", service: suspendUser, suspended: false, user: true },
+  { name: "unsuspendUser", service: unsuspendUser, suspended: true, user: true },
+  { name: "suspendInstitution", service: suspendInstitution, suspended: false, user: false },
+  { name: "reinstateInstitution", service: reinstateInstitution, suspended: true, user: false },
+];
+
+const invalidActors = [
+  { label: "missing", row: null, code: "operator_actor_not_found" },
+  {
+    label: "candidate",
+    row: { id: "candidate", role: "candidate", suspendedAt: null },
+    code: "operator_actor_not_platform_ops",
+  },
+  {
+    label: "suspended operator",
+    row: { id: "ops1", role: "platform_ops", suspendedAt: new Date() },
+    code: "operator_actor_suspended",
+  },
+];
+
+describe.each(moderationActions)("$name operator integrity", (action) => {
+  it.each(invalidActors)("refuses a $label actor before any write", async ({ row, code }) => {
+    const target = {
+      id: "target",
+      role: "candidate",
+      suspendedAt: action.suspended ? new Date() : null,
+    };
+    const { db, inserted, updated } = makeDb(target, [{ total: 1 }], row);
+    const refusal = await action
+      .service("claimed-actor", "target", "reason", db)
+      .catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(OperatorActorError);
+    expect(refusal).toMatchObject({ code, status: 403 });
+    expect(updated).toHaveLength(0);
+    expect(inserted).toHaveLength(0);
+  });
+
+  it("writes exactly one audit row naming the database actor", async () => {
+    const target = {
+      id: "target",
+      role: "candidate",
+      suspendedAt: action.suspended ? new Date() : null,
+    };
+    const actor = { id: "database-actor", role: "platform_ops", suspendedAt: null };
+    const { db, inserted, updated } = makeDb(target, [{ total: 1 }], actor);
+    await action.service("claimed-actor", "target", " reason ", db);
+    expect(updated).toHaveLength(1);
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]).toMatchObject({ actorUserId: "database-actor", reason: "reason" });
+  });
+
+  it("refuses invalid actor before target guards", async () => {
+    const target = action.user
+      ? { id: "target", role: "candidate", suspendedAt: action.suspended ? new Date() : null }
+      : null;
+    const actor = { id: "candidate", role: "candidate", suspendedAt: null };
+    const { db } = makeDb(target, [{ status: "deactivated" }], actor);
+    const refusal = await action
+      .service("candidate", "target", "reason", db)
+      .catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(OperatorActorError);
+    expect(refusal).toMatchObject({ code: "operator_actor_not_platform_ops", status: 403 });
+  });
+
+  it("validates an empty reason before any database read", async () => {
+    const { db, tx } = makeDb(null);
+    await expect(action.service("ops1", "target", " ", db)).rejects.toMatchObject({
+      code: "reason_required",
+      status: 400,
+    });
+    expect(db.select).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(tx.select).not.toHaveBeenCalled();
+  });
+});
+
+describe.each([
+  {
+    name: "suspendInstitution",
+    service: suspendInstitution,
+    suspended: false,
+    conflictCode: "institution_already_suspended",
+    conflictMessage: "Institution is already suspended",
+  },
+  {
+    name: "reinstateInstitution",
+    service: reinstateInstitution,
+    suspended: true,
+    conflictCode: "institution_not_suspended",
+    conflictMessage: "Institution is not currently suspended",
+  },
+])("$name compare-and-set", (action) => {
+  it("re-reads a lost update inside the transaction without auditing", async () => {
+    const initial = { id: "i1", suspendedAt: action.suspended ? new Date() : null };
+    const current = { id: "i1", suspendedAt: action.suspended ? null : new Date() };
+    const { db, inserted, tx } = makeDb(initial, [{ total: 1 }], undefined, [], current);
+    await expect(action.service("ops1", "i1", "reason", db)).rejects.toMatchObject({
+      code: action.conflictCode,
+      status: 409,
+      message: action.conflictMessage,
+    });
+    expect(db.select).not.toHaveBeenCalled();
+    expect(tx.select).toHaveBeenCalled();
+    expect(inserted).toHaveLength(0);
+  });
+
+  it("returns institution_not_found when a lost update re-read finds no row", async () => {
+    const initial = { id: "i1", suspendedAt: action.suspended ? new Date() : null };
+    const { db, inserted } = makeDb(initial, [{ total: 1 }], undefined, [], null);
+    await expect(action.service("ops1", "i1", "reason", db)).rejects.toMatchObject({
+      code: "institution_not_found",
+      status: 404,
+      message: "Institution not found",
+    });
+    expect(inserted).toHaveLength(0);
   });
 });

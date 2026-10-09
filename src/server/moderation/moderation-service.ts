@@ -1,12 +1,16 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
-import { institutions, platformOpsAuditLogs, users } from "@/server/db/schema";
+import { institutions, users } from "@/server/db/schema";
 import type { AppRole } from "@/lib/access/roles";
 import { logger } from "@/lib/logger";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { countActiveOwners } from "@/server/institution-members/owner-count";
 import { lockInstitutionOwnership } from "@/server/institution-members/owner-membership-lock";
 import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
+import {
+  recordOperatorAuditEntry,
+  resolveOperatorActor,
+} from "@/server/platform-ops/operator-actor";
 import {
   assertReasonProvided,
   MODERATION_EVENT,
@@ -66,14 +70,15 @@ export const suspendUser = async (
 
   const now = new Date();
   await db.transaction(async (tx) => {
+    const actor = await resolveOperatorActor(tx, actorUserId, ["platform_ops"]);
+
     await assertAccountNotDeactivated(tx, targetUserId, ModerationError);
 
     await tx
       .update(users)
       .set({ suspendedAt: now, suspensionReason: cleanReason, updatedAt: now })
       .where(eq(users.id, targetUserId));
-    await tx.insert(platformOpsAuditLogs).values({
-      actorUserId,
+    await recordOperatorAuditEntry(tx, actor, {
       targetUserId,
       eventType: MODERATION_EVENT.userSuspended,
       reason: cleanReason,
@@ -108,14 +113,15 @@ export const unsuspendUser = async (
 
   const now = new Date();
   await db.transaction(async (tx) => {
+    const actor = await resolveOperatorActor(tx, actorUserId, ["platform_ops"]);
+
     await assertAccountNotDeactivated(tx, targetUserId, ModerationError);
 
     await tx
       .update(users)
       .set({ suspendedAt: null, suspensionReason: null, updatedAt: now })
       .where(eq(users.id, targetUserId));
-    await tx.insert(platformOpsAuditLogs).values({
-      actorUserId,
+    await recordOperatorAuditEntry(tx, actor, {
       targetUserId,
       eventType: MODERATION_EVENT.userUnsuspended,
       reason: cleanReason,
@@ -136,31 +142,51 @@ export const suspendInstitution = async (
 ): Promise<InstitutionModerationResult> => {
   const cleanReason = assertReasonProvided(reason);
 
-  const [target] = await db
-    .select({ id: institutions.id, suspendedAt: institutions.suspendedAt })
-    .from(institutions)
-    .where(eq(institutions.id, targetInstitutionId))
-    .limit(1);
-
-  if (!target) {
-    throw new ModerationError("institution_not_found", 404, "Institution not found");
-  }
-  if (target.suspendedAt) {
-    throw new ModerationError(
-      "institution_already_suspended",
-      409,
-      "Institution is already suspended",
-    );
-  }
-
   const now = new Date();
   await db.transaction(async (tx) => {
-    await tx
+    const actor = await resolveOperatorActor(tx, actorUserId, ["platform_ops"]);
+
+    const [target] = await tx
+      .select({ id: institutions.id, suspendedAt: institutions.suspendedAt })
+      .from(institutions)
+      .where(eq(institutions.id, targetInstitutionId))
+      .limit(1);
+
+    if (!target) {
+      throw new ModerationError("institution_not_found", 404, "Institution not found");
+    }
+    if (target.suspendedAt) {
+      throw new ModerationError(
+        "institution_already_suspended",
+        409,
+        "Institution is already suspended",
+      );
+    }
+
+    const changed = await tx
       .update(institutions)
       .set({ suspendedAt: now, suspensionReason: cleanReason, updatedAt: now })
-      .where(eq(institutions.id, targetInstitutionId));
-    await tx.insert(platformOpsAuditLogs).values({
-      actorUserId,
+      .where(and(eq(institutions.id, targetInstitutionId), isNull(institutions.suspendedAt)))
+      .returning({ id: institutions.id });
+
+    if (changed.length === 0) {
+      const [current] = await tx
+        .select({ id: institutions.id })
+        .from(institutions)
+        .where(eq(institutions.id, targetInstitutionId))
+        .limit(1);
+
+      if (!current) {
+        throw new ModerationError("institution_not_found", 404, "Institution not found");
+      }
+      throw new ModerationError(
+        "institution_already_suspended",
+        409,
+        "Institution is already suspended",
+      );
+    }
+
+    await recordOperatorAuditEntry(tx, actor, {
       targetInstitutionId,
       eventType: MODERATION_EVENT.institutionSuspended,
       reason: cleanReason,
@@ -185,25 +211,27 @@ export const reinstateInstitution = async (
 ): Promise<InstitutionModerationResult> => {
   const cleanReason = assertReasonProvided(reason);
 
-  const [target] = await db
-    .select({ id: institutions.id, suspendedAt: institutions.suspendedAt })
-    .from(institutions)
-    .where(eq(institutions.id, targetInstitutionId))
-    .limit(1);
-
-  if (!target) {
-    throw new ModerationError("institution_not_found", 404, "Institution not found");
-  }
-  if (!target.suspendedAt) {
-    throw new ModerationError(
-      "institution_not_suspended",
-      409,
-      "Institution is not currently suspended",
-    );
-  }
-
   const now = new Date();
   await db.transaction(async (tx) => {
+    const actor = await resolveOperatorActor(tx, actorUserId, ["platform_ops"]);
+
+    const [target] = await tx
+      .select({ id: institutions.id, suspendedAt: institutions.suspendedAt })
+      .from(institutions)
+      .where(eq(institutions.id, targetInstitutionId))
+      .limit(1);
+
+    if (!target) {
+      throw new ModerationError("institution_not_found", 404, "Institution not found");
+    }
+    if (!target.suspendedAt) {
+      throw new ModerationError(
+        "institution_not_suspended",
+        409,
+        "Institution is not currently suspended",
+      );
+    }
+
     // Taken before the count below, because that count is a count of OTHER rows: a de-identification
     // revoking the institution's last owner membership and this reinstatement reading the count are
     // two transactions changing different rows, and neither snapshot sees the other's uncommitted
@@ -221,12 +249,30 @@ export const reinstateInstitution = async (
       );
     }
 
-    await tx
+    const changed = await tx
       .update(institutions)
       .set({ suspendedAt: null, suspensionReason: null, updatedAt: now })
-      .where(eq(institutions.id, targetInstitutionId));
-    await tx.insert(platformOpsAuditLogs).values({
-      actorUserId,
+      .where(and(eq(institutions.id, targetInstitutionId), isNotNull(institutions.suspendedAt)))
+      .returning({ id: institutions.id });
+
+    if (changed.length === 0) {
+      const [current] = await tx
+        .select({ id: institutions.id })
+        .from(institutions)
+        .where(eq(institutions.id, targetInstitutionId))
+        .limit(1);
+
+      if (!current) {
+        throw new ModerationError("institution_not_found", 404, "Institution not found");
+      }
+      throw new ModerationError(
+        "institution_not_suspended",
+        409,
+        "Institution is not currently suspended",
+      );
+    }
+
+    await recordOperatorAuditEntry(tx, actor, {
       targetInstitutionId,
       eventType: MODERATION_EVENT.institutionReinstated,
       reason: cleanReason,
