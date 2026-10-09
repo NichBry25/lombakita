@@ -211,6 +211,87 @@ describe("updateCompetitionDraft — draft path unchanged", () => {
 });
 
 describe("updateCompetitionDraft — published edit (F6/F17)", () => {
+  it.each([
+    { name: "unchanged past", offset: -DAY, accepted: true },
+    { name: "changed past", offset: -DAY / 2, accepted: false },
+    { name: "changed future", offset: DAY, accepted: true },
+  ])(
+    "handles a $name registration deadline after registration closes",
+    async ({ offset, accepted }) => {
+      const now = Date.now();
+      const competition = baseCompetition({
+        registrationStartAt: new Date(now - 2 * DAY),
+        registrationEndAt: new Date(now - DAY),
+      });
+      const deadline = new Date(now + offset);
+      const updated = {
+        ...competition,
+        description: "Deskripsi baru",
+        registrationEndAt: deadline,
+      };
+      const setSpy = vi.fn();
+      const updateSpy = vi.fn(() => updateChain([updated], setSpy));
+      const db = { select: publishedEditSelect([]), update: updateSpy } as unknown as Database;
+      assertCompetitionAccess.mockResolvedValue({
+        competition,
+        membershipRole: "institution_owner",
+      });
+
+      const save = async () => {
+        const patch = parseCompetitionPatchInput(
+          { description: "Deskripsi baru", registrationEndAt: deadline.toISOString() },
+          { deferRegistrationEndFutureValidation: true },
+        );
+        expect(patch.registrationEndAt).not.toBe(competition.registrationEndAt);
+        return updateCompetitionDraft("u_1", "comp_1", patch, db);
+      };
+
+      if (!accepted) {
+        await expect(save()).rejects.toMatchObject({
+          code: "competition_invalid_value",
+          httpStatus: 400,
+          message: "registrationEndAt must be in the future",
+        });
+        expect(updateSpy).not.toHaveBeenCalled();
+        return;
+      }
+      await expect(save()).resolves.toEqual(updated);
+      expect(setSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ description: "Deskripsi baru" }),
+      );
+      expect(setSpy).toHaveBeenCalledTimes(1);
+      const updates = setSpy.mock.calls[0]![0] as { registrationEndAt: Date };
+      expect(updates.registrationEndAt).toBeInstanceOf(Date);
+      expect(updates.registrationEndAt.getTime()).toBe(deadline.getTime());
+    },
+  );
+
+  it("refuses an unchanged past deadline on a draft save", async () => {
+    const competition = baseCompetition({
+      status: "draft",
+      registrationEndAt: new Date(Date.now() - DAY),
+    });
+    const updateSpy = vi.fn();
+    const db = { update: updateSpy } as unknown as Database;
+    assertCompetitionAccess.mockResolvedValue({ competition, membershipRole: "institution_owner" });
+    const save = async () => {
+      const patch = parseCompetitionPatchInput(
+        {
+          description: "Deskripsi baru",
+          registrationEndAt: competition.registrationEndAt!.toISOString(),
+        },
+        { deferRegistrationEndFutureValidation: true },
+      );
+      return updateCompetitionDraft("u_1", "comp_1", patch, db);
+    };
+    await expect(save()).rejects.toMatchObject({
+      code: "competition_invalid_value",
+      httpStatus: 400,
+      message: "registrationEndAt must be in the future",
+    });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
   it("saves a description with a new confirmation Date at the stored instant", async () => {
     const competition = baseCompetition();
     const patch = parseCompetitionPatchInput({

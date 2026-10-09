@@ -480,9 +480,12 @@ const validateFieldRelations = (fields: CompetitionDraftFields): void => {
     eventEndAt: fields.eventEndAt,
     resultAnnouncementAt: fields.resultAnnouncementAt,
   });
-  // Registration deadline must be in the future when explicitly set. Skipped when clearing
-  // (null) or when not present in the payload.
-  if (fields.registrationEndAt != null && fields.registrationEndAt.getTime() <= Date.now()) {
+};
+
+export const validateRegistrationEndInFuture = (
+  registrationEndAt: Date | null | undefined,
+): void => {
+  if (registrationEndAt != null && registrationEndAt.getTime() <= Date.now()) {
     throw new CompetitionError(
       "competition_invalid_value",
       400,
@@ -685,6 +688,7 @@ export const parseCompetitionCreateInput = (payload: unknown): CompetitionCreate
   }
 
   const fields = parseDraftFields(sanitized, CREATE_FIELDS);
+  validateRegistrationEndInFuture(fields.registrationEndAt);
   validateMinimumParticipation({
     minimumParticipantEntries: fields.minimumParticipantEntries ?? null,
     participantConfirmationAt: fields.participantConfirmationAt ?? null,
@@ -702,7 +706,10 @@ export const parseCompetitionCreateInput = (payload: unknown): CompetitionCreate
   };
 };
 
-export const parseCompetitionPatchInput = (payload: unknown): CompetitionPatchInput => {
+export const parseCompetitionPatchInput = (
+  payload: unknown,
+  { deferRegistrationEndFutureValidation = false } = {},
+): CompetitionPatchInput => {
   if (!isRecord(payload)) {
     throw new CompetitionError(
       "competition_invalid_payload",
@@ -713,6 +720,9 @@ export const parseCompetitionPatchInput = (payload: unknown): CompetitionPatchIn
 
   const sanitized = stripBlockedFields(payload);
   const fields = parseDraftFields(sanitized, PATCH_FIELDS);
+  if (!deferRegistrationEndFutureValidation) {
+    validateRegistrationEndInFuture(fields.registrationEndAt);
+  }
 
   if (Object.keys(fields).length === 0) {
     throw new CompetitionError(

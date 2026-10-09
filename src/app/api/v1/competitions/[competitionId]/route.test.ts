@@ -125,6 +125,38 @@ describe("GET /api/v1/competitions/[competitionId]", () => {
 describe("PATCH /api/v1/competitions/[competitionId]", () => {
   afterEach(() => vi.clearAllMocks());
 
+  it("passes a past deadline to the service for stored-row validation", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    updateCompetitionDraft.mockResolvedValue({ id: "comp_1", status: "published" });
+    const registrationEndAt = "2020-01-01T00:00:00.000Z";
+    const response = await PATCH(
+      makeRequest("PATCH", { description: "Deskripsi baru", registrationEndAt }),
+      makeParams("comp_1"),
+    );
+    expect(response.status).toBe(200);
+    expect(updateCompetitionDraft).toHaveBeenCalledWith("admin_1", "comp_1", {
+      description: "Deskripsi baru",
+      registrationEndAt: new Date(registrationEndAt),
+    });
+  });
+
+  it("returns the access error before validating a past registration deadline", async () => {
+    requireAuthenticatedSession.mockResolvedValue(adminSession);
+    updateCompetitionDraft.mockRejectedValue(
+      new AccessError("forbidden", 403, "Institution owner/staff access required"),
+    );
+    const registrationEndAt = "2020-01-01T00:00:00.000Z";
+    const response = await PATCH(
+      makeRequest("PATCH", { registrationEndAt }, adminSession.user.id),
+      makeParams("comp_1"),
+    );
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "forbidden" } });
+    expect(updateCompetitionDraft).toHaveBeenCalledWith("admin_1", "comp_1", {
+      registrationEndAt: new Date(registrationEndAt),
+    });
+  });
+
   it("returns 200 on successful field update", async () => {
     requireAuthenticatedSession.mockResolvedValue(adminSession);
     updateCompetitionDraft.mockResolvedValue({ id: "comp_1", title: "Updated", status: "draft" });
