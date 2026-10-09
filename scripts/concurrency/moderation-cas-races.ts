@@ -56,7 +56,7 @@ const main = async (): Promise<void> => {
     await client`
       INSERT INTO institutions (id, display_name, slug, institution_type, suspended_at, suspension_reason)
       VALUES (${institutionId}, 'Moderation CAS fixture', ${`moderation-${institutionId}`}, 'company',
-        ${reinstate ? new Date() : null}, ${reinstate ? "fixture" : null})
+        ${reinstate ? new Date().toISOString() : null}, ${reinstate ? "fixture" : null})
     `;
     await client`
       INSERT INTO institution_memberships (institution_id, user_id, membership_role, status)

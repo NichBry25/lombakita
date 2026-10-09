@@ -44,7 +44,7 @@
  * Usage: node scripts/testing/probes/deactivated-account-guards.mjs
  * Runs only over committed work — the harness refuses if any listed file differs from HEAD.
  */
-import { requireGreenBeforeProbing, runProbes, substituteOnce } from "../guard-probe.mjs";
+import { readFile, requireGreenBeforeProbing, runProbes, substituteOnce } from "../guard-probe.mjs";
 import { fails } from "./detectors.mjs";
 
 const AUTH_CONFIG = "src/server/auth/auth.config.ts";
@@ -55,7 +55,67 @@ const MEMBER_SERVICE = "src/server/institution-members/member-service.ts";
 const DEACTIVATED_ACCOUNT = "src/server/accounts/deactivated-account.ts";
 const RACE_TEST = "src/server/accounts/account-deidentification-race-db.integration.test.ts";
 
+const actorResolution =
+  '    const actor = await resolveOperatorActor(tx, actorUserId, ["platform_ops"]);';
+const unresolvedActor = "    const actor = { userId: actorUserId } as never;";
+const actorServices = [
+  "suspendUser",
+  "unsuspendUser",
+  "suspendInstitution",
+  "reinstateInstitution",
+];
+
+const operatorResolutionProbes = actorServices.flatMap((service) =>
+  ["remove", "move"].map((mutation) => ({
+    name: `${service} operator resolution ${mutation}`,
+    klass: "A1-in",
+    harmfulMove:
+      "actor resolution below the target write. The transaction still rolls back on refusal, " +
+      "but target guards then disclose account deactivation or institution absence to an invalid " +
+      "actor instead of returning the operator refusal. The detector checks refusal identity.",
+    files: [MODERATION_SERVICE],
+    appliedMarkers:
+      mutation === "remove"
+        ? [unresolvedActor]
+        : [actorResolution + "\n\n    await recordOperatorAuditEntry(tx, actor, {"],
+    mutate: () => {
+      const source = readFile(MODERATION_SERVICE);
+      const start = source.indexOf(`export const ${service} =`);
+      const end = source.indexOf("\n};", start) + "\n};".length;
+      if (start === -1 || end < start) throw new Error(`missing service: ${service}`);
+      const original = source.slice(start, end);
+      if (!original.includes(actorResolution))
+        throw new Error(`missing actor resolution: ${service}`);
+      const mutated =
+        mutation === "remove"
+          ? // Keep the audit call type-correct while removing the database resolution entirely.
+            original.replace(actorResolution, unresolvedActor)
+          : original
+              .replace(actorResolution + "\n\n", "")
+              .replace(
+                "    await recordOperatorAuditEntry(tx, actor, {",
+                actorResolution + "\n\n    await recordOperatorAuditEntry(tx, actor, {",
+              );
+      substituteOnce(MODERATION_SERVICE, original, mutated);
+    },
+    detect: async () =>
+      fails(
+        "npx",
+        [
+          "vitest",
+          "run",
+          MODERATION_TEST,
+          "--reporter=verbose",
+          "-t",
+          `${service}.*refuses invalid actor before target guards`,
+        ],
+        /× .*refuses invalid actor before target guards/,
+      ),
+  })),
+);
+
 export const probes = [
+  ...operatorResolutionProbes,
   {
     name: "the de-identified-account guard takes the row it reads with `for update`",
     klass: "A1-in",
@@ -143,7 +203,7 @@ export const probes = [
     // rewritten transaction. The marker is that update's own four lines against the transaction
     // opening: the unmutated file holds the guard between them.
     appliedMarkers: [
-      "  await db.transaction(async (tx) => {\n" +
+      '    const actor = await resolveOperatorActor(tx, actorUserId, ["platform_ops"]);\n\n' +
         "    await tx\n" +
         "      .update(users)\n" +
         "      .set({ suspendedAt: null, suspensionReason: null, updatedAt: now })",
@@ -152,7 +212,8 @@ export const probes = [
       substituteOnce(
         MODERATION_SERVICE,
         [
-          "  await db.transaction(async (tx) => {",
+          '    const actor = await resolveOperatorActor(tx, actorUserId, ["platform_ops"]);',
+          "",
           "    await assertAccountNotDeactivated(tx, targetUserId, ModerationError);",
           "",
           "    await tx",
@@ -160,7 +221,8 @@ export const probes = [
           "      .set({ suspendedAt: null, suspensionReason: null, updatedAt: now })",
         ].join("\n"),
         [
-          "  await db.transaction(async (tx) => {",
+          '    const actor = await resolveOperatorActor(tx, actorUserId, ["platform_ops"]);',
+          "",
           "    await tx",
           "      .update(users)",
           "      .set({ suspendedAt: null, suspensionReason: null, updatedAt: now })",
@@ -197,7 +259,7 @@ export const probes = [
     // opens its transaction with the same call and a shorter marker would be present already.
     appliedMarkers: [
       "    await lockInstitutionOwnership(tx, [targetInstitutionId]);\n\n" +
-        "    await tx\n" +
+        "    const changed = await tx\n" +
         "      .update(institutions)\n" +
         "      .set({ suspendedAt: null, suspensionReason: null, updatedAt: now })",
     ],

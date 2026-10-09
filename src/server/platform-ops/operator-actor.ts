@@ -14,22 +14,17 @@ assertServerOnly("server/platform-ops/operator-actor");
 // fact: a caller reaching that service off-route can write any id it likes, and nothing
 // afterwards distinguishes that row from a real one.
 //
-// The fix is not a check but a shape, and what it covers is THIS PATH ONLY.
-// `resolvePlatformOpsActor` is the only producer of `ResolvedPlatformOpsActor`, and
+// `resolveOperatorActor` and its platform-ops wrapper produce `ResolvedPlatformOpsActor`, and
 // `recordOperatorAuditEntry` is the only writer of a `platform_ops_audit_logs` row that accepts one
 // — so a row naming an unresolved actor is not a call that returns early, it is a call that does
-// not compile.
+// not compile. At runtime the actor must belong to the transaction writing the audit row.
 //
-// IT DOES NOT COVER THE OTHER FOURTEEN, and the difference matters to whoever reads this next.
-// Fourteen further inserts into `platform_ops_audit_logs` across nine modules take an unvalidated
-// `actorUserId: string` and write it straight through — among them `suspendUser` (four sites in
-// `src/server/moderation/moderation-service.ts`, and a more consequential action than a tier
-// elevation) and `src/server/finance/dispute-view.ts:265`, which is not inside a transaction at
-// all. Every one compiles today. Threading a resolved actor through those writers is future work;
-// this module is a shape improvement on one path, not yet a property of the codebase.
+// Recruiter-tier elevation, account de-identification and the four moderation writers use this
+// path. Ten further inserts still take an `actorUserId: string` directly, including the finance
+// writers. Actor resolution is not yet a property of every audit writer in the codebase.
 
 /**
- * An actor the database has confirmed exists, holds `platform_ops`, and is not suspended.
+ * An actor the database has confirmed exists, holds a required operator role, and is not suspended.
  *
  * A CLASS WITH A PRIVATE MEMBER, not a branded object type, and the difference is the whole point.
  * A non-exported `unique symbol` used as a computed key stops the key being NAMED, but it does not
@@ -42,7 +37,7 @@ assertServerOnly("server/platform-ops/operator-actor");
  * `genuineOperatorActors` rather than on `instanceof`, and the difference is measured rather than
  * argued: `instanceof` is satisfied by anything whose prototype chain reaches this class, and three
  * ways of producing one never run resolvePlatformOpsActor — `Object.create`,
- * `new real.constructor(...)`, and `Object.setPrototypeOf`. See the set's own docstring.
+ * `new real.constructor(...)`, and `Object.setPrototypeOf`. See the map's own docstring.
  *
  * THE CLASS ITSELF IS NOT EXPORTED — only its type is, on the line below. So `new
  * ResolvedPlatformOpsActor(...)` has no spelling outside this module. What that buys is narrower
@@ -67,45 +62,36 @@ class ResolvedPlatformOpsActor {
 export type { ResolvedPlatformOpsActor };
 
 /**
- * The actors this module has resolved, held by identity rather than by shape.
+ * The transaction that resolved each actor, keyed by actor identity rather than shape.
  *
- * WHY A `WeakSet` AND NOT `instanceof`. `instanceof` asks a question about the PROTOTYPE CHAIN, and
+ * WHY A `WeakMap` AND NOT `instanceof`. `instanceof` asks a question about the PROTOTYPE CHAIN, and
  * the prototype chain is an ordinary, writable property that any caller can assemble without ever
  * running the constructor. Three routes were measured against an `instanceof` gate and all three
  * passed it: `Object.create(real.constructor.prototype)`, `new real.constructor("attacker")` — the
  * constructor is reachable as a property of any live instance even though the class is not exported
- * — and `Object.setPrototypeOf({ userId: "attacker" }, Object.getPrototypeOf(real))`. A `WeakSet`
+ * — and `Object.setPrototypeOf({ userId: "attacker" }, Object.getPrototypeOf(real))`. A `WeakMap`
  * asks a question about IDENTITY instead: it holds the exact objects added to it and nothing that
  * merely resembles one, so none of those three is a member and no fourth spelling of the same idea
  * is either.
  *
- * MODULE-PRIVATE AND DELIBERATELY NOT EXPORTED. A set the caller can reach is a set the caller can
+ * MODULE-PRIVATE AND DELIBERATELY NOT EXPORTED. A map the caller can reach is a map the caller can
  * add to, which would return the gate to being a claim. The only code that can add to it is the one
  * function below, and it adds only what it built itself.
  *
- * WHY `WeakSet` RATHER THAN `Set`: membership is the only question ever asked, and the actors are
- * short-lived. A strong set would retain every actor ever resolved for the life of the process and
- * turn this guard into a memory leak proportional to traffic.
+ * The value binds the actor to the exact transaction object that resolved it (LAUNCH-D141),
+ * including savepoint handles. Weak keys avoid retaining every actor and transaction for the
+ * life of the process.
  */
-const genuineOperatorActors = new WeakSet<ResolvedPlatformOpsActor>();
+const genuineOperatorActors = new WeakMap<ResolvedPlatformOpsActor, OperatorActorTransaction>();
 
 /**
  * A transaction handle, and specifically not the pool.
  *
  * `Database` has no `rollback`, so it is not assignable here and `resolvePlatformOpsActor(db, id)`
- * does not compile. What that buys is narrow: the actor is readable only from inside SOME
- * transaction, and the type does not say which one. `recordOperatorAuditEntry(tx, actor, entry)`
- * never checks that `actor` was resolved in `tx` — it checks membership in the set
- * `resolvePlatformOpsActor` registers into, and an actor resolved in a DIFFERENT transaction is a
- * member of that set too.
- *
- * THE STRONGER CLAIM IS NOT TRUE, and an earlier version of this docstring made it: this type does
- * not make "read the actor in the same transaction that writes the audit row" a property of the
- * code. What holds today is that `elevateRecruiterTier` resolves and writes inside one callback,
- * which is a convention at a single call site — nothing refuses an actor resolved in one
- * transaction and handed to another. The race the convention closes is real, because a resolution
- * taken outside the writing transaction is one an account suspension can overtake, so a second call
- * site has to keep the convention by hand rather than inherit it from the type.
+ * does not compile. The type requires a transaction but cannot distinguish transaction objects.
+ * `resolveOperatorActor` registers the resolving handle in the module-private WeakMap, and
+ * `recordOperatorAuditEntry` checks that exact object before inserting. An actor passed into a
+ * different transaction or savepoint is refused at runtime.
  */
 export type OperatorActorTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
@@ -146,9 +132,10 @@ export class OperatorActorError extends Error {
  * anywhere — the value returned carries the id the DATABASE answered with, so a caller that passes
  * a differently-cased or differently-resolved claim gets the stored one or a refusal.
  */
-export const resolvePlatformOpsActor = async (
+export const resolveOperatorActor = async (
   tx: OperatorActorTransaction,
   actorUserId: string,
+  roles: readonly ("platform_ops" | "finance_ops")[],
 ): Promise<ResolvedPlatformOpsActor> => {
   const [row] = await tx
     .select({ id: users.id, role: users.role, suspendedAt: users.suspendedAt })
@@ -164,11 +151,11 @@ export const resolvePlatformOpsActor = async (
     );
   }
 
-  if (row.role !== "platform_ops") {
+  if (!roles.some((role) => role === row.role)) {
     throw new OperatorActorError(
       "operator_actor_not_platform_ops",
       403,
-      "The acting account does not hold the platform_ops role",
+      `The acting account does not hold a required role: ${roles.join(" / ")}`,
     );
   }
 
@@ -186,10 +173,15 @@ export const resolvePlatformOpsActor = async (
   // make any construction a resolution, and the class is reachable as `real.constructor` from every
   // live instance — so the constructor would hand the attacker the very membership this exists to
   // withhold.
-  genuineOperatorActors.add(actor);
+  genuineOperatorActors.set(actor, tx);
 
   return actor;
 };
+
+export const resolvePlatformOpsActor = async (
+  tx: OperatorActorTransaction,
+  actorUserId: string,
+): Promise<ResolvedPlatformOpsActor> => resolveOperatorActor(tx, actorUserId, ["platform_ops"]);
 
 /**
  * Everything a `platform_ops_audit_logs` row carries except who did it.
@@ -207,14 +199,14 @@ export type OperatorAuditEntry = Omit<typeof platformOpsAuditLogs.$inferInsert, 
  * Write one audit row, naming an actor the database has confirmed.
  *
  * The `actor` parameter is the enforcement: there is no overload taking a string, so the only way
- * to reach this insert is to have called `resolvePlatformOpsActor` first. A caller that skips the
+ * to reach this insert is to have called `resolveOperatorActor` or its wrapper first. A caller that skips the
  * resolution does not get an unchecked row — it gets a type error.
  *
  * The membership check is the second half, and it is not redundant with the type. The type stops a
  * caller who is reading the compiler; it does not stop a value that arrived through a cast, an
  * `any` from `JSON.parse`, or a spread written by someone who did not read this file.
  *
- * ONLY WHAT `resolvePlatformOpsActor` REGISTERED REACHES THE INSERT — measured, not asserted. Seven
+ * ONLY WHAT THE RESOLVER REGISTERED IN THIS TRANSACTION REACHES THE INSERT. Seven
  * routes that produce something of this type without calling that function were run against this
  * gate, and each throws here instead of writing: a spread of a live actor, `structuredClone`,
  * `Object.assign`, `JSON.parse`, `Object.create`, `new real.constructor(...)`, and
@@ -226,10 +218,18 @@ export const recordOperatorAuditEntry = async (
   actor: ResolvedPlatformOpsActor,
   entry: OperatorAuditEntry,
 ): Promise<void> => {
-  if (!genuineOperatorActors.has(actor)) {
+  const resolvingTransaction = genuineOperatorActors.get(actor);
+
+  if (resolvingTransaction === undefined) {
     throw new Error(
       "recordOperatorAuditEntry was given an actor that resolvePlatformOpsActor did not produce, " +
         "so the id it carries is a claim rather than a database answer",
+    );
+  }
+
+  if (resolvingTransaction !== tx) {
+    throw new Error(
+      "recordOperatorAuditEntry was given an actor resolved in a different transaction",
     );
   }
 
