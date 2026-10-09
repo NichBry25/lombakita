@@ -710,7 +710,15 @@ export const verifyManualPaymentProof = async (
         status: financeManualPaymentProofs.status,
       })
       .from(financeManualPaymentProofs)
-      .where(eq(financeManualPaymentProofs.id, proofId))
+      .where(
+        and(
+          eq(financeManualPaymentProofs.id, proofId),
+          inArray(
+            financeManualPaymentProofs.competitionId,
+            competitionIdsOwnedBy(institutionId, tx as unknown as Database),
+          ),
+        ),
+      )
       .limit(1);
 
     if (!target) {
@@ -874,6 +882,24 @@ export const rejectManualPaymentProof = async (
       .returning();
 
     if (!proof) {
+      const [target] = await tx
+        .select({ id: financeManualPaymentProofs.id })
+        .from(financeManualPaymentProofs)
+        .where(
+          and(
+            eq(financeManualPaymentProofs.id, proofId),
+            inArray(
+              financeManualPaymentProofs.competitionId,
+              competitionIdsOwnedBy(institutionId, tx as unknown as Database),
+            ),
+          ),
+        )
+        .limit(1);
+
+      if (!target) {
+        throw new ManualProofError("manual_proof_not_found", "Bukti transfer tidak ditemukan", 404);
+      }
+
       throw new ManualProofError(
         "manual_proof_not_pending",
         "Bukti transfer ini tidak sedang menunggu tinjauan, mungkin sudah ditinjau",
