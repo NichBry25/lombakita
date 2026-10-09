@@ -192,6 +192,10 @@ describe("PATCH …/payment-proofs/[proofId]", () => {
       new ManualProofError("manual_proof_not_found", "Bukti transfer tidak ditemukan", 404),
     );
 
-    expect((await PATCH(verdictRequest({ action: "verify" }), context)).status).toBe(404);
+    const response = await PATCH(verdictRequest({ action: "verify" }), context);
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(body.error.code).toBe("manual_proof_not_found");
   });
 });

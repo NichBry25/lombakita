@@ -22,10 +22,10 @@ const makeContext = () => ({
   params: Promise.resolve({ competitionId: "comp_1", registrationId: "reg_1" }),
 });
 
-const makeRequest = (body?: unknown) =>
+const makeRequest = (body?: unknown, headers: Record<string, string> = {}) =>
   new Request("http://localhost/api/v1/competitions/comp_1/registrations/reg_1", {
     method: "DELETE",
-    headers: body ? { "content-type": "application/json" } : undefined,
+    headers: { ...(body ? { "content-type": "application/json" } : {}), ...headers },
     body: body ? JSON.stringify(body) : undefined,
   });
 
@@ -54,6 +54,30 @@ describe("DELETE /api/v1/competitions/[competitionId]/registrations/[registratio
 
     expect(res.status).toBe(200);
     expect(body.registration.status).toBe("cancelled");
+    expect(cancelRegistration).toHaveBeenCalledWith("stud_1", "comp_1", "reg_1", null);
+  });
+
+  it("refuses a mismatched expected user before calling cancelRegistration", async () => {
+    requireSessionRole.mockResolvedValue(candidateSession);
+    cancelRegistration.mockResolvedValue(cancelledRow);
+
+    const request = makeRequest(undefined, { "X-Expected-User-Id": "someone_else" });
+    const response = await DELETE(request, makeContext());
+    const body = await response.json();
+
+    expect(cancelRegistration).not.toHaveBeenCalled();
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("session_user_mismatch");
+  });
+
+  it("returns 200 when the expected user matches the session", async () => {
+    requireSessionRole.mockResolvedValue(candidateSession);
+    cancelRegistration.mockResolvedValue(cancelledRow);
+
+    const request = makeRequest(undefined, { "X-Expected-User-Id": "stud_1" });
+    const response = await DELETE(request, makeContext());
+
+    expect(response.status).toBe(200);
     expect(cancelRegistration).toHaveBeenCalledWith("stud_1", "comp_1", "reg_1", null);
   });
 
