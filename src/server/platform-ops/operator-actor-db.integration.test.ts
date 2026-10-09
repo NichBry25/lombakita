@@ -21,6 +21,7 @@ import * as schema from "@/server/db/schema";
 import { platformOpsAuditLogs, users } from "@/server/db/schema";
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
 import { getDb, type Database } from "@/server/db/client";
+import * as operatorActor from "@/server/platform-ops/operator-actor";
 import {
   recordOperatorAuditEntry,
   resolvePlatformOpsActor,
@@ -69,7 +70,7 @@ let seq = 0;
 const uniqueSuffix = (): string => `${Date.now()}_${seq++}`;
 
 type SeedAccount = {
-  role: "candidate" | "recruiter" | "platform_ops";
+  role: "candidate" | "recruiter" | "platform_ops" | "finance_ops";
   recruiterTier?: "unverified" | "minimal" | "elevated";
   suspended?: boolean;
 };
@@ -343,5 +344,46 @@ describe("the shape that makes omission a compile error", () => {
     };
 
     expect(typeof compileTimeOnly).toBe("function");
+  });
+});
+
+describe.skipIf(skipWithoutDatabase)("operator actor transaction and role boundaries", () => {
+  it("refuses an actor passed across a savepoint transaction object without an audit row", async () => {
+    await inRollback(async (tx) => {
+      const actorId = await seedAccount(tx, { role: "platform_ops" });
+      const actor = await resolvePlatformOpsActor(tx, actorId);
+      const refusal = await tx
+        .transaction(async (nested) => {
+          await recordOperatorAuditEntry(nested, actor, {
+            targetUserId: actorId,
+            eventType: "recruiter_tier.elevated",
+          });
+        })
+        .catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(Error);
+      expect(refusal).not.toBeInstanceOf(operatorActor.OperatorActorError);
+      expect(await auditRowsFor(tx, actorId)).toHaveLength(0);
+    });
+  });
+
+  it("accepts finance_ops and refuses platform_ops when finance_ops is required", async () => {
+    await inRollback(async (tx) => {
+      const financeId = await seedAccount(tx, { role: "finance_ops" });
+      const platformId = await seedAccount(tx, { role: "platform_ops" });
+      const resolve = Reflect.get(operatorActor, "resolveOperatorActor") as
+        | ((
+            tx: Tx,
+            id: string,
+            roles: readonly ("platform_ops" | "finance_ops")[],
+          ) => Promise<ResolvedPlatformOpsActor>)
+        | undefined;
+      expect(resolve, "resolveOperatorActor must be exported").toBeTypeOf("function");
+      expect((await resolve!(tx, financeId, ["finance_ops"])).userId).toBe(financeId);
+      await expect(resolve!(tx, platformId, ["finance_ops"])).rejects.toMatchObject({
+        code: "operator_actor_not_platform_ops",
+        status: 403,
+        message: expect.stringContaining("finance_ops"),
+      });
+    });
   });
 });

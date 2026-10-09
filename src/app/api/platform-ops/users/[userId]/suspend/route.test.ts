@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 
 const { requireSessionRole, suspendUser, ModerationError } = vi.hoisted(() => {
   class ModerationError extends Error {
@@ -77,5 +78,18 @@ describe("POST /api/platform-ops/users/[userId]/suspend", () => {
     suspendUser.mockRejectedValueOnce(new ModerationError("user_already_suspended", 409, "no"));
     const res = await POST(req({ reason: "x" }), params("u1"));
     expect(res.status).toBe(409);
+  });
+});
+
+describe("database actor refusals", () => {
+  it.each([
+    "operator_actor_not_found",
+    "operator_actor_not_platform_ops",
+    "operator_actor_suspended",
+  ] as const)("returns 403 JSON for %s", async (code) => {
+    suspendUser.mockRejectedValueOnce(new OperatorActorError(code, 403, "actor refused"));
+    const response = await POST(req({ reason: "reason" }), params("target"));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: { code, message: "actor refused" } });
   });
 });
