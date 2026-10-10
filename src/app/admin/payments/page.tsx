@@ -14,6 +14,10 @@ export const metadata = {
 /**
  * The DEC-0132 escape hatch, made findable.
  *
+ * This is the only route by which a paid competition can be withdrawn, so a guard stricter than
+ * platform_ops would not harden the product, it would remove the hatch and leave the organiser
+ * permanently stuck behind the block that exists to protect their candidates.
+ *
  * The lists are the affected sets themselves, not a search box. An operator answering a support
  * request knows the competition by name, not by id, and a hatch that requires knowing an id is a
  * hatch only its author can open.
