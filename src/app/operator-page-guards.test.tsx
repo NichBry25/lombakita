@@ -163,7 +163,9 @@ describe.each(CASES)("operator page $path", (entry) => {
       callbackPath: entry.callbackPath ?? entry.path,
     });
     for (const reader of READERS) {
-      expect(reader).toHaveBeenCalledTimes(entry.readers.includes(reader) ? 1 : 0);
+      expect(reader).toHaveBeenCalledTimes(
+        entry.readers.some((expectedReader) => expectedReader === reader) ? 1 : 0,
+      );
     }
   });
 });
