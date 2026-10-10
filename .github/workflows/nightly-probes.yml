@@ -234,6 +234,10 @@ jobs:
         if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
         run: node scripts/testing/probes/registration-cancel-session.mjs
 
+      - name: "Probe suite: operator-page-guards"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/operator-page-guards.mjs
+
       - name: "Probe suite: register-gate"
         if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
         run: node scripts/testing/probes/register-gate.mjs

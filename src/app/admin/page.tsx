@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Icon, PageHeader } from "@/components/ui";
+import { requireRolePage } from "@/server/auth/page-guard";
 
 const ADMIN_LINKS = [
   {
@@ -48,7 +49,9 @@ const ADMIN_LINKS = [
   },
 ];
 
-export default function AdminHubPage() {
+export default async function AdminHubPage() {
+  await requireRolePage("platform_ops", { callbackPath: "/admin" });
+
   return (
     <main className="page-shell app-page admin-page">
       <PageHeader
