@@ -211,26 +211,26 @@ export const reinstateInstitution = async (
 ): Promise<InstitutionModerationResult> => {
   const cleanReason = assertReasonProvided(reason);
 
+  const [target] = await db
+    .select({ id: institutions.id, suspendedAt: institutions.suspendedAt })
+    .from(institutions)
+    .where(eq(institutions.id, targetInstitutionId))
+    .limit(1);
+
+  if (!target) {
+    throw new ModerationError("institution_not_found", 404, "Institution not found");
+  }
+  if (!target.suspendedAt) {
+    throw new ModerationError(
+      "institution_not_suspended",
+      409,
+      "Institution is not currently suspended",
+    );
+  }
+
   const now = new Date();
   await db.transaction(async (tx) => {
     const actor = await resolveOperatorActor(tx, actorUserId, ["platform_ops"]);
-
-    const [target] = await tx
-      .select({ id: institutions.id, suspendedAt: institutions.suspendedAt })
-      .from(institutions)
-      .where(eq(institutions.id, targetInstitutionId))
-      .limit(1);
-
-    if (!target) {
-      throw new ModerationError("institution_not_found", 404, "Institution not found");
-    }
-    if (!target.suspendedAt) {
-      throw new ModerationError(
-        "institution_not_suspended",
-        409,
-        "Institution is not currently suspended",
-      );
-    }
 
     // Taken before the count below, because that count is a count of OTHER rows: a de-identification
     // revoking the institution's last owner membership and this reinstatement reading the count are
@@ -249,28 +249,10 @@ export const reinstateInstitution = async (
       );
     }
 
-    const changed = await tx
+    await tx
       .update(institutions)
       .set({ suspendedAt: null, suspensionReason: null, updatedAt: now })
-      .where(and(eq(institutions.id, targetInstitutionId), isNotNull(institutions.suspendedAt)))
-      .returning({ id: institutions.id });
-
-    if (changed.length === 0) {
-      const [current] = await tx
-        .select({ id: institutions.id })
-        .from(institutions)
-        .where(eq(institutions.id, targetInstitutionId))
-        .limit(1);
-
-      if (!current) {
-        throw new ModerationError("institution_not_found", 404, "Institution not found");
-      }
-      throw new ModerationError(
-        "institution_not_suspended",
-        409,
-        "Institution is not currently suspended",
-      );
-    }
+      .where(eq(institutions.id, targetInstitutionId));
 
     await recordOperatorAuditEntry(tx, actor, {
       targetInstitutionId,
