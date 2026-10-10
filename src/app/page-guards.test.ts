@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
 const SECTIONS = ["src/app/admin", "src/app/finance"];
+const isPageFile = (path: string): boolean => /\/page\.[jt]sx?$/.test(path);
+const isLayoutFile = (path: string): boolean => /\/layout\.[jt]sx?$/.test(path);
 const CLIENT_PAGES: Record<string, string> = {
   "src/app/admin/institutions/page.tsx": "Client queue reads through role-guarded APIs.",
   "src/app/admin/verification/page.tsx": "Client document review reads through role-guarded APIs.",
@@ -99,7 +101,7 @@ const analyzeServerPage = (text: string, path: string, role: string): string[] =
 
 const files = SECTIONS.flatMap(enumerateFiles);
 const layouts = new Map<string, string>();
-for (const path of files.filter((path) => path.endsWith("/layout.tsx"))) {
+for (const path of files.filter(isLayoutFile)) {
   const source = parseSource(readFileSync(join(ROOT, path), "utf8"), path);
   const visit = (node: ts.Node): void => {
     if (
@@ -117,7 +119,7 @@ for (const path of files.filter((path) => path.endsWith("/layout.tsx"))) {
   };
   visit(source);
 }
-const pages = files.filter((path) => path.endsWith("/page.tsx"));
+const pages = files.filter(isPageFile);
 const nearestLayoutRole = (path: string): string => {
   let directory = dirname(path);
   while (directory.startsWith("src/app")) {
@@ -133,6 +135,15 @@ describe("operator page guard enumeration", () => {
     expect(pages.length).toBeGreaterThan(0);
     expect(layouts.size).toBeGreaterThan(0);
   });
+
+  it.each(["tsx", "ts", "jsx", "js"])(
+    "enumerates Next page and layout extension %s",
+    (extension) => {
+      expect(isPageFile(`src/app/admin/new/page.${extension}`)).toBe(true);
+      expect(isLayoutFile(`src/app/admin/new/layout.${extension}`)).toBe(true);
+      expect(isPageFile(`src/app/admin/new/page.${extension}.test.ts`)).toBe(false);
+    },
+  );
 
   it.each(Object.entries(CLIENT_PAGES))("%s really begins with use client: %s", (path) => {
     expect(pages).toContain(path);
@@ -160,6 +171,34 @@ describe("operator page guard enumeration", () => {
   ])("reports missing and late guards on inline source: %s", (source) => {
     expect(analyzeServerPage(source, "src/app/finance/payments/page.tsx", "finance_ops")).toContain(
       "first statement must await requireRolePage before any reader",
+    );
+  });
+
+  it.each([
+    [
+      '"platform_ops", { callbackPath: "/finance/payments" }',
+      "guard role must match the nearest guarded layout",
+    ],
+    [
+      '"finance_ops", { callbackPath: path }',
+      "callbackPath must be the page's string literal URL or its static dynamic-page parent",
+    ],
+    [
+      '"finance_ops", { callbackPath: "/admin" }',
+      "callbackPath must be the page's string literal URL or its static dynamic-page parent",
+    ],
+  ])("reports invalid guard arguments: %s", (argumentsSource, error) => {
+    const source = `import { requireRolePage } from "@/server/auth/page-guard"; export default async function Page() { await requireRolePage(${argumentsSource}); }`;
+    expect(analyzeServerPage(source, "src/app/finance/payments/page.tsx", "finance_ops")).toContain(
+      error,
+    );
+  });
+
+  it("refuses a guard without the shared guard import", () => {
+    const source =
+      'export default async function Page() { await requireRolePage("finance_ops", { callbackPath: "/finance/payments" }); }';
+    expect(analyzeServerPage(source, "src/app/finance/payments/page.tsx", "finance_ops")).toContain(
+      "guard must import the real requireRolePage",
     );
   });
 });

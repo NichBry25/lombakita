@@ -148,6 +148,7 @@ describe.each(CASES)("operator page $path", (entry) => {
   it("refuses before reading data when the role guard redirects", async () => {
     const refusal = getRedirectError("/auth/login?callbackUrl=%2Fadmin", "replace");
     mocks.guard.mockRejectedValue(refusal);
+    mocks.detail.mockResolvedValue(null);
     await expect(entry.run()).rejects.toBe(refusal);
     expect(mocks.guard).toHaveBeenCalledExactlyOnceWith(entry.role, {
       callbackPath: entry.callbackPath ?? entry.path,
