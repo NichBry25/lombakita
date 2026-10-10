@@ -2,6 +2,7 @@ import { requireGreenBeforeProbing, runProbes, substituteOnce } from "../guard-p
 import { fails } from "./detectors.mjs";
 
 const TEST = "src/app/operator-page-guards.test.tsx";
+const TRIPWIRE = "src/app/page-guards.test.ts";
 const PAGES = [
   {
     path: "/admin/featured",
@@ -46,7 +47,7 @@ export const probes = PAGES.flatMap((page) => {
   const reached = new RegExp(
     `× .*operator page ['"]${escapedPath}['"] > refuses before reading data when the role guard redirects`,
   );
-  const detect = async () => fails("npx", ["vitest", "run", TEST], reached);
+  const detect = async () => fails("npx", ["vitest", "run", TEST, TRIPWIRE], reached);
   return [
     {
       name: `${page.path}: page role guard REMOVED`,
@@ -73,6 +74,6 @@ export const probes = PAGES.flatMap((page) => {
 });
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  requireGreenBeforeProbing("operator-page-guards", [["npx", ["vitest", "run", TEST]]]);
+  requireGreenBeforeProbing("operator-page-guards", [["npx", ["vitest", "run", TEST, TRIPWIRE]]]);
   await runProbes(probes);
 }
