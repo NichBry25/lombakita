@@ -133,7 +133,8 @@ export default async function InstitutionHubPage({
     // wrong about who is looking.
     return renderPublicView(slug, {
       userId: session?.user?.id ?? null,
-      isPlatformOps: session?.user?.role === "platform_ops",
+      isPlatformOps:
+        session?.user?.role === "platform_ops" && session.user.mfaStatus === "satisfied",
       isPreview: tampilan === PUBLIC_VIEW_PARAM,
     });
   }

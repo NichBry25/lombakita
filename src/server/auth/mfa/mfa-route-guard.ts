@@ -117,7 +117,7 @@ export type MfaGuardedHandler = (
 export const withMfaRouteAuth = (handler: MfaGuardedHandler) => {
   return async (request: NextRequest): Promise<Response> => {
     try {
-      const session = await requireAuthenticatedSession();
+      const session = await requireAuthenticatedSession({ allowUnsatisfiedMfa: true });
 
       if (isSelfServiceRole(session.user.role)) {
         return NextResponse.json(
