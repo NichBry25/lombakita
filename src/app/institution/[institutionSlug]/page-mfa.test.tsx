@@ -116,4 +116,26 @@ describe("institution page operational contact disclosure", () => {
     );
     expect(html).toContain("private@example.test");
   });
+  it("withholds unverified contacts from a satisfied non-member finance operator", async () => {
+    state.session.mockResolvedValue({
+      user: { id: "finance-operator", role: "finance_ops", mfaStatus: "satisfied" },
+    });
+    const html = renderToStaticMarkup(
+      await Page({
+        params: Promise.resolve({ institutionSlug: "test-institution" }),
+        searchParams: Promise.resolve({}),
+      }),
+    );
+    expect(state.contacts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contactName: null,
+        contactEmail: null,
+        contactPhone: null,
+        contactDisclosure: { kind: "hidden" },
+      }),
+    );
+    expect(html).not.toContain("Private Contact");
+    expect(html).not.toContain("private@example.test");
+    expect(html).not.toContain("0800");
+  });
 });
