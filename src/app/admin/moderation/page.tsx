@@ -1,10 +1,12 @@
 import { ModerationConsole } from "./moderation-console";
 import { PageHeader } from "@/components/ui";
+import { requireRolePage } from "@/server/auth/page-guard";
 
-// Protected by /admin/layout.tsx — platform_ops only. The moderation and support console for platform_ops.
 export default async function AdminModerationPage(props: {
   searchParams?: Promise<{ email?: string }>;
 }) {
+  await requireRolePage("platform_ops", { callbackPath: "/admin/moderation" });
+
   const searchParams = await props.searchParams;
   return (
     <main className="page-shell app-page admin-page admin-moderation-page">

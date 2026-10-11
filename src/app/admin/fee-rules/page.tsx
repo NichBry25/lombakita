@@ -2,10 +2,11 @@ import { EmptyState, PageHeader } from "@/components/ui";
 import { listFeeRules } from "@/server/finance/fee-rule-service";
 import { FeeRuleForm } from "./fee-rule-form";
 import { formatBasisPoints, formatEffectiveDate, formatMinorUnits } from "./fee-rule-display";
+import { requireRolePage } from "@/server/auth/page-guard";
 
-// Protected by /admin/layout.tsx (platform_ops only), and requireRolePage applies the operational
-// MFA challenge, so this surface is gated on the same choke point as every other /admin page.
 export default async function AdminFeeRulesPage() {
+  await requireRolePage("platform_ops", { callbackPath: "/admin/fee-rules" });
+
   const rules = await listFeeRules();
 
   return (

@@ -9,6 +9,7 @@ import {
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import { formatFileSize } from "@/lib/text/format-file-size";
 import { DisputeProofFileButton } from "./dispute-proof-file-button";
+import { requireRolePage } from "@/server/auth/page-guard";
 
 type Props = { params: Promise<{ paymentId: string }> };
 
@@ -29,6 +30,8 @@ export const metadata = {
  * is an act on the payer's data that leaves its own audit row.
  */
 export default async function FinanceDisputePaymentDetailPage({ params }: Props) {
+  await requireRolePage("finance_ops", { callbackPath: "/finance/payments" });
+
   const { paymentId } = await params;
 
   const detail = await loadDisputePaymentDetail(paymentId);

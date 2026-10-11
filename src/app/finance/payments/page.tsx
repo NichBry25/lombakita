@@ -3,6 +3,7 @@ import { EmptyState, Feedback, PageHeader } from "@/components/ui";
 import { loadDisputePayments } from "@/server/finance/dispute-view";
 import { formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
+import { requireRolePage } from "@/server/auth/page-guard";
 
 export const metadata = {
   title: "Sengketa pembayaran",
@@ -22,6 +23,8 @@ export const metadata = {
  * Cross-institution on purpose: a dispute arrives naming a person and a competition, not a tenant.
  */
 export default async function FinanceDisputePaymentsPage() {
+  await requireRolePage("finance_ops", { callbackPath: "/finance/payments" });
+
   const payments = await loadDisputePayments();
 
   return (

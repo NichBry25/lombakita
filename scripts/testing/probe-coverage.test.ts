@@ -49,6 +49,7 @@ import { probes as uploadRateLimitProbes } from "./probes/upload-rate-limit.mjs"
 import { probes as probeWiringProbes } from "./probes/probe-wiring.mjs";
 import { probes as publishedEditUnchangedProbes } from "./probes/published-edit-unchanged.mjs";
 import { probes as registrationCancelSessionProbes } from "./probes/registration-cancel-session.mjs";
+import { probes as operatorPageGuardProbes } from "./probes/operator-page-guards.mjs";
 
 const SUITES: Record<string, Probe[]> = {
   "config-gates": configGateProbes,
@@ -77,6 +78,7 @@ const SUITES: Record<string, Probe[]> = {
   "probe-wiring": probeWiringProbes,
   "published-edit-unchanged": publishedEditUnchangedProbes,
   "registration-cancel-session": registrationCancelSessionProbes,
+  "operator-page-guards": operatorPageGuardProbes,
 };
 
 const everyProbe: [string, Probe][] = Object.entries(SUITES).flatMap(([suite, probes]) =>

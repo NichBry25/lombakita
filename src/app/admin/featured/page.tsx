@@ -3,9 +3,11 @@ import { getDb } from "@/server/db/client";
 import { competitions, institutions } from "@/server/db/schema";
 import { FeaturedRowForm } from "./featured-row-form";
 import { EmptyState, PageHeader } from "@/components/ui";
+import { requireRolePage } from "@/server/auth/page-guard";
 
-// Protected by /admin/layout.tsx — platform_ops only.
 export default async function AdminFeaturedPage() {
+  await requireRolePage("platform_ops", { callbackPath: "/admin/featured" });
+
   const db = getDb();
 
   const rows = await db
