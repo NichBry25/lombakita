@@ -117,7 +117,7 @@ export const assertAuthenticatedSession = (session: Session | null): Authenticat
 // — are covered by construction rather than by remembering to list every operational role. Runs
 // AFTER the role-permission check passes, so a session that fails sessionHasRole gets the existing
 // generic 403 rather than leaking MFA state about a role it does not even hold.
-const assertMfaSatisfiedForOperationalSession = (session: AuthenticatedSession): void => {
+export const assertMfaSatisfiedForOperationalSession = (session: AuthenticatedSession): void => {
   if (isSelfServiceRole(session.user.role)) {
     return;
   }
