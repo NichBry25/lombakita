@@ -51,6 +51,95 @@ describe("unsatisfied MFA name enumeration", () => {
   ])("rejects $name", ({ source }) => {
     expect(scanMfaOptOutNames(source, "unlisted.ts").length).toBeGreaterThan(0);
   });
+  describe("guard reference invariant", () => {
+    const importGuard = 'import { requireAuthenticatedSession } from "@/server/auth/session";';
+    const guardViolations = (source: string, file = "src/new/route.ts"): number[] =>
+      scanMfaOptOutNames(source, file);
+    const violating = [
+      {
+        name: "local alias with a string-built key",
+        source: `${importGuard} const guard = requireAuthenticatedSession; const key = "allowUnsatisfied" + "Mfa"; guard({ [key]: true });`,
+      },
+      {
+        name: "shadowed options (outer computed key, inner empty object)",
+        source: `${importGuard} const key = "k"; const options = { [key]: true }; const inner = () => { const options = {}; return options; }; inner(); requireAuthenticatedSession(options);`,
+      },
+      { name: ".call(null)", source: `${importGuard} requireAuthenticatedSession.call(null);` },
+      {
+        name: ".apply(null, [])",
+        source: `${importGuard} requireAuthenticatedSession.apply(null, []);`,
+      },
+      {
+        name: "bound alias",
+        source: `${importGuard} const bound = requireAuthenticatedSession.bind(null); bound();`,
+      },
+      {
+        name: "returned guard",
+        source: `${importGuard} const pick = () => requireAuthenticatedSession; pick()();`,
+      },
+      {
+        name: "guard passed as an argument",
+        source: `${importGuard} const run = (fn: () => unknown) => fn(); run(requireAuthenticatedSession);`,
+      },
+      {
+        name: "bracket access on the namespace",
+        source:
+          'import * as auth from "@/server/auth/session"; auth["requireAuthenticatedSession"]();',
+      },
+      {
+        name: "re-export",
+        source: 'export { requireAuthenticatedSession } from "@/server/auth/session";',
+      },
+      {
+        name: "renamed import",
+        source:
+          'import { requireAuthenticatedSession as guard } from "@/server/auth/session"; guard();',
+      },
+      {
+        name: "dynamic import destructuring",
+        source:
+          'const { requireAuthenticatedSession: guard } = await import("@/server/auth/session"); guard();',
+      },
+      { name: "parenthesized callee", source: `${importGuard} (requireAuthenticatedSession)();` },
+      { name: "optional call", source: `${importGuard} requireAuthenticatedSession?.();` },
+      {
+        name: "options variable",
+        source: `${importGuard} const options = {}; requireAuthenticatedSession(options);`,
+      },
+      {
+        name: "spread options",
+        source: `${importGuard} const base = {}; requireAuthenticatedSession({ ...base });`,
+      },
+      {
+        name: "computed key",
+        source: `${importGuard} requireAuthenticatedSession({ ["literal"]: true });`,
+      },
+      {
+        name: "call-result options",
+        source: `${importGuard} requireAuthenticatedSession(buildOptions());`,
+      },
+    ];
+    it.each(violating)("rejects $name", ({ source }) => {
+      expect(guardViolations(source).length).toBeGreaterThan(0);
+    });
+    it.each([
+      { name: "a plain call", source: `${importGuard} requireAuthenticatedSession();` },
+      { name: "a plain {} call", source: `${importGuard} requireAuthenticatedSession({});` },
+      {
+        name: "a literal-named object",
+        source: `${importGuard} requireAuthenticatedSession({ literalName: 1 });`,
+      },
+    ])("still accepts $name", ({ source }) => {
+      expect(guardViolations(source)).toEqual([]);
+    });
+    it("exempts the declaring file's test and no other file", () => {
+      const source = `${importGuard} requireAuthenticatedSession.call(null);`;
+      expect(guardViolations(source, "src/server/auth/session.test.ts")).toEqual([]);
+      expect(
+        guardViolations(source, "src/server/auth/session-other.test.ts").length,
+      ).toBeGreaterThan(0);
+    });
+  });
   const files = enumerateRepositorySourceFiles();
   it("enumerates a nonempty declared source population", () => {
     expect(files.length).toBeGreaterThan(0);

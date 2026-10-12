@@ -71,6 +71,49 @@ describe("direct page session enumeration", () => {
       source:
         'import { readViewer } from "@/server/auth/fixtures/session-guards/wrapper"; export default async function Page() { await readViewer(); }',
     },
+    ...[
+      {
+        name: "satisfies-wrapped getter",
+        use: "await (getCurrentSession satisfies () => Promise<unknown>)();",
+      },
+      { name: "as-wrapped getter", use: "await (getCurrentSession as () => Promise<unknown>)();" },
+      { name: "non-null getter", use: "await getCurrentSession!();" },
+      { name: "parenthesized getter", use: "await (getCurrentSession)();" },
+      { name: "getter .call(null)", use: "await getCurrentSession.call(null);" },
+      { name: "getter .apply(null, [])", use: "await getCurrentSession.apply(null, []);" },
+      {
+        name: "bound getter alias",
+        use: "const bound = getCurrentSession.bind(null); await bound();",
+      },
+      { name: "returned getter", use: "const pick = () => getCurrentSession; await pick()();" },
+      {
+        name: "getter passed as an argument",
+        use: "const run = (fn: () => unknown) => fn(); await run(getCurrentSession);",
+      },
+    ].map(({ name, use }) => ({
+      name,
+      source: `import { getCurrentSession } from "@/server/auth/session"; export default async function Page() { ${use} }`,
+    })),
+    {
+      name: "whole session namespace passed as an argument",
+      source:
+        'import * as auth from "@/server/auth/session"; const run = (value: unknown) => value; export default async function Page() { run(auth); }',
+    },
+    {
+      name: "computed-key bracket access on the session namespace",
+      source:
+        'import * as auth from "@/server/auth/session"; const key = "getCurrent" + "Session"; export default async function Page() { await auth[key as "getCurrentSession"](); }',
+    },
+    {
+      name: "external wrapper invoked through .call(null)",
+      source:
+        'import { readViewer } from "@/server/auth/fixtures/session-guards/wrapper"; export default async function Page() { await readViewer.call(null); }',
+    },
+    {
+      name: "external wrapper passed as an argument",
+      source:
+        'import { readViewer } from "@/server/auth/fixtures/session-guards/wrapper"; const run = (fn: () => unknown) => fn(); export default async function Page() { await run(readViewer); }',
+    },
   ];
   for (const kind of ["page", "layout"]) {
     it.each(bypasses)(`detects $name in ${kind}.tsx`, ({ source }) => {
@@ -96,6 +139,38 @@ describe("direct page session enumeration", () => {
       expect(sessionCallLines(readFileSync(file, "utf8"), file).length).toBeGreaterThan(0);
     },
   );
+  describe("accepted cases", () => {
+    const pageGuard = [
+      'import { getCurrentSession } from "@/server/auth/session";',
+      "export const requireRolePage = async (role: string) => { await getCurrentSession(); return role; };",
+      "export const requireActiveSessionPage = async () => getCurrentSession();",
+      "export const requireSneakyPage = async () => getCurrentSession();",
+    ].join("\n");
+    const scanWithPageGuard = (source: string): number[] =>
+      createSessionGetterScanner({
+        "src/app/new/page.tsx": source,
+        "src/server/auth/page-guard.ts": pageGuard,
+      })("src/app/new/page.tsx");
+    it("passes a page that only uses the two exempt page guards", () => {
+      expect(
+        scanWithPageGuard(
+          'import { requireRolePage, requireActiveSessionPage } from "@/server/auth/page-guard"; export default async function Page() { await requireRolePage("candidate"); await requireActiveSessionPage(); }',
+        ),
+      ).toEqual([]);
+    });
+    it("does not extend the page-guard exemption to any other export of that file", () => {
+      expect(
+        scanWithPageGuard(
+          'import { requireSneakyPage } from "@/server/auth/page-guard"; export default async function Page() { await requireSneakyPage(); }',
+        ).length,
+      ).toBeGreaterThan(0);
+    });
+    it("passes a page that reads no session at all", () => {
+      expect(
+        sessionCallLines("export default function Page() { return null; }", "src/app/new/page.tsx"),
+      ).toEqual([]);
+    });
+  });
   it.each([
     "export default async function Page() { await getCurrentSession(); }",
     'import { getCurrentSession as session } from "@/server/auth/session"; export default async function Page() { await session(); }',
