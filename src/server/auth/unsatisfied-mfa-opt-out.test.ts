@@ -1,124 +1,74 @@
 // @vitest-environment node
 
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import ts from "typescript";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import {
+  MFA_OPT_OUT_ALLOWLIST,
+  censusMfaOptOutNames,
+  enumerateRepositorySourceFiles,
+  scanMfaOptOutNames,
+} from "./unsatisfied-mfa-opt-out";
 
-const ALLOWLIST: Record<string, { count: number; reason: string }> = {
-  "src/server/auth/session.ts": {
-    count: 1,
-    reason: "Role gates must refuse a wrong role before disclosing MFA state.",
-  },
-  "src/server/auth/mfa/mfa-route-guard.ts": {
-    count: 1,
-    reason: "MFA lifecycle handlers must run before MFA is satisfied.",
-  },
-  "src/server/auth/session.test.ts": {
-    count: 1,
-    reason: "Regression tests exercise the explicit MFA lifecycle exception.",
-  },
-};
+export { scanMfaOptOutNames } from "./unsatisfied-mfa-opt-out";
 
-const enumerateSourceFiles = (directory: string): string[] =>
-  readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const file = join(directory, entry.name);
-    return entry.isDirectory()
-      ? enumerateSourceFiles(file)
-      : /\.[cm]?[jt]sx?$/.test(file)
-        ? [file]
-        : [];
+export const OPT_OUT_FORMS = [
+  "const options = { allowUnsatisfiedMfa: !!true };",
+  "const options = { allowUnsatisfiedMfa: <boolean>true };",
+  "const t = true; const options = { allowUnsatisfiedMfa: t };",
+  "const allowUnsatisfiedMfa = true; const options = { allowUnsatisfiedMfa };",
+  "const options = { [`allowUnsatisfiedMfa`]: true };",
+  'const options = { [("allowUnsatisfiedMfa")]: true };',
+  'const key = "allowUnsatisfiedMfa"; const options = { [key]: true };',
+  "const options = { allowUnsatisfiedMfa: true ? true : false };",
+  "const options = { allowUnsatisfiedMfa: Boolean(true) };",
+  "const options = { get allowUnsatisfiedMfa() { return true; } };",
+  "const options = { allowUnsatisfiedMfa: (true) };",
+  "const options = { allowUnsatisfiedMfa: true as const };",
+];
+
+describe("unsatisfied MFA name enumeration", () => {
+  const files = enumerateRepositorySourceFiles();
+  it("enumerates a nonempty declared source population", () => {
+    expect(files.length).toBeGreaterThan(0);
   });
-
-const unwrapInitializer = (expression: ts.Expression): ts.Expression => {
-  while (
-    ts.isParenthesizedExpression(expression) ||
-    ts.isAsExpression(expression) ||
-    ts.isSatisfiesExpression(expression) ||
-    ts.isNonNullExpression(expression)
-  ) {
-    expression = expression.expression;
-  }
-  return expression;
-};
-
-const isOptOutProperty = (name: ts.PropertyName): boolean => {
-  if (ts.isComputedPropertyName(name)) {
-    return ts.isStringLiteral(name.expression) && name.expression.text === "allowUnsatisfiedMfa";
-  }
-  return (ts.isIdentifier(name) || ts.isStringLiteral(name)) && name.text === "allowUnsatisfiedMfa";
-};
-
-const optOutLines = (text: string, file: string): number[] => {
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-  const lines: number[] = [];
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isPropertyAssignment(node) &&
-      isOptOutProperty(node.name) &&
-      unwrapInitializer(node.initializer).kind === ts.SyntaxKind.TrueKeyword
-    ) {
-      lines.push(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return lines;
-};
-
-const violations = (text: string, file: string): number[] =>
-  optOutLines(text, file).slice(ALLOWLIST[file]?.count ?? 0);
-
-describe("unsatisfied MFA opt-out enumeration", () => {
-  const files = enumerateSourceFiles("src");
-  it("enumerates a nonempty source population", () => expect(files.length).toBeGreaterThan(0));
-  it("permits opt-outs only within the exact per-file allowance", () => {
+  it("permits names only within exact per-file counts", () => {
     expect(
-      files.flatMap((file) =>
-        violations(readFileSync(file, "utf8"), file).map((line) => `${file}:${line}`),
+      censusMfaOptOutNames().filter(
+        ({ file, count }) => count !== MFA_OPT_OUT_ALLOWLIST[file]?.count,
       ),
     ).toEqual([]);
   });
-  it.each(Object.entries(ALLOWLIST))(
-    "%s contains exactly its counted exceptions",
+  it.each(Object.entries(MFA_OPT_OUT_ALLOWLIST))(
+    "%s contains exactly its pinned names and a nonempty reason",
     (file, { count, reason }) => {
+      expect(typeof reason).toBe("string");
       expect(reason.trim().length).toBeGreaterThan(0);
       expect(files).toContain(file);
-      expect(optOutLines(readFileSync(file, "utf8"), file)).toHaveLength(count);
+      expect(scanMfaOptOutNames(readFileSync(file, "utf8"), file)).toHaveLength(count);
     },
   );
-  it.each([
-    "requireAuthenticatedSession({ allowUnsatisfiedMfa: true });",
-    "const options = { 'allowUnsatisfiedMfa': true };",
-    "const options = { allowUnsatisfiedMfa: (true) };",
-    "const options = { allowUnsatisfiedMfa: true as const };",
-    "const options = { ['allowUnsatisfiedMfa']: true };",
-    "const options = { allowUnsatisfiedMfa: true satisfies boolean };",
-    "const options = { allowUnsatisfiedMfa: true! };",
-    "const options = { allowUnsatisfiedMfa: ((true as const) satisfies boolean)! };",
-  ])("rejects an inline exception outside the allowlist: %s", (source) => {
-    expect(violations(source, "src/app/api/v1/new/route.ts")).toEqual([1]);
+  it.each(OPT_OUT_FORMS)("detects every unlisted form: %s", (source) => {
+    expect(scanMfaOptOutNames(source, "unlisted.ts").length).toBeGreaterThan(0);
   });
-  it.each(Object.keys(ALLOWLIST))("rejects a second exception in %s", (file) => {
+  it.each(Object.entries(MFA_OPT_OUT_ALLOWLIST))(
+    "detects one extra occurrence in %s",
+    (file, { count }) => {
+      const source =
+        readFileSync(file, "utf8") + "\nconst options = { allowUnsatisfiedMfa: true };";
+      expect(scanMfaOptOutNames(source, file)).toHaveLength(count + 1);
+    },
+  );
+  it("counts string literals and template chunks, ignoring comments", () => {
     const source =
-      "requireAuthenticatedSession({ allowUnsatisfiedMfa: true });\n" +
-      "requireAuthenticatedSession({ allowUnsatisfiedMfa: true });";
-    expect(violations(source, file)).toEqual([2]);
+      '// allowUnsatisfiedMfa\nconst a = "allowUnsatisfiedMfa"; const b = `allowUnsatisfiedMfa${1}allowUnsatisfiedMfa`;';
+    expect(scanMfaOptOutNames(source, "inline.ts")).toEqual([2, 2, 2]);
   });
-  it("does not count wrapped false values or dynamic computed keys as opt-outs", () => {
-    expect(
-      optOutLines(
-        "const options = { allowUnsatisfiedMfa: ((false as const) satisfies boolean)!, [key]: true };",
-        "inline.ts",
-      ),
-    ).toEqual([]);
+  it("counts names regardless of the value", () => {
+    expect(scanMfaOptOutNames("const a = { allowUnsatisfiedMfa: false };", "inline.ts")).toEqual([
+      1,
+    ]);
   });
-  it("ignores comments and string fixtures rather than counting them as options", () => {
-    expect(
-      optOutLines(
-        '// allowUnsatisfiedMfa: true\nconst text = "allowUnsatisfiedMfa: true";',
-        "inline.ts",
-      ),
-    ).toEqual([]);
+  it("refuses source that cannot be parsed", () => {
+    expect(() => scanMfaOptOutNames("const = ;", "inline.ts")).toThrow("Cannot parse auth source");
   });
 });

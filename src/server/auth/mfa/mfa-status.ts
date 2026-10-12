@@ -1,4 +1,4 @@
-import { isAppRole, isSelfServiceRole } from "@/lib/access/roles";
+import { isOperationalRole } from "@/lib/access/roles";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/auth/mfa/mfa-status");
@@ -35,11 +35,7 @@ export const resolveMfaStatus = (params: {
   // isAppRole here (not just the isSelfServiceRole negation) keeps this fold honest on its own,
   // without depending on that upstream rejection to avoid mislabelling an absent role as
   // "enrolment_required".
-  if (
-    typeof params.role !== "string" ||
-    !isAppRole(params.role) ||
-    isSelfServiceRole(params.role)
-  ) {
+  if (!isOperationalRole(params.role)) {
     return "not_applicable";
   }
 

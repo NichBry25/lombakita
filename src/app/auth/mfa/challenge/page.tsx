@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
-import { isSelfServiceRole } from "@/lib/access/roles";
-import { getCurrentSession } from "@/server/auth/session";
+import { isOperationalRole } from "@/lib/access/roles";
+import { requireActiveSessionPage } from "@/server/auth/page-guard";
 import { MfaChallengeForm } from "./mfa-challenge-form";
 
 const defaultDestination = (role: string): string => (role === "platform_ops" ? "/admin" : "/");
@@ -11,12 +11,9 @@ const defaultDestination = (role: string): string => (role === "platform_ops" ? 
 export default async function MfaChallengePage(props: {
   searchParams?: Promise<{ callbackUrl?: string }>;
 }) {
-  const session = await getCurrentSession();
-  if (!session?.user?.id) {
-    redirect("/auth/login?callbackUrl=/auth/mfa/challenge");
-  }
+  const session = await requireActiveSessionPage({ callbackPath: "/auth/mfa/challenge" });
 
-  if (isSelfServiceRole(session.user.role)) {
+  if (!isOperationalRole(session.user.role)) {
     redirect("/");
   }
 

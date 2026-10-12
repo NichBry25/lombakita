@@ -1,6 +1,6 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { sessionHasRole } from "@/lib/access/roles";
-import { getCurrentSession } from "@/server/auth/session";
+import { requireActiveSessionPage } from "@/server/auth/page-guard";
 import { getPublicCompetitionDetail } from "@/server/competitions/competition-public-service";
 import { getStudentRegistration } from "@/server/registrations/registration-service";
 import { getTeamForCompetitionAndCandidate } from "@/server/teams/team-service";
@@ -19,14 +19,13 @@ export default async function CompetitionRegistrationPage({
 }: {
   params: Promise<{ institutionSlug: string; slug: string }>;
 }) {
+  const session = await requireActiveSessionPage({
+    callbackPath: params.then(
+      ({ institutionSlug, slug }) => `/competitions/${institutionSlug}/${slug}/registration`,
+    ),
+  });
   const { institutionSlug, slug } = await params;
-  const session = await getCurrentSession();
   const detailPath = `/competitions/${institutionSlug}/${slug}`;
-  const registrationPath = `${detailPath}/registration`;
-
-  if (!session?.user) {
-    redirect(`/auth/login?callbackUrl=${encodeURIComponent(registrationPath)}`);
-  }
 
   if (!sessionHasRole(session.user.role, session.user.verifiedRoles, "candidate")) {
     return (

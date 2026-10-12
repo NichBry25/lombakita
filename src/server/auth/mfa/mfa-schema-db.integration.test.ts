@@ -252,6 +252,24 @@ describe.skipIf(skipWithoutDatabase)("mfa_recovery_codes constraints (real datab
 });
 
 describe.skipIf(skipWithoutDatabase)("MFA lifecycle end to end (real database)", () => {
+  it.each([
+    { name: "suspended", changes: { suspendedAt: new Date(0) }, code: "account_suspended" },
+    { name: "deactivated", changes: { status: "deactivated" as const }, code: "forbidden" },
+    { name: "non-operational", changes: { role: "candidate" as const }, code: "forbidden" },
+  ])("refuses a $name account without a persisted factor", async ({ changes, code }) => {
+    await inRollback(async (tx) => {
+      const { startMfaEnrolment } = await import("@/server/auth/mfa/factor-service");
+      const userId = await seedUser(tx);
+      await tx.update(users).set(changes).where(eq(users.id, userId));
+      await expect(startMfaEnrolment(userId, tx as never)).rejects.toMatchObject({
+        code,
+        status: 403,
+      });
+      const factors = await tx.select().from(mfaFactors).where(eq(mfaFactors.userId, userId));
+      expect(factors).toEqual([]);
+    });
+  });
+
   it("enrols, confirms, and challenges successfully, with an audit row for enrolment", async () => {
     await inRollback(async (tx) => {
       const { startMfaEnrolment, confirmMfaEnrolment, challengeMfaFactor } =

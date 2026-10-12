@@ -83,6 +83,10 @@ export function NotificationBell() {
       try {
         const res = await fetch("/api/v1/me/inbox/unread-count", { credentials: "include" });
         if (!active) return;
+        if (res.status === 403) {
+          stopPolling();
+          return;
+        }
         if (res.status === 401) {
           // Signed out: stop polling entirely rather than 401ing every 25 s for the life of the
           // tab. Signing in remounts this component, which starts a fresh interval.

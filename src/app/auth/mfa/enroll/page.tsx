@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
-import { isSelfServiceRole } from "@/lib/access/roles";
-import { getCurrentSession } from "@/server/auth/session";
+import { isOperationalRole } from "@/lib/access/roles";
+import { requireActiveSessionPage } from "@/server/auth/page-guard";
+import { AccessError } from "@/server/auth/access-core";
 import { startMfaEnrolment } from "@/server/auth/mfa/factor-service";
 import { renderOtpauthQrDataUrl } from "@/server/auth/mfa/otpauth-qr";
 import { MfaEnrollForm } from "./mfa-enroll-form";
@@ -15,12 +16,9 @@ const defaultDestination = (role: string): string => (role === "platform_ops" ? 
 export default async function MfaEnrollPage(props: {
   searchParams?: Promise<{ callbackUrl?: string }>;
 }) {
-  const session = await getCurrentSession();
-  if (!session?.user?.id) {
-    redirect("/auth/login?callbackUrl=/auth/mfa/enroll");
-  }
+  const session = await requireActiveSessionPage({ callbackPath: "/auth/mfa/enroll" });
 
-  if (isSelfServiceRole(session.user.role)) {
+  if (!isOperationalRole(session.user.role)) {
     redirect("/");
   }
 
@@ -38,7 +36,15 @@ export default async function MfaEnrollPage(props: {
   // startMfaEnrolment is idempotent with respect to state (still unverified either way) and cheap;
   // the trade-off is that reloading this page mid-scan means re-scanning the QR, which is far safer
   // than trying to keep an in-progress secret alive across a stateless server render.
-  const enrolment = await startMfaEnrolment(session.user.id);
+  let enrolment;
+  try {
+    enrolment = await startMfaEnrolment(session.user.id);
+  } catch (error) {
+    if (!(error instanceof AccessError)) throw error;
+    if (error.code === "account_suspended") redirect("/suspended");
+    if (error.code === "forbidden") redirect("/");
+    throw error;
+  }
   const qrDataUrl = await renderOtpauthQrDataUrl(enrolment.otpauthUri);
 
   return (

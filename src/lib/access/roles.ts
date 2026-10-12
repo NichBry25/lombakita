@@ -25,6 +25,10 @@ export const isSelfServiceRole = (value: unknown): value is SelfServiceRole => {
   return typeof value === "string" && (SELF_SERVICE_ROLES as readonly string[]).includes(value);
 };
 
+export const isOperationalRole = (value: unknown): value is AppRole => {
+  return typeof value === "string" && isAppRole(value) && !isSelfServiceRole(value);
+};
+
 // Capability check for the DEC-0060 capability-based access model. The session JWT carries one
 // active `role`, but a dual-verified self-service account (candidate AND recruiter) signed in
 // under one role must still reach surfaces belonging to its other verified role. Authorization
