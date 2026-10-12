@@ -4,6 +4,7 @@ import { isOperationalRole } from "@/lib/access/roles";
 import { requireActiveSessionPage } from "@/server/auth/page-guard";
 import { AccessError } from "@/server/auth/access-core";
 import { startMfaEnrolment } from "@/server/auth/mfa/factor-service";
+import { MfaError } from "@/server/auth/mfa/mfa-core";
 import { renderOtpauthQrDataUrl } from "@/server/auth/mfa/otpauth-qr";
 import { MfaEnrollForm } from "./mfa-enroll-form";
 
@@ -40,6 +41,9 @@ export default async function MfaEnrollPage(props: {
   try {
     enrolment = await startMfaEnrolment(session.user.id);
   } catch (error) {
+    if (error instanceof MfaError && error.code === "mfa_already_enrolled") {
+      redirect(`/auth/mfa/challenge?callbackUrl=${encodeURIComponent(callbackUrl)}`);
+    }
     if (!(error instanceof AccessError)) throw error;
     if (error.code === "account_suspended") redirect("/suspended");
     if (error.code === "forbidden") redirect("/");

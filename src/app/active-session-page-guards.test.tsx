@@ -254,11 +254,17 @@ describe("enrolment service race refusal", () => {
   it("redirects a factor verified after session resolution to the existing challenge path without writes", async () => {
     mocks.session.mockResolvedValue(session());
     const db = createEnrolmentTestDatabase({
-      email: "operator@example.test", username: "operator", role: "platform_ops", status: "active", suspendedAt: null,
+      email: "operator@example.test",
+      username: "operator",
+      role: "platform_ops",
+      status: "active",
+      suspendedAt: null,
     });
     const factor = { id: "factor", userId: "user", verifiedAt: new Date(0) };
     db.factorRows.push(factor);
-    const actual = await vi.importActual<typeof import("@/server/auth/mfa/factor-service")>("@/server/auth/mfa/factor-service");
+    const actual = await vi.importActual<typeof import("@/server/auth/mfa/factor-service")>(
+      "@/server/auth/mfa/factor-service",
+    );
     mocks.start.mockImplementation((id: string) => actual.startMfaEnrolment(id, db.database));
     await expect(CASES[1].run()).rejects.toMatchObject({
       digest: getRedirectError("/auth/mfa/challenge?callbackUrl=%2Fadmin", "replace").digest,

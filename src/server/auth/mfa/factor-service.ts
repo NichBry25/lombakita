@@ -176,14 +176,6 @@ export const startMfaEnrolment = async (
   return db.transaction(async (tx) => {
     const existing = await loadFactorForUser(tx, userId);
 
-    if (existing?.verifiedAt) {
-      throw new MfaError(
-        "mfa_already_enrolled",
-        409,
-        "This account already has a verified MFA factor",
-      );
-    }
-
     const [account] = await tx
       .select({
         email: users.email,
@@ -205,6 +197,14 @@ export const startMfaEnrolment = async (
     }
     if (account.status === "deactivated" || !isOperationalRole(account.role)) {
       throw new AccessError("forbidden", 403, "Insufficient role permissions");
+    }
+
+    if (existing?.verifiedAt) {
+      throw new MfaError(
+        "mfa_already_enrolled",
+        409,
+        "This account already has a verified MFA factor",
+      );
     }
 
     const secret = randomBytes(TOTP_SECRET_BYTE_LENGTH);

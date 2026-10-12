@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui";
 
@@ -26,6 +27,7 @@ const getAudioCtor = (): AudioCtor | undefined => {
 };
 
 export function NotificationBell() {
+  const { data: session } = useSession();
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [authed, setAuthed] = useState(true);
   const prevCountRef = useRef<number | null>(null);
@@ -88,8 +90,7 @@ export function NotificationBell() {
           return;
         }
         if (res.status === 401) {
-          // Signed out: stop polling entirely rather than 401ing every 25 s for the life of the
-          // tab. Signing in remounts this component, which starts a fresh interval.
+          // SessionProvider's next session refresh restarts polling after sign-in.
           setAuthed(false);
           stopPolling();
           return;
@@ -114,7 +115,7 @@ export function NotificationBell() {
       active = false;
       stopPolling();
     };
-  }, []);
+  }, [session]);
 
   if (!authed) return null;
 

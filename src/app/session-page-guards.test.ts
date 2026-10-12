@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
-import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { enumerateAuthSourceFiles } from "@/server/auth/unsatisfied-mfa-opt-out";
+import {
+  createSessionGetterScanner,
+  enumerateRepositorySourceFiles,
+} from "@/server/auth/unsatisfied-mfa-opt-out";
 
 const SESSION_PAGES: Record<string, string> = {
   "src/app/[username]/page.tsx": "Public profile reads the viewer session for the owner redirect.",
@@ -18,57 +20,63 @@ const SESSION_PAGES: Record<string, string> = {
     "Development diagnostic asserts its session and refuses production rendering.",
 };
 
+const pages = enumerateRepositorySourceFiles().filter((file) =>
+  /^src\/app\/(?:.*\/)?(page|layout)\.tsx$/.test(file),
+);
+const scanRepositorySessions = createSessionGetterScanner(
+  Object.fromEntries(pages.map((file) => [file, readFileSync(file, "utf8")])),
+);
 const sessionCallLines = (text: string, file: string): number[] => {
-  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-  const names = new Set(["getCurrentSession"]);
-  for (const statement of source.statements) {
-    if (!ts.isImportDeclaration(statement)) continue;
-    const bindings = statement.importClause?.namedBindings;
-    if (!bindings || !ts.isNamedImports(bindings)) continue;
-    for (const entry of bindings.elements) {
-      if ((entry.propertyName ?? entry.name).text === "getCurrentSession")
-        names.add(entry.name.text);
-    }
-  }
-  const lines: number[] = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node)) {
-      const expression = node.expression;
-      const name = ts.isIdentifier(expression)
-        ? expression.text
-        : ts.isPropertyAccessExpression(expression)
-          ? expression.name.text
-          : undefined;
-      if (name && names.has(name))
-        lines.push(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return lines;
+  if (pages.includes(file)) return scanRepositorySessions(file);
+  return createSessionGetterScanner({ [file]: text })(file);
 };
-
-const pages = enumerateAuthSourceFiles("src/app").filter((file) => /\/page\.tsx$/.test(file));
 
 describe("direct page session enumeration", () => {
   it("includes every layout in the candidate population", () => {
-    for (const file of ["src/app/layout.tsx", "src/app/admin/layout.tsx", "src/app/finance/layout.tsx"])
+    for (const file of [
+      "src/app/layout.tsx",
+      "src/app/admin/layout.tsx",
+      "src/app/finance/layout.tsx",
+    ])
       expect(pages).toContain(file);
   });
   const bypasses = [
-    { name: "local alias", source: 'import { getCurrentSession } from "@/server/auth/session"; const current = getCurrentSession; export default async function Page() { await current(); }' },
-    { name: "destructuring alias", source: 'import * as auth from "@/server/auth/session"; const { getCurrentSession: current } = auth; export default async function Page() { await current(); }' },
-    { name: "renamed re-export", source: 'import { current } from "@/server/auth/fixtures/session-guards/re-export"; export default async function Page() { await current(); }' },
-    { name: "dynamic import destructuring", source: 'export default async function Page() { const { getCurrentSession: current } = await import("@/server/auth/session"); await current(); }' },
-    { name: "bracket access", source: 'import * as auth from "@/server/auth/session"; export default async function Page() { await auth["getCurrentSession"](); }' },
-    { name: "external wrapper", source: 'import { readViewer } from "@/server/auth/fixtures/session-guards/wrapper"; export default async function Page() { await readViewer(); }' },
+    {
+      name: "local alias",
+      source:
+        'import { getCurrentSession } from "@/server/auth/session"; const current = getCurrentSession; export default async function Page() { await current(); }',
+    },
+    {
+      name: "destructuring alias",
+      source:
+        'import * as auth from "@/server/auth/session"; const { getCurrentSession: current } = auth; export default async function Page() { await current(); }',
+    },
+    {
+      name: "renamed re-export",
+      source:
+        'import { current } from "@/server/auth/fixtures/session-guards/re-export"; export default async function Page() { await current(); }',
+    },
+    {
+      name: "dynamic import destructuring",
+      source:
+        'export default async function Page() { const { getCurrentSession: current } = await import("@/server/auth/session"); await current(); }',
+    },
+    {
+      name: "bracket access",
+      source:
+        'import * as auth from "@/server/auth/session"; export default async function Page() { await auth["getCurrentSession"](); }',
+    },
+    {
+      name: "external wrapper",
+      source:
+        'import { readViewer } from "@/server/auth/fixtures/session-guards/wrapper"; export default async function Page() { await readViewer(); }',
+    },
   ];
   for (const kind of ["page", "layout"]) {
     it.each(bypasses)(`detects $name in ${kind}.tsx`, ({ source }) => {
       expect(sessionCallLines(source, `src/app/new/${kind}.tsx`).length).toBeGreaterThan(0);
     });
   }
-
   it("enumerates a nonempty page population", () => expect(pages.length).toBeGreaterThan(0));
   it("permits direct session calls only in explicitly reasoned pages", () => {
     expect(
