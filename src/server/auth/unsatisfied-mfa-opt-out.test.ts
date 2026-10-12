@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   MFA_OPT_OUT_ALLOWLIST,
+  censusMfaGuardReferences,
   censusMfaOptOutNames,
+  createMfaGuardReferenceScanner,
   enumerateRepositorySourceFiles,
   scanMfaOptOutNames,
 } from "./unsatisfied-mfa-opt-out";
@@ -27,34 +29,8 @@ export const OPT_OUT_FORMS = [
 ];
 
 describe("unsatisfied MFA name enumeration", () => {
-  it.each([
-    {
-      name: "string-built key",
-      source:
-        'const key = "allowUnsatisfied" + "Mfa"; requireAuthenticatedSession({ [key]: true });',
-    },
-    {
-      name: "template-built key",
-      source:
-        'const key = `allowUnsatisfied${"Mfa"}`; requireAuthenticatedSession({ [key]: true });',
-    },
-    {
-      name: "computed literal key",
-      source: 'requireAuthenticatedSession({ ["anything"]: true });',
-    },
-    {
-      name: "options alias",
-      source:
-        'const key = "anything"; const options = { [key]: true }; requireAuthenticatedSession(options);',
-    },
-    { name: "unclassifiable options", source: "requireAuthenticatedSession(buildOptions());" },
-  ])("rejects $name", ({ source }) => {
-    expect(scanMfaOptOutNames(source, "unlisted.ts").length).toBeGreaterThan(0);
-  });
   describe("guard reference invariant", () => {
     const importGuard = 'import { requireAuthenticatedSession } from "@/server/auth/session";';
-    const guardViolations = (source: string, file = "src/new/route.ts"): number[] =>
-      scanMfaOptOutNames(source, file);
     const violating = [
       {
         name: "local alias with a string-built key",
@@ -63,6 +39,22 @@ describe("unsatisfied MFA name enumeration", () => {
       {
         name: "shadowed options (outer computed key, inner empty object)",
         source: `${importGuard} const key = "k"; const options = { [key]: true }; const inner = () => { const options = {}; return options; }; inner(); requireAuthenticatedSession(options);`,
+      },
+      {
+        name: "string-built key",
+        source: `${importGuard} const key = "allowUnsatisfied" + "Mfa"; requireAuthenticatedSession({ [key]: true });`,
+      },
+      {
+        name: "template-built key",
+        source: `${importGuard} const key = \`allowUnsatisfied\${"Mfa"}\`; requireAuthenticatedSession({ [key]: true });`,
+      },
+      {
+        name: "options alias",
+        source: `${importGuard} const key = "anything"; const options = { [key]: true }; requireAuthenticatedSession(options);`,
+      },
+      {
+        name: "unresolved guard identifier",
+        source: "requireAuthenticatedSession();",
       },
       { name: ".call(null)", source: `${importGuard} requireAuthenticatedSession.call(null);` },
       {
@@ -119,25 +111,58 @@ describe("unsatisfied MFA name enumeration", () => {
         source: `${importGuard} requireAuthenticatedSession(buildOptions());`,
       },
     ];
-    it.each(violating)("rejects $name", ({ source }) => {
-      expect(guardViolations(source).length).toBeGreaterThan(0);
-    });
-    it.each([
+    const accepted = [
       { name: "a plain call", source: `${importGuard} requireAuthenticatedSession();` },
       { name: "a plain {} call", source: `${importGuard} requireAuthenticatedSession({});` },
       {
         name: "a literal-named object",
         source: `${importGuard} requireAuthenticatedSession({ literalName: 1 });`,
       },
-    ])("still accepts $name", ({ source }) => {
+    ];
+    // One program for every in-memory fixture: a program per fixture made this file take over a
+    // minute.
+    const fixtureSources = [...violating, ...accepted].map(({ source }) => source);
+    const fixturePath = (source: string): string =>
+      `src/fixtures/guard-${fixtureSources.indexOf(source)}.ts`;
+    const scanFixtures = createMfaGuardReferenceScanner(
+      Object.fromEntries(fixtureSources.map((source) => [fixturePath(source), source])),
+    );
+    const guardViolations = (source: string): number[] => scanFixtures(fixturePath(source));
+    it.each(violating)("rejects $name", ({ source }) => {
+      expect(guardViolations(source).length).toBeGreaterThan(0);
+    });
+    it.each(accepted)("still accepts $name", ({ source }) => {
       expect(guardViolations(source)).toEqual([]);
     });
     it("exempts the declaring file's test and no other file", () => {
       const source = `${importGuard} requireAuthenticatedSession.call(null);`;
-      expect(guardViolations(source, "src/server/auth/session.test.ts")).toEqual([]);
-      expect(
-        guardViolations(source, "src/server/auth/session-other.test.ts").length,
-      ).toBeGreaterThan(0);
+      const scan = (file: string) => createMfaGuardReferenceScanner({ [file]: source })(file);
+      expect(scan("src/server/auth/session.test.ts")).toEqual([]);
+      expect(scan("src/server/auth/session-other.test.ts").length).toBeGreaterThan(0);
+    });
+  });
+  describe("guard reference invariant on the production population", () => {
+    const guardCensus = censusMfaGuardReferences();
+    const realCaller = "src/server/auth/mfa/mfa-route-guard.ts";
+    const scanReal = (source: string): number[] =>
+      createMfaGuardReferenceScanner({ [realCaller]: source })(realCaller);
+    it("accepts every guard reference under src", () => {
+      expect(guardCensus).toEqual([]);
+    });
+    it("accepts the unmodified production file that calls the guard", () => {
+      expect(scanReal(readFileSync(realCaller, "utf8"))).toEqual([]);
+    });
+    it("rejects an alias appended to that same production file", () => {
+      const source = `${readFileSync(realCaller, "utf8")}\nexport const leaked = requireAuthenticatedSession;`;
+      expect(scanReal(source).length).toBeGreaterThan(0);
+    });
+    it("rejects a computed options object appended to that same production file", () => {
+      const source = `${readFileSync(realCaller, "utf8")}\nconst key = "k" + "ey";\nexport const leaked = requireAuthenticatedSession({ [key]: true });`;
+      expect(scanReal(source).length).toBeGreaterThan(0);
+    });
+    it("refuses a file it cannot classify", () => {
+      const scan = createMfaGuardReferenceScanner({ "src/new/route.ts": "export {};" });
+      expect(() => scan("src/new/missing.ts")).toThrow("Cannot classify session source");
     });
   });
   const files = enumerateRepositorySourceFiles();

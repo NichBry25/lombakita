@@ -65,55 +65,8 @@ export const scanMfaOptOutNames = (text: string, file: string): number[] => {
     .parseDiagnostics;
   if (diagnostics.length > 0) throw new Error(`Cannot parse auth source: ${file}`);
   const lines: number[] = [];
-  const sessionNames = new Set(["requireAuthenticatedSession"]);
-  const initializers = new Map<string, ts.Expression>();
-  const collectBindings = (node: ts.Node): void => {
-    if (
-      ts.isImportSpecifier(node) &&
-      (node.propertyName ?? node.name).text === "requireAuthenticatedSession"
-    ) {
-      sessionNames.add(node.name.text);
-    }
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      initializers.set(node.name.text, node.initializer);
-    }
-    ts.forEachChild(node, collectBindings);
-  };
-  collectBindings(source);
-  const hasUnclassifiedOptions = (expression: ts.Expression, seen = new Set<string>()): boolean => {
-    if (
-      ts.isParenthesizedExpression(expression) ||
-      ts.isAsExpression(expression) ||
-      ts.isSatisfiesExpression(expression)
-    ) {
-      return hasUnclassifiedOptions(expression.expression, seen);
-    }
-    if (ts.isIdentifier(expression)) {
-      if (expression.text === "undefined") return false;
-      if (seen.has(expression.text)) return true;
-      seen.add(expression.text);
-      const initializer = initializers.get(expression.text);
-      return !initializer || hasUnclassifiedOptions(initializer, seen);
-    }
-    if (!ts.isObjectLiteralExpression(expression)) return true;
-    return expression.properties.some(
-      (property) => ts.isSpreadAssignment(property) || ts.isComputedPropertyName(property.name),
-    );
-  };
   const token = new RegExp(`\\b${MFA_OPT_OUT_NAME}\\b`, "g");
   const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node)) {
-      const callee = node.expression;
-      const name = ts.isIdentifier(callee)
-        ? callee.text
-        : ts.isPropertyAccessExpression(callee)
-          ? callee.name.text
-          : undefined;
-      const options = node.arguments[0];
-      if (name && sessionNames.has(name) && options && hasUnclassifiedOptions(options)) {
-        lines.push(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
-      }
-    }
     if (ts.isIdentifier(node) && node.text === MFA_OPT_OUT_NAME) {
       lines.push(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
     } else if (
@@ -141,7 +94,34 @@ export const censusMfaOptOutNames = () =>
     return lines.length === 0 ? [] : [{ file, count: lines.length, lines }];
   });
 
-export const createSessionGetterScanner = (files: Record<string, string>) => {
+type Target = { name: string; declaredIn: (fileName: string) => boolean };
+
+const SESSION_FILE = "src/server/auth/session.ts";
+const SESSION_GETTERS: readonly Target[] = [
+  { name: "getCurrentSession", declaredIn: (fileName) => fileName === resolve(SESSION_FILE) },
+  {
+    name: "getServerSession",
+    declaredIn: (fileName) => fileName.includes("/node_modules/next-auth/"),
+  },
+];
+const PAGE_GUARD_FILE = "src/server/auth/page-guard.ts";
+const EXEMPT_PAGE_GUARD_NAMES = ["requireRolePage", "requireActiveSessionPage"];
+const MFA_GUARD_NAME = "requireAuthenticatedSession";
+const MFA_GUARD_TARGETS: readonly Target[] = [
+  { name: MFA_GUARD_NAME, declaredIn: (fileName) => fileName === resolve(SESSION_FILE) },
+];
+export const MFA_GUARD_EXEMPT_FILES = [SESSION_FILE, "src/server/auth/session.test.ts"];
+
+type Reference = {
+  node: ts.Node;
+  symbol?: ts.Symbol;
+  text?: string;
+  opaqueObjectType?: ts.Type;
+  moduleSymbol?: ts.Symbol;
+  unclassifiable?: boolean;
+};
+
+const createCheckedProgram = (files: Record<string, string>) => {
   const sources = new Map(Object.entries(files).map(([file, text]) => [resolve(file), text]));
   const options: ts.CompilerOptions = {
     allowJs: true,
@@ -155,121 +135,356 @@ export const createSessionGetterScanner = (files: Record<string, string>) => {
   };
   const host = ts.createCompilerHost(options);
   const readFile = host.readFile;
+  const fileExists = host.fileExists;
+  host.fileExists = (file) => sources.has(resolve(file)) || fileExists(file);
   host.readFile = (file) => {
     if (file.split(/[\\/]/).some((part) => part.startsWith(".env") || part === ".vercel"))
       return undefined;
     return sources.get(resolve(file)) ?? readFile(file);
   };
   const program = ts.createProgram([...sources.keys()], options, host);
-  const checker = program.getTypeChecker();
-  const results = new Map<ts.Node, boolean>();
+  return { program, checker: program.getTypeChecker(), options, host };
+};
 
-  const declarationsOf = (expression: ts.Expression): readonly ts.Declaration[] => {
-    if (
-      ts.isElementAccessExpression(expression) &&
-      ts.isStringLiteral(expression.argumentExpression)
-    ) {
-      const type = checker.getTypeAtLocation(expression.expression);
-      const property = type.getProperty(expression.argumentExpression.text);
-      let symbol = property;
-      if (symbol?.flags && symbol.flags & ts.SymbolFlags.Alias)
-        symbol = checker.getAliasedSymbol(symbol);
-      return symbol?.declarations ?? [];
-    }
-    let symbol = checker.getSymbolAtLocation(expression);
-    if (symbol?.flags && symbol.flags & ts.SymbolFlags.Alias)
-      symbol = checker.getAliasedSymbol(symbol);
-    return symbol?.declarations ?? [];
+const classifiedSourceFile = (program: ts.Program, file: string): ts.SourceFile => {
+  const source = program.getSourceFile(resolve(file));
+  if (!source) throw new Error(`Cannot classify session source: ${file}`);
+  if (program.getSyntacticDiagnostics(source).length > 0)
+    throw new Error(`Cannot parse session source: ${file}`);
+  return source;
+};
+
+const lineOf = (node: ts.Node): number =>
+  node.getSourceFile().getLineAndCharacterOfPosition(node.getStart()).line + 1;
+
+// Finds every place a node can point at one of `targets`, whatever syntax carries the pointer:
+// the symbol is resolved through aliases, re-exports, destructuring and property access by the
+// type checker, so no spelling is enumerated here.
+const createReferenceFinder = (
+  checker: ts.TypeChecker,
+  targets: readonly Target[],
+  resolveRequiredModule: (specifier: string, fromFile: string) => ts.Symbol | undefined,
+) => {
+  const resolveAlias = (symbol: ts.Symbol | undefined): ts.Symbol | undefined =>
+    symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+  const declarationName = (declaration: ts.Declaration): string | undefined => {
+    if (ts.isImportSpecifier(declaration) || ts.isExportSpecifier(declaration))
+      return (declaration.propertyName ?? declaration.name).text;
+    const name = ts.getNameOfDeclaration(declaration);
+    return name && (ts.isIdentifier(name) || ts.isStringLiteral(name)) ? name.text : undefined;
   };
-  const reachesGetter = (node: ts.Node, visiting: Set<ts.Node>): boolean => {
-    const cached = results.get(node);
-    if (cached !== undefined) return cached;
-    if (visiting.has(node)) return false;
-    visiting.add(node);
-    let found = false;
-    if (ts.isVariableDeclaration(node) && node.initializer) {
-      found = expressionReadsSession(node.initializer, visiting);
-    } else if (ts.isBindingElement(node)) {
-      const binding = node.parent;
-      const declaration = binding.parent;
-      if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
-        const name = (node.propertyName ?? node.name).getText();
-        const type = checker.getTypeAtLocation(declaration.initializer);
-        const property = type.getProperty(name);
-        found = property?.declarations?.some((entry) => reachesGetter(entry, visiting)) ?? false;
-      }
-    } else if (
-      ts.isFunctionDeclaration(node) ||
-      ts.isArrowFunction(node) ||
-      ts.isFunctionExpression(node) ||
-      ts.isMethodDeclaration(node)
-    ) {
-      found = node.body ? bodyReadsSession(node.body, visiting) : false;
+  const matchesTarget = (symbol: ts.Symbol | undefined, text?: string): boolean => {
+    const declarations = resolveAlias(symbol)?.declarations ?? [];
+    if (declarations.length > 0) {
+      return declarations.some((declaration) => {
+        const name = declarationName(declaration);
+        return targets.some(
+          (target) =>
+            target.name === name && target.declaredIn(declaration.getSourceFile().fileName),
+        );
+      });
     }
-    visiting.delete(node);
-    results.set(node, found);
-    return found;
+    const names = [text, ...(symbol?.declarations ?? []).map(declarationName)];
+    return targets.some((target) => names.includes(target.name));
   };
-  const expressionReadsSession = (expression: ts.Expression, visiting: Set<ts.Node>): boolean => {
-    if (
-      ts.isParenthesizedExpression(expression) ||
-      ts.isAsExpression(expression) ||
-      ts.isAwaitExpression(expression)
-    ) {
-      return expressionReadsSession(expression.expression, visiting);
-    }
-    if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression))
-      return reachesGetter(expression, visiting);
-    const declarations = declarationsOf(expression);
-    for (const declaration of declarations) {
-      const name =
-        "name" in declaration && declaration.name && ts.isIdentifier(declaration.name as ts.Node)
-          ? (declaration.name as ts.Identifier).text
-          : undefined;
-      if (name === "getCurrentSession" || name === "getServerSession") return true;
-      // Existing page guards own the authenticated session read; wrappers get no exemption.
-      if (
-        declaration.getSourceFile().fileName.endsWith("/src/server/auth/page-guard.ts") &&
-        (name === "requireRolePage" || name === "requireActiveSessionPage")
-      )
-        continue;
-      if (reachesGetter(declaration, visiting)) return true;
-    }
-    if (declarations.length === 0) {
-      const name = ts.isIdentifier(expression)
-        ? expression.text
-        : ts.isPropertyAccessExpression(expression)
-          ? expression.name.text
-          : undefined;
-      if (name === "getCurrentSession" || name === "getServerSession") return true;
-    }
+  const typeExposesTarget = (type: ts.Type): boolean =>
+    targets.some((target) => {
+      const property = type.getProperty(target.name);
+      return property !== undefined && matchesTarget(property);
+    });
+  const moduleExposesTarget = (moduleSymbol: ts.Symbol): boolean =>
+    checker.getExportsOfModule(moduleSymbol).some((exported) => matchesTarget(exported));
+  const isHit = (reference: Reference): boolean => {
+    if (reference.opaqueObjectType) return typeExposesTarget(reference.opaqueObjectType);
+    if (reference.moduleSymbol) return moduleExposesTarget(reference.moduleSymbol);
+    if (reference.symbol || reference.text) return matchesTarget(reference.symbol, reference.text);
     return false;
   };
-  const bodyReadsSession = (body: ts.Node, visiting: Set<ts.Node>): boolean => {
-    let found = false;
+
+  const isDeclarationName = (identifier: ts.Identifier): boolean => {
+    const parent = identifier.parent;
+    if (
+      ts.isImportSpecifier(parent) ||
+      ts.isImportClause(parent) ||
+      ts.isNamespaceImport(parent) ||
+      ts.isImportEqualsDeclaration(parent)
+    )
+      return true;
+    if (
+      ts.isPropertyAccessExpression(parent) ||
+      ts.isShorthandPropertyAssignment(parent) ||
+      ts.isExportSpecifier(parent)
+    )
+      return false;
+    if (ts.isBindingElement(parent))
+      return parent.name === identifier || parent.propertyName === identifier;
+    return "name" in parent && (parent as { name?: ts.Node }).name === identifier;
+  };
+  const literalKeyText = (key: ts.Node): string | undefined => {
+    if (ts.isIdentifier(key) || ts.isStringLiteralLike(key) || ts.isNumericLiteral(key))
+      return key.text;
+    if (ts.isComputedPropertyName(key)) {
+      const type = checker.getTypeAtLocation(key.expression);
+      return type.isStringLiteral() ? type.value : undefined;
+    }
+    return undefined;
+  };
+  const bindingSourceType = (element: ts.BindingElement): ts.Type => {
+    const pattern = element.parent;
+    const owner = pattern.parent;
+    if (ts.isVariableDeclaration(owner) && owner.initializer)
+      return checker.getTypeAtLocation(owner.initializer);
+    return checker.getTypeAtLocation(pattern);
+  };
+  const isObjectOfMemberAccess = (identifier: ts.Identifier): boolean => {
+    const parent = identifier.parent;
+    return (
+      (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) &&
+      parent.expression === identifier
+    );
+  };
+
+  const identifierReference = (identifier: ts.Identifier): Reference => {
+    const parent = identifier.parent;
+    const symbol =
+      ts.isShorthandPropertyAssignment(parent) && parent.name === identifier
+        ? checker.getShorthandAssignmentValueSymbol(parent)
+        : checker.getSymbolAtLocation(identifier);
+    return { node: identifier, symbol, text: identifier.text };
+  };
+  const bindingElementReference = (element: ts.BindingElement): Reference => {
+    const sourceType = bindingSourceType(element);
+    const key = element.propertyName ?? element.name;
+    const text = element.dotDotDotToken ? undefined : literalKeyText(key);
+    if (text === undefined) return { node: element, opaqueObjectType: sourceType };
+    return { node: element, symbol: sourceType.getProperty(text), text };
+  };
+  const elementAccessReference = (access: ts.ElementAccessExpression): Reference | undefined => {
+    const objectType = checker.getTypeAtLocation(access.expression);
+    const keyType = checker.getTypeAtLocation(access.argumentExpression);
+    if (keyType.isStringLiteral())
+      return { node: access, symbol: objectType.getProperty(keyType.value), text: keyType.value };
+    if (keyType.flags & ts.TypeFlags.NumberLike) return undefined;
+    return { node: access, opaqueObjectType: objectType };
+  };
+  const moduleReference = (node: ts.Node, specifier: ts.Expression | undefined): Reference => {
+    if (!specifier || !ts.isStringLiteralLike(specifier)) return { node, unclassifiable: true };
+    return { node, moduleSymbol: checker.getSymbolAtLocation(specifier) };
+  };
+
+  const requireReference = (call: ts.CallExpression): Reference => {
+    const specifier = call.arguments[0];
+    if (!specifier || !ts.isStringLiteralLike(specifier))
+      return { node: call, unclassifiable: true };
+    const moduleSymbol = resolveRequiredModule(specifier.text, call.getSourceFile().fileName);
+    return { node: call, moduleSymbol };
+  };
+
+  const collectReferences = (root: ts.Node, strict: boolean): Reference[] => {
+    const references: Reference[] = [];
     const visit = (node: ts.Node): void => {
-      if (found) return;
-      if (ts.isCallExpression(node) && expressionReadsSession(node.expression, visiting))
-        found = true;
+      if (ts.isIdentifier(node) && !isDeclarationName(node)) {
+        references.push(identifierReference(node));
+        if (strict && !isObjectOfMemberAccess(node)) {
+          references.push({ node, opaqueObjectType: checker.getTypeAtLocation(node) });
+        }
+      } else if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent)) {
+        references.push(bindingElementReference(node));
+      } else if (ts.isElementAccessExpression(node)) {
+        const reference = elementAccessReference(node);
+        if (reference) references.push(reference);
+      } else if (
+        ts.isCallExpression(node) &&
+        node.expression.kind === ts.SyntaxKind.ImportKeyword
+      ) {
+        const reference = moduleReference(node, node.arguments[0]);
+        if (strict || !reference.unclassifiable) references.push(reference);
+      } else if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "require"
+      ) {
+        const reference = requireReference(node);
+        if (strict || !reference.unclassifiable) references.push(reference);
+      } else if (
+        ts.isExportDeclaration(node) &&
+        node.moduleSpecifier &&
+        (!node.exportClause || ts.isNamespaceExport(node.exportClause))
+      ) {
+        references.push(moduleReference(node, node.moduleSpecifier));
+      }
       ts.forEachChild(node, visit);
     };
-    visit(body);
+    visit(root);
+    return references;
+  };
+
+  return { collectReferences, isHit, resolveAlias };
+};
+
+const isWalkableDeclaration = (declaration: ts.Declaration): boolean => {
+  const file = declaration.getSourceFile();
+  if (file.isDeclarationFile || file.fileName.includes("/node_modules/")) return false;
+  return (
+    ts.isFunctionDeclaration(declaration) ||
+    ts.isFunctionExpression(declaration) ||
+    ts.isArrowFunction(declaration) ||
+    ts.isMethodDeclaration(declaration) ||
+    ts.isAccessor(declaration) ||
+    ts.isClassLike(declaration) ||
+    ts.isVariableDeclaration(declaration) ||
+    ts.isBindingElement(declaration) ||
+    ts.isPropertyAssignment(declaration) ||
+    ts.isShorthandPropertyAssignment(declaration) ||
+    ts.isPropertyDeclaration(declaration)
+  );
+};
+
+const createModuleResolver =
+  (
+    program: ts.Program,
+    checker: ts.TypeChecker,
+    options: ts.CompilerOptions,
+    host: ts.CompilerHost,
+  ) =>
+  (specifier: string, fromFile: string): ts.Symbol | undefined => {
+    const resolved = ts.resolveModuleName(specifier, fromFile, options, host).resolvedModule;
+    const file = resolved && program.getSourceFile(resolved.resolvedFileName);
+    return file && checker.getSymbolAtLocation(file);
+  };
+
+export const createSessionGetterScanner = (files: Record<string, string>) => {
+  const { program, checker, options, host } = createCheckedProgram(files);
+  const finder = createReferenceFinder(
+    checker,
+    SESSION_GETTERS,
+    createModuleResolver(program, checker, options, host),
+  );
+
+  const exemptPageGuardDeclarations = new Set<ts.Declaration>();
+  const pageGuardFile = program.getSourceFile(resolve(PAGE_GUARD_FILE));
+  const pageGuardModule = pageGuardFile && checker.getSymbolAtLocation(pageGuardFile);
+  for (const name of EXEMPT_PAGE_GUARD_NAMES) {
+    const exported = pageGuardModule && checker.tryGetMemberInModuleExports(name, pageGuardModule);
+    for (const declaration of exported?.declarations ?? [])
+      exemptPageGuardDeclarations.add(declaration);
+  }
+
+  const walkableTargets = (symbol: ts.Symbol | undefined): ts.Declaration[] => {
+    const declarations = finder.resolveAlias(symbol)?.declarations ?? [];
+    if (declarations.some((declaration) => exemptPageGuardDeclarations.has(declaration))) return [];
+    return declarations.filter(isWalkableDeclaration);
+  };
+
+  type Outgoing = { readsGetter: boolean; callees: ts.Declaration[] };
+  const outgoingByDeclaration = new Map<ts.Node, Outgoing>();
+  const outgoingOf = (declaration: ts.Node): Outgoing => {
+    const cached = outgoingByDeclaration.get(declaration);
+    if (cached) return cached;
+    const outgoing: Outgoing = { readsGetter: false, callees: [] };
+    for (const reference of finder.collectReferences(declaration, false)) {
+      if (finder.isHit(reference)) outgoing.readsGetter = true;
+      else outgoing.callees.push(...walkableTargets(reference.symbol));
+    }
+    outgoingByDeclaration.set(declaration, outgoing);
+    return outgoing;
+  };
+  const reachCache = new Map<ts.Node, boolean>();
+  const reachesGetter = (root: ts.Node): boolean => {
+    const known = reachCache.get(root);
+    if (known !== undefined) return known;
+    const visited = new Set<ts.Node>();
+    const pending: ts.Node[] = [root];
+    let found = false;
+    while (pending.length > 0 && !found) {
+      const current = pending.pop() as ts.Node;
+      if (visited.has(current)) continue;
+      visited.add(current);
+      const cached = reachCache.get(current);
+      if (cached === true) found = true;
+      if (cached !== undefined) continue;
+      const outgoing = outgoingOf(current);
+      if (outgoing.readsGetter) found = true;
+      pending.push(...outgoing.callees);
+    }
+    if (found) reachCache.set(root, true);
+    else for (const node of visited) reachCache.set(node, false);
     return found;
   };
 
   return (file: string): number[] => {
-    const source = program.getSourceFile(resolve(file));
-    if (!source) throw new Error(`Cannot classify session source: ${file}`);
-    const diagnostics = program.getSyntacticDiagnostics(source);
-    if (diagnostics.length > 0) throw new Error(`Cannot parse session source: ${file}`);
-    const lines: number[] = [];
-    const visit = (node: ts.Node): void => {
-      if (ts.isCallExpression(node) && expressionReadsSession(node.expression, new Set())) {
-        lines.push(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(source);
-    return lines;
+    const source = classifiedSourceFile(program, file);
+    const lines = new Set<number>();
+    for (const reference of finder.collectReferences(source, true)) {
+      const violates =
+        reference.unclassifiable ||
+        finder.isHit(reference) ||
+        walkableTargets(reference.symbol).some(reachesGetter);
+      if (violates) lines.add(lineOf(reference.node));
+    }
+    return [...lines].sort((left, right) => left - right);
   };
+};
+
+const hasLiteralOptions = (call: ts.CallExpression): boolean => {
+  const options = call.arguments[0];
+  if (!options) return true;
+  if (!ts.isObjectLiteralExpression(options)) return false;
+  return options.properties.every(
+    (property) =>
+      !ts.isSpreadAssignment(property) &&
+      !(property.name && ts.isComputedPropertyName(property.name)),
+  );
+};
+
+const isPlainDirectGuardCall = (reference: Reference): boolean => {
+  const { node } = reference;
+  if (!ts.isIdentifier(node) || !reference.symbol) return false;
+  const parent = node.parent;
+  if (!ts.isCallExpression(parent) || parent.expression !== node || parent.questionDotToken)
+    return false;
+  return hasLiteralOptions(parent);
+};
+
+export const createMfaGuardReferenceScanner = (files: Record<string, string>) => {
+  const { program, checker, options, host } = createCheckedProgram(files);
+  const finder = createReferenceFinder(
+    checker,
+    MFA_GUARD_TARGETS,
+    createModuleResolver(program, checker, options, host),
+  );
+  const exemptFiles = new Set(MFA_GUARD_EXEMPT_FILES.map((file) => resolve(file)));
+
+  const isRenamedGuardImport = (node: ts.Node): boolean =>
+    ts.isImportSpecifier(node) &&
+    node.propertyName !== undefined &&
+    finder.isHit({ node, symbol: checker.getSymbolAtLocation(node.name), text: node.name.text });
+
+  return (file: string): number[] => {
+    const source = classifiedSourceFile(program, file);
+    if (exemptFiles.has(resolve(file))) return [];
+    const lines = new Set<number>();
+    const visitImports = (node: ts.Node): void => {
+      if (isRenamedGuardImport(node)) lines.add(lineOf(node));
+      ts.forEachChild(node, visitImports);
+    };
+    visitImports(source);
+    for (const reference of finder.collectReferences(source, true)) {
+      const violates =
+        reference.unclassifiable || (finder.isHit(reference) && !isPlainDirectGuardCall(reference));
+      if (violates) lines.add(lineOf(reference.node));
+    }
+    return [...lines].sort((left, right) => left - right);
+  };
+};
+
+export const censusMfaGuardReferences = () => {
+  const files = enumerateRepositorySourceFiles().filter((file) => file.startsWith("src/"));
+  const scan = createMfaGuardReferenceScanner(
+    Object.fromEntries(files.map((file) => [file, readFileSync(file, "utf8")])),
+  );
+  return files.flatMap((file) => {
+    const lines = scan(file);
+    return lines.length === 0 ? [] : [{ file, lines }];
+  });
 };

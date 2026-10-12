@@ -26,9 +26,107 @@ const pages = enumerateRepositorySourceFiles().filter((file) =>
 const scanRepositorySessions = createSessionGetterScanner(
   Object.fromEntries(pages.map((file) => [file, readFileSync(file, "utf8")])),
 );
+const bypasses = [
+  {
+    name: "local alias",
+    source:
+      'import { getCurrentSession } from "@/server/auth/session"; const current = getCurrentSession; export default async function Page() { await current(); }',
+  },
+  {
+    name: "destructuring alias",
+    source:
+      'import * as auth from "@/server/auth/session"; const { getCurrentSession: current } = auth; export default async function Page() { await current(); }',
+  },
+  {
+    name: "renamed re-export",
+    source:
+      'import { current } from "@/server/auth/fixtures/session-guards/re-export"; export default async function Page() { await current(); }',
+  },
+  {
+    name: "dynamic import destructuring",
+    source:
+      'export default async function Page() { const { getCurrentSession: current } = await import("@/server/auth/session"); await current(); }',
+  },
+  {
+    name: "bracket access",
+    source:
+      'import * as auth from "@/server/auth/session"; export default async function Page() { await auth["getCurrentSession"](); }',
+  },
+  {
+    name: "external wrapper",
+    source:
+      'import { readViewer } from "@/server/auth/fixtures/session-guards/wrapper"; export default async function Page() { await readViewer(); }',
+  },
+  ...[
+    {
+      name: "satisfies-wrapped getter",
+      use: "await (getCurrentSession satisfies () => Promise<unknown>)();",
+    },
+    { name: "as-wrapped getter", use: "await (getCurrentSession as () => Promise<unknown>)();" },
+    { name: "non-null getter", use: "await getCurrentSession!();" },
+    { name: "parenthesized getter", use: "await (getCurrentSession)();" },
+    { name: "getter .call(null)", use: "await getCurrentSession.call(null);" },
+    { name: "getter .apply(null, [])", use: "await getCurrentSession.apply(null, []);" },
+    {
+      name: "bound getter alias",
+      use: "const bound = getCurrentSession.bind(null); await bound();",
+    },
+    { name: "returned getter", use: "const pick = () => getCurrentSession; await pick()();" },
+    {
+      name: "getter passed as an argument",
+      use: "const run = (fn: () => unknown) => fn(); await run(getCurrentSession);",
+    },
+  ].map(({ name, use }) => ({
+    name,
+    source: `import { getCurrentSession } from "@/server/auth/session"; export default async function Page() { ${use} }`,
+  })),
+  {
+    name: "whole session namespace passed as an argument",
+    source:
+      'import * as auth from "@/server/auth/session"; const run = (value: unknown) => value; export default async function Page() { run(auth); }',
+  },
+  {
+    name: "computed-key bracket access on the session namespace",
+    source:
+      'import * as auth from "@/server/auth/session"; const key = "getCurrent" + "Session"; export default async function Page() { await auth[key as "getCurrentSession"](); }',
+  },
+  {
+    name: "external wrapper invoked through .call(null)",
+    source:
+      'import { readViewer } from "@/server/auth/fixtures/session-guards/wrapper"; export default async function Page() { await readViewer.call(null); }',
+  },
+  {
+    name: "external wrapper passed as an argument",
+    source:
+      'import { readViewer } from "@/server/auth/fixtures/session-guards/wrapper"; const run = (fn: () => unknown) => fn(); export default async function Page() { await run(readViewer); }',
+  },
+];
+const unlistedDirectCalls = [
+  "export default async function Page() { await getCurrentSession(); }",
+  'import { getCurrentSession as session } from "@/server/auth/session"; export default async function Page() { await session(); }',
+  'import * as auth from "@/server/auth/session"; export default async function Page() { await auth.getCurrentSession(); }',
+];
+const SESSIONLESS_SOURCE = "export default function Page() { return null; }";
+
+// One program for every in-memory fixture: building a TypeScript program per fixture made this
+// file take over a minute.
+const fixtureSources = [
+  ...new Set([...bypasses.map(({ source }) => source), ...unlistedDirectCalls, SESSIONLESS_SOURCE]),
+];
+const fixtureKinds = ["page", "layout"];
+const fixturePath = (source: string, kind: string): string =>
+  `src/app/fixtures/${fixtureSources.indexOf(source)}/${kind}.tsx`;
+const scanFixtures = createSessionGetterScanner(
+  Object.fromEntries(
+    fixtureSources.flatMap((source) =>
+      fixtureKinds.map((kind) => [fixturePath(source, kind), source]),
+    ),
+  ),
+);
 const sessionCallLines = (text: string, file: string): number[] => {
   if (pages.includes(file)) return scanRepositorySessions(file);
-  return createSessionGetterScanner({ [file]: text })(file);
+  const kind = file.endsWith("layout.tsx") ? "layout" : "page";
+  return scanFixtures(fixturePath(text, kind));
 };
 
 describe("direct page session enumeration", () => {
@@ -40,81 +138,6 @@ describe("direct page session enumeration", () => {
     ])
       expect(pages).toContain(file);
   });
-  const bypasses = [
-    {
-      name: "local alias",
-      source:
-        'import { getCurrentSession } from "@/server/auth/session"; const current = getCurrentSession; export default async function Page() { await current(); }',
-    },
-    {
-      name: "destructuring alias",
-      source:
-        'import * as auth from "@/server/auth/session"; const { getCurrentSession: current } = auth; export default async function Page() { await current(); }',
-    },
-    {
-      name: "renamed re-export",
-      source:
-        'import { current } from "@/server/auth/fixtures/session-guards/re-export"; export default async function Page() { await current(); }',
-    },
-    {
-      name: "dynamic import destructuring",
-      source:
-        'export default async function Page() { const { getCurrentSession: current } = await import("@/server/auth/session"); await current(); }',
-    },
-    {
-      name: "bracket access",
-      source:
-        'import * as auth from "@/server/auth/session"; export default async function Page() { await auth["getCurrentSession"](); }',
-    },
-    {
-      name: "external wrapper",
-      source:
-        'import { readViewer } from "@/server/auth/fixtures/session-guards/wrapper"; export default async function Page() { await readViewer(); }',
-    },
-    ...[
-      {
-        name: "satisfies-wrapped getter",
-        use: "await (getCurrentSession satisfies () => Promise<unknown>)();",
-      },
-      { name: "as-wrapped getter", use: "await (getCurrentSession as () => Promise<unknown>)();" },
-      { name: "non-null getter", use: "await getCurrentSession!();" },
-      { name: "parenthesized getter", use: "await (getCurrentSession)();" },
-      { name: "getter .call(null)", use: "await getCurrentSession.call(null);" },
-      { name: "getter .apply(null, [])", use: "await getCurrentSession.apply(null, []);" },
-      {
-        name: "bound getter alias",
-        use: "const bound = getCurrentSession.bind(null); await bound();",
-      },
-      { name: "returned getter", use: "const pick = () => getCurrentSession; await pick()();" },
-      {
-        name: "getter passed as an argument",
-        use: "const run = (fn: () => unknown) => fn(); await run(getCurrentSession);",
-      },
-    ].map(({ name, use }) => ({
-      name,
-      source: `import { getCurrentSession } from "@/server/auth/session"; export default async function Page() { ${use} }`,
-    })),
-    {
-      name: "whole session namespace passed as an argument",
-      source:
-        'import * as auth from "@/server/auth/session"; const run = (value: unknown) => value; export default async function Page() { run(auth); }',
-    },
-    {
-      name: "computed-key bracket access on the session namespace",
-      source:
-        'import * as auth from "@/server/auth/session"; const key = "getCurrent" + "Session"; export default async function Page() { await auth[key as "getCurrentSession"](); }',
-    },
-    {
-      name: "external wrapper invoked through .call(null)",
-      source:
-        'import { readViewer } from "@/server/auth/fixtures/session-guards/wrapper"; export default async function Page() { await readViewer.call(null); }',
-    },
-    {
-      name: "external wrapper passed as an argument",
-      source:
-        'import { readViewer } from "@/server/auth/fixtures/session-guards/wrapper"; const run = (fn: () => unknown) => fn(); export default async function Page() { await run(readViewer); }',
-    },
-  ];
   for (const kind of ["page", "layout"]) {
     it.each(bypasses)(`detects $name in ${kind}.tsx`, ({ source }) => {
       expect(sessionCallLines(source, `src/app/new/${kind}.tsx`).length).toBeGreaterThan(0);
@@ -166,16 +189,25 @@ describe("direct page session enumeration", () => {
       ).toBeGreaterThan(0);
     });
     it("passes a page that reads no session at all", () => {
-      expect(
-        sessionCallLines("export default function Page() { return null; }", "src/app/new/page.tsx"),
-      ).toEqual([]);
+      expect(sessionCallLines(SESSIONLESS_SOURCE, "src/app/new/page.tsx")).toEqual([]);
     });
   });
-  it.each([
-    "export default async function Page() { await getCurrentSession(); }",
-    'import { getCurrentSession as session } from "@/server/auth/session"; export default async function Page() { await session(); }',
-    'import * as auth from "@/server/auth/session"; export default async function Page() { await auth.getCurrentSession(); }',
-  ])("detects an unlisted direct call: %s", (source) => {
+  describe("production files", () => {
+    const leak =
+      '\nimport { getCurrentSession as leakedGetter } from "@/server/auth/session";\nexport const leaked = leakedGetter satisfies unknown;\n';
+    const unlistedPage = pages.find(
+      (file) => file.endsWith("/page.tsx") && !Object.hasOwn(SESSION_PAGES, file),
+    ) as string;
+    const unlistedLayout = "src/app/admin/layout.tsx";
+    it.each([unlistedPage, unlistedLayout])("%s is clean as committed", (file) => {
+      expect(sessionCallLines(readFileSync(file, "utf8"), file)).toEqual([]);
+    });
+    it.each([unlistedPage, unlistedLayout])("%s fails once a getter reference is added", (file) => {
+      const modified = readFileSync(file, "utf8") + leak;
+      expect(createSessionGetterScanner({ [file]: modified })(file).length).toBeGreaterThan(0);
+    });
+  });
+  it.each(unlistedDirectCalls)("detects an unlisted direct call: %s", (source) => {
     expect(sessionCallLines(source, "src/app/new/page.tsx")).toEqual([1]);
   });
 });
