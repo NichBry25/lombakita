@@ -51,6 +51,24 @@ const sessionCallLines = (text: string, file: string): number[] => {
 const pages = enumerateAuthSourceFiles("src/app").filter((file) => /\/page\.tsx$/.test(file));
 
 describe("direct page session enumeration", () => {
+  it("includes every layout in the candidate population", () => {
+    for (const file of ["src/app/layout.tsx", "src/app/admin/layout.tsx", "src/app/finance/layout.tsx"])
+      expect(pages).toContain(file);
+  });
+  const bypasses = [
+    { name: "local alias", source: 'import { getCurrentSession } from "@/server/auth/session"; const current = getCurrentSession; export default async function Page() { await current(); }' },
+    { name: "destructuring alias", source: 'import * as auth from "@/server/auth/session"; const { getCurrentSession: current } = auth; export default async function Page() { await current(); }' },
+    { name: "renamed re-export", source: 'import { current } from "@/server/auth/fixtures/session-guards/re-export"; export default async function Page() { await current(); }' },
+    { name: "dynamic import destructuring", source: 'export default async function Page() { const { getCurrentSession: current } = await import("@/server/auth/session"); await current(); }' },
+    { name: "bracket access", source: 'import * as auth from "@/server/auth/session"; export default async function Page() { await auth["getCurrentSession"](); }' },
+    { name: "external wrapper", source: 'import { readViewer } from "@/server/auth/fixtures/session-guards/wrapper"; export default async function Page() { await readViewer(); }' },
+  ];
+  for (const kind of ["page", "layout"]) {
+    it.each(bypasses)(`detects $name in ${kind}.tsx`, ({ source }) => {
+      expect(sessionCallLines(source, `src/app/new/${kind}.tsx`).length).toBeGreaterThan(0);
+    });
+  }
+
   it("enumerates a nonempty page population", () => expect(pages.length).toBeGreaterThan(0));
   it("permits direct session calls only in explicitly reasoned pages", () => {
     expect(

@@ -27,6 +27,15 @@ export const OPT_OUT_FORMS = [
 ];
 
 describe("unsatisfied MFA name enumeration", () => {
+  it.each([
+    { name: "string-built key", source: 'const key = "allowUnsatisfied" + "Mfa"; requireAuthenticatedSession({ [key]: true });' },
+    { name: "template-built key", source: 'const key = `allowUnsatisfied${"Mfa"}`; requireAuthenticatedSession({ [key]: true });' },
+    { name: "computed literal key", source: 'requireAuthenticatedSession({ ["anything"]: true });' },
+    { name: "options alias", source: 'const key = "anything"; const options = { [key]: true }; requireAuthenticatedSession(options);' },
+    { name: "unclassifiable options", source: 'requireAuthenticatedSession(buildOptions());' },
+  ])("rejects $name", ({ source }) => {
+    expect(scanMfaOptOutNames(source, "unlisted.ts").length).toBeGreaterThan(0);
+  });
   const files = enumerateRepositorySourceFiles();
   it("enumerates a nonempty declared source population", () => {
     expect(files.length).toBeGreaterThan(0);

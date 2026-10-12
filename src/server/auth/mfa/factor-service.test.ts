@@ -34,6 +34,19 @@ describe("startMfaEnrolment account refusal", () => {
     expect(db.insert).not.toHaveBeenCalled();
     expect(db.update).not.toHaveBeenCalled();
   });
+  it.each([
+    { name: "suspended", changes: { suspendedAt: new Date(0) }, code: "account_suspended" },
+    { name: "deactivated", changes: { status: "deactivated" }, code: "forbidden" },
+    { name: "demoted", changes: { role: "candidate" }, code: "forbidden" },
+  ])("refuses $name before the already-enrolled error without writes", async ({ changes, code }) => {
+    const db = createEnrolmentTestDatabase({ ...activeOperator, ...changes });
+    const factor = { id: "factor", verifiedAt: new Date(0) };
+    db.factorRows.push(factor);
+    await expect(startMfaEnrolment("operator", db.database)).rejects.toMatchObject({ code, status: 403 });
+    expect(db.factorRows).toEqual([factor]);
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
+  });
   it.each(["platform_ops", "finance_ops", "reviewer_or_judge"])(
     "enrols a valid %s",
     async (role) => {
