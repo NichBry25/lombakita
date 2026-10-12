@@ -166,7 +166,7 @@ describe("the procedure document", () => {
     const page = readFileSync(ENROL_PAGE, "utf8");
 
     expect(page, `${ENROL_PAGE} no longer refuses a self-service account`).toMatch(
-      /if \(isSelfServiceRole\(session\.user\.role\)\) \{\s*redirect\("\/"\);\s*\}/,
+      /if \(!isOperationalRole\(session\.user\.role\)\) \{\s*redirect\("\/"\);\s*\}/,
     );
   });
 
