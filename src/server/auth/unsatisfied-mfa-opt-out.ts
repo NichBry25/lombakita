@@ -289,13 +289,21 @@ const createReferenceFinder = (
       ts.isObjectBindingPattern(parent.name)
     );
   };
+  const isExportedVariable = (declaration: ts.VariableDeclaration): boolean =>
+    (ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Export) !== 0;
+  // `export { x }` names the variable through an alias symbol, so it has to be resolved to the
+  // local target before it can be compared with the variable.
+  const symbolReferenced = (identifier: ts.Identifier): ts.Symbol | undefined =>
+    ts.isExportSpecifier(identifier.parent)
+      ? checker.getExportSpecifierLocalTargetSymbol(identifier.parent)
+      : identifierReference(identifier).symbol;
   const variableEscapes = (name: ts.Identifier): boolean => {
     const symbol = checker.getSymbolAtLocation(name);
     if (!symbol) return true;
     let escapes = false;
     const visit = (node: ts.Node): void => {
       if (ts.isIdentifier(node) && node !== name && !isDeclarationName(node)) {
-        const isSameVariable = identifierReference(node).symbol === symbol;
+        const isSameVariable = symbolReferenced(node) === symbol;
         if (isSameVariable && !isNamespaceUseThatCannotEscape(node)) escapes = true;
       }
       ts.forEachChild(node, visit);
@@ -339,7 +347,8 @@ const createReferenceFinder = (
       return false;
     if (ts.isVariableDeclaration(parent) && parent.initializer === current) {
       if (ts.isObjectBindingPattern(parent.name)) return false;
-      return !ts.isIdentifier(parent.name) || variableEscapes(parent.name);
+      if (!ts.isIdentifier(parent.name)) return true;
+      return isExportedVariable(parent) || variableEscapes(parent.name);
     }
     return true;
   };
