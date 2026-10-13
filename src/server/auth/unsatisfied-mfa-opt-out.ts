@@ -426,15 +426,22 @@ export const createSessionGetterScanner = (files: Record<string, string>) => {
   };
 };
 
+const isLiteralNamedBooleanAssignment = (property: ts.ObjectLiteralElementLike): boolean => {
+  if (!ts.isPropertyAssignment(property)) return false;
+  const literalName =
+    ts.isIdentifier(property.name) ||
+    ts.isStringLiteral(property.name) ||
+    ts.isNumericLiteral(property.name);
+  const { kind } = property.initializer;
+  const booleanLiteral = kind === ts.SyntaxKind.TrueKeyword || kind === ts.SyntaxKind.FalseKeyword;
+  return literalName && booleanLiteral;
+};
+
 const hasLiteralOptions = (call: ts.CallExpression): boolean => {
   const options = call.arguments[0];
   if (!options) return true;
   if (!ts.isObjectLiteralExpression(options)) return false;
-  return options.properties.every(
-    (property) =>
-      !ts.isSpreadAssignment(property) &&
-      !(property.name && ts.isComputedPropertyName(property.name)),
-  );
+  return options.properties.every(isLiteralNamedBooleanAssignment);
 };
 
 const isPlainDirectGuardCall = (reference: Reference): boolean => {
