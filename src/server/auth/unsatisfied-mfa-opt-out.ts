@@ -119,6 +119,7 @@ type Reference = {
   opaqueObjectType?: ts.Type;
   moduleSymbol?: ts.Symbol;
   unclassifiable?: boolean;
+  escapes?: boolean;
 };
 
 const createCheckedProgram = (files: Record<string, string>) => {
@@ -196,6 +197,7 @@ const createReferenceFinder = (
     checker.getExportsOfModule(moduleSymbol).some((exported) => matchesTarget(exported));
   const isHit = (reference: Reference): boolean => {
     if (reference.opaqueObjectType) return typeExposesTarget(reference.opaqueObjectType);
+    if (reference.escapes) return true;
     if (reference.moduleSymbol) return moduleExposesTarget(reference.moduleSymbol);
     if (reference.symbol || reference.text) return matchesTarget(reference.symbol, reference.text);
     return false;
@@ -272,6 +274,84 @@ const createReferenceFinder = (
     return { node, moduleSymbol: checker.getSymbolAtLocation(specifier) };
   };
 
+  const isTransparentWrapper = (node: ts.Node): boolean =>
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isNonNullExpression(node) ||
+    ts.isAwaitExpression(node);
+  const isNamespaceUseThatCannotEscape = (use: ts.Identifier): boolean => {
+    const parent = use.parent;
+    if (isObjectOfMemberAccess(use) || ts.isTypeQueryNode(parent)) return true;
+    return (
+      ts.isVariableDeclaration(parent) &&
+      parent.initializer === use &&
+      ts.isObjectBindingPattern(parent.name)
+    );
+  };
+  const variableEscapes = (name: ts.Identifier): boolean => {
+    const symbol = checker.getSymbolAtLocation(name);
+    if (!symbol) return true;
+    let escapes = false;
+    const visit = (node: ts.Node): void => {
+      if (ts.isIdentifier(node) && node !== name && !isDeclarationName(node)) {
+        const isSameVariable = identifierReference(node).symbol === symbol;
+        if (isSameVariable && !isNamespaceUseThatCannotEscape(node)) escapes = true;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(name.getSourceFile());
+    return escapes;
+  };
+  const thenCallbackEscapes = (thenCall: ts.CallExpression): boolean => {
+    const callback = thenCall.arguments[0];
+    if (!callback) return false;
+    if (!ts.isArrowFunction(callback) && !ts.isFunctionExpression(callback)) return true;
+    const parameter = callback.parameters[0];
+    if (!parameter) return false;
+    if (ts.isObjectBindingPattern(parameter.name)) return false;
+    return !ts.isIdentifier(parameter.name) || variableEscapes(parameter.name);
+  };
+  // A namespace that is only destructured or read member by member is judged by the member and
+  // binding references. Anything that lets the whole namespace leave this expression is not.
+  const dynamicImportNamespaceEscapes = (call: ts.CallExpression): boolean => {
+    let current: ts.Expression = call;
+    let awaited = false;
+    while (isTransparentWrapper(current.parent)) {
+      awaited = awaited || ts.isAwaitExpression(current.parent);
+      current = current.parent as ts.Expression;
+    }
+    const parent = current.parent;
+    if (ts.isExpressionStatement(parent)) return false;
+    if (!awaited) {
+      const isThenCall =
+        ts.isPropertyAccessExpression(parent) &&
+        parent.expression === current &&
+        parent.name.text === "then" &&
+        ts.isCallExpression(parent.parent) &&
+        parent.parent.expression === parent;
+      return !isThenCall || thenCallbackEscapes(parent.parent as ts.CallExpression);
+    }
+    if (
+      (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) &&
+      parent.expression === current
+    )
+      return false;
+    if (ts.isVariableDeclaration(parent) && parent.initializer === current) {
+      if (ts.isObjectBindingPattern(parent.name)) return false;
+      return !ts.isIdentifier(parent.name) || variableEscapes(parent.name);
+    }
+    return true;
+  };
+  const dynamicImportReference = (call: ts.CallExpression): Reference | undefined => {
+    const specifier = call.arguments[0];
+    if (!specifier || !ts.isStringLiteralLike(specifier))
+      return { node: call, unclassifiable: true };
+    const moduleSymbol = checker.getSymbolAtLocation(specifier);
+    if (!moduleSymbol || !moduleExposesTarget(moduleSymbol)) return undefined;
+    return dynamicImportNamespaceEscapes(call) ? { node: call, escapes: true } : undefined;
+  };
+
   const requireReference = (call: ts.CallExpression): Reference => {
     const specifier = call.arguments[0];
     if (!specifier || !ts.isStringLiteralLike(specifier))
@@ -297,8 +377,8 @@ const createReferenceFinder = (
         ts.isCallExpression(node) &&
         node.expression.kind === ts.SyntaxKind.ImportKeyword
       ) {
-        const reference = moduleReference(node, node.arguments[0]);
-        if (strict || !reference.unclassifiable) references.push(reference);
+        const reference = dynamicImportReference(node);
+        if (reference && (strict || !reference.unclassifiable)) references.push(reference);
       } else if (
         ts.isCallExpression(node) &&
         ts.isIdentifier(node.expression) &&
@@ -336,7 +416,8 @@ const isWalkableDeclaration = (declaration: ts.Declaration): boolean => {
     ts.isBindingElement(declaration) ||
     ts.isPropertyAssignment(declaration) ||
     ts.isShorthandPropertyAssignment(declaration) ||
-    ts.isPropertyDeclaration(declaration)
+    ts.isPropertyDeclaration(declaration) ||
+    ts.isExportAssignment(declaration)
   );
 };
 

@@ -235,11 +235,36 @@ bypasses.push(
   },
 );
 
+const callNamed = (call: string) => (specifier: string) =>
+  `import { viewer } from "${specifier}"; export default async function Page() { ${call} }`;
+bypasses.push(
+  helperFixture(
+    "wrapper returning the session namespace from a dynamic import",
+    `export const viewer = async () => import("${SESSION_MODULE}");`,
+    callNamed("await viewer();"),
+  ),
+  helperFixture(
+    "wrapper assigning then returning the session namespace",
+    `export const viewer = async () => { const session = await import("${SESSION_MODULE}"); return session; };`,
+    callNamed("await viewer();"),
+  ),
+  helperFixture(
+    "wrapper passing the session namespace to a callback",
+    `export const viewer = async () => import("${SESSION_MODULE}").then((session) => [session]);`,
+    callNamed("await viewer();"),
+  ),
+);
+
 const acceptedFixtures = [
   helperFixture(
     "default export without a getter",
     "export default async function () { return 1; }",
     callDefault("await viewer();"),
+  ),
+  helperFixture(
+    "wrapper importing the session module for its side effect only",
+    `export const viewer = async () => { await import("${SESSION_MODULE}"); return 1; };`,
+    callNamed("await viewer();"),
   ),
   {
     name: "dynamic import of the session module for its side effect only",
