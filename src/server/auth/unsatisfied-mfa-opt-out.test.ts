@@ -31,7 +31,86 @@ export const OPT_OUT_FORMS = [
 describe("unsatisfied MFA name enumeration", () => {
   describe("guard reference invariant", () => {
     const importGuard = 'import { requireAuthenticatedSession } from "@/server/auth/session";';
+    const sessionModule = "@/server/auth/session";
+    const run = "const run = (value: unknown) => value;";
+    const dynamicImportViolating = [
+      {
+        name: "dynamic import: guard by property access",
+        source: `(await import("${sessionModule}")).requireAuthenticatedSession();`,
+      },
+      {
+        name: "dynamic import: namespace passed as an argument",
+        source: `${run} run(await import("${sessionModule}"));`,
+      },
+      {
+        name: "dynamic import: namespace returned from an arrow body",
+        source: `export const load = async () => import("${sessionModule}");`,
+      },
+      {
+        name: "dynamic import: namespace returned from a block",
+        source: `export const load = async () => { return await import("${sessionModule}"); };`,
+      },
+      {
+        name: "dynamic import: namespace spread",
+        source: `export const copy = { ...(await import("${sessionModule}")) };`,
+      },
+      {
+        name: "dynamic import: namespace assigned then passed on",
+        source: `${run} const session = await import("${sessionModule}"); run(session);`,
+      },
+      {
+        name: "dynamic import: namespace assigned then returned",
+        source: `export const load = async () => { const session = await import("${sessionModule}"); return session; };`,
+      },
+      {
+        name: "dynamic import: then(run)",
+        source: `${run} await import("${sessionModule}").then(run);`,
+      },
+      {
+        name: "dynamic import: then callback reads the guard",
+        source: `await import("${sessionModule}").then((session) => session.requireAuthenticatedSession());`,
+      },
+      {
+        name: "dynamic import: then callback destructures the guard",
+        source: `await import("${sessionModule}").then(({ requireAuthenticatedSession: guard }) => guard());`,
+      },
+      {
+        name: "dynamic import: non-literal specifier",
+        source: `declare const where: string; await import(where);`,
+      },
+      {
+        name: "require of the session module",
+        source: `const session = require("${sessionModule}"); export default session;`,
+      },
+    ];
+    const dynamicImportAccepted = [
+      {
+        name: "dynamic import: another export by property access",
+        source: `export const load = async () => (await import("${sessionModule}")).getCurrentSession;`,
+      },
+      {
+        name: "dynamic import: another export by destructuring",
+        source: `const { getCurrentSession } = await import("${sessionModule}"); export const read = getCurrentSession;`,
+      },
+      {
+        name: "dynamic import: another export through a variable",
+        source: `const session = await import("${sessionModule}"); export const read = session.requireSessionRole;`,
+      },
+      {
+        name: "dynamic import: then callback reads another export",
+        source: `await import("${sessionModule}").then((session) => session.getCurrentSession);`,
+      },
+      {
+        name: "dynamic import: side effect only",
+        source: `await import("${sessionModule}");`,
+      },
+    ];
+    // A fixture with no import or export is a script: its top-level names would merge with every
+    // other script fixture in the shared program.
+    const asModule = (fixtures: { name: string; source: string }[]) =>
+      fixtures.map(({ name, source }) => ({ name, source: `export {}; ${source}` }));
     const violating = [
+      ...asModule(dynamicImportViolating),
       {
         name: "a variable value",
         source: `${importGuard} const flag = true; requireAuthenticatedSession({ literalName: flag });`,
@@ -136,6 +215,7 @@ describe("unsatisfied MFA name enumeration", () => {
       },
     ];
     const accepted = [
+      ...asModule(dynamicImportAccepted),
       { name: "a plain call", source: `${importGuard} requireAuthenticatedSession();` },
       { name: "a plain {} call", source: `${importGuard} requireAuthenticatedSession({});` },
       {
