@@ -33,6 +33,30 @@ describe("unsatisfied MFA name enumeration", () => {
     const importGuard = 'import { requireAuthenticatedSession } from "@/server/auth/session";';
     const violating = [
       {
+        name: "a variable value",
+        source: `${importGuard} const flag = true; requireAuthenticatedSession({ literalName: flag });`,
+      },
+      {
+        name: "a shorthand property",
+        source: `${importGuard} const literalName = true; requireAuthenticatedSession({ literalName });`,
+      },
+      {
+        name: "a getter member",
+        source: `${importGuard} requireAuthenticatedSession({ get literalName() { return true; } });`,
+      },
+      {
+        name: "a method member",
+        source: `${importGuard} requireAuthenticatedSession({ literalName() { return true; } });`,
+      },
+      {
+        name: "a call-result value",
+        source: `${importGuard} const compute = () => true; requireAuthenticatedSession({ literalName: compute() });`,
+      },
+      {
+        name: "a non-boolean literal value",
+        source: `${importGuard} requireAuthenticatedSession({ literalName: 1 });`,
+      },
+      {
         name: "local alias with a string-built key",
         source: `${importGuard} const guard = requireAuthenticatedSession; const key = "allowUnsatisfied" + "Mfa"; guard({ [key]: true });`,
       },
@@ -115,8 +139,16 @@ describe("unsatisfied MFA name enumeration", () => {
       { name: "a plain call", source: `${importGuard} requireAuthenticatedSession();` },
       { name: "a plain {} call", source: `${importGuard} requireAuthenticatedSession({});` },
       {
-        name: "a literal-named object",
-        source: `${importGuard} requireAuthenticatedSession({ literalName: 1 });`,
+        name: "a boolean-literal true value",
+        source: `${importGuard} requireAuthenticatedSession({ literalName: true });`,
+      },
+      {
+        name: "a boolean-literal false value",
+        source: `${importGuard} requireAuthenticatedSession({ literalName: false });`,
+      },
+      {
+        name: "a string-literal property name",
+        source: `${importGuard} requireAuthenticatedSession({ "literalName": true });`,
       },
     ];
     // One program for every in-memory fixture: a program per fixture made this file take over a
