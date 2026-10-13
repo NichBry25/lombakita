@@ -255,7 +255,113 @@ bypasses.push(
   ),
 );
 
+const SESSION_NAMESPACE_IMPORT = `import * as auth from "${SESSION_MODULE}";`;
+const READER_WIDGET =
+  "export default async function Widget() { await getCurrentSession(); return null; }";
+const IDLE_WIDGET = "export default async function Widget() { return null; }";
+const nextDynamicPage = (specifier: string) =>
+  `import dynamic from "next/dynamic"; const Widget = dynamic(() => import("${specifier}")); export default function Page() { return <Widget />; }`;
+const reactLazyPage = (specifier: string) =>
+  `import { lazy } from "react"; const Widget = lazy(() => import("${specifier}")); export default function Page() { return <Widget />; }`;
+const thenCallbackPage = (specifier: string) =>
+  `${RUN} export default async function Page() { await import("${specifier}").then(run); return null; }`;
+const computedKeyPage = (specifier: string) =>
+  `const key: string = "default"; export default async function Page() { const widget = await import("${specifier}"); await (widget as Record<string, any>)[key](); return null; }`;
+bypasses.push(
+  helperFixture(
+    "lazy next/dynamic import of a widget that reads the session",
+    READER_WIDGET,
+    nextDynamicPage,
+  ),
+  helperFixture(
+    "lazy React.lazy import of a widget that reads the session",
+    READER_WIDGET,
+    reactLazyPage,
+  ),
+  helperFixture(
+    "lazy import of a widget that reads the session, consumed by a callback",
+    READER_WIDGET,
+    thenCallbackPage,
+  ),
+  helperFixture(
+    "lazy import of a widget that reads the session, consumed through a computed key",
+    READER_WIDGET,
+    computedKeyPage,
+  ),
+);
+
+const callWithKey = (call: string) => callNamed(`const key: string = "getCurrentSession"; ${call}`);
+bypasses.push(
+  helperFixture(
+    "walked helper picking a session export from the namespace through any",
+    `${SESSION_NAMESPACE_IMPORT} export const viewer = (name: string): any => (auth as any)[name];`,
+    callNamed('await viewer("getCurrentSession")();'),
+  ),
+  helperFixture(
+    "walked helper exporting the session namespace as any",
+    `${SESSION_NAMESPACE_IMPORT} export const viewer: any = auth;`,
+    callWithKey("await viewer[key]();"),
+  ),
+  helperFixture(
+    "walked helper returning the session namespace inside an object",
+    `${SESSION_NAMESPACE_IMPORT} export const viewer = () => ({ auth }) as any;`,
+    callWithKey("await viewer().auth[key]();"),
+  ),
+  helperFixture(
+    "walked helper holding the session namespace in a record",
+    `${SESSION_NAMESPACE_IMPORT} export const viewer: Record<string, any> = { auth };`,
+    callWithKey("await viewer.auth[key]();"),
+  ),
+  helperFixture(
+    "walked helper importing a non-literal specifier",
+    "export const viewer = (specifier: string): Promise<any> => import(specifier);",
+    callWithKey(`const loaded = await viewer("${SESSION_MODULE}"); await loaded[key]();`),
+  ),
+  helperFixture(
+    "walked helper requiring a non-literal specifier",
+    "declare const require: any; export const viewer = (specifier: string): any => require(specifier);",
+    callWithKey(`const loaded = viewer("${SESSION_MODULE}"); await loaded[key]();`),
+  ),
+  helperFixture(
+    "walked helper exporting the dynamically imported session namespace as any",
+    `export const viewer: any = await import("${SESSION_MODULE}");`,
+    callWithKey("await viewer[key]();"),
+  ),
+  helperFixture(
+    "walked helper exporting a held dynamic session namespace through an export specifier",
+    `const viewer: any = await import("${SESSION_MODULE}"); export { viewer };`,
+    callWithKey("await viewer[key]();"),
+  ),
+);
+
+const READER_METADATA =
+  "export const generateMetadata = async () => { await getCurrentSession(); return {}; };";
+const IDLE_METADATA = "export const generateMetadata = async () => ({});";
+const starReExportPage = (specifier: string) =>
+  `export * from "${specifier}"; export default function Page() { return null; }`;
+const namespaceReExportPage = (specifier: string) =>
+  `export * as metadata from "${specifier}"; export default function Page() { return null; }`;
+bypasses.push(
+  helperFixture("export * from a helper that reads the session", READER_METADATA, starReExportPage),
+  helperFixture(
+    "export * as namespace from a helper that reads the session",
+    READER_METADATA,
+    namespaceReExportPage,
+  ),
+);
+
 const acceptedFixtures = [
+  helperFixture(
+    "lazy next/dynamic import of a widget that reads no session",
+    IDLE_WIDGET,
+    nextDynamicPage,
+  ),
+  helperFixture(
+    "lazy React.lazy import of a widget that reads no session",
+    IDLE_WIDGET,
+    reactLazyPage,
+  ),
+  helperFixture("export * from a helper that reads no session", IDLE_METADATA, starReExportPage),
   helperFixture(
     "default export without a getter",
     "export default async function () { return 1; }",
@@ -388,6 +494,30 @@ describe("direct page session enumeration", () => {
       const modified = readFileSync(file, "utf8") + leak;
       expect(createSessionGetterScanner({ [file]: modified })(file).length).toBeGreaterThan(0);
     });
+    const REAL_READER = "@/app/inbox/page";
+    const REAL_IDLE = "@/lib/access/roles";
+    const lazyImport = (specifier: string) =>
+      `\nimport dynamic from "next/dynamic";\nexport const Lazy = dynamic(() => import("${specifier}"));\n`;
+    const scanModified = (file: string, addition: string): number[] =>
+      createSessionGetterScanner({ [file]: readFileSync(file, "utf8") + addition })(file);
+    it.each([unlistedPage, unlistedLayout])(
+      "%s fails once it lazily imports a real session-reading module",
+      (file) => {
+        expect(scanModified(file, lazyImport(REAL_READER)).length).toBeGreaterThan(0);
+      },
+    );
+    it.each([unlistedPage, unlistedLayout])(
+      "%s fails once it re-exports a real session-reading module with export *",
+      (file) => {
+        expect(scanModified(file, `\nexport * from "${REAL_READER}";\n`).length).toBeGreaterThan(0);
+      },
+    );
+    it.each([unlistedPage, unlistedLayout])(
+      "%s still passes once it lazily imports a real module that reads no session",
+      (file) => {
+        expect(scanModified(file, lazyImport(REAL_IDLE))).toEqual([]);
+      },
+    );
   });
   it.each(unlistedDirectCalls)("detects an unlisted direct call: %s", (source) => {
     expect(sessionCallLines(source, "src/app/new/page.tsx")).toEqual([1]);

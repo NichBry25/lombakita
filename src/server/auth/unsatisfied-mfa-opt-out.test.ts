@@ -82,6 +82,26 @@ describe("unsatisfied MFA name enumeration", () => {
         name: "require of the session module",
         source: `const session = require("${sessionModule}"); export default session;`,
       },
+      {
+        name: "dynamic import: namespace held in an exported variable",
+        source: `export const session = await import("${sessionModule}");`,
+      },
+      {
+        name: "dynamic import: namespace held in an exported any variable",
+        source: `export const session: any = await import("${sessionModule}");`,
+      },
+      {
+        name: "dynamic import: namespace held in a variable exported by specifier",
+        source: `const session: any = await import("${sessionModule}"); export { session };`,
+      },
+      {
+        name: "dynamic import: namespace held in a variable exported under another name",
+        source: `const session: any = await import("${sessionModule}"); export { session as held };`,
+      },
+      {
+        name: "static import: namespace held in an exported any variable",
+        source: `import * as auth from "${sessionModule}"; export const held: any = auth;`,
+      },
     ];
     const dynamicImportAccepted = [
       {
@@ -103,6 +123,14 @@ describe("unsatisfied MFA name enumeration", () => {
       {
         name: "dynamic import: side effect only",
         source: `await import("${sessionModule}");`,
+      },
+      {
+        name: "dynamic import: a module that is not the session module",
+        source: `export const load = async () => import("@/lib/access/roles");`,
+      },
+      {
+        name: "dynamic import: unexported variable read by member",
+        source: `const session = await import("${sessionModule}"); const read = session.getCurrentSession; void read;`,
       },
     ];
     // A fixture with no import or export is a script: its top-level names would merge with every
