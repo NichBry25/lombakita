@@ -11,6 +11,21 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/auth/page-guard");
 
+export const requireActiveSessionPage = async ({
+  callbackPath,
+}: {
+  callbackPath: string | Promise<string>;
+}): Promise<Session & { user: NonNullable<Session["user"]> & { id: string } }> => {
+  const session = await getCurrentSession();
+  if (!session?.user?.id) {
+    redirect(`/auth/login?callbackUrl=${encodeURIComponent(await callbackPath)}`);
+  }
+  if (session.user.suspendedAt) {
+    redirect("/suspended");
+  }
+  return { ...session, user: session.user };
+};
+
 // Page renders go through the same session assertion as API routes, so the suspension gate and the
 // stale-role-token rejection apply to what a visitor can SEE, not only to what they can submit.
 // A suspended account holding a live cookie would otherwise keep rendering participant names and

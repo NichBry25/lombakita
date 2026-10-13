@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { APP_ROLES, DEFAULT_APP_ROLE, isAppRole, sessionHasRole } from "@/lib/access/roles";
+import {
+  APP_ROLES,
+  DEFAULT_APP_ROLE,
+  isAppRole,
+  isOperationalRole,
+  isSelfServiceRole,
+  sessionHasRole,
+} from "@/lib/access/roles";
+
+describe("isOperationalRole extraction", () => {
+  it.each([...APP_ROLES, undefined, "unknown_role"])(
+    "preserves the inline result for %s",
+    (role) => {
+      const previous = typeof role === "string" && isAppRole(role) && !isSelfServiceRole(role);
+      expect(isOperationalRole(role)).toBe(previous);
+    },
+  );
+});
 
 describe("access roles", () => {
   it("contains the new user-level role set after CCR-01 rebuild", () => {

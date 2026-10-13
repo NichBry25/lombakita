@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
+import { isOperationalRole } from "@/lib/access/roles";
+import { AccessError } from "@/server/auth/access-core";
 import { getDb, type Database } from "@/server/db/client";
 import { mfaFactors, users, type MfaFactorRecord } from "@/server/db/schema";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
@@ -174,22 +176,35 @@ export const startMfaEnrolment = async (
   return db.transaction(async (tx) => {
     const existing = await loadFactorForUser(tx, userId);
 
-    if (existing?.verifiedAt) {
-      throw new MfaError(
-        "mfa_already_enrolled",
-        409,
-        "This account already has a verified MFA factor",
-      );
-    }
-
     const [account] = await tx
-      .select({ email: users.email, username: users.username })
+      .select({
+        email: users.email,
+        username: users.username,
+        role: users.role,
+        status: users.status,
+        suspendedAt: users.suspendedAt,
+      })
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
 
     if (!account) {
       throw new Error(`startMfaEnrolment: no users row for ${userId}`);
+    }
+
+    if (account.suspendedAt) {
+      throw new AccessError("account_suspended", 403, "This account has been suspended");
+    }
+    if (account.status === "deactivated" || !isOperationalRole(account.role)) {
+      throw new AccessError("forbidden", 403, "Insufficient role permissions");
+    }
+
+    if (existing?.verifiedAt) {
+      throw new MfaError(
+        "mfa_already_enrolled",
+        409,
+        "This account already has a verified MFA factor",
+      );
     }
 
     const secret = randomBytes(TOTP_SECRET_BYTE_LENGTH);
