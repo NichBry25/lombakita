@@ -457,21 +457,21 @@ export const createSessionGetterScanner = (files: Record<string, string>) => {
     return declarations.filter(isWalkableDeclaration);
   };
 
-  type Outgoing = { readsGetter: boolean; callees: ts.Declaration[] };
+  type Outgoing = { violates: boolean; callees: ts.Declaration[] };
   const outgoingByDeclaration = new Map<ts.Node, Outgoing>();
   const outgoingOf = (declaration: ts.Node): Outgoing => {
     const cached = outgoingByDeclaration.get(declaration);
     if (cached) return cached;
-    const outgoing: Outgoing = { readsGetter: false, callees: [] };
-    for (const reference of finder.collectReferences(declaration, false)) {
-      if (finder.isHit(reference)) outgoing.readsGetter = true;
+    const outgoing: Outgoing = { violates: false, callees: [] };
+    for (const reference of finder.collectReferences(declaration, true)) {
+      if (reference.unclassifiable || finder.isHit(reference)) outgoing.violates = true;
       else outgoing.callees.push(...walkableTargets(reference.symbol));
     }
     outgoingByDeclaration.set(declaration, outgoing);
     return outgoing;
   };
   const reachCache = new Map<ts.Node, boolean>();
-  const reachesGetter = (root: ts.Node): boolean => {
+  const reachesViolation = (root: ts.Node): boolean => {
     const known = reachCache.get(root);
     if (known !== undefined) return known;
     const visited = new Set<ts.Node>();
@@ -485,7 +485,7 @@ export const createSessionGetterScanner = (files: Record<string, string>) => {
       if (cached === true) found = true;
       if (cached !== undefined) continue;
       const outgoing = outgoingOf(current);
-      if (outgoing.readsGetter) found = true;
+      if (outgoing.violates) found = true;
       pending.push(...outgoing.callees);
     }
     if (found) reachCache.set(root, true);
@@ -500,7 +500,7 @@ export const createSessionGetterScanner = (files: Record<string, string>) => {
       const violates =
         reference.unclassifiable ||
         finder.isHit(reference) ||
-        walkableTargets(reference.symbol).some(reachesGetter);
+        walkableTargets(reference.symbol).some(reachesViolation);
       if (violates) lines.add(lineOf(reference.node));
     }
     return [...lines].sort((left, right) => left - right);
