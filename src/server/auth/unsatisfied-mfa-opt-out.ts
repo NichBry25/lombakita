@@ -357,7 +357,8 @@ const createReferenceFinder = (
     if (!specifier || !ts.isStringLiteralLike(specifier))
       return { node: call, unclassifiable: true };
     const moduleSymbol = checker.getSymbolAtLocation(specifier);
-    if (!moduleSymbol || !moduleExposesTarget(moduleSymbol)) return undefined;
+    if (!moduleSymbol) return undefined;
+    if (!moduleExposesTarget(moduleSymbol)) return { node: call, moduleSymbol };
     return dynamicImportNamespaceEscapes(call) ? { node: call, escapes: true } : undefined;
   };
 
@@ -466,6 +467,14 @@ export const createSessionGetterScanner = (files: Record<string, string>) => {
     return declarations.filter(isWalkableDeclaration);
   };
 
+  // A module reference reaches whatever the module exports, however the importer consumes it.
+  const moduleExportTargets = (moduleSymbol: ts.Symbol | undefined): ts.Declaration[] =>
+    moduleSymbol ? checker.getExportsOfModule(moduleSymbol).flatMap(walkableTargets) : [];
+  const walkEdges = (reference: Reference): ts.Declaration[] => [
+    ...walkableTargets(reference.symbol),
+    ...moduleExportTargets(reference.moduleSymbol),
+  ];
+
   type Outgoing = { violates: boolean; callees: ts.Declaration[] };
   const outgoingByDeclaration = new Map<ts.Node, Outgoing>();
   const outgoingOf = (declaration: ts.Node): Outgoing => {
@@ -474,7 +483,7 @@ export const createSessionGetterScanner = (files: Record<string, string>) => {
     const outgoing: Outgoing = { violates: false, callees: [] };
     for (const reference of finder.collectReferences(declaration, true)) {
       if (reference.unclassifiable || finder.isHit(reference)) outgoing.violates = true;
-      else outgoing.callees.push(...walkableTargets(reference.symbol));
+      else outgoing.callees.push(...walkEdges(reference));
     }
     outgoingByDeclaration.set(declaration, outgoing);
     return outgoing;
@@ -509,7 +518,7 @@ export const createSessionGetterScanner = (files: Record<string, string>) => {
       const violates =
         reference.unclassifiable ||
         finder.isHit(reference) ||
-        walkableTargets(reference.symbol).some(reachesViolation);
+        walkEdges(reference).some(reachesViolation);
       if (violates) lines.add(lineOf(reference.node));
     }
     return [...lines].sort((left, right) => left - right);
