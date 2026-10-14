@@ -5,6 +5,7 @@ import type { Envelope } from "@sentry/core";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppRole } from "@/lib/access/roles";
+import { ACCOUNT_STATE_UNAVAILABLE_MESSAGE } from "@/lib/observability/account-state-unavailable";
 
 const state = vi.hoisted(() => ({
   account: {
@@ -262,10 +263,10 @@ describe("competition GET through the real session guard", () => {
 });
 
 describe("unavailable account state through real callbacks and getCurrentSession", () => {
-  it("suppresses the automatic Next.js event after the real failed account read is reported", async () => {
+  it("drops Webpack duplicate envelopes after one explicit failed-read report", async () => {
     vi.useFakeTimers();
     const sdk = await vi.importActual<typeof import("@sentry/nextjs")>("@sentry/nextjs");
-    const { scrubSentryEvent, scrubSentryBreadcrumb } =
+    const { scrubServerSentryEvent, scrubSentryBreadcrumb } =
       await import("@/lib/observability/scrub-sentry-event");
     const { onRequestError } = await import("@/instrumentation");
     const envelopes: Envelope[] = [];
@@ -273,10 +274,22 @@ describe("unavailable account state through real callbacks and getCurrentSession
     const sent = new Promise<void>((resolve) => {
       confirmSent = resolve;
     });
+    let confirmDuplicateProcessed: (() => void) | undefined;
+    const duplicateProcessed = new Promise<void>((resolve) => {
+      confirmDuplicateProcessed = resolve;
+    });
     sdk.init({
       dsn: "https://fixture@example.invalid/1",
       tracesSampler: () => 0,
-      beforeSend: scrubSentryEvent,
+      beforeSend: (event) => {
+        const result = scrubServerSentryEvent(event);
+        if (
+          event.exception?.values?.[0]?.mechanism?.type === "auto.function.nextjs.server_component"
+        ) {
+          confirmDuplicateProcessed?.();
+        }
+        return result;
+      },
       beforeBreadcrumb: scrubSentryBreadcrumb,
       transport: () => ({
         send: async (envelope: Envelope) => {
@@ -309,12 +322,28 @@ describe("unavailable account state through real callbacks and getCurrentSession
         },
       );
       await sent;
+      sdk.captureException(error, {
+        mechanism: { handled: false, type: "auto.function.nextjs.server_component" },
+      });
+      await duplicateProcessed;
+      const flushed = sdk.flush();
+      await vi.advanceTimersToNextTimerAsync();
+      expect(await flushed).toBe(true);
       expect(state.captureException).toHaveBeenCalledOnce();
       expect(state.captureRequestError).not.toHaveBeenCalled();
-      expect(envelopes).toHaveLength(1);
-      const payload = JSON.stringify(envelopes);
+      const eventEnvelopes = envelopes.filter(([, items]) =>
+        items.some(([header]) => header.type === "event"),
+      );
+      expect(eventEnvelopes).toHaveLength(1);
+      for (const [, items] of envelopes) {
+        expect(items).not.toHaveLength(0);
+        for (const [header] of items) {
+          expect(["event", "client_report"]).toContain(header.type);
+        }
+      }
+      const payload = JSON.stringify(eventEnvelopes);
       expect(payload).toContain("auth-live-account-read");
-      expect(payload).toContain("Account status is temporarily unavailable");
+      expect(payload).toContain(ACCOUNT_STATE_UNAVAILABLE_MESSAGE);
       for (const identity of [
         "account-sentinel",
         "email-sentinel@example.invalid",

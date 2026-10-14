@@ -1,6 +1,7 @@
 import type { Session } from "next-auth";
 import { NextResponse } from "next/server";
 import { type AppRole, isAppRole, isSelfServiceRole, sessionHasRole } from "@/lib/access/roles";
+import { ACCOUNT_STATE_UNAVAILABLE_MESSAGE } from "@/lib/observability/account-state-unavailable";
 import type { MfaStatus } from "@/server/auth/mfa/mfa-status";
 
 export type AuthenticatedSession = Session & {
@@ -82,11 +83,7 @@ export const normalizeSessionRole = (value: string | undefined | null): AppRole 
 
 export const assertAuthenticatedSession = (session: Session | null): AuthenticatedSession => {
   if (session?.user?.accountStateUnavailable) {
-    throw new AccessError(
-      "account_state_unavailable",
-      503,
-      "Account status is temporarily unavailable",
-    );
+    throw new AccessError("account_state_unavailable", 503, ACCOUNT_STATE_UNAVAILABLE_MESSAGE);
   }
 
   if (!session?.user || !session.user.id) {

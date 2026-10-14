@@ -1,4 +1,5 @@
 import type { Breadcrumb, Event, StackFrame } from "@sentry/nextjs";
+import { ACCOUNT_STATE_UNAVAILABLE_MESSAGE } from "./account-state-unavailable";
 
 const ALLOWED_REQUEST_HEADERS = new Set([
   "user-agent",
@@ -110,6 +111,18 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
   }
 
   return scrubbedEvent;
+}
+
+export function scrubServerSentryEvent<T extends Event>(event: T): T | null {
+  const exceptions = event.exception?.values;
+  if (
+    event.tags?.subsystem !== "auth-live-account-read" &&
+    exceptions?.length === 1 &&
+    exceptions[0]?.value === ACCOUNT_STATE_UNAVAILABLE_MESSAGE
+  ) {
+    return null;
+  }
+  return scrubSentryEvent(event);
 }
 
 export function scrubSentryBreadcrumb(breadcrumb: Breadcrumb): Breadcrumb | null {

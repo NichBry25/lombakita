@@ -1,6 +1,7 @@
 import type { Session } from "next-auth";
 import { getServerSession } from "next-auth";
 import type { AppRole } from "@/lib/access/roles";
+import { ACCOUNT_STATE_UNAVAILABLE_MESSAGE } from "@/lib/observability/account-state-unavailable";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import {
   AccessError,
@@ -16,11 +17,7 @@ assertServerOnly("server/auth/session");
 export const getCurrentSession = async (): Promise<Session | null> => {
   const session = await getServerSession(authOptions);
   if (session?.user?.accountStateUnavailable) {
-    throw new AccessError(
-      "account_state_unavailable",
-      503,
-      "Account status is temporarily unavailable",
-    );
+    throw new AccessError("account_state_unavailable", 503, ACCOUNT_STATE_UNAVAILABLE_MESSAGE);
   }
   return session;
 };
