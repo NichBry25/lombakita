@@ -1,8 +1,9 @@
 // @vitest-environment node
 
 import type { Session } from "next-auth";
+import type { Envelope } from "@sentry/core";
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppRole } from "@/lib/access/roles";
 
 const state = vi.hoisted(() => ({
@@ -14,12 +15,19 @@ const state = vi.hoisted(() => ({
     hasVerifiedMfaFactor: false,
   },
   token: {} as Record<string, unknown>,
+  captureException: vi.fn(),
+  captureRequestError: vi.fn(),
   query: vi.fn(),
   reader: vi.fn(),
   registrations: vi.fn(),
   participation: vi.fn(),
   readiness: vi.fn(),
   limiter: vi.fn(),
+}));
+
+vi.mock("@sentry/nextjs", () => ({
+  captureException: state.captureException,
+  captureRequestError: state.captureRequestError,
 }));
 
 // Keep JWT refresh, live account projection, session normalization and both guards real.
@@ -116,6 +124,8 @@ const request = () => new NextRequest("http://localhost/api/v1/auth/mfa/challeng
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.captureException.mockReset();
+  state.captureRequestError.mockReset();
   state.query.mockReset();
   state.query.mockImplementation(async () => [state.account]);
   state.account.status = "active";
@@ -127,6 +137,8 @@ beforeEach(() => {
   state.participation.mockResolvedValue({ state: "not_configured" });
   state.readiness.mockResolvedValue({ canPublish: false, blockers: [] });
 });
+
+afterEach(() => vi.useRealTimers());
 
 describe("requireAuthenticatedSession secure default", () => {
   it.each(matrix)(
@@ -250,6 +262,74 @@ describe("competition GET through the real session guard", () => {
 });
 
 describe("unavailable account state through real callbacks and getCurrentSession", () => {
+  it("suppresses the automatic Next.js event after the real failed account read is reported", async () => {
+    vi.useFakeTimers();
+    const sdk = await vi.importActual<typeof import("@sentry/nextjs")>("@sentry/nextjs");
+    const { scrubSentryEvent, scrubSentryBreadcrumb } =
+      await import("@/lib/observability/scrub-sentry-event");
+    const { onRequestError } = await import("@/instrumentation");
+    const envelopes: Envelope[] = [];
+    let confirmSent: (() => void) | undefined;
+    const sent = new Promise<void>((resolve) => {
+      confirmSent = resolve;
+    });
+    sdk.init({
+      dsn: "https://fixture@example.invalid/1",
+      tracesSampler: () => 0,
+      beforeSend: scrubSentryEvent,
+      beforeBreadcrumb: scrubSentryBreadcrumb,
+      transport: () => ({
+        send: async (envelope: Envelope) => {
+          envelopes.push(envelope);
+          confirmSent?.();
+          return { statusCode: 200 };
+        },
+        flush: async () => true,
+      }),
+    });
+    state.captureException.mockImplementation(sdk.captureException);
+    state.captureRequestError.mockImplementation(sdk.captureRequestError);
+    try {
+      const scope = sdk.getIsolationScope();
+      scope.setUser({ id: "account-sentinel", email: "email-sentinel@example.invalid" });
+      scope.setTag("account", "account-sentinel");
+      scope.setExtra("token", "token-sentinel");
+      scope.setContext("nextjs", { request_path: "/accounts/account-sentinel" });
+      stageAccount("candidate", "satisfied");
+      state.query.mockRejectedValue(new Error("database unavailable"));
+      const error = await getCurrentSession().catch((failure: unknown) => failure);
+      expect(error).toMatchObject({ code: "account_state_unavailable", status: 503 });
+      onRequestError(
+        error,
+        { path: "/profile", method: "GET", headers: {} },
+        {
+          routerKind: "App Router",
+          routePath: "/profile",
+          routeType: "render",
+        },
+      );
+      await sent;
+      expect(state.captureException).toHaveBeenCalledOnce();
+      expect(state.captureRequestError).not.toHaveBeenCalled();
+      expect(envelopes).toHaveLength(1);
+      const payload = JSON.stringify(envelopes);
+      expect(payload).toContain("auth-live-account-read");
+      expect(payload).toContain("Account status is temporarily unavailable");
+      for (const identity of [
+        "account-sentinel",
+        "email-sentinel@example.invalid",
+        "token-sentinel",
+      ]) {
+        expect(payload).not.toContain(identity);
+      }
+    } finally {
+      const closed = sdk.close();
+      await vi.advanceTimersToNextTimerAsync();
+      await closed;
+      sdk.getCurrentScope().clear();
+      sdk.getIsolationScope().clear();
+    }
+  });
   it.each(["candidate", "recruiter", "platform_ops", "finance_ops", "reviewer_or_judge"] as const)(
     "refuses %s with 503 after both live reads reject",
     async (role) => {

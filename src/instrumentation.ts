@@ -10,4 +10,10 @@ export async function register() {
   }
 }
 
-export const onRequestError = Sentry.captureRequestError;
+export const onRequestError: typeof Sentry.captureRequestError = (error, request, context) => {
+  // The live read already reports this refusal under its process-wide throttle.
+  if (error instanceof Error && "code" in error && error.code === "account_state_unavailable") {
+    return;
+  }
+  Sentry.captureRequestError(error, request, context);
+};

@@ -1,4 +1,4 @@
-import type { Breadcrumb, Event } from "@sentry/nextjs";
+import type { Breadcrumb, Event, StackFrame } from "@sentry/nextjs";
 
 const ALLOWED_REQUEST_HEADERS = new Set([
   "user-agent",
@@ -11,6 +11,15 @@ const ALLOWED_REQUEST_HEADERS = new Set([
 function stripUrlSuffix(url: string): string {
   const suffixStart = url.search(/[?#]/);
   return suffixStart === -1 ? url : url.slice(0, suffixStart);
+}
+
+function stripSentryFrameContext(frame: StackFrame): StackFrame {
+  const strippedFrame = { ...frame };
+  delete strippedFrame.vars;
+  delete strippedFrame.pre_context;
+  delete strippedFrame.context_line;
+  delete strippedFrame.post_context;
+  return strippedFrame;
 }
 
 function scrubSentryRequest(request: NonNullable<Event["request"]>): NonNullable<Event["request"]> {
@@ -74,6 +83,30 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
     scrubbedEvent.breadcrumbs = event.breadcrumbs
       .map(scrubSentryBreadcrumb)
       .filter((breadcrumb): breadcrumb is Breadcrumb => breadcrumb !== null);
+  }
+
+  if (event.tags?.subsystem === "auth-live-account-read") {
+    // A request path, breadcrumb or inherited scope can identify an account despite a safe exception.
+    delete scrubbedEvent.request;
+    delete scrubbedEvent.contexts;
+    delete scrubbedEvent.extra;
+    delete scrubbedEvent.breadcrumbs;
+    delete scrubbedEvent.transaction;
+    scrubbedEvent.tags = { subsystem: "auth-live-account-read" };
+    if (scrubbedEvent.exception?.values) {
+      scrubbedEvent.exception = {
+        ...scrubbedEvent.exception,
+        values: scrubbedEvent.exception.values.map((exception) => ({
+          ...exception,
+          stacktrace: exception.stacktrace
+            ? {
+                ...exception.stacktrace,
+                frames: exception.stacktrace.frames?.map(stripSentryFrameContext),
+              }
+            : undefined,
+        })),
+      };
+    }
   }
 
   return scrubbedEvent;
