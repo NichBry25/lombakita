@@ -24,9 +24,10 @@ export class AccessError extends Error {
       | "forbidden"
       | "session_user_mismatch"
       | "account_suspended"
+      | "account_state_unavailable"
       | "mfa_enrolment_required"
       | "mfa_challenge_required",
-    public readonly status: 401 | 403 | 409,
+    public readonly status: 401 | 403 | 409 | 503,
     message: string,
   ) {
     super(message);
@@ -80,6 +81,14 @@ export const normalizeSessionRole = (value: string | undefined | null): AppRole 
 };
 
 export const assertAuthenticatedSession = (session: Session | null): AuthenticatedSession => {
+  if (session?.user?.accountStateUnavailable) {
+    throw new AccessError(
+      "account_state_unavailable",
+      503,
+      "Account status is temporarily unavailable",
+    );
+  }
+
   if (!session?.user || !session.user.id) {
     throw new AccessError("unauthenticated", 401, "Authentication required");
   }

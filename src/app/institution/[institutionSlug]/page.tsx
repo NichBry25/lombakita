@@ -11,6 +11,7 @@ import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
 import {
+  ANONYMOUS_INSTITUTION_VIEWER,
   getPublicInstitution,
   isIndexableInstitution,
   type InstitutionPublicViewer,
@@ -131,12 +132,15 @@ export default async function InstitutionHubPage({
     // `isPlatformOps` and `isPreview` are read here and resolved in the service, so the contact
     // decision is made against the database for THIS viewer rather than by a client that could be
     // wrong about who is looking.
-    return renderPublicView(slug, {
-      userId: session?.user?.id ?? null,
-      isPlatformOps:
-        session?.user?.role === "platform_ops" && session.user.mfaStatus === "satisfied",
-      isPreview: tampilan === PUBLIC_VIEW_PARAM,
-    });
+    const viewer = session?.user?.suspendedAt
+      ? ANONYMOUS_INSTITUTION_VIEWER
+      : {
+          userId: session?.user?.id ?? null,
+          isPlatformOps:
+            session?.user?.role === "platform_ops" && session.user.mfaStatus === "satisfied",
+          isPreview: tampilan === PUBLIC_VIEW_PARAM,
+        };
+    return renderPublicView(slug, viewer);
   }
 
   await requireRolePage("recruiter", { callbackPath: base });

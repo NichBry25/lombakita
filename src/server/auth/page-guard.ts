@@ -34,6 +34,7 @@ const assertPageSession = (session: Session | null, loginPath: string): Authenti
   try {
     return assertAuthenticatedSession(session);
   } catch (error) {
+    if (error instanceof AccessError && error.code === "account_state_unavailable") throw error;
     if (!(error instanceof AccessError)) throw error;
     if (error.code === "account_suspended") {
       redirect("/suspended");

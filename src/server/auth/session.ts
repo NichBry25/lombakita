@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import type { AppRole } from "@/lib/access/roles";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import {
+  AccessError,
   assertAuthenticatedSession,
   assertMfaSatisfiedForOperationalSession,
   assertSessionRole,
@@ -12,8 +13,16 @@ import { authOptions } from "@/server/auth/auth.config";
 
 assertServerOnly("server/auth/session");
 
-export const getCurrentSession = (): Promise<Session | null> => {
-  return getServerSession(authOptions);
+export const getCurrentSession = async (): Promise<Session | null> => {
+  const session = await getServerSession(authOptions);
+  if (session?.user?.accountStateUnavailable) {
+    throw new AccessError(
+      "account_state_unavailable",
+      503,
+      "Account status is temporarily unavailable",
+    );
+  }
+  return session;
 };
 
 export const requireAuthenticatedSession = async (options?: {

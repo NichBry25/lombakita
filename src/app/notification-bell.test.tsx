@@ -89,3 +89,25 @@ describe("notification bell polling", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
+
+it("keeps polling after a transient 503 and recovers without a session refresh", async () => {
+  vi.useFakeTimers();
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce({ status: 503, ok: false })
+    .mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({ unreadCount: 2 }),
+    });
+  vi.stubGlobal("fetch", fetch);
+  const view = render(<NotificationBell />);
+  await act(async () => {});
+  expect(fetch).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(25_000);
+  });
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(view.getByLabelText("Kotak masuk, 2 belum dibaca")).toBeTruthy();
+  view.unmount();
+});

@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
     hasVerifiedMfaFactor: false,
   },
   token: {} as Record<string, unknown>,
+  query: vi.fn(),
   reader: vi.fn(),
   registrations: vi.fn(),
   participation: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("next-auth", () => ({
       session: (args: unknown) => Promise<Session>;
     };
   }) => {
+    if (!state.token.sub) return null;
     const token = await options.callbacks.jwt({ token: { ...state.token } });
     return options.callbacks.session({ session: { user: {}, expires: "2099-01-01" }, token });
   },
@@ -58,7 +60,7 @@ vi.mock("@/server/db/client", () => ({
     select: () => ({
       from: () => ({
         where: () => ({
-          limit: async () => [state.account],
+          limit: state.query,
         }),
       }),
     }),
@@ -79,7 +81,11 @@ vi.mock("@/server/competitions/competition-publish-readiness", () => ({
   resolveCompetitionPublishReadiness: state.readiness,
 }));
 
-import { requireAuthenticatedSession as requireSession, requireSessionRole } from "./session";
+import {
+  getCurrentSession,
+  requireAuthenticatedSession as requireSession,
+  requireSessionRole,
+} from "./session";
 import { withApiRole } from "./api-guard";
 import { withMfaRouteAuth } from "./mfa/mfa-route-guard";
 import { GET } from "@/app/api/v1/competitions/[competitionId]/route";
@@ -110,6 +116,8 @@ const request = () => new NextRequest("http://localhost/api/v1/auth/mfa/challeng
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.query.mockReset();
+  state.query.mockImplementation(async () => [state.account]);
   state.account.status = "active";
   state.account.suspendedAt = null;
   stageAccount("platform_ops", "enrolment_required");
@@ -238,5 +246,39 @@ describe("competition GET through the real session guard", () => {
     expect(response.status).toBe(200);
     expect(state.reader).toHaveBeenCalledWith("actor", "platform_ops", "competition");
     await expect(response.json()).resolves.toMatchObject({ competition: { id: "competition" } });
+  });
+});
+
+describe("unavailable account state through real callbacks and getCurrentSession", () => {
+  it.each(["candidate", "recruiter", "platform_ops", "finance_ops", "reviewer_or_judge"] as const)(
+    "refuses %s with 503 after both live reads reject",
+    async (role) => {
+      stageAccount(role, "satisfied");
+      state.query.mockRejectedValue(new Error("database unavailable"));
+      await expect(getCurrentSession()).rejects.toMatchObject({
+        code: "account_state_unavailable",
+        status: 503,
+        message: "Account status is temporarily unavailable",
+      });
+      expect(state.query).toHaveBeenCalledTimes(2);
+      expect(state.token.sub).toBe("actor");
+    },
+  );
+  it("returns null without reading the database when there is no session token", async () => {
+    state.token = {};
+    await expect(getCurrentSession()).resolves.toBeNull();
+    expect(state.query).not.toHaveBeenCalled();
+  });
+  it("returns an API 503 without running the protected handler", async () => {
+    stageAccount("candidate", "satisfied");
+    state.query.mockRejectedValue(new Error("database unavailable"));
+    const handler = vi.fn(() => new Response(null, { status: 204 }));
+    const response = await withApiRole(["candidate"], handler)(request());
+    expect(handler).not.toHaveBeenCalled();
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "account_state_unavailable" },
+    });
+    expect(handler).not.toHaveBeenCalled();
   });
 });

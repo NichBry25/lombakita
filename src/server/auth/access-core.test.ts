@@ -6,6 +6,7 @@ import {
   assertSessionMatchesExpectedUser,
   assertSessionRole,
   normalizeSessionRole,
+  toAccessDeniedResponse,
   type AuthenticatedSession,
 } from "@/server/auth/access-core";
 
@@ -324,5 +325,40 @@ describe("assertSessionMatchesExpectedUser — cross-session form-submission gua
     const session = buildAuthSession("user_empty_header");
     const request = makeRequest("");
     expect(() => assertSessionMatchesExpectedUser(request, session)).not.toThrow();
+  });
+});
+
+describe("account state unavailable refusal", () => {
+  it("refuses a flagged session before suspension or role validation", () => {
+    const session = buildSession({
+      user: {
+        id: "user_123",
+        role: undefined,
+        suspendedAt: "2026-10-14T00:00:00.000Z",
+        accountStateUnavailable: true,
+      } as unknown as Session["user"],
+    });
+    expect(() => assertAuthenticatedSession(session)).toThrowError(
+      expect.objectContaining({
+        code: "account_state_unavailable",
+        status: 503,
+        message: "Account status is temporarily unavailable",
+      }),
+    );
+  });
+  it("passes an account_state_unavailable AccessError through as HTTP 503", async () => {
+    const error = new AccessError(
+      "account_state_unavailable" as never,
+      503 as never,
+      "Account status is temporarily unavailable",
+    );
+    const response = toAccessDeniedResponse(error);
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "account_state_unavailable",
+        message: "Account status is temporarily unavailable",
+      },
+    });
   });
 });

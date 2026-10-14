@@ -25,6 +25,7 @@ export default async function InstitutionCompetitionEditPage({ params }: Props) 
   try {
     competitionId = await getCompetitionIdByInstitutionAndSlug(institutionSlug, competitionSlug);
   } catch (error) {
+    if (error instanceof AccessError && error.code === "account_state_unavailable") throw error;
     if (isRedirectError(error)) throw error;
     if (error instanceof CompetitionError || error instanceof AccessError) notFound();
     throw error;

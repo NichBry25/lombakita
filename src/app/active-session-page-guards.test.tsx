@@ -315,3 +315,15 @@ describe("enrolment service race refusal", () => {
     expect(mocks.qr).not.toHaveBeenCalled();
   });
 });
+
+it("enrol page rethrows account_state_unavailable instead of redirecting", async () => {
+  mocks.session.mockResolvedValue(session());
+  const error = new AccessError(
+    "account_state_unavailable" as never,
+    503 as never,
+    "Account status is temporarily unavailable",
+  );
+  mocks.start.mockRejectedValue(error);
+  await expect(CASES[1].run()).rejects.toBe(error);
+  expect(mocks.qr).not.toHaveBeenCalled();
+});
