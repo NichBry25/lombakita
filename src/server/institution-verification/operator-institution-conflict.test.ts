@@ -71,7 +71,7 @@ describe("assertOperatorHasNoInstitutionRelationship", () => {
 
   it("keeps the two messages distinct", () => {
     expect(OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE).toBe(
-      "A platform-ops account cannot act on an institution it has filed for, been invited to, or held any membership in",
+      "An operator account cannot act on an institution it has filed for, been invited to, or held any membership in",
     );
     expect(OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE).not.toBe(OPERATOR_ACTOR_CONFLICTED_MESSAGE);
   });

@@ -17,8 +17,9 @@ assertServerOnly("server/institution-verification/operator-institution-conflict"
 
 // NOBODY DECIDES AN INSTITUTION THEY ARE INSIDE, FILED FOR, OR WERE INVITED INTO.
 //
-// The rule is declared once here and called from both decision paths — `verifyInstitution`
-// (verification-service.ts) and `reviewVerificationSubmission` (submission-service.ts) — because the
+// The rule is declared once here and called from the verification decision paths
+// (`verifyInstitution` in verification-service.ts and `reviewVerificationSubmission` in
+// submission-service.ts) and from the institution- and money-targeted audit writers — because the
 // three relationships below are properties of the (actor, institution) pair, not of the path. A
 // second copy would drift the moment one side learned about a fourth relationship.
 //
@@ -38,7 +39,7 @@ export const OPERATOR_ACTOR_CONFLICTED_MESSAGE =
 
 // For writers that act on an institution rather than decide its verification.
 export const OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE =
-  "A platform-ops account cannot act on an institution it has filed for, been invited to, or held any membership in";
+  "An operator account cannot act on an institution it has filed for, been invited to, or held any membership in";
 
 const refusal = (message: string): OperatorActorError =>
   new OperatorActorError("operator_actor_conflicted", 403, message);

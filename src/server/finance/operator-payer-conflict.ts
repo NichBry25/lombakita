@@ -16,7 +16,7 @@ export const assertOperatorIsNotPayer = (
     throw new OperatorActorError(
       "operator_actor_is_target",
       403,
-      "A platform-ops account cannot act on a payment it made",
+      "An operator account cannot act on a payment it made",
     );
   }
 };

@@ -20,8 +20,9 @@ assertServerOnly("server/platform-ops/operator-actor");
 // not compile. At runtime the actor must belong to the transaction writing the audit row.
 //
 // Recruiter-tier elevation, account de-identification and the four moderation writers use this
-// path. Ten further inserts still take an `actorUserId: string` directly, including the finance
-// writers. Actor resolution is not yet a property of every audit writer in the codebase.
+// path. Only the MFA audit writer (src/server/auth/mfa/mfa-audit.ts) still inserts directly. Its
+// actor and target are the same account by design. Actor resolution is not yet a property of every
+// audit writer in the codebase.
 
 /**
  * An actor the database has confirmed exists, holds a required operator role, and is not suspended.

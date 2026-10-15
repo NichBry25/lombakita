@@ -24,7 +24,7 @@ describe("assertOperatorIsNotPayer", () => {
     expect(refusal).toMatchObject({
       code: "operator_actor_is_target",
       status: 403,
-      message: "A platform-ops account cannot act on a payment it made",
+      message: "An operator account cannot act on a payment it made",
     });
   });
 
