@@ -4,10 +4,18 @@ assertServerOnly("server/featured/featured-placement-service");
 
 import { eq } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
-import { competitions, institutions, platformOpsAuditLogs } from "@/server/db/schema";
+import { competitions, institutions } from "@/server/db/schema";
 import { logger } from "@/lib/logger";
 import { enqueueCompetitionSearchSync } from "@/server/async/enqueue";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
+import {
+  assertOperatorHasNoInstitutionRelationship,
+  OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
+} from "@/server/institution-verification/operator-institution-conflict";
+import {
+  recordOperatorAuditEntry,
+  resolvePlatformOpsActor,
+} from "@/server/platform-ops/operator-actor";
 
 export type FeaturedPlacementErrorCode =
   | "competition_not_found"
@@ -45,55 +53,65 @@ export type SetFeaturedPlacementResult = {
 export const FEATURED_SET_EVENT = "featured_placement.set";
 export const FEATURED_CLEARED_EVENT = "featured_placement.cleared";
 
+// The acting account is resolved from the database first, inside the one transaction that holds
+// every read and write, and may not be tied to the institution that owns the competition
+// (LAUNCH-D136). Featured placement is the front-page slot and a monetized surface, so "who featured
+// this, and when" must be answerable from the audit trail rather than from server logs. The audit
+// table requires a user or institution target and a competition is neither, so the owning
+// institution is the target and the competition id rides in metadata.
 export const setFeaturedPlacement = async (
   actorUserId: string,
   competitionId: string,
   input: SetFeaturedPlacementInput,
   db: Database = getDb(),
 ): Promise<SetFeaturedPlacementResult> => {
-  const [row] = await db
-    .select({
-      id: competitions.id,
-      status: competitions.status,
-      institutionId: competitions.institutionId,
-      institutionType: institutions.institutionType,
-    })
-    .from(competitions)
-    .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
-    .where(eq(competitions.id, competitionId))
-    .limit(1);
-
-  if (!row) {
-    throw new FeaturedPlacementError("competition_not_found", 404, "Competition not found");
-  }
-
-  // Personal institutions are excluded from featured placement. No-op for full or
-  // legacy institutions (NULL type).
-  if (isPersonalInstitutionType(row.institutionType)) {
-    throw new FeaturedPlacementError(
-      "competition_personal_not_featurable",
-      409,
-      "Competitions owned by a personal institution cannot be featured",
-    );
-  }
-
-  if (row.status !== "published") {
-    throw new FeaturedPlacementError(
-      "competition_not_published",
-      409,
-      "Only published competitions can be featured",
-    );
-  }
-
   // When unsetting featured, clear featuredOrder regardless of passed value.
   const resolvedOrder = input.isFeatured ? (input.featuredOrder ?? null) : null;
 
-  // Placement change and audit row land in one transaction. Featured placement is the front-page
-  // slot and a monetized surface, so "who featured this, and when" must be answerable from the
-  // audit trail rather than from server logs. The audit table requires a user or institution
-  // target and a competition is neither, so the owning institution is the target and the
-  // competition id rides in metadata.
   await db.transaction(async (tx) => {
+    const actor = await resolvePlatformOpsActor(tx, actorUserId);
+
+    const [row] = await tx
+      .select({
+        id: competitions.id,
+        status: competitions.status,
+        institutionId: competitions.institutionId,
+        institutionType: institutions.institutionType,
+      })
+      .from(competitions)
+      .innerJoin(institutions, eq(institutions.id, competitions.institutionId))
+      .where(eq(competitions.id, competitionId))
+      .limit(1);
+
+    if (!row) {
+      throw new FeaturedPlacementError("competition_not_found", 404, "Competition not found");
+    }
+
+    await assertOperatorHasNoInstitutionRelationship(
+      tx,
+      actor,
+      row.institutionId,
+      OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
+    );
+
+    // Personal institutions are excluded from featured placement. No-op for full or
+    // legacy institutions (NULL type).
+    if (isPersonalInstitutionType(row.institutionType)) {
+      throw new FeaturedPlacementError(
+        "competition_personal_not_featurable",
+        409,
+        "Competitions owned by a personal institution cannot be featured",
+      );
+    }
+
+    if (row.status !== "published") {
+      throw new FeaturedPlacementError(
+        "competition_not_published",
+        409,
+        "Only published competitions can be featured",
+      );
+    }
+
     await tx
       .update(competitions)
       .set({
@@ -103,8 +121,7 @@ export const setFeaturedPlacement = async (
       })
       .where(eq(competitions.id, competitionId));
 
-    await tx.insert(platformOpsAuditLogs).values({
-      actorUserId,
+    await recordOperatorAuditEntry(tx, actor, {
       targetInstitutionId: row.institutionId,
       eventType: input.isFeatured ? FEATURED_SET_EVENT : FEATURED_CLEARED_EVENT,
       metadata: { competitionId, featuredOrder: resolvedOrder },

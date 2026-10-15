@@ -7,9 +7,19 @@ import { getDb, type Database } from "@/server/db/client";
 import {
   competitionRegistrations,
   competitions,
-  platformOpsAuditLogs,
+  financeManualPaymentProofs,
+  financePayments,
   type FinanceManualPaymentProofRecord,
 } from "@/server/db/schema";
+import {
+  assertOperatorHasNoInstitutionRelationship,
+  OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
+} from "@/server/institution-verification/operator-institution-conflict";
+import {
+  recordOperatorAuditEntry,
+  resolvePlatformOpsActor,
+} from "@/server/platform-ops/operator-actor";
+import { assertOperatorIsNotPayer } from "@/server/finance/operator-payer-conflict";
 import { INSTITUTION_CANCELLATION_REASON } from "@/server/competitions/competition-lifecycle";
 import { acquireCompetitionParticipationLock } from "@/server/competitions/competition-participation-lock";
 import { enqueueCompetitionCancelled, enqueueCompetitionSearchSync } from "@/server/async/enqueue";
@@ -105,6 +115,8 @@ export const cancelCompetitionAsOps = async (
   const auditReason = requireReason(reason);
 
   const result = await db.transaction(async (tx) => {
+    const actor = await resolvePlatformOpsActor(tx, actorUserId);
+
     await acquireCompetitionParticipationLock(tx, competitionId);
 
     const [competition] = await tx
@@ -120,6 +132,13 @@ export const cancelCompetitionAsOps = async (
     if (!competition) {
       throw new OpsPaymentError("ops_competition_not_found", "Kompetisi tidak ditemukan", 404);
     }
+
+    await assertOperatorHasNoInstitutionRelationship(
+      tx,
+      actor,
+      competition.institutionId,
+      OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
+    );
 
     if (competition.status !== "published") {
       throw new OpsPaymentError(
@@ -158,8 +177,7 @@ export const cancelCompetitionAsOps = async (
       )
       .returning({ id: competitionRegistrations.id });
 
-    await tx.insert(platformOpsAuditLogs).values({
-      actorUserId,
+    await recordOperatorAuditEntry(tx, actor, {
       // A competition is not a user, and the audit table's target_present_chk requires a user or an
       // institution. The owning institution is the accountable party here, so it is the target.
       targetInstitutionId: competition.institutionId,
@@ -223,7 +241,31 @@ export const voidPaymentProofAsOps = async (
   const auditReason = requireReason(reason);
 
   const voided = await db.transaction(async (tx) => {
-    const proof = await voidManualPaymentProof(actorUserId, proofId, auditReason, tx, now);
+    const actor = await resolvePlatformOpsActor(tx, actorUserId);
+
+    // A proof that does not exist has no parties to refuse: voidManualPaymentProof raises its own
+    // not-found below.
+    const [parties] = await tx
+      .select({
+        payerUserId: financePayments.payerUserId,
+        receivingInstitutionId: financePayments.receivingInstitutionId,
+      })
+      .from(financeManualPaymentProofs)
+      .innerJoin(financePayments, eq(financePayments.id, financeManualPaymentProofs.paymentId))
+      .where(eq(financeManualPaymentProofs.id, proofId))
+      .limit(1);
+
+    if (parties) {
+      assertOperatorIsNotPayer(actor, parties.payerUserId);
+      await assertOperatorHasNoInstitutionRelationship(
+        tx,
+        actor,
+        parties.receivingInstitutionId,
+        OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
+      );
+    }
+
+    const proof = await voidManualPaymentProof(actor.userId, proofId, auditReason, tx, now);
 
     const [competition] = await tx
       .select({ institutionId: competitions.institutionId })
@@ -231,12 +273,11 @@ export const voidPaymentProofAsOps = async (
       .where(eq(competitions.id, proof.competitionId))
       .limit(1);
 
-    await tx.insert(platformOpsAuditLogs).values({
-      actorUserId,
+    await recordOperatorAuditEntry(tx, actor, {
       // Falls back to the actor when the competition somehow cannot be read, so the audit row is
       // still written: losing the audit trail is a worse outcome than an imprecise target, and the
       // metadata below carries the precise subject either way.
-      targetUserId: competition ? undefined : actorUserId,
+      targetUserId: competition ? undefined : actor.userId,
       targetInstitutionId: competition?.institutionId,
       eventType: PROOF_VOIDED_EVENT,
       reason: auditReason,

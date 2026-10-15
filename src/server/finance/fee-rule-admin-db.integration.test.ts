@@ -58,6 +58,7 @@ const seedOperator = async (tx: Tx): Promise<string> => {
     .values({
       email: `ops_${suffix}@example.test`,
       username: `ops_${suffix}`,
+      role: "platform_ops",
       // users_one_verified_role_chk requires at least one verified role.
       candidateVerifiedAt: EFFECTIVE_FROM,
     })

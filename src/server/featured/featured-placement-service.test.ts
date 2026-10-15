@@ -13,41 +13,51 @@ vi.mock("@/server/async/enqueue", () => ({ enqueueCompetitionSearchSync }));
 import {
   FEATURED_CLEARED_EVENT,
   FEATURED_SET_EVENT,
-  FeaturedPlacementError,
   setFeaturedPlacement,
 } from "./featured-placement-service";
 import type { Database } from "@/server/db/client";
 import { logger } from "@/lib/logger";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
+import { OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE } from "@/server/institution-verification/operator-institution-conflict";
+import {
+  CONFLICTED_RELATIONSHIP_CASES,
+  NO_INSTITUTION_RELATIONSHIP_READS,
+  invalidOperatorActorCases,
+  makeSequencedSelect,
+  operatorActorRow,
+  type SelectRows,
+} from "@/server/testing/operator-writer-stubs";
 
 const OPS_ACTOR_ID = "ops_1";
 
+// Everything runs in one transaction that serves its reads in call order: the acting account, the
+// competition, then the four reads of the institution-relationship check.
 const makeSelectDb = (
   row: { id: string; status: string; institutionType?: string | null } | null,
+  extras: { actorRow?: SelectRows[number] | null; relationshipReads?: SelectRows[] } = {},
 ) => {
-  const chain = {
-    from: vi.fn().mockReturnThis(),
-    innerJoin: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    limit: vi
-      .fn()
-      .mockResolvedValue(row ? [{ institutionType: null, institutionId: "inst_1", ...row }] : []),
-  };
+  const actorRow = extras.actorRow === undefined ? operatorActorRow(OPS_ACTOR_ID) : extras.actorRow;
+  const competitionRows = row ? [{ institutionType: null, institutionId: "inst_1", ...row }] : [];
   const updateChain = {
     set: vi.fn().mockReturnThis(),
     where: vi.fn().mockResolvedValue(undefined),
   };
   const insertChain = { values: vi.fn().mockResolvedValue(undefined) };
   const tx = {
+    select: makeSequencedSelect([
+      actorRow ? [actorRow] : [],
+      competitionRows,
+      ...(extras.relationshipReads ?? NO_INSTITUTION_RELATIONSHIP_READS),
+    ]),
     update: vi.fn().mockReturnValue(updateChain),
     insert: vi.fn().mockReturnValue(insertChain),
   };
   return {
     db: {
-      select: vi.fn().mockReturnValue(chain),
-      update: tx.update,
-      insert: tx.insert,
+      select: vi.fn(),
       transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) => run(tx)),
     } as unknown as Database,
+    tx,
     updateChain,
     insertChain,
   };
@@ -68,56 +78,21 @@ describe("setFeaturedPlacement", () => {
         { isFeatured: true, featuredOrder: 1 },
         db,
       ),
-    ).rejects.toThrow(FeaturedPlacementError);
-
-    try {
-      await setFeaturedPlacement(
-        OPS_ACTOR_ID,
-        "comp_missing",
-        { isFeatured: true, featuredOrder: 1 },
-        db,
-      );
-    } catch (e) {
-      expect((e as FeaturedPlacementError).code).toBe("competition_not_found");
-      expect((e as FeaturedPlacementError).status).toBe(404);
-    }
+    ).rejects.toMatchObject({ code: "competition_not_found", status: 404 });
   });
 
   it("throws competition_not_published (409) for draft competition", async () => {
     const { db } = makeSelectDb({ id: "comp_1", status: "draft" });
     await expect(
       setFeaturedPlacement(OPS_ACTOR_ID, "comp_1", { isFeatured: true, featuredOrder: 1 }, db),
-    ).rejects.toThrow(FeaturedPlacementError);
-
-    try {
-      await setFeaturedPlacement(
-        OPS_ACTOR_ID,
-        "comp_1",
-        { isFeatured: true, featuredOrder: 1 },
-        db,
-      );
-    } catch (e) {
-      expect((e as FeaturedPlacementError).code).toBe("competition_not_published");
-      expect((e as FeaturedPlacementError).status).toBe(409);
-    }
+    ).rejects.toMatchObject({ code: "competition_not_published", status: 409 });
   });
 
   it("throws competition_not_published (409) for archived competition", async () => {
     const { db } = makeSelectDb({ id: "comp_1", status: "archived" });
     await expect(
       setFeaturedPlacement(OPS_ACTOR_ID, "comp_1", { isFeatured: true, featuredOrder: 1 }, db),
-    ).rejects.toThrow(FeaturedPlacementError);
-
-    try {
-      await setFeaturedPlacement(
-        OPS_ACTOR_ID,
-        "comp_1",
-        { isFeatured: true, featuredOrder: 1 },
-        db,
-      );
-    } catch (e) {
-      expect((e as FeaturedPlacementError).code).toBe("competition_not_published");
-    }
+    ).rejects.toMatchObject({ code: "competition_not_published", status: 409 });
   });
 
   it("throws competition_personal_not_featurable (409) when owned by a personal institution", async () => {
@@ -128,19 +103,7 @@ describe("setFeaturedPlacement", () => {
     });
     await expect(
       setFeaturedPlacement(OPS_ACTOR_ID, "comp_1", { isFeatured: true, featuredOrder: 1 }, db),
-    ).rejects.toThrow(FeaturedPlacementError);
-
-    try {
-      await setFeaturedPlacement(
-        OPS_ACTOR_ID,
-        "comp_1",
-        { isFeatured: true, featuredOrder: 1 },
-        db,
-      );
-    } catch (e) {
-      expect((e as FeaturedPlacementError).code).toBe("competition_personal_not_featurable");
-      expect((e as FeaturedPlacementError).status).toBe(409);
-    }
+    ).rejects.toMatchObject({ code: "competition_personal_not_featurable", status: 409 });
   });
 
   // Featured placement is the front-page slot and a monetized surface, so the audit trail — not a
@@ -233,6 +196,67 @@ describe("setFeaturedPlacement", () => {
       competitionId: "comp_1",
       action: "upsert",
     });
+  });
+
+  it.each(invalidOperatorActorCases(OPS_ACTOR_ID))(
+    "refuses a $label actor before reading the competition, and writes nothing",
+    async ({ row, code }) => {
+      const { db, tx, insertChain } = makeSelectDb(
+        { id: "comp_1", status: "published" },
+        { actorRow: row },
+      );
+      const refusal = await setFeaturedPlacement(
+        OPS_ACTOR_ID,
+        "comp_1",
+        { isFeatured: true, featuredOrder: 1 },
+        db,
+      ).catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(OperatorActorError);
+      expect(refusal).toMatchObject({ code, status: 403 });
+      expect(tx.update).not.toHaveBeenCalled();
+      expect(insertChain.values).not.toHaveBeenCalled();
+      expect(enqueueCompetitionSearchSync).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(CONFLICTED_RELATIONSHIP_CASES)(
+    "refuses an operator with a $arm relationship to the institution, and writes nothing",
+    async ({ reads }) => {
+      const { db, tx, insertChain } = makeSelectDb(
+        { id: "comp_1", status: "published" },
+        { relationshipReads: reads },
+      );
+      const refusal = await setFeaturedPlacement(
+        OPS_ACTOR_ID,
+        "comp_1",
+        { isFeatured: true, featuredOrder: 1 },
+        db,
+      ).catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(OperatorActorError);
+      expect(refusal).toMatchObject({
+        code: "operator_actor_conflicted",
+        status: 403,
+        message: OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
+      });
+      expect(tx.update).not.toHaveBeenCalled();
+      expect(insertChain.values).not.toHaveBeenCalled();
+      expect(enqueueCompetitionSearchSync).not.toHaveBeenCalled();
+    },
+  );
+
+  it("audits the database actor, not the claimed one", async () => {
+    const { db, insertChain } = makeSelectDb(
+      { id: "comp_1", status: "published" },
+      { actorRow: operatorActorRow("database-actor") },
+    );
+    await setFeaturedPlacement(
+      "claimed-actor",
+      "comp_1",
+      { isFeatured: true, featuredOrder: 1 },
+      db,
+    );
+    expect(insertChain.values).toHaveBeenCalledTimes(1);
+    expect(insertChain.values.mock.calls[0]![0]).toMatchObject({ actorUserId: "database-actor" });
   });
 
   it("does not throw when enqueue fails — DB write still succeeds", async () => {

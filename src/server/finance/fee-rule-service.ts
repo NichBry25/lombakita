@@ -4,12 +4,15 @@ assertServerOnly("server/finance/fee-rule-service");
 
 import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
+import { financeFeeRules, institutions, type FinanceFeeRuleRecord } from "@/server/db/schema";
 import {
-  financeFeeRules,
-  institutions,
-  platformOpsAuditLogs,
-  type FinanceFeeRuleRecord,
-} from "@/server/db/schema";
+  assertOperatorHasNoInstitutionRelationship,
+  OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
+} from "@/server/institution-verification/operator-institution-conflict";
+import {
+  recordOperatorAuditEntry,
+  resolvePlatformOpsActor,
+} from "@/server/platform-ops/operator-actor";
 import {
   computePlatformFee,
   FeeComputationError,
@@ -197,7 +200,11 @@ const assertStorableTerms = (input: CreateFeeRuleInput): FeeRuleTerms => {
  * A GLOBAL rule names no institution, but `platform_ops_audit_logs_target_present_chk` requires a
  * user or an institution on every row. `targetUserId` is therefore set to the ACTOR, following
  * `appendMfaAuditEvent`, with the rule id carried in metadata. The audit's subject is the operator
- * who changed platform pricing, which is the fact worth attributing.
+ * who changed platform pricing, which is the fact worth attributing. That placeholder is not a
+ * self-action, so there is no actor-is-target refusal here.
+ *
+ * The acting account is resolved from the database first, inside the one transaction, and a rule
+ * scoped to an institution may not be written by an operator tied to it (LAUNCH-D136).
  */
 export const createFeeRule = async (
   actorUserId: string,
@@ -213,19 +220,28 @@ export const createFeeRule = async (
     );
   }
 
-  if (input.institutionId !== null) {
-    const [institution] = await db
-      .select({ id: institutions.id })
-      .from(institutions)
-      .where(eq(institutions.id, input.institutionId))
-      .limit(1);
-
-    if (!institution) {
-      throw new FeeRuleError("fee_rule_institution_not_found", "Institution not found", 404);
-    }
-  }
-
   return db.transaction(async (tx) => {
+    const actor = await resolvePlatformOpsActor(tx, actorUserId);
+
+    if (input.institutionId !== null) {
+      const [institution] = await tx
+        .select({ id: institutions.id })
+        .from(institutions)
+        .where(eq(institutions.id, input.institutionId))
+        .limit(1);
+
+      if (!institution) {
+        throw new FeeRuleError("fee_rule_institution_not_found", "Institution not found", 404);
+      }
+
+      await assertOperatorHasNoInstitutionRelationship(
+        tx,
+        actor,
+        input.institutionId,
+        OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
+      );
+    }
+
     const [created] = await tx
       .insert(financeFeeRules)
       .values({
@@ -244,9 +260,8 @@ export const createFeeRule = async (
       throw new FeeRuleError("fee_rule_terms_invalid", "Fee rule could not be recorded");
     }
 
-    await tx.insert(platformOpsAuditLogs).values({
-      actorUserId,
-      targetUserId: actorUserId,
+    await recordOperatorAuditEntry(tx, actor, {
+      targetUserId: actor.userId,
       targetInstitutionId: input.institutionId,
       eventType: FEE_RULE_CREATED_EVENT,
       metadata: {
