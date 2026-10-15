@@ -45,6 +45,7 @@ vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
 
 import { recruiterVerificationSubmissions, users } from "@/server/db/schema";
 import { OperatorActorError } from "@/server/platform-ops/operator-actor";
+import { makeSequencedSelect } from "@/server/testing/operator-writer-stubs";
 import {
   deleteVerificationDocumentForUser,
   finalizeVerificationDocumentUpload,
@@ -67,22 +68,6 @@ afterEach(() => vi.clearAllMocks());
 type SelectRow = Record<string, unknown>;
 
 const OPS_ACTOR_ROW = { id: "ops_1", role: "platform_ops", suspendedAt: null };
-
-// A tx select() that serves one result per call, in call order: the acting account first, then the
-// submission owner, then whatever a later read asks for. The order is part of what is asserted — a
-// writer that reads the target before the actor reads the actor's row as the target.
-const makeSequencedSelect = (reads: SelectRow[][]) => {
-  let call = 0;
-  return vi.fn(() => {
-    const rows = reads[call++] ?? [];
-    const chain = {
-      from: vi.fn(() => chain),
-      where: vi.fn(() => chain),
-      limit: vi.fn().mockResolvedValue(rows),
-    };
-    return chain;
-  });
-};
 
 // Builds a tx whose update() dispatches by table: the submission update returns `submissionReturn`
 // from .returning(); the users update is awaited after .where(); audit insert is a no-op. select()
