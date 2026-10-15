@@ -36,8 +36,12 @@ assertServerOnly("server/institution-verification/operator-institution-conflict"
 export const OPERATOR_ACTOR_CONFLICTED_MESSAGE =
   "A platform-ops account cannot decide the verification of an institution it has filed for, been invited to, or held any membership in";
 
-const refusal = (): OperatorActorError =>
-  new OperatorActorError("operator_actor_conflicted", 403, OPERATOR_ACTOR_CONFLICTED_MESSAGE);
+// For writers that act on an institution rather than decide its verification.
+export const OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE =
+  "A platform-ops account cannot act on an institution it has filed for, been invited to, or held any membership in";
+
+const refusal = (message: string): OperatorActorError =>
+  new OperatorActorError("operator_actor_conflicted", 403, message);
 
 /**
  * Refuse unless the actor has no relationship to this institution.
@@ -51,6 +55,7 @@ export const assertOperatorHasNoInstitutionRelationship = async (
   tx: OperatorActorTransaction,
   actor: ResolvedPlatformOpsActor,
   institutionId: string,
+  message: string = OPERATOR_ACTOR_CONFLICTED_MESSAGE,
 ): Promise<void> => {
   const [membership] = await tx
     .select({ id: institutionMemberships.id })
@@ -63,7 +68,7 @@ export const assertOperatorHasNoInstitutionRelationship = async (
     )
     .limit(1);
 
-  if (membership) throw refusal();
+  if (membership) throw refusal(message);
 
   const [filed] = await tx
     .select({ id: institutionVerificationSubmissions.id })
@@ -76,7 +81,7 @@ export const assertOperatorHasNoInstitutionRelationship = async (
     )
     .limit(1);
 
-  if (filed) throw refusal();
+  if (filed) throw refusal(message);
 
   const [account] = await tx
     .select({ email: users.email })
@@ -110,5 +115,5 @@ export const assertOperatorHasNoInstitutionRelationship = async (
     )
     .limit(1);
 
-  if (invited) throw refusal();
+  if (invited) throw refusal(message);
 };
