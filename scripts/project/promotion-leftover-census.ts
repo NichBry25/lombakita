@@ -89,7 +89,7 @@ export const LEFTOVER_RULINGS: readonly LeftoverRuling[] = Object.freeze([
   allowed(SCAFFOLDING, SCAFFOLDING_REASON, "user_email_verification_tokens", "user_id"),
   allowed(
     SCAFFOLDING,
-    "stored role grants, treated as the account's own scaffolding by the owner; its writer was not read",
+    "stored role grants. No product code inserts into this table and its only reader is the auth context route. Classified as the account's own scaffolding by the controller, not ruled on by the owner",
     "user_platform_roles",
     "user_id",
   ),
