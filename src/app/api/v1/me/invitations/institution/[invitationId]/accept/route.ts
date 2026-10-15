@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { requireAuthenticatedSession } from "@/server/auth/session";
+import { SELF_SERVICE_ROLES } from "@/lib/access/roles";
+import { requireSessionRole } from "@/server/auth/session";
 import {
   assertSessionMatchesExpectedUser,
   toAccessDeniedResponse,
@@ -13,14 +14,15 @@ import { acceptInstitutionInvitationForUser } from "@/server/institution-invitat
 // In-app institution invitation acceptance. The invitation is addressed by id (from the
 // caller's inbox) and accepted ONLY when session.user.id === target_user_id (enforced in the
 // service). Acts on the caller's OWN data, so CLAUDE.md Rule #16 applies: the cross-session guard
-// runs immediately after the auth gate. The recruiter-verification gate fires server-side in
+// runs immediately after the role gate. Operators are refused at the role gate: only the
+// self-service roles accept an invitation. The recruiter-verification gate fires server-side in
 // the service at the accept mutation.
 export async function POST(
   request: Request,
   context: { params: Promise<{ invitationId: string }> },
 ): Promise<Response> {
   try {
-    const session = await requireAuthenticatedSession();
+    const session = await requireSessionRole(SELF_SERVICE_ROLES);
     assertSessionMatchesExpectedUser(request, session);
 
     const { invitationId } = await context.params;
