@@ -622,9 +622,12 @@ export const demonstrateAll = async (
   sql: postgres.Sql,
   declared: readonly ProcedureStep[],
   out: string,
+  subjects?: DemonstrationSubjects,
 ): Promise<void> => {
   const known = new Set(declared.map((step) => step.name));
   const cases: CaseRun[] = [];
+
+  if (subjects !== undefined) await assertSubjectsAreWhatTheyAreNamed(sql, declared, subjects);
 
   for (const spec of DEMONSTRATION_CASES) {
     for (const name of spec.omit) {
@@ -633,7 +636,8 @@ export const demonstrateAll = async (
       }
     }
 
-    const selection = await selectTarget(sql, spec.select, declared);
+    const selection =
+      namedSubject(spec.select, subjects) ?? (await selectTarget(sql, spec.select, declared));
     const steps = declared.filter((step) => !spec.omit.includes(step.name));
     const run = await runProcedure(sql, steps, selection.userId);
 
@@ -816,6 +820,49 @@ export const leftoversNamedByDocument = async (
   }
 
   return row.leftovers as Leftover[];
+};
+
+/** The accounts a caller names for the cases that act on a self-service account. */
+export type DemonstrationSubjects = { clean: string; tied: string };
+
+const namedSubject = (
+  which: string,
+  subjects: DemonstrationSubjects | undefined,
+): Selection | null => {
+  if (subjects === undefined) return null;
+  if (which === "self-service-unenrolled") {
+    return { userId: subjects.clean, criterion: "named by the caller", matched: 1 };
+  }
+  if (which === "self-service-with-leftover") {
+    return { userId: subjects.tied, criterion: "named by the caller", matched: 1 };
+  }
+  return null;
+};
+
+/**
+ * Refuse subjects the document's own `preconditions` step does not read as named.
+ *
+ * Read through the document rather than recomputed, for the reason `selectTarget` reads it that way.
+ */
+const assertSubjectsAreWhatTheyAreNamed = async (
+  sql: postgres.Sql,
+  declared: readonly ProcedureStep[],
+  subjects: DemonstrationSubjects,
+): Promise<void> => {
+  const clean = await leftoversNamedByDocument(sql, declared, subjects.clean);
+  if (clean.length > 0) {
+    throw new ProcedureRefusal(
+      `subject \`${subjects.clean}\` is named clean and \`preconditions\` read leftovers ` +
+        JSON.stringify(clean),
+    );
+  }
+
+  const tied = await leftoversNamedByDocument(sql, declared, subjects.tied);
+  if (tied.length === 0) {
+    throw new ProcedureRefusal(
+      `subject \`${subjects.tied}\` is named tied and \`preconditions\` read leftovers []`,
+    );
+  }
 };
 
 /**

@@ -850,3 +850,124 @@ describe.skipIf(skipWithoutDatabase)("the gate the demonstration refuses on", ()
     );
   }, 60_000);
 });
+
+// ---------------------------------------------------------------------------------------------
+// The demonstration, run over subjects the test names.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The one row the tied fixture plants, as data: the insert below is built from it and so is the
+ * expected listing, so the expectation is what the fixture inserts rather than a guess beside it.
+ */
+const TIED_PLANT = { table: "recruiter_verification_submissions", column: "user_id" } as const;
+
+/** One case's section of the generated document, from its heading to the next heading. */
+const sectionOfCase = (text: string, label: string): string => {
+  const heading = `\n## ${label}\n`;
+  const start = text.indexOf(heading);
+  if (start === -1) throw new Error(`the demonstration has no section headed \`${label}\``);
+
+  const next = text.indexOf("\n## ", start + heading.length);
+  return text.slice(start, next === -1 ? undefined : next);
+};
+
+const chosenAccount = (section: string): string | undefined =>
+  /Chosen account: `([^`]+)`\./.exec(section)?.[1];
+
+const promoteAffected = (section: string): string | undefined =>
+  /\| `promote` \| sql \| — \| (\d+) \| ran \|/.exec(section)?.[1];
+
+const roleAfterwards = (section: string): string | undefined =>
+  /\| `users\.role` \| `([^`]+)` \|/.exec(section)?.[1];
+
+const leftoverLine = (section: string): string | undefined =>
+  /^Leftovers named by `preconditions`: (.*)$/m.exec(section)?.[1];
+
+const listedSources = (line: string): string[] =>
+  [...line.matchAll(/`([^`]+)` \(\d+\)/g)].map((match) => match[1]!).sort();
+
+describe.skipIf(skipWithoutDatabase)("the demonstration over named subjects", () => {
+  it("runs B and C on the clean fixture and D on the tied one, and D's promotion matches nothing", async () => {
+    if (!client) throw new Error("no database");
+
+    const provisioned = fixtureId();
+    await insertAccount(provisioned, "platform_ops");
+    await insertVerifiedFactor(provisioned);
+
+    const clean = fixtureId();
+    await insertAccount(clean, "candidate");
+    const tied = fixtureId();
+    await insertAccount(tied, "candidate");
+    await client`
+      insert into ${client(TIED_PLANT.table)} (${client(TIED_PLANT.column)}, full_name, mobile_number, status)
+      values (${tied}, 'Provisioning Fixture', '+620000000000', 'draft')
+    `;
+    const plantedSources = [`${TIED_PLANT.table}.${TIED_PLANT.column}`];
+
+    const outDir = mkdtempSync(join(tmpdir(), "provisioning-demonstration-"));
+    const out = join(outDir, "demonstration.md");
+
+    try {
+      await demonstrateAll(client, steps, out, { clean, tied });
+      const text = readFileSync(out, "utf8");
+
+      const [, caseB, caseC, caseD] = DEMONSTRATION_CASES.map((spec) =>
+        sectionOfCase(text, spec.label),
+      );
+
+      expect(chosenAccount(caseB!), "Case B's subject is not the clean fixture").toBe(clean);
+      expect(chosenAccount(caseC!), "Case C's subject is not the clean fixture").toBe(clean);
+      expect(chosenAccount(caseD!), "Case D's subject is not the tied fixture").toBe(tied);
+
+      expect(promoteAffected(caseB!), "Case B's promotion did not match the clean fixture").toBe(
+        "1",
+      );
+      expect(leftoverLine(caseB!)).toBe("**none**.");
+
+      expect(promoteAffected(caseD!), "Case D's promotion matched the tied fixture").toBe("0");
+      expect(roleAfterwards(caseD!), "Case D changed the tied fixture's role").toBe("candidate");
+
+      const listing = leftoverLine(caseD!);
+      expect(listing, "Case D's listing is empty").not.toBe("**none**.");
+      expect(listedSources(listing ?? "")).toEqual(plantedSources);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("refuses a clean subject that has a leftover, and a tied subject that has none, naming the id", async () => {
+    if (!client) throw new Error("no database");
+
+    const clean = fixtureId();
+    await insertAccount(clean, "candidate");
+    const tied = fixtureId();
+    await insertAccount(tied, "candidate");
+    await client`
+      insert into ${client(TIED_PLANT.table)} (${client(TIED_PLANT.column)}, full_name, mobile_number, status)
+      values (${tied}, 'Provisioning Fixture', '+620000000000', 'draft')
+    `;
+
+    const outDir = mkdtempSync(join(tmpdir(), "provisioning-demonstration-"));
+    const out = join(outDir, "demonstration.md");
+
+    try {
+      const swapped = await demonstrateAll(client, steps, out, { clean: tied, tied: clean }).catch(
+        (error: unknown) => error,
+      );
+
+      expect(swapped).toBeInstanceOf(ProcedureRefusal);
+      expect((swapped as Error).message).toContain(tied);
+      expect(existsSync(out), "a document was written over refused subjects").toBe(false);
+
+      const bothClean = await demonstrateAll(client, steps, out, { clean, tied: clean }).catch(
+        (error: unknown) => error,
+      );
+
+      expect(bothClean).toBeInstanceOf(ProcedureRefusal);
+      expect((bothClean as Error).message).toContain(clean);
+      expect(existsSync(out), "a document was written over refused subjects").toBe(false);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
