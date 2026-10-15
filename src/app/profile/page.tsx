@@ -7,6 +7,7 @@ import { IdentityBanner } from "@/components/media/identity-banner";
 import { ProfileDetailSections } from "@/components/profile/profile-detail-sections";
 import { VerifyOtherRoleButton } from "./verify-other-role-button";
 import { Icon, IconButtonLink } from "@/components/ui";
+import { canOfferSecondRoleVerification } from "@/lib/access/roles";
 
 // Extracts a set value, or null when the field is empty.
 function populatedValue<T>(field: ProfileFieldValue<T>): T | null {
@@ -52,7 +53,11 @@ export default async function OwnerProfilePage() {
               )}
             </span>
             <div className="pf-actions">
-              {profile.candidateVerified !== profile.recruiterVerified && (
+              {canOfferSecondRoleVerification(
+                session.user.role,
+                profile.candidateVerified,
+                profile.recruiterVerified,
+              ) && (
                 <VerifyOtherRoleButton
                   unverifiedRoleLabel={profile.candidateVerified ? "Rekruter" : "Kandidat"}
                 />

@@ -25,6 +25,12 @@ export const isSelfServiceRole = (value: unknown): value is SelfServiceRole => {
   return typeof value === "string" && (SELF_SERVICE_ROLES as readonly string[]).includes(value);
 };
 
+export const canOfferSecondRoleVerification = (
+  activeRole: unknown,
+  candidateVerified: boolean,
+  recruiterVerified: boolean,
+): boolean => isSelfServiceRole(activeRole) && candidateVerified !== recruiterVerified;
+
 export const isOperationalRole = (value: unknown): value is AppRole => {
   return typeof value === "string" && isAppRole(value) && !isSelfServiceRole(value);
 };
