@@ -53,15 +53,24 @@ describe("POST /api/v1/me/invitations/institution/[invitationId]/accept", () => 
     expect(requireSessionRole).toHaveBeenCalledWith(SELF_SERVICE_ROLES);
   });
 
-  it.each([
-    { role: "platform_ops", verifiedRoles: [] },
-    { role: "finance_ops", verifiedRoles: [] },
-  ])("returns 403 for a $role session and never calls the accept service", async (account) => {
-    signInAs(makeSession(account.role, account.verifiedRoles));
-    const res = await POST(makeRequest(), makeContext());
-    expect(res.status).toBe(403);
-    expect(acceptInstitutionInvitationForUser).not.toHaveBeenCalled();
-  });
+  // An operator account may also hold a verified self-service role; the route gates on the account's
+  // own role, so none of these shapes may open the accept path.
+  it.each(
+    ["platform_ops", "finance_ops"].flatMap((role) =>
+      [[], ["candidate"], ["candidate", "recruiter"]].map((verifiedRoles) => ({
+        role,
+        verifiedRoles,
+      })),
+    ),
+  )(
+    "returns 403 for a $role session with verifiedRoles $verifiedRoles and never calls the accept service",
+    async (account) => {
+      signInAs(makeSession(account.role, account.verifiedRoles));
+      const res = await POST(makeRequest(), makeContext());
+      expect(res.status).toBe(403);
+      expect(acceptInstitutionInvitationForUser).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     { role: "candidate", verifiedRoles: ["candidate"] },
