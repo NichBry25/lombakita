@@ -4,7 +4,7 @@
 // one transaction that holds their writes, and refuse an operator who is a party to what they are
 // deciding (LAUNCH-D136): tied to the institution for the cancel, the payer or tied to the
 // institution for the void. The real-database proof lives in
-// ops-payment-operator-db.integration.test.ts.
+// manual-lane-db.integration.test.ts ("operator conflicts on the ops payment hatch").
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
