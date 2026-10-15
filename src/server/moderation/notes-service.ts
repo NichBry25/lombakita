@@ -1,9 +1,18 @@
 import { desc, eq } from "drizzle-orm";
 import { getDb, type Database } from "@/server/db/client";
-import { platformOpsAuditLogs, platformOpsNotes, users } from "@/server/db/schema";
+import { platformOpsNotes, users } from "@/server/db/schema";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import { assertAccountNotDeactivated } from "@/server/accounts/deactivated-account";
+import {
+  assertOperatorHasNoInstitutionRelationship,
+  OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
+} from "@/server/institution-verification/operator-institution-conflict";
 import { ModerationError } from "@/server/moderation/moderation-core";
+import {
+  OperatorActorError,
+  recordOperatorAuditEntry,
+  resolvePlatformOpsActor,
+} from "@/server/platform-ops/operator-actor";
 
 assertServerOnly("server/moderation/notes-service");
 
@@ -96,27 +105,49 @@ export const editNote = async (
     throw new ModerationError("note_required", 400, "Note text is required");
   }
 
-  const [existing] = await db
-    .select({
-      id: platformOpsNotes.id,
-      note: platformOpsNotes.note,
-      createdById: platformOpsNotes.createdById,
-      targetUserId: platformOpsNotes.targetUserId,
-      targetInstitutionId: platformOpsNotes.targetInstitutionId,
-    })
-    .from(platformOpsNotes)
-    .where(eq(platformOpsNotes.id, noteId))
-    .limit(1);
-
-  if (!existing) {
-    throw new ModerationError("note_not_found", 404, "Note not found");
-  }
-
   // An edit overwrites the note in place, and any platform_ops actor may edit any note regardless
   // of who wrote it. Without this the replaced text would be unrecoverable and the fact that
   // someone else rewrote another operator's note would leave no trace at all. The previous text is
   // captured in the audit row, in the same transaction as the overwrite.
+  //
+  // The actor is resolved from the database first, and may not edit a note written about their own
+  // account or about an institution they are tied to (LAUNCH-D136).
   const [row] = await db.transaction(async (tx) => {
+    const actor = await resolvePlatformOpsActor(tx, actorUserId);
+
+    const [existing] = await tx
+      .select({
+        id: platformOpsNotes.id,
+        note: platformOpsNotes.note,
+        createdById: platformOpsNotes.createdById,
+        targetUserId: platformOpsNotes.targetUserId,
+        targetInstitutionId: platformOpsNotes.targetInstitutionId,
+      })
+      .from(platformOpsNotes)
+      .where(eq(platformOpsNotes.id, noteId))
+      .limit(1);
+
+    if (!existing) {
+      throw new ModerationError("note_not_found", 404, "Note not found");
+    }
+
+    if (existing.targetUserId === actor.userId) {
+      throw new OperatorActorError(
+        "operator_actor_is_target",
+        403,
+        "A platform-ops account cannot edit a note written about it",
+      );
+    }
+
+    if (existing.targetInstitutionId !== null) {
+      await assertOperatorHasNoInstitutionRelationship(
+        tx,
+        actor,
+        existing.targetInstitutionId,
+        OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
+      );
+    }
+
     const updated = await tx
       .update(platformOpsNotes)
       .set({ note: trimmed })
@@ -129,8 +160,7 @@ export const editNote = async (
       });
 
     if (updated.length > 0) {
-      await tx.insert(platformOpsAuditLogs).values({
-        actorUserId,
+      await recordOperatorAuditEntry(tx, actor, {
         // The note's own XOR target carries over, satisfying the audit table's target CHECK.
         targetUserId: existing.targetUserId,
         targetInstitutionId: existing.targetInstitutionId,

@@ -6,6 +6,8 @@ vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn(
 
 import { addNote, editNote, listNotes, NOTE_EDITED_EVENT } from "./notes-service";
 import type { Database } from "@/server/db/client";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
+import { OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE } from "@/server/institution-verification/operator-institution-conflict";
 
 // The insert runs inside the transaction the deactivation guard opens, so the handle carries a
 // select as well: it is what the guard reads the target's status through, and the guard takes that
@@ -98,42 +100,66 @@ describe("addNote target invariant", () => {
 
 // F21 — in-place note editing (Step 6.5b)
 describe("editNote", () => {
-  const makeEditDb = (noteExists: boolean, newText = "updated text") => {
+  // The transaction serves its reads in call order: the acting account, the note, then (for a note
+  // about an institution) the four reads of the institution-relationship check — membership, filed
+  // submission, the actor's email, invitation. The order is part of what is asserted: a writer that
+  // reads the note before the actor reads the actor's row as the note.
+  const OPS_ACTOR_ROW = { id: "ops1", role: "platform_ops", suspendedAt: null };
+
+  const makeEditDb = (
+    noteExists: boolean,
+    newText = "updated text",
+    extras: {
+      actorRow?: Record<string, unknown> | null;
+      note?: Record<string, unknown>;
+      relationshipReads?: Array<Array<Record<string, unknown>>>;
+      updatedRows?: Array<Record<string, unknown>>;
+    } = {},
+  ) => {
     const existingNote = {
       id: "n1",
       note: "original text",
       createdById: "ops1",
       targetUserId: "user_1",
       targetInstitutionId: null,
+      ...extras.note,
     };
+    const actorRow = extras.actorRow === undefined ? OPS_ACTOR_ROW : extras.actorRow;
+    const reads = [
+      actorRow ? [actorRow] : [],
+      noteExists ? [existingNote] : [],
+      ...(extras.relationshipReads ?? []),
+    ];
+    let selectCall = 0;
     const insertChain = { values: vi.fn().mockResolvedValue(undefined) };
     const tx = {
+      select: vi.fn(() => ({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn(() => Promise.resolve(reads[selectCall++] ?? [])),
+          }),
+        }),
+      })),
       update: vi.fn().mockReturnValue({
         set: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
             returning: vi
               .fn()
-              .mockResolvedValue([
-                { id: "n1", note: newText, createdById: "ops1", createdAt: new Date() },
-              ]),
+              .mockResolvedValue(
+                extras.updatedRows ?? [
+                  { id: "n1", note: newText, createdById: "ops1", createdAt: new Date() },
+                ],
+              ),
           }),
         }),
       }),
       insert: vi.fn().mockReturnValue(insertChain),
     };
     const db = {
-      select: vi.fn().mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue(noteExists ? [existingNote] : []),
-          }),
-        }),
-      }),
-      update: tx.update,
-      insert: tx.insert,
+      select: vi.fn(),
       transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) => run(tx)),
     } as unknown as Database;
-    return { db, insertChain, existingNote };
+    return { db, tx, insertChain, existingNote };
   };
 
   it("returns updated note on success", async () => {
@@ -146,7 +172,9 @@ describe("editNote", () => {
   // An edit overwrites in place and any ops actor may edit any note, so the replaced text is only
   // recoverable if the audit row captures it.
   it("captures the replaced text and the original author in the audit row", async () => {
-    const { db, insertChain } = makeEditDb(true, "corrected note");
+    const { db, insertChain } = makeEditDb(true, "corrected note", {
+      actorRow: { id: "ops2", role: "platform_ops", suspendedAt: null },
+    });
 
     await editNote("ops2", "n1", "corrected note", db);
 
@@ -188,6 +216,96 @@ describe("editNote", () => {
       code: "note_required",
       status: 400,
     });
+  });
+
+  it("validates blank text before any database work", async () => {
+    const { db, tx } = makeEditDb(true);
+    await expect(editNote("ops1", "n1", "   ", db)).rejects.toMatchObject({
+      code: "note_required",
+    });
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(tx.select).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "missing", actorRow: null, code: "operator_actor_not_found" },
+    {
+      label: "candidate",
+      actorRow: { id: "ops1", role: "candidate", suspendedAt: null },
+      code: "operator_actor_not_platform_ops",
+    },
+    {
+      label: "suspended operator",
+      actorRow: { id: "ops1", role: "platform_ops", suspendedAt: new Date() },
+      code: "operator_actor_suspended",
+    },
+  ])("refuses a $label actor before reading the note, and writes nothing", async (testCase) => {
+    const { db, tx, insertChain } = makeEditDb(false, "new text", { actorRow: testCase.actorRow });
+    const refusal = await editNote("ops1", "n1", "new text", db).catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(OperatorActorError);
+    expect(refusal).toMatchObject({ code: testCase.code, status: 403 });
+    expect(tx.update).not.toHaveBeenCalled();
+    expect(insertChain.values).not.toHaveBeenCalled();
+  });
+
+  it("refuses an actor editing a note written about them, and writes nothing", async () => {
+    const { db, tx, insertChain } = makeEditDb(true, "new text", {
+      note: { createdById: "someone-else", targetUserId: "ops1" },
+    });
+    const refusal = await editNote("ops1", "n1", "new text", db).catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(OperatorActorError);
+    expect(refusal).toMatchObject({
+      code: "operator_actor_is_target",
+      status: 403,
+      message: "A platform-ops account cannot edit a note written about it",
+    });
+    expect(tx.update).not.toHaveBeenCalled();
+    expect(insertChain.values).not.toHaveBeenCalled();
+  });
+
+  it("refuses a note about an institution the actor holds a membership in", async () => {
+    const { db, tx, insertChain } = makeEditDb(true, "new text", {
+      note: { targetUserId: null, targetInstitutionId: "inst_1" },
+      relationshipReads: [[{ id: "membership_1" }]],
+    });
+    const refusal = await editNote("ops1", "n1", "new text", db).catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(OperatorActorError);
+    expect(refusal).toMatchObject({
+      code: "operator_actor_conflicted",
+      status: 403,
+      message: OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
+    });
+    expect(tx.update).not.toHaveBeenCalled();
+    expect(insertChain.values).not.toHaveBeenCalled();
+  });
+
+  it("edits a note about an institution the actor has no relationship to", async () => {
+    const { db, insertChain } = makeEditDb(true, "new text", {
+      note: { targetUserId: null, targetInstitutionId: "inst_1" },
+      relationshipReads: [[], [], [{ email: "ops@example.test" }], []],
+    });
+    await editNote("ops1", "n1", "new text", db);
+    expect(insertChain.values).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes exactly one audit row naming the database actor", async () => {
+    const { db, insertChain } = makeEditDb(true, "corrected note", {
+      actorRow: { id: "database-actor", role: "platform_ops", suspendedAt: null },
+    });
+    await editNote("claimed-actor", "n1", "corrected note", db);
+    expect(insertChain.values).toHaveBeenCalledTimes(1);
+    expect(insertChain.values.mock.calls[0]![0]).toMatchObject({
+      actorUserId: "database-actor",
+      eventType: NOTE_EDITED_EVENT,
+    });
+  });
+
+  it("writes no audit row when the update changed no row", async () => {
+    const { db, insertChain } = makeEditDb(true, "new text", { updatedRows: [] });
+    await expect(editNote("ops1", "n1", "new text", db)).rejects.toThrow(
+      "Failed to update platform ops note",
+    );
+    expect(insertChain.values).not.toHaveBeenCalled();
   });
 });
 

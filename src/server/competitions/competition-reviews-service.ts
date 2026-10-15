@@ -7,7 +7,6 @@ import { getDb, type Database } from "@/server/db/client";
 import {
   competitionRegistrations,
   competitionReviews,
-  platformOpsAuditLogs,
   userProfiles,
   users,
 } from "@/server/db/schema";
@@ -15,6 +14,11 @@ import {
   CompetitionReviewError,
   parseCompetitionReviewInput,
 } from "@/server/competitions/competition-reviews-core";
+import {
+  OperatorActorError,
+  recordOperatorAuditEntry,
+  resolvePlatformOpsActor,
+} from "@/server/platform-ops/operator-actor";
 
 export type CompetitionReviewRecord = {
   id: string;
@@ -181,22 +185,31 @@ export const setReviewStatus = async (
     });
   }
 
-  const [existing] = await db
-    .select({ id: competitionReviews.id, authorUserId: competitionReviews.authorUserId })
-    .from(competitionReviews)
-    .where(eq(competitionReviews.id, reviewId))
-    .limit(1);
-  if (!existing) {
-    throw new CompetitionReviewError("review_not_found", "Review not found", 404);
-  }
-
   await db.transaction(async (tx) => {
+    const actor = await resolvePlatformOpsActor(tx, actorUserId);
+
+    const [existing] = await tx
+      .select({ id: competitionReviews.id, authorUserId: competitionReviews.authorUserId })
+      .from(competitionReviews)
+      .where(eq(competitionReviews.id, reviewId))
+      .limit(1);
+    if (!existing) {
+      throw new CompetitionReviewError("review_not_found", "Review not found", 404);
+    }
+
+    if (actor.userId === existing.authorUserId) {
+      throw new OperatorActorError(
+        "operator_actor_is_target",
+        403,
+        "A platform-ops account cannot moderate its own review",
+      );
+    }
+
     await tx
       .update(competitionReviews)
       .set({ status, updatedAt: sql`now()` })
       .where(eq(competitionReviews.id, reviewId));
-    await tx.insert(platformOpsAuditLogs).values({
-      actorUserId,
+    await recordOperatorAuditEntry(tx, actor, {
       targetUserId: existing.authorUserId,
       eventType: status === "hidden" ? "competition_review.hidden" : "competition_review.restored",
       reason: cleanReason,
