@@ -7194,18 +7194,7 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
       // in this environment, so routing this assertion through `generateDisputeProofViewUrl` would
       // take the storage-unavailable branch every time and leave every expectation below
       // unexecuted, a green reporting an audit trail nobody measured.
-      await recordDisputeProofAccess(
-        fixture.financeOpsUserId,
-        {
-          id: proof.id,
-          paymentId,
-          competitionId: fixture.competitionId,
-          attempt: proof.resubmissionCount,
-          payerUserId: fixture.userId,
-          receivingInstitutionId: fixture.institutionId,
-        },
-        tx as never,
-      );
+      await recordDisputeProofAccess(fixture.financeOpsUserId, proof.id, tx as never);
 
       const [audit] = await tx
         .select({
@@ -7272,6 +7261,10 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
       const fixture = await seedFixture(tx);
       const { generateDisputeProofViewUrl } = await import("@/server/finance/dispute-view");
 
+      // SET, not observed: the availability check runs first, so with storage unconfigured this
+      // call would answer 503 and never reach the not-found it asserts.
+      mockIsR2Available.mockReturnValue(true);
+
       await expect(
         generateDisputeProofViewUrl(fixture.financeOpsUserId, "no-such-proof", tx as never),
       ).rejects.toMatchObject({ code: "manual_proof_not_found" });
@@ -7284,6 +7277,46 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
       expect(rows).toHaveLength(0);
     });
   });
+
+  // THE ACTOR IS RESOLVED BEFORE THE PROOF IS READ, measured with a proof id that does not exist. A
+  // read that came first would answer every one of these with `manual_proof_not_found`, which tells
+  // an account with no business here that the id it named is unassigned.
+  it.each([
+    { label: "nonexistent", code: "operator_actor_not_found" },
+    { label: "platform_ops (not finance_ops)", code: "operator_actor_not_platform_ops" },
+    { label: "suspended finance_ops", code: "operator_actor_suspended" },
+  ])(
+    "refuses a $label actor naming an unknown proof with the actor refusal, writing no audit row",
+    async ({ label, code }) => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { generateDisputeProofViewUrl } = await import("@/server/finance/dispute-view");
+        mockIsR2Available.mockReturnValue(true);
+
+        const suspendedFinanceId = await seedOperatorAccount(tx, "finance_ops");
+        await tx
+          .update(users)
+          .set({ suspendedAt: NOW, suspensionReason: "fixture" })
+          .where(eq(users.id, suspendedFinanceId));
+
+        const actorId = {
+          nonexistent: `absent_${uniqueSuffix()}`,
+          "platform_ops (not finance_ops)": fixture.platformOpsUserId,
+          "suspended finance_ops": suspendedFinanceId,
+        }[label]!;
+
+        await expect(
+          generateDisputeProofViewUrl(actorId, "no-such-proof", tx as never),
+        ).rejects.toMatchObject({ code, status: 403 });
+
+        const rows = await tx
+          .select({ id: platformOpsAuditLogs.id })
+          .from(platformOpsAuditLogs)
+          .where(eq(platformOpsAuditLogs.actorUserId, actorId));
+        expect(rows).toHaveLength(0);
+      });
+    },
+  );
 });
 
 describe.skipIf(skipWithoutDatabase)("the institution fee statement (real database)", () => {
@@ -7731,18 +7764,7 @@ describe.skipIf(skipWithoutDatabase)(
         const proofId = await seedProof(tx, fixture, paymentId);
 
         await expect(
-          recordDisputeProofAccess(
-            fixture.financeOpsUserId,
-            {
-              id: proofId,
-              paymentId,
-              competitionId: fixture.competitionId,
-              attempt: 0,
-              payerUserId: fixture.financeOpsUserId,
-              receivingInstitutionId: fixture.institutionId,
-            },
-            tx as never,
-          ),
+          recordDisputeProofAccess(fixture.financeOpsUserId, proofId, tx as never),
         ).rejects.toMatchObject({ code: "operator_actor_is_target", status: 403 });
 
         expect(await auditRowCount(tx, fixture.financeOpsUserId)).toBe(0);
@@ -7763,18 +7785,7 @@ describe.skipIf(skipWithoutDatabase)(
         });
 
         await expect(
-          recordDisputeProofAccess(
-            fixture.financeOpsUserId,
-            {
-              id: proofId,
-              paymentId,
-              competitionId: fixture.competitionId,
-              attempt: 0,
-              payerUserId: fixture.userId,
-              receivingInstitutionId: fixture.institutionId,
-            },
-            tx as never,
-          ),
+          recordDisputeProofAccess(fixture.financeOpsUserId, proofId, tx as never),
         ).rejects.toMatchObject({ code: "operator_actor_conflicted", status: 403 });
 
         expect(await readProofStatus(tx, proofId)).toBe("pending_review");
@@ -7796,18 +7807,7 @@ describe.skipIf(skipWithoutDatabase)(
           status: "active",
         });
 
-        await recordDisputeProofAccess(
-          fixture.financeOpsUserId,
-          {
-            id: proofId,
-            paymentId,
-            competitionId: fixture.competitionId,
-            attempt: 0,
-            payerUserId: fixture.userId,
-            receivingInstitutionId: fixture.institutionId,
-          },
-          tx as never,
-        );
+        await recordDisputeProofAccess(fixture.financeOpsUserId, proofId, tx as never);
 
         const audits = await tx
           .select({
