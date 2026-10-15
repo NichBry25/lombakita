@@ -11,6 +11,9 @@ declare module "next-auth" {
       // ISO timestamp set by the session callback when the user's suspended_at is
       // non-null. Read by assertAuthenticatedSession to block the account (403 account_suspended).
       suspendedAt?: string;
+      // Set by the live account read when its budget or retry is exhausted.
+      // Server session reads refuse with 503 while preserving the signed-in cookie.
+      accountStateUnavailable?: boolean;
       // Computed fresh every session resolution from a live DB read (never trusted
       // from the JWT alone) — "not_applicable" for candidate/recruiter, one of the other three for
       // every operational role. See mfa-status.ts for the fold and access-core.ts / page-guard.ts

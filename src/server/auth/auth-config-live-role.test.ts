@@ -17,7 +17,9 @@ type QueryOutcome =
 
 let queryOutcome: QueryOutcome = { kind: "row", row: { role: "candidate", suspendedAt: null } };
 
-const loggerErrorMock = vi.fn();
+const loggerWarnMock = vi.fn();
+const captureExceptionMock = vi.fn();
+vi.mock("@sentry/nextjs", () => ({ captureException: captureExceptionMock }));
 
 const limitMock = vi.fn(async () => {
   if (queryOutcome.kind === "error") {
@@ -56,7 +58,7 @@ vi.mock("@/config/env.server", () => ({
   },
 }));
 vi.mock("@/lib/logger", () => ({
-  logger: { error: loggerErrorMock, warn: vi.fn(), info: vi.fn() },
+  logger: { error: vi.fn(), warn: loggerWarnMock, info: vi.fn() },
 }));
 vi.mock("@/server/auth/credentials-auth", () => ({ authenticateWithEmailPassword: vi.fn() }));
 vi.mock("@/server/db/client", () => ({ getDb: getDbMock }));
@@ -115,6 +117,13 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  limitMock.mockReset();
+  limitMock.mockImplementation(async () => {
+    if (queryOutcome.kind === "error") throw new Error("connection terminated unexpectedly");
+    if (queryOutcome.kind === "empty") return [];
+    return [queryOutcome.row];
+  });
+  vi.useRealTimers();
   vi.resetModules();
 });
 
@@ -159,20 +168,23 @@ describe("session callback — live role read", () => {
     expect(result.user?.verifiedRoles).toEqual(["candidate"]);
   });
 
-  it("falls back to the token role when the database is unreachable (no lockout)", async () => {
+  it("refuses a cached recruiter role when the database is unreachable without ending the session", async () => {
     queryOutcome = { kind: "error" };
 
     const result = await callSession(tokenFor("recruiter"));
 
-    expect(result.user?.role).toBe("recruiter");
+    expect(result.user?.role).toBeUndefined();
+    expect(result.user?.accountStateUnavailable).toBe(true);
+    expect(result.user?.id).toBe("user_123");
   });
 
-  it("falls back for a candidate when the database is unreachable", async () => {
+  it("refuses a cached candidate role when the database is unreachable", async () => {
     queryOutcome = { kind: "error" };
 
     const result = await callSession(tokenFor("candidate"));
 
-    expect(result.user?.role).toBe("candidate");
+    expect(result.user?.role).toBeUndefined();
+    expect(result.user?.accountStateUnavailable).toBe(true);
   });
 
   it("refuses a cached platform_ops role when the database is unreachable", async () => {
@@ -212,10 +224,9 @@ describe("session callback — live role read", () => {
 
     await callSession(tokenFor("recruiter"));
 
-    expect(loggerErrorMock).toHaveBeenCalledWith(
-      "auth.liveAccountState.load_failed",
-      expect.objectContaining({ userId: "user_123" }),
-    );
+    expect(loggerWarnMock).toHaveBeenCalledWith("auth.live-account-read.failed", {
+      error: "Account status is temporarily unavailable",
+    });
   });
 
   it("surfaces no role when the database value is not a recognised app role", async () => {
@@ -269,4 +280,180 @@ describe("session callback — suspension alongside the live role", () => {
 
     expect(result.user?.suspendedAt).toBeUndefined();
   });
+});
+
+describe("live account read budget and retry", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-14T00:00:00.000Z"));
+  });
+
+  it("silently retries one rejection and returns the successful session", async () => {
+    limitMock.mockRejectedValueOnce(new Error("first attempt rejected"));
+    const result = await callSession(tokenFor("candidate"));
+    expect(limitMock).toHaveBeenCalledTimes(2);
+    expect(result.user?.role).toBe("candidate");
+    expect(result.user?.accountStateUnavailable).toBeUndefined();
+    expect(captureExceptionMock).not.toHaveBeenCalled();
+    expect(loggerWarnMock).not.toHaveBeenCalled();
+  });
+
+  it("allows the first attempt to resolve after 3000 ms", async () => {
+    const { authOptions } = await import("@/server/auth/auth.config");
+    const callback = authOptions.callbacks?.session as unknown as SessionCb;
+    limitMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve([{ role: "candidate", suspendedAt: null }]), 3000);
+        }),
+    );
+    let result: { user?: Record<string, unknown> } | undefined;
+    const pending = callback({ session: { user: {} }, token: tokenFor("candidate") });
+    void pending.then((value) => {
+      result = value;
+    });
+    await vi.advanceTimersByTimeAsync(2999);
+    expect(result).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(result?.user?.role).toBe("candidate");
+    expect(result?.user?.accountStateUnavailable).toBeUndefined();
+    expect(limitMock).toHaveBeenCalledTimes(1);
+    expect(captureExceptionMock).not.toHaveBeenCalled();
+  });
+
+  it("fails after two rejections and throttles anonymous error reporting per process", async () => {
+    limitMock.mockRejectedValue(new Error("user_123 a@b.com token-secret failed query"));
+    const result = await callSession(tokenFor("candidate"));
+    expect(result.user?.accountStateUnavailable).toBe(true);
+    expect(result.user?.role).toBeUndefined();
+    expect(limitMock).toHaveBeenCalledTimes(2);
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+    expect(captureExceptionMock).toHaveBeenCalledWith(expect.any(Error), {
+      level: "error",
+      tags: { subsystem: "auth-live-account-read" },
+    });
+    const reported = captureExceptionMock.mock.calls[0]?.[0] as Error | undefined;
+    if (!reported) throw new Error("Sentry event not captured");
+    expect(reported.message).toBe("Account status is temporarily unavailable");
+    expect(loggerWarnMock).toHaveBeenCalledWith("auth.live-account-read.failed", {
+      error: "Account status is temporarily unavailable",
+    });
+    const events = JSON.stringify(captureExceptionMock.mock.calls) + reported.stack;
+    const logs = JSON.stringify(loggerWarnMock.mock.calls);
+    for (const identity of ["user_123", "a@b.com", "token-secret"]) {
+      expect(events).not.toContain(identity);
+      expect(logs).not.toContain(identity);
+    }
+    await vi.advanceTimersByTimeAsync(59999);
+    await callSession({ ...tokenFor("recruiter"), sub: "different-user" });
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await callSession(tokenFor("candidate"));
+    expect(captureExceptionMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("ends a never-resolving read at 8000 ms without retrying the timeout", async () => {
+    const { authOptions } = await import("@/server/auth/auth.config");
+    const callback = authOptions.callbacks?.session as unknown as SessionCb;
+    limitMock.mockImplementation(() => new Promise(() => {}));
+    let result: { user?: Record<string, unknown> } | undefined;
+    void callback({ session: { user: {} }, token: tokenFor("candidate") }).then((value) => {
+      result = value;
+    });
+    await vi.advanceTimersByTimeAsync(7999);
+    expect(result).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(result?.user?.accountStateUnavailable).toBe(true);
+    expect(result?.user?.role).toBeUndefined();
+    expect(limitMock).toHaveBeenCalledTimes(1);
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives the retry only the remaining budget and consumes abandoned rejections", async () => {
+    const { authOptions } = await import("@/server/auth/auth.config");
+    const callback = authOptions.callbacks?.session as unknown as SessionCb;
+    let rejectAbandoned: ((reason: Error) => void) | undefined;
+    limitMock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error("first rejection")), 3000);
+        }),
+    );
+    limitMock.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectAbandoned = reject;
+        }),
+    );
+    let result: { user?: Record<string, unknown> } | undefined;
+    void callback({ session: { user: {} }, token: tokenFor("candidate") }).then((value) => {
+      result = value;
+    });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(limitMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(result).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(result?.user?.accountStateUnavailable).toBe(true);
+    rejectAbandoned?.(new Error("late abandoned rejection"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps the cookie token intact and recovers on the next successful read", async () => {
+    const token = tokenFor("candidate");
+    const originalToken = { ...token };
+    queryOutcome = { kind: "error" };
+    const failed = await callSession(token);
+    expect(failed.user?.accountStateUnavailable).toBe(true);
+    expect(token).toEqual(originalToken);
+    queryOutcome = { kind: "row", row: { role: "candidate", suspendedAt: null } };
+    const recovered = await callSession(token);
+    expect(recovered.user?.role).toBe("candidate");
+    expect(recovered.user?.accountStateUnavailable).toBeUndefined();
+    expect(token).toEqual(originalToken);
+  });
+
+  it.each(["platform_ops", "finance_ops", "reviewer_or_judge"])(
+    "keeps %s fail closed after both rejections",
+    async (role) => {
+      queryOutcome = { kind: "error" };
+      const result = await callSession(tokenFor(role));
+      expect(result.user?.role).toBeUndefined();
+      expect(result.user?.accountStateUnavailable).toBe(true);
+    },
+  );
+});
+
+it("does not let reporting failures throw out of the real session callback", async () => {
+  queryOutcome = { kind: "error" };
+  loggerWarnMock.mockImplementationOnce(() => {
+    throw new Error("logger unavailable");
+  });
+  captureExceptionMock.mockImplementationOnce(() => {
+    throw new Error("Sentry unavailable");
+  });
+  const result = await callSession(tokenFor("candidate"));
+  expect(result.user?.accountStateUnavailable).toBe(true);
+  expect(result.user?.role).toBeUndefined();
+  expect(loggerWarnMock).toHaveBeenCalledOnce();
+  expect(captureExceptionMock).toHaveBeenCalledOnce();
+});
+
+it("does not read account state without a token subject", async () => {
+  const result = await callSession({});
+  expect(result.user?.id).toBeUndefined();
+  expect(limitMock).not.toHaveBeenCalled();
+});
+
+it("clears an existing session role after the live account read fails", async () => {
+  queryOutcome = { kind: "error" };
+  const { authOptions } = await import("@/server/auth/auth.config");
+  const callback = authOptions.callbacks?.session as unknown as SessionCb;
+  const result = await callback({
+    session: { user: { role: "candidate" } },
+    token: tokenFor("candidate"),
+  });
+  expect(result.user?.role).toBeUndefined();
+  expect(result.user?.accountStateUnavailable).toBe(true);
 });

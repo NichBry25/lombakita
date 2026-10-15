@@ -157,6 +157,10 @@ describe("Next.js instrumentation runtime selection", () => {
     await instrumentation.register();
     expect(serverLoaded).toHaveBeenCalledTimes(runtime === "nodejs" ? 1 : 0);
     expect(edgeLoaded).toHaveBeenCalledTimes(runtime === "edge" ? 1 : 0);
-    expect(instrumentation.onRequestError).toBe(sentry.captureRequestError);
+    const error = new Error("ordinary request failure");
+    const request = { path: "/profile", method: "GET", headers: {} };
+    const context = { routerKind: "App Router", routePath: "/profile", routeType: "render" };
+    instrumentation.onRequestError(error, request, context);
+    expect(sentry.captureRequestError).toHaveBeenCalledWith(error, request, context);
   });
 });

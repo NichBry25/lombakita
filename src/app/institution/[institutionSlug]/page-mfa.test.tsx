@@ -4,13 +4,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { PublicInstitution } from "@/server/institution-workspace/institution-public-service";
 
-const state = vi.hoisted(() => ({ session: vi.fn(), select: vi.fn(), contacts: vi.fn() }));
+const state = vi.hoisted(() => ({
+  session: vi.fn(),
+  select: vi.fn(),
+  contacts: vi.fn(),
+  member: vi.fn(),
+}));
 vi.mock("@/server/auth/session", () => ({ getCurrentSession: state.session }));
 vi.mock("@/server/auth/page-guard", () => ({ requireRolePage: vi.fn() }));
 vi.mock("@/server/db/client", () => ({ getDb: () => ({ select: state.select }) }));
 vi.mock("@/server/institution-members/member-service", () => ({
   isInstitutionAdminBySlug: async () => false,
-  isInstitutionMemberBySlug: async () => false,
+  isInstitutionMemberBySlug: state.member,
 }));
 vi.mock("@/server/institution-workspace/institution-service", () => ({
   loadInstitutionVerificationSummaryBySlug: vi.fn(),
@@ -47,6 +52,7 @@ import Page from "./page";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.member.mockResolvedValue(false);
   const rows = [
     [
       {
@@ -137,5 +143,50 @@ describe("institution page operational contact disclosure", () => {
     expect(html).not.toContain("Private Contact");
     expect(html).not.toContain("private@example.test");
     expect(html).not.toContain("0800");
+  });
+});
+
+describe("institution page suspended member contact disclosure", () => {
+  it("withholds unverified contacts from a suspended member as an anonymous viewer", async () => {
+    state.member.mockResolvedValue(true);
+    state.session.mockResolvedValue({
+      user: { id: "member", role: "candidate", suspendedAt: "2026-10-14T00:00:00.000Z" },
+    });
+    const html = renderToStaticMarkup(
+      await Page({
+        params: Promise.resolve({ institutionSlug: "test-institution" }),
+        searchParams: Promise.resolve({}),
+      }),
+    );
+    expect(state.contacts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contactName: null,
+        contactEmail: null,
+        contactPhone: null,
+        contactDisclosure: { kind: "hidden" },
+      }),
+    );
+    expect(state.member).not.toHaveBeenCalled();
+    expect(html).not.toContain("Private Contact");
+    expect(html).not.toContain("private@example.test");
+    expect(html).not.toContain("0800");
+  });
+  it("still discloses unverified contacts to an active member", async () => {
+    state.member.mockResolvedValue(true);
+    state.session.mockResolvedValue({ user: { id: "member", role: "candidate" } });
+    const html = renderToStaticMarkup(
+      await Page({
+        params: Promise.resolve({ institutionSlug: "test-institution" }),
+        searchParams: Promise.resolve({}),
+      }),
+    );
+    expect(state.contacts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contactDisclosure: { kind: "members_only", viewerIsPlatformOps: false },
+      }),
+    );
+    expect(html).toContain("Private Contact");
+    expect(html).toContain("private@example.test");
+    expect(html).toContain("0800");
   });
 });

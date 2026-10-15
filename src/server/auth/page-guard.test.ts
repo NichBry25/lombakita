@@ -245,3 +245,19 @@ describe("requireRolePage — MFA gate", () => {
     expect(redirectMock).not.toHaveBeenCalled();
   });
 });
+
+describe("account state unavailable page refusal", () => {
+  afterEach(() => vi.clearAllMocks());
+  it("rethrows account_state_unavailable from assertPageSession without redirecting", async () => {
+    getCurrentSessionMock.mockResolvedValue(
+      buildSession({ role: undefined, accountStateUnavailable: true } as unknown as Partial<
+        NonNullable<Session["user"]>
+      >),
+    );
+    await expect(requireRolePage("candidate", { callbackPath: "/saved" })).rejects.toMatchObject({
+      code: "account_state_unavailable",
+      status: 503,
+    });
+    expect(redirectMock).not.toHaveBeenCalled();
+  });
+});

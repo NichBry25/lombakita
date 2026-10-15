@@ -47,6 +47,7 @@ export default async function CompetitionPaymentsPage({ params }: Props) {
       db,
     ));
   } catch (error) {
+    if (error instanceof AccessError && error.code === "account_state_unavailable") throw error;
     if (error instanceof AccessError) redirect("/");
     throw error;
   }

@@ -29,6 +29,7 @@ export default async function AuditLogPage({ params, searchParams }: Props) {
       db,
     ));
   } catch (e) {
+    if (e instanceof AccessError && e.code === "account_state_unavailable") throw e;
     if (e instanceof AccessError) redirect("/");
     throw e;
   }

@@ -1,9 +1,11 @@
 // @vitest-environment node
 
 import type { Session } from "next-auth";
+import type { Envelope } from "@sentry/core";
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppRole } from "@/lib/access/roles";
+import { ACCOUNT_STATE_UNAVAILABLE_MESSAGE } from "@/lib/observability/account-state-unavailable";
 
 const state = vi.hoisted(() => ({
   account: {
@@ -14,11 +16,19 @@ const state = vi.hoisted(() => ({
     hasVerifiedMfaFactor: false,
   },
   token: {} as Record<string, unknown>,
+  captureException: vi.fn(),
+  captureRequestError: vi.fn(),
+  query: vi.fn(),
   reader: vi.fn(),
   registrations: vi.fn(),
   participation: vi.fn(),
   readiness: vi.fn(),
   limiter: vi.fn(),
+}));
+
+vi.mock("@sentry/nextjs", () => ({
+  captureException: state.captureException,
+  captureRequestError: state.captureRequestError,
 }));
 
 // Keep JWT refresh, live account projection, session normalization and both guards real.
@@ -30,6 +40,7 @@ vi.mock("next-auth", () => ({
       session: (args: unknown) => Promise<Session>;
     };
   }) => {
+    if (!state.token.sub) return null;
     const token = await options.callbacks.jwt({ token: { ...state.token } });
     return options.callbacks.session({ session: { user: {}, expires: "2099-01-01" }, token });
   },
@@ -58,7 +69,7 @@ vi.mock("@/server/db/client", () => ({
     select: () => ({
       from: () => ({
         where: () => ({
-          limit: async () => [state.account],
+          limit: state.query,
         }),
       }),
     }),
@@ -79,7 +90,11 @@ vi.mock("@/server/competitions/competition-publish-readiness", () => ({
   resolveCompetitionPublishReadiness: state.readiness,
 }));
 
-import { requireAuthenticatedSession as requireSession, requireSessionRole } from "./session";
+import {
+  getCurrentSession,
+  requireAuthenticatedSession as requireSession,
+  requireSessionRole,
+} from "./session";
 import { withApiRole } from "./api-guard";
 import { withMfaRouteAuth } from "./mfa/mfa-route-guard";
 import { GET } from "@/app/api/v1/competitions/[competitionId]/route";
@@ -110,6 +125,10 @@ const request = () => new NextRequest("http://localhost/api/v1/auth/mfa/challeng
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.captureException.mockReset();
+  state.captureRequestError.mockReset();
+  state.query.mockReset();
+  state.query.mockImplementation(async () => [state.account]);
   state.account.status = "active";
   state.account.suspendedAt = null;
   stageAccount("platform_ops", "enrolment_required");
@@ -119,6 +138,8 @@ beforeEach(() => {
   state.participation.mockResolvedValue({ state: "not_configured" });
   state.readiness.mockResolvedValue({ canPublish: false, blockers: [] });
 });
+
+afterEach(() => vi.useRealTimers());
 
 describe("requireAuthenticatedSession secure default", () => {
   it.each(matrix)(
@@ -238,5 +259,139 @@ describe("competition GET through the real session guard", () => {
     expect(response.status).toBe(200);
     expect(state.reader).toHaveBeenCalledWith("actor", "platform_ops", "competition");
     await expect(response.json()).resolves.toMatchObject({ competition: { id: "competition" } });
+  });
+});
+
+describe("unavailable account state through real callbacks and getCurrentSession", () => {
+  it("drops Webpack duplicate envelopes after one explicit failed-read report", async () => {
+    vi.useFakeTimers();
+    const sdk = await vi.importActual<typeof import("@sentry/nextjs")>("@sentry/nextjs");
+    const { scrubServerSentryEvent, scrubSentryBreadcrumb } =
+      await import("@/lib/observability/scrub-sentry-event");
+    const { onRequestError } = await import("@/instrumentation");
+    const envelopes: Envelope[] = [];
+    let confirmSent: (() => void) | undefined;
+    const sent = new Promise<void>((resolve) => {
+      confirmSent = resolve;
+    });
+    let confirmDuplicateProcessed: (() => void) | undefined;
+    const duplicateProcessed = new Promise<void>((resolve) => {
+      confirmDuplicateProcessed = resolve;
+    });
+    sdk.init({
+      dsn: "https://fixture@example.invalid/1",
+      tracesSampler: () => 0,
+      beforeSend: (event) => {
+        const result = scrubServerSentryEvent(event);
+        if (
+          event.exception?.values?.[0]?.mechanism?.type === "auto.function.nextjs.server_component"
+        ) {
+          confirmDuplicateProcessed?.();
+        }
+        return result;
+      },
+      beforeBreadcrumb: scrubSentryBreadcrumb,
+      transport: () => ({
+        send: async (envelope: Envelope) => {
+          envelopes.push(envelope);
+          confirmSent?.();
+          return { statusCode: 200 };
+        },
+        flush: async () => true,
+      }),
+    });
+    state.captureException.mockImplementation(sdk.captureException);
+    state.captureRequestError.mockImplementation(sdk.captureRequestError);
+    try {
+      const scope = sdk.getIsolationScope();
+      scope.setUser({ id: "account-sentinel", email: "email-sentinel@example.invalid" });
+      scope.setTag("account", "account-sentinel");
+      scope.setExtra("token", "token-sentinel");
+      scope.setContext("nextjs", { request_path: "/accounts/account-sentinel" });
+      stageAccount("candidate", "satisfied");
+      state.query.mockRejectedValue(new Error("database unavailable"));
+      const error = await getCurrentSession().catch((failure: unknown) => failure);
+      expect(error).toMatchObject({ code: "account_state_unavailable", status: 503 });
+      onRequestError(
+        error,
+        { path: "/profile", method: "GET", headers: {} },
+        {
+          routerKind: "App Router",
+          routePath: "/profile",
+          routeType: "render",
+        },
+      );
+      await sent;
+      sdk.captureException(error, {
+        mechanism: { handled: false, type: "auto.function.nextjs.server_component" },
+      });
+      await duplicateProcessed;
+      const flushed = sdk.flush();
+      await vi.advanceTimersToNextTimerAsync();
+      expect(await flushed).toBe(true);
+      expect(state.captureException).toHaveBeenCalledOnce();
+      expect(state.captureRequestError).not.toHaveBeenCalled();
+      const eventEnvelopes = envelopes.filter(([, items]) =>
+        items.some(([header]) => header.type === "event"),
+      );
+      expect(eventEnvelopes).toHaveLength(1);
+      const eventItems = eventEnvelopes.flatMap(([, items]) =>
+        items.filter(([header]) => header.type === "event"),
+      );
+      expect(eventItems).toHaveLength(1);
+      for (const [, items] of envelopes) {
+        expect(items).not.toHaveLength(0);
+        for (const [header] of items) {
+          expect(["event", "client_report", "session"]).toContain(header.type);
+        }
+      }
+      const payload = JSON.stringify(eventEnvelopes);
+      expect(payload).toContain("auth-live-account-read");
+      expect(payload).toContain(ACCOUNT_STATE_UNAVAILABLE_MESSAGE);
+      for (const identity of [
+        "account-sentinel",
+        "email-sentinel@example.invalid",
+        "token-sentinel",
+      ]) {
+        expect(payload).not.toContain(identity);
+      }
+    } finally {
+      const closed = sdk.close();
+      await vi.advanceTimersToNextTimerAsync();
+      await closed;
+      sdk.getCurrentScope().clear();
+      sdk.getIsolationScope().clear();
+    }
+  });
+  it.each(["candidate", "recruiter", "platform_ops", "finance_ops", "reviewer_or_judge"] as const)(
+    "refuses %s with 503 after both live reads reject",
+    async (role) => {
+      stageAccount(role, "satisfied");
+      state.query.mockRejectedValue(new Error("database unavailable"));
+      await expect(getCurrentSession()).rejects.toMatchObject({
+        code: "account_state_unavailable",
+        status: 503,
+        message: "Account status is temporarily unavailable",
+      });
+      expect(state.query).toHaveBeenCalledTimes(2);
+      expect(state.token.sub).toBe("actor");
+    },
+  );
+  it("returns null without reading the database when there is no session token", async () => {
+    state.token = {};
+    await expect(getCurrentSession()).resolves.toBeNull();
+    expect(state.query).not.toHaveBeenCalled();
+  });
+  it("returns an API 503 without running the protected handler", async () => {
+    stageAccount("candidate", "satisfied");
+    state.query.mockRejectedValue(new Error("database unavailable"));
+    const handler = vi.fn(() => new Response(null, { status: 204 }));
+    const response = await withApiRole(["candidate"], handler)(request());
+    expect(handler).not.toHaveBeenCalled();
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "account_state_unavailable" },
+    });
+    expect(handler).not.toHaveBeenCalled();
   });
 });

@@ -2,7 +2,12 @@ import type { Breadcrumb, Event } from "@sentry/nextjs";
 import { describe, expect, it } from "vitest";
 import { DrizzleQueryError } from "drizzle-orm";
 
-import { scrubSentryBreadcrumb, scrubSentryEvent } from "./scrub-sentry-event";
+import { ACCOUNT_STATE_UNAVAILABLE_MESSAGE } from "./account-state-unavailable";
+import {
+  scrubSentryBreadcrumb,
+  scrubSentryEvent,
+  scrubServerSentryEvent,
+} from "./scrub-sentry-event";
 
 const allowedHeaders = {
   "User-Agent": "test-agent",
@@ -284,4 +289,91 @@ describe("scrubSentryBreadcrumb", () => {
       data: { url: null, from: 1, to: undefined },
     });
   });
+});
+
+describe("scrubServerSentryEvent", () => {
+  it("drops an untagged single account-state-unavailable exception", () => {
+    const event: Event = {
+      exception: { values: [{ type: "Error", value: ACCOUNT_STATE_UNAVAILABLE_MESSAGE }] },
+    };
+    const original = structuredClone(event);
+    expect(scrubServerSentryEvent(event)).toBeNull();
+    expect(scrubSentryEvent(event)).toStrictEqual(original);
+    expect(event).toStrictEqual(original);
+  });
+
+  it.each([
+    {
+      name: "a matching message with a second exception",
+      values: [
+        { type: "Error", value: ACCOUNT_STATE_UNAVAILABLE_MESSAGE },
+        { type: "Error", value: "Another failure" },
+      ],
+    },
+    {
+      name: "a different message",
+      values: [{ type: "Error", value: `${ACCOUNT_STATE_UNAVAILABLE_MESSAGE}.` }],
+    },
+    {
+      name: "an ordinary server error",
+      values: [{ type: "TypeError", value: "An ordinary server error" }],
+    },
+    { name: "an empty exception list", values: [] },
+  ])("keeps $name", ({ values }) => {
+    const event: Event = { exception: { values } };
+    expect(scrubServerSentryEvent(event)).toStrictEqual(event);
+  });
+});
+
+it("withholds ambient identifying context from auth-live-account-read events", () => {
+  const accountId = "account-sentinel";
+  const email = "email-sentinel@example.invalid";
+  const token = "token-sentinel";
+  const event: Event = {
+    level: "error",
+    tags: { subsystem: "auth-live-account-read", account: accountId },
+    exception: {
+      values: [
+        {
+          type: "Error",
+          value: "Account status is temporarily unavailable",
+          stacktrace: {
+            frames: [
+              {
+                filename: "auth.config.ts",
+                function: "reportLiveAccountReadFailure",
+                lineno: 141,
+                vars: { accountId, email, token },
+                pre_context: [email],
+                context_line: token,
+                post_context: [accountId],
+              },
+            ],
+          },
+        },
+      ],
+    },
+    user: { id: accountId, email },
+    request: { url: `/accounts/${accountId}`, cookies: { session: token } },
+    contexts: { nextjs: { request_path: `/accounts/${accountId}` }, account: { email } },
+    extra: { token },
+    transaction: `/accounts/${accountId}`,
+    breadcrumbs: [{ category: "fetch", message: email, data: { url: `/accounts/${accountId}` } }],
+  };
+  const original = structuredClone(event);
+  const result = scrubSentryEvent(event);
+  expect(scrubServerSentryEvent(event)).toStrictEqual(result);
+  const payload = JSON.stringify(result);
+  for (const identity of [accountId, email, token]) expect(payload).not.toContain(identity);
+  expect(result.level).toBe("error");
+  expect(result.tags).toEqual({ subsystem: "auth-live-account-read" });
+  expect(result.exception?.values?.[0]?.value).toBe("Account status is temporarily unavailable");
+  expect(result.exception?.values?.[0]?.stacktrace?.frames).toEqual([
+    {
+      filename: "auth.config.ts",
+      function: "reportLiveAccountReadFailure",
+      lineno: 141,
+    },
+  ]);
+  expect(event).toEqual(original);
 });

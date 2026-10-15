@@ -6,7 +6,7 @@ import type { Adapter } from "next-auth/adapters";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import { assertRuntimeEnv, serverEnv } from "@/config/env.server";
-import { type AppRole, isAppRole, isSelfServiceRole } from "@/lib/access/roles";
+import { type AppRole, isAppRole } from "@/lib/access/roles";
 import { logger } from "@/lib/logger";
 import { authenticateWithEmailPassword, normalizeEmail } from "@/server/auth/credentials-auth";
 import { extractClientIp, UNKNOWN_CLIENT_IP } from "@/server/auth/client-ip";
@@ -102,16 +102,15 @@ const sanitizeVerifiedRoles = (value: unknown): AppRole[] => {
 // minted at sign-in and never refreshed, so anything cached inside it stays authoritative for the
 // cookie's full lifetime (one year); reading these columns live is what makes a suspension or a
 // role change take effect on the account's very next request. This adds ONE indexed-PK SELECT per
-// session read — the accepted trade-off for immediate effect.
+// healthy session read — the accepted trade-off for immediate effect.
 //
-// The three outcomes are kept distinct because they require opposite failure behaviour:
+// Owner decision on 2026-10-14, amending DEC-0112:
 //   found       — use the database values.
-//   unavailable — the query threw. Callers FAIL OPEN for self-service roles and fall back to the
-//                 token's cached role: a transient DB fault must never sign every user out of the
-//                 platform, and self-service accounts are the overwhelming majority of sessions.
-//   missing     — no users row, or a row whose status is `deactivated`. Callers FAIL CLOSED and
-//                 surface no role, so a deleted or de-identified account's existing cookie stops
-//                 authenticating. A session never legitimately resolves for either.
+//   unavailable — fail closed for every role after one immediate rejection retry within the total
+//                 budget. Mark the session for a 503 refusal without invalidating its cookie;
+//                 the next request can recover once the database answers.
+//   missing     — no users row, or status `deactivated`. Surface no role, preserving the existing
+//                 refusal for deleted or de-identified accounts.
 //
 // `role` is typed nullable even though users.role is NOT NULL, so an out-of-band write or a future
 // schema change that admits a null can only ever produce a roleless session, never a coerced one.
@@ -130,66 +129,105 @@ type LiveAccountState =
   | { status: "missing" }
   | { status: "unavailable" };
 
-const loadLiveAccountState = async (userId: string): Promise<LiveAccountState> => {
+const LIVE_ACCOUNT_READ_POLICY = {
+  budgetMs: 8000,
+  retries: 1,
+  sentryIntervalMs: 60000,
+} as const;
+
+let lastLiveAccountReadSentryAt: number | undefined;
+
+const reportLiveAccountReadFailure = (): void => {
+  // Database exceptions can contain query parameters; never send them to logs or Sentry.
+  const error = new Error("Account status is temporarily unavailable");
   try {
-    const [row] = await getDb()
-      .select({
-        role: users.role,
-        status: users.status,
-        suspendedAt: users.suspendedAt,
-        mfaInvalidatedAt: users.mfaInvalidatedAt,
-        hasVerifiedMfaFactor: hasVerifiedMfaFactorSql,
-      })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
+    logger.warn("auth.live-account-read.failed", { error: error.message });
+  } catch {
+    // Reporting must never invalidate a session.
+  }
 
-    if (!row) {
-      return { status: "missing" };
-    }
-
-    // `deactivated` is the de-identification action's tombstone. The row survives it, so this is
-    // what ends the account's sessions rather than a deleted row would have.
-    if (row.status === "deactivated") {
-      return { status: "missing" };
-    }
-
-    return {
-      status: "found",
-      role: row.role,
-      suspendedAt: row.suspendedAt,
-      mfaInvalidatedAt: row.mfaInvalidatedAt,
-      hasVerifiedMfaFactor: row.hasVerifiedMfaFactor,
-    };
-  } catch (error) {
-    logger.error("auth.liveAccountState.load_failed", {
-      userId,
-      error: error instanceof Error ? error.message : String(error),
-    });
+  const now = Date.now();
+  if (
+    lastLiveAccountReadSentryAt !== undefined &&
+    now - lastLiveAccountReadSentryAt < LIVE_ACCOUNT_READ_POLICY.sentryIntervalMs
+  ) {
+    return;
+  }
+  lastLiveAccountReadSentryAt = now;
+  try {
     Sentry.captureException(error, {
-      level: "warning",
-      tags: { subsystem: "auth-session", operation: "load_live_account_state" },
+      level: "error",
+      tags: { subsystem: "auth-live-account-read" },
     });
-    return { status: "unavailable" };
+  } catch {
+    // Reporting must never invalidate a session.
   }
 };
 
-// Which role the session should present: the live database value when it is readable, the token's
-// cached value when the database is unreachable, and none at all when the account no longer exists.
-//
-// The unreachable-database fallback is restricted to self-service roles. Operational roles
-// (platform_ops, finance_ops) are the ones whose revocation this live read exists to deliver, so
-// honouring a cached operational role while the database is down would reopen exactly the window
-// being closed. Those sessions fail closed instead and recover on the next successful read.
-const resolveEffectiveRole = (
-  account: LiveAccountState,
-  tokenRole: string | undefined,
-): string | undefined => {
+const queryLiveAccountState = async (userId: string): Promise<LiveAccountState> => {
+  const [row] = await getDb()
+    .select({
+      role: users.role,
+      status: users.status,
+      suspendedAt: users.suspendedAt,
+      mfaInvalidatedAt: users.mfaInvalidatedAt,
+      hasVerifiedMfaFactor: hasVerifiedMfaFactorSql,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!row || row.status === "deactivated") {
+    return { status: "missing" };
+  }
+
+  return {
+    status: "found",
+    role: row.role,
+    suspendedAt: row.suspendedAt,
+    mfaInvalidatedAt: row.mfaInvalidatedAt,
+    hasVerifiedMfaFactor: row.hasVerifiedMfaFactor,
+  };
+};
+
+const readLiveAccountStateWithinBudget = async (
+  userId: string,
+  remainingMs: number,
+): Promise<LiveAccountState> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<LiveAccountState>((resolve) => {
+    timer = setTimeout(() => resolve({ status: "unavailable" }), remainingMs);
+  });
+  const query = queryLiveAccountState(userId);
+  // A timed-out query keeps running in the client. Consume its eventual rejection without awaiting it.
+  void query.catch(() => {});
+  try {
+    return await Promise.race([query, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const loadLiveAccountState = async (userId: string): Promise<LiveAccountState> => {
+  const deadline = Date.now() + LIVE_ACCOUNT_READ_POLICY.budgetMs;
+  for (let attempt = 0; attempt <= LIVE_ACCOUNT_READ_POLICY.retries; attempt += 1) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+    try {
+      const account = await readLiveAccountStateWithinBudget(userId, remainingMs);
+      if (account.status === "unavailable") break;
+      return account;
+    } catch {
+      // Only a rejected attempt can reach the next iteration; a budget timeout ends the read.
+    }
+  }
+  reportLiveAccountReadFailure();
+  return { status: "unavailable" };
+};
+
+const resolveEffectiveRole = (account: LiveAccountState): string | undefined => {
   if (account.status === "found") {
     return account.role ?? undefined;
-  }
-  if (account.status === "unavailable") {
-    return isSelfServiceRole(tokenRole) ? tokenRole : undefined;
   }
   return undefined;
 };
@@ -494,7 +532,6 @@ export const authOptions: NextAuthOptions = {
         return session;
       }
 
-      const tokenRole = typeof token?.role === "string" ? token.role : undefined;
       const userId = token?.sub;
 
       if (!userId) {
@@ -506,8 +543,13 @@ export const authOptions: NextAuthOptions = {
       // One live read backs both the suspension gate and the role. A non-null suspended_at is
       // surfaced as an ISO string; the access layer (assertAuthenticatedSession) turns it into a
       // 403 account_suspended on the next guarded request. See loadLiveAccountState for the
-      // fail-open/fail-closed split.
+      // fail-closed rule.
       const account = await loadLiveAccountState(userId);
+      if (account.status === "unavailable") {
+        session.user.accountStateUnavailable = true;
+      } else {
+        delete session.user.accountStateUnavailable;
+      }
 
       if (account.status === "found" && account.suspendedAt) {
         session.user.suspendedAt = account.suspendedAt.toISOString();
@@ -520,9 +562,11 @@ export const authOptions: NextAuthOptions = {
       // here and normalizeSessionRole throws 401 on the next access-control check. A JWT carrying
       // an unrecognised role (e.g. a pre-rollback role="student") no longer decides anything while
       // the database is reachable — the stored role replaces it outright. No silent coercion.
-      const effectiveRole = resolveEffectiveRole(account, tokenRole);
+      const effectiveRole = resolveEffectiveRole(account);
       if (effectiveRole && isAppRole(effectiveRole)) {
         session.user.role = effectiveRole;
+      } else {
+        delete (session.user as { role?: AppRole }).role;
       }
 
       session.user.verifiedRoles = sanitizeVerifiedRoles(token?.verifiedRoles);

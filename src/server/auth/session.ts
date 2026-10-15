@@ -1,8 +1,10 @@
 import type { Session } from "next-auth";
 import { getServerSession } from "next-auth";
 import type { AppRole } from "@/lib/access/roles";
+import { ACCOUNT_STATE_UNAVAILABLE_MESSAGE } from "@/lib/observability/account-state-unavailable";
 import { assertServerOnly } from "@/server/runtime/assert-server-only";
 import {
+  AccessError,
   assertAuthenticatedSession,
   assertMfaSatisfiedForOperationalSession,
   assertSessionRole,
@@ -12,8 +14,12 @@ import { authOptions } from "@/server/auth/auth.config";
 
 assertServerOnly("server/auth/session");
 
-export const getCurrentSession = (): Promise<Session | null> => {
-  return getServerSession(authOptions);
+export const getCurrentSession = async (): Promise<Session | null> => {
+  const session = await getServerSession(authOptions);
+  if (session?.user?.accountStateUnavailable) {
+    throw new AccessError("account_state_unavailable", 503, ACCOUNT_STATE_UNAVAILABLE_MESSAGE);
+  }
+  return session;
 };
 
 export const requireAuthenticatedSession = async (options?: {

@@ -37,6 +37,7 @@ export default async function RegistrationReviewPage({ params }: Props) {
       db,
     ));
   } catch (e) {
+    if (e instanceof AccessError && e.code === "account_state_unavailable") throw e;
     if (e instanceof AccessError) redirect("/");
     throw e;
   }
