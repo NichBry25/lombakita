@@ -10,6 +10,7 @@ import {
   institutionMemberships,
   institutions,
   platformOpsAuditLogs,
+  platformOpsNotes,
   users,
 } from "@/server/db/schema";
 import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/database-url";
@@ -21,6 +22,7 @@ import {
   suspendUser,
   unsuspendUser,
 } from "./moderation-service";
+import { NOTE_EDITED_EVENT, editNote } from "./notes-service";
 
 const client = TEST_DATABASE_URL ? postgres(TEST_DATABASE_URL, { max: 1 }) : null;
 const db = client ? drizzle(client, { schema }) : null;
@@ -179,6 +181,99 @@ describe.skipIf(skipWithoutDatabase).each(actions)("$name database actor integri
       expect(state?.suspensionReason).toBe(action.suspended ? null : "reason");
       expect(await readAudits(tx, action, targetId)).toEqual([
         { actorUserId: actorId, eventType: action.event, reason: "reason" },
+      ]);
+    });
+  });
+});
+
+const seedInstitution = async (tx: Tx): Promise<string> => {
+  const id = randomUUID();
+  await tx.insert(institutions).values({
+    id,
+    displayName: "Note fixture",
+    slug: `note-fixture-${id}`,
+    institutionType: "company",
+  });
+  return id;
+};
+
+const seedInstitutionNote = async (
+  tx: Tx,
+  institutionId: string,
+  authorId: string,
+): Promise<string> => {
+  const [row] = await tx
+    .insert(platformOpsNotes)
+    .values({ targetInstitutionId: institutionId, note: "original", createdById: authorId })
+    .returning({ id: platformOpsNotes.id });
+  return row!.id;
+};
+
+const readNoteText = async (tx: Tx, noteId: string): Promise<string> => {
+  const [row] = await tx
+    .select({ note: platformOpsNotes.note })
+    .from(platformOpsNotes)
+    .where(eq(platformOpsNotes.id, noteId));
+  return row!.note;
+};
+
+const readAuditsBy = async (tx: Tx, actorUserId: string) =>
+  tx
+    .select({
+      actorUserId: platformOpsAuditLogs.actorUserId,
+      targetInstitutionId: platformOpsAuditLogs.targetInstitutionId,
+      eventType: platformOpsAuditLogs.eventType,
+    })
+    .from(platformOpsAuditLogs)
+    .where(eq(platformOpsAuditLogs.actorUserId, actorUserId));
+
+describe.skipIf(skipWithoutDatabase)("editNote on an institution note (real database)", () => {
+  it("refuses an operator holding a membership in the note's institution, leaving the note and the audit table alone", async () => {
+    await inRollback(async (tx) => {
+      const operatorId = await seedAccount(tx, "platform_ops");
+      const authorId = await seedAccount(tx, "platform_ops");
+      const institutionId = await seedInstitution(tx);
+      await tx.insert(institutionMemberships).values({
+        institutionId,
+        userId: operatorId,
+        membershipRole: "institution_member",
+        status: "active",
+      });
+      const noteId = await seedInstitutionNote(tx, institutionId, authorId);
+
+      await expect(editNote(operatorId, noteId, "rewritten", tx)).rejects.toMatchObject({
+        code: "operator_actor_conflicted",
+        status: 403,
+      });
+
+      expect(await readNoteText(tx, noteId)).toBe("original");
+      expect(await readAuditsBy(tx, operatorId)).toHaveLength(0);
+    });
+  });
+
+  it("lets the same operator edit a note about an institution it has no relationship to, with one audit row naming it", async () => {
+    await inRollback(async (tx) => {
+      const operatorId = await seedAccount(tx, "platform_ops");
+      const authorId = await seedAccount(tx, "platform_ops");
+      const tiedInstitutionId = await seedInstitution(tx);
+      const unrelatedInstitutionId = await seedInstitution(tx);
+      await tx.insert(institutionMemberships).values({
+        institutionId: tiedInstitutionId,
+        userId: operatorId,
+        membershipRole: "institution_member",
+        status: "active",
+      });
+      const noteId = await seedInstitutionNote(tx, unrelatedInstitutionId, authorId);
+
+      await editNote(operatorId, noteId, "rewritten", tx);
+
+      expect(await readNoteText(tx, noteId)).toBe("rewritten");
+      expect(await readAuditsBy(tx, operatorId)).toEqual([
+        {
+          actorUserId: operatorId,
+          targetInstitutionId: unrelatedInstitutionId,
+          eventType: NOTE_EDITED_EVENT,
+        },
       ]);
     });
   });
