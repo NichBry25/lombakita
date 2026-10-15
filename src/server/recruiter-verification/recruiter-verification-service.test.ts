@@ -377,6 +377,21 @@ describe("reviewRecruiterVerification", () => {
     expect(captured.auditInserted).toBeNull();
   });
 
+  it("records the database actor, not the claimed id, as the submission's reviewer", async () => {
+    const { db, captured } = buildReviewDb({
+      submissionReturn: [{ userId: "u_1" }],
+      existingSubmission: [],
+      actorRow: { id: "database-actor", role: "platform_ops", suspendedAt: null },
+    });
+    mockGetDb.mockReturnValue(db);
+
+    await reviewRecruiterVerification("claimed-actor", "sub_1", "approve", null, {
+      db: db as never,
+    });
+
+    expect(captured.submissionSet).toMatchObject({ reviewerUserId: "database-actor" });
+  });
+
   it("writes exactly one audit row naming the database actor", async () => {
     const { db, captured } = buildReviewDb({
       submissionReturn: [{ userId: "u_1" }],

@@ -847,7 +847,7 @@ export const reviewRecruiterVerification = async (
       .update(recruiterVerificationSubmissions)
       .set({
         status: targetStatus,
-        reviewerUserId,
+        reviewerUserId: actor.userId,
         reviewedAt: sql`now()`,
         rejectionReason: decision === "reject" ? cleanReason : null,
         resubmissionAllowed: decision === "reject" ? allowResubmission : true,
