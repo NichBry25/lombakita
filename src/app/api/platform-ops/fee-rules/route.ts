@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
 import {
@@ -15,6 +16,13 @@ const OPERATIONAL_ROLES = ["platform_ops"] as const;
 
 const toErrorResponse = (error: unknown): NextResponse => {
   if (error instanceof FeeRuleError) {
+    return NextResponse.json(
+      { error: { code: error.code, message: error.message } },
+      { status: error.status },
+    );
+  }
+
+  if (error instanceof OperatorActorError) {
     return NextResponse.json(
       { error: { code: error.code, message: error.message } },
       { status: error.status },

@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 
 const { requireSessionRole, createFeeRule, listFeeRules, FeeRuleError } = vi.hoisted(() => {
   class FeeRuleError extends Error {
@@ -151,5 +152,20 @@ describe("POST /api/platform-ops/fee-rules", () => {
       "ops-1",
       expect.objectContaining({ currency: "IDR" }),
     );
+  });
+});
+
+describe("database actor refusals", () => {
+  it.each([
+    "operator_actor_not_found",
+    "operator_actor_not_platform_ops",
+    "operator_actor_suspended",
+    "operator_actor_is_target",
+    "operator_actor_conflicted",
+  ] as const)("returns 403 JSON for %s", async (code) => {
+    createFeeRule.mockRejectedValueOnce(new OperatorActorError(code, 403, "actor refused"));
+    const response = await POST(postBody(validBody));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: { code, message: "actor refused" } });
   });
 });

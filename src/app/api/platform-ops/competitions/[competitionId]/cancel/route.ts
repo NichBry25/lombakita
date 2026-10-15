@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
 import { cancelCompetitionAsOps, OpsPaymentError } from "@/server/finance/ops-payment-service";
@@ -31,6 +32,12 @@ export async function POST(request: Request, { params }: RouteParams): Promise<R
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     if (error instanceof OpsPaymentError) {
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status },
+      );
+    }
+    if (error instanceof OperatorActorError) {
       return NextResponse.json(
         { error: { code: error.code, message: error.message } },
         { status: error.status },

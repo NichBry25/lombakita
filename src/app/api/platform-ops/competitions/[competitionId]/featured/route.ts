@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
 import {
@@ -73,6 +74,12 @@ export async function PATCH(request: Request, { params }: RouteParams): Promise<
       return NextResponse.json(toFeaturedPlacementErrorResponse(error), {
         status: error.status,
       });
+    }
+    if (error instanceof OperatorActorError) {
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status },
+      );
     }
     return toAccessDeniedResponse(error);
   }

@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 
 const { requireSessionRole, generateDisputeProofViewUrl, ManualProofError } = vi.hoisted(() => {
   class ManualProofError extends Error {
@@ -116,5 +117,22 @@ describe("the finance surface cannot reach a verdict", () => {
     for (const writer of VERDICT_WRITERS) {
       expect(source, `${relative} must not reach ${writer}`).not.toContain(writer);
     }
+  });
+});
+
+describe("database actor refusals", () => {
+  it.each([
+    "operator_actor_not_found",
+    "operator_actor_not_platform_ops",
+    "operator_actor_suspended",
+    "operator_actor_is_target",
+    "operator_actor_conflicted",
+  ] as const)("returns 403 JSON for %s", async (code) => {
+    generateDisputeProofViewUrl.mockRejectedValueOnce(
+      new OperatorActorError(code, 403, "actor refused"),
+    );
+    const response = await POST(request(), { params });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: { code, message: "actor refused" } });
   });
 });

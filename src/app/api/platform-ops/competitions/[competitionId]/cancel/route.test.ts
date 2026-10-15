@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 
 const { requireSessionRole, cancelCompetitionAsOps, OpsPaymentError } = vi.hoisted(() => {
   class OpsPaymentError extends Error {
@@ -139,5 +140,22 @@ describe("POST /api/platform-ops/competitions/[competitionId]/cancel", () => {
     await POST(postBody({ reason: { nested: "object" } }), { params });
 
     expect(cancelCompetitionAsOps).toHaveBeenCalledWith("ops-1", "comp-1", "");
+  });
+});
+
+describe("database actor refusals", () => {
+  it.each([
+    "operator_actor_not_found",
+    "operator_actor_not_platform_ops",
+    "operator_actor_suspended",
+    "operator_actor_is_target",
+    "operator_actor_conflicted",
+  ] as const)("returns 403 JSON for %s", async (code) => {
+    cancelCompetitionAsOps.mockRejectedValueOnce(
+      new OperatorActorError(code, 403, "actor refused"),
+    );
+    const response = await POST(postBody({ reason: "x" }), { params });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: { code, message: "actor refused" } });
   });
 });
