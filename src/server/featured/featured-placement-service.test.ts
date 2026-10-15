@@ -13,6 +13,7 @@ vi.mock("@/server/async/enqueue", () => ({ enqueueCompetitionSearchSync }));
 import {
   FEATURED_CLEARED_EVENT,
   FEATURED_SET_EVENT,
+  FeaturedPlacementError,
   setFeaturedPlacement,
 } from "./featured-placement-service";
 import type { Database } from "@/server/db/client";
@@ -71,28 +72,41 @@ beforeEach(() => {
 describe("setFeaturedPlacement", () => {
   it("throws competition_not_found (404) when competition does not exist", async () => {
     const { db } = makeSelectDb(null);
-    await expect(
-      setFeaturedPlacement(
-        OPS_ACTOR_ID,
-        "comp_missing",
-        { isFeatured: true, featuredOrder: 1 },
-        db,
-      ),
-    ).rejects.toMatchObject({ code: "competition_not_found", status: 404 });
+    const error = await setFeaturedPlacement(
+      OPS_ACTOR_ID,
+      "comp_missing",
+      { isFeatured: true, featuredOrder: 1 },
+      db,
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(FeaturedPlacementError);
+    expect(error).toMatchObject({ code: "competition_not_found", status: 404 });
   });
 
   it("throws competition_not_published (409) for draft competition", async () => {
     const { db } = makeSelectDb({ id: "comp_1", status: "draft" });
-    await expect(
-      setFeaturedPlacement(OPS_ACTOR_ID, "comp_1", { isFeatured: true, featuredOrder: 1 }, db),
-    ).rejects.toMatchObject({ code: "competition_not_published", status: 409 });
+    const error = await setFeaturedPlacement(
+      OPS_ACTOR_ID,
+      "comp_1",
+      { isFeatured: true, featuredOrder: 1 },
+      db,
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(FeaturedPlacementError);
+    expect(error).toMatchObject({ code: "competition_not_published", status: 409 });
   });
 
   it("throws competition_not_published (409) for archived competition", async () => {
     const { db } = makeSelectDb({ id: "comp_1", status: "archived" });
-    await expect(
-      setFeaturedPlacement(OPS_ACTOR_ID, "comp_1", { isFeatured: true, featuredOrder: 1 }, db),
-    ).rejects.toMatchObject({ code: "competition_not_published", status: 409 });
+    const error = await setFeaturedPlacement(
+      OPS_ACTOR_ID,
+      "comp_1",
+      { isFeatured: true, featuredOrder: 1 },
+      db,
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(FeaturedPlacementError);
+    expect(error).toMatchObject({ code: "competition_not_published", status: 409 });
   });
 
   it("throws competition_personal_not_featurable (409) when owned by a personal institution", async () => {
@@ -101,9 +115,15 @@ describe("setFeaturedPlacement", () => {
       status: "published",
       institutionType: "personal",
     });
-    await expect(
-      setFeaturedPlacement(OPS_ACTOR_ID, "comp_1", { isFeatured: true, featuredOrder: 1 }, db),
-    ).rejects.toMatchObject({ code: "competition_personal_not_featurable", status: 409 });
+    const error = await setFeaturedPlacement(
+      OPS_ACTOR_ID,
+      "comp_1",
+      { isFeatured: true, featuredOrder: 1 },
+      db,
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(FeaturedPlacementError);
+    expect(error).toMatchObject({ code: "competition_personal_not_featurable", status: 409 });
   });
 
   // Featured placement is the front-page slot and a monetized surface, so the audit trail — not a
