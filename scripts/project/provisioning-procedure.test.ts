@@ -53,6 +53,7 @@ import {
   type ProvisioningState,
   type StepOutcome,
 } from "./run-provisioning-procedure";
+import { renderLeftoverAbsentSql, renderLeftoverListingSql } from "./promotion-leftover-census";
 
 const ENROL_PAGE = "src/app/auth/mfa/enroll/page.tsx";
 
@@ -179,6 +180,45 @@ describe("the procedure document", () => {
     ]);
   });
 
+  it("embeds the census's two fragments byte for byte, in the steps they belong to", () => {
+    // The document is the artifact and the census is where its leftover statements come from. A
+    // hand edit to either copy, or a ruling changed without regenerating the document, fails here.
+    expect(document).toContain(renderLeftoverListingSql());
+    expect(document).toContain(renderLeftoverAbsentSql());
+    expect(stepNamed("preconditions").body).toContain(renderLeftoverListingSql());
+    expect(stepNamed("promote").body).toContain(renderLeftoverAbsentSql());
+  });
+
+  it("keeps the seven step names and their order unchanged by the leftovers rule", () => {
+    expect(steps.map((step) => step.name)).toEqual([
+      "resolve",
+      "preconditions",
+      "promote",
+      "verify-role",
+      "enrol",
+      "verify-factor",
+      "postcondition",
+    ]);
+  });
+
+  it("returns the leftovers from the preconditions step as a json array of source and n", () => {
+    const body = stepNamed("preconditions").body;
+
+    expect(body).toMatch(/json_build_object\('source', l\.source, 'n', l\.n\)/);
+    expect(body).toMatch(/as leftovers\b/);
+  });
+
+  it("states the email arms' limit in the sentence the owner ruled", () => {
+    expect(document).toContain(
+      "The two email arms compare the invitation's stored address with lower(btrim(the account's email)). " +
+        "The application normalizes with trim and toLowerCase. " +
+        "The two agree for every address the signup path stores, because signup stores the application's own normalized output. " +
+        "They can disagree for an address that carries a tab, newline, no-break space, byte-order mark, ideographic space, dotted capital I or final sigma, " +
+        "or for a Google-created account whose address was stored unnormalized, which was not read. " +
+        "An invitation already attached to the account by id is caught by the id arms regardless.",
+    );
+  });
+
   it("states the acting database role as an unknown rather than leaving it unstated", () => {
     // Acceptance requires it, and the reason is specific: the procedure's write is issued by whatever
     // role the operator connects as, and nothing in the repository names that role for a deployed
@@ -279,6 +319,15 @@ describe("the demonstration's cases", () => {
 
     expect(omissions).toContain("promote");
     expect(omissions).toContain("");
+  });
+
+  it("carries a case whose subject holds a leftover and omits nothing, so the refusal is shown", () => {
+    const refusal = DEMONSTRATION_CASES.filter(
+      (spec) => spec.select === "self-service-with-leftover",
+    );
+
+    expect(refusal).toHaveLength(1);
+    expect([...refusal[0]!.omit]).toEqual([]);
   });
 });
 
@@ -730,6 +779,18 @@ describe.skipIf(skipWithoutDatabase)("the gate the demonstration refuses on", ()
     await insertAccount(provisioned, "platform_ops");
     await insertVerifiedFactor(provisioned);
 
+    // THE SUBJECTS CASES B, C AND D NEED, for the same reason. B and C act on an unenrolled
+    // self-service account with no leftover, and D on one with a leftover; a fresh database holds
+    // neither. The tie is a draft recruiter submission, which cascades away with its account.
+    const clean = fixtureId();
+    await insertAccount(clean, "candidate");
+    const tied = fixtureId();
+    await insertAccount(tied, "candidate");
+    await client`
+      insert into recruiter_verification_submissions (user_id, full_name, mobile_number, status)
+      values (${tied}, 'Provisioning Fixture', '+620000000000', 'draft')
+    `;
+
     const rolesBefore = await rolesHeld();
     const outDir = mkdtempSync(join(tmpdir(), "provisioning-demonstration-"));
     const out = join(outDir, "demonstration.md");
@@ -737,12 +798,15 @@ describe.skipIf(skipWithoutDatabase)("the gate the demonstration refuses on", ()
     try {
       // THE CASE THAT WRITES. `promote` is the procedure's single writing step; a case that omits
       // it changes nothing, so its account reads the same on either side of the transaction even
-      // with the rollback dropped, and the gate must not name it.
+      // with the rollback dropped, and the gate must not name it. The leftover case runs `promote`
+      // and still changes nothing: its guard matches zero rows, so it is not named either.
+      const refusesThePromotion = (spec: (typeof DEMONSTRATION_CASES)[number]): boolean =>
+        spec.select === "self-service-with-leftover";
       const writesTheAccount = DEMONSTRATION_CASES.filter(
-        (spec) => !spec.omit.includes("promote"),
+        (spec) => !spec.omit.includes("promote") && !refusesThePromotion(spec),
       ).map((spec) => spec.label);
-      const changesNothing = DEMONSTRATION_CASES.filter((spec) =>
-        spec.omit.includes("promote"),
+      const changesNothing = DEMONSTRATION_CASES.filter(
+        (spec) => spec.omit.includes("promote") || refusesThePromotion(spec),
       ).map((spec) => spec.label);
       expect(writesTheAccount.length, "no case writes, so the gate has nothing to refuse").toBe(1);
 

@@ -31,7 +31,7 @@
  *
  * Usage:
  *   node --import tsx scripts/project/run-provisioning-procedure.ts <userId>
- *   node --import tsx scripts/project/run-provisioning-procedure.ts --select provisioned|self-service-unenrolled
+ *   node --import tsx scripts/project/run-provisioning-procedure.ts --select provisioned|self-service-unenrolled|self-service-with-leftover
  *   node --import tsx scripts/project/run-provisioning-procedure.ts --demonstrate --out <path>
  */
 
@@ -380,6 +380,16 @@ export const DEMONSTRATION_CASES: readonly {
     select: "self-service-unenrolled",
     omit: ["promote"],
   },
+  {
+    label: "Case D — a self-service account tied to someone else's data",
+    purpose:
+      "Every `sql` step runs and none is omitted. The account holds at least one leftover, so the " +
+      "document's `preconditions` step names it and the `promote` guard matches zero rows. This is " +
+      "the refusal the leftovers rule exists to make: the role is unchanged, nothing is deleted, " +
+      "and the listing says what ties the account.",
+    select: "self-service-with-leftover",
+    omit: [],
+  },
 ];
 
 /** Render one case, as a section of the document. */
@@ -418,6 +428,19 @@ const renderCase = (entry: CaseRun): string[] => {
     }
   }
   lines.push("");
+
+  const preconditions = run.steps.find((candidate) => candidate.name === "preconditions");
+  const named = (preconditions?.rows[0]?.leftovers ?? []) as Leftover[];
+  lines.push(
+    preconditions === undefined || preconditions.error !== null
+      ? "Leftovers named by `preconditions`: **not read**."
+      : named.length === 0
+        ? "Leftovers named by `preconditions`: **none**."
+        : `Leftovers named by \`preconditions\`: ${named
+            .map((leftover) => `\`${leftover.source}\` (${leftover.n})`)
+            .join(", ")}.`,
+    "",
+  );
 
   for (const step of run.steps) {
     if (step.error === null) continue;
@@ -553,7 +576,7 @@ const main = async (): Promise<void> => {
 
     let selection: Selection;
     if (select !== null) {
-      selection = await selectTarget(sql, select);
+      selection = await selectTarget(sql, select, declared);
     } else if (explicitUserId !== null) {
       selection = { userId: explicitUserId, criterion: "named on the command line", matched: 1 };
     } else {
@@ -610,7 +633,7 @@ export const demonstrateAll = async (
       }
     }
 
-    const selection = await selectTarget(sql, spec.select);
+    const selection = await selectTarget(sql, spec.select, declared);
     const steps = declared.filter((step) => !spec.omit.includes(step.name));
     const run = await runProcedure(sql, steps, selection.userId);
 
@@ -688,6 +711,14 @@ export const demonstrateAll = async (
     return outcome.affected;
   });
 
+  const leftoverSources = (entry: CaseRun | undefined): string => {
+    const named = (entry?.run.steps.find((step) => step.name === "preconditions")?.rows[0]
+      ?.leftovers ?? []) as Leftover[];
+    return named.length === 0
+      ? "no source"
+      : named.map((leftover) => `\`${leftover.source}\` (${leftover.n})`).join(", ");
+  };
+
   const promotedPhrase = (index: number): string =>
     promoted[index] === null || promoted[index] === undefined
       ? "`promote` did not run"
@@ -726,9 +757,15 @@ export const demonstrateAll = async (
       `\`${answers[0]}\`, which is neither of the two above, and is the answer a COMPLETE ` +
       "provisioning reads as.",
     "",
-    "The three answers are three different strings, and none of them is reachable from the others by",
-    "a change to the account alone. That is what makes a half-run procedure distinguishable from a",
-    "complete one.",
+    `- **A leftover — Case D.** ${promotedPhrase(3)}, so the role column still reads the one the ` +
+      `account started with and the gate answers \`${answers[3]}\`, the same string as Case C. ` +
+      "What tells the two apart is the `preconditions` listing, which names " +
+      `${leftoverSources(cases[3])}. Nothing was deleted.`,
+    "",
+    "Cases A, B and C answer with three different strings, and none of them is reachable from the",
+    "others by a change to the account alone. That is what makes a half-run procedure",
+    "distinguishable from a complete one. Case D is the refusal rather than a half-run: it is told",
+    "apart from Case C by its listing, not by the gate.",
     "",
     "### What is deliberately not demonstrated",
     "",
@@ -749,6 +786,38 @@ export const demonstrateAll = async (
   console.log(`wrote ${out}`);
 };
 
+/** One leftover the document's `preconditions` step names: a table and column, and a row count. */
+export type Leftover = { source: string; n: number };
+
+/**
+ * What the document's own `preconditions` step lists as tying this account to someone else's data.
+ *
+ * Read from the document rather than recomputed here, so the harness never holds a second copy of
+ * the rule. Refuses a document whose `preconditions` step has no `leftovers` column: a procedure
+ * that predates the rule would otherwise read as "no leftovers" for every account.
+ */
+export const leftoversNamedByDocument = async (
+  sql: postgres.Sql,
+  declared: readonly ProcedureStep[],
+  userId: string,
+): Promise<Leftover[]> => {
+  const step = declared.find((candidate) => candidate.name === "preconditions");
+  if (step === undefined || step.kind !== "sql") {
+    throw new ProcedureRefusal("the document declares no `sql` step named `preconditions`");
+  }
+
+  const [row] = (await sql.unsafe(step.body, [userId])) as Record<string, unknown>[];
+  if (row === undefined) return [];
+  if (!("leftovers" in row)) {
+    throw new ProcedureRefusal(
+      "the `preconditions` step returns no `leftovers` column, so this document predates the " +
+        "leftovers rule and every account would read as having none",
+    );
+  }
+
+  return row.leftovers as Leftover[];
+};
+
 /**
  * Ask the database which account the criterion names.
  *
@@ -757,7 +826,11 @@ export const demonstrateAll = async (
  * sharper than in the deletion harness, because the residue case needs a subject that is genuinely
  * promotable and genuinely unenrolled, and the easy way to get one is to pick it.
  */
-const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection> => {
+const selectTarget = async (
+  sql: postgres.Sql,
+  which: string,
+  declared: readonly ProcedureStep[],
+): Promise<Selection> => {
   if (which === "provisioned") {
     const rows = await sql<{ id: string }[]>`
       select u.id
@@ -788,8 +861,9 @@ const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection
     };
   }
 
-  if (which === "self-service-unenrolled") {
-    const rows = await sql<{ id: string }[]>`
+  if (which === "self-service-unenrolled" || which === "self-service-with-leftover") {
+    const withLeftover = which === "self-service-with-leftover";
+    const candidates = await sql<{ id: string }[]>`
       select u.id
       from users u
       where u.role in ('candidate', 'recruiter')
@@ -802,24 +876,39 @@ const selectTarget = async (sql: postgres.Sql, which: string): Promise<Selection
       order by u.id
     `;
 
-    if (rows.length === 0) {
+    // The leftovers come from the document's own `preconditions` step, so the population is the
+    // one the procedure itself would refuse, not a second reading of the rule written here.
+    const matching: string[] = [];
+    for (const candidate of candidates) {
+      const leftovers = await leftoversNamedByDocument(sql, declared, candidate.id);
+      if (leftovers.length > 0 === withLeftover) matching.push(candidate.id);
+    }
+
+    if (matching.length === 0) {
       throw new ProcedureRefusal(
-        "no active, unsuspended self-service account is without a verified factor, so the account " +
-          "the promotion acts on does not exist here",
+        withLeftover
+          ? "no active, unsuspended self-service account without a verified factor holds a " +
+              "leftover, so the account the leftovers rule refuses does not exist here"
+          : "no active, unsuspended self-service account is without a verified factor and without " +
+              "a leftover, so the account the promotion acts on does not exist here",
       );
     }
 
     return {
-      userId: rows[0]!.id,
+      userId: matching[0]!,
       criterion:
-        "`role in ('candidate', 'recruiter')`, `status = 'active'`, not suspended, and holding no " +
-        "verified MFA factor; ties broken by lowest `users.id`",
-      matched: rows.length,
+        "`role in ('candidate', 'recruiter')`, `status = 'active'`, not suspended, holding no " +
+        "verified MFA factor, and " +
+        (withLeftover
+          ? "a non-empty `leftovers` from the document's `preconditions` step"
+          : "an empty `leftovers` from the document's `preconditions` step") +
+        "; ties broken by lowest `users.id`",
+      matched: matching.length,
     };
   }
 
   throw new ProcedureRefusal(
-    `--select takes \`provisioned\` or \`self-service-unenrolled\`, not \`${which}\``,
+    `--select takes \`provisioned\`, \`self-service-unenrolled\` or \`self-service-with-leftover\`, not \`${which}\``,
   );
 };
 
