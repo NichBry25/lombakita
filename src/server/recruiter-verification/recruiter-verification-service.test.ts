@@ -325,6 +325,16 @@ describe("reviewRecruiterVerification", () => {
     expect(tx.update).not.toHaveBeenCalled();
   });
 
+  it("throws not_found (404) when the owner read finds the row but the flip and the existence re-read find none", async () => {
+    const { db, tx } = buildReviewDb({ submissionReturn: [], existingSubmission: [] });
+    mockGetDb.mockReturnValue(db);
+
+    await expect(
+      reviewRecruiterVerification("ops_1", "sub_1", "approve", null, { db: db as never }),
+    ).rejects.toMatchObject({ code: "recruiter_verification_not_found", status: 404 });
+    expect(tx.update).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     { label: "missing", actorRow: null, code: "operator_actor_not_found" },
     {
@@ -1157,6 +1167,16 @@ describe("setRecruiterResubmissionAllowed", () => {
       setRecruiterResubmissionAllowed("ops_1", "missing", true, db as never),
     ).rejects.toMatchObject({ code: "recruiter_verification_not_found", status: 404 });
     expect(tx.update).not.toHaveBeenCalled();
+  });
+
+  it("404s when the owner read finds the row but the update and the existence re-read find none", async () => {
+    const { db, tx } = buildFlagDb([], []);
+    mockGetDb.mockReturnValue(db);
+
+    await expect(
+      setRecruiterResubmissionAllowed("ops_1", "sub_1", true, db as never),
+    ).rejects.toMatchObject({ code: "recruiter_verification_not_found", status: 404 });
+    expect(tx.update).toHaveBeenCalledTimes(1);
   });
 
   it.each([
