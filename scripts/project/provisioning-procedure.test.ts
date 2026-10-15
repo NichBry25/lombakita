@@ -53,7 +53,14 @@ import {
   type ProvisioningState,
   type StepOutcome,
 } from "./run-provisioning-procedure";
-import { renderLeftoverAbsentSql, renderLeftoverListingSql } from "./promotion-leftover-census";
+import {
+  BLOCKING_GROUPS,
+  LEFTOVER_RULINGS,
+  blockingRulings,
+  derivedLeftoverEdges,
+  renderLeftoverAbsentSql,
+  renderLeftoverListingSql,
+} from "./promotion-leftover-census";
 
 const ENROL_PAGE = "src/app/auth/mfa/enroll/page.tsx";
 
@@ -225,6 +232,56 @@ describe("the procedure document", () => {
     // environment. The instruction to read it live is the checkable part.
     expect(document).toContain("select current_database() as db, current_user as usr");
     expect(document).toContain("This is a named unknown, not an assumption.");
+  });
+});
+
+/** The text between the leftovers rule heading and the next `## ` heading. */
+const leftoversRuleSection = (markdown: string): string => {
+  const heading = "## The leftovers rule\n";
+  const start = markdown.indexOf(heading);
+  if (start === -1) throw new Error("the procedure has no `## The leftovers rule` section");
+
+  const next = markdown.indexOf("\n## ", start + heading.length);
+  return markdown.slice(start + heading.length, next === -1 ? undefined : next);
+};
+
+/** The backticked `table.column` tokens in a piece of prose, sorted so a duplicate also shows. */
+const tokensIn = (prose: string): string[] =>
+  [...prose.matchAll(/`([a-z_]+\.[a-z_]+)`/g)].map((match) => match[1]!).sort();
+
+const rulingTokens = (rulings: readonly { table: string; column: string }[]): string[] =>
+  rulings.map((ruling) => `${ruling.table}.${ruling.column}`).sort();
+
+describe("the leftovers rule prose", () => {
+  const section = leftoversRuleSection(document);
+
+  it("lists, in each of the five groups, exactly the blocking rulings of that group", () => {
+    const bullets = new Map(
+      [...section.matchAll(/^- \*\*([^*]+)\*\* — (.*)$/gm)].map((match) => [match[1]!, match[2]!]),
+    );
+
+    expect([...bullets.keys()]).toEqual([...BLOCKING_GROUPS]);
+
+    for (const group of BLOCKING_GROUPS) {
+      const ruled = blockingRulings().filter((ruling) => ruling.group === group);
+      expect(tokensIn(bullets.get(group)!), `the \`${group}\` bullet`).toEqual(rulingTokens(ruled));
+    }
+  });
+
+  it("lists after `Allowed to remain:` exactly the rulings that are allowed", () => {
+    const allowedLine = /^Allowed to remain: (.*)$/m.exec(section)?.[1];
+    expect(allowedLine, "the section has no `Allowed to remain:` line").toBeDefined();
+
+    const allowed = LEFTOVER_RULINGS.filter((ruling) => ruling.ruling === "allowed");
+    expect(tokensIn(allowedLine!)).toEqual(rulingTokens(allowed));
+  });
+
+  it("states the number of edges and the number that block as the census derives them", () => {
+    const counts = /Of the (\d+) edges, (\d+) block/.exec(section);
+    expect(counts, "the section has no `Of the N edges, M block` sentence").not.toBeNull();
+
+    expect(Number(counts![1])).toBe(derivedLeftoverEdges().length);
+    expect(Number(counts![2])).toBe(blockingRulings().length);
   });
 });
 
