@@ -335,10 +335,14 @@ describe("unavailable account state through real callbacks and getCurrentSession
         items.some(([header]) => header.type === "event"),
       );
       expect(eventEnvelopes).toHaveLength(1);
+      const eventItems = eventEnvelopes.flatMap(([, items]) =>
+        items.filter(([header]) => header.type === "event"),
+      );
+      expect(eventItems).toHaveLength(1);
       for (const [, items] of envelopes) {
         expect(items).not.toHaveLength(0);
         for (const [header] of items) {
-          expect(["event", "client_report"]).toContain(header.type);
+          expect(["event", "client_report", "session"]).toContain(header.type);
         }
       }
       const payload = JSON.stringify(eventEnvelopes);
