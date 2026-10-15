@@ -7748,5 +7748,84 @@ describe.skipIf(skipWithoutDatabase)(
         expect(await auditRowCount(tx, fixture.financeOpsUserId)).toBe(0);
       });
     });
+
+    it("refuses a finance_ops operator holding a membership in the receiving institution opening the receipt, writing no audit row", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { recordDisputeProofAccess } = await import("@/server/finance/dispute-view");
+        const paymentId = await seedManualPayment(tx, fixture);
+        const proofId = await seedProof(tx, fixture, paymentId);
+        await tx.insert(institutionMemberships).values({
+          institutionId: fixture.institutionId,
+          userId: fixture.financeOpsUserId,
+          membershipRole: "institution_member",
+          status: "active",
+        });
+
+        await expect(
+          recordDisputeProofAccess(
+            fixture.financeOpsUserId,
+            {
+              id: proofId,
+              paymentId,
+              competitionId: fixture.competitionId,
+              attempt: 0,
+              payerUserId: fixture.userId,
+              receivingInstitutionId: fixture.institutionId,
+            },
+            tx as never,
+          ),
+        ).rejects.toMatchObject({ code: "operator_actor_conflicted", status: 403 });
+
+        expect(await readProofStatus(tx, proofId)).toBe("pending_review");
+        expect(await auditRowCount(tx, fixture.financeOpsUserId)).toBe(0);
+      });
+    });
+
+    it("lets the same finance_ops operator open a receipt of an institution it has no relationship to, with one audit row naming it", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { recordDisputeProofAccess, FILE_ACCESSED_EVENT } =
+          await import("@/server/finance/dispute-view");
+        const paymentId = await seedManualPayment(tx, fixture);
+        const proofId = await seedProof(tx, fixture, paymentId);
+        await tx.insert(institutionMemberships).values({
+          institutionId: fixture.other.institutionId,
+          userId: fixture.financeOpsUserId,
+          membershipRole: "institution_member",
+          status: "active",
+        });
+
+        await recordDisputeProofAccess(
+          fixture.financeOpsUserId,
+          {
+            id: proofId,
+            paymentId,
+            competitionId: fixture.competitionId,
+            attempt: 0,
+            payerUserId: fixture.userId,
+            receivingInstitutionId: fixture.institutionId,
+          },
+          tx as never,
+        );
+
+        const audits = await tx
+          .select({
+            actorUserId: platformOpsAuditLogs.actorUserId,
+            targetInstitutionId: platformOpsAuditLogs.targetInstitutionId,
+            eventType: platformOpsAuditLogs.eventType,
+          })
+          .from(platformOpsAuditLogs)
+          .where(eq(platformOpsAuditLogs.actorUserId, fixture.financeOpsUserId));
+
+        expect(audits).toEqual([
+          {
+            actorUserId: fixture.financeOpsUserId,
+            targetInstitutionId: fixture.institutionId,
+            eventType: FILE_ACCESSED_EVENT,
+          },
+        ]);
+      });
+    });
   },
 );
