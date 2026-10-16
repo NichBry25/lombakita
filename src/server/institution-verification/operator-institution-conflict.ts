@@ -17,8 +17,9 @@ assertServerOnly("server/institution-verification/operator-institution-conflict"
 
 // NOBODY DECIDES AN INSTITUTION THEY ARE INSIDE, FILED FOR, OR WERE INVITED INTO.
 //
-// The rule is declared once here and called from both decision paths — `verifyInstitution`
-// (verification-service.ts) and `reviewVerificationSubmission` (submission-service.ts) — because the
+// The rule is declared once here and called from the verification decision paths
+// (`verifyInstitution` in verification-service.ts and `reviewVerificationSubmission` in
+// submission-service.ts) and from the institution- and money-targeted audit writers — because the
 // three relationships below are properties of the (actor, institution) pair, not of the path. A
 // second copy would drift the moment one side learned about a fourth relationship.
 //
@@ -36,8 +37,12 @@ assertServerOnly("server/institution-verification/operator-institution-conflict"
 export const OPERATOR_ACTOR_CONFLICTED_MESSAGE =
   "A platform-ops account cannot decide the verification of an institution it has filed for, been invited to, or held any membership in";
 
-const refusal = (): OperatorActorError =>
-  new OperatorActorError("operator_actor_conflicted", 403, OPERATOR_ACTOR_CONFLICTED_MESSAGE);
+// For writers that act on an institution rather than decide its verification.
+export const OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE =
+  "An operator account cannot act on an institution it has filed for, been invited to, or held any membership in";
+
+const refusal = (message: string): OperatorActorError =>
+  new OperatorActorError("operator_actor_conflicted", 403, message);
 
 /**
  * Refuse unless the actor has no relationship to this institution.
@@ -51,6 +56,7 @@ export const assertOperatorHasNoInstitutionRelationship = async (
   tx: OperatorActorTransaction,
   actor: ResolvedPlatformOpsActor,
   institutionId: string,
+  message: string = OPERATOR_ACTOR_CONFLICTED_MESSAGE,
 ): Promise<void> => {
   const [membership] = await tx
     .select({ id: institutionMemberships.id })
@@ -63,7 +69,7 @@ export const assertOperatorHasNoInstitutionRelationship = async (
     )
     .limit(1);
 
-  if (membership) throw refusal();
+  if (membership) throw refusal(message);
 
   const [filed] = await tx
     .select({ id: institutionVerificationSubmissions.id })
@@ -76,7 +82,7 @@ export const assertOperatorHasNoInstitutionRelationship = async (
     )
     .limit(1);
 
-  if (filed) throw refusal();
+  if (filed) throw refusal(message);
 
   const [account] = await tx
     .select({ email: users.email })
@@ -110,5 +116,5 @@ export const assertOperatorHasNoInstitutionRelationship = async (
     )
     .limit(1);
 
-  if (invited) throw refusal();
+  if (invited) throw refusal(message);
 };

@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 
 const { requireSessionRole, setFeaturedPlacement, FeaturedPlacementError } = vi.hoisted(() => {
   class FeaturedPlacementError extends Error {
@@ -144,5 +145,20 @@ describe("PATCH /api/platform-ops/competitions/[competitionId]/featured", () => 
     setFeaturedPlacement.mockResolvedValueOnce({ isFeatured: false, featuredOrder: null });
     const res = await PATCH(makeRequest({ isFeatured: false }), makeParams("comp_1"));
     expect(res.status).toBe(200);
+  });
+});
+
+describe("database actor refusals", () => {
+  it.each([
+    "operator_actor_not_found",
+    "operator_actor_not_platform_ops",
+    "operator_actor_suspended",
+    "operator_actor_is_target",
+    "operator_actor_conflicted",
+  ] as const)("returns 403 JSON for %s", async (code) => {
+    setFeaturedPlacement.mockRejectedValueOnce(new OperatorActorError(code, 403, "actor refused"));
+    const response = await PATCH(makeRequest({ isFeatured: true }), makeParams("comp_1"));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: { code, message: "actor refused" } });
   });
 });

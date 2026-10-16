@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   APP_ROLES,
   DEFAULT_APP_ROLE,
+  canOfferSecondRoleVerification,
   isAppRole,
   isOperationalRole,
   isSelfServiceRole,
@@ -66,5 +67,32 @@ describe("sessionHasRole — DEC-0060 capability check", () => {
     expect(sessionHasRole(undefined, undefined, "candidate")).toBe(false);
     expect(sessionHasRole("student", ["candidate"], "candidate")).toBe(false);
     expect(sessionHasRole("candidate", ["bogus"], "candidate")).toBe(true);
+  });
+});
+
+describe("canOfferSecondRoleVerification", () => {
+  it.each(["platform_ops", "finance_ops", "reviewer_or_judge"])(
+    "is false for the %s role even with exactly one verified stamp",
+    (role) => {
+      expect(canOfferSecondRoleVerification(role, true, false)).toBe(false);
+      expect(canOfferSecondRoleVerification(role, false, true)).toBe(false);
+    },
+  );
+
+  it.each(["candidate", "recruiter"])("is true for the %s role with exactly one stamp", (role) => {
+    expect(canOfferSecondRoleVerification(role, true, false)).toBe(true);
+    expect(canOfferSecondRoleVerification(role, false, true)).toBe(true);
+  });
+
+  it.each(["candidate", "recruiter"])(
+    "is false for the %s role with both or neither stamp",
+    (role) => {
+      expect(canOfferSecondRoleVerification(role, true, true)).toBe(false);
+      expect(canOfferSecondRoleVerification(role, false, false)).toBe(false);
+    },
+  );
+
+  it.each([undefined, null, "", "student"])("is false for the unknown role %s", (role) => {
+    expect(canOfferSecondRoleVerification(role, true, false)).toBe(false);
   });
 });

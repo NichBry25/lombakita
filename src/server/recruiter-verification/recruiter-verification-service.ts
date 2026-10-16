@@ -7,7 +7,6 @@ import { logger } from "@/lib/logger";
 import { enqueueRecruiterVerificationRejected } from "@/server/async/enqueue";
 import { getDb, type Database } from "@/server/db/client";
 import {
-  platformOpsAuditLogs,
   recruiterVerificationDocuments,
   recruiterVerificationSubmissions,
   users,
@@ -19,6 +18,12 @@ import {
   RecruiterVerificationError,
   type RecruiterVerificationInput,
 } from "@/server/recruiter-verification/recruiter-verification-core";
+import {
+  OperatorActorError,
+  recordOperatorAuditEntry,
+  resolvePlatformOpsActor,
+  type OperatorActorTransaction,
+} from "@/server/platform-ops/operator-actor";
 import {
   buildContentDisposition,
   extensionMatchesMimeType,
@@ -695,10 +700,33 @@ export const listRecruiterVerificationQueue = async (
   }));
 };
 
+const requireSubmissionOwnerId = async (
+  tx: OperatorActorTransaction,
+  submissionId: string,
+): Promise<string> => {
+  const [submission] = await tx
+    .select({ userId: recruiterVerificationSubmissions.userId })
+    .from(recruiterVerificationSubmissions)
+    .where(eq(recruiterVerificationSubmissions.id, submissionId))
+    .limit(1);
+
+  if (!submission) {
+    throw new RecruiterVerificationError(
+      "recruiter_verification_not_found",
+      "Verification submission not found",
+    );
+  }
+
+  return submission.userId;
+};
+
 // Platform-ops reversal of the resubmission bar set at rejection time. Applies to a rejected
 // submission only: a pending one has nothing to reopen, and an approved one is past the question.
 // Writes the audit row in the same transaction as the flip, and no-ops idempotently when the flag
 // already holds the requested value so a double click never files a second audit entry.
+//
+// The acting account is resolved from the database first, inside the one transaction, and may not
+// be the account that owns the submission (LAUNCH-D136).
 export const setRecruiterResubmissionAllowed = async (
   reviewerUserId: string,
   submissionId: string,
@@ -706,6 +734,17 @@ export const setRecruiterResubmissionAllowed = async (
   db: Database = getDb(),
 ): Promise<void> => {
   await db.transaction(async (tx) => {
+    const actor = await resolvePlatformOpsActor(tx, reviewerUserId);
+    const submissionOwnerId = await requireSubmissionOwnerId(tx, submissionId);
+
+    if (actor.userId === submissionOwnerId) {
+      throw new OperatorActorError(
+        "operator_actor_is_target",
+        403,
+        "A platform-ops account cannot change the resubmission bar on its own recruiter verification",
+      );
+    }
+
     const [updated] = await tx
       .update(recruiterVerificationSubmissions)
       .set({ resubmissionAllowed: allowed })
@@ -743,8 +782,7 @@ export const setRecruiterResubmissionAllowed = async (
       return;
     }
 
-    await tx.insert(platformOpsAuditLogs).values({
-      actorUserId: reviewerUserId,
+    await recordOperatorAuditEntry(tx, actor, {
       targetUserId: updated.userId,
       eventType: allowed
         ? "recruiter_verification.resubmission_allowed"
@@ -794,11 +832,22 @@ export const reviewRecruiterVerification = async (
   const targetStatus = decision === "approve" ? ("approved" as const) : ("rejected" as const);
 
   const result = await db.transaction(async (tx) => {
+    const actor = await resolvePlatformOpsActor(tx, reviewerUserId);
+    const submissionOwnerId = await requireSubmissionOwnerId(tx, submissionId);
+
+    if (actor.userId === submissionOwnerId) {
+      throw new OperatorActorError(
+        "operator_actor_is_target",
+        403,
+        "A platform-ops account cannot decide its own recruiter verification",
+      );
+    }
+
     const [flipped] = await tx
       .update(recruiterVerificationSubmissions)
       .set({
         status: targetStatus,
-        reviewerUserId,
+        reviewerUserId: actor.userId,
         reviewedAt: sql`now()`,
         rejectionReason: decision === "reject" ? cleanReason : null,
         resubmissionAllowed: decision === "reject" ? allowResubmission : true,
@@ -840,8 +889,7 @@ export const reviewRecruiterVerification = async (
         .where(and(eq(users.id, flipped.userId), ne(users.recruiterVerificationTier, "elevated")));
     }
 
-    await tx.insert(platformOpsAuditLogs).values({
-      actorUserId: reviewerUserId,
+    await recordOperatorAuditEntry(tx, actor, {
       targetUserId: flipped.userId,
       eventType:
         decision === "approve"

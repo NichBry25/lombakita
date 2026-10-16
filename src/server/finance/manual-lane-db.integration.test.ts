@@ -200,6 +200,28 @@ type Fixture = Tenant & {
   // tests that remember to, because a single-tenant fixture is structurally incapable of catching a
   // missing tenant scope: 39 real-database tests ran green over proof functions that had none.
   other: Tenant;
+  // Real operator accounts: the platform-ops writers resolve their actor from the database and
+  // refuse any account that does not hold the role.
+  platformOpsUserId: string;
+  financeOpsUserId: string;
+};
+
+const seedOperatorAccount = async (
+  tx: Tx,
+  role: "platform_ops" | "finance_ops",
+): Promise<string> => {
+  const id = uniqueSuffix();
+  const [operator] = await tx
+    .insert(users)
+    .values({
+      email: `${role}_${id}@example.test`,
+      username: `${role}_${id}`,
+      role,
+      // users_one_verified_role_chk requires at least one verified role.
+      candidateVerifiedAt: NOW,
+    })
+    .returning({ id: users.id });
+  return operator!.id;
 };
 
 const seedTenant = async (tx: Tx, label: string, verified: boolean): Promise<Tenant> => {
@@ -289,6 +311,8 @@ const seedFixture = async (tx: Tx): Promise<Fixture> => {
     unverifiedInstitutionId: unverified!.id,
     feeRuleId: feeRule!.id,
     other,
+    platformOpsUserId: await seedOperatorAccount(tx, "platform_ops"),
+    financeOpsUserId: await seedOperatorAccount(tx, "finance_ops"),
   };
 };
 
@@ -1624,6 +1648,7 @@ describe.skipIf(skipWithoutDatabase)("the lane's write precondition", () => {
         .values({
           email: `ops_${operatorSuffix}@example.test`,
           username: `ops_${operatorSuffix}`,
+          role: "platform_ops",
           candidateVerifiedAt: NOW,
         })
         .returning({ id: users.id });
@@ -3292,6 +3317,7 @@ describe.skipIf(skipWithoutDatabase)("cancelCompetitionAsOps: the DEC-0132 escap
       .values({
         email: `ops_${id}@example.test`,
         username: `ops_${id}`,
+        role: "platform_ops",
         candidateVerifiedAt: NOW,
       })
       .returning({ id: users.id });
@@ -6386,7 +6412,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
       await publish(tx, fixture.competitionId);
 
       await voidPaymentProofAsOps(
-        fixture.other.userId,
+        fixture.platformOpsUserId,
         proof.id,
         "Bukti milik peserta lain",
         tx as never,
@@ -6411,7 +6437,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
       mockEnqueuePaymentOutcome.mockClear();
 
       await voidPaymentProofAsOps(
-        fixture.other.userId,
+        fixture.platformOpsUserId,
         proof.id,
         "Bukti milik peserta lain",
         tx as never,
@@ -6445,7 +6471,13 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
       const paymentId = await seedManualPayment(tx, fixture);
       const proof = await submitProof(tx, fixture, paymentId);
 
-      await voidPaymentProofAsOps(fixture.other.userId, proof.id, "Salah unggah", tx as never, NOW);
+      await voidPaymentProofAsOps(
+        fixture.platformOpsUserId,
+        proof.id,
+        "Salah unggah",
+        tx as never,
+        NOW,
+      );
       mockEnqueuePaymentProofSubmitted.mockClear();
 
       await reopenManualPaymentProof(
@@ -6459,7 +6491,13 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
         NOW,
       );
 
-      await voidPaymentProofAsOps(fixture.other.userId, proof.id, "Salah lagi", tx as never, NOW);
+      await voidPaymentProofAsOps(
+        fixture.platformOpsUserId,
+        proof.id,
+        "Salah lagi",
+        tx as never,
+        NOW,
+      );
 
       // The organiser hears about the replacement, at attempt 1.
       expect(mockEnqueuePaymentProofSubmitted).toHaveBeenCalledWith(
@@ -6487,7 +6525,13 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
 
       const paymentId = await seedManualPayment(tx, fixture);
       const proof = await submitProof(tx, fixture, paymentId);
-      await voidPaymentProofAsOps(fixture.other.userId, proof.id, "Salah unggah", tx as never, NOW);
+      await voidPaymentProofAsOps(
+        fixture.platformOpsUserId,
+        proof.id,
+        "Salah unggah",
+        tx as never,
+        NOW,
+      );
 
       const reopened = await reopenManualPaymentProof(
         {
@@ -6547,7 +6591,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
       );
 
       await voidPaymentProofAsOps(
-        fixture.other.userId,
+        fixture.platformOpsUserId,
         proof.id,
         "Peserta menghubungi dukungan",
         tx as never,
@@ -6691,10 +6735,16 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
       await publish(tx, fixture.competitionId);
 
       await expect(
-        voidPaymentProofAsOps(fixture.other.userId, proof.id, "   ", tx as never, NOW),
+        voidPaymentProofAsOps(fixture.platformOpsUserId, proof.id, "   ", tx as never, NOW),
       ).rejects.toMatchObject({ code: "ops_reason_required" });
       await expect(
-        cancelCompetitionAsOps(fixture.other.userId, fixture.competitionId, "", tx as never, NOW),
+        cancelCompetitionAsOps(
+          fixture.platformOpsUserId,
+          fixture.competitionId,
+          "",
+          tx as never,
+          NOW,
+        ),
       ).rejects.toMatchObject({ code: "ops_reason_required" });
 
       // Post-state, because the reason check sits before any write: an override with no recorded
@@ -6732,7 +6782,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
         .where(eq(financePaymentEvents.paymentId, paymentId));
 
       const result = await cancelCompetitionAsOps(
-        fixture.other.userId,
+        fixture.platformOpsUserId,
         fixture.competitionId,
         "Penyelenggara meminta penarikan lewat dukungan",
         tx as never,
@@ -6780,7 +6830,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
       await publish(tx, fixture.competitionId);
 
       await cancelCompetitionAsOps(
-        fixture.other.userId,
+        fixture.platformOpsUserId,
         fixture.competitionId,
         "Acara dibatalkan",
         tx as never,
@@ -6806,7 +6856,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
       const proof = await submitProof(tx, fixture, paymentId);
 
       await voidPaymentProofAsOps(
-        fixture.other.userId,
+        fixture.platformOpsUserId,
         proof.id,
         "Bukti milik peserta lain",
         tx as never,
@@ -6821,7 +6871,7 @@ describe.skipIf(skipWithoutDatabase)("the DEC-0132 escape hatch (real database)"
           metadata: platformOpsAuditLogs.metadata,
         })
         .from(platformOpsAuditLogs)
-        .where(eq(platformOpsAuditLogs.actorUserId, fixture.other.userId));
+        .where(eq(platformOpsAuditLogs.actorUserId, fixture.platformOpsUserId));
 
       expect(audit).toMatchObject({
         eventType: "platform_ops_payment_proof_voided",
@@ -7144,18 +7194,7 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
       // in this environment, so routing this assertion through `generateDisputeProofViewUrl` would
       // take the storage-unavailable branch every time and leave every expectation below
       // unexecuted, a green reporting an audit trail nobody measured.
-      await recordDisputeProofAccess(
-        fixture.other.userId,
-        {
-          id: proof.id,
-          paymentId,
-          competitionId: fixture.competitionId,
-          attempt: proof.resubmissionCount,
-          payerUserId: fixture.userId,
-          receivingInstitutionId: fixture.institutionId,
-        },
-        tx as never,
-      );
+      await recordDisputeProofAccess(fixture.financeOpsUserId, proof.id, tx as never);
 
       const [audit] = await tx
         .select({
@@ -7166,7 +7205,7 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
           metadata: platformOpsAuditLogs.metadata,
         })
         .from(platformOpsAuditLogs)
-        .where(eq(platformOpsAuditLogs.actorUserId, fixture.other.userId));
+        .where(eq(platformOpsAuditLogs.actorUserId, fixture.financeOpsUserId));
 
       // A DISTINCT event type from the organiser's `payment_proof.file_accessed`, and targeted at
       // the payer rather than an institution. Reusing the organiser's path would file a
@@ -7203,13 +7242,13 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
       const proof = await submitProof(tx, fixture, paymentId);
 
       await expect(
-        generateDisputeProofViewUrl(fixture.other.userId, proof.id, tx as never),
+        generateDisputeProofViewUrl(fixture.financeOpsUserId, proof.id, tx as never),
       ).rejects.toMatchObject({ code: "manual_proof_upload_unavailable" });
 
       const rows = await tx
         .select({ id: platformOpsAuditLogs.id })
         .from(platformOpsAuditLogs)
-        .where(eq(platformOpsAuditLogs.actorUserId, fixture.other.userId));
+        .where(eq(platformOpsAuditLogs.actorUserId, fixture.financeOpsUserId));
 
       expect(rows).toHaveLength(0);
     });
@@ -7222,18 +7261,62 @@ describe.skipIf(skipWithoutDatabase)("the finance_ops dispute view (real databas
       const fixture = await seedFixture(tx);
       const { generateDisputeProofViewUrl } = await import("@/server/finance/dispute-view");
 
+      // SET, not observed: the availability check runs first, so with storage unconfigured this
+      // call would answer 503 and never reach the not-found it asserts.
+      mockIsR2Available.mockReturnValue(true);
+
       await expect(
-        generateDisputeProofViewUrl(fixture.other.userId, "no-such-proof", tx as never),
+        generateDisputeProofViewUrl(fixture.financeOpsUserId, "no-such-proof", tx as never),
       ).rejects.toMatchObject({ code: "manual_proof_not_found" });
 
       const rows = await tx
         .select({ id: platformOpsAuditLogs.id })
         .from(platformOpsAuditLogs)
-        .where(eq(platformOpsAuditLogs.actorUserId, fixture.other.userId));
+        .where(eq(platformOpsAuditLogs.actorUserId, fixture.financeOpsUserId));
 
       expect(rows).toHaveLength(0);
     });
   });
+
+  // THE ACTOR IS RESOLVED BEFORE THE PROOF IS READ, measured with a proof id that does not exist. A
+  // read that came first would answer every one of these with `manual_proof_not_found`, which tells
+  // an account with no business here that the id it named is unassigned.
+  it.each([
+    { label: "nonexistent", code: "operator_actor_not_found" },
+    { label: "platform_ops (not finance_ops)", code: "operator_actor_not_platform_ops" },
+    { label: "suspended finance_ops", code: "operator_actor_suspended" },
+  ])(
+    "refuses a $label actor naming an unknown proof with the actor refusal, writing no audit row",
+    async ({ label, code }) => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { generateDisputeProofViewUrl } = await import("@/server/finance/dispute-view");
+        mockIsR2Available.mockReturnValue(true);
+
+        const suspendedFinanceId = await seedOperatorAccount(tx, "finance_ops");
+        await tx
+          .update(users)
+          .set({ suspendedAt: NOW, suspensionReason: "fixture" })
+          .where(eq(users.id, suspendedFinanceId));
+
+        const actorId = {
+          nonexistent: `absent_${uniqueSuffix()}`,
+          "platform_ops (not finance_ops)": fixture.platformOpsUserId,
+          "suspended finance_ops": suspendedFinanceId,
+        }[label]!;
+
+        await expect(
+          generateDisputeProofViewUrl(actorId, "no-such-proof", tx as never),
+        ).rejects.toMatchObject({ code, status: 403 });
+
+        const rows = await tx
+          .select({ id: platformOpsAuditLogs.id })
+          .from(platformOpsAuditLogs)
+          .where(eq(platformOpsAuditLogs.actorUserId, actorId));
+        expect(rows).toHaveLength(0);
+      });
+    },
+  );
 });
 
 describe.skipIf(skipWithoutDatabase)("the institution fee statement (real database)", () => {
@@ -7543,3 +7626,206 @@ describe.skipIf(skipWithoutDatabase)("the institution fee statement (real databa
     });
   });
 });
+
+// LAUNCH-D136: the operator may not act on money or an institution they are party to. Each refusal
+// is followed by the state assertions, because a hatch that threw and still wrote would satisfy "it
+// threw" while being the failure this exists to prevent.
+describe.skipIf(skipWithoutDatabase)(
+  "operator conflicts on the ops payment hatch (real database)",
+  () => {
+    const readCompetitionState = async (tx: Tx, competitionId: string) => {
+      const [row] = await tx
+        .select({ status: competitions.status, cancelledAt: competitions.cancelledAt })
+        .from(competitions)
+        .where(eq(competitions.id, competitionId));
+      return row!;
+    };
+
+    const readRegistrationStatus = async (tx: Tx, registrationId: string): Promise<string> => {
+      const [row] = await tx
+        .select({ status: competitionRegistrations.status })
+        .from(competitionRegistrations)
+        .where(eq(competitionRegistrations.id, registrationId));
+      return row!.status;
+    };
+
+    const readProofStatus = async (tx: Tx, proofId: string): Promise<string> => {
+      const [row] = await tx
+        .select({ status: financeManualPaymentProofs.status })
+        .from(financeManualPaymentProofs)
+        .where(eq(financeManualPaymentProofs.id, proofId));
+      return row!.status;
+    };
+
+    const auditRowCount = async (tx: Tx, actorUserId: string): Promise<number> =>
+      (
+        await tx
+          .select({ id: platformOpsAuditLogs.id })
+          .from(platformOpsAuditLogs)
+          .where(eq(platformOpsAuditLogs.actorUserId, actorUserId))
+      ).length;
+
+    const publishCompetition = async (tx: Tx, competitionId: string): Promise<void> => {
+      await tx
+        .update(competitions)
+        .set({ status: "published", feeAmount: 75_000, feeCurrency: "IDR" })
+        .where(eq(competitions.id, competitionId));
+    };
+
+    it("refuses an operator holding a membership in the institution cancelling its competition", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { cancelCompetitionAsOps } = await import("@/server/finance/ops-payment-service");
+        await publishCompetition(tx, fixture.competitionId);
+        await tx.insert(institutionMemberships).values({
+          institutionId: fixture.institutionId,
+          userId: fixture.platformOpsUserId,
+          membershipRole: "institution_member",
+          status: "active",
+        });
+
+        await expect(
+          cancelCompetitionAsOps(
+            fixture.platformOpsUserId,
+            fixture.competitionId,
+            "organiser cannot run the event",
+            tx as never,
+            NOW,
+          ),
+        ).rejects.toMatchObject({ code: "operator_actor_conflicted", status: 403 });
+
+        const competition = await readCompetitionState(tx, fixture.competitionId);
+        expect(competition.status).toBe("published");
+        expect(competition.cancelledAt).toBeNull();
+        expect(await readRegistrationStatus(tx, fixture.registrationId)).not.toBe("cancelled");
+        expect(await auditRowCount(tx, fixture.platformOpsUserId)).toBe(0);
+      });
+    });
+
+    it("refuses an operator who is the payer of a proof voiding it", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { voidPaymentProofAsOps } = await import("@/server/finance/ops-payment-service");
+        const paymentId = await seedManualPayment(tx, fixture, {
+          payerUserId: fixture.platformOpsUserId,
+        });
+        const proofId = await seedProof(tx, fixture, paymentId);
+
+        await expect(
+          voidPaymentProofAsOps(
+            fixture.platformOpsUserId,
+            proofId,
+            "refunded by bank",
+            tx as never,
+            NOW,
+          ),
+        ).rejects.toMatchObject({ code: "operator_actor_is_target", status: 403 });
+
+        expect(await readProofStatus(tx, proofId)).toBe("pending_review");
+        expect(await auditRowCount(tx, fixture.platformOpsUserId)).toBe(0);
+      });
+    });
+
+    it("refuses an operator holding a membership in the receiving institution voiding its proof", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { voidPaymentProofAsOps } = await import("@/server/finance/ops-payment-service");
+        const paymentId = await seedManualPayment(tx, fixture);
+        const proofId = await seedProof(tx, fixture, paymentId);
+        await tx.insert(institutionMemberships).values({
+          institutionId: fixture.institutionId,
+          userId: fixture.platformOpsUserId,
+          membershipRole: "institution_member",
+          status: "active",
+        });
+
+        await expect(
+          voidPaymentProofAsOps(
+            fixture.platformOpsUserId,
+            proofId,
+            "refunded by bank",
+            tx as never,
+            NOW,
+          ),
+        ).rejects.toMatchObject({ code: "operator_actor_conflicted", status: 403 });
+
+        expect(await readProofStatus(tx, proofId)).toBe("pending_review");
+        expect(await auditRowCount(tx, fixture.platformOpsUserId)).toBe(0);
+      });
+    });
+
+    it("refuses a finance_ops operator who is the payer opening the receipt, writing no audit row", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { recordDisputeProofAccess } = await import("@/server/finance/dispute-view");
+        const paymentId = await seedManualPayment(tx, fixture, {
+          payerUserId: fixture.financeOpsUserId,
+        });
+        const proofId = await seedProof(tx, fixture, paymentId);
+
+        await expect(
+          recordDisputeProofAccess(fixture.financeOpsUserId, proofId, tx as never),
+        ).rejects.toMatchObject({ code: "operator_actor_is_target", status: 403 });
+
+        expect(await auditRowCount(tx, fixture.financeOpsUserId)).toBe(0);
+      });
+    });
+
+    it("refuses a finance_ops operator holding a membership in the receiving institution opening the receipt, writing no audit row", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { recordDisputeProofAccess } = await import("@/server/finance/dispute-view");
+        const paymentId = await seedManualPayment(tx, fixture);
+        const proofId = await seedProof(tx, fixture, paymentId);
+        await tx.insert(institutionMemberships).values({
+          institutionId: fixture.institutionId,
+          userId: fixture.financeOpsUserId,
+          membershipRole: "institution_member",
+          status: "active",
+        });
+
+        await expect(
+          recordDisputeProofAccess(fixture.financeOpsUserId, proofId, tx as never),
+        ).rejects.toMatchObject({ code: "operator_actor_conflicted", status: 403 });
+
+        expect(await readProofStatus(tx, proofId)).toBe("pending_review");
+        expect(await auditRowCount(tx, fixture.financeOpsUserId)).toBe(0);
+      });
+    });
+
+    it("lets the same finance_ops operator open a receipt of an institution it has no relationship to, with one audit row naming it", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedFixture(tx);
+        const { recordDisputeProofAccess, FILE_ACCESSED_EVENT } =
+          await import("@/server/finance/dispute-view");
+        const paymentId = await seedManualPayment(tx, fixture);
+        const proofId = await seedProof(tx, fixture, paymentId);
+        await tx.insert(institutionMemberships).values({
+          institutionId: fixture.other.institutionId,
+          userId: fixture.financeOpsUserId,
+          membershipRole: "institution_member",
+          status: "active",
+        });
+
+        await recordDisputeProofAccess(fixture.financeOpsUserId, proofId, tx as never);
+
+        const audits = await tx
+          .select({
+            actorUserId: platformOpsAuditLogs.actorUserId,
+            targetInstitutionId: platformOpsAuditLogs.targetInstitutionId,
+            eventType: platformOpsAuditLogs.eventType,
+          })
+          .from(platformOpsAuditLogs)
+          .where(eq(platformOpsAuditLogs.actorUserId, fixture.financeOpsUserId));
+
+        expect(audits).toEqual([
+          {
+            actorUserId: fixture.financeOpsUserId,
+            targetInstitutionId: fixture.institutionId,
+            eventType: FILE_ACCESSED_EVENT,
+          },
+        ]);
+      });
+    });
+  },
+);

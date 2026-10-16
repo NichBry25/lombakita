@@ -44,6 +44,8 @@ const { mockGetDb } = vi.hoisted(() => ({ mockGetDb: vi.fn() }));
 vi.mock("@/server/db/client", () => ({ getDb: mockGetDb }));
 
 import { recruiterVerificationSubmissions, users } from "@/server/db/schema";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
+import { makeSequencedSelect } from "@/server/testing/operator-writer-stubs";
 import {
   deleteVerificationDocumentForUser,
   finalizeVerificationDocumentUpload,
@@ -63,16 +65,24 @@ const PDF_HEAD = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37]
 
 afterEach(() => vi.clearAllMocks());
 
+type SelectRow = Record<string, unknown>;
+
+const OPS_ACTOR_ROW = { id: "ops_1", role: "platform_ops", suspendedAt: null };
+
 // Builds a tx whose update() dispatches by table: the submission update returns `submissionReturn`
 // from .returning(); the users update is awaited after .where(); audit insert is a no-op. select()
-// returns `existingSubmission` from .limit() (used only on the not-flipped branch).
+// serves the acting account, then the submission owner (`ownerId`, null for no such submission),
+// then `existingSubmission` (used only on the not-flipped branch).
 const buildReviewDb = (opts: {
   submissionReturn: Array<{ userId: string }>;
   existingSubmission: Array<{ id: string }>;
+  actorRow?: SelectRow | null;
+  ownerId?: string | null;
 }) => {
   const captured = {
     userTierUpdated: false,
     auditInserted: null as Record<string, unknown> | null,
+    auditInsertCount: 0,
     submissionSet: null as Record<string, unknown> | null,
   };
 
@@ -88,11 +98,8 @@ const buildReviewDb = (opts: {
     where: vi.fn().mockResolvedValue(undefined),
   };
 
-  const selectChain = {
-    from: vi.fn(() => selectChain),
-    where: vi.fn(() => selectChain),
-    limit: vi.fn().mockResolvedValue(opts.existingSubmission),
-  };
+  const actorRow = opts.actorRow === undefined ? OPS_ACTOR_ROW : opts.actorRow;
+  const ownerId = opts.ownerId === undefined ? "u_1" : opts.ownerId;
 
   const tx = {
     update: vi.fn((table: unknown) => {
@@ -102,10 +109,15 @@ const buildReviewDb = (opts: {
       }
       return submissionUpdateChain;
     }),
-    select: vi.fn(() => selectChain),
+    select: makeSequencedSelect([
+      actorRow ? [actorRow] : [],
+      ownerId ? [{ userId: ownerId }] : [],
+      opts.existingSubmission,
+    ]),
     insert: vi.fn(() => ({
       values: vi.fn((v: Record<string, unknown>) => {
         captured.auditInserted = v;
+        captured.auditInsertCount += 1;
         return Promise.resolve(undefined);
       }),
     })),
@@ -124,7 +136,7 @@ const buildReviewDb = (opts: {
     select: vi.fn(() => sweepSelectChain),
   };
 
-  return { db, captured };
+  return { db, captured, tx };
 };
 
 describe("reviewRecruiterVerification", () => {
@@ -285,12 +297,114 @@ describe("reviewRecruiterVerification", () => {
   });
 
   it("throws not_found (404) when the submission does not exist at all", async () => {
-    const { db } = buildReviewDb({ submissionReturn: [], existingSubmission: [] });
+    const { db, tx } = buildReviewDb({
+      submissionReturn: [],
+      existingSubmission: [],
+      ownerId: null,
+    });
     mockGetDb.mockReturnValue(db);
 
     await expect(
       reviewRecruiterVerification("ops_1", "missing", "approve", null, { db: db as never }),
     ).rejects.toMatchObject({ code: "recruiter_verification_not_found", status: 404 });
+    expect(tx.update).not.toHaveBeenCalled();
+  });
+
+  it("throws not_found (404) when the owner read finds the row but the flip and the existence re-read find none", async () => {
+    const { db, tx } = buildReviewDb({ submissionReturn: [], existingSubmission: [] });
+    mockGetDb.mockReturnValue(db);
+
+    await expect(
+      reviewRecruiterVerification("ops_1", "sub_1", "approve", null, { db: db as never }),
+    ).rejects.toMatchObject({ code: "recruiter_verification_not_found", status: 404 });
+    expect(tx.update).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { label: "missing", actorRow: null, code: "operator_actor_not_found" },
+    {
+      label: "candidate",
+      actorRow: { id: "ops_1", role: "candidate", suspendedAt: null },
+      code: "operator_actor_not_platform_ops",
+    },
+    {
+      label: "suspended operator",
+      actorRow: { id: "ops_1", role: "platform_ops", suspendedAt: new Date() },
+      code: "operator_actor_suspended",
+    },
+  ])("refuses a $label actor and writes nothing", async ({ actorRow, code }) => {
+    const { db, captured, tx } = buildReviewDb({
+      submissionReturn: [{ userId: "u_1" }],
+      existingSubmission: [],
+      actorRow,
+    });
+    mockGetDb.mockReturnValue(db);
+
+    const refusal = await reviewRecruiterVerification("ops_1", "sub_1", "approve", null, {
+      db: db as never,
+    }).catch((error: unknown) => error);
+
+    expect(refusal).toBeInstanceOf(OperatorActorError);
+    expect(refusal).toMatchObject({ code, status: 403 });
+    expect(tx.update).not.toHaveBeenCalled();
+    expect(captured.auditInserted).toBeNull();
+  });
+
+  it("refuses an actor who owns the submission, before any write", async () => {
+    const { db, captured, tx } = buildReviewDb({
+      submissionReturn: [{ userId: "ops_1" }],
+      existingSubmission: [],
+      ownerId: "ops_1",
+    });
+    mockGetDb.mockReturnValue(db);
+
+    const refusal = await reviewRecruiterVerification("ops_1", "sub_1", "approve", null, {
+      db: db as never,
+    }).catch((error: unknown) => error);
+
+    expect(refusal).toBeInstanceOf(OperatorActorError);
+    expect(refusal).toMatchObject({
+      code: "operator_actor_is_target",
+      status: 403,
+      message: "A platform-ops account cannot decide its own recruiter verification",
+    });
+    expect(tx.update).not.toHaveBeenCalled();
+    expect(captured.auditInserted).toBeNull();
+  });
+
+  it("records the database actor, not the claimed id, as the submission's reviewer", async () => {
+    const { db, captured } = buildReviewDb({
+      submissionReturn: [{ userId: "u_1" }],
+      existingSubmission: [],
+      actorRow: { id: "database-actor", role: "platform_ops", suspendedAt: null },
+    });
+    mockGetDb.mockReturnValue(db);
+
+    await reviewRecruiterVerification("claimed-actor", "sub_1", "approve", null, {
+      db: db as never,
+    });
+
+    expect(captured.submissionSet).toMatchObject({ reviewerUserId: "database-actor" });
+  });
+
+  it("writes exactly one audit row naming the database actor", async () => {
+    const { db, captured } = buildReviewDb({
+      submissionReturn: [{ userId: "u_1" }],
+      existingSubmission: [],
+      actorRow: { id: "database-actor", role: "platform_ops", suspendedAt: null },
+    });
+    mockGetDb.mockReturnValue(db);
+
+    await reviewRecruiterVerification("claimed-actor", "sub_1", "approve", null, {
+      db: db as never,
+    });
+
+    expect(captured.auditInsertCount).toBe(1);
+    expect(captured.auditInserted).toMatchObject({
+      actorUserId: "database-actor",
+      targetUserId: "u_1",
+      eventType: "recruiter_verification.approved",
+    });
   });
 });
 
@@ -957,29 +1071,35 @@ describe("setRecruiterResubmissionAllowed", () => {
   const buildFlagDb = (
     updateReturn: Array<{ userId: string }>,
     existing: Array<{ status: string; resubmissionAllowed: boolean }>,
+    extras: { actorRow?: SelectRow | null; ownerId?: string | null } = {},
   ) => {
-    const captured = { auditInserted: null as Record<string, unknown> | null };
+    const captured = {
+      auditInserted: null as Record<string, unknown> | null,
+      auditInsertCount: 0,
+    };
+    const actorRow = extras.actorRow === undefined ? OPS_ACTOR_ROW : extras.actorRow;
+    const ownerId = extras.ownerId === undefined ? "u_1" : extras.ownerId;
     const updateChain = {
       set: vi.fn(() => updateChain),
       where: vi.fn(() => ({ returning: vi.fn().mockResolvedValue(updateReturn) })),
     };
-    const selectChain = {
-      from: vi.fn(() => selectChain),
-      where: vi.fn(() => selectChain),
-      limit: vi.fn().mockResolvedValue(existing),
-    };
     const tx = {
       update: vi.fn(() => updateChain),
-      select: vi.fn(() => selectChain),
+      select: makeSequencedSelect([
+        actorRow ? [actorRow] : [],
+        ownerId ? [{ userId: ownerId }] : [],
+        existing,
+      ]),
       insert: vi.fn(() => ({
         values: vi.fn((v: Record<string, unknown>) => {
           captured.auditInserted = v;
+          captured.auditInsertCount += 1;
           return Promise.resolve(undefined);
         }),
       })),
     };
     const db = { transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)) };
-    return { db, captured };
+    return { db, captured, tx };
   };
 
   it("lifts the bar and audits the change", async () => {
@@ -1025,11 +1145,88 @@ describe("setRecruiterResubmissionAllowed", () => {
   });
 
   it("404s when the submission does not exist", async () => {
-    const { db } = buildFlagDb([], []);
+    const { db, tx } = buildFlagDb([], [], { ownerId: null });
     mockGetDb.mockReturnValue(db);
 
     await expect(
       setRecruiterResubmissionAllowed("ops_1", "missing", true, db as never),
     ).rejects.toMatchObject({ code: "recruiter_verification_not_found", status: 404 });
+    expect(tx.update).not.toHaveBeenCalled();
+  });
+
+  it("404s when the owner read finds the row but the update and the existence re-read find none", async () => {
+    const { db, tx } = buildFlagDb([], []);
+    mockGetDb.mockReturnValue(db);
+
+    await expect(
+      setRecruiterResubmissionAllowed("ops_1", "sub_1", true, db as never),
+    ).rejects.toMatchObject({ code: "recruiter_verification_not_found", status: 404 });
+    expect(tx.update).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { label: "missing", actorRow: null, code: "operator_actor_not_found" },
+    {
+      label: "candidate",
+      actorRow: { id: "ops_1", role: "candidate", suspendedAt: null },
+      code: "operator_actor_not_platform_ops",
+    },
+    {
+      label: "suspended operator",
+      actorRow: { id: "ops_1", role: "platform_ops", suspendedAt: new Date() },
+      code: "operator_actor_suspended",
+    },
+  ])("refuses a $label actor and writes nothing", async ({ actorRow, code }) => {
+    const { db, captured, tx } = buildFlagDb([{ userId: "u_1" }], [], { actorRow });
+    mockGetDb.mockReturnValue(db);
+
+    const refusal = await setRecruiterResubmissionAllowed(
+      "ops_1",
+      "sub_1",
+      true,
+      db as never,
+    ).catch((error: unknown) => error);
+
+    expect(refusal).toBeInstanceOf(OperatorActorError);
+    expect(refusal).toMatchObject({ code, status: 403 });
+    expect(tx.update).not.toHaveBeenCalled();
+    expect(captured.auditInserted).toBeNull();
+  });
+
+  it("refuses an actor who owns the submission, before any write", async () => {
+    const { db, captured, tx } = buildFlagDb([{ userId: "ops_1" }], [], { ownerId: "ops_1" });
+    mockGetDb.mockReturnValue(db);
+
+    const refusal = await setRecruiterResubmissionAllowed(
+      "ops_1",
+      "sub_1",
+      true,
+      db as never,
+    ).catch((error: unknown) => error);
+
+    expect(refusal).toBeInstanceOf(OperatorActorError);
+    expect(refusal).toMatchObject({
+      code: "operator_actor_is_target",
+      status: 403,
+      message:
+        "A platform-ops account cannot change the resubmission bar on its own recruiter verification",
+    });
+    expect(tx.update).not.toHaveBeenCalled();
+    expect(captured.auditInserted).toBeNull();
+  });
+
+  it("writes exactly one audit row naming the database actor", async () => {
+    const { db, captured } = buildFlagDb([{ userId: "u_1" }], [], {
+      actorRow: { id: "database-actor", role: "platform_ops", suspendedAt: null },
+    });
+    mockGetDb.mockReturnValue(db);
+
+    await setRecruiterResubmissionAllowed("claimed-actor", "sub_1", true, db as never);
+
+    expect(captured.auditInsertCount).toBe(1);
+    expect(captured.auditInserted).toMatchObject({
+      actorUserId: "database-actor",
+      targetUserId: "u_1",
+    });
   });
 });

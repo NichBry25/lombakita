@@ -13,11 +13,19 @@ import {
   financePaymentEvents,
   financePayments,
   institutions,
-  platformOpsAuditLogs,
   users,
 } from "@/server/db/schema";
 import { foldPaymentEvents, type PaymentDerivedState } from "@/lib/finance/payment-state";
 import { generatePresignedGetUrl, isR2Available } from "@/server/storage/r2.client";
+import {
+  assertOperatorHasNoInstitutionRelationship,
+  OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
+} from "@/server/institution-verification/operator-institution-conflict";
+import { assertOperatorIsNotPayer } from "@/server/finance/operator-payer-conflict";
+import {
+  recordOperatorAuditEntry,
+  resolveOperatorActor,
+} from "@/server/platform-ops/operator-actor";
 import { ManualProofError } from "@/server/finance/manual-payment-proof-service";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
 
@@ -236,22 +244,17 @@ export const loadDisputeLedgerState = async (
   return foldPaymentEvents(events);
 };
 
-type AuditableProof = {
-  id: string;
-  paymentId: string;
-  competitionId: string;
-  attempt: number;
-  payerUserId: string;
-  receivingInstitutionId: string;
-};
-
 /**
- * Records that finance_ops looked at somebody's receipt.
+ * Records that finance_ops looked at somebody's receipt, and hands back the file to open.
  *
  * Separate from the URL minting so it can be measured on its own: object storage is not configured
  * in the test environment, and an assertion about this row folded into the presigning path would
  * only ever run the branch where storage is DOWN, reporting the audit trail as proven while every
  * assertion about its shape sat unexecuted.
+ *
+ * THE ACTOR IS RESOLVED BEFORE THE PROOF IS READ. A caller that is not a live finance_ops account
+ * learns nothing about the proof id it named, not even whether it exists: an unknown id answers
+ * with the actor refusal, never with `manual_proof_not_found`.
  *
  * Called BETWEEN the availability check and the presigner, and both sides of that matter. Below the
  * check, because with storage down no file is read and a row would record an access that never
@@ -259,27 +262,63 @@ type AuditableProof = {
  */
 export const recordDisputeProofAccess = async (
   actorUserId: string,
-  proof: AuditableProof,
+  proofId: string,
   db: Database = getDb(),
-): Promise<void> => {
-  await db.insert(platformOpsAuditLogs).values({
-    actorUserId,
-    // The PAYER is the primary target. It is their bank details on the receipt, and "who looked at
-    // this person's evidence" is the question this row has to answer.
-    targetUserId: proof.payerUserId,
-    // AND THE TENANT, because the other question the row has to answer is the institution's:
-    // "which of our candidates' receipts has platform staff opened". That query is what
-    // `target_institution_id` is indexed for, and leaving it null returned nothing for every
-    // finance read. The competition id was recorded, but only inside unindexed metadata.
-    targetInstitutionId: proof.receivingInstitutionId,
-    eventType: FILE_ACCESSED_EVENT,
-    reason: "Penanganan sengketa pembayaran",
-    metadata: {
-      proofId: proof.id,
-      paymentId: proof.paymentId,
-      competitionId: proof.competitionId,
-      attempt: proof.attempt,
-    },
+): Promise<{ r2Key: string; contentType: string }> => {
+  // The transaction commits before the caller mints a URL, so the row still lands first. The actor
+  // is resolved from the database as finance_ops (the only role the route admits) and may not open
+  // a receipt for a payment they made or for an institution they are tied to (LAUNCH-D136).
+  return db.transaction(async (tx) => {
+    const actor = await resolveOperatorActor(tx, actorUserId, ["finance_ops"]);
+
+    const [proof] = await tx
+      .select({
+        id: financeManualPaymentProofs.id,
+        paymentId: financeManualPaymentProofs.paymentId,
+        competitionId: financeManualPaymentProofs.competitionId,
+        r2Key: financeManualPaymentProofs.r2Key,
+        contentType: financeManualPaymentProofs.contentType,
+        attempt: financeManualPaymentProofs.resubmissionCount,
+        payerUserId: financePayments.payerUserId,
+        receivingInstitutionId: financePayments.receivingInstitutionId,
+      })
+      .from(financeManualPaymentProofs)
+      .innerJoin(financePayments, eq(financePayments.id, financeManualPaymentProofs.paymentId))
+      .where(eq(financeManualPaymentProofs.id, proofId))
+      .limit(1);
+
+    if (!proof) {
+      throw new ManualProofError("manual_proof_not_found", "Bukti transfer tidak ditemukan", 404);
+    }
+
+    assertOperatorIsNotPayer(actor, proof.payerUserId);
+    await assertOperatorHasNoInstitutionRelationship(
+      tx,
+      actor,
+      proof.receivingInstitutionId,
+      OPERATOR_ACTOR_CONFLICTED_ACTION_MESSAGE,
+    );
+
+    await recordOperatorAuditEntry(tx, actor, {
+      // The PAYER is the primary target. It is their bank details on the receipt, and "who looked at
+      // this person's evidence" is the question this row has to answer.
+      targetUserId: proof.payerUserId,
+      // AND THE TENANT, because the other question the row has to answer is the institution's:
+      // "which of our candidates' receipts has platform staff opened". That query is what
+      // `target_institution_id` is indexed for, and leaving it null returned nothing for every
+      // finance read. The competition id was recorded, but only inside unindexed metadata.
+      targetInstitutionId: proof.receivingInstitutionId,
+      eventType: FILE_ACCESSED_EVENT,
+      reason: "Penanganan sengketa pembayaran",
+      metadata: {
+        proofId: proof.id,
+        paymentId: proof.paymentId,
+        competitionId: proof.competitionId,
+        attempt: proof.attempt,
+      },
+    });
+
+    return { r2Key: proof.r2Key, contentType: proof.contentType };
   });
 };
 
@@ -300,26 +339,6 @@ export const generateDisputeProofViewUrl = async (
   proofId: string,
   db: Database = getDb(),
 ): Promise<{ url: string; contentType: string }> => {
-  const [proof] = await db
-    .select({
-      id: financeManualPaymentProofs.id,
-      paymentId: financeManualPaymentProofs.paymentId,
-      competitionId: financeManualPaymentProofs.competitionId,
-      r2Key: financeManualPaymentProofs.r2Key,
-      contentType: financeManualPaymentProofs.contentType,
-      attempt: financeManualPaymentProofs.resubmissionCount,
-      payerUserId: financePayments.payerUserId,
-      receivingInstitutionId: financePayments.receivingInstitutionId,
-    })
-    .from(financeManualPaymentProofs)
-    .innerJoin(financePayments, eq(financePayments.id, financeManualPaymentProofs.paymentId))
-    .where(eq(financeManualPaymentProofs.id, proofId))
-    .limit(1);
-
-  if (!proof) {
-    throw new ManualProofError("manual_proof_not_found", "Bukti transfer tidak ditemukan", 404);
-  }
-
   if (!isR2Available()) {
     throw new ManualProofError(
       "manual_proof_upload_unavailable",
@@ -328,14 +347,14 @@ export const generateDisputeProofViewUrl = async (
     );
   }
 
-  await recordDisputeProofAccess(actorUserId, proof, db);
+  const { r2Key, contentType } = await recordDisputeProofAccess(actorUserId, proofId, db);
 
-  const url = await generatePresignedGetUrl(proof.r2Key, 120, {
-    responseContentType: proof.contentType,
+  const url = await generatePresignedGetUrl(r2Key, 120, {
+    responseContentType: contentType,
     responseContentDisposition: "inline",
   });
 
-  return { url, contentType: proof.contentType };
+  return { url, contentType };
 };
 
 export { FILE_ACCESSED_EVENT };

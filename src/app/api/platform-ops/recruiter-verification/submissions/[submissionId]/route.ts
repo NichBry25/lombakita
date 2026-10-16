@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
 import {
@@ -55,6 +56,12 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
   } catch (error) {
     if (error instanceof RecruiterVerificationError) {
       return toRecruiterVerificationErrorResponse(error);
+    }
+    if (error instanceof OperatorActorError) {
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status },
+      );
     }
     return toAccessDeniedResponse(error);
   }

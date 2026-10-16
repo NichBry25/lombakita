@@ -16,7 +16,13 @@ import { TEST_DATABASE_URL, skipWithoutDatabase } from "@/server/testing/databas
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { TransactionRollbackError, and, eq } from "drizzle-orm";
 import postgres from "postgres";
-import { financeFeeRules, institutions, platformOpsAuditLogs, users } from "@/server/db/schema";
+import {
+  financeFeeRules,
+  institutionMemberships,
+  institutions,
+  platformOpsAuditLogs,
+  users,
+} from "@/server/db/schema";
 import {
   createFeeRule,
   listFeeRules,
@@ -58,6 +64,7 @@ const seedOperator = async (tx: Tx): Promise<string> => {
     .values({
       email: `ops_${suffix}@example.test`,
       username: `ops_${suffix}`,
+      role: "platform_ops",
       // users_one_verified_role_chk requires at least one verified role.
       candidateVerifiedAt: EFFECTIVE_FROM,
     })
@@ -239,6 +246,67 @@ describe.skipIf(skipWithoutDatabase)("fee-rule admin writes (real database)", ()
 
       expect(listedAfter).toHaveLength(listedBefore.length + 1);
       expect(listedAfter.some((entry) => entry.id === created.id)).toBe(true);
+    });
+  });
+});
+
+describe.skipIf(skipWithoutDatabase)("fee-rule institution conflict (real database)", () => {
+  const giveMembership = async (tx: Tx, institutionId: string, userId: string): Promise<void> => {
+    await tx.insert(institutionMemberships).values({
+      institutionId,
+      userId,
+      membershipRole: "institution_member",
+      status: "active",
+    });
+  };
+
+  const auditRowsBy = async (tx: Tx, actorUserId: string) =>
+    tx
+      .select({
+        actorUserId: platformOpsAuditLogs.actorUserId,
+        targetInstitutionId: platformOpsAuditLogs.targetInstitutionId,
+        eventType: platformOpsAuditLogs.eventType,
+      })
+      .from(platformOpsAuditLogs)
+      .where(eq(platformOpsAuditLogs.actorUserId, actorUserId));
+
+  it("refuses an operator holding a membership in the rule's institution, writing neither rule nor audit", async () => {
+    await inRollback(async (tx) => {
+      const actorUserId = await seedOperator(tx);
+      const institutionId = await seedInstitution(tx);
+      await giveMembership(tx, institutionId, actorUserId);
+      const rulesBefore = await countFeeRules(tx);
+
+      await expect(
+        createFeeRule(actorUserId, { ...baseInput, institutionId }, tx as unknown as Database),
+      ).rejects.toMatchObject({ code: "operator_actor_conflicted", status: 403 });
+
+      expect(await countFeeRules(tx)).toBe(rulesBefore);
+      expect(await auditRowsBy(tx, actorUserId)).toHaveLength(0);
+    });
+  });
+
+  it("lets the same operator write a rule for an institution it has no relationship to, with one audit row naming it", async () => {
+    await inRollback(async (tx) => {
+      const actorUserId = await seedOperator(tx);
+      const tiedInstitutionId = await seedInstitution(tx);
+      const unrelatedInstitutionId = await seedInstitution(tx);
+      await giveMembership(tx, tiedInstitutionId, actorUserId);
+
+      const rule = await createFeeRule(
+        actorUserId,
+        { ...baseInput, institutionId: unrelatedInstitutionId },
+        tx as unknown as Database,
+      );
+
+      expect(rule.institutionId).toBe(unrelatedInstitutionId);
+      expect(await auditRowsBy(tx, actorUserId)).toEqual([
+        {
+          actorUserId,
+          targetInstitutionId: unrelatedInstitutionId,
+          eventType: "finance_fee_rule_created",
+        },
+      ]);
     });
   });
 });

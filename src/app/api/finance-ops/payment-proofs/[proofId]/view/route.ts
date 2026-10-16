@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { OperatorActorError } from "@/server/platform-ops/operator-actor";
 import { toAccessDeniedResponse } from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
 import { ManualProofError } from "@/server/finance/manual-payment-proof-service";
@@ -26,6 +27,12 @@ export async function POST(_request: Request, { params }: RouteParams): Promise<
     return NextResponse.json({ url, contentType }, { status: 200 });
   } catch (error) {
     if (error instanceof ManualProofError) {
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status },
+      );
+    }
+    if (error instanceof OperatorActorError) {
       return NextResponse.json(
         { error: { code: error.code, message: error.message } },
         { status: error.status },

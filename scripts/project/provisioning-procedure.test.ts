@@ -53,6 +53,14 @@ import {
   type ProvisioningState,
   type StepOutcome,
 } from "./run-provisioning-procedure";
+import {
+  BLOCKING_GROUPS,
+  LEFTOVER_RULINGS,
+  blockingRulings,
+  derivedLeftoverEdges,
+  renderLeftoverAbsentSql,
+  renderLeftoverListingSql,
+} from "./promotion-leftover-census";
 
 const ENROL_PAGE = "src/app/auth/mfa/enroll/page.tsx";
 
@@ -179,12 +187,101 @@ describe("the procedure document", () => {
     ]);
   });
 
+  it("embeds the census's two fragments byte for byte, in the steps they belong to", () => {
+    // The document is the artifact and the census is where its leftover statements come from. A
+    // hand edit to either copy, or a ruling changed without regenerating the document, fails here.
+    expect(document).toContain(renderLeftoverListingSql());
+    expect(document).toContain(renderLeftoverAbsentSql());
+    expect(stepNamed("preconditions").body).toContain(renderLeftoverListingSql());
+    expect(stepNamed("promote").body).toContain(renderLeftoverAbsentSql());
+  });
+
+  it("keeps the seven step names and their order unchanged by the leftovers rule", () => {
+    expect(steps.map((step) => step.name)).toEqual([
+      "resolve",
+      "preconditions",
+      "promote",
+      "verify-role",
+      "enrol",
+      "verify-factor",
+      "postcondition",
+    ]);
+  });
+
+  it("returns the leftovers from the preconditions step as a json array of source and n", () => {
+    const body = stepNamed("preconditions").body;
+
+    expect(body).toMatch(/json_build_object\('source', l\.source, 'n', l\.n\)/);
+    expect(body).toMatch(/as leftovers\b/);
+  });
+
+  it("states the email arms' limit in the sentence the owner ruled", () => {
+    expect(document).toContain(
+      "The two email arms compare the invitation's stored address with lower(btrim(the account's email)). " +
+        "The application normalizes with trim and toLowerCase. " +
+        "The two agree for every address the signup path stores, because signup stores the application's own normalized output. " +
+        "They can disagree for an address that carries a tab, newline, no-break space, byte-order mark, ideographic space, dotted capital I or final sigma, " +
+        "or for a Google-created account whose address was stored unnormalized, which was not read. " +
+        "An invitation already attached to the account by id is caught by the id arms regardless.",
+    );
+  });
+
   it("states the acting database role as an unknown rather than leaving it unstated", () => {
     // Acceptance requires it, and the reason is specific: the procedure's write is issued by whatever
     // role the operator connects as, and nothing in the repository names that role for a deployed
     // environment. The instruction to read it live is the checkable part.
     expect(document).toContain("select current_database() as db, current_user as usr");
     expect(document).toContain("This is a named unknown, not an assumption.");
+  });
+});
+
+/** The text between the leftovers rule heading and the next `## ` heading. */
+const leftoversRuleSection = (markdown: string): string => {
+  const heading = "## The leftovers rule\n";
+  const start = markdown.indexOf(heading);
+  if (start === -1) throw new Error("the procedure has no `## The leftovers rule` section");
+
+  const next = markdown.indexOf("\n## ", start + heading.length);
+  return markdown.slice(start + heading.length, next === -1 ? undefined : next);
+};
+
+/** The backticked `table.column` tokens in a piece of prose, sorted so a duplicate also shows. */
+const tokensIn = (prose: string): string[] =>
+  [...prose.matchAll(/`([a-z_]+\.[a-z_]+)`/g)].map((match) => match[1]!).sort();
+
+const rulingTokens = (rulings: readonly { table: string; column: string }[]): string[] =>
+  rulings.map((ruling) => `${ruling.table}.${ruling.column}`).sort();
+
+describe("the leftovers rule prose", () => {
+  const section = leftoversRuleSection(document);
+
+  it("lists, in each of the five groups, exactly the blocking rulings of that group", () => {
+    const bullets = new Map(
+      [...section.matchAll(/^- \*\*([^*]+)\*\* — (.*)$/gm)].map((match) => [match[1]!, match[2]!]),
+    );
+
+    expect([...bullets.keys()]).toEqual([...BLOCKING_GROUPS]);
+
+    for (const group of BLOCKING_GROUPS) {
+      const ruled = blockingRulings().filter((ruling) => ruling.group === group);
+      expect(tokensIn(bullets.get(group)!), `the \`${group}\` bullet`).toEqual(rulingTokens(ruled));
+    }
+  });
+
+  it("lists after `Allowed to remain:` exactly the rulings that are allowed", () => {
+    const allowedLine = /^Allowed to remain: (.*)$/m.exec(section)?.[1];
+    expect(allowedLine, "the section has no `Allowed to remain:` line").toBeDefined();
+
+    const allowed = LEFTOVER_RULINGS.filter((ruling) => ruling.ruling === "allowed");
+    expect(tokensIn(allowedLine!)).toEqual(rulingTokens(allowed));
+  });
+
+  it("states the number of edges and the number that block as the census derives them", () => {
+    const counts = /Of the (\d+) edges, (\d+) block/.exec(section);
+    expect(counts, "the section has no `Of the N edges, M block` sentence").not.toBeNull();
+
+    expect(Number(counts![1])).toBe(derivedLeftoverEdges().length);
+    expect(Number(counts![2])).toBe(blockingRulings().length);
   });
 });
 
@@ -279,6 +376,15 @@ describe("the demonstration's cases", () => {
 
     expect(omissions).toContain("promote");
     expect(omissions).toContain("");
+  });
+
+  it("carries a case whose subject holds a leftover and omits nothing, so the refusal is shown", () => {
+    const refusal = DEMONSTRATION_CASES.filter(
+      (spec) => spec.select === "self-service-with-leftover",
+    );
+
+    expect(refusal).toHaveLength(1);
+    expect([...refusal[0]!.omit]).toEqual([]);
   });
 });
 
@@ -730,6 +836,18 @@ describe.skipIf(skipWithoutDatabase)("the gate the demonstration refuses on", ()
     await insertAccount(provisioned, "platform_ops");
     await insertVerifiedFactor(provisioned);
 
+    // THE SUBJECTS CASES B, C AND D NEED, for the same reason. B and C act on an unenrolled
+    // self-service account with no leftover, and D on one with a leftover; a fresh database holds
+    // neither. The tie is a draft recruiter submission, which cascades away with its account.
+    const clean = fixtureId();
+    await insertAccount(clean, "candidate");
+    const tied = fixtureId();
+    await insertAccount(tied, "candidate");
+    await client`
+      insert into recruiter_verification_submissions (user_id, full_name, mobile_number, status)
+      values (${tied}, 'Provisioning Fixture', '+620000000000', 'draft')
+    `;
+
     const rolesBefore = await rolesHeld();
     const outDir = mkdtempSync(join(tmpdir(), "provisioning-demonstration-"));
     const out = join(outDir, "demonstration.md");
@@ -737,12 +855,15 @@ describe.skipIf(skipWithoutDatabase)("the gate the demonstration refuses on", ()
     try {
       // THE CASE THAT WRITES. `promote` is the procedure's single writing step; a case that omits
       // it changes nothing, so its account reads the same on either side of the transaction even
-      // with the rollback dropped, and the gate must not name it.
+      // with the rollback dropped, and the gate must not name it. The leftover case runs `promote`
+      // and still changes nothing: its guard matches zero rows, so it is not named either.
+      const refusesThePromotion = (spec: (typeof DEMONSTRATION_CASES)[number]): boolean =>
+        spec.select === "self-service-with-leftover";
       const writesTheAccount = DEMONSTRATION_CASES.filter(
-        (spec) => !spec.omit.includes("promote"),
+        (spec) => !spec.omit.includes("promote") && !refusesThePromotion(spec),
       ).map((spec) => spec.label);
-      const changesNothing = DEMONSTRATION_CASES.filter((spec) =>
-        spec.omit.includes("promote"),
+      const changesNothing = DEMONSTRATION_CASES.filter(
+        (spec) => spec.omit.includes("promote") || refusesThePromotion(spec),
       ).map((spec) => spec.label);
       expect(writesTheAccount.length, "no case writes, so the gate has nothing to refuse").toBe(1);
 
@@ -784,5 +905,126 @@ describe.skipIf(skipWithoutDatabase)("the gate the demonstration refuses on", ()
     expect(await rolesHeld(), "the run's promotion outlived the rollback that closed it").toBe(
       rolesBefore,
     );
+  }, 60_000);
+});
+
+// ---------------------------------------------------------------------------------------------
+// The demonstration, run over subjects the test names.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The one row the tied fixture plants, as data: the insert below is built from it and so is the
+ * expected listing, so the expectation is what the fixture inserts rather than a guess beside it.
+ */
+const TIED_PLANT = { table: "recruiter_verification_submissions", column: "user_id" } as const;
+
+/** One case's section of the generated document, from its heading to the next heading. */
+const sectionOfCase = (text: string, label: string): string => {
+  const heading = `\n## ${label}\n`;
+  const start = text.indexOf(heading);
+  if (start === -1) throw new Error(`the demonstration has no section headed \`${label}\``);
+
+  const next = text.indexOf("\n## ", start + heading.length);
+  return text.slice(start, next === -1 ? undefined : next);
+};
+
+const chosenAccount = (section: string): string | undefined =>
+  /Chosen account: `([^`]+)`\./.exec(section)?.[1];
+
+const promoteAffected = (section: string): string | undefined =>
+  /\| `promote` \| sql \| — \| (\d+) \| ran \|/.exec(section)?.[1];
+
+const roleAfterwards = (section: string): string | undefined =>
+  /\| `users\.role` \| `([^`]+)` \|/.exec(section)?.[1];
+
+const leftoverLine = (section: string): string | undefined =>
+  /^Leftovers named by `preconditions`: (.*)$/m.exec(section)?.[1];
+
+const listedSources = (line: string): string[] =>
+  [...line.matchAll(/`([^`]+)` \(\d+\)/g)].map((match) => match[1]!).sort();
+
+describe.skipIf(skipWithoutDatabase)("the demonstration over named subjects", () => {
+  it("runs B and C on the clean fixture and D on the tied one, and D's promotion matches nothing", async () => {
+    if (!client) throw new Error("no database");
+
+    const provisioned = fixtureId();
+    await insertAccount(provisioned, "platform_ops");
+    await insertVerifiedFactor(provisioned);
+
+    const clean = fixtureId();
+    await insertAccount(clean, "candidate");
+    const tied = fixtureId();
+    await insertAccount(tied, "candidate");
+    await client`
+      insert into ${client(TIED_PLANT.table)} (${client(TIED_PLANT.column)}, full_name, mobile_number, status)
+      values (${tied}, 'Provisioning Fixture', '+620000000000', 'draft')
+    `;
+    const plantedSources = [`${TIED_PLANT.table}.${TIED_PLANT.column}`];
+
+    const outDir = mkdtempSync(join(tmpdir(), "provisioning-demonstration-"));
+    const out = join(outDir, "demonstration.md");
+
+    try {
+      await demonstrateAll(client, steps, out, { clean, tied });
+      const text = readFileSync(out, "utf8");
+
+      const [, caseB, caseC, caseD] = DEMONSTRATION_CASES.map((spec) =>
+        sectionOfCase(text, spec.label),
+      );
+
+      expect(chosenAccount(caseB!), "Case B's subject is not the clean fixture").toBe(clean);
+      expect(chosenAccount(caseC!), "Case C's subject is not the clean fixture").toBe(clean);
+      expect(chosenAccount(caseD!), "Case D's subject is not the tied fixture").toBe(tied);
+
+      expect(promoteAffected(caseB!), "Case B's promotion did not match the clean fixture").toBe(
+        "1",
+      );
+      expect(leftoverLine(caseB!)).toBe("**none**.");
+
+      expect(promoteAffected(caseD!), "Case D's promotion matched the tied fixture").toBe("0");
+      expect(roleAfterwards(caseD!), "Case D changed the tied fixture's role").toBe("candidate");
+
+      const listing = leftoverLine(caseD!);
+      expect(listing, "Case D's listing is empty").not.toBe("**none**.");
+      expect(listedSources(listing ?? "")).toEqual(plantedSources);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("refuses a clean subject that has a leftover, and a tied subject that has none, naming the id", async () => {
+    if (!client) throw new Error("no database");
+
+    const clean = fixtureId();
+    await insertAccount(clean, "candidate");
+    const tied = fixtureId();
+    await insertAccount(tied, "candidate");
+    await client`
+      insert into ${client(TIED_PLANT.table)} (${client(TIED_PLANT.column)}, full_name, mobile_number, status)
+      values (${tied}, 'Provisioning Fixture', '+620000000000', 'draft')
+    `;
+
+    const outDir = mkdtempSync(join(tmpdir(), "provisioning-demonstration-"));
+    const out = join(outDir, "demonstration.md");
+
+    try {
+      const swapped = await demonstrateAll(client, steps, out, { clean: tied, tied: clean }).catch(
+        (error: unknown) => error,
+      );
+
+      expect(swapped).toBeInstanceOf(ProcedureRefusal);
+      expect((swapped as Error).message).toContain(tied);
+      expect(existsSync(out), "a document was written over refused subjects").toBe(false);
+
+      const bothClean = await demonstrateAll(client, steps, out, { clean, tied: clean }).catch(
+        (error: unknown) => error,
+      );
+
+      expect(bothClean).toBeInstanceOf(ProcedureRefusal);
+      expect((bothClean as Error).message).toContain(clean);
+      expect(existsSync(out), "a document was written over refused subjects").toBe(false);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
   }, 60_000);
 });
