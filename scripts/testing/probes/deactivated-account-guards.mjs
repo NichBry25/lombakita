@@ -155,27 +155,18 @@ export const probes = [
       "so the suspension gate never fires, the role is surfaced from the live row, and the cookie the " +
       "person already holds keeps authenticating against an account whose data has been deleted",
     files: [AUTH_CONFIG],
-    // The removal takes the comment WITH the clause it describes, so no line is left in the file
-    // claiming something the code no longer does. That empties the gap between the not-found refusal
-    // and the found return, which is the adjacency the marker names — it exists only after the
-    // mutation, because the unmutated file has the comment and the clause in that gap.
-    appliedMarkers: ['    if (!row) {\n      return { status: "missing" };\n    }\n\n    return {'],
+    // One condition now: `!row || row.status === "deactivated"`. The mutation narrows it to `!row`,
+    // so a de-identified account falls through to the found return. The marker is the narrowed
+    // condition directly against that return, an adjacency the unmutated file does not hold: there
+    // the condition names the status.
+    appliedMarkers: [
+      '  if (!row) {\n    return { status: "missing" };\n  }\n\n  return {\n    status: "found",',
+    ],
     mutate: () =>
       substituteOnce(
         AUTH_CONFIG,
-        [
-          "    // `deactivated` is the de-identification action's tombstone. The row survives it, so this is",
-          "    // what ends the account's sessions rather than a deleted row would have.",
-          '    if (row.status === "deactivated") {',
-          '      return { status: "missing" };',
-          "    }",
-          "",
-          // The blank line that separated the clause from the return. Taking it with the clause is
-          // what makes the removal the two-line gap the marker names rather than a gap with an extra
-          // empty line in it.
-          "",
-        ].join("\n"),
-        "",
+        '  if (!row || row.status === "deactivated") {\n    return { status: "missing" };\n  }\n',
+        '  if (!row) {\n    return { status: "missing" };\n  }\n',
       ),
     // Class D rather than A1-in: no transaction is entered and nothing is written, so there is no
     // post-state to read. What changes is the value the callback surfaces — the role it hands the
@@ -250,8 +241,7 @@ export const probes = [
     // THE OWNER-MEMBERSHIP LOCK IS NOT THIS PROBE'S SUBJECT AND STAYS WHERE IT IS. The guard this
     // probe is about is the count and the refusal below that lock; taking the lock away as well would
     // measure a mutation the probe does not claim. Its comment goes with the count it names — it
-    // opens "before the count below", and after this removal there is no count below — which is the
-    // reason the session probe above takes its clause's comment with it.
+    // opens "before the count below", and after this removal there is no count below.
     //
     // The marker is the lock call directly against the update, an adjacency the unmutated file does
     // not hold: there the count and the refusal sit in that gap. The update's own set-values line is
