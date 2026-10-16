@@ -6,7 +6,10 @@ const TEST = "src/server/auth/session.test.ts";
 const TRIPWIRE = "src/server/auth/unsatisfied-mfa-opt-out.test.ts";
 const GUARD =
   "  if (!options?.allowUnsatisfiedMfa) {\n    assertMfaSatisfiedForOperationalSession(session);\n  }\n";
-const RETURN = "  return session;\n";
+// `getCurrentSession` also ends with `return session;`, so that line alone matches twice. The anchor
+// is the declaration above the guard's own return, which exists once, in requireAuthenticatedSession.
+const RETURN =
+  "  const session = assertAuthenticatedSession(await getCurrentSession());\n  return session;\n";
 const REACHED =
   /× .*competition GET through the real session guard > refuses before every reader for ['"]platform_ops['"] with ['"]enrolment_required['"]/;
 const detect = async () => fails("npx", ["vitest", "run", TEST, TRIPWIRE], REACHED);
