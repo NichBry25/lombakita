@@ -20,6 +20,7 @@ import {
   type RegisterMeasurement,
   anchorlessLiveIds,
   bareAnchoredLiveIds,
+  canonicalAnchoredLiveIds,
   censusDebtItems,
   censusDebtItemsFromText,
   committedRegister,
@@ -224,6 +225,80 @@ describe("the three anchor forms", () => {
     expect(summary.anchorlessLive).toBe(1);
     expect(summary.anchorlessLiveEntries).toBe(2);
     expect(liveIds(items)).toEqual(["A-D1"]);
+  });
+});
+
+describe("the Phase 8 anchor form", () => {
+  /** One live item anchored with `anchor`, written the way the register writes a headline entry. */
+  const itemAnchoredWith = (anchor: string) =>
+    itemsOf(
+      "phase-eight.md",
+      `## Known Debt (Step 1.1)\n\n### Open\n\n- **A-D1 [LOW]** ${anchor}\n`,
+    );
+
+  it("counts a Phase 8 anchor with a title as fully formed, and as neither bare nor anchorless", () => {
+    const items = itemAnchoredWith("→ Phase 8 Gateway checkout and settlement.");
+
+    expect(canonicalAnchoredLiveIds(items)).toEqual(["A-D1"]);
+    expect(bareAnchoredLiveIds(items)).toEqual([]);
+    expect(anchorlessLiveIds(items)).toEqual([]);
+  });
+
+  it("still counts a step and block anchor", () => {
+    const items = itemAnchoredWith("→ Step 7.8 Block A.");
+
+    expect(canonicalAnchoredLiveIds(items)).toEqual(["A-D1"]);
+  });
+
+  it.each([
+    "→ Phase 8",
+    "→ Phase 8.",
+    "→ Phase 8 —",
+    "→ Phase 8: Title",
+    "→ Phase 80 Title",
+    "→ phase 8 Title",
+    "→ Phase 9 Title",
+    "→ TBD",
+  ])("does not count %s as fully formed, though it is anchored", (anchor) => {
+    const items = itemAnchoredWith(anchor);
+
+    expect(canonicalAnchoredLiveIds(items)).toEqual([]);
+    expect(anchorlessLiveIds(items)).toEqual([]);
+  });
+
+  it("counts a Phase 8 title that runs past the 80 characters the anchor is cut to", () => {
+    const title = "Gateway checkout and settlement ".repeat(5).trim();
+    const items = itemAnchoredWith(`→ Phase 8 ${title}.`);
+
+    expect(title.length).toBeGreaterThan(80);
+    expect(canonicalAnchoredLiveIds(items)).toEqual(["A-D1"]);
+  });
+
+  it("lets a newly filed item anchored to Phase 8 and a title through gate (a)", () => {
+    const before = itemsOf(
+      "phase-eight-before.md",
+      "## Known Debt (Step 1.1)\n\n### Open\n\n- **A-D1** Old.\n",
+    );
+    const after = itemsOf(
+      "phase-eight-after.md",
+      "## Known Debt (Step 1.1)\n\n### Open\n\n- **A-D1** Old.\n\n" +
+        "- **A-D2 [LOW]** → Phase 8 Dark mode.\n",
+    );
+
+    expect(newlyFiledWithoutStepAnchor(before, after)).toEqual([]);
+  });
+
+  it.each(["→ Phase 8", "→ TBD"])("stops a newly filed item anchored %s at gate (a)", (anchor) => {
+    const before = itemsOf(
+      "phase-eight-before.md",
+      "## Known Debt (Step 1.1)\n\n### Open\n\n- **A-D1** Old.\n",
+    );
+    const after = itemsOf(
+      "phase-eight-after.md",
+      `## Known Debt (Step 1.1)\n\n### Open\n\n- **A-D1** Old.\n\n- **A-D2 [LOW]** ${anchor}\n`,
+    );
+
+    expect(newlyFiledWithoutStepAnchor(before, after).map((item) => item.id)).toEqual(["A-D2"]);
   });
 });
 

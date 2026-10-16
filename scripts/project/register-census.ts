@@ -60,6 +60,8 @@ export type DebtItem = {
   anchorIsBareBlock: boolean;
   /** The anchor names a step, e.g. `→ Step 7.7.` or `→ Step 7.7 Block C`. */
   anchorNamesStep: boolean;
+  /** The anchor names Phase 8 and an entry title, e.g. `→ Phase 8 Gateway checkout and settlement.` */
+  anchorNamesPhaseEight: boolean;
   /** The item's own line carries the discharge mark. */
   discharged: boolean;
   /** The item's own line carries the withdrawal mark. */
@@ -205,6 +207,7 @@ const DISCHARGE_MARK = /·\s*DISCHARGED/;
 const CANONICAL_ANCHOR = /^→\s*Step\s+[\d.]+\s+Block\s+[A-Z]\d*\b/;
 const BARE_BLOCK_ANCHOR = /^→\s*Block\s+[A-Z]\d*\b/;
 const NAMES_STEP = /^→\s*Step\s+[\d.]+\b/;
+const PHASE_EIGHT_ANCHOR = /^→\s*Phase\s+8\s+[\p{L}\p{N}]/u;
 
 /**
  * A bullet the register files that the census cannot read as a debt item, with where it is.
@@ -365,6 +368,7 @@ function censusRegister(text: string, file: string): RegisterWalk {
       anchor,
       anchorIsBareBlock: anchor !== null && BARE_BLOCK_ANCHOR.test(anchor),
       anchorNamesStep: anchor !== null && NAMES_STEP.test(anchor),
+      anchorNamesPhaseEight: anchor !== null && PHASE_EIGHT_ANCHOR.test(anchor),
       discharged: declaredDischarged,
       withdrawn: declaredWithdrawn,
       live: isLiveItem({
@@ -435,7 +439,8 @@ export function anchorlessLiveIds(items: DebtItem[]): string[] {
 }
 
 /**
- * The live items whose anchor names a step AND a block: the register's fully formed destinations.
+ * The live items whose anchor is a fully formed destination: a step AND a block, or Phase 8 AND an
+ * entry title.
  *
  * A set of IDS like every population here, so an item filed twice contributes one id whichever of
  * its entries carries the anchor. Nothing is computed for this that the file view was not already
@@ -446,7 +451,12 @@ export function canonicalAnchoredLiveIds(items: DebtItem[]): string[] {
   return [
     ...new Set(
       items
-        .filter((item) => item.live && item.anchor !== null && CANONICAL_ANCHOR.test(item.anchor))
+        .filter(
+          (item) =>
+            item.live &&
+            item.anchor !== null &&
+            (CANONICAL_ANCHOR.test(item.anchor) || PHASE_EIGHT_ANCHOR.test(item.anchor)),
+        )
         .map((item) => item.id),
     ),
   ];
@@ -454,19 +464,24 @@ export function canonicalAnchoredLiveIds(items: DebtItem[]): string[] {
 
 /**
  * The live items filed by `after` that `before` did not hold, and that carry no anchor naming a
- * step. Gate (a)'s population: this is the bleeding, not the wound.
+ * step or naming Phase 8 and an entry title. Gate (a)'s population: this is the bleeding, not the
+ * wound.
  *
  * Identity is the id, so an item that merely moved lines is not newly filed, and an item whose id
  * already existed is not re-judged here — pre-existing debt is the ratchet's business.
  *
- * A step anchor excuses a new item only when it is on a LIVE entry, for the reason `anchorlessLiveIds`
- * states: a withdrawn entry's destination is not a destination for this item.
+ * A step or Phase 8 anchor excuses a new item only when it is on a LIVE entry, for the reason
+ * `anchorlessLiveIds` states: a withdrawn entry's destination is not a destination for this item.
  */
 export function newlyFiledWithoutStepAnchor(before: DebtItem[], after: DebtItem[]): DebtItem[] {
   const known = new Set(before.map((item) => item.id));
   const live = after.filter((item) => item.live);
-  const namesStep = new Set(live.filter((item) => item.anchorNamesStep).map((item) => item.id));
-  return live.filter((item) => !known.has(item.id) && !namesStep.has(item.id));
+  const namesDestination = new Set(
+    live
+      .filter((item) => item.anchorNamesStep || item.anchorNamesPhaseEight)
+      .map((item) => item.id),
+  );
+  return live.filter((item) => !known.has(item.id) && !namesDestination.has(item.id));
 }
 
 /**
@@ -972,7 +987,8 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "gate and never asserted by a test, so every live-state literal in it was a claim with no " +
       "instrument behind it. What remains states what this obligation MEANS and carries no " +
       "live-state number at all; the `bound` above is the only literal, and it is the one a " +
-      "machine checks",
+      "machine checks. It also counts an anchor written `→ Phase 8 <title>`, the form items " +
+      "parked in Phase 8 carry, where the title begins with a letter or a digit.",
   },
   {
     what: "items a discharged section declares discharged whose anchor line carries no mark",
