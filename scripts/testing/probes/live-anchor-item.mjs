@@ -33,7 +33,7 @@ const ANY_SECTION = /^###\s/;
 const ITEM_HEAD = /^- \*\*([A-Za-z0-9][A-Za-z0-9._-]*)\s+\[/;
 const DISCHARGE_MARK = /·\s*DISCHARGED/;
 const WITHDRAWAL_MARK = /·\s*WITHDRAWN/;
-const CANONICAL_ANCHOR = /→\s*Step\s+[\d.]+\s+Block\s+[A-Z]\d*\b/;
+const CANONICAL_ANCHOR = /→\s*(?:Step\s+[\d.]+\s+Block\s+[A-Z]\d*\b|Phase\s+8\s+[\p{L}\p{N}])/u;
 
 const countOccurrences = (text, needle) => text.split(needle).length - 1;
 

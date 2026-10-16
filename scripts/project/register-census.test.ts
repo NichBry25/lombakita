@@ -262,6 +262,7 @@ describe("the Phase 8 anchor form", () => {
   ])("does not count %s as fully formed, though it is anchored", (anchor) => {
     const items = itemAnchoredWith(anchor);
 
+    expect(liveIds(items)).toEqual(["A-D1"]);
     expect(canonicalAnchoredLiveIds(items)).toEqual([]);
     expect(anchorlessLiveIds(items)).toEqual([]);
   });
