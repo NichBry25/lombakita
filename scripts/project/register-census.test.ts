@@ -244,6 +244,12 @@ describe("the Phase 8 anchor form", () => {
     expect(anchorlessLiveIds(items)).toEqual([]);
   });
 
+  it("counts a Phase 8 title that begins with a digit", () => {
+    const items = itemAnchoredWith("→ Phase 8 2FA hardening.");
+
+    expect(canonicalAnchoredLiveIds(items)).toEqual(["A-D1"]);
+  });
+
   it("still counts a step and block anchor", () => {
     const items = itemAnchoredWith("→ Step 7.8 Block A.");
 
