@@ -412,6 +412,20 @@ export const probes = [
       ),
   },
   {
+    name: "an anchor rewritten to a Phase 8 anchor with no title fails the anchored floor",
+    klass: "D",
+    harmfulMove:
+      "rewriting an existing canonical anchor to a bare `→ Phase 8`, which names no entry in the Phase 8 list and so must not count as a fully formed destination, while leaving the item anchored enough to satisfy every other instrument",
+    files: [REGISTER],
+    repo: DOC_LANE,
+    appliedMarkers: ["- **LAUNCH-D40 [MEDIUM] → Phase 8.**"],
+    mutate: () => substituteOnce(REGISTER, D40_ANCHORED, "- **LAUNCH-D40 [MEDIUM] → Phase 8.**"),
+    detect: () =>
+      gateRefused(
+        /FAIL\s+\d+\s+live debt ids carrying an anchor that names a step and a block\s+\(down 1 — below the floor of \d+\)/,
+      ),
+  },
+  {
     name: "a bullet filed with a mistyped id fails the skip count",
     klass: "D",
     harmfulMove:
