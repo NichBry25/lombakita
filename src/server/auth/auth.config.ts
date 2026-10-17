@@ -1,7 +1,7 @@
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import * as Sentry from "@sentry/nextjs";
 import { eq } from "drizzle-orm";
-import type { NextAuthOptions } from "next-auth";
+import type { NextAuthOptions, Session } from "next-auth";
 import type { Adapter } from "next-auth/adapters";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
@@ -10,7 +10,10 @@ import { type AppRole, isAppRole } from "@/lib/access/roles";
 import { logger } from "@/lib/logger";
 import { authenticateWithEmailPassword, normalizeEmail } from "@/server/auth/credentials-auth";
 import { extractClientIp, UNKNOWN_CLIENT_IP } from "@/server/auth/client-ip";
-import { LOGIN_FAILED_ATTEMPT_LIMIT } from "@/server/auth/rate-limit-constants";
+import {
+  LOGIN_FAILED_ATTEMPT_LIMIT,
+  loginFailedAttemptKey,
+} from "@/server/auth/rate-limit-constants";
 import {
   authorizeOAuthFinalize,
   GOOGLE_PROVIDER_ID,
@@ -20,6 +23,7 @@ import {
 import { consumeMfaElevationGrant } from "@/server/auth/mfa/mfa-elevation";
 import { hasVerifiedMfaFactorSql } from "@/server/auth/mfa/mfa-factor-sql";
 import { resolveMfaStatus } from "@/server/auth/mfa/mfa-status";
+import { isSessionRevoked } from "@/server/auth/session-revocation";
 import {
   clearFailedAttempts,
   isFailedAttemptLimited,
@@ -125,6 +129,8 @@ type LiveAccountState =
       // institutionOwnerAvatarKeySql elsewhere in this codebase. This stays ONE SELECT.
       mfaInvalidatedAt: Date | null;
       hasVerifiedMfaFactor: boolean;
+      // One more projected column in the same SELECT: the session-revocation stamp.
+      sessionsInvalidBefore: Date | null;
     }
   | { status: "missing" }
   | { status: "unavailable" };
@@ -171,6 +177,7 @@ const queryLiveAccountState = async (userId: string): Promise<LiveAccountState> 
       status: users.status,
       suspendedAt: users.suspendedAt,
       mfaInvalidatedAt: users.mfaInvalidatedAt,
+      sessionsInvalidBefore: users.sessionsInvalidBefore,
       hasVerifiedMfaFactor: hasVerifiedMfaFactorSql,
     })
     .from(users)
@@ -186,6 +193,7 @@ const queryLiveAccountState = async (userId: string): Promise<LiveAccountState> 
     role: row.role,
     suspendedAt: row.suspendedAt,
     mfaInvalidatedAt: row.mfaInvalidatedAt,
+    sessionsInvalidBefore: row.sessionsInvalidBefore,
     hasVerifiedMfaFactor: row.hasVerifiedMfaFactor,
   };
 };
@@ -281,7 +289,7 @@ export const authOptions: NextAuthOptions = {
           return typeof value === "string" ? value : null;
         });
         const loginRateLimitEnforced = clientIp !== UNKNOWN_CLIENT_IP;
-        const failedAttemptKey = `${LOGIN_FAILED_ATTEMPT_LIMIT.keyPrefix}${clientIp}:${normalizeEmail(emailInput)}`;
+        const failedAttemptKey = loginFailedAttemptKey(clientIp, normalizeEmail(emailInput));
 
         if (
           loginRateLimitEnforced &&
@@ -523,6 +531,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         delete token.secondRolePromptDismissed;
         delete token.mfaVerifiedAt;
+        token.signedInAtMs = Date.now();
       }
 
       return token;
@@ -545,6 +554,21 @@ export const authOptions: NextAuthOptions = {
       // 403 account_suspended on the next guarded request. See loadLiveAccountState for the
       // fail-closed rule.
       const account = await loadLiveAccountState(userId);
+
+      // An EMPTY object is what next-auth treats as no session: getServerSession returns null for it
+      // and useSession reports unauthenticated. Dropping only `user` would leave `{ expires }`, which
+      // the client still reads as signed in.
+      if (
+        account.status === "found" &&
+        isSessionRevoked({
+          sessionsInvalidBefore: account.sessionsInvalidBefore,
+          tokenSignedInAtMs:
+            typeof token?.signedInAtMs === "number" ? token.signedInAtMs : undefined,
+        })
+      ) {
+        return {} as Session;
+      }
+
       if (account.status === "unavailable") {
         session.user.accountStateUnavailable = true;
       } else {

@@ -618,4 +618,31 @@ export const PAGES = [
     path: "/admin",
     label: "Guarded surface redirecting an un-enrolled operator",
   },
+
+  // ---------------------------------------------------------------- password recovery
+  // The reset page does not judge its token on load, so a placeholder renders the form itself.
+  {
+    id: "93-auth-forgot-password",
+    as: null,
+    path: "/auth/forgot-password",
+    label: "Forgot password — request a reset link",
+  },
+  {
+    id: "94-auth-reset-password",
+    as: null,
+    path: "/auth/reset-password?token=seed-placeholder-token",
+    label: "Reset password — new password form",
+  },
+  {
+    id: "95-auth-reset-password-no-token",
+    as: null,
+    path: "/auth/reset-password",
+    label: "Reset password — link without a token",
+  },
+  {
+    id: "96-auth-change-password",
+    as: "candA",
+    path: "/auth/change-password",
+    label: "Change password — signed-in form",
+  },
 ];

@@ -8,10 +8,16 @@ import { AccessError, assertAuthenticatedSession } from "@/server/auth/access-co
 // The session callback reads live suspended_at and status on every session resolution. This test
 // drives the callback directly with a getDb mock whose SELECT returns a configurable row.
 
-let accountRow: { role: string | null; status: string; suspendedAt: Date | null } | null = {
+let accountRow: {
+  role: string | null;
+  status: string;
+  suspendedAt: Date | null;
+  sessionsInvalidBefore: Date | null;
+} | null = {
   role: "candidate",
   status: "active",
   suspendedAt: null,
+  sessionsInvalidBefore: null,
 };
 
 const getDbMock = vi.fn(() => ({
@@ -77,7 +83,7 @@ type SessionCb = (args: {
 }) => Promise<{ user?: Record<string, unknown> }>;
 
 const callSession = async (suspendedAt: Date | null, status = "active") => {
-  accountRow = { role: "candidate", status, suspendedAt };
+  accountRow = { role: "candidate", status, suspendedAt, sessionsInvalidBefore: null };
   const { authOptions } = await import("@/server/auth/auth.config");
   const cb = authOptions.callbacks?.session as unknown as SessionCb;
   return cb({
@@ -87,7 +93,12 @@ const callSession = async (suspendedAt: Date | null, status = "active") => {
 };
 
 beforeEach(() => {
-  accountRow = { role: "candidate", status: "active", suspendedAt: null };
+  accountRow = {
+    role: "candidate",
+    status: "active",
+    suspendedAt: null,
+    sessionsInvalidBefore: null,
+  };
 });
 afterEach(() => {
   vi.clearAllMocks();

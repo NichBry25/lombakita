@@ -26,6 +26,11 @@ export const LOGIN_FAILED_ATTEMPT_LIMIT = {
   keyPrefix: "rl:login-fail:",
 } as const;
 
+// The one place the sign-in lock key is spelled, so the sign-in path that writes it and the password
+// reset that clears it cannot drift apart. `normalizedEmail` must already be normalizeEmail()'d.
+export const loginFailedAttemptKey = (clientIp: string, normalizedEmail: string): string =>
+  `${LOGIN_FAILED_ATTEMPT_LIMIT.keyPrefix}${clientIp}:${normalizedEmail}`;
+
 /**
  * Fixed-window limiter on POST /api/v1/auth/register, keyed by client IP.
  *
@@ -80,6 +85,48 @@ export const VERIFICATION_EMAIL_ADDRESS_LIMIT = {
   limit: 3,
   windowSeconds: 10 * 60,
   keyPrefix: "rl:verify-email-addr:",
+} as const;
+
+/**
+ * Fixed-window limiter on POST /api/v1/auth/password-reset/request, keyed by client IP.
+ *
+ * The broad-sweep bound, fail OPEN (DEC-0098): a Redis outage must not stop a locked-out user from
+ * asking for a reset link. It does not stop a distributed caller mailing one person; that is
+ * PASSWORD_RESET_ADDRESS_LIMIT below.
+ */
+export const PASSWORD_RESET_IP_LIMIT = {
+  limit: 10,
+  windowSeconds: 60 * 60,
+  keyPrefix: "rl:password-reset-ip:",
+} as const;
+
+/**
+ * Fixed-window limiter keyed by the ADDRESS a reset link is being requested for.
+ *
+ * COUNTED BEFORE THE ACCOUNT IS LOOKED UP, for the reason given on VERIFICATION_EMAIL_ADDRESS_LIMIT:
+ * a counter that only advanced for real accounts would disclose, by reaching its cap, that an
+ * account exists. Unlike that limiter this one is NOT shared with another route; it bounds reset
+ * mail only.
+ */
+export const PASSWORD_RESET_ADDRESS_LIMIT = {
+  limit: 3,
+  windowSeconds: 60 * 60,
+  keyPrefix: "rl:password-reset-addr:",
+} as const;
+
+/**
+ * Failed-attempt limiter on POST /api/v1/auth/password/change, keyed by user id. Counts only wrong
+ * current-password guesses; a successful change clears it.
+ *
+ * FAIL CLOSED (DEC-0098), unlike LOGIN_FAILED_ATTEMPT_LIMIT: the caller already holds a session, so
+ * a stolen session is guessing the current password to take the account over, and refusing when
+ * Redis cannot confirm the count is the safe answer. Uses checkFailedAttemptLimitFailClosed and
+ * recordFailedAttemptFailClosed.
+ */
+export const PASSWORD_CHANGE_FAILED_ATTEMPT_LIMIT = {
+  limit: 5,
+  windowSeconds: 15 * 60,
+  keyPrefix: "rl:password-change-fail:",
 } as const;
 
 // Prefix for the single-use OAuth carrier nonce (auth-D2 / 6.5d-D2). The carrier's `jti` is appended

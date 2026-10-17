@@ -66,6 +66,7 @@ import {
   teams,
   userEmailVerificationTokens,
   userPasswordCredentials,
+  userPasswordResetTokens,
   userPlatformRoles,
   userProfiles,
   users,
@@ -513,6 +514,13 @@ const buildFixture = async (tx: Tx): Promise<Fixture> => {
     userId: f.target,
     tokenHash: `verify-${f.suffix}`,
     expiresAt: new Date(Date.now() + 86_400_000),
+  });
+
+  await tx.insert(userPasswordResetTokens).values({
+    id: randomUUID(),
+    userId: f.target,
+    tokenHash: `reset-${f.suffix}`,
+    expiresAt: new Date(Date.now() + 1_800_000),
   });
 
   await tx.insert(mfaFactors).values({
@@ -1174,6 +1182,7 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
           ["sessions", "user_id"],
           ["user_password_credentials", "user_id"],
           ["user_email_verification_tokens", "user_id"],
+          ["user_password_reset_tokens", "user_id"],
           ["mfa_factors", "user_id"],
           ["mfa_recovery_codes", "user_id"],
           ["user_platform_roles", "user_id"],
@@ -1400,6 +1409,7 @@ describe.skipIf(skipWithoutDatabase)("deidentifyAccount", () => {
 
         expect(metadata.personalInstitutionId).toBe(f.institution);
         expect(metadata.rowsDeleted.candidate_profiles).toBe(1);
+        expect(metadata.rowsDeleted.user_password_reset_tokens).toBe(1);
         expect(metadata.rowsDeleted.notifications).toBe(1);
         expect(metadata.rowsDeleted.competition_document_request_files).toBe(1);
         expect(metadata.rowsScrubbed.user_profiles).toBe(1);

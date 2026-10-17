@@ -290,6 +290,11 @@ const userOwnedProbes: Probe[] = [
     (fx) => ({ user_id: fx.subject, password_hash: "oracle-password-hash" }),
     (_id, row) => ({ user_id: String(row.user_id) }),
   ),
+  userColumnProbe("user_password_reset_tokens", (fx) => ({
+    user_id: fx.subject,
+    token_hash: "oracle-token-hash",
+    expires_at: EXPIRES_AT,
+  })),
   userColumnProbe(
     "user_platform_roles",
     (fx) => ({ user_id: fx.subject, role: "candidate" }),
