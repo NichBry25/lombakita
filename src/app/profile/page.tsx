@@ -6,7 +6,7 @@ import { deriveProfileHeader } from "@/server/user-profile/profile-collections-c
 import { IdentityBanner } from "@/components/media/identity-banner";
 import { ProfileDetailSections } from "@/components/profile/profile-detail-sections";
 import { VerifyOtherRoleButton } from "./verify-other-role-button";
-import { Icon, IconButtonLink } from "@/components/ui";
+import { ButtonLink, Icon, IconButtonLink } from "@/components/ui";
 import { canOfferSecondRoleVerification } from "@/lib/access/roles";
 
 // Extracts a set value, or null when the field is empty.
@@ -62,6 +62,14 @@ export default async function OwnerProfilePage() {
                   unverifiedRoleLabel={profile.candidateVerified ? "Rekruter" : "Kandidat"}
                 />
               )}
+              <ButtonLink
+                href="/auth/change-password"
+                variant="outline"
+                size="sm"
+                leadingIcon={<Icon name="lock" size="sm" />}
+              >
+                Ubah password
+              </ButtonLink>
               <IconButtonLink
                 href="/profile/edit"
                 icon="edit"

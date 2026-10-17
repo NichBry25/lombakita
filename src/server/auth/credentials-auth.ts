@@ -112,6 +112,10 @@ type AuthFlowErrorCode =
   | "verification_token_invalid"
   | "verification_token_expired"
   | "verification_email_failed"
+  | "password_reset_token_invalid"
+  | "password_reset_token_expired"
+  | "password_not_set"
+  | "invalid_current_password"
   | "username_generation_failed"
   | "candidate_profile_invalid_payload"
   | "candidate_profile_invalid_fields"
@@ -174,7 +178,7 @@ const parseName = (name: unknown): string => {
   return normalized;
 };
 
-const parsePassword = (password: unknown): string => {
+export const parsePassword = (password: unknown): string => {
   if (typeof password !== "string") {
     throw new CredentialsAuthError(
       "invalid_password",

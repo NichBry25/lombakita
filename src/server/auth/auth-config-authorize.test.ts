@@ -143,6 +143,24 @@ describe("credentials authorize — failed-attempt rate limit (Step 6.5-HARDENIN
     expect(authenticateMock).not.toHaveBeenCalled();
   });
 
+  it("keys the lock on the client IP and the normalized email, at the literal key format", async () => {
+    authenticateMock.mockResolvedValue({ status: "invalid_credentials" });
+    const authorize = await loadAuthorize();
+
+    await expect(
+      authorize({ email: "  User@Example.com ", password: "wrong-password" }, reqWithIp),
+    ).rejects.toThrow("INVALID_CREDENTIALS");
+
+    expect(isFailedAttemptLimitedMock).toHaveBeenCalledWith({
+      key: "rl:login-fail:203.0.113.9:user@example.com",
+      limit: 5,
+    });
+    expect(recordFailedAttemptMock).toHaveBeenCalledWith({
+      key: "rl:login-fail:203.0.113.9:user@example.com",
+      windowSeconds: 900,
+    });
+  });
+
   it("records a failed attempt on invalid credentials", async () => {
     authenticateMock.mockResolvedValue({ status: "invalid_credentials" });
     const authorize = await loadAuthorize();

@@ -246,6 +246,10 @@ jobs:
         if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
         run: node scripts/testing/probes/register-gate.mjs
 
+      - name: "Probe suite: password-recovery"
+        if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
+        run: node scripts/testing/probes/password-recovery.mjs
+
       - name: "Probe suite: registration-rate-limit"
         if: ${{ !cancelled() && steps.database-ready.outcome == 'success' }}
         run: node scripts/testing/probes/registration-rate-limit.mjs

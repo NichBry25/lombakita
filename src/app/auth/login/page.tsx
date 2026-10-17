@@ -52,6 +52,7 @@ export default async function LoginPage(props: {
   searchParams?: Promise<{
     error?: string;
     verified?: string;
+    passwordChanged?: string;
     email?: string;
     callbackUrl?: string;
     oauth?: string;
@@ -97,6 +98,7 @@ export default async function LoginPage(props: {
 
   const error = searchParams?.error;
   const verified = searchParams?.verified === "1";
+  const passwordChanged = searchParams?.passwordChanged === "1";
   const callbackUrl = searchParams?.callbackUrl;
 
   // Claim-signup link (?invite=<rawToken> from a pending_claim invite email). Resolve
@@ -123,6 +125,7 @@ export default async function LoginPage(props: {
           callbackUrl={callbackUrl}
           initialEmail={email}
           verifiedNotice={verified}
+          passwordChangedNotice={passwordChanged}
           initialErrorMessage={error ? mapSignInPageError(error) : undefined}
         />
       </div>

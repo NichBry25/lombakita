@@ -130,6 +130,13 @@ export function ApplicationHeader() {
                 variant="ghost"
                 className="header-auth-action"
               />
+              <Link
+                href="/auth/change-password"
+                className="header-nav-link header-auth-action"
+                aria-current={pathname.startsWith("/auth/change-password") ? "page" : undefined}
+              >
+                Ubah password
+              </Link>
               <IconButton
                 icon="logout"
                 label="Keluar"
@@ -226,6 +233,13 @@ export function ApplicationHeader() {
             ) : null}
             <Link href="/profile" className="header-nav-link" onClick={() => setMenuOpen(false)}>
               Profil saya
+            </Link>
+            <Link
+              href="/auth/change-password"
+              className="header-nav-link"
+              onClick={() => setMenuOpen(false)}
+            >
+              Ubah password
             </Link>
             <button
               type="button"

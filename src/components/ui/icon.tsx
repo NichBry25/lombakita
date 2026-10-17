@@ -19,6 +19,7 @@ export type IconName =
   | "inbox"
   | "info"
   | "link"
+  | "lock"
   | "logout"
   | "menu"
   | "moon"
@@ -148,6 +149,13 @@ function IconPaths({ name }: { name: IconName }) {
           <path d="M9.5 14.5 14.5 9.5" />
           <path d="M11 6.5 12 5.5a4 4 0 0 1 5.66 5.66l-1 1" />
           <path d="M13 17.5 12 18.5a4 4 0 0 1-5.66-5.66l1-1" />
+        </>
+      );
+    case "lock":
+      return (
+        <>
+          <rect x="4" y="11" width="16" height="10" rx="2" />
+          <path d="M8 11V7a4 4 0 0 1 8 0v4" />
         </>
       );
     case "logout":

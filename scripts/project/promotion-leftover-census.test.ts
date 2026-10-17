@@ -31,9 +31,10 @@ const edgeName = (edge: { table: string; column: string }): string =>
   `${edge.table}.${edge.column}`;
 
 describe("the derived edges into users", () => {
-  it("derives 47 edges, 16 allowed and 31 blocking, as the owner counted them", () => {
-    expect(derivedLeftoverEdges()).toHaveLength(47);
-    expect(LEFTOVER_RULINGS.filter((ruling) => ruling.ruling === "allowed")).toHaveLength(16);
+  it("derives 48 edges, 17 allowed and 31 blocking, as the census derives them", () => {
+    // 48/17/31 after user_password_reset_tokens.user_id (LAUNCH-D192)
+    expect(derivedLeftoverEdges()).toHaveLength(48);
+    expect(LEFTOVER_RULINGS.filter((ruling) => ruling.ruling === "allowed")).toHaveLength(17);
     expect(blockingRulings()).toHaveLength(31);
   });
 

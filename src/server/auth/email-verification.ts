@@ -8,7 +8,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 
 assertServerOnly("server/auth/email-verification");
 
-const resolveBaseUrl = (): string => {
+export const resolveBaseUrl = (): string => {
   return serverEnv.authUrl ?? serverEnv.appBaseUrl ?? publicEnv.appUrl ?? "http://localhost:3000";
 };
 
