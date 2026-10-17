@@ -16,6 +16,7 @@ import {
   DECISION_STATUSES,
   NOTE_STATUS,
   DecisionRefusal,
+  docsDirectory,
   isDecisionId,
   readDecisionDirectory,
   renderDecisionLog,
@@ -24,16 +25,8 @@ import {
   type DecisionProblem,
 } from "./decision-files";
 
-const DEC_TOKEN = /DEC-\d{4}/g;
-
-const docsDirectory = (argv: string[]): string => {
-  const at = argv.indexOf("--docs");
-  if (at === -1) return "docs";
-  const value = argv[at + 1];
-  if (value === undefined || value.startsWith("--"))
-    throw new DecisionRefusal("--docs", "needs a directory");
-  return value;
-};
+/** Any run of digits, so `DEC-00012` is read as an id that does not exist rather than as DEC-0001. */
+const DEC_TOKEN = /DEC-\d+/g;
 
 const requiredFieldProblems = (name: string, d: DecisionFile): DecisionProblem[] =>
   (["type", "title", "status", "date", "owner"] as const)
@@ -44,6 +37,27 @@ const statusProblem = (name: string, d: DecisionFile): DecisionProblem[] => {
   const allowed: readonly string[] = d.type === "note" ? [NOTE_STATUS] : DECISION_STATUSES;
   if (d.status === "" || allowed.includes(d.status)) return [];
   return [{ subject: name, reason: `status "${d.status}" is not one of: ${allowed.join(", ")}` }];
+};
+
+/** A value that would split a table row into two lines or into extra cells. */
+const rowShapeProblems = (name: string, d: DecisionFile): DecisionProblem[] => {
+  const values: [string, string | null][] = [
+    ["title", d.title],
+    ["index_title", d.indexTitle],
+    ["status", d.status],
+    ["date", d.date],
+    ["owner", d.owner],
+    ["supersedes", d.supersedes],
+    ["rationale", d.rationale],
+  ];
+  return values.flatMap(([field, value]) => {
+    if (value === null) return [];
+    if (value.includes("\n")) return [{ subject: name, reason: `${field} contains a line break` }];
+    if (/(?<!\\)\|/.test(value)) {
+      return [{ subject: name, reason: `${field} contains an unescaped |` }];
+    }
+    return [];
+  });
 };
 
 const identityProblems = (name: string, d: DecisionFile): DecisionProblem[] => {
@@ -115,6 +129,7 @@ const main = (): void => {
       ...duplicateIdProblems(entries),
       ...entries.flatMap(({ fileName, decision }) => [
         ...identityProblems(fileName, decision),
+        ...rowShapeProblems(fileName, decision),
         ...requiredFieldProblems(fileName, decision),
         ...statusProblem(fileName, decision),
         ...supersedesProblems(fileName, decision, ids),

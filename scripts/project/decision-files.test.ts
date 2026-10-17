@@ -10,8 +10,10 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { orphanedDecisionRows } from "./register-census";
 import {
   DecisionRefusal,
+  docsDirectory,
   formatDecisionFile,
   formatIndexRow,
   formatSeededRow,
@@ -175,5 +177,148 @@ describe("decisions:check and decisions:build, through the real scripts", () => 
 
   it("refuses a docs directory with no decisions directory", () => {
     expect(run("decisions-check.ts", ["--docs", workspace]).status).toBe(1);
+  });
+});
+
+/** Damages one file of a fresh copy of the clean fixture, runs the check, and returns what it printed. */
+const checkAfterDamage = (name: string, file: string, from: string, to: string) => {
+  const docs = freshDocs(name);
+  const path = join(docs, file);
+  const text = readFileSync(path, "utf8");
+  expect(text, `${file} does not contain the text this test damages`).toContain(from);
+  writeFileSync(path, text.replace(from, to));
+  const result = run("decisions-check.ts", ["--docs", docs]);
+  return { status: result.status, stderr: result.stderr };
+};
+
+describe("each decisions:check rule fails when its input is damaged", () => {
+  const one = "project/decisions/DEC-0001.md";
+  const note = "project/decisions/NOTE-FIXTURE.md";
+
+  it("refuses an id that differs from the file name", () => {
+    const { stderr } = checkAfterDamage("id", one, "id: DEC-0001", "id: DEC-0005");
+    expect(stderr).toContain('DEC-0001.md: id "DEC-0005" does not equal the file name');
+  });
+
+  it("refuses a type that is neither decision nor note", () => {
+    const { stderr } = checkAfterDamage("type", one, "type: decision", "type: Decision");
+    expect(stderr).toContain('DEC-0001.md: type "Decision" is not decision or note');
+  });
+
+  it("refuses a decision without a DEC id and a note without a NOTE id", () => {
+    const decision = checkAfterDamage("decision-id", note, "type: note", "type: decision");
+    expect(decision.stderr).toContain("NOTE-FIXTURE.md: a decision needs a DEC-dddd id");
+    const asNote = checkAfterDamage("note-id", one, "type: decision", "type: note");
+    expect(asNote.stderr).toContain("DEC-0001.md: a note needs a NOTE- id");
+  });
+
+  it("allows status note only on a note, and only status note on a note", () => {
+    const decision = checkAfterDamage("status-note", one, "status: accepted", "status: note");
+    expect(decision.stderr).toContain('DEC-0001.md: status "note" is not one of: accepted');
+    const asNote = checkAfterDamage("note-status", note, "status: note", "status: accepted");
+    expect(asNote.stderr).toContain('NOTE-FIXTURE.md: status "accepted" is not one of: note');
+  });
+
+  it.each(["title", "status", "date", "owner"])("refuses an empty %s", (field) => {
+    const { stderr } = checkAfterDamage(
+      `empty-${field}`,
+      one,
+      new RegExp(`${field}: .*\n`).exec(readFileSync(join(CLEAN_FIXTURE, one), "utf8"))?.[0] ?? "",
+      `${field}:\n`,
+    );
+    expect(stderr).toContain(`DEC-0001.md: ${field} is empty`);
+  });
+
+  it("refuses an empty type", () => {
+    const { stderr } = checkAfterDamage("empty-type", one, "type: decision", "type:");
+    expect(stderr).toContain("DEC-0001.md: type is empty");
+  });
+
+  it("reports a file that cannot be parsed instead of passing without it", () => {
+    const { status, stderr } = checkAfterDamage("unparsable", one, "owner: fixture-owner\n", "");
+    expect(status).toBe(1);
+    expect(stderr).toContain("DEC-0001.md: missing header line(s): owner");
+  });
+
+  it("refuses a value that would split its row, and an unescaped pipe", () => {
+    const pipe = checkAfterDamage(
+      "pipe",
+      one,
+      "title: Fixture decision one",
+      "title: Fixture | one",
+    );
+    expect(pipe.stderr).toContain("DEC-0001.md: title contains an unescaped |");
+    const lineBreak = checkAfterDamage("break", one, "inside.", "inside.\n\nSecond paragraph.");
+    expect(lineBreak.stderr).toContain("DEC-0001.md: rationale contains a line break");
+  });
+
+  it("reads DEC-00012 as an id with no file rather than as DEC-0001", () => {
+    const { stderr } = checkAfterDamage(
+      "long-token",
+      "project/decisions/DEC-0002.md",
+      "DEC-0001 in part",
+      "DEC-00012",
+    );
+    expect(stderr).toContain("DEC-0002.md: supersedes names DEC-00012");
+  });
+});
+
+describe("the log renderer and the build refuse what they cannot render faithfully", () => {
+  const files = () =>
+    readDecisionDirectory(join(CLEAN_FIXTURE, "project/decisions")).entries.map((e) => e.decision);
+  const log = () => readFileSync(join(CLEAN_FIXTURE, "project/decision-log.md"), "utf8");
+
+  it("refuses markers out of order, a repeated marker and an intro below the index", () => {
+    const swapped = log()
+      .replace("<!-- decisions:index:begin -->", "<!-- TMP -->")
+      .replace("<!-- decisions:index:end -->", "<!-- decisions:index:begin -->")
+      .replace("<!-- TMP -->", "<!-- decisions:index:end -->");
+    expect(() => renderDecisionLog(swapped, files())).toThrow(/index-begin, index-end/);
+    const repeated = `${log()}\n<!-- decisions:index:begin -->\n`;
+    expect(() => renderDecisionLog(repeated, files())).toThrow(/exactly one.*found 2/);
+    const intro = "2 decisions, DEC-0001 to DEC-0002 (synthetic fixture).\n";
+    const lowered = log()
+      .replace(intro, "")
+      .replace("## Update Rules", `## Update Rules\n\n${intro}`);
+    expect(() => renderDecisionLog(lowered, files())).toThrow(/above the index table/);
+  });
+
+  it("refuses a begin marker placed under a table line and an end marker above one", () => {
+    const under = log().replace(
+      "<!-- decisions:index:begin -->",
+      "| ID | Decision | Status | Date |\n<!-- decisions:index:begin -->",
+    );
+    expect(() => renderDecisionLog(under, files())).toThrow(/begin marker must sit above/);
+    const above = log().replace(
+      "<!-- decisions:seeded:end -->",
+      "<!-- decisions:seeded:end -->\n| stray | row |",
+    );
+    expect(() => renderDecisionLog(above, files())).toThrow(/end marker must sit below/);
+  });
+
+  it("refuses a file of an unknown type instead of dropping it", () => {
+    const damaged = files().map((d) =>
+      d.id === "DEC-0002" ? { ...d, type: "Decision" as never } : d,
+    );
+    expect(() => renderDecisionLog(log(), damaged)).toThrow(
+      /type "Decision" is not decision or note/,
+    );
+  });
+
+  it("keeps values verbatim, spaces included, and ends a file with exactly one newline", () => {
+    const text = formatDecisionFile(decision({ title: "  padded  ", rationale: "body " }));
+    expect(text.endsWith("body \n")).toBe(true);
+    expect(text.endsWith("\n\n")).toBe(false);
+    expect(parseDecisionFile("DEC-0007.md", text).title).toBe("  padded  ");
+  });
+
+  it("renders tables the register census reads as whole tables", () => {
+    expect(orphanedDecisionRows(renderDecisionLog(log(), files()), "fixture")).toEqual([]);
+  });
+
+  it("reads the docs directory from --docs and refuses a flag without a value", () => {
+    expect(docsDirectory(["--docs", "somewhere"])).toBe("somewhere");
+    expect(docsDirectory([])).toBe("docs");
+    expect(() => docsDirectory(["--docs"])).toThrow(DecisionRefusal);
   });
 });

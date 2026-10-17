@@ -14,18 +14,10 @@ import {
   DECISIONS_DIR_IN_DOCS,
   DECISION_LOG_IN_DOCS,
   DecisionRefusal,
+  docsDirectory,
   readDecisionDirectory,
   renderDecisionLog,
 } from "./decision-files";
-
-const docsDirectory = (argv: string[]): string => {
-  const at = argv.indexOf("--docs");
-  if (at === -1) return "docs";
-  const value = argv[at + 1];
-  if (value === undefined || value.startsWith("--"))
-    throw new DecisionRefusal("--docs", "needs a directory");
-  return value;
-};
 
 /** The first line where the two texts differ, and the decision id on it when it is a table row. */
 const firstDifference = (onDisk: string, fresh: string): string => {

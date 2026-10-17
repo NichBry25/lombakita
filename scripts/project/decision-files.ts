@@ -7,7 +7,9 @@
  * and never parsed as YAML, because a title or rationale may hold colons, quotes and pipes that
  * YAML would read as syntax.
  *
- * The log carries two generated regions, each between a begin and an end marker line. Everything
+ * The log carries two generated regions. Each is a whole table, header and delimiter rows included,
+ * with its begin marker line above the header row and its end marker line below the last row, so
+ * the markers sit outside the table and a table reader still sees one unbroken table. Everything
  * between a pair of markers is replaced wholesale on every build, so a hand edit there is drift
  * and `decisions:check` reports it.
  */
@@ -22,6 +24,12 @@ export const INDEX_BEGIN = "<!-- decisions:index:begin -->";
 export const INDEX_END = "<!-- decisions:index:end -->";
 export const SEEDED_BEGIN = "<!-- decisions:seeded:begin -->";
 export const SEEDED_END = "<!-- decisions:seeded:end -->";
+
+const INDEX_TABLE_HEAD = ["| ID | Decision | Status | Date |", "|---|---|---|---|"];
+const SEEDED_TABLE_HEAD = [
+  "| Decision ID | Title | Status | Date | Owner | Rationale | Supersedes |",
+  "| --- | --- | --- | --- | --- | --- | --- |",
+];
 
 export const DECISION_STATUSES = [
   "accepted",
@@ -70,6 +78,17 @@ const HEADER_KEYS = [
   "owner",
   "supersedes",
 ] as const;
+
+/** The directory after `--docs`, or `docs` when the flag is absent. */
+export function docsDirectory(argv: string[]): string {
+  const at = argv.indexOf("--docs");
+  if (at === -1) return "docs";
+  const value = argv[at + 1];
+  if (value === undefined || value.startsWith("--")) {
+    throw new DecisionRefusal("--docs", "needs a directory");
+  }
+  return value;
+}
 
 export const isDecisionId = (id: string): boolean => DEC_ID.test(id);
 
@@ -175,6 +194,10 @@ export function readDecisionDirectory(directory: string): DecisionDirectory {
 
 /** DEC rows in ascending numeric id, then notes by ascending file name. */
 export function orderDecisions(files: DecisionFile[]): DecisionFile[] {
+  const unknown = files.find((file) => file.type !== "decision" && file.type !== "note");
+  if (unknown !== undefined) {
+    throw new DecisionRefusal(unknown.id, `type "${unknown.type}" is not decision or note`);
+  }
   const decisions = files
     .filter((file) => file.type === "decision")
     .sort((a, b) => decisionNumber(a.id) - decisionNumber(b.id));
@@ -217,6 +240,23 @@ export function renderDecisionLog(logText: string, files: DecisionFile[]): strin
     );
   }
 
+  for (const at of [indexBegin, seededBegin]) {
+    if (lines[at - 1]?.startsWith("|")) {
+      throw new DecisionRefusal(
+        DECISION_LOG_IN_DOCS,
+        `line ${at + 1}: a begin marker must sit above its table, not under a table line`,
+      );
+    }
+  }
+  for (const at of [indexEnd, seededEnd]) {
+    if (lines[at + 1]?.startsWith("|")) {
+      throw new DecisionRefusal(
+        DECISION_LOG_IN_DOCS,
+        `line ${at + 1}: an end marker must sit below its table, not above a table line`,
+      );
+    }
+  }
+
   const ordered = orderDecisions(files);
   const decisions = ordered.filter((file) => file.type === "decision");
   const highest = decisions[decisions.length - 1]?.id;
@@ -237,8 +277,10 @@ export function renderDecisionLog(logText: string, files: DecisionFile[]): strin
 
   const rendered = [
     ...lines.slice(0, indexBegin + 1),
+    ...INDEX_TABLE_HEAD,
     ...decisions.map(formatIndexRow),
     ...lines.slice(indexEnd, seededBegin + 1),
+    ...SEEDED_TABLE_HEAD,
     ...ordered.map(formatSeededRow),
     ...lines.slice(seededEnd),
   ];
