@@ -28,6 +28,7 @@ import { probes as browserAuditProbes } from "./probes/browser-audit-refusals.mj
 import { probes as shellContentProbes } from "./probes/shell-content.mjs";
 import { probes as emailFailureProbes } from "./probes/email-failure-visibility.mjs";
 import { probes as fixtureRecipientProbes } from "./probes/fixture-recipients.mjs";
+import { probes as passwordRecoveryProbes } from "./probes/password-recovery.mjs";
 import { probes as registrationRateLimitProbes } from "./probes/registration-rate-limit.mjs";
 import { probes as schemaDriftProbes } from "./probes/schema-drift.mjs";
 import { probes as resetGuardProbes } from "./probes/reset-guard.mjs";
@@ -58,6 +59,7 @@ const SUITES: Record<string, Probe[]> = {
   "shell-content": shellContentProbes,
   "email-failure-visibility": emailFailureProbes,
   "fixture-recipients": fixtureRecipientProbes,
+  "password-recovery": passwordRecoveryProbes,
   "registration-rate-limit": registrationRateLimitProbes,
   "schema-drift": schemaDriftProbes,
   "reset-guard": resetGuardProbes,

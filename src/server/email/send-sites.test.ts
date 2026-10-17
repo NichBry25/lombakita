@@ -22,6 +22,7 @@ const SEND_FILES = [
   "src/server/institution-verification/verification-email.ts",
   "src/server/teams/team-email.ts",
   "src/server/auth/email-verification.ts",
+  "src/server/auth/password-reset-email.ts",
   // The connector probe sends for real, from production code, over both transports. Its recipient
   // is a simulator constant rather than user input, so the guard can never refuse it. The
   // population this file covers is still "every send site", not "every send site whose address
@@ -32,7 +33,7 @@ const SEND_FILES = [
 // The count is part of the declaration. A new send function that nobody wired into the guard would
 // otherwise arrive silently, and this file would keep reporting that everything it knows about is
 // fine.
-const EXPECTED_SEND_FUNCTIONS = 19;
+const EXPECTED_SEND_FUNCTIONS = 22;
 
 /** Names that both refuse a reserved recipient and yield the credential a send needs. */
 const RESOLVERS = new Set(["resolveEmailDelivery", "resolveNotificationDelivery"]);

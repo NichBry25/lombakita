@@ -6273,7 +6273,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   }
 
   .pf-actions > .ui-button {
-    grid-row: 2;
     grid-column: 1 / -1;
   }
 

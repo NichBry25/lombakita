@@ -12,6 +12,7 @@ type QueryRow = {
   suspendedAt: Date | null;
   mfaInvalidatedAt: Date | null;
   hasVerifiedMfaFactor: boolean;
+  sessionsInvalidBefore: Date | null;
 };
 
 type QueryOutcome = { kind: "row"; row: QueryRow } | { kind: "empty" } | { kind: "error" };
@@ -23,6 +24,7 @@ let queryOutcome: QueryOutcome = {
     suspendedAt: null,
     mfaInvalidatedAt: null,
     hasVerifiedMfaFactor: false,
+    sessionsInvalidBefore: null,
   },
 };
 
@@ -75,6 +77,7 @@ vi.mock("@/server/db/schema", () => ({
     candidateVerifiedAt: "c",
     recruiterVerifiedAt: "r",
     mfaInvalidatedAt: "mfa_invalidated_at",
+    sessionsInvalidBefore: "sessions_invalid_before",
   },
   mfaFactors: { userId: "user_id", verifiedAt: "verified_at" },
   accounts: {},
@@ -127,6 +130,7 @@ beforeEach(() => {
       suspendedAt: null,
       mfaInvalidatedAt: null,
       hasVerifiedMfaFactor: true,
+      sessionsInvalidBefore: null,
     },
   };
   consumeMfaElevationGrantMock.mockReset();
@@ -241,6 +245,7 @@ describe("session callback — mfaStatus", () => {
         suspendedAt: null,
         mfaInvalidatedAt: null,
         hasVerifiedMfaFactor: false,
+        sessionsInvalidBefore: null,
       },
     };
 
@@ -257,6 +262,7 @@ describe("session callback — mfaStatus", () => {
         suspendedAt: null,
         mfaInvalidatedAt: null,
         hasVerifiedMfaFactor: false,
+        sessionsInvalidBefore: null,
       },
     };
 
@@ -273,6 +279,7 @@ describe("session callback — mfaStatus", () => {
         suspendedAt: null,
         mfaInvalidatedAt: null,
         hasVerifiedMfaFactor: true,
+        sessionsInvalidBefore: null,
       },
     };
 
@@ -290,6 +297,7 @@ describe("session callback — mfaStatus", () => {
         suspendedAt: null,
         mfaInvalidatedAt: invalidatedAt,
         hasVerifiedMfaFactor: true,
+        sessionsInvalidBefore: null,
       },
     };
     const claimSeconds = Math.floor(invalidatedAt.getTime() / 1000) + 60;
@@ -311,6 +319,7 @@ describe("session callback — mfaStatus", () => {
         suspendedAt: null,
         mfaInvalidatedAt: invalidatedAt,
         hasVerifiedMfaFactor: true,
+        sessionsInvalidBefore: null,
       },
     };
     const staleClaimSeconds = Math.floor(invalidatedAt.getTime() / 1000) - 60;
@@ -339,6 +348,7 @@ describe("session callback — mfaStatus", () => {
       expect.objectContaining({
         mfaInvalidatedAt: expect.anything(),
         hasVerifiedMfaFactor: expect.anything(),
+        sessionsInvalidBefore: expect.anything(),
       }),
     );
     expect(limitMock).toHaveBeenCalledTimes(1);

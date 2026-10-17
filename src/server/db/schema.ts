@@ -245,6 +245,13 @@ export const users = pgTable(
     // JWT carrying an `mfaVerifiedAt` claim earlier than this instant is stale and must re-challenge
     // — the same "compare a stamp on the token against a stamp on the row" shape as suspension.
     mfaInvalidatedAt: timestamp("mfa_invalidated_at", { mode: "date", withTimezone: true }),
+    // Session-revocation stamp, written when the password is reset or changed. A non-null value
+    // means any token whose `signedInAtMs` claim is missing or earlier than this instant is a
+    // revoked session. Projected by the same live-account SELECT as `mfaInvalidatedAt`.
+    sessionsInvalidBefore: timestamp("sessions_invalid_before", {
+      mode: "date",
+      withTimezone: true,
+    }),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
@@ -461,6 +468,23 @@ export const userEmailVerificationTokens = pgTable(
   (table) => [
     uniqueIndex("user_email_verification_tokens_token_hash_unique_idx").on(table.tokenHash),
   ],
+);
+
+export const userPasswordResetTokens = pgTable(
+  "user_password_reset_tokens",
+  {
+    id: text("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()::text`),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("user_password_reset_tokens_token_hash_unique_idx").on(table.tokenHash)],
 );
 
 export const userPlatformRoles = pgTable(

@@ -35,6 +35,7 @@ import {
   teams,
   userEmailVerificationTokens,
   userPasswordCredentials,
+  userPasswordResetTokens,
   userPlatformRoles,
   userProfiles,
   users,
@@ -858,6 +859,13 @@ const runDeidentificationWrites = async (
       .delete(userEmailVerificationTokens)
       .where(eq(userEmailVerificationTokens.userId, accountId))
       .returning({ id: userEmailVerificationTokens.id }),
+  );
+
+  await deleteFrom("user_password_reset_tokens", () =>
+    tx
+      .delete(userPasswordResetTokens)
+      .where(eq(userPasswordResetTokens.userId, accountId))
+      .returning({ id: userPasswordResetTokens.id }),
   );
 
   await deleteFrom("mfa_factors", () =>

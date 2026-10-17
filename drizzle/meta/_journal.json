@@ -435,6 +435,13 @@
       "when": 1789941431113,
       "tag": "0061_users_recruiter_tier_no_downgrade",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1792225707697,
+      "tag": "0062_password_reset_tokens_and_sessions_invalid_before",
+      "breakpoints": true
     }
   ]
 }

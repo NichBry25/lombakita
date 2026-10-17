@@ -53,5 +53,9 @@ declare module "next-auth/jwt" {
     // it is older than the account's `mfa_invalidated_at`, which mfa-status.ts's fold compares on
     // every session resolution.
     mfaVerifiedAt?: number;
+    // Unix-milliseconds instant the jwt callback minted this token at sign-in. Compared against
+    // `users.sessions_invalid_before` on every session resolution (session-revocation.ts); a token
+    // without it counts as older than any stamp.
+    signedInAtMs?: number;
   }
 }

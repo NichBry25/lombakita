@@ -11,11 +11,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // AccessError("unauthenticated") — is covered in access-core.test.ts and is not duplicated here.
 
 type QueryOutcome =
-  | { kind: "row"; row: { role: string | null; suspendedAt: Date | null } }
+  | {
+      kind: "row";
+      row: { role: string | null; suspendedAt: Date | null; sessionsInvalidBefore: Date | null };
+    }
   | { kind: "empty" }
   | { kind: "error" };
 
-let queryOutcome: QueryOutcome = { kind: "row", row: { role: "candidate", suspendedAt: null } };
+let queryOutcome: QueryOutcome = {
+  kind: "row",
+  row: { role: "candidate", suspendedAt: null, sessionsInvalidBefore: null },
+};
 
 const loggerWarnMock = vi.fn();
 const captureExceptionMock = vi.fn();
@@ -112,7 +118,10 @@ const tokenFor = (role: string) => ({
 });
 
 beforeEach(() => {
-  queryOutcome = { kind: "row", row: { role: "candidate", suspendedAt: null } };
+  queryOutcome = {
+    kind: "row",
+    row: { role: "candidate", suspendedAt: null, sessionsInvalidBefore: null },
+  };
 });
 
 afterEach(() => {
@@ -129,7 +138,10 @@ afterEach(() => {
 
 describe("session callback — live role read", () => {
   it("surfaces the database role when it disagrees with the token (demotion takes effect)", async () => {
-    queryOutcome = { kind: "row", row: { role: "candidate", suspendedAt: null } };
+    queryOutcome = {
+      kind: "row",
+      row: { role: "candidate", suspendedAt: null, sessionsInvalidBefore: null },
+    };
 
     const result = await callSession(tokenFor("platform_ops"));
 
@@ -137,7 +149,10 @@ describe("session callback — live role read", () => {
   });
 
   it("keeps platform_ops for an account whose database role is still platform_ops", async () => {
-    queryOutcome = { kind: "row", row: { role: "platform_ops", suspendedAt: null } };
+    queryOutcome = {
+      kind: "row",
+      row: { role: "platform_ops", suspendedAt: null, sessionsInvalidBefore: null },
+    };
 
     const result = await callSession(tokenFor("platform_ops"));
 
@@ -145,7 +160,10 @@ describe("session callback — live role read", () => {
   });
 
   it("surfaces the database role when it is an upgrade the token has not seen", async () => {
-    queryOutcome = { kind: "row", row: { role: "recruiter", suspendedAt: null } };
+    queryOutcome = {
+      kind: "row",
+      row: { role: "recruiter", suspendedAt: null, sessionsInvalidBefore: null },
+    };
 
     const result = await callSession(tokenFor("candidate"));
 
@@ -230,7 +248,10 @@ describe("session callback — live role read", () => {
   });
 
   it("surfaces no role when the database value is not a recognised app role", async () => {
-    queryOutcome = { kind: "row", row: { role: "institution_admin", suspendedAt: null } };
+    queryOutcome = {
+      kind: "row",
+      row: { role: "institution_admin", suspendedAt: null, sessionsInvalidBefore: null },
+    };
 
     const result = await callSession(tokenFor("candidate"));
 
@@ -238,7 +259,10 @@ describe("session callback — live role read", () => {
   });
 
   it("surfaces no role when the database value is null", async () => {
-    queryOutcome = { kind: "row", row: { role: null, suspendedAt: null } };
+    queryOutcome = {
+      kind: "row",
+      row: { role: null, suspendedAt: null, sessionsInvalidBefore: null },
+    };
 
     const result = await callSession(tokenFor("candidate"));
 
@@ -256,7 +280,11 @@ describe("session callback — suspension alongside the live role", () => {
   it("surfaces suspendedAt and the live role together", async () => {
     queryOutcome = {
       kind: "row",
-      row: { role: "candidate", suspendedAt: new Date("2026-06-02T00:00:00.000Z") },
+      row: {
+        role: "candidate",
+        suspendedAt: new Date("2026-06-02T00:00:00.000Z"),
+        sessionsInvalidBefore: null,
+      },
     };
 
     const result = await callSession(tokenFor("platform_ops"));
@@ -304,7 +332,10 @@ describe("live account read budget and retry", () => {
     limitMock.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          setTimeout(() => resolve([{ role: "candidate", suspendedAt: null }]), 3000);
+          setTimeout(
+            () => resolve([{ role: "candidate", suspendedAt: null, sessionsInvalidBefore: null }]),
+            3000,
+          );
         }),
     );
     let result: { user?: Record<string, unknown> } | undefined;
@@ -407,7 +438,10 @@ describe("live account read budget and retry", () => {
     const failed = await callSession(token);
     expect(failed.user?.accountStateUnavailable).toBe(true);
     expect(token).toEqual(originalToken);
-    queryOutcome = { kind: "row", row: { role: "candidate", suspendedAt: null } };
+    queryOutcome = {
+      kind: "row",
+      row: { role: "candidate", suspendedAt: null, sessionsInvalidBefore: null },
+    };
     const recovered = await callSession(token);
     expect(recovered.user?.role).toBe("candidate");
     expect(recovered.user?.accountStateUnavailable).toBeUndefined();

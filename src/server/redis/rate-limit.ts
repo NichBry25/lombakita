@@ -223,6 +223,64 @@ export const clearFailedAttempts = async (key: string): Promise<void> => {
   }
 };
 
+// Read-only failed-attempt check, FAIL-CLOSED. Same count semantics as isFailedAttemptLimited, but
+// an unconfigured or unreachable Redis THROWS (after reporting) so the caller refuses rather than
+// assume the account is under the limit. `retryAfterSeconds` is the key's live TTL, 0 when the key
+// is under the limit.
+export const checkFailedAttemptLimitFailClosed = async (params: {
+  key: string;
+  limit: number;
+  windowSeconds: number;
+}): Promise<{ limited: boolean; retryAfterSeconds: number }> => {
+  if (!serverEnv.redisUrl) {
+    throw new Error("failed-attempt limiter unavailable: REDIS_URL not configured");
+  }
+
+  try {
+    return await runRedisCommand(async (redis) => {
+      const raw = await redis.get(params.key);
+      const count = raw ? Number.parseInt(raw, 10) : 0;
+      if (!Number.isFinite(count) || count < params.limit) {
+        return { limited: false, retryAfterSeconds: 0 };
+      }
+
+      const ttl = await redis.ttl(params.key);
+      const liveTtl = ttl < 0 ? params.windowSeconds : ttl;
+      return { limited: true, retryAfterSeconds: Math.max(1, liveTtl) };
+    });
+  } catch (error) {
+    reportRedisDegradation("failed-attempt-check-fail-closed", error);
+    throw error;
+  }
+};
+
+// Records one failed attempt, FAIL-CLOSED: INCR the counter and arm the TTL whenever the key has
+// none, but an unconfigured or unreachable Redis THROWS (after reporting). A failure that cannot be
+// recorded must not be answered as if the limiter had counted it.
+export const recordFailedAttemptFailClosed = async (params: {
+  key: string;
+  windowSeconds: number;
+}): Promise<void> => {
+  if (!serverEnv.redisUrl) {
+    throw new Error("failed-attempt limiter unavailable: REDIS_URL not configured");
+  }
+
+  try {
+    await runRedisCommand(async (redis) => {
+      await redis.incr(params.key);
+      const ttl = await redis.ttl(params.key);
+      // ttl < 0 means the key has no expiry: a new key, or a lost EXPIRE. Re-arm it so the counter
+      // can never become a permanent lockout.
+      if (ttl < 0) {
+        await redis.expire(params.key, params.windowSeconds);
+      }
+    });
+  } catch (error) {
+    reportRedisDegradation("failed-attempt-record-fail-closed", error);
+    throw error;
+  }
+};
+
 // Atomically consumes a single-use token. Returns true when this call was the first to set `key`
 // (the operation may proceed) and false when the key already existed (a replay). Fail-CLOSED: unlike
 // the limiters above, a Redis error — or an unconfigured Redis — THROWS so the caller refuses the

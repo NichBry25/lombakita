@@ -400,6 +400,7 @@ describe("the rendered enumeration", () => {
         "team_memberships",
         "user_email_verification_tokens",
         "user_password_credentials",
+        "user_password_reset_tokens",
         "user_platform_roles",
       ]);
 

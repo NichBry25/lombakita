@@ -23,6 +23,7 @@ const { getRedisClientMock } = vi.hoisted(() => ({ getRedisClientMock: vi.fn() }
 vi.mock("@/server/redis/client", () => ({ getRedisClient: getRedisClientMock }));
 
 import {
+  checkFailedAttemptLimitFailClosed,
   checkFixedWindowLimit,
   checkFixedWindowLimitFailClosed,
   clearFailedAttempts,
@@ -31,6 +32,7 @@ import {
   isFailedAttemptLimited,
   issueStoredGrant,
   recordFailedAttempt,
+  recordFailedAttemptFailClosed,
 } from "@/server/redis/rate-limit";
 
 type FakeRedis = {
@@ -161,6 +163,102 @@ describe("failed-attempt limiter", () => {
 
     expect(await isFailedAttemptLimited({ key: "rl:f", limit: 5 })).toBe(false);
     expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("fail-closed failed-attempt limiter", () => {
+  it("checkFailedAttemptLimitFailClosed is read-only and limited only at/over the limit", async () => {
+    redis.get.mockResolvedValueOnce("2");
+    expect(
+      await checkFailedAttemptLimitFailClosed({ key: "rl:f", limit: 5, windowSeconds: 900 }),
+    ).toEqual({ limited: false, retryAfterSeconds: 0 });
+
+    redis.get.mockResolvedValueOnce(null);
+    expect(
+      await checkFailedAttemptLimitFailClosed({ key: "rl:f", limit: 5, windowSeconds: 900 }),
+    ).toEqual({ limited: false, retryAfterSeconds: 0 });
+
+    redis.get.mockResolvedValueOnce("5");
+    redis.ttl.mockResolvedValueOnce(421);
+    expect(
+      await checkFailedAttemptLimitFailClosed({ key: "rl:f", limit: 5, windowSeconds: 900 }),
+    ).toEqual({ limited: true, retryAfterSeconds: 421 });
+
+    expect(redis.incr).not.toHaveBeenCalled();
+  });
+
+  it("reports at least 1 second, and the full window when the key has no live TTL", async () => {
+    redis.get.mockResolvedValueOnce("5");
+    redis.ttl.mockResolvedValueOnce(0);
+    expect(
+      await checkFailedAttemptLimitFailClosed({ key: "rl:f", limit: 5, windowSeconds: 900 }),
+    ).toEqual({ limited: true, retryAfterSeconds: 1 });
+
+    redis.get.mockResolvedValueOnce("7");
+    redis.ttl.mockResolvedValueOnce(-1);
+    expect(
+      await checkFailedAttemptLimitFailClosed({ key: "rl:f", limit: 5, windowSeconds: 900 }),
+    ).toEqual({ limited: true, retryAfterSeconds: 900 });
+  });
+
+  it("checkFailedAttemptLimitFailClosed throws and records to Sentry on a Redis error", async () => {
+    redis.get.mockRejectedValue(new Error("redis down"));
+
+    await expect(
+      checkFailedAttemptLimitFailClosed({ key: "rl:f", limit: 5, windowSeconds: 900 }),
+    ).rejects.toThrow("redis down");
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("checkFailedAttemptLimitFailClosed throws when REDIS_URL is not configured", async () => {
+    serverEnvMock.redisUrl = undefined;
+
+    await expect(
+      checkFailedAttemptLimitFailClosed({ key: "rl:f", limit: 5, windowSeconds: 900 }),
+    ).rejects.toThrow("failed-attempt limiter unavailable: REDIS_URL not configured");
+    expect(getRedisClientMock).not.toHaveBeenCalled();
+  });
+
+  it("recordFailedAttemptFailClosed arms the TTL on a new key and leaves a live TTL alone", async () => {
+    redis.incr.mockResolvedValueOnce(1);
+    redis.ttl.mockResolvedValueOnce(-1);
+    await recordFailedAttemptFailClosed({ key: "rl:f", windowSeconds: 900 });
+    expect(redis.expire).toHaveBeenCalledWith("rl:f", 900);
+
+    redis.expire.mockClear();
+    redis.incr.mockResolvedValueOnce(3);
+    redis.ttl.mockResolvedValueOnce(512);
+    await recordFailedAttemptFailClosed({ key: "rl:f", windowSeconds: 900 });
+    expect(redis.expire).not.toHaveBeenCalled();
+  });
+
+  it("recordFailedAttemptFailClosed arms the TTL of a key that has a count but no TTL", async () => {
+    // A lost EXPIRE: the counter survived without an expiry. Without the re-arm it would never
+    // reset and the account would stay locked for good.
+    redis.incr.mockResolvedValueOnce(4);
+    redis.ttl.mockResolvedValueOnce(-1);
+
+    await recordFailedAttemptFailClosed({ key: "rl:f", windowSeconds: 900 });
+
+    expect(redis.expire).toHaveBeenCalledWith("rl:f", 900);
+  });
+
+  it("recordFailedAttemptFailClosed throws and records to Sentry on a Redis error", async () => {
+    redis.incr.mockRejectedValue(new Error("redis down"));
+
+    await expect(
+      recordFailedAttemptFailClosed({ key: "rl:f", windowSeconds: 900 }),
+    ).rejects.toThrow("redis down");
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("recordFailedAttemptFailClosed throws when REDIS_URL is not configured", async () => {
+    serverEnvMock.redisUrl = undefined;
+
+    await expect(
+      recordFailedAttemptFailClosed({ key: "rl:f", windowSeconds: 900 }),
+    ).rejects.toThrow("failed-attempt limiter unavailable: REDIS_URL not configured");
+    expect(getRedisClientMock).not.toHaveBeenCalled();
   });
 });
 

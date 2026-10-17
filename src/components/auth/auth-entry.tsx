@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
-import { Button, SelectField, usePageTransition } from "@/components/ui";
+import { Button, ButtonLink, SelectField, usePageTransition } from "@/components/ui";
 import { AssentNotice } from "@/components/legal/assent-notice";
 import { useToast } from "@/components/ui/primitives";
 import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
@@ -30,6 +30,9 @@ type AuthEntryProps = {
   // True when arriving from the email-verification success redirect (?verified=1). Opens the
   // credentials method directly with a confirmation message.
   verifiedNotice?: boolean;
+  // True when arriving from a completed password reset or change (?passwordChanged=1). Opens the
+  // credentials method directly with a confirmation message.
+  passwordChangedNotice?: boolean;
   // Server-resolved message for a `?error=` query param (e.g. a failed sign-in redirect, or the
   // safe-link deny notice). Fired as a toast once on mount.
   initialErrorMessage?: string;
@@ -71,9 +74,12 @@ export const AuthEntry = ({
   callbackUrl,
   initialEmail,
   verifiedNotice,
+  passwordChangedNotice,
   initialErrorMessage,
 }: AuthEntryProps) => {
-  const [method, setMethod] = useState<Method>(verifiedNotice ? "credentials" : "choose");
+  const [method, setMethod] = useState<Method>(
+    verifiedNotice || passwordChangedNotice ? "credentials" : "choose",
+  );
   const [stage, setStage] = useState<CredentialStage>("entry");
 
   const [email, setEmail] = useState(initialEmail ?? "");
@@ -104,6 +110,12 @@ export const AuthEntry = ({
       addToast({
         type: "success",
         message: "Email berhasil diverifikasi. Silakan masuk dengan password Anda.",
+      });
+    }
+    if (passwordChangedNotice) {
+      addToast({
+        type: "success",
+        message: "Password berhasil diubah. Silakan masuk dengan password baru.",
       });
     }
     if (initialErrorMessage) {
@@ -504,6 +516,13 @@ export const AuthEntry = ({
               className="form-input"
               placeholder="Masukkan password"
             />
+            <ButtonLink
+              variant="ghost"
+              size="sm"
+              href={`/auth/forgot-password?email=${encodeURIComponent(email.trim().toLowerCase())}`}
+            >
+              Lupa password?
+            </ButtonLink>
           </div>
 
           <div className="auth-form-actions">

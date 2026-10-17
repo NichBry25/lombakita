@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
     suspendedAt: null as Date | null,
     mfaInvalidatedAt: null,
     hasVerifiedMfaFactor: false,
+    sessionsInvalidBefore: null,
   },
   token: {} as Record<string, unknown>,
   captureException: vi.fn(),

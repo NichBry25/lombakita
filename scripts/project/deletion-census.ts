@@ -947,6 +947,19 @@ export const NOT_PERSONAL_COLUMNS: readonly NotPersonalColumn[] = Object.freeze(
     column: "user_password_credentials.password_hash",
     reason: "a hash of a secret the application minted; the secret itself is never stored",
   },
+  // user_password_reset_tokens
+  {
+    column: "user_password_reset_tokens.id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "user_password_reset_tokens.user_id",
+    reason: "an app-minted id; nothing a person typed reaches it",
+  },
+  {
+    column: "user_password_reset_tokens.token_hash",
+    reason: "a hash of a secret the application minted; the secret itself is never stored",
+  },
   // user_platform_roles
   {
     column: "user_platform_roles.user_id",
@@ -1645,6 +1658,7 @@ export const TABLE_RULINGS: readonly StoreRuling[] = Object.freeze([
     "teams",
     "user_email_verification_tokens",
     "user_password_credentials",
+    "user_password_reset_tokens",
     "user_platform_roles",
     "user_profiles",
     "users",
