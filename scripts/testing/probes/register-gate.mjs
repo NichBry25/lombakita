@@ -99,21 +99,6 @@ export const fileHoldingOnce = (anchor, files = [REGISTER, REGISTER_ARCHIVE]) =>
 };
 
 /**
- * Where the probe list names the file for BETA-D29, read once at import.
- *
- * `probe-coverage.test.ts` imports this suite as data, so an anchor that has drifted must not throw
- * here. The register file stands in for it, and the mutation refuses with the real count when the
- * probe runs.
- */
-const BETA_D29_FILE = (() => {
-  try {
-    return fileHoldingOnce(BETA_D29_MARKED);
-  } catch {
-    return REGISTER;
-  }
-})();
-
-/**
  * A bullet whose head token the head matcher reads and the id test then rejects.
  *
  * `LAUNCH-D99X` is the shape of the defect the skip count exists for: a trailing character past the
@@ -270,7 +255,7 @@ export const probes = [
     klass: "D",
     harmfulMove:
       "leaving · DISCHARGED off the anchor line of an item a discharge section already declares discharged, so the file reports the same id as both discharged and live",
-    files: [BETA_D29_FILE],
+    files: [REGISTER, REGISTER_ARCHIVE],
     repo: DOC_LANE,
     appliedMarkers: ["- **BETA-D29 [LOW]** → Step 7.7."],
     mutate: () =>
