@@ -46,6 +46,8 @@ export class RegisterRefusal extends Error {
 export type DebtItem = {
   file: string;
   line: number;
+  /** The entry's last line, 1-based and inclusive. */
+  endLine: number;
   /** The id as written. */
   id: string;
   /** The severity bracket's content verbatim; empty when the item carries no bracket. */
@@ -219,9 +221,12 @@ const PHASE_EIGHT_ANCHOR = /^→\s*Phase\s+8\s+[\p{L}\p{N}]/u;
  * them, and the count is asserted.
  */
 export type SkippedBullet = {
+  file: string;
   /** The head token the census read, which is what failed to be a register id. */
   id: string;
   line: number;
+  /** The bullet's last line, 1-based and inclusive. */
+  endLine: number;
 };
 
 /** What one walk of the register produced. */
@@ -231,14 +236,14 @@ type RegisterWalk = {
 };
 
 /**
- * Reads every debt item in the register at `file`.
+ * Reads every debt item in the registers at `files`, as one population.
  *
- * Throws `RegisterRefusal` for a line it cannot classify. A missing file is refused too: this
- * census has no meaningful result over an absent register, and reporting an empty population would
- * read as "no debt".
+ * Throws `RegisterRefusal` for a line it cannot classify. A missing file is refused too, by name:
+ * this census has no meaningful result over an absent register, and reporting an empty population
+ * would read as "no debt". Each item keeps the `file` and `line` it was read from.
  */
-export function censusDebtItems(file: string): DebtItem[] {
-  return censusRegister(readRegister(file), file).items;
+export function censusDebtItems(files: readonly string[]): DebtItem[] {
+  return files.flatMap((file) => censusRegister(readRegister(file), file).items);
 }
 
 /** The same census over text already in hand, for a caller comparing two revisions of one file. */
@@ -257,12 +262,17 @@ export function censusDebtItemsFromText(text: string, file: string): DebtItem[] 
  * The walk is the SAME walk that produces the items, so this cannot drift from the population the
  * census actually leaves out.
  */
-export function censusSkippedBullets(file: string): SkippedBullet[] {
-  return censusRegister(readRegister(file), file).skipped;
+export function censusSkippedBullets(files: readonly string[]): SkippedBullet[] {
+  return files.flatMap((file) => censusRegister(readRegister(file), file).skipped);
+}
+
+/** The same skip census over text already in hand. */
+export function censusSkippedBulletsFromText(text: string, file: string): SkippedBullet[] {
+  return censusRegister(text, file).skipped;
 }
 
 /** The register's text, refusing rather than reporting an empty one. */
-function readRegister(file: string): string {
+export function readRegister(file: string): string {
   try {
     return readFileSync(file, "utf8");
   } catch {
@@ -307,6 +317,7 @@ function censusRegister(text: string, file: string): RegisterWalk {
       index += 1;
     }
 
+    const endLine = index;
     const flat = paragraph.join("\n").replace(/\s+/g, " ").trim();
     const head = HEAD.exec(flat);
     if (head === null) continue;
@@ -314,7 +325,7 @@ function censusRegister(text: string, file: string): RegisterWalk {
     if (matched === undefined || id === undefined) continue;
     if (!REGISTER_ID.test(id)) {
       if (!LEARNINGS_SECTION.test(section)) {
-        skipped.push({ id, line });
+        skipped.push({ file, id, line, endLine });
       }
       continue;
     }
@@ -361,6 +372,7 @@ function censusRegister(text: string, file: string): RegisterWalk {
     items.push({
       file,
       line,
+      endLine,
       id,
       severity: severityToken,
       block,
@@ -885,6 +897,8 @@ export type RegisterObligation = {
  */
 const NON_REGISTER_ID_BULLETS = "register bullets whose head id is not a register id";
 
+const ARCHIVE_LIVE_ENTRIES = "live debt entries filed in the archive file";
+
 /**
  * The ratchets.
  *
@@ -1053,6 +1067,18 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "holds the count until those rulings land, and moves with them when they do",
   },
   {
+    what: ARCHIVE_LIVE_ENTRIES,
+    bound: 0,
+    direction: "exact",
+    measuredBy: "node --import tsx scripts/project/verify-register.ts",
+    reason:
+      "Counts the entries in the archive file that the census reads as open work. The archive holds " +
+      "finished entries only, so an open entry filed there is invisible to a reader of the live " +
+      "register while every population still counts it. The count is exact at zero because there is " +
+      "no accepted instance: an open entry belongs in the live file, and a finished one is moved " +
+      "by `npm run register:sweep`.",
+  },
+  {
     what: "decision-log rows whose cells do not match their columns' declared count",
     bound: 0,
     direction: "exact",
@@ -1215,10 +1241,14 @@ export type RegisterMeasurement = {
  * module exists to avoid.
  */
 export function measureRegister(
-  registerFile: string,
+  registerFiles: readonly string[],
+  archiveFile: string,
   decisionLogFile: string,
 ): RegisterMeasurement[] {
-  const items = censusDebtItems(registerFile);
+  if (!registerFiles.includes(archiveFile)) {
+    throw new RegisterRefusal(archiveFile, 0, "the archive file is not among the register files");
+  }
+  const items = censusDebtItems(registerFiles);
   const log = readDecisionLog(decisionLogFile);
   const records = decisionRecords(log, decisionLogFile);
 
@@ -1237,12 +1267,14 @@ export function measureRegister(
       case "items a discharged section declares discharged whose anchor line carries no mark":
         return count(dischargedWithoutMark(items).length);
       case NON_REGISTER_ID_BULLETS: {
-        const skipped = censusSkippedBullets(registerFile);
+        const skipped = censusSkippedBullets(registerFiles);
         return {
           measured: skipped.length,
-          members: skipped.map((bullet) => `${bullet.id}:${bullet.line}`),
+          members: skipped.map((bullet) => `${bullet.file}:${bullet.id}:${bullet.line}`),
         };
       }
+      case ARCHIVE_LIVE_ENTRIES:
+        return count(items.filter((item) => item.file === archiveFile && item.live).length);
       case "decision-log rows whose cells do not match their columns' declared count":
         return count(rowsOffColumnCount(records).length);
       case "decision-log rows a blank line left outside every table":

@@ -51,10 +51,12 @@ import {
 
 const DOC_LANE = "docs";
 const REGISTER_IN_DOC_REPO = "project/open-debt.md";
+const REGISTER_ARCHIVE_IN_DOC_REPO = "archive/project/open-debt-archive.md";
 const DECISION_LOG_IN_DOC_REPO = "project/decision-log.md";
 const CLOSE_STEP_IN_DOC_REPO = ".claude/commands/close-step.md";
 
 const REGISTER = join(DOC_LANE, REGISTER_IN_DOC_REPO);
+const REGISTER_ARCHIVE = join(DOC_LANE, REGISTER_ARCHIVE_IN_DOC_REPO);
 const DECISION_LOG = join(DOC_LANE, DECISION_LOG_IN_DOC_REPO);
 const CLOSE_STEP = join(DOC_LANE, CLOSE_STEP_IN_DOC_REPO);
 
@@ -161,12 +163,14 @@ const main = (): void => {
   let items: DebtItem[];
   let measurements: RegisterMeasurement[];
   let baseline: { revision: string; text: string };
+  let archiveBaseline: { revision: string; text: string };
   let order: RunningOrder;
 
   try {
-    items = censusDebtItems(REGISTER);
-    measurements = measureRegister(REGISTER, DECISION_LOG);
+    items = censusDebtItems([REGISTER, REGISTER_ARCHIVE]);
+    measurements = measureRegister([REGISTER, REGISTER_ARCHIVE], REGISTER_ARCHIVE, DECISION_LOG);
     baseline = committedRegister(DOC_LANE, REGISTER_IN_DOC_REPO);
+    archiveBaseline = committedRegister(DOC_LANE, REGISTER_ARCHIVE_IN_DOC_REPO);
     order = runningOrder(CLOSE_STEP);
   } catch (error) {
     if (!(error instanceof RegisterRefusal)) throw error;
@@ -183,8 +187,12 @@ const main = (): void => {
 
   console.log("register gate");
   console.log(`  register          ${REGISTER}`);
+  console.log(`  register archive  ${REGISTER_ARCHIVE}`);
   console.log(`  decision log      ${DECISION_LOG}`);
-  console.log(`  baseline          ${DOC_LANE}@${baseline.revision} (${REGISTER_IN_DOC_REPO})`);
+  console.log(
+    `  baseline          ${DOC_LANE}@${baseline.revision} ` +
+      `(${REGISTER_IN_DOC_REPO}, ${REGISTER_ARCHIVE_IN_DOC_REPO})`,
+  );
   console.log(`  items             ${summary.items}`);
   console.log(`  live ids          ${summary.live}  (${summary.liveEntries} entries)`);
   console.log(`  anchored live     ${summary.canonicalAnchoredLive}`);
@@ -194,7 +202,10 @@ const main = (): void => {
   );
   console.log(`  measured by       ${run}`);
 
-  const before = censusDebtItemsFromText(baseline.text, REGISTER_IN_DOC_REPO);
+  const before = [
+    ...censusDebtItemsFromText(baseline.text, REGISTER_IN_DOC_REPO),
+    ...censusDebtItemsFromText(archiveBaseline.text, REGISTER_ARCHIVE_IN_DOC_REPO),
+  ];
   const newlyFiled = newlyFiledWithoutStepAnchor(before, items);
 
   console.log("\ngates");
