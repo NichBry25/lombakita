@@ -1067,7 +1067,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "decision-log rows a blank line left outside every table",
-    bound: 107,
+    bound: 0,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
@@ -1091,7 +1091,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "decision-log rows written on another record's line instead of below it",
-    bound: 1,
+    bound: 0,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
@@ -1100,7 +1100,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "decision-log rows whose Date cell does not hold a date",
-    bound: 1,
+    bound: 0,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:

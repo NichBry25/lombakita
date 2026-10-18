@@ -120,7 +120,7 @@ const CLOSE_STEP_COMMIT_LINE =
  * replacement is prose that names the same id, so the row's meaning is unchanged and only the
  * reading loses it — which is exactly the shrinkage the floor is there to catch.
  */
-const SUPERSEDES_CELL_OF_DEC_0010 = "| DEC-0153        |";
+const SUPERSEDES_CELL_OF_DEC_0010 = "| DEC-0153 |\n| DEC-0011 |";
 
 /**
  * Row prefixes run as far as the `| owner |` cell on purpose.
@@ -470,7 +470,12 @@ export const probes = [
     files: [DECISION_LOG],
     repo: DOC_LANE,
     appliedMarkers: ["| Extends DEC-0153 |"],
-    mutate: () => substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0010, "| Extends DEC-0153 |"),
+    mutate: () =>
+      substituteOnce(
+        DECISION_LOG,
+        SUPERSEDES_CELL_OF_DEC_0010,
+        "| Extends DEC-0153 |\n| DEC-0011 |",
+      ),
     detect: () =>
       gateRefused(
         /FAIL\s+\d+\s+decision-log Supersedes cells holding nothing but an id\s+\(down 1 — below the floor of \d+\)/,
