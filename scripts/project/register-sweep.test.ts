@@ -130,6 +130,18 @@ describe("what an id's entries do together", () => {
     expect(moved?.section).toBe("### Discharged in this phase, with a comma");
   });
 
+  it("moves a bullet that runs over several lines as one piece", () => {
+    const live = block(
+      OPEN_ENTRY,
+      "### Discharged\n\n- **Label-1.** First line.\n  Second line.\n  Third line.",
+    );
+
+    const plan = sweep(live);
+
+    expect(plan.archive).toContain("- **Label-1.** First line.\n  Second line.\n  Third line.");
+    expect(plan.live).not.toContain("Second line.");
+  });
+
   it("moves an entry that runs over several lines as one piece", () => {
     const live = block(
       OPEN_ENTRY,
@@ -301,7 +313,7 @@ describe("what a move leaves behind", () => {
 
   it("ends the live file with a newline when its last block is the one that goes", () => {
     const last = "## Known Debt (Step 1.0)\n\n### Discharged\n\n- **A-D2 [HIGH]** Finished.\n";
-    const live = `${block(OPEN_ENTRY)}\n${last}`;
+    const live = `${block(OPEN_ENTRY).trimEnd()}\n${last}`;
 
     const plan = sweep(live);
 

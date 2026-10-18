@@ -389,9 +389,6 @@ export function planSweep(
   if (!DATE.test(date)) {
     throw new RegisterRefusal("--date", 0, `${JSON.stringify(date)} is not YYYY-MM-DD`);
   }
-  censusDebtItemsFromText(archiveText, ARCHIVE_IN_DOCS);
-  censusSkippedBulletsFromText(archiveText, ARCHIVE_IN_DOCS);
-
   const plan = build(liveText, archiveText, date);
   refuseUnsoundPlan({ live: liveText, archive: archiveText }, plan, date);
   return plan;
