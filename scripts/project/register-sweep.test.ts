@@ -280,6 +280,35 @@ describe("what a move leaves behind", () => {
     expect(plan.archive.endsWith("- **A-D2 [HIGH]** Finished.\n")).toBe(true);
   });
 
+  it("keeps an entry that sits above the first block heading", () => {
+    const live = `# TITLE\n\n- **A-D2 [HIGH]** Finished, above every block.\n\n${block(OPEN_ENTRY)}`;
+
+    const plan = sweep(live);
+
+    expect(plan.live).toBe(live);
+    expect(plan.entriesMoved).toBe(0);
+  });
+
+  it("starts the batch on a new line when the archive does not end with one", () => {
+    const live = block(OPEN_ENTRY, "### Discharged\n\n- **A-D2 [HIGH]** Finished.");
+
+    const plan = sweep(live, "# ARCHIVE\n\nOld text.");
+
+    expect(plan.archive.startsWith("# ARCHIVE\n\nOld text.\n\n<!-- swept 2026-03-05 -->\n")).toBe(
+      true,
+    );
+  });
+
+  it("ends the live file with a newline when its last block is the one that goes", () => {
+    const last = "## Known Debt (Step 1.0)\n\n### Discharged\n\n- **A-D2 [HIGH]** Finished.\n";
+    const live = `${block(OPEN_ENTRY)}\n${last}`;
+
+    const plan = sweep(live);
+
+    expect(plan.blocksRemoved).toBe(1);
+    expect(plan.live.endsWith("Live.\n")).toBe(true);
+  });
+
   it("does not change an archive, or a live file, when nothing is movable", () => {
     const live = block(OPEN_ENTRY);
 
@@ -559,6 +588,7 @@ describe("the register:sweep command", () => {
   it.each([
     [["--write", "--check"], "cannot be combined with --check"],
     [["--wirte"], "is not an argument register:sweep takes"],
+    [["--write", "--wirte"], "is not an argument register:sweep takes"],
     [["--write", "--date", "yesterday"], "is not YYYY-MM-DD"],
     [["--write", "--date"], "needs a date"],
   ])(

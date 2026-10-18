@@ -644,6 +644,18 @@ describe("the register gate as a process", () => {
     expect(gate.out).toMatch(/FAIL\s+1\s+live debt entries filed in the archive file\s+\(up 1\)/);
   }, 30_000);
 
+  it("reads the archive's entries into gate (b) as well", () => {
+    const planted = `${OLD}\n### Open\n\n- **A-D6 [HIGH]** → Block D. Names a block and no step.\n`;
+    const lane = laneWith(
+      { [REGISTER_PATH]: LIVE, [ARCHIVE_PATH]: OLD },
+      { [ARCHIVE_PATH]: planted },
+    );
+
+    expect(runGate(lane).out).toMatch(
+      /FAIL\s+no live item names a block without naming a step \(1\)/,
+    );
+  }, 30_000);
+
   it("treats an id the committed archive holds as already filed", () => {
     const refiled = `${LIVE}\n- **A-D5 [LOW]** No anchor at all.\n`;
     const lane = laneWith(
