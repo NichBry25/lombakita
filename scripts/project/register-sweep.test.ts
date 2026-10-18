@@ -18,8 +18,15 @@ import {
   summariseRegister,
 } from "./register-census";
 // @ts-expect-error the probe suite is plain JavaScript with no declaration file
-import { fileHoldingOnce } from "../testing/probes/register-gate.mjs";
-import { ARCHIVE_IN_DOCS, REGISTER_IN_DOCS, planSweep, type SweepPlan } from "./register-sweep";
+import { fileHoldingOnce, probes } from "../testing/probes/register-gate.mjs";
+import {
+  ARCHIVE_IN_DOCS,
+  REGISTER_IN_DOCS,
+  measuredSignature,
+  planSweep,
+  writePlan,
+  type SweepPlan,
+} from "./register-sweep";
 
 const FIXTURES = join(__dirname, "..", "testing", "fixtures", "register-sweep");
 const fixture = (name: string): string => readFileSync(join(FIXTURES, name), "utf8");
@@ -88,7 +95,7 @@ describe("what an id's entries do together", () => {
     expect(plan.entriesMoved).toBe(0);
   });
 
-  it("moves an id none of whose entries is live", () => {
+  it("moves an id all of whose entries are finished", () => {
     const live = block(
       OPEN_ENTRY,
       "### Discharged\n\n- **A-D2 [HIGH]** Finished.\n\n- **A-D2 [HIGH]** Finished, filed twice.",
@@ -99,6 +106,59 @@ describe("what an id's entries do together", () => {
     expect(plan.entriesMoved).toBe(2);
     expect(plan.live).not.toContain("A-D2");
     expect(plan.archive.match(/\*\*A-D2 /g)).toHaveLength(2);
+  });
+
+  it("keeps both entries of an id that has one finished entry and one that is not", () => {
+    const finished = "- **A-D2 [HIGH] → Step 1.2 Block A · DISCHARGED 2026-01-01.** Finished.";
+    const live = block(
+      OPEN_ENTRY,
+      `### Open\n\n${finished}`,
+      "### Amendments to earlier items\n\n- **A-D2** re-anchored by a later close.",
+    );
+
+    const plan = sweep(live);
+
+    expect(plan.live).toBe(live);
+    expect(plan.entriesMoved).toBe(0);
+  });
+
+  it("keeps an entry with a severity and no anchor and no mark in a block body", () => {
+    const live = block("- **A-D3 [MEDIUM]** Not live, and not marked finished.", OPEN_ENTRY);
+
+    const plan = sweep(live);
+
+    expect(plan.live).toBe(live);
+    expect(plan.entriesMoved).toBe(0);
+  });
+
+  it("keeps an unmarked entry under a heading that is not a finished one", () => {
+    const live = block(OPEN_ENTRY, "### Notes\n\n- **A-D3 [LOW]** Not marked finished.");
+
+    const plan = sweep(live);
+
+    expect(plan.live).toBe(live);
+    expect(plan.entriesMoved).toBe(0);
+  });
+
+  it("moves an entry under a finished heading that carries no mark of its own", () => {
+    const live = block(OPEN_ENTRY, "### Fixed\n\n- **A-D3 [LOW]** Finished by its heading.");
+
+    const plan = sweep(live);
+
+    expect(plan.entriesMoved).toBe(1);
+    expect(plan.live).not.toContain("A-D3");
+  });
+
+  it("moves an entry that carries the withdrawal mark under an open heading", () => {
+    const live = block(
+      OPEN_ENTRY,
+      "### Open\n\n- **A-D3 [LOW] → Step 1.2 Block A · WITHDRAWN 2026-01-01, filed in error.** x",
+    );
+
+    const plan = sweep(live);
+
+    expect(plan.entriesMoved).toBe(1);
+    expect(plan.live).not.toContain("A-D3");
   });
 
   it("moves a block-body entry, with no sub-heading made up for it", () => {
@@ -182,6 +242,15 @@ describe("which bullets that are not entries move", () => {
       expect(plan.live).toBe(live);
     },
   );
+
+  it("keeps a skipped bullet in a block body", () => {
+    const live = block("- **Label-1.** A prose bullet in the body.", OPEN_ENTRY);
+
+    const plan = sweep(live);
+
+    expect(plan.bulletsMoved).toBe(0);
+    expect(plan.live).toBe(live);
+  });
 
   it("keeps a Learnings bullet", () => {
     const live = block(OPEN_ENTRY, "### Learnings\n\n- **A lesson** that carries no id.");
@@ -301,6 +370,14 @@ describe("what a move leaves behind", () => {
     expect(plan.entriesMoved).toBe(0);
   });
 
+  it("starts the batch directly when the archive is empty", () => {
+    const live = block(OPEN_ENTRY, "### Discharged\n\n- **A-D2 [HIGH]** Finished.");
+
+    const plan = sweep(live, "");
+
+    expect(plan.archive.startsWith("\n<!-- swept 2026-03-05 -->\n\n## ")).toBe(true);
+  });
+
   it("starts the batch on a new line when the archive does not end with one", () => {
     const live = block(OPEN_ENTRY, "### Discharged\n\n- **A-D2 [HIGH]** Finished.");
 
@@ -389,6 +466,16 @@ describe("what the sweep must not change", () => {
         "- **A-D2 [HIGH] → Step 1.2 Block A · DISCHARGED 2026-01-01.** Finished.",
         OPEN_ENTRY,
         "### Discharged\n\n- **A-D3 [HIGH]** Finished.\n\n- **Label-1.** A bullet.",
+      ),
+      EMPTY_ARCHIVE,
+    ],
+    [
+      "an unmarked entry, an unmarked skipped bullet and a finished entry in one block body",
+      block(
+        "- **A-D3 [MEDIUM]** Not live, not marked.",
+        "- **Label-1.** A prose bullet.",
+        "- **A-D4 [LOW] → Step 1.2 Block A · DISCHARGED 2026-01-01.** Finished.",
+        OPEN_ENTRY,
       ),
       EMPTY_ARCHIVE,
     ],
@@ -527,6 +614,250 @@ describe("an entry that runs over indented paragraphs", () => {
   });
 });
 
+describe("an entry body the sweep cannot move whole", () => {
+  const FINISHED_HEAD = "- **A-D2 [HIGH] → Step 1.2 Block A · DISCHARGED 2026-03-02.** Finished.";
+
+  it("refuses a non-indented line written directly under an indented body line", () => {
+    const live = block(
+      OPEN_ENTRY,
+      `### Discharged\n\n${FINISHED_HEAD}\n\n  First body paragraph.\nA lazy line.\n\n  Second body paragraph.`,
+    );
+
+    expect(() => sweep(live)).toThrow(/split an entry/);
+  });
+
+  it("moves a body that follows the head after two blank lines", () => {
+    const live = block(
+      OPEN_ENTRY,
+      `### Discharged\n\n${FINISHED_HEAD}\n\n\n  A body after two blank lines.`,
+    );
+
+    const plan = sweep(live);
+
+    expect(plan.live).toBe(block(OPEN_ENTRY));
+    expect(plan.archive).toContain(`${FINISHED_HEAD}\n\n\n  A body after two blank lines.\n`);
+  });
+
+  it("moves a body indented with a tab", () => {
+    const live = block(
+      OPEN_ENTRY,
+      `### Discharged\n\n${FINISHED_HEAD}\n\n\tA body indented with a tab.`,
+    );
+
+    const plan = sweep(live);
+
+    expect(plan.live).toBe(block(OPEN_ENTRY));
+    expect(plan.archive).toContain(`${FINISHED_HEAD}\n\n\tA body indented with a tab.\n`);
+  });
+});
+
+/**
+ * A planner that does the wrong thing, handed to the output check. Each of these plans is sound in
+ * every other respect, so the check that refuses it is the one under test.
+ */
+describe("a plan that moves work that is not finished", () => {
+  const noCounts = { entriesMoved: 1, bulletsMoved: 0, headingsRemoved: 0, blocksRemoved: 0 };
+  const batch = (...pieces: string[]): string =>
+    `\n<!-- swept ${DATE} -->\n\n## Known Debt (Step 1.1)\n\n${pieces.join("\n\n")}\n`;
+
+  it("refuses to move an entry that is not live and not marked", () => {
+    const unmarked = "- **A-D3 [MEDIUM]** Not live, and not marked finished.";
+    const live = block(unmarked, OPEN_ENTRY);
+    const overreaching = (liveText: string, archive: string): SweepPlan => ({
+      live: liveText.replace(`${unmarked}\n\n`, ""),
+      archive: `${archive}${batch(unmarked)}`,
+      ...noCounts,
+    });
+
+    expect(() => planSweep(live, EMPTY_ARCHIVE, DATE, overreaching)).toThrow(
+      /moved work that is not finished/,
+    );
+  });
+
+  it("refuses to move a finished entry of an id that still has an unfinished one", () => {
+    const detail = "- **A-D1 [HIGH]** Finished detail of an id that is open.";
+    const live = block(OPEN_ENTRY, `### Discharged\n\n${detail}`);
+    const splitting = (liveText: string, archive: string): SweepPlan => ({
+      live: liveText.replace(`### Discharged\n\n${detail}\n`, "").trimEnd().concat("\n"),
+      archive: `${archive}${batch(`### Discharged\n\n${detail}`)}`,
+      ...noCounts,
+    });
+
+    expect(() => planSweep(live, EMPTY_ARCHIVE, DATE, splitting)).toThrow(
+      /moved work that is not finished/,
+    );
+  });
+
+  it("refuses to move a skipped bullet from a heading that is not a finished one", () => {
+    const bullet = "- **Label-1.** A prose bullet.";
+    const live = block(OPEN_ENTRY, `### Notes\n\n${bullet}`);
+    const overreaching = (liveText: string, archive: string): SweepPlan => ({
+      live: liveText.replace(`### Notes\n\n${bullet}\n`, "").trimEnd().concat("\n"),
+      archive: `${archive}${batch(`### Notes\n\n${bullet}`)}`,
+      entriesMoved: 0,
+      bulletsMoved: 1,
+      headingsRemoved: 1,
+      blocksRemoved: 0,
+    });
+
+    expect(() => planSweep(live, EMPTY_ARCHIVE, DATE, overreaching)).toThrow(
+      /moved work that is not finished/,
+    );
+  });
+});
+
+/**
+ * Each field the output check reads of an entry, changed alone. If a field were dropped from the
+ * reading, two registers differing only in that field would read alike.
+ */
+describe("what the output check reads of an entry", () => {
+  const filed = (heading: string, section: string, line: string): string =>
+    `## ${heading}\n\n### ${section}\n\n${line}\n`;
+  const READING = filed("Known Debt (Step 1.1)", "Notes", "- **A-D1 [LOW]** Entry.");
+
+  it("reads the same text the same way twice", () => {
+    expect(measuredSignature(READING, "")).toEqual(measuredSignature(READING, ""));
+  });
+
+  it.each([
+    ["the block heading", filed("Known Debt (Step 1.2)", "Notes", "- **A-D1 [LOW]** Entry.")],
+    ["the section heading", filed("Known Debt (Step 1.1)", "Fixed", "- **A-D1 [LOW]** Entry.")],
+    ["the severity", filed("Known Debt (Step 1.1)", "Notes", "- **A-D1 [HIGH]** Entry.")],
+    ["the id", filed("Known Debt (Step 1.1)", "Notes", "- **A-D2 [LOW]** Entry.")],
+    [
+      "the anchor",
+      filed("Known Debt (Step 1.1)", "Notes", "- **A-D1 [LOW] → Step 1.2 Block A.** Entry."),
+    ],
+    [
+      "the discharge mark",
+      filed("Known Debt (Step 1.1)", "Notes", "- **A-D1 [LOW]** Entry · DISCHARGED 2026-01-01."),
+    ],
+    [
+      "the withdrawal mark",
+      filed("Known Debt (Step 1.1)", "Notes", "- **A-D1 [LOW]** Entry · WITHDRAWN 2026-01-01."),
+    ],
+  ])("tells a register apart when only %s differs", (_name, other) => {
+    expect(measuredSignature(other, "")).not.toEqual(measuredSignature(READING, ""));
+  });
+
+  it("tells an anchor apart from another anchor", () => {
+    const first = filed("Known Debt (Step 1.1)", "Notes", "- **A-D1 [LOW] → Step 1.2 Block A.** x");
+    const second = filed(
+      "Known Debt (Step 1.1)",
+      "Notes",
+      "- **A-D1 [LOW] → Step 1.3 Block A.** x",
+    );
+
+    expect(measuredSignature(first, "")).not.toEqual(measuredSignature(second, ""));
+  });
+
+  it("reads the archive text as well as the live text", () => {
+    expect(measuredSignature(READING, READING)).not.toEqual(measuredSignature(READING, ""));
+  });
+
+  describe("and of a skipped bullet", () => {
+    const BULLET = filed("Known Debt (Step 1.1)", "Discharged", "- **Label-1.** Bullet.");
+
+    it("tells a bullet apart from none", () => {
+      expect(measuredSignature(BULLET, "")).not.toEqual(
+        measuredSignature(filed("Known Debt (Step 1.1)", "Discharged", "Prose."), ""),
+      );
+    });
+
+    it("tells a bullet apart from another bullet", () => {
+      const other = filed("Known Debt (Step 1.1)", "Discharged", "- **Label-2.** Bullet.");
+
+      expect(measuredSignature(other, "")).not.toEqual(measuredSignature(BULLET, ""));
+    });
+
+    it("tells a bullet apart by the heading it sits under", () => {
+      const other = filed("Known Debt (Step 1.1)", "Fixed", "- **Label-1.** Bullet.");
+
+      expect(measuredSignature(other, "")).not.toEqual(measuredSignature(BULLET, ""));
+    });
+  });
+});
+
+describe("what the output check refuses in a plan that is otherwise sound", () => {
+  const sameCounts = { entriesMoved: 0, bulletsMoved: 0, headingsRemoved: 0, blocksRemoved: 0 };
+
+  it("refuses a plan that invents a line", () => {
+    const inventing = (liveText: string, archive: string): SweepPlan => ({
+      live: `${liveText}\nAn invented line.\n`,
+      archive,
+      ...sameCounts,
+    });
+
+    expect(() => planSweep(block(OPEN_ENTRY), EMPTY_ARCHIVE, DATE, inventing)).toThrow(
+      /lost or invented a line/,
+    );
+  });
+
+  it("refuses a plan that moves an entry to a different block heading", () => {
+    const rehomed = (liveText: string, archive: string): SweepPlan => ({
+      live: liveText.replace("### Discharged\n\n- **A-D2 [HIGH]** Finished.\n", ""),
+      archive: `${archive}\n## Known Debt (Step 1.0)\n\n### Discharged\n\n- **A-D2 [HIGH]** Finished.\n`,
+      entriesMoved: 1,
+      bulletsMoved: 0,
+      headingsRemoved: 0,
+      blocksRemoved: 0,
+    });
+    const live = block(OPEN_ENTRY, "### Discharged\n\n- **A-D2 [HIGH]** Finished.");
+
+    expect(() => planSweep(live, EMPTY_ARCHIVE, DATE, rehomed)).toThrow(/does not measure like/);
+  });
+});
+
+describe("writing a plan", () => {
+  const live = block(OPEN_ENTRY, "### Discharged\n\n- **A-D2 [HIGH]** Finished.");
+
+  const pathsFor = () => {
+    const [livePath, archivePath] = filesFor(live, EMPTY_ARCHIVE);
+    return { live: livePath, archive: archivePath };
+  };
+
+  it("writes the archive first and the live file second", () => {
+    const paths = pathsFor();
+    const written: string[] = [];
+
+    writePlan(sweep(live), paths, (path) => {
+      written.push(path);
+    });
+
+    expect(written).toEqual([paths.archive, paths.live]);
+  });
+
+  it("leaves the live file as it was and the batch in the archive when the second write fails", () => {
+    const paths = pathsFor();
+    const plan = sweep(live);
+    let writes = 0;
+    const failingSecond = (path: string, text: string): void => {
+      writes += 1;
+      if (writes === 2) throw new Error("disk full");
+      writeFileSync(path, text);
+    };
+
+    expect(() => writePlan(plan, paths, failingSecond)).toThrow("disk full");
+
+    expect(readFileSync(paths.live, "utf8")).toBe(live);
+    expect(readFileSync(paths.archive, "utf8")).toBe(plan.archive);
+    expect(readFileSync(paths.archive, "utf8")).toContain("- **A-D2 [HIGH]** Finished.");
+  });
+});
+
+describe("the register probe's wiring", () => {
+  it("names the live file and the archive file for the discharge probe", () => {
+    const probe = probes.find((candidate: { name: string }) =>
+      candidate.name.startsWith("a discharge declared in prose"),
+    );
+
+    expect(probe?.files).toEqual([
+      "docs/project/open-debt.md",
+      "docs/archive/project/open-debt-archive.md",
+    ]);
+  });
+});
+
 describe("a live entry planted in the archive", () => {
   const planted = "## Known Debt (Step 1.0)\n\n### Open\n\n- **A-D9 [HIGH]** Still owed.\n";
 
@@ -537,7 +868,8 @@ describe("a live entry planted in the archive", () => {
     const [livePath, archivePath] = filesFor(plan.live, plan.archive);
     const archiveOwing = measureRegister([livePath, archivePath], archivePath, DECISION_LOG).find(
       (measurement) =>
-        measurement.obligation.what === "live debt entries filed in the archive file",
+        measurement.obligation.what ===
+        "entries filed in the archive file that carry no mark of being finished",
     );
 
     expect(plan.archive).toContain(planted);
@@ -586,6 +918,17 @@ describe("the register:sweep command", () => {
     expect(result.status).toBe(1);
     expect(result.err).toContain("a sweep is pending: 5 entries and 3 skipped bullets moved");
     expect(bytes(docs)).toEqual([fixture("live.md"), fixture("archive.md")]);
+  }, 30_000);
+
+  it("exits 1 under --check when only skipped bullets would move", () => {
+    const onlyABullet = block(OPEN_ENTRY, "### Discharged\n\n- **Label-1.** A finished bullet.");
+    const docs = docsWith(onlyABullet, EMPTY_ARCHIVE);
+
+    const result = run(docs, "--check");
+
+    expect(result.status).toBe(1);
+    expect(result.err).toContain("a sweep is pending: 0 entries and 1 skipped bullets moved");
+    expect(bytes(docs)).toEqual([onlyABullet, EMPTY_ARCHIVE]);
   }, 30_000);
 
   it("checks when given no mode at all", () => {

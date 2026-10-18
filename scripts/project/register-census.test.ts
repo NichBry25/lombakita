@@ -502,7 +502,8 @@ describe("a register held in more than one file", () => {
 });
 
 describe("the archive obligation", () => {
-  const archiveOwing = "live debt entries filed in the archive file";
+  const archiveUnfinished =
+    "entries filed in the archive file that carry no mark of being finished";
   const live = join(workspace, "archive-live.md");
   const archive = join(workspace, "archive-file.md");
   writeFileSync(live, "## Known Debt (Step 1.1)\n\n### Open\n\n- **A-D1 [HIGH]** Owed.\n");
@@ -510,33 +511,76 @@ describe("the archive obligation", () => {
   const measuredWith = (archiveText: string): number | undefined => {
     writeFileSync(archive, archiveText);
     const found = measureRegister([live, archive], archive, DECISION_LOG).find(
-      (measurement) => measurement.obligation.what === archiveOwing,
+      (measurement) => measurement.obligation.what === archiveUnfinished,
     );
     return found?.measured;
   };
 
-  it("reads zero when the archive holds only finished entries", () => {
-    expect(
-      measuredWith(
-        "## Known Debt (Step 1.0)\n\n### Discharged\n\n- **A-D2 [HIGH]** → Step 1.1 · DISCHARGED 2026-01-01.\n",
-      ),
-    ).toBe(0);
+  const underOpen = (entry: string): string => `## Known Debt (Step 1.0)\n\n### Open\n\n${entry}\n`;
+
+  it("reads zero when the archive holds an entry carrying the discharge mark", () => {
+    expect(measuredWith(underOpen("- **A-D2 [HIGH]** → Step 1.1 · DISCHARGED 2026-01-01."))).toBe(
+      0,
+    );
   });
 
-  it("reads one when a live entry is filed in the archive", () => {
+  it("reads zero when the archive holds an entry carrying the withdrawal mark", () => {
+    expect(measuredWith(underOpen("- **A-D2 [HIGH]** → Step 1.1 · WITHDRAWN 2026-01-01."))).toBe(0);
+  });
+
+  it.each(["Discharged", "Fixed in-step after depth review", "Withdrawn — do not carry"])(
+    "reads zero for an unmarked entry under ### %s",
+    (heading) => {
+      expect(
+        measuredWith(`## Known Debt (Step 1.0)\n\n### ${heading}\n\n- **A-D2 [HIGH]** Done.\n`),
+      ).toBe(0);
+    },
+  );
+
+  it("reads one when an open entry is filed in the archive", () => {
+    expect(measuredWith(underOpen("- **A-D2 [HIGH]** Still owed."))).toBe(1);
+  });
+
+  it("reads one for an entry that is not live and carries no mark", () => {
     expect(
-      measuredWith("## Known Debt (Step 1.0)\n\n### Open\n\n- **A-D2 [HIGH]** Still owed.\n"),
+      measuredWith("## Known Debt (Step 1.0)\n\n- **A-D2 [MEDIUM]** No anchor, no mark.\n"),
     ).toBe(1);
   });
 
-  it("does not count the live file's own live entries", () => {
+  it.each(["Learnings", "Notes"])("reads one for an unmarked entry under ### %s", (heading) => {
+    expect(
+      measuredWith(`## Known Debt (Step 1.0)\n\n### ${heading}\n\n- **A-D2 [LOW]** Remark.\n`),
+    ).toBe(1);
+  });
+
+  it("counts each unmarked entry once", () => {
+    expect(
+      measuredWith(
+        underOpen(
+          "- **A-D2 [HIGH]** Owed.\n\n- **A-D3 [LOW]** Owed.\n\n- **A-D4 [LOW]** · DISCHARGED",
+        ),
+      ),
+    ).toBe(2);
+  });
+
+  it("does not count the live file's own unfinished entries", () => {
     expect(measuredWith("# OPEN DEBT ARCHIVE\n")).toBe(0);
   });
 
   it("is held at exactly zero", () => {
-    const obligation = REGISTER_OBLIGATIONS.find((candidate) => candidate.what === archiveOwing);
+    const obligation = REGISTER_OBLIGATIONS.find(
+      (candidate) => candidate.what === archiveUnfinished,
+    );
 
     expect([obligation?.bound, obligation?.direction]).toEqual([0, "exact"]);
+  });
+
+  it("states its reason without a count", () => {
+    const obligation = REGISTER_OBLIGATIONS.find(
+      (candidate) => candidate.what === archiveUnfinished,
+    );
+
+    expect(obligation?.reason).not.toMatch(/\d/);
   });
 
   it("refuses an archive file that is not among the register files", () => {
@@ -628,7 +672,9 @@ describe("the register gate as a process", () => {
   it("prints a line for the archive obligation like the others", () => {
     const lane = laneWith({ [REGISTER_PATH]: LIVE, [ARCHIVE_PATH]: OLD }, {});
 
-    expect(runGate(lane).out).toMatch(/PASS\s+0\s+live debt entries filed in the archive file/);
+    expect(runGate(lane).out).toMatch(
+      /PASS\s+0\s+entries filed in the archive file that carry no mark of being finished/,
+    );
   }, 30_000);
 
   it("fails the close when a live entry is filed in the archive", () => {
@@ -641,7 +687,9 @@ describe("the register gate as a process", () => {
     const gate = runGate(lane);
 
     expect(gate.status).toBe(1);
-    expect(gate.out).toMatch(/FAIL\s+1\s+live debt entries filed in the archive file\s+\(up 1\)/);
+    expect(gate.out).toMatch(
+      /FAIL\s+1\s+entries filed in the archive file that carry no mark of being finished\s+\(up 1\)/,
+    );
   }, 30_000);
 
   it("reads the archive's entries into gate (b) as well", () => {

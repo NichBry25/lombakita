@@ -6,11 +6,13 @@
  *
  * `--check` is the default. It writes nothing and exits 1 when a sweep would change anything.
  *
- * WHAT MOVES. An entry whose id has no live entry anywhere in the live file, and a non-register-id
- * bullet under a `### Discharged`, `### Fixed` or `### Withdrawn` heading. An id with any live entry
- * keeps every entry it has, so no open item is ever separated from its history. Learnings bullets and
- * every other prose bullet stay. A `###` heading the move leaves empty is removed. A `##` block that
- * holds no entry and no skipped bullet after the move goes whole, prose and all.
+ * WHAT MOVES. The entries of an id when every one of them is finished, and a non-register-id bullet
+ * under a `### Discharged`, `### Fixed` or `### Withdrawn` heading. An entry is finished when its own
+ * declaration carries the discharge or the withdrawal mark, or it sits under one of those headings.
+ * An id with any entry that is not finished keeps every entry it has, so open work is never separated
+ * from its history, and an entry that merely is not live is not taken for finished. Learnings bullets
+ * and every other prose bullet stay. A `###` heading the move leaves empty is removed. A `##` block
+ * that holds no entry and no skipped bullet after the move goes whole, prose and all.
  *
  * WHY THE GATE CANNOT TELL. The register gate measures both files as one population, and every
  * population it reads is a set over ids. Moving whole ids keeps each set what it was, and the sweep
@@ -23,9 +25,14 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { DecisionRefusal, docsDirectory } from "./decision-files";
 import {
+  FINISHED_SECTION,
+  HEADING_LINE,
+  RULE_LINE,
   RegisterRefusal,
   censusDebtItemsFromText,
   censusSkippedBulletsFromText,
+  endsItem,
+  isFinishedEntry,
   readRegister,
   type DebtItem,
   type SkippedBullet,
@@ -36,11 +43,8 @@ export const ARCHIVE_IN_DOCS = "archive/project/open-debt-archive.md";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** The `###` kinds whose non-register-id bullets are finished work rather than prose. */
-const FINISHED_SECTION = /^### (Discharged|Fixed|Withdrawn)\b/;
-
-const RULE_LINE = /^-{3,}\s*$/;
-const HEADING_LINE = /^#{1,6} /;
+/** A line of a list item's body, which a markdown list item continues through after a blank. */
+const INDENTED = /^\s+\S/;
 
 export type SweepPlan = {
   live: string;
@@ -103,16 +107,17 @@ function movableRuns(
   items: DebtItem[],
   skipped: SkippedBullet[],
 ): Movable[] {
-  const idsWithLiveEntry = new Set(items.filter((item) => item.live).map((item) => item.id));
+  const idsWithUnfinishedEntry = new Set(
+    items.filter((item) => !isFinishedEntry(item)).map((item) => item.id),
+  );
   const runs: Movable[] = [];
 
   for (const item of items) {
-    if (idsWithLiveEntry.has(item.id)) continue;
+    if (idsWithUnfinishedEntry.has(item.id)) continue;
     runs.push(runOf("entry", item.line, item.endLine, lines, layout));
   }
   for (const bullet of skipped) {
-    const heading = lines[layout.sectionOf[bullet.line - 1] ?? -1] ?? "";
-    if (!FINISHED_SECTION.test(heading.trim())) continue;
+    if (!FINISHED_SECTION.test(bullet.section)) continue;
     runs.push(runOf("bullet", bullet.line, bullet.endLine, lines, layout));
   }
 
@@ -121,19 +126,21 @@ function movableRuns(
 }
 
 /**
- * The index of the last line of the entry that ends at `endLine`, 1-based, as a 0-based index.
+ * The 0-based index of the last line of the entry whose census paragraph ends at `paragraphEnd`
+ * (1-based, inclusive).
  *
  * The census reads an entry as one paragraph, but a markdown list item continues through indented
- * paragraphs after a blank line. Those lines belong to the entry and move with it.
+ * paragraphs after a blank line. Those lines belong to the entry and move with it. A line that is not
+ * indented ends the entry, so a non-indented line written under an indented body line stays where it
+ * is and the output check refuses the plan.
  */
-function lastLineOfEntry(lines: string[], endLine: number): number {
-  let last = endLine - 1;
+function lastLineOfEntry(lines: string[], paragraphEnd: number): number {
+  let last = paragraphEnd - 1;
   for (;;) {
     let next = last + 1;
-    while ((lines[next] ?? "").trim() === "" && next < lines.length) next += 1;
-    if (!/^\s+\S/.test(lines[next] ?? "")) return last;
+    while (next < lines.length && (lines[next] ?? "").trim() === "") next += 1;
+    if (!INDENTED.test(lines[next] ?? "")) return last;
     last = next;
-    while (/^\s+\S/.test(lines[last + 1] ?? "")) last += 1;
   }
 }
 
@@ -274,13 +281,20 @@ function proseLineCounts(...texts: string[]): Map<string, number> {
   return counts;
 }
 
-/** What the gate reads of every entry and bullet in `texts`, one string each, sorted. */
-function measuredSignature(live: string, archive: string): string[] {
-  const items = [
-    ...censusDebtItemsFromText(live, REGISTER_IN_DOCS),
-    ...censusDebtItemsFromText(archive, ARCHIVE_IN_DOCS),
-  ].map((item) =>
-    [
+/** One entry or skipped bullet as the census reads it, with the answer to "is it finished". */
+type Observed = {
+  kind: "entry" | "bullet";
+  id: string;
+  /** Everything the gate reads of it, joined, so equal keys mean equal readings. */
+  key: string;
+  finished: boolean;
+};
+
+function observe(text: string, file: string): Observed[] {
+  const entries = censusDebtItemsFromText(text, file).map((item) => ({
+    kind: "entry" as const,
+    id: item.id,
+    key: [
       "entry",
       item.id,
       item.block,
@@ -291,30 +305,83 @@ function measuredSignature(live: string, archive: string): string[] {
       item.discharged,
       item.withdrawn,
     ].join("\u0000"),
-  );
-  const bullets = [
-    ...censusSkippedBulletsFromText(live, REGISTER_IN_DOCS),
-    ...censusSkippedBulletsFromText(archive, ARCHIVE_IN_DOCS),
-  ].map((bullet) => ["bullet", bullet.id].join("\u0000"));
-  return [...items, ...bullets].sort();
+    finished: isFinishedEntry(item),
+  }));
+  const bullets = censusSkippedBulletsFromText(text, file).map((bullet) => ({
+    kind: "bullet" as const,
+    id: bullet.id,
+    key: ["bullet", bullet.id, bullet.section].join("\u0000"),
+    finished: FINISHED_SECTION.test(bullet.section),
+  }));
+  return [...entries, ...bullets];
+}
+
+/** What the gate reads of every entry and bullet in the live text and the archive text, sorted. */
+export function measuredSignature(live: string, archive: string): string[] {
+  return [...observe(live, REGISTER_IN_DOCS), ...observe(archive, ARCHIVE_IN_DOCS)]
+    .map((observed) => observed.key)
+    .sort();
+}
+
+/** The entries and bullets the archive holds after the plan that it did not hold before. */
+function archivedSince(archiveBefore: string, archiveAfter: string): Observed[] {
+  const remaining = new Map<string, number>();
+  for (const held of observe(archiveBefore, ARCHIVE_IN_DOCS)) {
+    remaining.set(held.key, (remaining.get(held.key) ?? 0) + 1);
+  }
+  return observe(archiveAfter, ARCHIVE_IN_DOCS).filter((observed) => {
+    const left = remaining.get(observed.key) ?? 0;
+    if (left === 0) return true;
+    remaining.set(observed.key, left - 1);
+    return false;
+  });
+}
+
+const entriesOf = (observed: Observed[], id: string): number =>
+  observed.filter((held) => held.kind === "entry" && held.id === id).length;
+
+/**
+ * Whether the plan moved anything that is not finished: an entry or bullet that is not, or an entry
+ * whose id still has an entry that is not finished in the live text, which must keep all of them.
+ */
+function movedUnfinishedWork(before: { live: string; archive: string }, plan: SweepPlan): boolean {
+  const moved = archivedSince(before.archive, plan.archive);
+  if (moved.some((observed) => !observed.finished)) return true;
+
+  const liveBefore = observe(before.live, REGISTER_IN_DOCS);
+  const liveAfter = observe(plan.live, REGISTER_IN_DOCS);
+  const idsKeepingEverything = liveBefore
+    .filter((observed) => observed.kind === "entry" && !observed.finished)
+    .map((observed) => observed.id);
+  return idsKeepingEverything.some((id) => entriesOf(liveAfter, id) !== entriesOf(liveBefore, id));
 }
 
 /**
- * Every indented line paired with the non-blank line above it, counted across both texts.
+ * Every line that continues the line above it, paired with the nearest non-blank line above it,
+ * counted across all the texts.
  *
- * An entry that is cut in two leaves its indented body under a different line, so the pair changes.
+ * A line continues the line above it unless it ends an item. It does so when it is indented, which
+ * is how a list item carries on after a blank line, or when it touches the line above with no blank
+ * between. Removing a run of lines cuts an entry when it leaves such a line under a different line
+ * than before, and that is what a changed pair shows: after a removed run the first remaining line
+ * must be blank, a heading, a rule or the start of another entry, or its pair has changed.
  */
-function indentedAdjacency(...texts: string[]): Map<string, number> {
+function continuationPairs(...texts: string[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const text of texts) {
     let above = "";
+    let blankBetween = false;
     for (const raw of text.split("\n")) {
-      if (raw.trim() === "") continue;
-      if (/^\s/.test(raw)) {
+      if (raw.trim() === "") {
+        blankBetween = true;
+        continue;
+      }
+      if (!endsItem(raw) && (INDENTED.test(raw) || !blankBetween)) {
         const pair = `${above}\u0000${raw}`;
         counts.set(pair, (counts.get(pair) ?? 0) + 1);
       }
       above = raw;
+      blankBetween = false;
     }
   }
   return counts;
@@ -331,10 +398,11 @@ function sameCounts(a: Map<string, number>, b: Map<string, number>): boolean {
 /**
  * Refuses a plan whose two texts do not read like the two it came from.
  *
- * Three properties, because either alone can hold while the other breaks. The census must measure the
- * same entries with the same ids, sections, anchors and marks. And no prose line may be lost or
- * invented: every line that is not blank or a heading appears exactly as often as before, plus the
- * batch comment. And no entry may be cut: every indented line keeps the line above it.
+ * Four properties, each of which can hold while the others break. The census must measure the same
+ * entries with the same ids, sections, anchors and marks. No prose line may be lost or invented:
+ * every line that is not blank or a heading appears exactly as often as before, plus the batch
+ * comment. No entry may be cut: every line that continues the line above it keeps that line. And
+ * nothing may move that is not finished.
  */
 function refuseUnsoundPlan(
   before: { live: string; archive: string },
@@ -364,11 +432,15 @@ function refuseUnsoundPlan(
   }
 
   const keptTogether = sameCounts(
-    indentedAdjacency(before.live, before.archive),
-    indentedAdjacency(plan.live, plan.archive),
+    continuationPairs(before.live, before.archive),
+    continuationPairs(plan.live, plan.archive),
   );
   if (!keptTogether) {
     throw new RegisterRefusal(REGISTER_IN_DOCS, 0, "the sweep's output split an entry");
+  }
+
+  if (movedUnfinishedWork(before, plan)) {
+    throw new RegisterRefusal(REGISTER_IN_DOCS, 0, "the sweep moved work that is not finished");
   }
 }
 
@@ -446,6 +518,23 @@ export function planSweep(
   return plan;
 }
 
+type WriteFile = (path: string, text: string) => void;
+
+/**
+ * Writes the plan's two texts, the archive first.
+ *
+ * A failure between the two writes leaves the entries in both files, which the gate's item count
+ * shows, instead of in neither.
+ */
+export function writePlan(
+  plan: SweepPlan,
+  paths: { live: string; archive: string },
+  writeFile: WriteFile = writeFileSync,
+): void {
+  writeFile(paths.archive, plan.archive);
+  writeFile(paths.live, plan.live);
+}
+
 const ARGUMENTS_WITH_A_VALUE = new Set(["--date", "--docs"]);
 const KNOWN_ARGUMENTS = new Set(["--check", "--write", ...ARGUMENTS_WITH_A_VALUE]);
 
@@ -497,10 +586,7 @@ const main = (): void => {
       console.error(`FAIL: a sweep is pending: ${describe(plan)}`);
       process.exit(1);
     }
-    // The archive is written first: a failure between the two writes leaves entries in both files,
-    // which the gate's item count shows, instead of in neither.
-    writeFileSync(archivePath, plan.archive);
-    writeFileSync(livePath, plan.live);
+    writePlan(plan, { live: livePath, archive: archivePath });
     console.log(`register:sweep  ${describe(plan)} (${archivePath})`);
   } catch (error) {
     if (!(error instanceof RegisterRefusal) && !(error instanceof DecisionRefusal)) throw error;

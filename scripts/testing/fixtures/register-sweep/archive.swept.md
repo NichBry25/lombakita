@@ -16,18 +16,15 @@
 
 ### Open
 
-- **SYN-D3 [LOW] → Step 9.4 Block A · DISCHARGED 2026-03-02.** A finished entry
-  that runs over two lines.
-
 - **SYN-D4 [LOW] → Step 9.4 Block A · WITHDRAWN 2026-03-02, filed in error.** A withdrawn entry.
 
 ### Discharged
 
 - **SYN-D5.** `abc1234`: a skipped bullet under a Discharged heading.
 
-### Amendments to earlier items
+- **SYN-D11 [LOW]** A finished entry that runs over two paragraphs.
 
-- **SYN-D3**, re-anchored by this close, an amendment of a finished id.
+  The second paragraph of the finished entry, indented under it.
 
 ## Known Debt (Step 9.2, 2026-02-01)
 
@@ -46,3 +43,9 @@
 - **SYN-D8.** A skipped bullet under a Withdrawn heading.
 
 ---
+
+## Known Debt (Step 9.1, 2026-01-01)
+
+### Fixed
+
+- **SYN-D12 [LOW]** A finished entry under a Fixed heading, the only one in it.

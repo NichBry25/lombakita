@@ -81,6 +81,12 @@ const HEAD = /^- \*\*([A-Za-z0-9][A-Za-z0-9._-]*)(?:\s*\[([^\]]*)\])?/;
  */
 const REGISTER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*-[DT]\d+$/;
 
+/** A markdown heading line, at any depth. */
+export const HEADING_LINE = /^#{1,6} /;
+
+/** A horizontal rule line. */
+export const RULE_LINE = /^-{3,}\s*$/;
+
 /**
  * Whether `line` ends the item above it.
  *
@@ -89,16 +95,22 @@ const REGISTER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*-[DT]\d+$/;
  * the register writes the severity bracket and the closing `**` on later lines often enough that a
  * line-at-a-time reader misclassifies real items.
  */
-function endsItem(line: string): boolean {
+export function endsItem(line: string): boolean {
   if (line.trim() === "") return true;
-  if (/^#{1,6} /.test(line)) return true;
-  if (/^-{3,}\s*$/.test(line)) return true;
+  if (HEADING_LINE.test(line)) return true;
+  if (RULE_LINE.test(line)) return true;
   return line.startsWith("- ");
 }
 
 const LIVE_SECTION = /^### (Open|Still open|New)\b/;
 
 const DISCHARGED_SECTION = /^### Discharged\b/;
+
+/**
+ * The `###` kinds that file finished work. Learnings is not one of them: it files prose lessons, and
+ * a lesson is never finished.
+ */
+export const FINISHED_SECTION = /^### (Discharged|Fixed|Withdrawn)\b/;
 
 /**
  * A severity bracket's content, which is a closed set and not "whatever the bracket holds".
@@ -170,6 +182,21 @@ function isLiveItem(
 }
 
 /**
+ * Whether an entry is finished work: its own declaration carries the discharge or the withdrawal
+ * mark, or it sits under a finished `###` heading.
+ *
+ * This is a different question from `isLiveItem`. An entry can be neither live nor finished, for
+ * example a block-body entry with a severity and no anchor, and the register's own header says
+ * everything in it is open unless a line says otherwise. Absence of liveness is not evidence of
+ * being finished.
+ */
+export function isFinishedEntry(
+  entry: Pick<DebtItem, "section" | "discharged" | "withdrawn">,
+): boolean {
+  return entry.discharged || entry.withdrawn || FINISHED_SECTION.test(entry.section);
+}
+
+/**
  * A `Learnings` subsection, which files prose lessons rather than debt items.
  *
  * Its bullets never carried ids and were never meant to, so reading their head token as a failed id
@@ -224,6 +251,8 @@ export type SkippedBullet = {
   file: string;
   /** The head token the census read, which is what failed to be a register id. */
   id: string;
+  /** The `###` heading the bullet sits under; empty when it sits in the block body. */
+  section: string;
   line: number;
   /** The bullet's last line, 1-based and inclusive. */
   endLine: number;
@@ -325,7 +354,7 @@ function censusRegister(text: string, file: string): RegisterWalk {
     if (matched === undefined || id === undefined) continue;
     if (!REGISTER_ID.test(id)) {
       if (!LEARNINGS_SECTION.test(section)) {
-        skipped.push({ file, id, line, endLine });
+        skipped.push({ file, id, section, line, endLine });
       }
       continue;
     }
@@ -897,7 +926,8 @@ export type RegisterObligation = {
  */
 const NON_REGISTER_ID_BULLETS = "register bullets whose head id is not a register id";
 
-const ARCHIVE_LIVE_ENTRIES = "live debt entries filed in the archive file";
+const ARCHIVE_UNFINISHED_ENTRIES =
+  "entries filed in the archive file that carry no mark of being finished";
 
 /**
  * The ratchets.
@@ -1067,16 +1097,18 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
       "holds the count until those rulings land, and moves with them when they do",
   },
   {
-    what: ARCHIVE_LIVE_ENTRIES,
+    what: ARCHIVE_UNFINISHED_ENTRIES,
     bound: 0,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
-      "Counts the entries in the archive file that the census reads as open work. The archive holds " +
-      "finished entries only, so an open entry filed there is invisible to a reader of the live " +
-      "register while every population still counts it. The count is exact at zero because there is " +
-      "no accepted instance: an open entry belongs in the live file, and a finished one is moved " +
-      "by `npm run register:sweep`.",
+      "Counts the entries in the archive file whose own declaration carries neither the discharge " +
+      "nor the withdrawal mark and which sit under no Discharged, Fixed or Withdrawn heading. The " +
+      "archive holds finished entries only, so an entry without that evidence is open work that a " +
+      "reader of the live register cannot see while every population still counts it. The count " +
+      "is exact at zero because no such entry is accepted in the archive: an entry that is not " +
+      "marked finished belongs in the live file, and a finished one is moved from there to the " +
+      "archive by `npm run register:sweep`.",
   },
   {
     what: "decision-log rows whose cells do not match their columns' declared count",
@@ -1273,8 +1305,10 @@ export function measureRegister(
           members: skipped.map((bullet) => `${bullet.file}:${bullet.id}:${bullet.line}`),
         };
       }
-      case ARCHIVE_LIVE_ENTRIES:
-        return count(items.filter((item) => item.file === archiveFile && item.live).length);
+      case ARCHIVE_UNFINISHED_ENTRIES:
+        return count(
+          items.filter((item) => item.file === archiveFile && !isFinishedEntry(item)).length,
+        );
       case "decision-log rows whose cells do not match their columns' declared count":
         return count(rowsOffColumnCount(records).length);
       case "decision-log rows a blank line left outside every table":
