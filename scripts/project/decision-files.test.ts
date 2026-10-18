@@ -127,14 +127,27 @@ describe("rendering", () => {
     );
   });
 
-  it("ignores files whose names start with an underscore", () => {
-    const { entries } = readDecisionDirectory(join(CLEAN_FIXTURE, "project/decisions"));
-    expect(entries.map((entry) => entry.fileName)).toEqual([
-      "DEC-0001.md",
-      "DEC-0002.md",
-      "NOTE-FIXTURE.md",
-    ]);
-  });
+  it.each([".DS_Store", ".DEC-0001.md.swp", "_scratch.md"])(
+    "ignores %s, a name starting with a dot or an underscore, in the reader, the check and the build",
+    (name) => {
+      const docs = freshDocs("ignored-name");
+      const dir = join(docs, "project/decisions");
+      writeFileSync(join(dir, name), "not a decision\n");
+      const { entries, problems } = readDecisionDirectory(dir);
+      expect(entries.map((entry) => entry.fileName)).toEqual([
+        "DEC-0001.md",
+        "DEC-0002.md",
+        "NOTE-FIXTURE.md",
+      ]);
+      expect(problems).toEqual([]);
+      const check = run("decisions-check.ts", ["--docs", docs]);
+      expect(check.stderr).toBe("");
+      expect(check.status).toBe(0);
+      const build = run("decisions-build.ts", ["--check", "--docs", docs]);
+      expect(build.stderr).toBe("");
+      expect(build.status).toBe(0);
+    },
+  );
 });
 
 describe("decisions:check and decisions:build, through the real scripts", () => {
@@ -507,8 +520,8 @@ describe("the build refuses what it cannot read, before it writes", () => {
   });
 });
 
-describe("only names starting with an underscore are ignored in the decisions directory", () => {
-  it.each(["DEC-0003.MD", "notes.md", "DEC-12.md", "note-x.md", "DEC-0002.md.bak"])(
+describe("only names starting with a dot or an underscore are ignored in the decisions directory", () => {
+  it.each(["DEC-0003.MD", "notes.md", "notes.txt", "DEC-12.md", "note-x.md", "DEC-0002.md.bak"])(
     "refuses %s in the check and the build, naming it",
     (name) => {
       const docs = freshDocs("odd-name");
@@ -581,7 +594,31 @@ describe("the check reuses the register census over a fresh render", () => {
     expect(stderr).toContain(`DEC-0001.md: ${field} contains a line break`);
   });
 
-  it("refuses an empty index_title and an index_title equal to the title", () => {
+  it("fails a decision that supersedes itself, naming the id and the count", () => {
+    const { stderr } = checkAfterDamage(
+      "supersedes-itself",
+      "project/decisions/DEC-0002.md",
+      "DEC-0001 in part",
+      "DEC-0002",
+    );
+    expect(stderr).toContain(`FAIL  ${LOG}: supersede claims naming their own row: 1 (DEC-0002)`);
+    expect(stderr).not.toContain("naming an id the log has no row for");
+  });
+
+  it("fails a supersede claim on an id the log has no row for, naming the id and the count", () => {
+    const { stderr } = checkAfterDamage(
+      "supersedes-no-row",
+      "project/decisions/DEC-0002.md",
+      "DEC-0001 in part",
+      "DEC-0900",
+    );
+    expect(stderr).toContain(
+      `FAIL  ${LOG}: supersede claims naming an id the log has no row for: 1 (DEC-0002)`,
+    );
+    expect(stderr).not.toContain("supersede claims naming their own row");
+  });
+
+  it("refuses an empty or whitespace-only index_title, and one equal to the title", () => {
     const empty = checkAfterDamage(
       "empty-index-title",
       one,
@@ -589,6 +626,13 @@ describe("the check reuses the register census over a fresh render", () => {
       "index_title:",
     );
     expect(empty.stderr).toContain("DEC-0001.md: index_title is empty");
+    const blank = checkAfterDamage(
+      "blank-index-title",
+      one,
+      "index_title: Fixture decision one (short)",
+      "index_title:    ",
+    );
+    expect(blank.stderr).toContain("DEC-0001.md: index_title is empty");
     const same = checkAfterDamage(
       "same-index-title",
       one,

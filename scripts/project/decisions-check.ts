@@ -5,8 +5,15 @@
  * Run:  node --import tsx scripts/project/decisions-check.ts [--docs <dir>]
  *
  * Exits 1 and prints the id and the reason for every failure. A directory it cannot read, or a log
- * it cannot render, is a failure and never an empty pass. A fresh render of the log is also read by
- * the register census, so a decision the check lets through cannot be one the register gate rejects.
+ * it cannot render, is a failure and never an empty pass.
+ *
+ * A fresh render of the log is read by the register census's own functions for six of its eight
+ * decision-log counts, and each must be zero: rows outside every table, rows written on another
+ * row's line, rows whose cell count is not their columns' count, rows whose Date cell is not a
+ * date, supersede claims naming their own row, and supersede claims naming an id with no row. The
+ * other two are not run: the floor on Supersedes cells that hold nothing but an id, and the filed
+ * count of claims naming a newer decision. A log this check passes can therefore still fail the
+ * register gate on a floor that a clean set of files does not meet.
  */
 
 import { join } from "node:path";
@@ -32,7 +39,10 @@ import {
   orphanedDecisionRows,
   rowsOffColumnCount,
   rowsWithNonDate,
+  supersedesFindings,
+  type DecisionRecord,
   type DecisionRow,
+  type SupersedesFinding,
 } from "./register-census";
 
 /**
@@ -134,6 +144,14 @@ const censusProblem = (what: string, rows: DecisionRow[]): DecisionProblem[] =>
         },
       ];
 
+const supersedeClaimRows = (
+  records: DecisionRecord[],
+  kind: SupersedesFinding["kind"],
+): DecisionRow[] =>
+  supersedesFindings(records)
+    .filter((finding) => finding.kind === kind)
+    .map((finding) => finding.row);
+
 /** What the register census would count in a fresh render of the log, using the census's own readers. */
 const censusProblems = (fresh: string): DecisionProblem[] => {
   const records = decisionRecords(fresh, DECISION_LOG_IN_DOCS);
@@ -148,6 +166,14 @@ const censusProblems = (fresh: string): DecisionProblem[] => {
       rowsOffColumnCount(records).map((record) => record.row),
     ),
     ...censusProblem("rows whose Date cell does not hold a date", rowsWithNonDate(records)),
+    ...censusProblem(
+      "supersede claims naming their own row",
+      supersedeClaimRows(records, "names-itself"),
+    ),
+    ...censusProblem(
+      "supersede claims naming an id the log has no row for",
+      supersedeClaimRows(records, "names-no-row"),
+    ),
   ];
 };
 

@@ -176,13 +176,16 @@ export interface DecisionDirectory {
 }
 
 /**
- * Reads every entry of the directory except names starting with `_`. An entry whose name is not
- * `DEC-dddd.md` or `NOTE-<name>.md` is reported as a problem rather than skipped. Never throws on content.
+ * Reads every entry of the directory except names starting with `.` or `_`: Finder metadata and
+ * editor swap files appear where git does not show them, and `_` marks the template. An entry whose
+ * name is not `DEC-dddd.md` or `NOTE-<name>.md` is reported as a problem rather than skipped. Never
+ * throws on the content of a file; an entry that cannot be read as a file, such as a directory named
+ * like a decision, is rethrown as the filesystem error.
  */
 export function readDecisionDirectory(directory: string): DecisionDirectory {
   let names: string[];
   try {
-    names = readdirSync(directory).filter((name) => !name.startsWith("_"));
+    names = readdirSync(directory).filter((name) => !name.startsWith(".") && !name.startsWith("_"));
   } catch {
     throw new DecisionRefusal(directory, "the decisions directory could not be read");
   }
