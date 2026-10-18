@@ -332,17 +332,23 @@ describe("what a move leaves behind", () => {
 });
 
 describe("the synthetic register", () => {
-  const plan = planSweep(fixture("live.md"), fixture("archive.md"), DATE);
+  const sweptFixture = () => planSweep(fixture("live.md"), fixture("archive.md"), DATE);
 
   it("sweeps to the expected live file", () => {
+    const plan = sweptFixture();
+
     expect(plan.live).toBe(fixture("live.swept.md"));
   });
 
   it("sweeps to the expected archive file", () => {
+    const plan = sweptFixture();
+
     expect(plan.archive).toBe(fixture("archive.swept.md"));
   });
 
   it("reports what it moved", () => {
+    const plan = sweptFixture();
+
     expect({
       entriesMoved: plan.entriesMoved,
       bulletsMoved: plan.bulletsMoved,
@@ -352,10 +358,13 @@ describe("the synthetic register", () => {
   });
 
   it("keeps the archive's earlier text word for word", () => {
+    const plan = sweptFixture();
+
     expect(plan.archive.startsWith(fixture("archive.md"))).toBe(true);
   });
 
   it("is a no-op the second time", () => {
+    const plan = sweptFixture();
     const again = planSweep(plan.live, plan.archive, "2026-04-01");
 
     expect([again.live, again.archive]).toEqual([plan.live, plan.archive]);
