@@ -315,6 +315,18 @@ describe("what a move leaves behind", () => {
     expect(plan.archive).toContain("### Discharged\n\n- **A-D2 [HIGH]** Finished.");
   });
 
+  it("removes a sub-heading that holds only a rule line after the move", () => {
+    const emptied =
+      "## Known Debt (Step 1.0)\n\n### Open\n\n- **A-D1 [HIGH]** Detail of an open id.\n\n" +
+      "### Discharged\n\n- **A-D2 [HIGH]** Finished.\n\n---\n";
+    const live = `${block(OPEN_ENTRY)}\n${emptied}`;
+
+    const plan = sweep(live);
+
+    expect(plan.headingsRemoved).toBe(1);
+    expect(plan.live).not.toContain("### Discharged");
+  });
+
   it("keeps a block that still holds an entry whose id is open", () => {
     const kept =
       "## Known Debt (Step 1.0)\n\n### Discharged\n\n- **A-D1 [HIGH]** Finished detail of an open id.\n" +
@@ -362,7 +374,9 @@ describe("what a move leaves behind", () => {
   });
 
   it("keeps an entry that sits above the first block heading", () => {
-    const live = `# TITLE\n\n- **A-D2 [HIGH]** Finished, above every block.\n\n${block(OPEN_ENTRY)}`;
+    const finished =
+      "- **A-D2 [HIGH] → Step 1.2 Block A · DISCHARGED 2026-01-01.** Finished, above every block.";
+    const live = `# TITLE\n\n${finished}\n\n${block(OPEN_ENTRY)}`;
 
     const plan = sweep(live);
 
@@ -929,6 +943,16 @@ describe("the register:sweep command", () => {
     expect(result.status).toBe(1);
     expect(result.err).toContain("a sweep is pending: 0 entries and 1 skipped bullets moved");
     expect(bytes(docs)).toEqual([onlyABullet, EMPTY_ARCHIVE]);
+  }, 30_000);
+
+  it("exits 1 under --check when only entries would move", () => {
+    const onlyAnEntry = block(OPEN_ENTRY, "### Discharged\n\n- **A-D2 [HIGH]** Finished.");
+    const docs = docsWith(onlyAnEntry, EMPTY_ARCHIVE);
+
+    const result = run(docs, "--check");
+
+    expect(result.status).toBe(1);
+    expect(result.err).toContain("a sweep is pending: 1 entries and 0 skipped bullets moved");
   }, 30_000);
 
   it("checks when given no mode at all", () => {
