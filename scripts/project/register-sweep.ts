@@ -108,24 +108,47 @@ function movableRuns(
 
   for (const item of items) {
     if (idsWithLiveEntry.has(item.id)) continue;
-    runs.push(runOf("entry", item.line, item.endLine, layout));
+    runs.push(runOf("entry", item.line, item.endLine, lines, layout));
   }
   for (const bullet of skipped) {
     const heading = lines[layout.sectionOf[bullet.line - 1] ?? -1] ?? "";
     if (!FINISHED_SECTION.test(heading.trim())) continue;
-    runs.push(runOf("bullet", bullet.line, bullet.endLine, layout));
+    runs.push(runOf("bullet", bullet.line, bullet.endLine, lines, layout));
   }
 
   // An entry above the first `##` heading has no block heading to replicate in the archive.
   return runs.filter((run) => run.block !== -1).sort((a, b) => a.first - b.first);
 }
 
-function runOf(kind: Movable["kind"], line: number, endLine: number, layout: Layout): Movable {
+/**
+ * The index of the last line of the entry that ends at `endLine`, 1-based, as a 0-based index.
+ *
+ * The census reads an entry as one paragraph, but a markdown list item continues through indented
+ * paragraphs after a blank line. Those lines belong to the entry and move with it.
+ */
+function lastLineOfEntry(lines: string[], endLine: number): number {
+  let last = endLine - 1;
+  for (;;) {
+    let next = last + 1;
+    while ((lines[next] ?? "").trim() === "" && next < lines.length) next += 1;
+    if (!/^\s+\S/.test(lines[next] ?? "")) return last;
+    last = next;
+    while (/^\s+\S/.test(lines[last + 1] ?? "")) last += 1;
+  }
+}
+
+function runOf(
+  kind: Movable["kind"],
+  line: number,
+  endLine: number,
+  lines: string[],
+  layout: Layout,
+): Movable {
   const first = line - 1;
   return {
     kind,
     first,
-    last: endLine - 1,
+    last: lastLineOfEntry(lines, endLine),
     block: layout.blockOf[first] ?? -1,
     section: layout.sectionOf[first] ?? -1,
   };
@@ -276,6 +299,27 @@ function measuredSignature(live: string, archive: string): string[] {
   return [...items, ...bullets].sort();
 }
 
+/**
+ * Every indented line paired with the non-blank line above it, counted across both texts.
+ *
+ * An entry that is cut in two leaves its indented body under a different line, so the pair changes.
+ */
+function indentedAdjacency(...texts: string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const text of texts) {
+    let above = "";
+    for (const raw of text.split("\n")) {
+      if (raw.trim() === "") continue;
+      if (/^\s/.test(raw)) {
+        const pair = `${above}\u0000${raw}`;
+        counts.set(pair, (counts.get(pair) ?? 0) + 1);
+      }
+      above = raw;
+    }
+  }
+  return counts;
+}
+
 function sameCounts(a: Map<string, number>, b: Map<string, number>): boolean {
   if (a.size !== b.size) return false;
   for (const [raw, count] of a) {
@@ -287,10 +331,10 @@ function sameCounts(a: Map<string, number>, b: Map<string, number>): boolean {
 /**
  * Refuses a plan whose two texts do not read like the two it came from.
  *
- * Two properties, because either alone can hold while the other breaks. The census must measure the
+ * Three properties, because either alone can hold while the other breaks. The census must measure the
  * same entries with the same ids, sections, anchors and marks. And no prose line may be lost or
  * invented: every line that is not blank or a heading appears exactly as often as before, plus the
- * batch comment.
+ * batch comment. And no entry may be cut: every indented line keeps the line above it.
  */
 function refuseUnsoundPlan(
   before: { live: string; archive: string },
@@ -317,6 +361,14 @@ function refuseUnsoundPlan(
   const actual = proseLineCounts(plan.live, plan.archive);
   if (!sameCounts(expected, actual)) {
     throw new RegisterRefusal(REGISTER_IN_DOCS, 0, "the sweep's output lost or invented a line");
+  }
+
+  const keptTogether = sameCounts(
+    indentedAdjacency(before.live, before.archive),
+    indentedAdjacency(plan.live, plan.archive),
+  );
+  if (!keptTogether) {
+    throw new RegisterRefusal(REGISTER_IN_DOCS, 0, "the sweep's output split an entry");
   }
 }
 

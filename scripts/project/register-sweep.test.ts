@@ -477,6 +477,56 @@ describe("what the sweep refuses", () => {
   });
 });
 
+describe("an entry that runs over indented paragraphs", () => {
+  const FINISHED_HEAD = "- **A-D2 [HIGH] → Step 1.2 Block A · DISCHARGED 2026-03-02.** Finished.";
+  const BODY = "  The first paragraph of the body.\n\n  The second paragraph of the body.";
+
+  it("moves the indented paragraphs with the entry", () => {
+    const live = block(OPEN_ENTRY, `### Discharged\n\n${FINISHED_HEAD}\n\n${BODY}`);
+
+    const plan = sweep(live);
+
+    expect(plan.live).toBe(block(OPEN_ENTRY));
+    expect(plan.archive).toContain(`${FINISHED_HEAD}\n\n${BODY}\n`);
+  });
+
+  it("moves the indented paragraphs of a skipped bullet", () => {
+    const live = block(OPEN_ENTRY, `### Discharged\n\n- **A-D5.** A bullet.\n\n${BODY}`);
+
+    const plan = sweep(live);
+
+    expect(plan.live).toBe(block(OPEN_ENTRY));
+    expect(plan.archive).toContain(`- **A-D5.** A bullet.\n\n${BODY}\n`);
+  });
+
+  it("leaves the next entry's own paragraphs where they were", () => {
+    const live = block(
+      OPEN_ENTRY,
+      `### Discharged\n\n${FINISHED_HEAD}\n\n${BODY}\n\n- **A-D1 [HIGH]** Kept.\n\n  Its own body.`,
+    );
+
+    const plan = sweep(live);
+
+    expect(plan.live).toBe(
+      block(OPEN_ENTRY, "### Discharged\n\n- **A-D1 [HIGH]** Kept.\n\n  Its own body."),
+    );
+  });
+
+  it("refuses a plan that files an entry's head apart from its body", () => {
+    const cutting = (liveText: string, archive: string): SweepPlan => ({
+      live: liveText.replace(`${FINISHED_HEAD}\n\n`, ""),
+      archive: `${archive}\n<!-- swept ${DATE} -->\n\n## Known Debt (Step 1.1)\n\n### Discharged\n\n${FINISHED_HEAD}\n`,
+      entriesMoved: 1,
+      bulletsMoved: 0,
+      headingsRemoved: 0,
+      blocksRemoved: 0,
+    });
+    const live = block(OPEN_ENTRY, `### Discharged\n\n${FINISHED_HEAD}\n\n${BODY}`);
+
+    expect(() => planSweep(live, EMPTY_ARCHIVE, DATE, cutting)).toThrow(/split an entry/);
+  });
+});
+
 describe("a live entry planted in the archive", () => {
   const planted = "## Known Debt (Step 1.0)\n\n### Open\n\n- **A-D9 [HIGH]** Still owed.\n";
 
