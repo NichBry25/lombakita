@@ -8,7 +8,7 @@
  * refusal exits 1 too, because a log that cannot be rendered is not a log that can be trusted.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   DECISIONS_DIR_IN_DOCS,
@@ -16,6 +16,8 @@ import {
   DecisionRefusal,
   docsDirectory,
   readDecisionDirectory,
+  readDecisionLog,
+  refuseUnknownTypes,
   renderDecisionLog,
 } from "./decision-files";
 
@@ -35,6 +37,7 @@ const main = (): void => {
     const docs = docsDirectory(process.argv);
     const { entries, problems } = readDecisionDirectory(join(docs, DECISIONS_DIR_IN_DOCS));
     const files = entries.map((entry) => entry.decision);
+    refuseUnknownTypes(entries);
     const [first] = problems;
     if (first !== undefined) {
       throw new DecisionRefusal(
@@ -43,7 +46,7 @@ const main = (): void => {
       );
     }
     const logPath = join(docs, DECISION_LOG_IN_DOCS);
-    const onDisk = readFileSync(logPath, "utf8");
+    const onDisk = readDecisionLog(docs);
     const fresh = renderDecisionLog(onDisk, files);
 
     if (fresh === onDisk) {

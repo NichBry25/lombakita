@@ -79,6 +79,12 @@ const HEADER_KEYS = [
   "supersedes",
 ] as const;
 
+/** `DEC-dddd.md` or `NOTE-<name>.md`, case-sensitive. */
+const DECISION_FILE_NAME = /^(DEC-[0-9]{4}|NOTE-.+)\.md$/;
+
+export const isKnownType = (type: string): type is DecisionType =>
+  type === "decision" || type === "note";
+
 /** The directory after `--docs`, or `docs` when the flag is absent. */
 export function docsDirectory(argv: string[]): string {
   const at = argv.indexOf("--docs");
@@ -169,11 +175,14 @@ export interface DecisionDirectory {
   problems: DecisionProblem[];
 }
 
-/** Reads every `*.md` file in the directory except names starting with `_`. Never throws on content. */
+/**
+ * Reads every entry of the directory except names starting with `_`. An entry whose name is not
+ * `DEC-dddd.md` or `NOTE-<name>.md` is reported as a problem rather than skipped. Never throws on content.
+ */
 export function readDecisionDirectory(directory: string): DecisionDirectory {
   let names: string[];
   try {
-    names = readdirSync(directory).filter((name) => name.endsWith(".md") && !name.startsWith("_"));
+    names = readdirSync(directory).filter((name) => !name.startsWith("_"));
   } catch {
     throw new DecisionRefusal(directory, "the decisions directory could not be read");
   }
@@ -181,6 +190,13 @@ export function readDecisionDirectory(directory: string): DecisionDirectory {
   const entries: DecisionDirectory["entries"] = [];
   const problems: DecisionProblem[] = [];
   for (const fileName of names.sort()) {
+    if (!DECISION_FILE_NAME.test(fileName)) {
+      problems.push({
+        subject: fileName,
+        reason: "is not a decision file name; expected DEC-dddd.md or NOTE-<name>.md",
+      });
+      continue;
+    }
     try {
       const decision = parseDecisionFile(fileName, readFileSync(join(directory, fileName), "utf8"));
       entries.push({ fileName, decision });
@@ -192,9 +208,29 @@ export function readDecisionDirectory(directory: string): DecisionDirectory {
   return { entries, problems };
 }
 
+/** Refuses the first file whose type is neither decision nor note, naming the file. */
+export function refuseUnknownTypes(entries: DecisionDirectory["entries"]): void {
+  const unknown = entries.find((entry) => !isKnownType(entry.decision.type));
+  if (unknown !== undefined) {
+    throw new DecisionRefusal(
+      unknown.fileName,
+      `type "${unknown.decision.type}" is not decision or note`,
+    );
+  }
+}
+
+/** The text of `project/decision-log.md` under the docs directory. */
+export function readDecisionLog(docs: string): string {
+  try {
+    return readFileSync(join(docs, DECISION_LOG_IN_DOCS), "utf8");
+  } catch {
+    throw new DecisionRefusal(DECISION_LOG_IN_DOCS, "could not be read");
+  }
+}
+
 /** DEC rows in ascending numeric id, then notes by ascending file name. */
 export function orderDecisions(files: DecisionFile[]): DecisionFile[] {
-  const unknown = files.find((file) => file.type !== "decision" && file.type !== "note");
+  const unknown = files.find((file) => !isKnownType(file.type));
   if (unknown !== undefined) {
     throw new DecisionRefusal(unknown.id, `type "${unknown.type}" is not decision or note`);
   }
@@ -238,6 +274,19 @@ export function renderDecisionLog(logText: string, files: DecisionFile[]): strin
       DECISION_LOG_IN_DOCS,
       "the four markers are not in index-begin, index-end, seeded-begin, seeded-end order",
     );
+  }
+
+  for (const [begin, end] of [
+    [indexBegin, indexEnd],
+    [seededBegin, seededEnd],
+  ] as const) {
+    const stray = lines.slice(begin + 1, end).findIndex((line) => !line.startsWith("|"));
+    if (stray !== -1) {
+      throw new DecisionRefusal(
+        DECISION_LOG_IN_DOCS,
+        `line ${begin + stray + 2}: a generated region holds only table rows, and a build would delete this line; move it outside the markers`,
+      );
+    }
   }
 
   for (const at of [indexBegin, seededBegin]) {
