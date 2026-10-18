@@ -1067,45 +1067,35 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "decision-log rows a blank line left outside every table",
-    bound: 107,
+    bound: 0,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
-      "one blank line at :373 ends the seeded-decisions table, so DEC-0115 onward stop rendering as " +
-      "rows and become pipe-delimited paragraphs. They still grep, which is what makes this quiet; " +
-      "the number counts rows, not the one cause, so removing the blank line takes it to zero. " +
-      "Raised from 96 to 100 on 2026-09-16 by the one cause moving four rows further down, NOT by " +
-      "four new orphans: this close appended four seeded rows below the break and the blank line " +
-      "shifted from :369 to :373 for the unrelated reason that the same close appended four rows to " +
-      "the Index above it. Every one of the hundred is still accounted for by that single blank line, " +
-      "and the check the number does perform is unchanged — it is an exact bound, so it fails if " +
-      "anything ADDS an orphan somewhere else in the log. Read off the gate's own `(up 4)` rather " +
-      "than computed. The repair remains the one-line deletion the paragraph above names, and it is " +
-      "owed: a hundred of this log's two hundred and five seeded rows — DEC-0115 through DEC-0215, " +
-      "every decision taken since 2026-07-27 — do not render as a table today, and the seeded table " +
-      "is the half of the log that carries the rationales. Raised 100 → 103 at Step 7.7 Block C2 " +
-      "Phase 1's close: DEC-0216 to DEC-0218 were appended below the blank line that already orphans " +
-      "DEC-0115 onward. Raised 106 → 107 at the 2026-09-27 doc-lane compaction close: " +
-      "DEC-0222 was appended below the blank line that already orphans DEC-0115 onward " +
-      "(TRUST-D15). The repair is TRUST-D15, and it resets this bound in the same pass",
+      "A blank line between two rows ends the table, so every row below it renders as a " +
+      "pipe-delimited paragraph instead of a table row. The count is exact because a row outside " +
+      "every table keeps its text but loses its columns, so a close that produces one has broken " +
+      "the layout of the log",
   },
   {
     what: "decision-log rows written on another record's line instead of below it",
-    bound: 1,
+    bound: 0,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
-      "DEC-0123 sits after DEC-0122 on the same line, separated by `||` where a line break belongs. " +
-      "The record's cells are intact and it is read; what the line costs is its own line number",
+      "A row written on the same line as another record, separated by `||` where a line break " +
+      "belongs, has intact cells but a line number that belongs to the other record. The count is " +
+      "exact because every line-based reference to either record then points at the wrong place",
   },
   {
     what: "decision-log rows whose Date cell does not hold a date",
-    bound: 1,
+    bound: 0,
     direction: "exact",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
-      "DEC-0095's Date cell holds `accepted`, copied out of the Status column. The row records no " +
-      "date and the Index column that exists to carry one is empty",
+      "A Date cell that holds anything other than a date, such as the row's own status copied out " +
+      "of the Status column, leaves the record undated and the Index column that carries the date " +
+      "empty. The count is exact because a record with no date cannot be ordered or aged, so a " +
+      "close that produces one has lost information",
   },
   {
     // Split out of one "supersede claims that cannot be true" obligation, because the three kinds
