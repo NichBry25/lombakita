@@ -202,6 +202,18 @@ describe("what an id's entries do together", () => {
     expect(plan.live).not.toContain("Second line.");
   });
 
+  it("moves a bullet whose second line is not indented", () => {
+    const live = block(
+      OPEN_ENTRY,
+      "### Discharged\n\n- **Label-1.** First line.\nSecond line, flush left.",
+    );
+
+    const plan = sweep(live);
+
+    expect(plan.archive).toContain("- **Label-1.** First line.\nSecond line, flush left.");
+    expect(plan.live).not.toContain("flush left");
+  });
+
   it("moves an entry that runs over several lines as one piece", () => {
     const live = block(
       OPEN_ENTRY,
