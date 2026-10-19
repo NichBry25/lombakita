@@ -262,12 +262,53 @@ describe("the arguments a session receives", () => {
     ["tail on the topic folder", "Bash(tail *.config/lombakita/*)"],
     ["less on the topic folder", "Bash(less *.config/lombakita/*)"],
     ["grep on the topic folder", "Bash(grep *.config/lombakita/*)"],
+    ["a force flag before the remote, as rtk rewrites it", "Bash(rtk git push --force*)"],
+    ["a short force flag before the remote, as rtk rewrites it", "Bash(rtk git push -f*)"],
+    [
+      "a force flag before the remote, with -C, as rtk rewrites it",
+      "Bash(rtk git -C * push --force*)",
+    ],
+    [
+      "a short force flag before the remote, with -C, as rtk rewrites it",
+      "Bash(rtk git -C * push -f*)",
+    ],
+    ["a force flag after the remote, as rtk rewrites it", "Bash(rtk git push * --force*)"],
+    ["a short force flag after the remote, as rtk rewrites it", "Bash(rtk git push * -f*)"],
+    ["a plus refspec, as rtk rewrites it", "Bash(rtk git push * +*)"],
+    [
+      "a force flag after the remote, with -C, as rtk rewrites it",
+      "Bash(rtk git -C * push * --force*)",
+    ],
+    [
+      "a short force flag after the remote, with -C, as rtk rewrites it",
+      "Bash(rtk git -C * push * -f*)",
+    ],
+    ["a plus refspec, with -C, as rtk rewrites it", "Bash(rtk git -C * push * +*)"],
+    ["any push whose text holds main, as rtk rewrites it", "Bash(rtk git push *main*)"],
+    ["a push with no branch, as rtk rewrites it", "Bash(rtk git push)"],
+    ["a push to the remote with no branch, as rtk rewrites it", "Bash(rtk git push origin)"],
+    [
+      "any push whose text holds main, with -C, as rtk rewrites it",
+      "Bash(rtk git -C * push *main*)",
+    ],
+    ["a push with no branch, with -C, as rtk rewrites it", "Bash(rtk git -C * push)"],
+    [
+      "a push to the remote with no branch, with -C, as rtk rewrites it",
+      "Bash(rtk git -C * push origin)",
+    ],
+    ["git branch -D, as rtk rewrites it", "Bash(rtk git branch -D*)"],
+    ["git branch -D, with -C, as rtk rewrites it", "Bash(rtk git -C * branch -D*)"],
+    [
+      "cat and head on the topic folder, as rtk rewrites them",
+      "Bash(rtk read *.config/lombakita/*)",
+    ],
+    ["grep on the topic folder, as rtk rewrites it", "Bash(rtk grep *.config/lombakita/*)"],
   ])("name %s", (_what, pattern) => {
     expect(DENY_PATTERNS).toContain(pattern);
   });
 
-  it("hold 14 original patterns and 34 added ones, each once, none with a comma", () => {
-    expect(DENY_PATTERNS).toHaveLength(48);
+  it("hold 14 original patterns and 54 added ones, each once, none with a comma", () => {
+    expect(DENY_PATTERNS).toHaveLength(68);
     expect(new Set(DENY_PATTERNS).size).toBe(DENY_PATTERNS.length);
     for (const pattern of DENY_PATTERNS) {
       expect(pattern).toMatch(/^(Bash|Read)\(.+\)$/);

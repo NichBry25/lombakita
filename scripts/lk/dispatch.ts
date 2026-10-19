@@ -103,6 +103,29 @@ export const DENY_PATTERNS: readonly string[] = [
   "Bash(tail *.config/lombakita/*)",
   "Bash(less *.config/lombakita/*)",
   "Bash(grep *.config/lombakita/*)",
+  // The rtk PreToolUse hook rewrites these commands before the deny rules are checked, so a session
+  // sees `rtk git push ...`, `rtk read` for cat and head, and `rtk grep`; the plain patterns above
+  // never match the rewritten text.
+  "Bash(rtk git push --force*)",
+  "Bash(rtk git push -f*)",
+  "Bash(rtk git -C * push --force*)",
+  "Bash(rtk git -C * push -f*)",
+  "Bash(rtk git push * --force*)",
+  "Bash(rtk git push * -f*)",
+  "Bash(rtk git push * +*)",
+  "Bash(rtk git -C * push * --force*)",
+  "Bash(rtk git -C * push * -f*)",
+  "Bash(rtk git -C * push * +*)",
+  "Bash(rtk git push *main*)",
+  "Bash(rtk git push)",
+  "Bash(rtk git push origin)",
+  "Bash(rtk git -C * push *main*)",
+  "Bash(rtk git -C * push)",
+  "Bash(rtk git -C * push origin)",
+  "Bash(rtk git branch -D*)",
+  "Bash(rtk git -C * branch -D*)",
+  "Bash(rtk read *.config/lombakita/*)",
+  "Bash(rtk grep *.config/lombakita/*)",
 ];
 
 export const DENY_LIST = DENY_PATTERNS.join(",");
