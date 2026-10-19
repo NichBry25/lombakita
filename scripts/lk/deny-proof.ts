@@ -696,6 +696,7 @@ const CASES: readonly ProofCase[] = [
   ),
   readCase("read-tail", "tail ~/.config/lombakita/deny-proof-decoy.txt", [
     "Bash(tail *.config/lombakita/*)",
+    "Bash(rtk read *.config/lombakita/*)",
   ]),
   readCase("read-less", "less ~/.config/lombakita/deny-proof-decoy.txt", [
     "Bash(less *.config/lombakita/*)",
