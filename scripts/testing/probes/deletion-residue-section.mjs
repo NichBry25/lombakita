@@ -22,7 +22,7 @@
 import { runProbes, substituteOnce } from "../guard-probe.mjs";
 import { fails } from "./detectors.mjs";
 
-const PROCEDURE = "docs/operations/account-deletion-procedure.md";
+const PROCEDURE = "docs/reference/operations/account-deletion-procedure.md";
 const TEST = "scripts/project/deletion-procedure.test.ts";
 
 export const probes = [
