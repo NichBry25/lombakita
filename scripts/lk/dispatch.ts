@@ -47,6 +47,8 @@ import {
   type ModelClass,
 } from "./models";
 
+// Matching is on the command text, so each git rule has a `git -C <dir>` twin. A branch whose name
+// contains "main" is blocked by the push rule on purpose: the text is not parsed.
 export const DENY_PATTERNS: readonly string[] = [
   "Bash(git push --force*)",
   "Bash(git push -f*)",
@@ -62,6 +64,45 @@ export const DENY_PATTERNS: readonly string[] = [
   "Bash(vercel *)",
   "Bash(railway *)",
   "Bash(npm run db:*)",
+  // A force flag or a `+` refspec anywhere after the remote.
+  "Bash(git push * --force*)",
+  "Bash(git push * -f*)",
+  "Bash(git push * +*)",
+  "Bash(git -C * push * --force*)",
+  "Bash(git -C * push * -f*)",
+  "Bash(git -C * push * +*)",
+  // A push to main, and the two pushes that name no branch and so go wherever HEAD points.
+  "Bash(git push *main*)",
+  "Bash(git push)",
+  "Bash(git push origin)",
+  "Bash(git -C * push *main*)",
+  "Bash(git -C * push)",
+  "Bash(git -C * push origin)",
+  // Recursive removal in every flag spelling, and rm reached by an absolute path.
+  "Bash(rm -R*)",
+  "Bash(rm -fr*)",
+  "Bash(rm -fR*)",
+  "Bash(rm --recursive*)",
+  "Bash(rm * -r*)",
+  "Bash(rm * -R*)",
+  "Bash(rm * --recursive*)",
+  "Bash(/*/rm *)",
+  // Deleting a branch outright and throwing away every uncommitted change in the tree.
+  "Bash(git branch -D*)",
+  "Bash(git -C * branch -D*)",
+  "Bash(git checkout -- .*)",
+  "Bash(git checkout .*)",
+  "Bash(git restore .*)",
+  "Bash(git -C * checkout -- .*)",
+  "Bash(git -C * checkout .*)",
+  "Bash(git -C * restore .*)",
+  // The ntfy topic is a secret; the pattern covers ~, $HOME and absolute spellings of the path.
+  "Read(~/.config/lombakita/**)",
+  "Bash(cat *.config/lombakita/*)",
+  "Bash(head *.config/lombakita/*)",
+  "Bash(tail *.config/lombakita/*)",
+  "Bash(less *.config/lombakita/*)",
+  "Bash(grep *.config/lombakita/*)",
 ];
 
 export const DENY_LIST = DENY_PATTERNS.join(",");

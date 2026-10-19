@@ -207,11 +207,73 @@ describe("the arguments a session receives", () => {
     ]);
   });
 
-  it("carry a deny list that is exactly the owner's list", () => {
-    expect(DENY_LIST).toBe(
-      "Bash(git push --force*),Bash(git push -f*),Bash(git -C * push --force*),Bash(git -C * push -f*),Bash(git reset --hard*),Bash(git -C * reset --hard*),Bash(git clean*),Bash(git -C * clean*),Bash(rm -r*),Bash(sudo *),Bash(gh *),Bash(vercel *),Bash(railway *),Bash(npm run db:*)",
-    );
-    expect(DENY_LIST.split(",")).toHaveLength(14);
+  it("keep every pattern the list had before it was widened", () => {
+    const original = [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git -C * push --force*)",
+      "Bash(git -C * push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git -C * reset --hard*)",
+      "Bash(git clean*)",
+      "Bash(git -C * clean*)",
+      "Bash(rm -r*)",
+      "Bash(sudo *)",
+      "Bash(gh *)",
+      "Bash(vercel *)",
+      "Bash(railway *)",
+      "Bash(npm run db:*)",
+    ];
+    for (const pattern of original) expect(DENY_PATTERNS).toContain(pattern);
+  });
+
+  it.each([
+    ["a force flag after the remote", "Bash(git push * --force*)"],
+    ["a short force flag after the remote", "Bash(git push * -f*)"],
+    ["a plus refspec", "Bash(git push * +*)"],
+    ["a force flag after the remote, with -C", "Bash(git -C * push * --force*)"],
+    ["a short force flag after the remote, with -C", "Bash(git -C * push * -f*)"],
+    ["a plus refspec, with -C", "Bash(git -C * push * +*)"],
+    ["any push whose text holds main", "Bash(git push *main*)"],
+    ["a push with no branch", "Bash(git push)"],
+    ["a push to the remote with no branch", "Bash(git push origin)"],
+    ["any push whose text holds main, with -C", "Bash(git -C * push *main*)"],
+    ["a push with no branch, with -C", "Bash(git -C * push)"],
+    ["a push to the remote with no branch, with -C", "Bash(git -C * push origin)"],
+    ["rm with a capital R flag", "Bash(rm -R*)"],
+    ["rm with -fr", "Bash(rm -fr*)"],
+    ["rm with -fR", "Bash(rm -fR*)"],
+    ["rm with --recursive", "Bash(rm --recursive*)"],
+    ["rm with -r given as a separate flag", "Bash(rm * -r*)"],
+    ["rm with -R given as a separate flag", "Bash(rm * -R*)"],
+    ["rm with --recursive given as a separate flag", "Bash(rm * --recursive*)"],
+    ["rm reached by an absolute path", "Bash(/*/rm *)"],
+    ["git branch -D", "Bash(git branch -D*)"],
+    ["git branch -D, with -C", "Bash(git -C * branch -D*)"],
+    ["git checkout -- .", "Bash(git checkout -- .*)"],
+    ["git checkout .", "Bash(git checkout .*)"],
+    ["git restore .", "Bash(git restore .*)"],
+    ["git checkout -- ., with -C", "Bash(git -C * checkout -- .*)"],
+    ["git checkout ., with -C", "Bash(git -C * checkout .*)"],
+    ["git restore ., with -C", "Bash(git -C * restore .*)"],
+    ["the Read tool on the topic folder", "Read(~/.config/lombakita/**)"],
+    ["cat on the topic folder", "Bash(cat *.config/lombakita/*)"],
+    ["head on the topic folder", "Bash(head *.config/lombakita/*)"],
+    ["tail on the topic folder", "Bash(tail *.config/lombakita/*)"],
+    ["less on the topic folder", "Bash(less *.config/lombakita/*)"],
+    ["grep on the topic folder", "Bash(grep *.config/lombakita/*)"],
+  ])("name %s", (_what, pattern) => {
+    expect(DENY_PATTERNS).toContain(pattern);
+  });
+
+  it("hold 14 original patterns and 34 added ones, each once, none with a comma", () => {
+    expect(DENY_PATTERNS).toHaveLength(48);
+    expect(new Set(DENY_PATTERNS).size).toBe(DENY_PATTERNS.length);
+    for (const pattern of DENY_PATTERNS) {
+      expect(pattern).toMatch(/^(Bash|Read)\(.+\)$/);
+      expect(pattern).not.toContain(",");
+    }
+    expect(DENY_LIST.split(",")).toEqual([...DENY_PATTERNS]);
   });
 
   it("make the smoke call a one turn text question", () => {
