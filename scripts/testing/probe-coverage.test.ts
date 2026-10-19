@@ -528,4 +528,26 @@ describe("every probe suite is wired", () => {
       ).toBeGreaterThan(0);
     }
   });
+
+  it("keeps the test that asks git whether each docs path a probe names is addressable", () => {
+    // That test is the only per-PR check on those paths, and a file that is deleted, emptied, or
+    // stripped of its describe or its git call fails nothing by being absent.
+    const path = "scripts/testing/probe-docs-paths.test.ts";
+
+    expect(existsSync(atRoot(path)), `${path} is not on disk`).toBe(true);
+
+    const source = readText(path);
+
+    expect(source.trim().length, `${path} is empty`).toBeGreaterThan(0);
+    expect(source, `${path} lost its describe`).toContain(
+      "probes name docs files that git can address",
+    );
+    expect(source, `${path} no longer asks git about a path`).toContain(
+      '"ls-files", "--error-unmatch"',
+    );
+    // `skipIf` is the file's own conditional skip; a bare `.skip` switches the guard off for good.
+    expect(source, `${path} skips its checks unconditionally`).not.toMatch(
+      /\b(?:describe|it)\.skip\b/,
+    );
+  });
 });
