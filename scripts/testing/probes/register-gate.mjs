@@ -37,6 +37,7 @@ import { fails } from "./detectors.mjs";
 import { liveAnchorItem } from "./live-anchor-item.mjs";
 
 const REGISTER = "docs/project/open-debt.md";
+const REGISTER_ARCHIVE = "docs/archive/project/open-debt-archive.md";
 const DECISION_LOG = "docs/project/decision-log.md";
 
 /**
@@ -74,6 +75,28 @@ const PLANTED_ITEM = "- **LAUNCH-D9999 [HIGH]** filed by the register-gate probe
 const D47_ANCHORED = "- **LAUNCH-D47 [HIGH] → Step 7.7 Block C2.";
 const D40_ANCHORED = "- **LAUNCH-D40 [MEDIUM] → Step 7.7 Block D.**";
 const BETA_D29_MARKED = "- **BETA-D29 [LOW]** → Step 7.7 · DISCHARGED 2026-09-09.";
+
+/**
+ * The register file that holds `anchor`, refusing unless the anchor occurs exactly once across the
+ * live file and the archive file together.
+ *
+ * A finished entry sits in whichever of the two the sweep last left it, so its anchor cannot be
+ * named by file. Counting across both is what keeps the mutation from landing on a copy while the
+ * original stays, or from finding nothing and probing an unmutated register.
+ */
+export const fileHoldingOnce = (anchor, files = [REGISTER, REGISTER_ARCHIVE]) => {
+  const holders = files.flatMap((file) => {
+    const occurrences = readFileSync(file, "utf8").split(anchor).length - 1;
+    return Array(occurrences).fill(file);
+  });
+  if (holders.length !== 1) {
+    throw new Error(
+      `mutation anchor must occur exactly once across ${files.join(" and ")}, ` +
+        `found ${holders.length}: ${JSON.stringify(anchor.slice(0, 80))}`,
+    );
+  }
+  return holders[0];
+};
 
 /**
  * A bullet whose head token the head matcher reads and the id test then rejects.
@@ -232,10 +255,15 @@ export const probes = [
     klass: "D",
     harmfulMove:
       "leaving · DISCHARGED off the anchor line of an item a discharge section already declares discharged, so the file reports the same id as both discharged and live",
-    files: [REGISTER],
+    files: [REGISTER, REGISTER_ARCHIVE],
     repo: DOC_LANE,
     appliedMarkers: ["- **BETA-D29 [LOW]** → Step 7.7."],
-    mutate: () => substituteOnce(REGISTER, BETA_D29_MARKED, "- **BETA-D29 [LOW]** → Step 7.7."),
+    mutate: () =>
+      substituteOnce(
+        fileHoldingOnce(BETA_D29_MARKED),
+        BETA_D29_MARKED,
+        "- **BETA-D29 [LOW]** → Step 7.7.",
+      ),
     detect: () =>
       gateRefused(
         /FAIL\s+\d+\s+items a discharged section declares discharged whose anchor line carries no mark\s+\(up 1\)/,
