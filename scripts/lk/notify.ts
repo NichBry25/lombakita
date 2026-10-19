@@ -11,17 +11,21 @@
  * error text. In hook mode nothing from the payload except the event name is read, so nothing the
  * session produced can reach the push.
  *
- * Exit codes: 0 sent or dry run, 1 bad arguments, 2 no usable topic file, 3 the send failed. Hook
- * mode exits 0 on every failure so a broken alert cannot block the session it reports on.
+ * Exit codes: 0 sent or dry run, 1 bad arguments, 2 no usable topic file, 3 the send failed or took
+ * longer than SEND_TIMEOUT_SECONDS. Hook mode exits 0 on every failure so a broken alert cannot
+ * block the session it reports on.
  */
 
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseArgs } from "node:util";
 import { LkRefusal, parseCliArgs, stringOption, type Env } from "./models";
 
 export const TEXT_LIMIT = 200;
+export const SEND_TIMEOUT_SECONDS = 10;
+const LATIN1_LAST_CODE_POINT = 0xff;
 export const NTFY_ORIGIN = "https://ntfy.sh";
 const TOPIC_FILE_IN_HOME = ".config/lombakita/ntfy-topic";
 const TOPIC_PLACEHOLDER = "<topic>";
@@ -41,7 +45,11 @@ export interface NtfyRequest {
   body: string;
 }
 
-export type SendRequest = (request: NtfyRequest) => Promise<{ status: number }>;
+/** `signal` aborts when the send has waited too long; a sender should hand it to the request. */
+export type SendRequest = (
+  request: NtfyRequest,
+  signal: AbortSignal,
+) => Promise<{ status: number }>;
 
 export interface NotifyResult {
   exitCode: number;
@@ -59,14 +67,6 @@ class NotifyFailure extends Error {
 }
 
 const HOOK_ALERTS = new Map<string, Alert>([
-  [
-    "Stop",
-    {
-      title: "Lombakita: waiting for you",
-      message: "The controller finished a turn and is waiting.",
-      priority: "default",
-    },
-  ],
   [
     "Notification",
     {
@@ -111,12 +111,33 @@ const readTopic = (env: Env): string => {
   return topic;
 };
 
-const sendThrough = async (send: SendRequest, request: NtfyRequest): Promise<void> => {
+const sendThrough = async (
+  send: SendRequest,
+  request: NtfyRequest,
+  timeoutSeconds: number,
+): Promise<void> => {
+  const controller = new AbortController();
+  let timedOut = false;
+  let timer: NodeJS.Timeout | undefined;
+  const expiry = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      reject(new Error("send timed out"));
+    }, timeoutSeconds * 1000);
+  });
   let status: number;
   try {
-    status = (await send(request)).status;
+    status = (await Promise.race([send(request, controller.signal), expiry])).status;
   } catch {
-    throw new NotifyFailure(3, "lk-notify: send failed (network error), alert NOT sent");
+    throw timedOut
+      ? new NotifyFailure(
+          3,
+          `lk-notify: send failed (timeout after ${timeoutSeconds} seconds), alert NOT sent`,
+        )
+      : new NotifyFailure(3, "lk-notify: send failed (network error), alert NOT sent");
+  } finally {
+    clearTimeout(timer);
   }
   if (status < 200 || status >= 300) {
     throw new NotifyFailure(3, `lk-notify: send failed (status ${status}), alert NOT sent`);
@@ -128,16 +149,21 @@ const deliver = async (
   env: Env,
   dryRun: boolean,
   send: SendRequest,
+  timeoutSeconds: number,
 ): Promise<NotifyResult> => {
   const topic = readTopic(env);
   if (dryRun) {
     return { exitCode: 0, stdout: `${JSON.stringify(buildRequest(alert, null))}\n`, stderr: "" };
   }
-  await sendThrough(send, buildRequest(alert, topic));
+  await sendThrough(send, buildRequest(alert, topic), timeoutSeconds);
   return { exitCode: 0, stdout: "lk-notify: sent\n", stderr: "" };
 };
 
 const isPriority = (value: string): value is Priority => value === "high" || value === "default";
+
+// A header value is Latin-1 on the wire, so a wider character would fail inside the request.
+const hasCharacterAboveLatin1 = (text: string): boolean =>
+  Array.from(text).some((character) => (character.codePointAt(0) ?? 0) > LATIN1_LAST_CODE_POINT);
 
 const alertFromFlags = (
   title: string | undefined,
@@ -149,6 +175,12 @@ const alertFromFlags = (
   }
   if (!isPriority(priority)) {
     throw new NotifyFailure(1, 'lk-notify: --priority must be "high" or "default"');
+  }
+  if (hasCharacterAboveLatin1(cleanText(title))) {
+    throw new NotifyFailure(
+      1,
+      "lk-notify: --title has a character above U+00FF, a header cannot carry it, alert NOT sent",
+    );
   }
   return { title, message, priority };
 };
@@ -164,6 +196,7 @@ const runHook = async (
   env: Env,
   readStdin: () => string,
   send: SendRequest,
+  timeoutSeconds: number,
 ): Promise<NotifyResult> => {
   const quiet: NotifyResult = { exitCode: 0, stdout: "", stderr: "" };
   if (env.LK_ROLE !== "controller") return quiet;
@@ -179,10 +212,15 @@ const runHook = async (
   }
   const alert = HOOK_ALERTS.get(eventNameOf(payload) ?? "");
   if (alert === undefined) return quiet;
-  return deliver(alert, env, values["dry-run"] === true, send);
+  return deliver(alert, env, values["dry-run"] === true, send, timeoutSeconds);
 };
 
-const runCli = async (argv: string[], env: Env, send: SendRequest): Promise<NotifyResult> => {
+const runCli = async (
+  argv: string[],
+  env: Env,
+  send: SendRequest,
+  timeoutSeconds: number,
+): Promise<NotifyResult> => {
   const { values, positionals } = parseCliArgs(argv, {
     title: { type: "string" },
     message: { type: "string" },
@@ -195,7 +233,29 @@ const runCli = async (argv: string[], env: Env, send: SendRequest): Promise<Noti
     stringOption(values, "message"),
     stringOption(values, "priority"),
   );
-  return deliver(alert, env, values["dry-run"] === true, send);
+  return deliver(alert, env, values["dry-run"] === true, send, timeoutSeconds);
+};
+
+// Parsed rather than searched: `--message --hook` makes the flag the message's value.
+const isHookFlagGiven = (argv: string[]): boolean => {
+  try {
+    const { tokens = [] } = parseArgs({
+      args: argv,
+      options: {
+        hook: { type: "boolean" },
+        title: { type: "string" },
+        message: { type: "string" },
+        priority: { type: "string" },
+        "dry-run": { type: "boolean" },
+      },
+      allowPositionals: true,
+      strict: false,
+      tokens: true,
+    });
+    return tokens.some((token) => token.kind === "option" && token.name === "hook");
+  } catch {
+    return false;
+  }
 };
 
 export const runNotify = async (
@@ -203,10 +263,13 @@ export const runNotify = async (
   env: Env,
   readStdin: () => string,
   send: SendRequest,
+  timeoutSeconds = SEND_TIMEOUT_SECONDS,
 ): Promise<NotifyResult> => {
-  const hookMode = argv.includes("--hook");
+  const hookMode = isHookFlagGiven(argv);
   try {
-    return hookMode ? await runHook(argv, env, readStdin, send) : await runCli(argv, env, send);
+    return hookMode
+      ? await runHook(argv, env, readStdin, send, timeoutSeconds)
+      : await runCli(argv, env, send, timeoutSeconds);
   } catch (error) {
     const message =
       error instanceof NotifyFailure
@@ -219,11 +282,12 @@ export const runNotify = async (
   }
 };
 
-const sendWithFetch: SendRequest = async (request) => {
+export const sendWithFetch: SendRequest = async (request, signal) => {
   const response = await fetch(request.url, {
     method: request.method,
     headers: request.headers,
     body: request.body,
+    signal,
   });
   return { status: response.status };
 };

@@ -9,21 +9,29 @@
  *
  * A work item is the folder `.work/<slug>/`. `run` refuses, never repairs: a wrong role, a prompt
  * that may have been cut off, a model the table cannot resolve, a session already running or a
- * model that does not answer each stop it before anything is written. Every refusal is one line
- * starting `LK REFUSED: ` and exits 1. One session runs at a time, enforced by `.work/.lock`.
+ * model that does not answer within SMOKE_TIMEOUT_SECONDS each stop it before anything is written.
+ * Every refusal is one line starting `LK REFUSED: ` and exits 1. One session runs at a time,
+ * enforced by `.work/.lock`.
+ *
+ * A session killed by a signal is recorded as failed with exit 128 plus the signal number and the
+ * signal's name. A real run that removes a stale lock marks the dead holder's run record, if it
+ * still says running, as failed and lost.
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import {
   closeSync,
   existsSync,
+  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
+import { constants as osConstants } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -39,8 +47,24 @@ import {
   type ModelClass,
 } from "./models";
 
-export const DENY_LIST =
-  "Bash(git push --force*),Bash(git push -f*),Bash(git -C * push --force*),Bash(git -C * push -f*),Bash(git reset --hard*),Bash(git -C * reset --hard*),Bash(git clean*),Bash(git -C * clean*),Bash(rm -r*),Bash(sudo *),Bash(gh *),Bash(vercel *),Bash(railway *),Bash(npm run db:*)";
+export const DENY_PATTERNS: readonly string[] = [
+  "Bash(git push --force*)",
+  "Bash(git push -f*)",
+  "Bash(git -C * push --force*)",
+  "Bash(git -C * push -f*)",
+  "Bash(git reset --hard*)",
+  "Bash(git -C * reset --hard*)",
+  "Bash(git clean*)",
+  "Bash(git -C * clean*)",
+  "Bash(rm -r*)",
+  "Bash(sudo *)",
+  "Bash(gh *)",
+  "Bash(vercel *)",
+  "Bash(railway *)",
+  "Bash(npm run db:*)",
+];
+
+export const DENY_LIST = DENY_PATTERNS.join(",");
 
 export const SLUG_PATTERN = /^[a-z]+(-[a-z]+)*$/;
 export const END_MARKER = "END OF PROMPT";
@@ -52,6 +76,7 @@ const RUN_FILE = "run.json";
 const SESSION_LOG_FILE = "session.jsonl";
 const MODELS_FILE_IN_ROOT = "docs/project/models.md";
 const SMOKE_PROMPT = "reply with the single word ok";
+export const SMOKE_TIMEOUT_SECONDS = 60;
 
 export const buildClaudeArgs = (promptText: string, model: string): string[] => [
   "-p",
@@ -89,6 +114,8 @@ export interface RunRecord {
   started: string;
   pid: number;
   exit?: number;
+  signal?: string;
+  lost?: boolean;
   ended?: string;
 }
 
@@ -97,16 +124,25 @@ export interface ProcessOptions {
   env: Env;
 }
 
-/** `onSpawn` receives the session's own pid as soon as the process exists. */
+/** A session killed by a signal carries 128 plus the signal number as its exit code. */
+export interface SessionEnd {
+  exitCode: number;
+  signal?: string;
+}
+
+/**
+ * `onSpawn` receives the session's own pid as soon as the process exists. If it throws, the session
+ * is killed and the promise rejects with that error once the session is gone.
+ */
 export type SpawnSession = (
   args: string[],
   options: ProcessOptions & { logPath: string; onSpawn: (childPid: number) => void },
-) => Promise<number>;
+) => Promise<SessionEnd>;
 
 export type RunSmoke = (
   model: string,
   options: ProcessOptions,
-) => { status: number | null; stdout: string };
+) => { status: number | null; stdout: string; timedOut: boolean };
 
 export interface DispatchDeps {
   spawnSession: SpawnSession;
@@ -185,6 +221,31 @@ const readLock = (lockPath: string): LockHolder => {
   return refuse(`${lockPath} is unreadable, remove it by hand once no session is running`);
 };
 
+const LOCK_TEMP_SUFFIX = ".tmp";
+
+const readRunRecord = (runPath: string): RunRecord | undefined => {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(runPath, "utf8"));
+    return typeof parsed === "object" && parsed !== null ? (parsed as RunRecord) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/** Returns whether the record was rewritten; only a record that still says running is touched. */
+const markRunLost = (root: string, slug: string): boolean => {
+  if (!SLUG_PATTERN.test(slug)) return false;
+  const record = readRunRecord(workPath(root, slug, RUN_FILE));
+  if (record === undefined || record.slug !== slug || record.status !== "running") return false;
+  writeRunRecord(root, {
+    ...record,
+    status: "failed",
+    lost: true,
+    ended: new Date().toISOString(),
+  });
+  return true;
+};
+
 const refuseIfLockHeld = (root: string, deps: DispatchDeps, removeStale: boolean): void => {
   const lockPath = workPath(root, LOCK_FILE);
   if (!existsSync(lockPath)) return;
@@ -199,14 +260,32 @@ const refuseIfLockHeld = (root: string, deps: DispatchDeps, removeStale: boolean
     deps.print("LK NOTE: stale lock present, a real run removes it");
     return;
   }
-  rmSync(lockPath);
+  const markedLost = markRunLost(root, holder.slug);
+  rmSync(lockPath, { force: true });
   deps.print("LK NOTE: stale lock removed");
+  if (markedLost) deps.print(`LK NOTE: run ${holder.slug} was left running and is marked lost`);
 };
 
+/** Writes the content to a temporary file next to the lock, hands the path to `publish`, then removes it. */
+const publishLockContent = (
+  root: string,
+  holder: LockHolder,
+  publish: (temporaryPath: string) => void,
+): void => {
+  const temporaryPath = workPath(root, `${LOCK_FILE}.${holder.pid}${LOCK_TEMP_SUFFIX}`);
+  try {
+    writeFileSync(temporaryPath, JSON.stringify(holder));
+    publish(temporaryPath);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
+};
+
+// Linking a finished file creates the lock or fails, and a reader never sees a part-written one.
 const writeLock = (root: string, holder: LockHolder): void => {
   const lockPath = workPath(root, LOCK_FILE);
   try {
-    writeFileSync(lockPath, JSON.stringify(holder), { flag: "wx" });
+    publishLockContent(root, holder, (temporaryPath) => linkSync(temporaryPath, lockPath));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     refuse(`slug ${readLock(lockPath).slug} holds the lock`);
@@ -214,7 +293,10 @@ const writeLock = (root: string, holder: LockHolder): void => {
 };
 
 const recordChildInLock = (root: string, holder: LockHolder, childPid: number): void => {
-  writeFileSync(workPath(root, LOCK_FILE), JSON.stringify({ ...holder, childPid }));
+  const lockPath = workPath(root, LOCK_FILE);
+  publishLockContent(root, { ...holder, childPid }, (temporaryPath) =>
+    renameSync(temporaryPath, lockPath),
+  );
 };
 
 const writeRunRecord = (root: string, record: RunRecord): void => {
@@ -232,8 +314,9 @@ const refuseUnlessModelAnswers = (
   options: ProcessOptions,
   runSmoke: RunSmoke,
 ): void => {
-  const { status, stdout } = runSmoke(model, options);
-  if (status !== 0 || !/ok/i.test(stdout)) refuse(`model ${model} did not answer`);
+  const { status, stdout, timedOut } = runSmoke(model, options);
+  if (timedOut) refuse(`model ${model} did not answer within ${SMOKE_TIMEOUT_SECONDS} seconds`);
+  if (status !== 0 || !/\bok\b/i.test(stdout)) refuse(`model ${model} did not answer`);
 };
 
 const printDryRun = (
@@ -258,10 +341,10 @@ const runSession = async (
 ): Promise<number> => {
   const holder: LockHolder = { pid: deps.pid, slug: record.slug };
   writeLock(root, holder);
-  let exitCode = 1;
+  let end: SessionEnd = { exitCode: 1 };
   try {
     writeRunRecord(root, record);
-    exitCode = await deps.spawnSession(buildClaudeArgs(promptText, record.model), {
+    end = await deps.spawnSession(buildClaudeArgs(promptText, record.model), {
       cwd: root,
       env: sessionEnv(env, record.slug),
       logPath: workPath(root, record.slug, SESSION_LOG_FILE),
@@ -269,13 +352,19 @@ const runSession = async (
     });
   } finally {
     try {
-      const status = exitCode === 0 ? "done" : "failed";
-      writeRunRecord(root, { ...record, status, exit: exitCode, ended: new Date().toISOString() });
+      const status = end.exitCode === 0 ? "done" : "failed";
+      writeRunRecord(root, {
+        ...record,
+        status,
+        exit: end.exitCode,
+        ...(end.signal === undefined ? {} : { signal: end.signal }),
+        ended: new Date().toISOString(),
+      });
     } finally {
       rmSync(workPath(root, LOCK_FILE), { force: true });
     }
   }
-  return exitCode;
+  return end.exitCode;
 };
 
 /** Returns the exit code the dispatcher itself should exit with. */
@@ -333,7 +422,7 @@ export const readRunStatus = (root: string, slug: string | undefined): string =>
 // only needs the strings, so the looser Env is handed over as is.
 const toChildEnv = (env: Env): NodeJS.ProcessEnv => env as NodeJS.ProcessEnv;
 
-const isProcessAlive = (pid: number): boolean => {
+export const isProcessAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
     return true;
@@ -342,46 +431,83 @@ const isProcessAlive = (pid: number): boolean => {
   }
 };
 
-const runSmokeWithClaude: RunSmoke = (model, { cwd, env }) => {
-  const result = spawnSync("claude", buildSmokeArgs(model), {
-    cwd,
-    env: toChildEnv(env),
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  return { status: result.status, stdout: result.stdout ?? "" };
-};
+export const createRunSmoke =
+  (timeoutSeconds: number): RunSmoke =>
+  (model, { cwd, env }) => {
+    const result = spawnSync("claude", buildSmokeArgs(model), {
+      cwd,
+      env: toChildEnv(env),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: timeoutSeconds * 1000,
+      killSignal: "SIGKILL",
+    });
+    const timedOut = (result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
+    return { status: result.status, stdout: result.stdout ?? "", timedOut };
+  };
+
+export const runSmokeWithClaude = createRunSmoke(SMOKE_TIMEOUT_SECONDS);
 
 const SPAWN_FAILED_EXIT = 127;
+const SIGNAL_EXIT_BASE = 128;
 
 // A terminated dispatcher must not leave a running session behind a lock that looks free, so these
 // signals go to the session and the dispatcher keeps waiting until it ends.
 const FORWARDED_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 
-const spawnSessionWithClaude: SpawnSession = (args, { cwd, env, logPath, onSpawn }) =>
-  new Promise((resolveExit) => {
+const sessionEndOf = (code: number | null, signal: NodeJS.Signals | null): SessionEnd => {
+  if (signal === null) return { exitCode: code ?? 1 };
+  return { exitCode: SIGNAL_EXIT_BASE + osConstants.signals[signal], signal };
+};
+
+// The handlers go in before the session is started: a signal that arrives once it exists must
+// reach it, and one that arrives earlier must not run the default action, which ends the
+// dispatcher and leaves the session behind a lock that looks free.
+export const spawnSessionWithClaude: SpawnSession = (args, { cwd, env, logPath, onSpawn }) =>
+  new Promise((resolveEnd, rejectEnd) => {
     const log = openSync(logPath, "a");
+    let child: ChildProcess | undefined;
     let settled = false;
     const forwarders = FORWARDED_SIGNALS.map((signal) => ({
       signal,
-      forward: () => child.kill(signal),
+      forward: () => child?.kill(signal),
     }));
-    const finish = (code: number): void => {
-      if (settled) return;
-      settled = true;
+    for (const { signal, forward } of forwarders) process.on(signal, forward);
+    const release = (): void => {
       for (const { signal, forward } of forwarders) process.off(signal, forward);
       closeSync(log);
-      resolveExit(code);
     };
-    const child = spawn("claude", args, {
-      cwd,
-      env: toChildEnv(env),
-      stdio: ["ignore", log, log],
+    const finish = (end: SessionEnd): void => {
+      if (settled) return;
+      settled = true;
+      release();
+      resolveEnd(end);
+    };
+    const fail = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      release();
+      rejectEnd(error);
+    };
+    try {
+      child = spawn("claude", args, { cwd, env: toChildEnv(env), stdio: ["ignore", log, log] });
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    let startupError: { cause: unknown } | undefined;
+    child.on("error", () => finish({ exitCode: SPAWN_FAILED_EXIT }));
+    child.on("close", (code, signal) => {
+      if (startupError === undefined) finish(sessionEndOf(code, signal));
+      else fail(startupError.cause);
     });
-    for (const { signal, forward } of forwarders) process.on(signal, forward);
-    if (child.pid !== undefined) onSpawn(child.pid);
-    child.on("error", () => finish(SPAWN_FAILED_EXIT));
-    child.on("close", (code) => finish(code ?? 1));
+    if (child.pid === undefined) return;
+    try {
+      onSpawn(child.pid);
+    } catch (error) {
+      startupError = { cause: error };
+      child.kill("SIGKILL");
+    }
   });
 
 const realDeps: DispatchDeps = {
