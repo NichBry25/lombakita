@@ -2091,7 +2091,13 @@ describe("the deny-proof harness without a model", () => {
   it("gives every Bash case a covers list that holds every pattern naming its command, and no allowed control a refusing pattern", async () => {
     const { CASES } = await import("./deny-proof");
     const problems: string[] = [];
-    for (const testCase of CASES.filter((candidate) => candidate.tool === "Bash")) {
+    // The hook-group settings cases run with no deny flag, so the hook is the only thing that can
+    // refuse their command and the deny list never sees it.
+    const bashCases = CASES.filter(
+      (candidate) =>
+        candidate.tool === "Bash" && !(candidate.mode === "settings" && candidate.group === "hook"),
+    );
+    for (const testCase of bashCases) {
       const command = testCase.command.split("<fixture>").join("/tmp/lk-deny-proof-x/repo");
       const rewritten = testCase.rewrittenAs?.split("<fixture>").join("/tmp/lk-deny-proof-x/repo");
       const naming = [
