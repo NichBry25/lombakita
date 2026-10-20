@@ -2212,7 +2212,11 @@ const loneRuleVerdict = async (
 };
 
 const runAllowedCase = async (testCase: ProofCase): Promise<CaseResult> => {
-  emit("- run through dispatch.ts; the command must be allowed and take effect");
+  emit(
+    testCase.mode === "settings"
+      ? "- run with no deny flag; the command must be allowed and take effect"
+      : "- run through dispatch.ts; the command must be allowed and take effect",
+  );
   const report = await withFixture(testCase, false, async (fixture) => {
     const expected = renderCommand(testCase.command, fixture);
     emit(`  fixture: ${fixture.root}`);
