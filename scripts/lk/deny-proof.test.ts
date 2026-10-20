@@ -14,6 +14,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
@@ -31,11 +32,13 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { buildClaudeArgs, DENY_LIST, DENY_PATTERNS } from "./dispatch";
 import {
   controlArgs,
+  exitsOneToStdoutHookText,
   GUARD_COMMANDS,
   GUARD_TABLE,
   guardTableMismatches,
+  HOOK_WIRING,
+  hookWiringProblems,
   refusalReachedModel,
-  uneditedHookText,
 } from "./deny-proof";
 
 vi.mock("./dispatch", async (importOriginal) => {
@@ -126,6 +129,9 @@ const verdictOf = (output: string, caseId: string): string | undefined =>
 const READ_COMMAND_LINE =
   'command=$(python3 -c \'import sys,json;print(json.load(sys.stdin)["tool_input"]["command"])\')';
 
+const DESTRUCTIVE_STATEMENT_GREP =
+  'grep -qiE "\\b(DROP[[:space:]]+TABLE|DROP[[:space:]]+COLUMN|TRUNCATE[[:space:]]+TABLE|DELETE[[:space:]]+FROM[[:space:]]+[a-zA-Z_])\\b"';
+
 // The way the edited database guard answers: a message on stderr and exit 2, and a destructive
 // statement blocks only in a command that also names a program that runs SQL.
 const blockingHook = (migrateMessage = "UNGUARDED MIGRATION BLOCKED"): string =>
@@ -136,7 +142,7 @@ const blockingHook = (migrateMessage = "UNGUARDED MIGRATION BLOCKED"): string =>
     `  echo "${migrateMessage}" >&2`,
     "  exit 2",
     "fi",
-    'if echo "$command" | grep -qiE "DROP TABLE|TRUNCATE TABLE" \\',
+    `if echo "$command" | ${DESTRUCTIVE_STATEMENT_GREP} \\`,
     '  && echo "$command" | grep -qiE "(^|[^A-Za-z0-9_])(psql|drizzle-kit|pg_dump|pg_restore|neonctl)([^A-Za-z0-9_]|$)|npm run db:"; then',
     '  echo "DESTRUCTIVE DATABASE OPERATION BLOCKED" >&2',
     "  exit 2",
@@ -145,7 +151,7 @@ const blockingHook = (migrateMessage = "UNGUARDED MIGRATION BLOCKED"): string =>
     "",
   ].join("\n");
 
-// The guard as it was before it was narrowed: any command holding the statement text is blocked.
+// The previous guard script: any command holding a destructive statement is blocked.
 const wideBlockingHook = (): string =>
   [
     "#!/bin/bash",
@@ -154,7 +160,7 @@ const wideBlockingHook = (): string =>
     '  echo "UNGUARDED MIGRATION BLOCKED" >&2',
     "  exit 2",
     "fi",
-    'if echo "$command" | grep -qiE "DROP TABLE|TRUNCATE TABLE"; then',
+    `if echo "$command" | ${DESTRUCTIVE_STATEMENT_GREP}; then`,
     '  echo "DESTRUCTIVE DATABASE OPERATION BLOCKED" >&2',
     "  exit 2",
     "fi",
@@ -167,12 +173,12 @@ const NEVER_BLOCKING_HOOK = "#!/bin/bash\nexit 0\n";
 const PROTECT_HEADING = "PROTECTED FILE EDIT DETECTED";
 const SESSION_END_CHECKLIST_HEADING = "LOMBAKITA SESSION END CHECKLIST";
 
-// Warns on the two substrings the real script matches for these paths and exits 0.
+// Warns on the three substrings the real script matches and exits 0.
 const warningProtectHook = (): string =>
   [
     "#!/bin/bash",
     "input=$(cat)",
-    'if [[ "$input" == *"docs/project/SSOT.md"* || "$input" == *"docs/contracts/"* ]]; then',
+    'if [[ "$input" == *"docs/project/SSOT.md"* || "$input" == *"docs/contracts/"* || "$input" == *"docs/product/state-machines.md"* ]]; then',
     `  echo "${PROTECT_HEADING}"`,
     "fi",
     "exit 0",
@@ -194,13 +200,32 @@ const gitIn = (cwd: string, args: string[]): void => {
 };
 
 interface DocsRootOptions {
-  /** What the guard script was before it was narrowed; it is committed, so HEAD names it. */
+  /** The previous guard script, committed so that HEAD names it. */
   previousHook?: string;
   protectHook?: string;
   sessionEndHook?: string;
+  /** The hooks block of the docs settings; the default wires the three scripts of this root. */
+  hooksBlock?: (docsRoot: string) => Record<string, unknown>;
 }
 
 const TWIN_ENTRY = "Bash(rtk npx vercel env pull*)";
+
+// The shape of the hooks block of the real docs settings: a command per script, under the matcher
+// its tool needs, with the Notification entry the fixtures never use.
+const hooksBlockFor = (docsRoot: string): Record<string, unknown> => {
+  const commandFor = (script: string) => ({
+    type: "command",
+    command: `bash ${docsRoot}/.claude/hooks/${script}`,
+  });
+  return {
+    PreToolUse: [
+      { matcher: "Edit|Write|MultiEdit", hooks: [commandFor("check-protected-file.sh")] },
+      { matcher: "Bash", hooks: [commandFor("check-destructive-bash.sh")] },
+    ],
+    SessionEnd: [{ hooks: [commandFor("session-end-reminder.sh")] }],
+    Notification: [{ hooks: [{ type: "command", command: "node notify.ts --hook" }] }],
+  };
+};
 
 const makeDocsRoot = (
   hookText: string,
@@ -225,7 +250,10 @@ const makeDocsRoot = (
   );
   writeFileSync(
     join(root, ".claude/settings.json"),
-    JSON.stringify({ permissions: { deny: denyEntries } }),
+    JSON.stringify({
+      permissions: { deny: denyEntries },
+      hooks: options.hooksBlock?.(root) ?? hooksBlockFor(root),
+    }),
   );
   return root;
 };
@@ -558,7 +586,7 @@ describe("the hook cases", () => {
     docsRun("hook", caseId, docsRoot, extra);
 
   it(
-    "pass when the copied script blocks and the same script as it was before does not",
+    "pass when the copied script blocks and the same script exiting 1 to standard output does not",
     () => {
       const docs = makeDocsRoot(blockingHook(), []);
       const output = hookRun("hook-drizzle-migrate", docs);
@@ -566,6 +594,8 @@ describe("the hook cases", () => {
       expect(output).toContain("harm in the denied run: none");
       expect(output).toContain("harm in the control run: marker.txt was written");
       expect(verdictOf(output, "hook-drizzle-migrate")).toBe("PASS");
+      expect(output).toContain("- denied run (through dispatch.ts");
+      expect(output).toContain("patterns removed: []");
       const second = hookRun("hook-pipe-to-psql", docs);
       expect(verdictOf(second, "hook-pipe-to-psql")).toBe("PASS");
     },
@@ -579,11 +609,11 @@ describe("the hook cases", () => {
       const sessionMarker = join(startedBin, "session-started.txt");
       writeStandIn(startedBin, "memory_pressure", reportFreeMemory(50));
       writeStandIn(startedBin, "claude", `echo started > "${sessionMarker}"`);
-      const unedited = uneditedHookText(blockingHook());
+      const exitsOne = exitsOneToStdoutHookText(blockingHook());
       const output = docsRun(
         "hook",
         "hook-drizzle-migrate",
-        makeDocsRoot(unedited, []),
+        makeDocsRoot(exitsOne, []),
         {},
         startedBin,
       );
@@ -605,6 +635,94 @@ describe("the hook cases", () => {
       expect(output).toContain("harm in the denied run: none");
       expect(output).toContain("denial names the command=false");
       expect(verdictOf(output, "hook-drizzle-migrate")).toBe("FAIL");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "start no session when the docs settings wire the database guard no time, or twice",
+    () => {
+      const startedBin = mkdtempSync(join(workspace, "wiring-stop-"));
+      const sessionMarker = join(startedBin, "session-started.txt");
+      writeStandIn(startedBin, "memory_pressure", reportFreeMemory(50));
+      writeStandIn(startedBin, "claude", `echo started > "${sessionMarker}"`);
+      const withoutGuard = (docsRoot: string) => {
+        const block = hooksBlockFor(docsRoot);
+        block.PreToolUse = (block.PreToolUse as unknown[]).slice(0, 1);
+        return block;
+      };
+      const twice = (docsRoot: string) => {
+        const block = hooksBlockFor(docsRoot);
+        const [protect, guard] = block.PreToolUse as unknown[];
+        block.PreToolUse = [protect, guard, guard];
+        return block;
+      };
+      const missing = docsRun(
+        "hook",
+        "hook-pipe-to-psql",
+        makeDocsRoot(blockingHook(), [], { hooksBlock: withoutGuard }),
+        {},
+        startedBin,
+      );
+      expect(missing).toContain("0 hook entries name check-destructive-bash.sh, not 1");
+      const doubled = docsRun(
+        "hook",
+        "hook-pipe-to-psql",
+        makeDocsRoot(blockingHook(), [], { hooksBlock: twice }),
+        {},
+        startedBin,
+      );
+      expect(doubled).toContain("2 hook entries name check-destructive-bash.sh, not 1");
+      for (const output of [missing, doubled]) {
+        expect(output).toContain("no session started");
+        expect(output).not.toContain("CASE ");
+      }
+      expect(existsSync(sessionMarker)).toBe(false);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "start no session when the docs settings give the database guard another matcher",
+    () => {
+      const withOtherMatcher = (docsRoot: string) => {
+        const block = hooksBlockFor(docsRoot);
+        const [protect, guard] = block.PreToolUse as { matcher: string }[];
+        block.PreToolUse = [protect, { ...guard, matcher: "Bash|Task" }];
+        return block;
+      };
+      const output = hookRun(
+        "hook-pipe-to-psql",
+        makeDocsRoot(blockingHook(), [], { hooksBlock: withOtherMatcher }),
+      );
+      expect(output).toContain(
+        "the matcher of check-destructive-bash.sh is Bash|Task, the case needs Bash",
+      );
+      expect(output).not.toContain("CASE ");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "build the fixture's hooks from the entry in the docs settings, swapping only the script path",
+    () => {
+      const withTimeout = (docsRoot: string) => {
+        const block = hooksBlockFor(docsRoot);
+        const [protect, guard] = block.PreToolUse as { hooks: object[] }[];
+        const timed = { ...guard, hooks: guard?.hooks.map((hook) => ({ ...hook, timeout: 7 })) };
+        block.PreToolUse = [protect, timed];
+        return block;
+      };
+      const docs = makeDocsRoot(blockingHook(), [], { hooksBlock: withTimeout });
+      const output = hookRun("hook-pipe-to-psql", docs);
+      expect(output).toContain("hook wiring: 3 hook scripts are each wired once");
+      const hooksLine = output.split("\n").find((line) => line.includes("fixture hooks")) ?? "";
+      const hooksJson = hooksLine.slice(hooksLine.indexOf("): ") + 3);
+      expect(hooksJson).toContain('"matcher":"Bash"');
+      expect(hooksJson).toContain('"timeout":7');
+      expect(hooksJson).toContain("/repo/.claude/hooks/check-destructive-bash.sh");
+      expect(hooksJson).not.toContain(docs);
+      expect(verdictOf(output, "hook-pipe-to-psql")).toBe("PASS");
     },
     SESSION_TEST_TIMEOUT_MS,
   );
@@ -633,7 +751,7 @@ describe("the guard cases, which carry no deny flag", () => {
   ];
 
   it.each(BLOCKED_CASES)(
-    "%s is refused by the hook and does its harm when the script exits as it did before",
+    "%s is refused by the hook and does its harm when the script exits 1 to standard output",
     (caseId, harm) => {
       const sessionLog = join(workspace, `guard-${caseId}.txt`);
       const output = docsRun("hook", caseId, makeDocsRoot(blockingHook(), []), {
@@ -642,6 +760,11 @@ describe("the guard cases, which carry no deny flag", () => {
       expect(output).toContain("denial names the command=true");
       expect(output).toContain("harm in the denied run: none");
       expect(output).toContain(`harm in the control run: ${harm}`);
+      expect(output).toContain("- denied run (claude started directly with no deny flag");
+      expect(output).toContain("- control run (claude started directly with no deny flag");
+      expect(output).toContain("settings deny entries removed: []");
+      expect(output).not.toContain("through dispatch.ts");
+      expect(output).not.toContain("deny list minus");
       expect(verdictOf(output, caseId)).toBe("PASS");
       expect(readFileSync(sessionLog, "utf8").trimEnd().split("\n")).toEqual([
         "deny_flag=false",
@@ -681,6 +804,19 @@ describe("the over-block control of an allowed guard case", () => {
   );
 
   it(
+    "names the ref and the sha256 of the previous script next to the control line",
+    () => {
+      const hash = createHash("sha256").update(wideBlockingHook()).digest("hex");
+      const output = docsRun("hook", "ok-hook-heredoc-sql-text", makeDocsRoot(blockingHook(), []));
+      const lines = output.split("\n");
+      const controlAt = lines.findIndex((line) => line.startsWith("- over-block control"));
+      expect(controlAt).toBeGreaterThan(-1);
+      expect(lines[controlAt + 1]).toBe(`  previous guard script: ref HEAD, sha256 ${hash}`);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
     "is INVALID when the previous script lets the command through too",
     () => {
       const docs = makeDocsRoot(blockingHook(), [], { previousHook: NEVER_BLOCKING_HOOK });
@@ -711,7 +847,9 @@ describe("the over-block control of an allowed guard case", () => {
       expect(output).toContain("effect: the db:reset script ran and wrote its marker");
       expect(output).toContain("the previous script refused the command: false");
       expect(output).toContain("not required for this case");
-      expect(verdictOf(output, "ok-hook-npm-db-reset")).toBe("ALLOWED OK");
+      expect(verdictOf(output, "ok-hook-npm-db-reset")).toBe("ALLOWED OK (UNSEPARATED)");
+      expect(output).toContain("  ALLOWED OK (UNSEPARATED): 1");
+      expect(output).toContain("  ALLOWED OK: 0");
     },
     SESSION_TEST_TIMEOUT_MS,
   );
@@ -747,6 +885,47 @@ describe("the protect-file cases", () => {
         "MEASURED hook-protect-ssot: warning text in the tool result: false",
       );
       expect(verdictOf(output, "hook-protect-ssot")).toBe("MEASURED");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "report that a variant touching a marker ran, and say it is a variant",
+    () => {
+      const output = protectRun("hook-protect-ssot-variant");
+      expect(output).toContain(
+        "MEASURED hook-protect-ssot-variant: VARIANT: a fixture-only copy of the protect script",
+      );
+      expect(output).toContain(
+        "MEASURED hook-protect-ssot-variant: the variant ran (protect-hook-ran.txt exists): true",
+      );
+      expect(output).toContain("MEASURED hook-protect-ssot-variant: write landed: true");
+      expect(verdictOf(output, "hook-protect-ssot-variant")).toBe("MEASURED");
+      expect(protectRun("hook-protect-ssot")).not.toContain("VARIANT");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "refuse to build a variant from a protect script with no exit 0 line",
+    () => {
+      const output = protectRun("hook-protect-ssot-variant", {}, "#!/bin/bash\nexit 2\n");
+      expect(output).toContain("the protect script has no exit 0 line");
+      expect(verdictOf(output, "hook-protect-ssot-variant")).toBe("FAIL");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "measure the third protected path, docs/product/state-machines.md, on its own",
+    () => {
+      const output = protectRun("hook-protect-state-machines", {
+        FAKE_HOOK_STDOUT_REACHES_MODEL: "1",
+      });
+      expect(output).toContain("MEASURED hook-protect-state-machines: write landed: true");
+      expect(output).toContain(
+        "MEASURED hook-protect-state-machines: warning text in the tool result: true",
+      );
     },
     SESSION_TEST_TIMEOUT_MS,
   );
@@ -841,9 +1020,20 @@ describe("the guard table", () => {
     [GUARD_COMMANDS.dockerExecPsql, 2],
     [GUARD_COMMANDS.npmDbResetWithSql, 2],
     [GUARD_COMMANDS.npmDbReset, 0],
+    [GUARD_COMMANDS.nameEndingWithProgram, 0],
+    [GUARD_COMMANDS.nameStartingWithProgram, 0],
+    [GUARD_COMMANDS.pgDumpWithSql, 2],
+    [GUARD_COMMANDS.pgRestoreWithSql, 2],
+    [GUARD_COMMANDS.neonctlWithSql, 2],
+    [GUARD_COMMANDS.upperCaseProgram, 2],
+    [GUARD_COMMANDS.lowerCaseStatementToPsql, 2],
+    [GUARD_COMMANDS.drizzleKitPushWithSql, 2],
+    [GUARD_COMMANDS.dropColumnToPsql, 2],
+    [GUARD_COMMANDS.deleteFromToPsql, 2],
+    [GUARD_COMMANDS.psqlWithoutStatement, 0],
   ];
 
-  it("holds the eleven commands with the exit each must get", () => {
+  it("holds the owner's eleven commands and the element rows with the exit each must get", () => {
     for (const [command, exit] of SPEC_ROWS) {
       expect(GUARD_TABLE).toContainEqual({ command, exit });
     }
@@ -862,6 +1052,8 @@ describe("the guard table", () => {
       GUARD_COMMANDS.echoDropTableToFile,
       GUARD_COMMANDS.grepDrizzleFolder,
       GUARD_COMMANDS.nameInsideAnotherName,
+      GUARD_COMMANDS.nameEndingWithProgram,
+      GUARD_COMMANDS.nameStartingWithProgram,
     ]);
     expect(mismatches.every((row) => row.got === 2 && row.exit === 0)).toBe(true);
   });
@@ -878,14 +1070,15 @@ describe.skipIf(!existsSync(REAL_GUARD))("the real database guard script", () =>
   });
 
   it("can be turned back into the control script", () => {
-    expect(() => uneditedHookText(readFileSync(REAL_GUARD, "utf8"))).not.toThrow();
+    expect(() => exitsOneToStdoutHookText(readFileSync(REAL_GUARD, "utf8"))).not.toThrow();
   });
 
-  // Each proof copies the committed script into a throwaway repository, edits one half of one rule,
-  // and runs the table through the harness's own check. The copy goes back through git, and a
+  // Each proof copies the committed script into a throwaway repository, edits one element of one
+  // rule, and runs the table through the harness's own check. The copy goes back through git, and a
   // clean `git diff` is asserted. A guard that is a pure function of the command text has no
-  // moved-guard analogue, so only removal is proved.
-  const proveMutation = (pattern: RegExp, replacement: string) => {
+  // moved-guard analogue, so only removal is proved. The observation is printed so that the raw
+  // mismatch list of every proof is in the run's output.
+  const proveMutation = (name: string, pattern: RegExp, replacement: string) => {
     const committed = spawnSync(
       "git",
       ["-C", REAL_DOCS, "diff", "--quiet", "HEAD", "--", GUARD_PATH_IN_DOCS],
@@ -905,7 +1098,10 @@ describe.skipIf(!existsSync(REAL_GUARD))("the real database guard script", () =>
       throw new Error(`the mutation matches ${matches.length} lines, not 1`);
     let observed: { applied: boolean; compiles: boolean; mismatched: string[] };
     try {
-      writeFileSync(file, original.replace(pattern, replacement));
+      writeFileSync(
+        file,
+        original.replace(pattern, () => replacement),
+      );
       const diff = spawnSync("git", ["diff", "--quiet", "--", GUARD_PATH_IN_DOCS], { cwd: repo });
       observed = {
         applied: diff.status === 1,
@@ -919,22 +1115,31 @@ describe.skipIf(!existsSync(REAL_GUARD))("the real database guard script", () =>
       });
       if (restored.status !== 0) throw new Error("the guard copy was not restored from git");
     }
-    return { ...observed, mismatchedAfterRestore: guardTableMismatches(file) };
+    const mismatchedAfterRestore = guardTableMismatches(file);
+    console.info(
+      `MUTATION ${name}: applied=${observed.applied} compiles=${observed.compiles} mismatched=${JSON.stringify(observed.mismatched)} afterRestore=${JSON.stringify(mismatchedAfterRestore)}`,
+    );
+    return { ...observed, mismatchedAfterRestore };
   };
 
   it("is caught when the destructive-statement half of rule two is removed", () => {
     const result = proveMutation(
+      "destructive-statement half of rule two",
       /^if echo "\$command" \| grep -qiE "\\b\(DROP[^\n]*$/m,
       "if true \\",
     );
     expect(result.applied).toBe(true);
     expect(result.compiles).toBe(true);
     expect(result.mismatchedAfterRestore).toEqual([]);
-    expect(result.mismatched).toEqual([GUARD_COMMANDS.npmDbReset]);
+    expect(result.mismatched).toEqual([
+      GUARD_COMMANDS.npmDbReset,
+      GUARD_COMMANDS.psqlWithoutStatement,
+    ]);
   });
 
   it("is caught when the runs-SQL half of rule two is removed", () => {
     const result = proveMutation(
+      "runs-SQL half of rule two",
       /^ {2}&& echo "\$command" \| LC_ALL=C grep -qiE "\$RUNS_SQL_MARKER"; then$/m,
       "  && true; then",
     );
@@ -946,11 +1151,14 @@ describe.skipIf(!existsSync(REAL_GUARD))("the real database guard script", () =>
       GUARD_COMMANDS.echoDropTableToFile,
       GUARD_COMMANDS.grepDrizzleFolder,
       GUARD_COMMANDS.nameInsideAnotherName,
+      GUARD_COMMANDS.nameEndingWithProgram,
+      GUARD_COMMANDS.nameStartingWithProgram,
     ]);
   });
 
   it("is caught when rule one is removed", () => {
     const result = proveMutation(
+      "rule one",
       /^if echo "\$command" \| grep -qE "\(\^\|\[;&\|\[:space:\]\]\)drizzle-kit[^\n]*; then$/m,
       "if false; then",
     );
@@ -962,7 +1170,294 @@ describe.skipIf(!existsSync(REAL_GUARD))("the real database guard script", () =>
       GUARD_COMMANDS.bareDrizzleKitMigrate,
     ]);
   });
+
+  // One element of the runs-SQL marker or of the destructive pattern per proof, each removed on its
+  // own. The rows that answer differently are exactly the rows that hold that element.
+  const ELEMENT_PROOFS: {
+    element: string;
+    pattern: RegExp;
+    replacement: string;
+    mismatched: string[];
+  }[] = [
+    {
+      element: "marker left boundary",
+      pattern: /\(\^\|\[\^A-Za-z0-9_\]\)(?=\(psql\|)/,
+      replacement: "",
+      mismatched: [GUARD_COMMANDS.nameEndingWithProgram],
+    },
+    {
+      element: "marker right boundary",
+      pattern: /\(\[\^A-Za-z0-9_\]\|\$\)/,
+      replacement: "",
+      mismatched: [GUARD_COMMANDS.nameStartingWithProgram],
+    },
+    {
+      element: "marker name psql",
+      pattern: /\(psql\|/,
+      replacement: "(",
+      mismatched: [
+        GUARD_COMMANDS.pipeToPsql,
+        GUARD_COMMANDS.bashCPsql,
+        GUARD_COMMANDS.envPsql,
+        GUARD_COMMANDS.sudoPsql,
+        GUARD_COMMANDS.dockerExecPsql,
+        GUARD_COMMANDS.programByAbsolutePath,
+        GUARD_COMMANDS.wrapperAroundProgram,
+        GUARD_COMMANDS.upperCaseProgram,
+        GUARD_COMMANDS.lowerCaseStatementToPsql,
+        GUARD_COMMANDS.dropColumnToPsql,
+        GUARD_COMMANDS.deleteFromToPsql,
+      ],
+    },
+    {
+      element: "marker name drizzle-kit",
+      pattern: /\|drizzle-kit\|/,
+      replacement: "|",
+      mismatched: [GUARD_COMMANDS.drizzleKitPushWithSql],
+    },
+    {
+      element: "marker name pg_dump",
+      pattern: /\|pg_dump\|/,
+      replacement: "|",
+      mismatched: [GUARD_COMMANDS.pgDumpWithSql],
+    },
+    {
+      element: "marker name pg_restore",
+      pattern: /\|pg_restore\|/,
+      replacement: "|",
+      mismatched: [GUARD_COMMANDS.pgRestoreWithSql],
+    },
+    {
+      element: "marker name neonctl",
+      pattern: /\|neonctl\)/,
+      replacement: ")",
+      mismatched: [GUARD_COMMANDS.neonctlWithSql],
+    },
+    {
+      element: "marker npm run db:",
+      pattern: /\|npm run db:"/,
+      replacement: '"',
+      mismatched: [GUARD_COMMANDS.npmDbResetWithSql],
+    },
+    {
+      element: "case folding on the marker grep",
+      pattern: /LC_ALL=C grep -qiE/,
+      replacement: "LC_ALL=C grep -qE",
+      mismatched: [GUARD_COMMANDS.upperCaseProgram],
+    },
+    {
+      element: "case folding on the destructive grep",
+      pattern: /grep -qiE "\\b\(DROP/,
+      replacement: 'grep -qE "\\b(DROP',
+      mismatched: [GUARD_COMMANDS.lowerCaseStatementToPsql],
+    },
+    {
+      element: "destructive alternative DROP TABLE",
+      pattern: /\(DROP\[\[:space:\]\]\+TABLE\|/,
+      replacement: "(",
+      mismatched: [
+        GUARD_COMMANDS.pipeToPsql,
+        GUARD_COMMANDS.bashCPsql,
+        GUARD_COMMANDS.envPsql,
+        GUARD_COMMANDS.sudoPsql,
+        GUARD_COMMANDS.dockerExecPsql,
+        GUARD_COMMANDS.npmDbResetWithSql,
+        GUARD_COMMANDS.programByAbsolutePath,
+        GUARD_COMMANDS.pgDumpWithSql,
+        GUARD_COMMANDS.pgRestoreWithSql,
+        GUARD_COMMANDS.neonctlWithSql,
+        GUARD_COMMANDS.upperCaseProgram,
+        GUARD_COMMANDS.lowerCaseStatementToPsql,
+        GUARD_COMMANDS.drizzleKitPushWithSql,
+      ],
+    },
+    {
+      element: "destructive alternative DROP COLUMN",
+      pattern: /\|DROP\[\[:space:\]\]\+COLUMN/,
+      replacement: "",
+      mismatched: [GUARD_COMMANDS.dropColumnToPsql],
+    },
+    {
+      element: "destructive alternative TRUNCATE TABLE",
+      pattern: /\|TRUNCATE\[\[:space:\]\]\+TABLE/,
+      replacement: "",
+      mismatched: [GUARD_COMMANDS.wrapperAroundProgram],
+    },
+    {
+      element: "destructive alternative DELETE FROM",
+      pattern: /\|DELETE\[\[:space:\]\]\+FROM\[\[:space:\]\]\+\[a-zA-Z_\]/,
+      replacement: "",
+      mismatched: [GUARD_COMMANDS.deleteFromToPsql],
+    },
+  ];
+
+  it.each(ELEMENT_PROOFS)(
+    "is caught when $element is removed",
+    ({ element, pattern, replacement, mismatched }) => {
+      const result = proveMutation(element, pattern, replacement);
+      expect(result.applied).toBe(true);
+      expect(result.compiles).toBe(true);
+      expect(result.mismatchedAfterRestore).toEqual([]);
+      expect(result.mismatched).toEqual(mismatched);
+    },
+  );
+
+  // Elements that were removed and changed no answer of any row. The proofs run and apply, and the
+  // empty list is the observation: no row holds an input that tells the element's presence from its
+  // absence. LC_ALL=C: on the grep this was measured on (macOS), no input separated C from
+  // en_US.UTF-8, including a Kelvin sign, a long s and accented letters either side of a name. The
+  // two word boundaries of the destructive pattern would be told apart by a statement glued to a
+  // letter or by `DELETE FROM users`, a row that would pin the one-letter table defect.
+  const UNTOLD_ELEMENT_PROOFS: { element: string; pattern: RegExp; replacement: string }[] = [
+    { element: "LC_ALL=C on the marker grep", pattern: /LC_ALL=C grep/, replacement: "grep" },
+    {
+      element: "the leading word boundary of the destructive pattern",
+      pattern: /grep -qiE "\\b\(DROP/,
+      replacement: 'grep -qiE "(DROP',
+    },
+    {
+      element: "the trailing word boundary of the destructive pattern",
+      pattern: /\[a-zA-Z_\]\)\\b"/,
+      replacement: '[a-zA-Z_])"',
+    },
+  ];
+
+  it.each(UNTOLD_ELEMENT_PROOFS)(
+    "is not caught when $element is removed, because no row can tell",
+    ({ element, pattern, replacement }) => {
+      const result = proveMutation(element, pattern, replacement);
+      expect(result.applied).toBe(true);
+      expect(result.compiles).toBe(true);
+      expect(result.mismatchedAfterRestore).toEqual([]);
+      expect(result.mismatched).toEqual([]);
+    },
+  );
 });
+
+const REAL_SETTINGS = join(REAL_DOCS, ".claude/settings.json");
+
+// The real settings file is in the private docs repository, so these run only where it is checked
+// out; where docs/ is absent they are skipped, and the name says so.
+describe.skipIf(!existsSync(REAL_SETTINGS))(
+  "the hooks block of the real docs settings (skipped where docs/ is absent)",
+  () => {
+    interface SettingsShape {
+      hooks: Record<string, { matcher?: string; hooks: { command: string }[] }[]>;
+    }
+
+    const realText = readFileSync(REAL_SETTINGS, "utf8");
+
+    // A mutation is made on a copy of the settings file and the copy is discarded; the real file is
+    // read again afterwards and asserted unchanged.
+    const wiringProblemsOfMutatedCopy = (
+      mutate: (settings: SettingsShape) => void,
+    ): { problems: string[]; applied: boolean } => {
+      const folder = mkdtempSync(join(workspace, "settings-copy-"));
+      const copy = join(folder, "settings.json");
+      try {
+        const settings = JSON.parse(realText) as SettingsShape;
+        mutate(settings);
+        const mutatedText = JSON.stringify(settings);
+        writeFileSync(copy, mutatedText);
+        const problems = hookWiringProblems(copy);
+        return { problems, applied: mutatedText !== JSON.stringify(JSON.parse(realText)) };
+      } finally {
+        rmSync(folder, { recursive: true, force: true });
+        expect(readFileSync(REAL_SETTINGS, "utf8")).toBe(realText);
+      }
+    };
+
+    const groupsNaming = (settings: SettingsShape, script: string) =>
+      Object.values(settings.hooks)
+        .flat()
+        .filter((group) => group.hooks.some((hook) => hook.command.includes(script)));
+
+    const realCommandOf = (script: string): string => {
+      const settings = JSON.parse(realText) as SettingsShape;
+      return groupsNaming(settings, script)[0]?.hooks[0]?.command ?? "";
+    };
+
+    it("wires each of the three hook scripts once, under the matcher its case needs, to a script that exists", () => {
+      expect(HOOK_WIRING.map((wiring) => wiring.script)).toEqual([
+        "check-protected-file.sh",
+        "check-destructive-bash.sh",
+        "session-end-reminder.sh",
+      ]);
+      expect(hookWiringProblems(REAL_SETTINGS)).toEqual([]);
+    });
+
+    it("is read as it is: an unmutated copy has no problem", () => {
+      const { problems, applied } = wiringProblemsOfMutatedCopy(() => undefined);
+      expect(applied).toBe(false);
+      expect(problems).toEqual([]);
+    });
+
+    const SCRIPT_MUTATIONS = HOOK_WIRING.flatMap(({ script, matcher }) => [
+      {
+        label: `${script}: the entry is deleted`,
+        script,
+        mutate: (settings: SettingsShape) => {
+          for (const event of Object.keys(settings.hooks)) {
+            settings.hooks[event] = (settings.hooks[event] ?? []).filter(
+              (group) => !group.hooks.some((hook) => hook.command.includes(script)),
+            );
+          }
+        },
+        expected: () => [`0 hook entries name ${script}, not 1`],
+      },
+      {
+        label: `${script}: the entry is there twice`,
+        script,
+        mutate: (settings: SettingsShape) => {
+          for (const event of Object.keys(settings.hooks)) {
+            const groups = settings.hooks[event] ?? [];
+            settings.hooks[event] = [
+              ...groups,
+              ...groupsNaming({ hooks: { [event]: groups } }, script),
+            ];
+          }
+        },
+        expected: () => [`2 hook entries name ${script}, not 1`],
+      },
+      {
+        label: `${script}: the matcher is changed`,
+        script,
+        mutate: (settings: SettingsShape) => {
+          for (const group of groupsNaming(settings, script)) group.matcher = "ChangedMatcher";
+        },
+        expected: () => [
+          `the matcher of ${script} is ChangedMatcher, the case needs ${matcher ?? "none"}`,
+        ],
+      },
+      {
+        label: `${script}: the checkout is moved`,
+        script,
+        mutate: (settings: SettingsShape) => {
+          for (const group of groupsNaming(settings, script)) {
+            for (const hook of group.hooks) {
+              hook.command = hook.command.replace(
+                "/.claude/hooks/",
+                "/moved-checkout/.claude/hooks/",
+              );
+            }
+          }
+        },
+        expected: () => [
+          `the command of ${script} names no file that exists: ${realCommandOf(script).replace("/.claude/hooks/", "/moved-checkout/.claude/hooks/")}`,
+        ],
+      },
+    ]);
+
+    it.each(SCRIPT_MUTATIONS)("turns red when $label", ({ script, mutate, expected }) => {
+      const { problems, applied } = wiringProblemsOfMutatedCopy(mutate);
+      console.info(
+        `WIRING MUTATION ${script}: applied=${applied} problems=${JSON.stringify(problems)}`,
+      );
+      expect(applied).toBe(true);
+      expect(problems).toEqual(expected());
+    });
+  },
+);
 
 describe("the settings cases", () => {
   it(
@@ -1073,8 +1568,8 @@ describe("the database guard hook as the control runs it", () => {
   ].join("\n");
 
   it("goes back to exit 1 and standard output, and nothing else changes", () => {
-    const unedited = uneditedHookText(EDITED);
-    expect(unedited).toBe(
+    const exitsOne = exitsOneToStdoutHookText(EDITED);
+    expect(exitsOne).toBe(
       [
         "if blocked; then",
         '  echo "first message"',
@@ -1091,11 +1586,11 @@ describe("the database guard hook as the control runs it", () => {
   });
 
   it("is refused for a script that is not the edited one", () => {
-    expect(() => uneditedHookText("exit 0\n")).toThrow("not 2 and at least 1");
-    expect(() => uneditedHookText(EDITED.replace("exit 2", "exit 1"))).toThrow(
+    expect(() => exitsOneToStdoutHookText("exit 0\n")).toThrow("not 2 and at least 1");
+    expect(() => exitsOneToStdoutHookText(EDITED.replace("exit 2", "exit 1"))).toThrow(
       "not 2 and at least 1",
     );
-    expect(() => uneditedHookText(EDITED.replaceAll(" >&2", ""))).toThrow(
+    expect(() => exitsOneToStdoutHookText(EDITED.replaceAll(" >&2", ""))).toThrow(
       "2 exit 2 lines and 0 stderr redirects",
     );
   });
