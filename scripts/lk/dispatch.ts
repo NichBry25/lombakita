@@ -587,15 +587,20 @@ const sessionEndOf = (code: number | null, signal: NodeJS.Signals | null): Sessi
 
 // The handlers go in before the session is started: a signal that arrives once it exists must
 // reach it, and one that arrives earlier must not run the default action, which ends the
-// dispatcher and leaves the session behind a lock that looks free.
+// dispatcher and leaves the session behind a lock that looks free. A signal that arrived earlier
+// is delivered to the session as soon as it exists.
 export const spawnSessionWithClaude: SpawnSession = (args, { cwd, env, logPath, onSpawn }) =>
   new Promise((resolveEnd, rejectEnd) => {
     const log = openSync(logPath, "a");
     let child: ChildProcess | undefined;
+    let signalBeforeSession: NodeJS.Signals | undefined;
     let settled = false;
     const forwarders = FORWARDED_SIGNALS.map((signal) => ({
       signal,
-      forward: () => child?.kill(signal),
+      forward: () => {
+        if (child === undefined) signalBeforeSession = signal;
+        else child.kill(signal);
+      },
     }));
     for (const { signal, forward } of forwarders) process.on(signal, forward);
     const release = (): void => {
@@ -627,6 +632,7 @@ export const spawnSessionWithClaude: SpawnSession = (args, { cwd, env, logPath, 
       else fail(startupError.cause);
     });
     if (child.pid === undefined) return;
+    if (signalBeforeSession !== undefined) child.kill(signalBeforeSession);
     try {
       onSpawn(child.pid);
     } catch (error) {

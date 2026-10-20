@@ -49,15 +49,20 @@ import {
 } from "./dispatch";
 import { LkRefusal, type Env } from "./models";
 
-// The dispatcher's own calls to these three are wrapped, not replaced, so a case can watch what
-// the dispatcher hands them and make one fail once.
+// The dispatcher's own calls to these are wrapped, not replaced, so a case can watch what the
+// dispatcher hands them and make one fail once.
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
   return { ...actual, spawn: vi.fn(actual.spawn), spawnSync: vi.fn(actual.spawnSync) };
 });
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
-  return { ...actual, linkSync: vi.fn(actual.linkSync), renameSync: vi.fn(actual.renameSync) };
+  return {
+    ...actual,
+    linkSync: vi.fn(actual.linkSync),
+    renameSync: vi.fn(actual.renameSync),
+    rmSync: vi.fn(actual.rmSync),
+  };
 });
 
 const realChildProcess =
@@ -1473,6 +1478,54 @@ describe("a run left behind by a dispatcher that died", () => {
   });
 });
 
+describe("the end of a run", () => {
+  const options: RunOptions = {
+    slug: "alpha",
+    job: "implement",
+    tier: "1",
+    model: undefined,
+    noSmoke: true,
+    dryRun: false,
+  };
+
+  const recordWhenTheLockIsRemoved = async (mainExit: string) => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const seen: { status: string; exit: number | undefined }[] = [];
+    vi.mocked(rmSync).mockImplementation((path, rmOptions) => {
+      if (String(path) === lockPath(sandbox)) {
+        const { status, exit } = readRecord(sandbox, "alpha");
+        seen.push({ status, exit });
+      }
+      return realFs.rmSync(path, rmOptions);
+    });
+    const deps: DispatchDeps = {
+      spawnSession: spawnSessionWithClaude,
+      runSmoke: () => ({ status: 0, stdout: "ok", timedOut: false }),
+      isProcessAlive,
+      pid: process.pid,
+      print: () => undefined,
+    };
+    const env = dispatchEnv(sandbox, { LK_ROLE: "controller", FAKE_MAIN_EXIT: mainExit });
+    try {
+      await dispatchRun(options, sandbox.root, env, deps);
+    } finally {
+      vi.mocked(rmSync).mockImplementation(realFs.rmSync);
+    }
+    return seen;
+  };
+
+  it.each([
+    { mainExit: "0", expected: { status: "done", exit: 0 } },
+    { mainExit: "3", expected: { status: "failed", exit: 3 } },
+  ])(
+    "has written the final record by the time the lock is removed, after a session that exits $mainExit",
+    async ({ mainExit, expected }) => {
+      expect(await recordWhenTheLockIsRemoved(mainExit)).toEqual([expected]);
+    },
+  );
+});
+
 describe("the exit a session leaves", () => {
   const options: RunOptions = {
     slug: "alpha",
@@ -1684,28 +1737,58 @@ describe("starting the session in process", () => {
     expect(openDescriptors()).toBe(descriptors);
   });
 
-  it("has its signal handlers in place when the session is started, and they may run before it exists", async () => {
+  it("has its signal handlers in place when the session is started", async () => {
     const sandbox = makeSandbox();
-    const before = Object.fromEntries(SIGNALS.map((signal) => [signal, process.listeners(signal)]));
+    const before = listenerCounts();
     const atSpawn: Record<string, number> = {};
     vi.mocked(spawn).mockImplementationOnce(((
       command: string,
       args: string[],
       options: SpawnOptions,
     ) => {
-      for (const signal of SIGNALS) {
-        const ours = process
-          .listeners(signal)
-          .filter((listener) => !before[signal]?.includes(listener));
-        atSpawn[signal] = ours.length;
-        for (const listener of ours) listener(signal);
-      }
+      for (const signal of SIGNALS)
+        atSpawn[signal] = process.listenerCount(signal) - before[signal]!;
       return realSpawn(command, args, options);
     }) as typeof spawn);
     const end = await spawnSessionWithClaude(["-p", "x"], sessionIn(sandbox, "alpha"));
     expect(atSpawn).toEqual({ SIGINT: 1, SIGTERM: 1, SIGHUP: 1 });
     expect(end).toStrictEqual({ exitCode: 0 });
   });
+
+  // A signal handler only runs on the event loop, so no real signal can reach it before the call
+  // to spawn returns. The dispatcher's own registered handler is run inside that call instead,
+  // which is the one state in which the session does not exist yet.
+  it.each([
+    { signal: "SIGINT" as const, exitCode: 130 },
+    { signal: "SIGTERM" as const, exitCode: 143 },
+    { signal: "SIGHUP" as const, exitCode: 129 },
+  ])(
+    "delivers $signal to a real session when it arrived before the session existed",
+    async ({ signal, exitCode }) => {
+      const sandbox = makeSandbox();
+      const release = `${sandbox.log}.release`;
+      const listenersBefore = process.listeners(signal);
+      vi.mocked(spawn).mockImplementationOnce(((
+        command: string,
+        args: string[],
+        options: SpawnOptions,
+      ) => {
+        const ours = process
+          .listeners(signal)
+          .filter((listener) => !listenersBefore.includes(listener));
+        expect(ours).toHaveLength(1);
+        ours[0]?.(signal);
+        return realSpawn(command, args, options);
+      }) as typeof spawn);
+      try {
+        const options = sessionIn(sandbox, "alpha", { FAKE_RELEASE_FILE: release });
+        const end = await spawnSessionWithClaude(["-p", "x"], options);
+        expect(end).toStrictEqual({ exitCode, signal });
+      } finally {
+        writeFileSync(release, "");
+      }
+    },
+  );
 
   it("closes its log and takes its handlers off when the session cannot be started at all", async () => {
     const sandbox = makeSandbox();
