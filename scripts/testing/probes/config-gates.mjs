@@ -610,7 +610,7 @@ export const probes = [
   },
   {
     name: "a recorded finding nothing can compare is refused, not skipped",
-    // The fail-open this step was built to remove, one level below where it was removed. The emit
+    // The same fail-open, one level down from where the emit gate closes it. The emit
     // gate stops an undeclared finding being written; nothing stopped one already sitting in the
     // baseline, and twelve were. The comparison stepped over each of them and held it to its key,
     // which is the behaviour the magnitude table exists to end.
@@ -758,7 +758,7 @@ export const probes = [
     // required under stops resolving: every pull request blocks on a check nothing will ever
     // report, and it reads as a broken repository rather than as the rename that did it. The
     // opposite edit is worse and the same pin catches it — a job renamed INTO a name nothing
-    // requires simply stops gating, silently, which is the defect this whole step is about.
+    // requires simply stops gating, silently.
     klass: "C",
     harmfulMove: "renaming a job so its required context can never be satisfied, or never applies",
     files: [".github/workflows/ci.yml"],
