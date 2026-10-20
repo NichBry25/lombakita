@@ -9,21 +9,29 @@
  *
  * A work item is the folder `.work/<slug>/`. `run` refuses, never repairs: a wrong role, a prompt
  * that may have been cut off, a model the table cannot resolve, a session already running or a
- * model that does not answer each stop it before anything is written. Every refusal is one line
- * starting `LK REFUSED: ` and exits 1. One session runs at a time, enforced by `.work/.lock`.
+ * model that does not answer within SMOKE_TIMEOUT_SECONDS each stop it before anything is written.
+ * Every refusal is one line starting `LK REFUSED: ` and exits 1. One session runs at a time,
+ * enforced by `.work/.lock`.
+ *
+ * A session killed by a signal is recorded as failed with exit 128 plus the signal number and the
+ * signal's name. A real run that removes a stale lock marks the dead holder's run record, if it
+ * still says running, as failed and lost.
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import {
   closeSync,
   existsSync,
+  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
+import { constants as osConstants } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -39,8 +47,192 @@ import {
   type ModelClass,
 } from "./models";
 
-export const DENY_LIST =
-  "Bash(git push --force*),Bash(git push -f*),Bash(git -C * push --force*),Bash(git -C * push -f*),Bash(git reset --hard*),Bash(git -C * reset --hard*),Bash(git clean*),Bash(git -C * clean*),Bash(rm -r*),Bash(sudo *),Bash(gh *),Bash(vercel *),Bash(railway *),Bash(npm run db:*)";
+// Matching is on the command text. A git global option (-C, -c, --no-pager, --git-dir=) sits
+// between `git` and the subcommand, so each git rule has a twin with a wildcard there. The
+// wildcard also matches a commit message that holds the rule's words, and that over-block is
+// accepted. A branch whose name contains "main" is blocked by the push rule on purpose: the text is
+// not parsed. The permission matcher knows `*` and nothing else: no character class, no `?`, and a
+// pattern that ends in `:*` is read as the old prefix syntax, which matches `npm run db` but never
+// `npm run db:reset`. So the db rules end in `db*` and the refspec rule spells the colon as `:**`.
+const plainGitForms = (rest: string): string[] => [`Bash(git ${rest})`, `Bash(git * ${rest})`];
+
+// The rtk PreToolUse hook rewrites push and branch commands before the deny rules are checked, so
+// the session sees `rtk git ...` and the plain patterns never match the rewritten text.
+const rtkGitForms = (rest: string): string[] => [
+  ...plainGitForms(rest),
+  `Bash(rtk git ${rest})`,
+  `Bash(rtk git * ${rest})`,
+];
+
+// A trailing ` *` matches the bare command only when it is the pattern's one wildcard. Every form
+// with an earlier `*` (the global option, a flag value) also names the ending with nothing after it.
+export const gitFormsEndingIn = (rest: string): string[] => [
+  `Bash(git ${rest})`,
+  `Bash(git ${rest} *)`,
+  `Bash(git * ${rest})`,
+  `Bash(git * ${rest} *)`,
+];
+
+const RM_LEADING_LETTERS = ["d", "f", "i", "I", "P", "v", "W", "x"];
+const RM_RECURSIVE_LETTERS = ["r", "R"];
+
+// A cluster of up to three of the macOS rm flag letters (d f i I P R r v W x) that holds an r or R
+// starts with zero, one or two non-recursive letters and then its first r or R; the `rm -r*` and
+// `rm -R*` entries take the clusters that start with r or R. The same clusters are matched as a
+// later argument. A cluster with three or more letters before its first r or R is not named.
+export const rmClusterPatterns = (): string[] => {
+  const pairs = RM_LEADING_LETTERS.flatMap((first) =>
+    RM_LEADING_LETTERS.map((second) => `${first}${second}`),
+  );
+  const leads = [...RM_LEADING_LETTERS, ...pairs];
+  const clusters = leads.flatMap((lead) =>
+    RM_RECURSIVE_LETTERS.map((recursive) => `${lead}${recursive}`),
+  );
+  return clusters.flatMap((cluster) => [`Bash(rm -${cluster}*)`, `Bash(rm * -${cluster}*)`]);
+};
+
+const PUSH_NON_FORCE_LETTERS = ["u", "v", "n", "q"];
+const PUSH_FORCE_OR_DELETE_LETTERS = ["f", "d"];
+
+// A cluster of push short flags (u v n q f d) that holds an f or d but does not start with one
+// starts with one or two of u v n q and then its first f or d; `push -f*` and `push -d*` take the
+// clusters that start with f or d. The same clusters are matched as a later argument, in the plain,
+// global option and rtk forms. A cluster with three or more letters before its first f or d is not
+// named.
+export const pushClusterPatterns = (): string[] => {
+  const pairs = PUSH_NON_FORCE_LETTERS.flatMap((first) =>
+    PUSH_NON_FORCE_LETTERS.map((second) => `${first}${second}`),
+  );
+  const leads = [...PUSH_NON_FORCE_LETTERS, ...pairs];
+  const clusters = leads.flatMap((lead) =>
+    PUSH_FORCE_OR_DELETE_LETTERS.map((letter) => `${lead}${letter}`),
+  );
+  return clusters.flatMap((cluster) => [
+    ...rtkGitForms(`push -${cluster}*`),
+    ...rtkGitForms(`push * -${cluster}*`),
+  ]);
+};
+
+// The git restore flags that leave the whole-tree discard in force when they stand just before the
+// dot. `--staged` is left out on purpose: `git restore --staged .` only unstages.
+const RESTORE_FLAGS_BEFORE_DOT = [
+  "-q",
+  "--quiet",
+  "-m",
+  "--merge",
+  "--ours",
+  "--theirs",
+  "--ignore-unmerged",
+  "--progress",
+  "--no-progress",
+  "--overlay",
+  "--no-overlay",
+  "--recurse-submodules",
+  "--no-recurse-submodules",
+];
+const WHOLE_TREE_SPELLINGS = [".", "./"];
+
+// Every restore ending that discards the whole tree: the bare dot, a restore flag or a revision
+// before it, `--worktree` or a W in a flag cluster anywhere before it, and the `--source` forms.
+export const restoreDiscardPatterns = (): string[] =>
+  WHOLE_TREE_SPELLINGS.flatMap((dot) => [
+    ...gitFormsEndingIn(`restore ${dot}`),
+    ...gitFormsEndingIn(`restore -- ${dot}`),
+    ...gitFormsEndingIn(`restore *--worktree* ${dot}`),
+    ...gitFormsEndingIn(`restore *W* ${dot}`),
+    ...gitFormsEndingIn(`restore --source* ${dot}`),
+    ...gitFormsEndingIn(`restore -s * ${dot}`),
+    ...RESTORE_FLAGS_BEFORE_DOT.flatMap((flag) => gitFormsEndingIn(`restore *${flag} ${dot}`)),
+  ]);
+
+export const DENY_PATTERNS: readonly string[] = [
+  ...plainGitForms("reset --hard*"),
+  ...plainGitForms("reset * --hard*"),
+  ...plainGitForms("clean*"),
+  "Bash(rm -r*)",
+  "Bash(sudo *)",
+  "Bash(gh *)",
+  "Bash(vercel *)",
+  "Bash(railway *)",
+  "Bash(npm run db:*)",
+  // A force flag, a `+` refspec or a flag cluster that holds f or d anywhere after the remote.
+  ...rtkGitForms("push --force*"),
+  ...rtkGitForms("push -f*"),
+  ...rtkGitForms("push * --force*"),
+  ...rtkGitForms("push * -f*"),
+  ...rtkGitForms("push * +*"),
+  ...pushClusterPatterns(),
+  // A push to main, and the pushes that name no branch and so go wherever HEAD points.
+  ...rtkGitForms("push *main*"),
+  ...rtkGitForms("push"),
+  ...rtkGitForms("push origin"),
+  // HEAD as an argument, the flags that push or delete refs in bulk, a refspec with a colon (which
+  // deletes when its source is empty) and the upstream flag with no branch after it.
+  ...rtkGitForms("push *HEAD*"),
+  ...rtkGitForms("push *--all*"),
+  ...rtkGitForms("push *--mirror*"),
+  ...rtkGitForms("push *--delete*"),
+  ...rtkGitForms("push -d*"),
+  ...rtkGitForms("push * -d*"),
+  ...rtkGitForms("push *:**"),
+  ...rtkGitForms("push -u"),
+  ...rtkGitForms("push -u origin"),
+  // Any git reached by an absolute path steps around every git rule here, so none is allowed.
+  "Bash(/*/git *)",
+  // Recursive removal in every flag spelling, and rm reached by an absolute path.
+  "Bash(rm -R*)",
+  "Bash(rm --recursive*)",
+  "Bash(rm * -r*)",
+  "Bash(rm * -R*)",
+  "Bash(rm * --recursive*)",
+  ...rmClusterPatterns(),
+  "Bash(/*/rm *)",
+  // Deleting or resetting a branch outright, in either flag order.
+  ...rtkGitForms("branch -D*"),
+  ...rtkGitForms("branch -f*"),
+  ...rtkGitForms("branch * -f*"),
+  ...rtkGitForms("branch --force*"),
+  ...rtkGitForms("branch * --force*"),
+  ...rtkGitForms("branch -df*"),
+  ...rtkGitForms("branch * -D*"),
+  // Throwing away every uncommitted change in the tree. A path argument that only starts with a
+  // dot, such as .gitignore or .github/x, is not the whole tree and stays allowed.
+  ...WHOLE_TREE_SPELLINGS.flatMap((dot) => [
+    ...gitFormsEndingIn(`checkout ${dot}`),
+    ...gitFormsEndingIn(`checkout * ${dot}`),
+  ]),
+  ...plainGitForms("checkout -f*"),
+  ...plainGitForms("checkout * -f*"),
+  ...plainGitForms("checkout --force*"),
+  // Forcing a switch discards uncommitted changes, and -B or -C resets a branch to where HEAD is.
+  ...plainGitForms("switch -f*"),
+  ...plainGitForms("switch * -f*"),
+  ...plainGitForms("switch --discard-changes*"),
+  ...plainGitForms("switch * --discard-changes*"),
+  ...plainGitForms("checkout -B*"),
+  ...plainGitForms("checkout * -B*"),
+  ...plainGitForms("switch -C*"),
+  ...plainGitForms("switch * -C*"),
+  ...restoreDiscardPatterns(),
+  // The ntfy topic is a secret; the pattern covers ~, $HOME and absolute spellings of the path.
+  "Read(~/.config/lombakita/**)",
+  "Edit(~/.config/lombakita/**)",
+  "Write(~/.config/lombakita/**)",
+  "Bash(cat *.config/lombakita/*)",
+  "Bash(head *.config/lombakita/*)",
+  "Bash(tail *.config/lombakita/*)",
+  "Bash(less *.config/lombakita/*)",
+  "Bash(grep *.config/lombakita/*)",
+  // The rtk hook also rewrites these commands: `rtk gh ...`, `rtk npm run ...`, `rtk read` for cat
+  // and head, and `rtk grep`.
+  "Bash(rtk gh *)",
+  "Bash(npm run db*)",
+  "Bash(rtk npm run db*)",
+  "Bash(rtk read *.config/lombakita/*)",
+  "Bash(rtk grep *.config/lombakita/*)",
+];
+
+export const DENY_LIST = DENY_PATTERNS.join(",");
 
 export const SLUG_PATTERN = /^[a-z]+(-[a-z]+)*$/;
 export const END_MARKER = "END OF PROMPT";
@@ -52,6 +244,7 @@ const RUN_FILE = "run.json";
 const SESSION_LOG_FILE = "session.jsonl";
 const MODELS_FILE_IN_ROOT = "docs/project/models.md";
 const SMOKE_PROMPT = "reply with the single word ok";
+export const SMOKE_TIMEOUT_SECONDS = 60;
 
 export const buildClaudeArgs = (promptText: string, model: string): string[] => [
   "-p",
@@ -89,6 +282,8 @@ export interface RunRecord {
   started: string;
   pid: number;
   exit?: number;
+  signal?: string;
+  lost?: boolean;
   ended?: string;
 }
 
@@ -97,16 +292,25 @@ export interface ProcessOptions {
   env: Env;
 }
 
-/** `onSpawn` receives the session's own pid as soon as the process exists. */
+/** A session killed by a signal carries 128 plus the signal number as its exit code. */
+export interface SessionEnd {
+  exitCode: number;
+  signal?: string;
+}
+
+/**
+ * `onSpawn` receives the session's own pid as soon as the process exists. If it throws, the session
+ * is killed and the promise rejects with that error once the session is gone.
+ */
 export type SpawnSession = (
   args: string[],
   options: ProcessOptions & { logPath: string; onSpawn: (childPid: number) => void },
-) => Promise<number>;
+) => Promise<SessionEnd>;
 
 export type RunSmoke = (
   model: string,
   options: ProcessOptions,
-) => { status: number | null; stdout: string };
+) => { status: number | null; stdout: string; timedOut: boolean };
 
 export interface DispatchDeps {
   spawnSession: SpawnSession;
@@ -185,6 +389,31 @@ const readLock = (lockPath: string): LockHolder => {
   return refuse(`${lockPath} is unreadable, remove it by hand once no session is running`);
 };
 
+const LOCK_TEMP_SUFFIX = ".tmp";
+
+const readRunRecord = (runPath: string): RunRecord | undefined => {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(runPath, "utf8"));
+    return typeof parsed === "object" && parsed !== null ? (parsed as RunRecord) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/** Returns whether the record was rewritten; only a record that still says running is touched. */
+const markRunLost = (root: string, slug: string): boolean => {
+  if (!SLUG_PATTERN.test(slug)) return false;
+  const record = readRunRecord(workPath(root, slug, RUN_FILE));
+  if (record === undefined || record.slug !== slug || record.status !== "running") return false;
+  writeRunRecord(root, {
+    ...record,
+    status: "failed",
+    lost: true,
+    ended: new Date().toISOString(),
+  });
+  return true;
+};
+
 const refuseIfLockHeld = (root: string, deps: DispatchDeps, removeStale: boolean): void => {
   const lockPath = workPath(root, LOCK_FILE);
   if (!existsSync(lockPath)) return;
@@ -199,14 +428,32 @@ const refuseIfLockHeld = (root: string, deps: DispatchDeps, removeStale: boolean
     deps.print("LK NOTE: stale lock present, a real run removes it");
     return;
   }
-  rmSync(lockPath);
+  const markedLost = markRunLost(root, holder.slug);
+  rmSync(lockPath, { force: true });
   deps.print("LK NOTE: stale lock removed");
+  if (markedLost) deps.print(`LK NOTE: run ${holder.slug} was left running and is marked lost`);
 };
 
+/** Writes the content to a temporary file next to the lock, hands the path to `publish`, then removes it. */
+const publishLockContent = (
+  root: string,
+  holder: LockHolder,
+  publish: (temporaryPath: string) => void,
+): void => {
+  const temporaryPath = workPath(root, `${LOCK_FILE}.${holder.pid}${LOCK_TEMP_SUFFIX}`);
+  try {
+    writeFileSync(temporaryPath, JSON.stringify(holder));
+    publish(temporaryPath);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
+};
+
+// Linking a finished file creates the lock or fails, and a reader never sees a part-written one.
 const writeLock = (root: string, holder: LockHolder): void => {
   const lockPath = workPath(root, LOCK_FILE);
   try {
-    writeFileSync(lockPath, JSON.stringify(holder), { flag: "wx" });
+    publishLockContent(root, holder, (temporaryPath) => linkSync(temporaryPath, lockPath));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     refuse(`slug ${readLock(lockPath).slug} holds the lock`);
@@ -214,7 +461,10 @@ const writeLock = (root: string, holder: LockHolder): void => {
 };
 
 const recordChildInLock = (root: string, holder: LockHolder, childPid: number): void => {
-  writeFileSync(workPath(root, LOCK_FILE), JSON.stringify({ ...holder, childPid }));
+  const lockPath = workPath(root, LOCK_FILE);
+  publishLockContent(root, { ...holder, childPid }, (temporaryPath) =>
+    renameSync(temporaryPath, lockPath),
+  );
 };
 
 const writeRunRecord = (root: string, record: RunRecord): void => {
@@ -232,8 +482,9 @@ const refuseUnlessModelAnswers = (
   options: ProcessOptions,
   runSmoke: RunSmoke,
 ): void => {
-  const { status, stdout } = runSmoke(model, options);
-  if (status !== 0 || !/ok/i.test(stdout)) refuse(`model ${model} did not answer`);
+  const { status, stdout, timedOut } = runSmoke(model, options);
+  if (timedOut) refuse(`model ${model} did not answer within ${SMOKE_TIMEOUT_SECONDS} seconds`);
+  if (status !== 0 || !/\bok\b/i.test(stdout)) refuse(`model ${model} did not answer`);
 };
 
 const printDryRun = (
@@ -258,10 +509,10 @@ const runSession = async (
 ): Promise<number> => {
   const holder: LockHolder = { pid: deps.pid, slug: record.slug };
   writeLock(root, holder);
-  let exitCode = 1;
+  let end: SessionEnd = { exitCode: 1 };
   try {
     writeRunRecord(root, record);
-    exitCode = await deps.spawnSession(buildClaudeArgs(promptText, record.model), {
+    end = await deps.spawnSession(buildClaudeArgs(promptText, record.model), {
       cwd: root,
       env: sessionEnv(env, record.slug),
       logPath: workPath(root, record.slug, SESSION_LOG_FILE),
@@ -269,13 +520,19 @@ const runSession = async (
     });
   } finally {
     try {
-      const status = exitCode === 0 ? "done" : "failed";
-      writeRunRecord(root, { ...record, status, exit: exitCode, ended: new Date().toISOString() });
+      const status = end.exitCode === 0 ? "done" : "failed";
+      writeRunRecord(root, {
+        ...record,
+        status,
+        exit: end.exitCode,
+        ...(end.signal === undefined ? {} : { signal: end.signal }),
+        ended: new Date().toISOString(),
+      });
     } finally {
       rmSync(workPath(root, LOCK_FILE), { force: true });
     }
   }
-  return exitCode;
+  return end.exitCode;
 };
 
 /** Returns the exit code the dispatcher itself should exit with. */
@@ -333,7 +590,7 @@ export const readRunStatus = (root: string, slug: string | undefined): string =>
 // only needs the strings, so the looser Env is handed over as is.
 const toChildEnv = (env: Env): NodeJS.ProcessEnv => env as NodeJS.ProcessEnv;
 
-const isProcessAlive = (pid: number): boolean => {
+export const isProcessAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
     return true;
@@ -342,46 +599,83 @@ const isProcessAlive = (pid: number): boolean => {
   }
 };
 
-const runSmokeWithClaude: RunSmoke = (model, { cwd, env }) => {
-  const result = spawnSync("claude", buildSmokeArgs(model), {
-    cwd,
-    env: toChildEnv(env),
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  return { status: result.status, stdout: result.stdout ?? "" };
-};
+export const createRunSmoke =
+  (timeoutSeconds: number): RunSmoke =>
+  (model, { cwd, env }) => {
+    const result = spawnSync("claude", buildSmokeArgs(model), {
+      cwd,
+      env: toChildEnv(env),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: timeoutSeconds * 1000,
+      killSignal: "SIGKILL",
+    });
+    const timedOut = (result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
+    return { status: result.status, stdout: result.stdout ?? "", timedOut };
+  };
+
+export const runSmokeWithClaude = createRunSmoke(SMOKE_TIMEOUT_SECONDS);
 
 const SPAWN_FAILED_EXIT = 127;
+const SIGNAL_EXIT_BASE = 128;
 
 // A terminated dispatcher must not leave a running session behind a lock that looks free, so these
 // signals go to the session and the dispatcher keeps waiting until it ends.
 const FORWARDED_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
 
-const spawnSessionWithClaude: SpawnSession = (args, { cwd, env, logPath, onSpawn }) =>
-  new Promise((resolveExit) => {
+const sessionEndOf = (code: number | null, signal: NodeJS.Signals | null): SessionEnd => {
+  if (signal === null) return { exitCode: code ?? 1 };
+  return { exitCode: SIGNAL_EXIT_BASE + osConstants.signals[signal], signal };
+};
+
+// The handlers go in before the session is started, in the same synchronous run as the spawn, so a
+// signal that arrives once the session exists reaches it and none can run the default action,
+// which ends the dispatcher and leaves the session behind a lock that looks free.
+export const spawnSessionWithClaude: SpawnSession = (args, { cwd, env, logPath, onSpawn }) =>
+  new Promise((resolveEnd, rejectEnd) => {
     const log = openSync(logPath, "a");
+    let child: ChildProcess | undefined;
     let settled = false;
     const forwarders = FORWARDED_SIGNALS.map((signal) => ({
       signal,
-      forward: () => child.kill(signal),
+      forward: () => child?.kill(signal),
     }));
-    const finish = (code: number): void => {
-      if (settled) return;
-      settled = true;
+    for (const { signal, forward } of forwarders) process.on(signal, forward);
+    const release = (): void => {
       for (const { signal, forward } of forwarders) process.off(signal, forward);
       closeSync(log);
-      resolveExit(code);
     };
-    const child = spawn("claude", args, {
-      cwd,
-      env: toChildEnv(env),
-      stdio: ["ignore", log, log],
+    const finish = (end: SessionEnd): void => {
+      if (settled) return;
+      settled = true;
+      release();
+      resolveEnd(end);
+    };
+    const fail = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      release();
+      rejectEnd(error);
+    };
+    try {
+      child = spawn("claude", args, { cwd, env: toChildEnv(env), stdio: ["ignore", log, log] });
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    let startupError: { cause: unknown } | undefined;
+    child.on("error", () => finish({ exitCode: SPAWN_FAILED_EXIT }));
+    child.on("close", (code, signal) => {
+      if (startupError === undefined) finish(sessionEndOf(code, signal));
+      else fail(startupError.cause);
     });
-    for (const { signal, forward } of forwarders) process.on(signal, forward);
-    if (child.pid !== undefined) onSpawn(child.pid);
-    child.on("error", () => finish(SPAWN_FAILED_EXIT));
-    child.on("close", (code) => finish(code ?? 1));
+    if (child.pid === undefined) return;
+    try {
+      onSpawn(child.pid);
+    } catch (error) {
+      startupError = { cause: error };
+      child.kill("SIGKILL");
+    }
   });
 
 const realDeps: DispatchDeps = {

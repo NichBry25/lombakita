@@ -9,33 +9,68 @@
  * parts a command line cannot reach. No case starts a real `claude`.
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type SpawnOptions } from "node:child_process";
 import {
   chmodSync,
   copyFileSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
+  renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { dirname, join } from "node:path";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildClaudeArgs,
   buildSmokeArgs,
+  createRunSmoke,
   DENY_LIST,
+  DENY_PATTERNS,
   dispatchRun,
+  gitFormsEndingIn,
   initWorkItem,
+  isProcessAlive,
+  pushClusterPatterns,
   readRunStatus,
+  restoreDiscardPatterns,
+  rmClusterPatterns,
+  runSmokeWithClaude,
+  SMOKE_TIMEOUT_SECONDS,
+  spawnSessionWithClaude,
   type DispatchDeps,
   type RunOptions,
   type RunRecord,
+  type SpawnSession,
 } from "./dispatch";
 import { LkRefusal, type Env } from "./models";
+
+// The dispatcher's own calls to these are wrapped, not replaced, so a case can watch what the
+// dispatcher hands them and make one fail once.
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawn: vi.fn(actual.spawn), spawnSync: vi.fn(actual.spawnSync) };
+});
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    linkSync: vi.fn(actual.linkSync),
+    renameSync: vi.fn(actual.renameSync),
+    rmSync: vi.fn(actual.rmSync),
+  };
+});
+
+const realChildProcess =
+  await vi.importActual<typeof import("node:child_process")>("node:child_process");
+const realFs = await vi.importActual<typeof import("node:fs")>("node:fs");
 
 const FIXTURES = join(process.cwd(), "scripts/testing/fixtures/lk");
 const STANDARD_MODEL = "claude-test-standard";
@@ -87,7 +122,10 @@ const dispatchEnv = (
   };
   delete env.LK_SLUG;
   delete env.FAKE_SMOKE;
+  delete env.FAKE_SMOKE_TEXT;
   delete env.FAKE_MAIN_EXIT;
+  delete env.FAKE_RELEASE_FILE;
+  delete env.FAKE_SIGNAL_FILE;
   for (const [key, value] of Object.entries(overrides)) {
     if (value === undefined) delete env[key];
     else env[key] = value;
@@ -124,6 +162,7 @@ const run = (
 interface Call {
   args: string[];
   env: string;
+  cwd: string;
 }
 
 const readCalls = (sandbox: Sandbox): Call[] => {
@@ -131,9 +170,10 @@ const readCalls = (sandbox: Sandbox): Call[] => {
   const calls: Call[] = [];
   for (const token of readFileSync(sandbox.log, "utf8").split("\0")) {
     const last = calls.at(-1);
-    if (token === "CALL") calls.push({ args: [], env: "" });
+    if (token === "CALL") calls.push({ args: [], env: "", cwd: "" });
     else if (token.startsWith("ARG ") && last !== undefined) last.args.push(token.slice(4));
     else if (token.startsWith("ENV ") && last !== undefined) last.env = token.slice(4);
+    else if (token.startsWith("CWD ") && last !== undefined) last.cwd = token.slice(4);
   }
   return calls;
 };
@@ -176,11 +216,126 @@ describe("the arguments a session receives", () => {
     ]);
   });
 
-  it("carry a deny list that is exactly the owner's list", () => {
-    expect(DENY_LIST).toBe(
-      "Bash(git push --force*),Bash(git push -f*),Bash(git -C * push --force*),Bash(git -C * push -f*),Bash(git reset --hard*),Bash(git -C * reset --hard*),Bash(git clean*),Bash(git -C * clean*),Bash(rm -r*),Bash(sudo *),Bash(gh *),Bash(vercel *),Bash(railway *),Bash(npm run db:*)",
-    );
-    expect(DENY_LIST.split(",")).toHaveLength(14);
+  it("name the force, reset, clean, rm, sudo, gh, vercel, railway and db patterns", () => {
+    const base = [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git * push --force*)",
+      "Bash(git * push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git * reset --hard*)",
+      "Bash(git clean*)",
+      "Bash(git * clean*)",
+      "Bash(rm -r*)",
+      "Bash(sudo *)",
+      "Bash(gh *)",
+      "Bash(vercel *)",
+      "Bash(railway *)",
+      "Bash(npm run db:*)",
+    ];
+    for (const pattern of base) expect(DENY_PATTERNS).toContain(pattern);
+  });
+
+  it.each([
+    "push --force*",
+    "push -f*",
+    "push * --force*",
+    "push * -f*",
+    "push * +*",
+    "push *main*",
+    "push",
+    "push origin",
+    "push *HEAD*",
+    "push *--all*",
+    "push *--mirror*",
+    "push *--delete*",
+    "push -d*",
+    "push * -d*",
+    "push *:**",
+    "push -u",
+    "push -u origin",
+    "branch -D*",
+    "branch -f*",
+    "branch * -f*",
+    "branch --force*",
+    "branch * --force*",
+    "branch -df*",
+    "branch * -D*",
+  ])("name git %s plain, after a global option, and as rtk rewrites both", (rest) => {
+    expect(DENY_PATTERNS).toContain(`Bash(git ${rest})`);
+    expect(DENY_PATTERNS).toContain(`Bash(git * ${rest})`);
+    expect(DENY_PATTERNS).toContain(`Bash(rtk git ${rest})`);
+    expect(DENY_PATTERNS).toContain(`Bash(rtk git * ${rest})`);
+  });
+
+  it.each([
+    "reset --hard*",
+    "reset * --hard*",
+    "clean*",
+    "checkout -f*",
+    "checkout * -f*",
+    "checkout --force*",
+    "switch -f*",
+    "switch * -f*",
+    "switch --discard-changes*",
+    "switch * --discard-changes*",
+    "checkout -B*",
+    "checkout * -B*",
+    "switch -C*",
+    "switch * -C*",
+  ])("name git %s plain and after a global option, not as rtk rewrites it", (rest) => {
+    expect(DENY_PATTERNS).toContain(`Bash(git ${rest})`);
+    expect(DENY_PATTERNS).toContain(`Bash(git * ${rest})`);
+    expect(DENY_PATTERNS).not.toContain(`Bash(rtk git ${rest})`);
+  });
+
+  it.each([["checkout ."], ["checkout ./"], ["checkout * ."], ["checkout * ./"]])(
+    "name git %s with and without arguments after it, plain and after a global option",
+    (rest) => {
+      for (const pattern of gitFormsEndingIn(rest)) expect(DENY_PATTERNS).toContain(pattern);
+    },
+  );
+
+  it.each([
+    ["rm with a capital R flag", "Bash(rm -R*)"],
+    ["rm with --recursive", "Bash(rm --recursive*)"],
+    ["rm with -r given as a separate flag", "Bash(rm * -r*)"],
+    ["rm with -R given as a separate flag", "Bash(rm * -R*)"],
+    ["rm with --recursive given as a separate flag", "Bash(rm * --recursive*)"],
+    ["rm reached by an absolute path", "Bash(/*/rm *)"],
+    ["any git reached by an absolute path", "Bash(/*/git *)"],
+    ["the Read tool on the topic folder", "Read(~/.config/lombakita/**)"],
+    ["the Edit tool on the topic folder", "Edit(~/.config/lombakita/**)"],
+    ["the Write tool on the topic folder", "Write(~/.config/lombakita/**)"],
+    ["cat on the topic folder", "Bash(cat *.config/lombakita/*)"],
+    ["head on the topic folder", "Bash(head *.config/lombakita/*)"],
+    ["tail on the topic folder", "Bash(tail *.config/lombakita/*)"],
+    ["less on the topic folder", "Bash(less *.config/lombakita/*)"],
+    ["grep on the topic folder", "Bash(grep *.config/lombakita/*)"],
+    [
+      "cat and head on the topic folder, as rtk rewrites them",
+      "Bash(rtk read *.config/lombakita/*)",
+    ],
+    ["grep on the topic folder, as rtk rewrites it", "Bash(rtk grep *.config/lombakita/*)"],
+    ["gh, as rtk rewrites it", "Bash(rtk gh *)"],
+    ["a db script, spelled so db:reset matches", "Bash(npm run db*)"],
+    ["a db script, as rtk rewrites it", "Bash(rtk npm run db*)"],
+  ])("name %s", (_what, pattern) => {
+    expect(DENY_PATTERNS).toContain(pattern);
+  });
+
+  it("name no git rule with a -C twin, since the wildcard after git covers every global option", () => {
+    expect(DENY_PATTERNS.filter((pattern) => pattern.includes("git -C"))).toEqual([]);
+  });
+
+  it("are each named once, none with a comma, and 926 in all", () => {
+    expect(DENY_PATTERNS).toHaveLength(926);
+    expect(new Set(DENY_PATTERNS).size).toBe(DENY_PATTERNS.length);
+    for (const pattern of DENY_PATTERNS) {
+      expect(pattern).toMatch(/^(Bash|Read|Edit|Write)\(.+\)$/);
+      expect(pattern).not.toContain(",");
+    }
+    expect(DENY_LIST.split(",")).toEqual([...DENY_PATTERNS]);
   });
 
   it("make the smoke call a one turn text question", () => {
@@ -194,6 +349,366 @@ describe("the arguments a session receives", () => {
       "--output-format",
       "text",
     ]);
+  });
+});
+
+// Stands in for the permission matcher's reading of a Bash pattern: `*` is the only wildcard, every
+// other character is literal, a trailing ` *` matches the bare command only when it is the pattern's
+// one wildcard, and a pattern ending in `:*` is the old prefix syntax, which matches the prefix alone
+// or followed by a space and so never `npm run db:reset`. A match here predicts the matcher; only a
+// real session proves it (scripts/lk/deny-proof.ts).
+const compiledPatterns = new Map<string, (command: string) => boolean>();
+
+const compilePattern = (pattern: string): ((command: string) => boolean) => {
+  const body = pattern.replace(/^Bash\((.*)\)$/, "$1");
+  if (body.endsWith(":*")) {
+    const prefix = body.slice(0, -2);
+    return (command) => command === prefix || command.startsWith(`${prefix} `);
+  }
+  const core = body.endsWith(" *") ? body.slice(0, -2) : body;
+  const bareEndingMatches = body.endsWith(" *") && !core.includes("*");
+  const source = core
+    .split("*")
+    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+    .join(".*");
+  const arguments_ = body.endsWith(" *") ? (bareEndingMatches ? "( .*)?" : " .*") : "";
+  const expression = new RegExp(`^${source}${arguments_}$`);
+  return (command) => expression.test(command);
+};
+
+const patternMatches = (pattern: string, command: string): boolean => {
+  let matches = compiledPatterns.get(pattern);
+  if (matches === undefined) {
+    matches = compilePattern(pattern);
+    compiledPatterns.set(pattern, matches);
+  }
+  return matches(command);
+};
+
+const patternsDenying = (command: string): string[] =>
+  DENY_PATTERNS.filter((pattern) => patternMatches(pattern, command));
+
+// Every cluster of one to three of the letters, as a flag spelling without its dash.
+const clustersOver = (letters: string[]): string[] => {
+  const two = letters.flatMap((first) => letters.map((second) => `${first}${second}`));
+  const three = two.flatMap((pair) => letters.map((third) => `${pair}${third}`));
+  return [...letters, ...two, ...three];
+};
+
+describe("the rm flag clusters", () => {
+  const LETTERS = ["d", "f", "i", "I", "P", "R", "r", "v", "W", "x"];
+
+  const everyClusterWithAnR = (): string[] =>
+    clustersOver(LETTERS).filter((cluster) => /[rR]/.test(cluster));
+
+  it("are generated as 144 clusters, each as the first flag and as a later flag", () => {
+    const patterns = rmClusterPatterns();
+    expect(patterns).toHaveLength(288);
+    expect(new Set(patterns).size).toBe(288);
+    expect(patterns).toContain("Bash(rm -fr*)");
+    expect(patterns).toContain("Bash(rm * -fr*)");
+    expect(patterns).toContain("Bash(rm -vfR*)");
+    expect(patterns).toContain("Bash(rm * -iiR*)");
+    expect(patterns).toContain("Bash(rm -dfr*)");
+    expect(patterns).toContain("Bash(rm -Pr*)");
+    expect(patterns).toContain("Bash(rm * -xWr*)");
+    expect(patterns).toContain("Bash(rm -IIR*)");
+    expect(patterns).not.toContain("Bash(rm -r*)");
+    expect(patterns).not.toContain("Bash(rm -R*)");
+  });
+
+  it("are all in the deny list", () => {
+    for (const pattern of rmClusterPatterns()) expect(DENY_PATTERNS).toContain(pattern);
+  });
+
+  it("leave no cluster of one to three of the macOS rm letters that holds an r or R uncovered", () => {
+    const clusters = everyClusterWithAnR();
+    expect(clusters).toHaveLength(526);
+    for (const cluster of clusters) {
+      expect(patternsDenying(`rm -${cluster} victim`), `rm -${cluster} victim`).not.toEqual([]);
+      expect(patternsDenying(`rm victim -${cluster}`), `rm victim -${cluster}`).not.toEqual([]);
+    }
+  });
+
+  it("let through a cluster with no r or R and a file name that merely holds -r", () => {
+    for (const command of [
+      "rm -f keep.txt",
+      "rm -v keep.txt",
+      "rm -fvi keep.txt",
+      "rm -dPx keep.txt",
+      "rm -f keep-report.txt",
+      "rm -- keep.txt",
+    ]) {
+      expect(patternsDenying(command), command).toEqual([]);
+    }
+  });
+});
+
+describe("the push flag clusters", () => {
+  const LETTERS = ["u", "v", "n", "q", "f", "d"];
+
+  const everyClusterWithAForceOrDelete = (): string[] =>
+    clustersOver(LETTERS).filter((cluster) => /[fd]/.test(cluster));
+
+  it("are generated as 40 clusters, each as the first and a later flag in four forms", () => {
+    const patterns = pushClusterPatterns();
+    expect(patterns).toHaveLength(320);
+    expect(new Set(patterns).size).toBe(320);
+    expect(patterns).toContain("Bash(git push -uf*)");
+    expect(patterns).toContain("Bash(git push * -uf*)");
+    expect(patterns).toContain("Bash(git * push -vd*)");
+    expect(patterns).toContain("Bash(git * push * -nqf*)");
+    expect(patterns).toContain("Bash(rtk git push -qnd*)");
+    expect(patterns).toContain("Bash(rtk git * push * -uud*)");
+    expect(patterns).not.toContain("Bash(git push -f*)");
+    expect(patterns).not.toContain("Bash(git push -d*)");
+    expect(patterns).not.toContain("Bash(git push -u*)");
+  });
+
+  it("are all in the deny list", () => {
+    for (const pattern of pushClusterPatterns()) expect(DENY_PATTERNS).toContain(pattern);
+  });
+
+  it("leave no cluster of one to three of the push short flags that holds an f or d uncovered", () => {
+    const clusters = everyClusterWithAForceOrDelete();
+    expect(clusters).toHaveLength(174);
+    for (const cluster of clusters) {
+      for (const command of [
+        `git push -${cluster} origin feature`,
+        `git push origin feature -${cluster}`,
+        `git -c k=v push -${cluster} origin feature`,
+        `git -c k=v push origin feature -${cluster}`,
+        `rtk git push -${cluster} origin feature`,
+        `rtk git -c k=v push origin feature -${cluster}`,
+      ]) {
+        expect(patternsDenying(command), command).not.toEqual([]);
+      }
+    }
+  });
+
+  it("let through a cluster with no f or d", () => {
+    for (const command of [
+      "git push -u origin feature",
+      "git push -v origin feature",
+      "git push -uv origin feature",
+      "git push -unq origin feature",
+      "git push origin feature -u",
+      "git -c k=v push -u origin feature",
+    ]) {
+      expect(patternsDenying(command), command).toEqual([]);
+      expect(patternsDenying(`rtk ${command}`), `rtk ${command}`).toEqual([]);
+    }
+  });
+});
+
+describe("the whole-tree restore patterns", () => {
+  it("are generated as 152 patterns for the dot and the dot with a slash", () => {
+    const patterns = restoreDiscardPatterns();
+    expect(patterns).toHaveLength(152);
+    expect(new Set(patterns).size).toBe(152);
+    expect(patterns).toContain("Bash(git restore .)");
+    expect(patterns).toContain("Bash(git restore ./ *)");
+    expect(patterns).toContain("Bash(git * restore *-q .)");
+    expect(patterns).toContain("Bash(git * restore *--quiet ./ *)");
+    expect(patterns).toContain("Bash(git restore *W* .)");
+    expect(patterns).toContain("Bash(git restore *--worktree* .)");
+    expect(patterns).not.toContain("Bash(git restore *--staged .)");
+  });
+
+  it("are all in the deny list", () => {
+    for (const pattern of restoreDiscardPatterns()) expect(DENY_PATTERNS).toContain(pattern);
+  });
+
+  it("name the bare ending, the ending with arguments, and both after a global option", () => {
+    expect(gitFormsEndingIn("restore .")).toEqual([
+      "Bash(git restore .)",
+      "Bash(git restore . *)",
+      "Bash(git * restore .)",
+      "Bash(git * restore . *)",
+    ]);
+  });
+});
+
+describe("the pattern emulation", () => {
+  it("reads a pattern ending in :* as a prefix, so db:* never names db:reset", () => {
+    expect(patternMatches("Bash(npm run db:*)", "npm run db")).toBe(true);
+    expect(patternMatches("Bash(npm run db:*)", "npm run db x")).toBe(true);
+    expect(patternMatches("Bash(npm run db:*)", "npm run db:reset")).toBe(false);
+    expect(patternMatches("Bash(npm run db*)", "npm run db:reset")).toBe(true);
+  });
+
+  it("lets a trailing space and star match the bare command but not a longer first word", () => {
+    expect(patternMatches("Bash(git restore . *)", "git restore .")).toBe(true);
+    expect(patternMatches("Bash(git restore . *)", "git restore . x")).toBe(true);
+    expect(patternMatches("Bash(git restore . *)", "git restore .gitignore")).toBe(false);
+  });
+
+  it("does not let a trailing space and star match the bare command once an earlier star exists", () => {
+    expect(patternMatches("Bash(git -C * restore . *)", "git -C /tmp/x restore .")).toBe(false);
+    expect(patternMatches("Bash(git -C * restore . *)", "git -C /tmp/x restore . x")).toBe(true);
+    expect(patternMatches("Bash(git -C * restore .)", "git -C /tmp/x restore .")).toBe(true);
+  });
+});
+
+describe("the commands the deny list names", () => {
+  it.each([
+    ["git push -u origin HEAD", "rtk git push -u origin HEAD"],
+    ["git push origin HEAD", "rtk git push origin HEAD"],
+    ["git push HEAD", "rtk git push HEAD"],
+    ["git push --all", "rtk git push --all"],
+    ["git push --all origin", "rtk git push --all origin"],
+    ["git push --mirror origin", "rtk git push --mirror origin"],
+    ["git push --delete origin feature", "rtk git push --delete origin feature"],
+    ["git push -d origin feature", "rtk git push -d origin feature"],
+    ["git push origin :feature", "rtk git push origin :feature"],
+    ["git push -u", "rtk git push -u"],
+    ["git push -u origin", "rtk git push -u origin"],
+    ["git push -uf origin feature", "rtk git push -uf origin feature"],
+    ["git push -vf origin feature", "rtk git push -vf origin feature"],
+    ["git push -vd origin feature", "rtk git push -vd origin feature"],
+    ["git push origin feature -uf", "rtk git push origin feature -uf"],
+    ["git -C /tmp/x push -u origin HEAD", "rtk git -C /tmp/x push -u origin HEAD"],
+    ["git -C /tmp/x push --all", "rtk git -C /tmp/x push --all"],
+    ["git -C /tmp/x push origin :feature", "rtk git -C /tmp/x push origin :feature"],
+    ["git -c core.pager=cat push origin main", "rtk git -c core.pager=cat push origin main"],
+    [
+      "git -c core.pager=cat push --force origin feature",
+      "rtk git -c core.pager=cat push --force origin feature",
+    ],
+    [
+      "git --no-pager push --force origin feature",
+      "rtk git --no-pager push --force origin feature",
+    ],
+    [
+      "git --git-dir=/tmp/x/.git push origin main",
+      "rtk git --git-dir=/tmp/x/.git push origin main",
+    ],
+    ["git -c k=v push", "rtk git -c k=v push"],
+    ["git -c k=v push origin", "rtk git -c k=v push origin"],
+    ["git -c k=v push -uf origin feature", "rtk git -c k=v push -uf origin feature"],
+    ["git -c k=v push origin +feature", "rtk git -c k=v push origin +feature"],
+    ["/usr/bin/git push --force origin feature", "/usr/bin/git push --force origin feature"],
+    ["/usr/bin/git push origin feature", "/usr/bin/git push origin feature"],
+    ["/usr/bin/git -C /tmp/x push origin feature", "/usr/bin/git -C /tmp/x push origin feature"],
+    ["git branch --delete --force feature-two", "rtk git branch --delete --force feature-two"],
+    ["git branch --force --delete feature-two", "rtk git branch --force --delete feature-two"],
+    ["git branch -d -f feature-two", "rtk git branch -d -f feature-two"],
+    ["git branch -f -d feature-two", "rtk git branch -f -d feature-two"],
+    ["git branch -df feature-two", "rtk git branch -df feature-two"],
+    ["git branch -f feature-two main", "rtk git branch -f feature-two main"],
+    ["git -c k=v branch -D feature-two", "rtk git -c k=v branch -D feature-two"],
+    ["git -C /tmp/x branch --delete --force b", "rtk git -C /tmp/x branch --delete --force b"],
+    ["gh pr merge 1", "rtk gh pr merge 1"],
+    ["npm run db:reset", "rtk npm run db:reset"],
+  ])("deny %s and the text rtk rewrites it to", (command, rewritten) => {
+    expect(patternsDenying(command), command).not.toEqual([]);
+    expect(patternsDenying(rewritten), rewritten).not.toEqual([]);
+  });
+
+  it.each([
+    "rm -vfr victim",
+    "rm -fvr victim",
+    "rm -ir victim",
+    "rm -vR victim",
+    "rm victim -vfr",
+    "rm -f -vr victim",
+    "rm -dfr victim",
+    "rm -Pr victim",
+    "rm -xWR victim",
+    "rm victim -dfr",
+    "git reset --hard",
+    "git reset HEAD --hard",
+    "git reset -q --hard HEAD",
+    "git reset --hard HEAD~1",
+    "git -c k=v reset --hard",
+    "git -c k=v reset HEAD --hard",
+    "git clean -fd",
+    "git -c k=v clean -fd",
+    "git restore -- .",
+    "git restore .",
+    "git restore ./",
+    "git restore -q .",
+    "git restore --quiet .",
+    "git restore --worktree .",
+    "git restore -W .",
+    "git restore -SW .",
+    "git restore --worktree --staged .",
+    "git restore --staged --worktree .",
+    "git restore --source=HEAD~1 .",
+    "git restore -s HEAD~1 .",
+    "git restore --source=HEAD~1 -q .",
+    "git -C /tmp/x restore -- .",
+    "git -c k=v restore .",
+    "git -c k=v restore -q ./",
+    "git checkout .",
+    "git checkout ./",
+    "git checkout -- .",
+    "git checkout HEAD .",
+    "git checkout HEAD ./",
+    "git checkout HEAD -- .",
+    "git checkout feature .",
+    "git checkout -f",
+    "git checkout -f feature",
+    "git checkout feature -f",
+    "git checkout --force",
+    "git -C /tmp/x checkout -f",
+    "git -c k=v checkout .",
+    "git -c k=v checkout HEAD .",
+    "git switch -f feature",
+    "git switch feature -f",
+    "git switch --discard-changes feature",
+    "git checkout -B main",
+    "git switch -C main",
+    "git -c k=v switch -C main",
+    "git checkout feature -B main",
+  ])("deny %s", (command) => {
+    expect(patternsDenying(command), command).not.toEqual([]);
+  });
+
+  it.each([
+    "git push origin feature",
+    "git push -u origin feature",
+    "git push -v origin feature",
+    "git push -uv origin feature",
+    "git push origin feature-fix",
+    "git push origin feature-draft",
+    "git -C /tmp/x push origin feature",
+    "git -c core.pager=cat push origin feature",
+    "git --no-pager push -u origin feature",
+    "git checkout feature",
+    "git checkout -b feature-three",
+    "git switch feature",
+    "git switch -c feature-three",
+    "git restore .gitignore",
+    "git restore --staged keep.txt",
+    "git restore --staged .",
+    "git restore --staged ./",
+    "git restore -S .",
+    "git restore keep.txt",
+    "git restore -q keep.txt",
+    "git -c k=v restore --staged .",
+    "git checkout .github/x",
+    "git checkout -- .gitignore",
+    "git checkout HEAD keep.txt",
+    "git branch feature-three",
+    "git branch -d merged-branch",
+    "git -C /tmp/x branch --list",
+    "git stash",
+    "git stash pop",
+    "git add keep.txt",
+    "git commit -m x",
+    "git -c k=v commit -m x",
+    "git status",
+    "git diff",
+    "git log",
+    "rm keep.txt",
+    "rm -f keep.txt",
+    "rm -v keep.txt",
+    "rm -f keep-report.txt",
+    "rm -- keep.txt",
+  ])("let %s through", (command) => {
+    expect(patternsDenying(command), command).toEqual([]);
+    expect(patternsDenying(`rtk ${command}`), `rtk ${command}`).toEqual([]);
   });
 });
 
@@ -257,6 +772,16 @@ describe("refusals, each before anything is started", () => {
       prompt: "END OF PROMPT\nmore\n",
       message: "does not end with the line END OF PROMPT",
     },
+    {
+      name: "a marker with trailing spaces",
+      prompt: "Do it.\nEND OF PROMPT  \n",
+      message: "does not end with the line END OF PROMPT",
+    },
+    {
+      name: "a marker with leading spaces",
+      prompt: "Do it.\n  END OF PROMPT\n",
+      message: "does not end with the line END OF PROMPT",
+    },
   ])("refuses $name", ({ prompt, message }) => {
     const sandbox = makeSandbox();
     addWorkItem(sandbox, "alpha", prompt);
@@ -316,6 +841,21 @@ describe("refusals, each before anything is started", () => {
     expectRefused(result, '--model "Not A Model" is not a model id', sandbox, "alpha");
   });
 
+  it("refuses an extra argument after the slug without starting anything", () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const result = dispatch(sandbox, [
+      "run",
+      "alpha",
+      "extra",
+      "--job",
+      "implement",
+      "--tier",
+      "1",
+    ]);
+    expectRefused(result, 'unexpected argument "extra"', sandbox, "alpha");
+  });
+
   it("refuses a missing --job or --tier and an unknown command", () => {
     const sandbox = makeSandbox();
     addWorkItem(sandbox, "alpha");
@@ -361,19 +901,22 @@ describe("the lock", () => {
 });
 
 describe("the smoke call", () => {
-  it.each(["silent", "fail", "okfail"])("refuses when the model answers in mode %s", (mode) => {
-    const sandbox = makeSandbox();
-    addWorkItem(sandbox, "alpha");
-    const result = run(sandbox, "alpha", [], { FAKE_SMOKE: mode });
-    expect(result.status).toBe(1);
-    expect(result.stderr).toBe(`LK REFUSED: model ${STANDARD_MODEL} did not answer\n`);
-    const calls = readCalls(sandbox);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.args).toEqual(buildSmokeArgs(STANDARD_MODEL));
-    expect(existsSync(join(sandbox.root, ".work/alpha/run.json"))).toBe(false);
-    expect(existsSync(join(sandbox.root, ".work/alpha/session.jsonl"))).toBe(false);
-    expect(existsSync(lockPath(sandbox))).toBe(false);
-  });
+  it.each(["silent", "fail", "okfail", "broken"])(
+    "refuses when the model answers in mode %s",
+    (mode) => {
+      const sandbox = makeSandbox();
+      addWorkItem(sandbox, "alpha");
+      const result = run(sandbox, "alpha", [], { FAKE_SMOKE: mode });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toBe(`LK REFUSED: model ${STANDARD_MODEL} did not answer\n`);
+      const calls = readCalls(sandbox);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.args).toEqual(buildSmokeArgs(STANDARD_MODEL));
+      expect(existsSync(join(sandbox.root, ".work/alpha/run.json"))).toBe(false);
+      expect(existsSync(join(sandbox.root, ".work/alpha/session.jsonl"))).toBe(false);
+      expect(existsSync(lockPath(sandbox))).toBe(false);
+    },
+  );
 
   it("asks the model that will run, as an implementer so the controller hooks stay quiet", () => {
     const sandbox = makeSandbox();
@@ -382,6 +925,31 @@ describe("the smoke call", () => {
     const [smoke] = readCalls(sandbox);
     expect(smoke?.args).toEqual(buildSmokeArgs(STANDARD_MODEL));
     expect(smoke?.env).toBe("LK_ROLE=implementer LK_SLUG=alpha");
+  });
+
+  it.each([
+    { answer: "ok", accepted: true },
+    { answer: "Nicholas, ok.", accepted: true },
+    { answer: "OK!", accepted: true },
+    { answer: "the token is broken", accepted: false },
+    { answer: "book", accepted: false },
+    { answer: "okay", accepted: false },
+  ])("takes the answer $answer as accepted: $accepted", ({ answer, accepted }) => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const result = run(sandbox, "alpha", [], { FAKE_SMOKE: "text", FAKE_SMOKE_TEXT: answer });
+    expect(result.status).toBe(accepted ? 0 : 1);
+    if (!accepted)
+      expect(result.stderr).toBe(`LK REFUSED: model ${STANDARD_MODEL} did not answer\n`);
+  });
+
+  it("asks from the repository root", () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    run(sandbox, "alpha");
+    const [smoke, session] = readCalls(sandbox);
+    expect(realpathSync(smoke?.cwd ?? "")).toBe(realpathSync(sandbox.root));
+    expect(realpathSync(session?.cwd ?? "")).toBe(realpathSync(sandbox.root));
   });
 
   it("is skipped by --no-smoke", () => {
@@ -472,12 +1040,22 @@ describe("a real run", () => {
     expect(existsSync(lockPath(sandbox))).toBe(false);
   });
 
-  it("appends the session's output to session.jsonl", () => {
+  it("appends the session's output and error text to session.jsonl", () => {
     const sandbox = makeSandbox();
     addWorkItem(sandbox, "alpha");
     run(sandbox, "alpha");
     expect(readFileSync(join(sandbox.root, ".work/alpha/session.jsonl"), "utf8")).toBe(
-      '{"type":"result"}\n',
+      'stderr from the session\n{"type":"result"}\n',
+    );
+  });
+
+  it("keeps what an earlier run left in session.jsonl", () => {
+    const sandbox = makeSandbox();
+    const folder = addWorkItem(sandbox, "alpha");
+    writeFileSync(join(folder, "session.jsonl"), "earlier line\n");
+    run(sandbox, "alpha");
+    expect(readFileSync(join(folder, "session.jsonl"), "utf8")).toBe(
+      'earlier line\nstderr from the session\n{"type":"result"}\n',
     );
   });
 
@@ -532,11 +1110,19 @@ describe("a session that is still running", () => {
     childPid?: number;
   }
 
-  const startDispatch = (sandbox: Sandbox, slug: string, releaseFile: string) => {
+  const startDispatch = (
+    sandbox: Sandbox,
+    slug: string,
+    releaseFile: string,
+    extraEnv: Record<string, string> = {},
+  ) => {
     const child = spawn(
       process.execPath,
       dispatchArgs(sandbox, ["run", slug, "--job", "implement", "--tier", "1", "--no-smoke"]),
-      { env: dispatchEnv(sandbox, { FAKE_RELEASE_FILE: releaseFile }), stdio: "ignore" },
+      {
+        env: dispatchEnv(sandbox, { FAKE_RELEASE_FILE: releaseFile, ...extraEnv }),
+        stdio: "ignore",
+      },
     );
     const exited = new Promise<{ code: number | null }>((resolveExit) => {
       child.on("exit", (code) => resolveExit({ code }));
@@ -603,22 +1189,36 @@ describe("a session that is still running", () => {
     expect(existsSync(lockPath(sandbox))).toBe(false);
   });
 
-  it("passes a termination signal to the session, waits for it, then records failed and frees the lock", async () => {
-    const sandbox = makeSandbox();
-    addWorkItem(sandbox, "alpha");
-    const release = `${sandbox.log}.release`;
-    const first = startDispatch(sandbox, "alpha", release);
-    try {
-      const childPid = await lockedChildPid(sandbox);
-      first.child.kill("SIGTERM");
-      expect((await first.exited).code).toBe(1);
-      expect(isAlive(childPid)).toBe(false);
-    } finally {
-      writeFileSync(release, "");
-    }
-    expect(readRecord(sandbox, "alpha")).toMatchObject({ status: "failed", exit: 1 });
-    expect(existsSync(lockPath(sandbox))).toBe(false);
-  });
+  it.each([
+    { signal: "SIGINT" as NodeJS.Signals, exitCode: 130 },
+    { signal: "SIGTERM" as NodeJS.Signals, exitCode: 143 },
+    { signal: "SIGHUP" as NodeJS.Signals, exitCode: 129 },
+  ])(
+    "passes $signal to the session as itself, waits for it, then records failed with exit $exitCode and the signal",
+    async ({ signal, exitCode }) => {
+      const sandbox = makeSandbox();
+      addWorkItem(sandbox, "alpha");
+      const release = `${sandbox.log}.release`;
+      const received = `${sandbox.log}.signals`;
+      const first = startDispatch(sandbox, "alpha", release, { FAKE_SIGNAL_FILE: received });
+      try {
+        const childPid = await lockedChildPid(sandbox);
+        await waitFor(() => existsSync(`${sandbox.snapshot}.ready`), "the session to be waiting");
+        first.child.kill(signal);
+        expect((await first.exited).code).toBe(exitCode);
+        expect(isAlive(childPid)).toBe(false);
+      } finally {
+        writeFileSync(release, "");
+      }
+      expect(readFileSync(received, "utf8")).toBe(`${signal}\n`);
+      expect(readRecord(sandbox, "alpha")).toMatchObject({
+        status: "failed",
+        exit: exitCode,
+        signal,
+      });
+      expect(existsSync(lockPath(sandbox))).toBe(false);
+    },
+  );
 
   it("keeps refusing after the dispatcher is killed outright while its session lives, and stops when the session ends", async () => {
     const sandbox = makeSandbox();
@@ -703,11 +1303,11 @@ describe("dispatchRun with injected seams", () => {
     const deps: DispatchDeps = {
       spawnSession: async (args, { cwd, env, logPath }) => {
         sessions.push({ args, cwd, env, logPath });
-        return 5;
+        return { exitCode: 5 };
       },
       runSmoke: (model, smokeOptions) => {
         smokes.push({ model, env: smokeOptions.env });
-        return { status: 0, stdout: "ok" };
+        return { status: 0, stdout: "ok", timedOut: false };
       },
       isProcessAlive: () => true,
       pid: 4242,
@@ -745,7 +1345,7 @@ describe("dispatchRun with injected seams", () => {
     const { deps, sessions } = seams({
       runSmoke: () => {
         writeFileSync(lockPath(sandbox), JSON.stringify({ pid: 1, slug: "rival" }));
-        return { status: 0, stdout: "ok" };
+        return { status: 0, stdout: "ok", timedOut: false };
       },
     });
     await expect(dispatchRun(options, sandbox.root, controllerEnv, deps)).rejects.toThrow(
@@ -788,7 +1388,7 @@ describe("dispatchRun with injected seams", () => {
       spawnSession: async (_args, { onSpawn }) => {
         onSpawn(777);
         lockWhileRunning = JSON.parse(readFileSync(lockPath(sandbox), "utf8"));
-        return 0;
+        return { exitCode: 0 };
       },
     });
     await dispatchRun(options, sandbox.root, controllerEnv, deps);
@@ -833,5 +1433,762 @@ describe("dispatchRun with injected seams", () => {
     const sandbox = makeSandbox();
     expect(initWorkItem(sandbox.root, "alpha")).toBe(join(sandbox.root, ".work/alpha"));
     expect(readRunStatus(sandbox.root, "alpha")).toBe("no run");
+  });
+});
+
+describe("how the lock is written", () => {
+  const options: RunOptions = {
+    slug: "alpha",
+    job: "implement",
+    tier: "1",
+    model: undefined,
+    noSmoke: true,
+    dryRun: false,
+  };
+  const controllerEnv = { LK_ROLE: "controller" };
+
+  const deps = (overrides: Partial<DispatchDeps> = {}): DispatchDeps => ({
+    spawnSession: async (_args, { onSpawn }) => {
+      onSpawn(777);
+      return { exitCode: 0 };
+    },
+    runSmoke: () => ({ status: 0, stdout: "ok", timedOut: false }),
+    isProcessAlive: () => false,
+    pid: 4242,
+    print: () => undefined,
+    ...overrides,
+  });
+
+  const temporaryFiles = (sandbox: Sandbox): string[] =>
+    readdirSync(join(sandbox.root, ".work")).filter((name) => name.endsWith(".tmp"));
+
+  it("publishes a finished file with link, so the lock never exists part written", async () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    vi.mocked(linkSync).mockClear();
+    let seen:
+      | { source: string; target: string; content: string; targetExisted: boolean }
+      | undefined;
+    vi.mocked(linkSync).mockImplementationOnce((source, target) => {
+      seen = {
+        source: String(source),
+        target: String(target),
+        content: readFileSync(source, "utf8"),
+        targetExisted: existsSync(target),
+      };
+      return realFs.linkSync(source, target);
+    });
+    await dispatchRun(options, sandbox.root, controllerEnv, deps());
+    expect(seen).toEqual({
+      source: join(sandbox.root, ".work/.lock.4242.tmp"),
+      target: lockPath(sandbox),
+      content: JSON.stringify({ pid: 4242, slug: "alpha" }),
+      targetExisted: false,
+    });
+    expect(temporaryFiles(sandbox)).toEqual([]);
+  });
+
+  it("publishes the session pid with rename, so a reader sees the old lock or the new one", async () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    vi.mocked(renameSync).mockClear();
+    let seen: { source: string; target: string; content: string; before: string } | undefined;
+    vi.mocked(renameSync).mockImplementationOnce((source, target) => {
+      seen = {
+        source: String(source),
+        target: String(target),
+        content: readFileSync(source, "utf8"),
+        before: readFileSync(target, "utf8"),
+      };
+      return realFs.renameSync(source, target);
+    });
+    let inodeBefore = 0;
+    let inodeAfter = 0;
+    await dispatchRun(
+      options,
+      sandbox.root,
+      controllerEnv,
+      deps({
+        spawnSession: async (_args, { onSpawn }) => {
+          inodeBefore = statSync(lockPath(sandbox)).ino;
+          onSpawn(777);
+          inodeAfter = statSync(lockPath(sandbox)).ino;
+          return { exitCode: 0 };
+        },
+      }),
+    );
+    expect(seen).toEqual({
+      source: join(sandbox.root, ".work/.lock.4242.tmp"),
+      target: lockPath(sandbox),
+      content: JSON.stringify({ pid: 4242, slug: "alpha", childPid: 777 }),
+      before: JSON.stringify({ pid: 4242, slug: "alpha" }),
+    });
+    expect(inodeAfter).not.toBe(inodeBefore);
+    expect(temporaryFiles(sandbox)).toEqual([]);
+  });
+
+  it("removes its temporary file when the lock is already taken", async () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const rivalTakesTheLock = deps({
+      runSmoke: () => {
+        writeFileSync(lockPath(sandbox), JSON.stringify({ pid: 1, slug: "rival" }));
+        return { status: 0, stdout: "ok", timedOut: false };
+      },
+    });
+    await expect(
+      dispatchRun({ ...options, noSmoke: false }, sandbox.root, controllerEnv, rivalTakesTheLock),
+    ).rejects.toThrow(new LkRefusal("slug rival holds the lock"));
+    expect(temporaryFiles(sandbox)).toEqual([]);
+    expect(readFileSync(lockPath(sandbox), "utf8")).toContain("rival");
+  });
+
+  it("removes its temporary file when the rename fails", async () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    vi.mocked(renameSync).mockImplementationOnce(() => {
+      throw new Error("disk full");
+    });
+    await expect(dispatchRun(options, sandbox.root, controllerEnv, deps())).rejects.toThrow(
+      "disk full",
+    );
+    expect(temporaryFiles(sandbox)).toEqual([]);
+    expect(existsSync(lockPath(sandbox))).toBe(false);
+    expect(readRecord(sandbox, "alpha")).toMatchObject({ status: "failed", exit: 1 });
+  });
+
+  it("does not crash when another dispatcher removes the stale lock first", async () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    writeFileSync(lockPath(sandbox), JSON.stringify({ pid: 99, slug: "old" }));
+    const code = await dispatchRun(
+      options,
+      sandbox.root,
+      controllerEnv,
+      deps({
+        isProcessAlive: () => {
+          rmSync(lockPath(sandbox), { force: true });
+          return false;
+        },
+      }),
+    );
+    expect(code).toBe(0);
+  });
+});
+
+describe("a run left behind by a dispatcher that died", () => {
+  const KEPT_FIELDS = {
+    slug: "old",
+    job: "implement",
+    tier: "2",
+    class: "Standard",
+    model: STANDARD_MODEL,
+    override: true,
+    started: "2026-10-19T01:00:00.000Z",
+    pid: 31337,
+  };
+  const RUNNING = { ...KEPT_FIELDS, status: "running" };
+
+  const leaveRunBehind = (sandbox: Sandbox, record: Record<string, unknown> = RUNNING): string => {
+    const folder = addWorkItem(sandbox, "old");
+    writeFileSync(join(folder, "run.json"), `${JSON.stringify(record, null, 2)}\n`);
+    const deadPid = spawnSync("node", ["-e", ""]).pid;
+    writeFileSync(lockPath(sandbox), JSON.stringify({ pid: deadPid, slug: "old" }));
+    return join(folder, "run.json");
+  };
+
+  it("is rewritten as failed and lost by the next real run, keeping every other field", () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const runPath = leaveRunBehind(sandbox);
+    const result = run(sandbox, "alpha", ["--no-smoke"]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("LK NOTE: stale lock removed\n");
+    expect(result.stdout).toContain("LK NOTE: run old was left running and is marked lost\n");
+    const after = JSON.parse(readFileSync(runPath, "utf8")) as RunRecord;
+    const { status, lost, ended, ...kept } = after;
+    expect({ status, lost }).toEqual({ status: "failed", lost: true });
+    expect(new Date(ended ?? "").toISOString()).toBe(ended);
+    expect(kept).toEqual(KEPT_FIELDS);
+    expect(after.exit).toBeUndefined();
+  });
+
+  it("is left alone when its record does not say running", () => {
+    for (const status of ["done", "failed"]) {
+      const sandbox = makeSandbox();
+      addWorkItem(sandbox, "alpha");
+      const record = { ...RUNNING, status, exit: 3, ended: "2026-10-19T02:00:00.000Z" };
+      const runPath = leaveRunBehind(sandbox, record);
+      const before = readFileSync(runPath, "utf8");
+      const result = run(sandbox, "alpha", ["--no-smoke"]);
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain("marked lost");
+      expect(readFileSync(runPath, "utf8")).toBe(before);
+    }
+  });
+
+  it("is left alone by a dry run, which removes nothing", () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const runPath = leaveRunBehind(sandbox);
+    const before = readFileSync(runPath, "utf8");
+    const result = run(sandbox, "alpha", ["--dry-run"]);
+    expect(result.status).toBe(0);
+    expect(readFileSync(runPath, "utf8")).toBe(before);
+    expect(existsSync(lockPath(sandbox))).toBe(true);
+  });
+
+  it("does not stop the run when the record is missing, unreadable or not an object", () => {
+    for (const content of [undefined, "not json", "null", "[]"]) {
+      const sandbox = makeSandbox();
+      addWorkItem(sandbox, "alpha");
+      const runPath = leaveRunBehind(sandbox);
+      if (content === undefined) rmSync(runPath);
+      else writeFileSync(runPath, content);
+      const result = run(sandbox, "alpha", ["--no-smoke"]);
+      expect(result.status).toBe(0);
+      if (content !== undefined) expect(readFileSync(runPath, "utf8")).toBe(content);
+    }
+  });
+
+  it("is not looked up through a lock slug that climbs out of .work", () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const outside = join(sandbox.root, "outside");
+    mkdirSync(outside);
+    const outsideRun = join(outside, "run.json");
+    writeFileSync(outsideRun, JSON.stringify({ ...RUNNING, slug: "../outside" }));
+    const deadPid = spawnSync("node", ["-e", ""]).pid;
+    writeFileSync(lockPath(sandbox), JSON.stringify({ pid: deadPid, slug: "../outside" }));
+    const before = readFileSync(outsideRun, "utf8");
+    expect(run(sandbox, "alpha", ["--no-smoke"]).status).toBe(0);
+    expect(readFileSync(outsideRun, "utf8")).toBe(before);
+  });
+
+  it("is marked lost by the next real run after a real dispatcher is killed with SIGKILL", async () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    addWorkItem(sandbox, "beta");
+    const release = `${sandbox.log}.release`;
+    const child = spawn(
+      process.execPath,
+      dispatchArgs(sandbox, ["run", "alpha", "--job", "implement", "--tier", "1", "--no-smoke"]),
+      { env: dispatchEnv(sandbox, { FAKE_RELEASE_FILE: release }), stdio: "ignore" },
+    );
+    const exited = new Promise<void>((resolveExit) => child.on("exit", () => resolveExit()));
+    try {
+      await vi.waitFor(() => expect(existsSync(`${sandbox.snapshot}.ready`)).toBe(true), {
+        timeout: 10_000,
+      });
+      await vi.waitFor(
+        () => {
+          const lock = JSON.parse(readFileSync(lockPath(sandbox), "utf8")) as { childPid?: number };
+          expect(typeof lock.childPid).toBe("number");
+        },
+        { timeout: 10_000 },
+      );
+      child.kill("SIGKILL");
+      await exited;
+    } finally {
+      writeFileSync(release, "");
+    }
+    const lockedChild = (
+      JSON.parse(readFileSync(lockPath(sandbox), "utf8")) as { childPid: number }
+    ).childPid;
+    await vi.waitFor(() => expect(isProcessAlive(lockedChild)).toBe(false), { timeout: 10_000 });
+    expect(readRecord(sandbox, "alpha").status).toBe("running");
+    const result = run(sandbox, "beta", ["--no-smoke"]);
+    expect(result.status).toBe(0);
+    expect(readRecord(sandbox, "alpha")).toMatchObject({ status: "failed", lost: true });
+    expect(readRecord(sandbox, "alpha").exit).toBeUndefined();
+    expect(readRecord(sandbox, "beta").status).toBe("done");
+  });
+});
+
+describe("the end of a run", () => {
+  const options: RunOptions = {
+    slug: "alpha",
+    job: "implement",
+    tier: "1",
+    model: undefined,
+    noSmoke: true,
+    dryRun: false,
+  };
+
+  const recordWhenTheLockIsRemoved = async (mainExit: string) => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const seen: { status: string; exit: number | undefined }[] = [];
+    vi.mocked(rmSync).mockImplementation((path, rmOptions) => {
+      if (String(path) === lockPath(sandbox)) {
+        const { status, exit } = readRecord(sandbox, "alpha");
+        seen.push({ status, exit });
+      }
+      return realFs.rmSync(path, rmOptions);
+    });
+    const deps: DispatchDeps = {
+      spawnSession: spawnSessionWithClaude,
+      runSmoke: () => ({ status: 0, stdout: "ok", timedOut: false }),
+      isProcessAlive,
+      pid: process.pid,
+      print: () => undefined,
+    };
+    const env = dispatchEnv(sandbox, { LK_ROLE: "controller", FAKE_MAIN_EXIT: mainExit });
+    try {
+      await dispatchRun(options, sandbox.root, env, deps);
+    } finally {
+      vi.mocked(rmSync).mockImplementation(realFs.rmSync);
+    }
+    return seen;
+  };
+
+  it.each([
+    { mainExit: "0", expected: { status: "done", exit: 0 } },
+    { mainExit: "3", expected: { status: "failed", exit: 3 } },
+  ])(
+    "has written the final record by the time the lock is removed, after a session that exits $mainExit",
+    async ({ mainExit, expected }) => {
+      expect(await recordWhenTheLockIsRemoved(mainExit)).toEqual([expected]);
+    },
+  );
+});
+
+describe("the exit a session leaves", () => {
+  const options: RunOptions = {
+    slug: "alpha",
+    job: "implement",
+    tier: "1",
+    model: undefined,
+    noSmoke: true,
+    dryRun: false,
+  };
+
+  const finishWith = async (end: { exitCode: number; signal?: string }) => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const deps: DispatchDeps = {
+      spawnSession: async () => end,
+      runSmoke: () => ({ status: 0, stdout: "ok", timedOut: false }),
+      isProcessAlive: () => false,
+      pid: 4242,
+      print: () => undefined,
+    };
+    const code = await dispatchRun(options, sandbox.root, { LK_ROLE: "controller" }, deps);
+    return { code, record: readRecord(sandbox, "alpha") };
+  };
+
+  it("records the signal name and exits with 128 plus its number when the session was killed", async () => {
+    const { code, record } = await finishWith({ exitCode: 143, signal: "SIGTERM" });
+    expect(code).toBe(143);
+    expect(record).toMatchObject({ status: "failed", exit: 143, signal: "SIGTERM" });
+  });
+
+  it("records no signal when the session ended by itself", async () => {
+    const { record } = await finishWith({ exitCode: 3 });
+    expect(record).toMatchObject({ status: "failed", exit: 3 });
+    expect("signal" in record).toBe(false);
+  });
+});
+
+describe("the smoke answer", () => {
+  const options: RunOptions = {
+    slug: "alpha",
+    job: "implement",
+    tier: "1",
+    model: undefined,
+    noSmoke: false,
+    dryRun: false,
+  };
+
+  const refusedWith = async (answer: {
+    status: number | null;
+    stdout: string;
+    timedOut: boolean;
+  }) => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const started: string[] = [];
+    const deps: DispatchDeps = {
+      spawnSession: async (args) => {
+        started.push(...args);
+        return { exitCode: 0 };
+      },
+      runSmoke: () => answer,
+      isProcessAlive: () => false,
+      pid: 4242,
+      print: () => undefined,
+    };
+    const error = await dispatchRun(options, sandbox.root, { LK_ROLE: "controller" }, deps).catch(
+      (caught: unknown) => caught,
+    );
+    expect(started).toEqual([]);
+    expect(existsSync(lockPath(sandbox))).toBe(false);
+    return error;
+  };
+
+  it("refuses a null status even when the output says ok", async () => {
+    const error = await refusedWith({ status: null, stdout: "ok", timedOut: false });
+    expect(error).toEqual(new LkRefusal(`model ${STANDARD_MODEL} did not answer`));
+  });
+
+  it("refuses a call that ran out of time and names the limit, whatever it printed", async () => {
+    const error = await refusedWith({ status: null, stdout: "ok", timedOut: true });
+    expect(error).toEqual(
+      new LkRefusal(
+        `model ${STANDARD_MODEL} did not answer within ${SMOKE_TIMEOUT_SECONDS} seconds`,
+      ),
+    );
+  });
+
+  it("allows sixty seconds", () => {
+    expect(SMOKE_TIMEOUT_SECONDS).toBe(60);
+  });
+});
+
+describe("the smoke call as a process", () => {
+  const smokeEnv = (sandbox: Sandbox, mode: string): Env =>
+    dispatchEnv(sandbox, { FAKE_SMOKE: mode, LK_ROLE: "implementer" });
+
+  it("is cut off after the time it is given and reported as timed out", () => {
+    const sandbox = makeSandbox();
+    const started = Date.now();
+    const outcome = createRunSmoke(0.3)("claude-x", {
+      cwd: sandbox.root,
+      env: smokeEnv(sandbox, "hang"),
+    });
+    expect(outcome).toMatchObject({ status: null, timedOut: true });
+    expect(Date.now() - started).toBeLessThan(10_000);
+  });
+
+  it("does not call a call that answered a timeout", () => {
+    const sandbox = makeSandbox();
+    const outcome = createRunSmoke(30)("claude-x", {
+      cwd: sandbox.root,
+      env: smokeEnv(sandbox, "ok"),
+    });
+    expect(outcome).toMatchObject({ status: 0, timedOut: false });
+    expect(outcome.stdout).toContain("OK");
+  });
+
+  it("runs in the directory it is given", () => {
+    const sandbox = makeSandbox();
+    createRunSmoke(30)("claude-x", { cwd: sandbox.root, env: smokeEnv(sandbox, "ok") });
+    expect(realpathSync(readCalls(sandbox)[0]?.cwd ?? "")).toBe(realpathSync(sandbox.root));
+  });
+
+  it("is started with sixty seconds and a kill that cannot be ignored by the production runner", () => {
+    const sandbox = makeSandbox();
+    vi.mocked(spawnSync).mockClear();
+    runSmokeWithClaude("claude-x", { cwd: sandbox.root, env: smokeEnv(sandbox, "ok") });
+    const [, , spawnOptions] = vi.mocked(spawnSync).mock.calls[0] ?? [];
+    expect(spawnOptions).toMatchObject({ timeout: 60_000, killSignal: "SIGKILL" });
+  });
+});
+
+describe("isProcessAlive", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const killFailsWith = (code: string): void => {
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      throw Object.assign(new Error(code), { code });
+    });
+  };
+
+  it("is true for a running process and false for one that is gone", () => {
+    expect(isProcessAlive(process.pid)).toBe(true);
+    expect(isProcessAlive(spawnSync("node", ["-e", ""]).pid ?? -1)).toBe(false);
+  });
+
+  it("is true when the system refuses the check, because the process exists", () => {
+    killFailsWith("EPERM");
+    expect(isProcessAlive(1)).toBe(true);
+  });
+
+  it("is false for any other failure", () => {
+    killFailsWith("ESRCH");
+    expect(isProcessAlive(1)).toBe(false);
+  });
+});
+
+describe("starting the session in process", () => {
+  const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+
+  const openDescriptors = (): number => readdirSync("/dev/fd").length;
+
+  const listenerCounts = (): Record<string, number> =>
+    Object.fromEntries(SIGNALS.map((signal) => [signal, process.listenerCount(signal)]));
+
+  const sessionIn = (
+    sandbox: Sandbox,
+    slug: string,
+    extraEnv: Record<string, string> = {},
+  ): Parameters<SpawnSession>[1] => {
+    const folder = addWorkItem(sandbox, slug);
+    writeFileSync(join(folder, "run.json"), "{}\n");
+    return {
+      cwd: sandbox.root,
+      env: dispatchEnv(sandbox, { LK_SLUG: slug, ...extraEnv }),
+      logPath: join(folder, "session.jsonl"),
+      onSpawn: () => undefined,
+    };
+  };
+
+  const realSpawn = (command: string, args: string[], options: SpawnOptions) =>
+    realChildProcess.spawn(command, args, options);
+
+  it("ends with the exit code of a session that ran to the end, and no signal", async () => {
+    const sandbox = makeSandbox();
+    const end = await spawnSessionWithClaude(["-p", "x"], sessionIn(sandbox, "alpha"));
+    expect(end).toStrictEqual({ exitCode: 0 });
+    const failed = await spawnSessionWithClaude(
+      ["-p", "x"],
+      sessionIn(sandbox, "beta", { FAKE_MAIN_EXIT: "3" }),
+    );
+    expect(failed).toStrictEqual({ exitCode: 3 });
+  });
+
+  it("ends with exit 127 when claude cannot be started", async () => {
+    const sandbox = makeSandbox();
+    const options = sessionIn(sandbox, "alpha", { PATH: "/nonexistent" });
+    expect(await spawnSessionWithClaude(["-p", "x"], options)).toStrictEqual({ exitCode: 127 });
+  });
+
+  it("takes its signal handlers off again once the session has ended", async () => {
+    const sandbox = makeSandbox();
+    const before = listenerCounts();
+    const descriptors = openDescriptors();
+    await spawnSessionWithClaude(["-p", "x"], sessionIn(sandbox, "alpha"));
+    expect(listenerCounts()).toEqual(before);
+    expect(openDescriptors()).toBe(descriptors);
+  });
+
+  it("has its signal handlers in place when the session is started", async () => {
+    const sandbox = makeSandbox();
+    const before = listenerCounts();
+    const atSpawn: Record<string, number> = {};
+    vi.mocked(spawn).mockImplementationOnce(((
+      command: string,
+      args: string[],
+      options: SpawnOptions,
+    ) => {
+      for (const signal of SIGNALS)
+        atSpawn[signal] = process.listenerCount(signal) - before[signal]!;
+      return realSpawn(command, args, options);
+    }) as typeof spawn);
+    const end = await spawnSessionWithClaude(["-p", "x"], sessionIn(sandbox, "alpha"));
+    expect(atSpawn).toEqual({ SIGINT: 1, SIGTERM: 1, SIGHUP: 1 });
+    expect(end).toStrictEqual({ exitCode: 0 });
+  });
+
+  it("closes its log and takes its handlers off when the session cannot be started at all", async () => {
+    const sandbox = makeSandbox();
+    const before = listenerCounts();
+    const descriptors = openDescriptors();
+    vi.mocked(spawn).mockImplementationOnce((() => {
+      throw new Error("spawn exploded");
+    }) as typeof spawn);
+    await expect(spawnSessionWithClaude(["-p", "x"], sessionIn(sandbox, "alpha"))).rejects.toThrow(
+      "spawn exploded",
+    );
+    expect(listenerCounts()).toEqual(before);
+    expect(openDescriptors()).toBe(descriptors);
+  });
+
+  it("kills the session, then rejects with the cause, when onSpawn throws", async () => {
+    const sandbox = makeSandbox();
+    const release = `${sandbox.log}.release`;
+    const before = listenerCounts();
+    const descriptors = openDescriptors();
+    let childPid = -1;
+    try {
+      const options = sessionIn(sandbox, "alpha", { FAKE_RELEASE_FILE: release });
+      options.onSpawn = (pid: number) => {
+        childPid = pid;
+        throw new Error("lock rewrite failed");
+      };
+      await expect(spawnSessionWithClaude(["-p", "x"], options)).rejects.toThrow(
+        "lock rewrite failed",
+      );
+      expect(childPid).toBeGreaterThan(0);
+      expect(isProcessAlive(childPid)).toBe(false);
+      expect(listenerCounts()).toEqual(before);
+      expect(openDescriptors()).toBe(descriptors);
+    } finally {
+      writeFileSync(release, "");
+    }
+  });
+
+  it("leaves a lock, a failed record and no live session when the lock rewrite fails in a real dispatch", async () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const release = `${sandbox.log}.release`;
+    let childPid = -1;
+    vi.mocked(renameSync).mockImplementationOnce(() => {
+      throw new Error("disk full");
+    });
+    const deps: DispatchDeps = {
+      spawnSession: (args, options) =>
+        spawnSessionWithClaude(args, {
+          ...options,
+          onSpawn: (pid) => {
+            childPid = pid;
+            options.onSpawn(pid);
+          },
+        }),
+      runSmoke: () => ({ status: 0, stdout: "ok", timedOut: false }),
+      isProcessAlive,
+      pid: process.pid,
+      print: () => undefined,
+    };
+    const env = dispatchEnv(sandbox, { LK_ROLE: "controller", FAKE_RELEASE_FILE: release });
+    try {
+      await expect(
+        dispatchRun(
+          {
+            slug: "alpha",
+            job: "implement",
+            tier: "1",
+            model: undefined,
+            noSmoke: true,
+            dryRun: false,
+          },
+          sandbox.root,
+          env,
+          deps,
+        ),
+      ).rejects.toThrow("disk full");
+      expect(isProcessAlive(childPid)).toBe(false);
+      expect(readRecord(sandbox, "alpha")).toMatchObject({ status: "failed", exit: 1 });
+      expect(existsSync(lockPath(sandbox))).toBe(false);
+    } finally {
+      writeFileSync(release, "");
+    }
+  });
+});
+
+describe("the deny-proof harness without a model", () => {
+  const harness = (args: string[], env: NodeJS.ProcessEnv = process.env) =>
+    spawnSync(process.execPath, ["--import", "tsx", "scripts/lk/deny-proof.ts", ...args], {
+      encoding: "utf8",
+      env,
+    });
+
+  it("lists every case, each naming a pattern the deny list holds, and starts nothing", () => {
+    const result = harness(["--list"]);
+    expect(result.status).toBe(0);
+    const rows = result.stdout.trimEnd().split("\n");
+    for (const row of rows) expect(row.split("\t")).toHaveLength(3);
+    const groups = new Set(rows.map((row) => row.split("\t")[0]));
+    for (const group of ["standins", "allowed", "topic-write", "push-new-a", "rm-new"]) {
+      expect(groups).toContain(group);
+    }
+  });
+
+  // A control run drops exactly the covering patterns, so a pattern that names the command and is
+  // missing from them keeps the control refused and the case reads INVALID.
+  it("gives every Bash case a covers list that holds every pattern naming its command, and no allowed control a refusing pattern", async () => {
+    const { CASES } = await import("./deny-proof");
+    const problems: string[] = [];
+    for (const testCase of CASES.filter((candidate) => candidate.tool === "Bash")) {
+      const command = testCase.command.split("<fixture>").join("/tmp/lk-deny-proof-x/repo");
+      const rewritten = testCase.rewrittenAs?.split("<fixture>").join("/tmp/lk-deny-proof-x/repo");
+      const naming = [
+        ...new Set([
+          ...patternsDenying(command),
+          ...patternsDenying(rewritten ?? `rtk ${command}`),
+        ]),
+      ];
+      const missing =
+        testCase.allowedEffect === undefined
+          ? naming.filter((pattern) => !testCase.covers.includes(pattern))
+          : naming;
+      if (missing.length > 0) problems.push(`${testCase.id}: ${command} <- ${missing.join(" ")}`);
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it("registers nothing and runs nothing when it is only imported", () => {
+    const script = `await import("./scripts/lk/deny-proof.ts");
+      console.log(["SIGINT", "SIGTERM", "SIGHUP"].map((name) => process.listenerCount(name)).join(","));`;
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", script],
+      { encoding: "utf8" },
+    );
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe("0,0,0\n");
+    expect(result.status).toBe(0);
+  });
+
+  it("refuses an --out path that already exists and leaves it as it was", () => {
+    const sandbox = makeSandbox();
+    const existing = join(dirname(sandbox.log), "existing.txt");
+    writeFileSync(existing, "keep me\n");
+    const result = harness([
+      "--group",
+      "controls",
+      "--out",
+      existing,
+      "--models",
+      join(FIXTURES, "models.md"),
+    ]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("already exists");
+    expect(readFileSync(existing, "utf8")).toBe("keep me\n");
+  });
+
+  it("stops the session, then removes its fixture, then reports what survived, when it is signalled", async () => {
+    const sandbox = makeSandbox();
+    const release = `${sandbox.log}.release`;
+    const scratch = mkdtempSync(join(workspace, "proof-tmp-"));
+    const out = join(scratch, "proof.txt");
+    const env = dispatchEnv(sandbox, { FAKE_RELEASE_FILE: release, TMPDIR: scratch });
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "scripts/lk/deny-proof.ts",
+        "--group",
+        "controls",
+        "--case",
+        "allowed-push-feature",
+        "--out",
+        out,
+        "--models",
+        join(FIXTURES, "models.md"),
+      ],
+      { env, stdio: "ignore" },
+    );
+    const exited = new Promise<number | null>((resolveExit) => child.on("exit", resolveExit));
+    try {
+      await vi.waitFor(() => expect(existsSync(`${sandbox.snapshot}.ready`)).toBe(true), {
+        timeout: 20_000,
+      });
+      child.kill("SIGTERM");
+      expect(await exited).toBe(143);
+    } finally {
+      writeFileSync(release, "");
+    }
+    const lines = readFileSync(out, "utf8").split("\n");
+    const positionOf = (prefix: string): number =>
+      lines.findIndex((line) => line.startsWith(prefix));
+    expect(positionOf("SIGNAL SIGTERM: stopping 1 running session(s)")).toBeGreaterThan(-1);
+    expect(positionOf("SIGNAL: removing the fixtures")).toBeGreaterThan(
+      positionOf("SIGNAL SIGTERM: stopping"),
+    );
+    expect(lines).toContain("SIGNAL: 1 session(s) told to stop, 1 fixture(s) still in place");
+    expect(lines).toContain("POSTCHECK after signal: sessions still alive: []");
+    expect(lines).toContain("POSTCHECK after signal: fixtures still present: []");
+    expect(lines).toContain("POSTCHECK after signal: topic decoys still present: []");
+    expect(readdirSync(scratch).filter((name) => name.startsWith("lk-deny-proof-"))).toEqual([]);
+  });
+});
+
+describe("the deny list as data", () => {
+  it("is the patterns joined by commas, in order", () => {
+    expect(DENY_LIST).toBe(DENY_PATTERNS.join(","));
   });
 });
