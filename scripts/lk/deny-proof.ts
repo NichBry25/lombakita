@@ -185,6 +185,25 @@ const TERMINATION_EXIT: Record<"SIGINT" | "SIGTERM" | "SIGHUP", number> = {
   SIGHUP: 129,
 };
 
+const MIN_FREE_MEMORY_PERCENT = 15;
+
+// A machine that cannot report its free memory (no memory_pressure) is not stopped.
+const freeMemoryPercent = (): number | undefined => {
+  const report = spawnSync("memory_pressure", { encoding: "utf8" });
+  if (report.status !== 0) return undefined;
+  const percent = /(\d+)%\s*$/m.exec(report.stdout)?.[1];
+  return percent === undefined ? undefined : Number(percent);
+};
+
+// Fixtures and decoys go before the process ends, and no session is started once memory is short.
+const stopIfMemoryIsLow = (): void => {
+  const free = freeMemoryPercent();
+  if (free === undefined || free >= MIN_FREE_MEMORY_PERCENT) return;
+  emit(`MEMORY LOW: ${free}% free, below ${MIN_FREE_MEMORY_PERCENT}%; no further session started`);
+  runCleanups();
+  process.exit(3);
+};
+
 const waitMilliseconds = (milliseconds: number): void => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 };
@@ -459,6 +478,7 @@ const waitForExit = (
 
 const runDenied = async (testCase: ProofCase, fixture: Fixture): Promise<SessionOutcome> => {
   assertFixtureIsSafe(fixture);
+  stopIfMemoryIsLow();
   const workFolder = join(fixture.root, ".work", SLUG);
   mkdirSync(workFolder, { recursive: true });
   writeFileSync(join(workFolder, "02-prompt.md"), promptFor(testCase, fixture));
@@ -513,6 +533,7 @@ const argsWithoutDenyList = (promptText: string, model: string): string[] => {
 };
 
 const runClaudeDirectly = async (fixture: Fixture, args: string[]): Promise<SessionOutcome> => {
+  stopIfMemoryIsLow();
   const rawLogPath = join(fixture.base, "control.jsonl");
   writeFileSync(rawLogPath, "");
   const child = spawn("claude", args, {

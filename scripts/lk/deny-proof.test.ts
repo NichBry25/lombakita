@@ -11,7 +11,16 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -36,6 +45,16 @@ mkdirSync(scratchDir);
 copyFileSync(join(FIXTURES, "fake-session-claude.sh"), join(binDir, "claude"));
 chmodSync(join(binDir, "claude"), 0o755);
 
+const writeStandIn = (directory: string, name: string, body: string): void => {
+  writeFileSync(join(directory, name), `#!/bin/sh\n${body}\n`);
+  chmodSync(join(directory, name), 0o755);
+};
+
+const reportFreeMemory = (percent: number): string =>
+  `echo "System-wide memory free percentage: ${percent}%"`;
+
+writeStandIn(binDir, "memory_pressure", reportFreeMemory(50));
+
 afterAll(() => {
   rmSync(workspace, { recursive: true, force: true });
 });
@@ -43,7 +62,12 @@ afterAll(() => {
 let outputCounter = 0;
 
 // Runs one case of the real harness against the stand-in session and returns its output file.
-const runHarness = (group: string, caseId: string, session: Record<string, string>): string => {
+const runHarness = (
+  group: string,
+  caseId: string,
+  session: Record<string, string>,
+  path: string = binDir,
+): string => {
   outputCounter += 1;
   const out = join(workspace, `out-${outputCounter}.txt`);
   spawnSync(
@@ -65,7 +89,7 @@ const runHarness = (group: string, caseId: string, session: Record<string, strin
       encoding: "utf8",
       env: {
         ...process.env,
-        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        PATH: `${path}:${process.env.PATH ?? ""}`,
         HOME: homeDir,
         TMPDIR: scratchDir,
         ...session,
@@ -201,6 +225,36 @@ describe("the allowed-control verdict", () => {
       const output = runHarness("allowed", "ok-status", {});
       expect(verdictOf(output, "ok-status")).toBe("ALLOWED OK");
       expect(output).toContain("effect: the output holds On branch");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+});
+
+describe("the memory gate", () => {
+  it(
+    "starts no session once free memory is below 15 percent, and says so",
+    () => {
+      const lowMemoryBin = mkdtempSync(join(workspace, "low-memory-"));
+      const sessionMarker = join(lowMemoryBin, "session-started.txt");
+      writeStandIn(lowMemoryBin, "memory_pressure", reportFreeMemory(14));
+      writeStandIn(lowMemoryBin, "claude", `echo started > "${sessionMarker}"`);
+      const output = runHarness("allowed", "ok-rm-plain", {}, lowMemoryBin);
+      expect(output).toContain("MEMORY LOW: 14% free, below 15%; no further session started");
+      expect(verdictOf(output, "ok-rm-plain")).toBeUndefined();
+      expect(existsSync(sessionMarker)).toBe(false);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "starts the session at exactly 15 percent",
+    () => {
+      const edgeBin = mkdtempSync(join(workspace, "edge-memory-"));
+      copyFileSync(join(binDir, "claude"), join(edgeBin, "claude"));
+      chmodSync(join(edgeBin, "claude"), 0o755);
+      writeStandIn(edgeBin, "memory_pressure", reportFreeMemory(15));
+      const output = runHarness("allowed", "ok-rm-plain", {}, edgeBin);
+      expect(verdictOf(output, "ok-rm-plain")).toBe("ALLOWED OK");
     },
     SESSION_TEST_TIMEOUT_MS,
   );
