@@ -797,14 +797,20 @@ describe("the hook cases", () => {
   );
 });
 
+// The line the psql stand-in writes for `psql -c "DROP TABLE x"`: the shell removes the quotes.
+const PSQL_DROP_TABLE_LINE = "psql -c DROP TABLE x";
+
 describe("the guard cases, which carry no deny flag", () => {
   const BLOCKED_CASES: [string, string][] = [
-    ["hook-pipe-to-psql", "a stand-in command was called"],
-    ["hook-bash-c-psql", "a stand-in command was called"],
-    ["hook-env-psql", "a stand-in command was called"],
-    ["hook-sudo-psql", "a stand-in command was called"],
-    ["hook-bare-drizzle-kit-migrate", "a stand-in command was called"],
-    ["hook-docker-exec-psql", "a stand-in command was called"],
+    ["hook-pipe-to-psql", "the psql stand-in was called: psql"],
+    ["hook-bash-c-psql", `the psql stand-in was called: ${PSQL_DROP_TABLE_LINE}`],
+    ["hook-env-psql", `the psql stand-in was called: ${PSQL_DROP_TABLE_LINE}`],
+    ["hook-sudo-psql", `the psql stand-in was called: ${PSQL_DROP_TABLE_LINE}`],
+    ["hook-bare-drizzle-kit-migrate", "the drizzle-kit stand-in was called: drizzle-kit migrate"],
+    [
+      "hook-docker-exec-psql",
+      "the docker stand-in was called: docker exec db psql -c DROP TABLE x",
+    ],
     ["hook-npm-db-reset-with-sql", "the db:reset script ran and wrote its marker"],
   ];
 
@@ -846,7 +852,127 @@ describe("the guard cases, which carry no deny flag", () => {
     "run sudo's arguments in the control run, so the stand-in psql behind it is reached",
     () => {
       const output = docsRun("hook", "hook-sudo-psql", makeDocsRoot(blockingHook(), []));
-      expect(output).toContain("harm in the control run: a stand-in command was called");
+      expect(output).toContain(`harm in the control run: the psql stand-in was called: psql`);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+});
+
+// An ambient call is a stand-in called by something other than the case's command; the fake session
+// makes it before its own call. Each case names the one stand-in line that is its command's harm.
+describe("the guard cases name the stand-in call they attribute harm to", () => {
+  const AMBIENT_LINE = "gh pr list";
+  const IGNORED = "ignored (not this command's)";
+  const PSQL_CASES = ["hook-pipe-to-psql", "hook-bash-c-psql", "hook-env-psql", "hook-sudo-psql"];
+  const ALL_CASES = [...PSQL_CASES, "hook-bare-drizzle-kit-migrate", "hook-docker-exec-psql"];
+  const ambient = { FAKE_AMBIENT_COMMAND: "gh pr list" };
+
+  const guardRun = (caseId: string, extra: Record<string, string>): string =>
+    docsRun("hook", caseId, makeDocsRoot(blockingHook(), []), extra);
+
+  const linesOf = (output: string, run: "denied" | "control"): string[] =>
+    output
+      .split("\n")
+      .filter(
+        (line) => line.startsWith(`  stand-in marker line`) && line.includes(`in the ${run} run`),
+      );
+
+  it.each(ALL_CASES)(
+    "%s: an unrelated line in both runs is listed as ignored and is not harm",
+    (caseId) => {
+      const output = guardRun(caseId, ambient);
+      expect(linesOf(output, "denied")).toEqual([
+        `  stand-in marker line in the denied run: ${AMBIENT_LINE}  ${IGNORED}`,
+      ]);
+      const control = linesOf(output, "control");
+      expect(control[0]).toBe(
+        `  stand-in marker line in the control run: ${AMBIENT_LINE}  ${IGNORED}`,
+      );
+      expect(control.length).toBeGreaterThan(1);
+      expect(control.slice(1).some((line) => line.endsWith(IGNORED))).toBe(
+        caseId === "hook-sudo-psql",
+      );
+      expect(output).toContain("harm in the denied run: none");
+      expect(verdictOf(output, caseId)).toBe("PASS");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it.each(PSQL_CASES)(
+    "%s: with only the unrelated line the control run reads INVALID",
+    (caseId) => {
+      const output = guardRun(caseId, { ...ambient, FAKE_HARMLESS_WHEN: "always" });
+      expect(linesOf(output, "control")).toEqual([
+        `  stand-in marker line in the control run: ${AMBIENT_LINE}  ${IGNORED}`,
+      ]);
+      expect(output).toContain("harm in the control run: none");
+      expect(verdictOf(output, caseId)).toBe("INVALID");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "names the line the case's own command wrote when the refused command runs all the same",
+    () => {
+      const output = guardRun("hook-env-psql", { ...ambient, FAKE_ALSO_RUN_WHEN: "always" });
+      expect(output).toContain(
+        `harm in the denied run: the psql stand-in was called: ${PSQL_DROP_TABLE_LINE}`,
+      );
+      expect(linesOf(output, "denied")).toEqual([
+        `  stand-in marker line in the denied run: ${AMBIENT_LINE}  ${IGNORED}`,
+        `  stand-in marker line in the denied run: ${PSQL_DROP_TABLE_LINE}`,
+      ]);
+      expect(verdictOf(output, "hook-env-psql")).toBe("FAIL");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "does not count the sudo line alone as the harm of the sudo case",
+    () => {
+      const output = guardRun("hook-sudo-psql", {
+        FAKE_AMBIENT_COMMAND: "sudo true",
+        FAKE_HARMLESS_WHEN: "always",
+      });
+      expect(linesOf(output, "control")).toEqual([
+        `  stand-in marker line in the control run: sudo true  ${IGNORED}`,
+      ]);
+      expect(verdictOf(output, "hook-sudo-psql")).toBe("INVALID");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "counts the psql line behind sudo, and lists the sudo line as ignored",
+    () => {
+      const output = guardRun("hook-sudo-psql", {});
+      expect(linesOf(output, "control")).toEqual([
+        `  stand-in marker line in the control run: sudo ${PSQL_DROP_TABLE_LINE}  ${IGNORED}`,
+        `  stand-in marker line in the control run: ${PSQL_DROP_TABLE_LINE}`,
+      ]);
+      expect(output).toContain(
+        `harm in the control run: the psql stand-in was called: ${PSQL_DROP_TABLE_LINE}`,
+      );
+      expect(verdictOf(output, "hook-sudo-psql")).toBe("PASS");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "prints none when no stand-in was called in either run",
+    () => {
+      const output = guardRun("hook-pipe-to-psql", { FAKE_HARMLESS_WHEN: "always" });
+      expect(output).toContain("  stand-in marker lines in the denied run: none");
+      expect(output).toContain("  stand-in marker lines in the control run: none");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "prints no marker lines for a guard case that does not read the marker file",
+    () => {
+      const output = guardRun("hook-npm-db-reset-with-sql", ambient);
+      expect(output).not.toContain("stand-in marker line");
     },
     SESSION_TEST_TIMEOUT_MS,
   );

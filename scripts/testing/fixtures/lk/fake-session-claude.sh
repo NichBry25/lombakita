@@ -17,6 +17,8 @@
 #                        tool result; unset, it is not, as in a real session
 #   FAKE_NO_SESSION_END  the SessionEnd hooks of ./.claude/settings.json are not run
 #   FAKE_NO_PRE_TOOL_HOOKS  the PreToolUse hooks of ./.claude/settings.json are not run
+#   FAKE_AMBIENT_COMMAND a shell command run before the session's own call, as a process of the
+#                        machine would run one the session did not ask for
 prompt=""
 deny=""
 deny_flag="false"
@@ -114,6 +116,8 @@ def run(tool, tool_input, text):
     return "written"
 
 
+if os.environ.get("FAKE_AMBIENT_COMMAND"):
+    subprocess.run(os.environ["FAKE_AMBIENT_COMMAND"], shell=True, capture_output=True, text=True)
 hook_stdout = []
 tool, tool_input, text = tool_call()
 denials = []
