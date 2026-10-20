@@ -305,13 +305,14 @@ describe("the arguments a session receives", () => {
     ],
     ["grep on the topic folder, as rtk rewrites it", "Bash(rtk grep *.config/lombakita/*)"],
     ["gh, as rtk rewrites it", "Bash(rtk gh *)"],
-    ["a db script, as rtk rewrites it", "Bash(rtk npm run db:*)"],
+    ["a db script, spelled so db:reset matches", "Bash(npm run db*)"],
+    ["a db script, as rtk rewrites it", "Bash(rtk npm run db*)"],
   ])("name %s", (_what, pattern) => {
     expect(DENY_PATTERNS).toContain(pattern);
   });
 
-  it("are each named once, none with a comma, and 201 in all", () => {
-    expect(DENY_PATTERNS).toHaveLength(201);
+  it("are each named once, none with a comma, and 202 in all", () => {
+    expect(DENY_PATTERNS).toHaveLength(202);
     expect(new Set(DENY_PATTERNS).size).toBe(DENY_PATTERNS.length);
     for (const pattern of DENY_PATTERNS) {
       expect(pattern).toMatch(/^(Bash|Read|Edit|Write)\(.+\)$/);
@@ -335,10 +336,16 @@ describe("the arguments a session receives", () => {
 });
 
 // Stands in for the permission matcher's reading of a Bash pattern: `*` is the only wildcard, a
-// trailing ` *` also matches the bare command, and every other character is literal. A match here
-// predicts the matcher; only a real session proves it (scripts/lk/deny-proof.ts).
+// trailing ` *` also matches the bare command, every other character is literal, and a pattern
+// ending in `:*` is the old prefix syntax, which matches the prefix alone or followed by a space
+// and so never `npm run db:reset`. A match here predicts the matcher; only a real session proves it
+// (scripts/lk/deny-proof.ts).
 const patternMatches = (pattern: string, command: string): boolean => {
   const body = pattern.replace(/^Bash\((.*)\)$/, "$1");
+  if (body.endsWith(":*")) {
+    const prefix = body.slice(0, -2);
+    return command === prefix || command.startsWith(`${prefix} `);
+  }
   const endsWithOptionalArguments = body.endsWith(" *");
   const core = endsWithOptionalArguments ? body.slice(0, -2) : body;
   const source = core
@@ -395,6 +402,21 @@ describe("the rm flag clusters", () => {
     ]) {
       expect(patternsDenying(command), command).toEqual([]);
     }
+  });
+});
+
+describe("the pattern emulation", () => {
+  it("reads a pattern ending in :* as a prefix, so db:* never names db:reset", () => {
+    expect(patternMatches("Bash(npm run db:*)", "npm run db")).toBe(true);
+    expect(patternMatches("Bash(npm run db:*)", "npm run db x")).toBe(true);
+    expect(patternMatches("Bash(npm run db:*)", "npm run db:reset")).toBe(false);
+    expect(patternMatches("Bash(npm run db*)", "npm run db:reset")).toBe(true);
+  });
+
+  it("lets a trailing space and star match the bare command but not a longer first word", () => {
+    expect(patternMatches("Bash(git restore . *)", "git restore .")).toBe(true);
+    expect(patternMatches("Bash(git restore . *)", "git restore . x")).toBe(true);
+    expect(patternMatches("Bash(git restore . *)", "git restore .gitignore")).toBe(false);
   });
 });
 

@@ -50,7 +50,8 @@ import {
 // Matching is on the command text, so each git rule has a `git -C <dir>` twin. A branch whose name
 // contains "main" is blocked by the push rule on purpose: the text is not parsed. The permission
 // matcher knows `*` and nothing else: no character class, no `?`, and a pattern that ends in `:*`
-// is read as the old prefix syntax, so the refspec rule spells the colon as `:**`.
+// is read as the old prefix syntax, which matches `npm run db` but never `npm run db:reset`. So the
+// db rules end in `db*` and the refspec rule spells the colon as `:**`.
 const plainGitForms = (rest: string): string[] => [`Bash(git ${rest})`, `Bash(git -C * ${rest})`];
 
 // The rtk PreToolUse hook rewrites these git commands before the deny rules are checked, so the
@@ -165,7 +166,8 @@ export const DENY_PATTERNS: readonly string[] = [
   // The rtk hook also rewrites these commands: `rtk gh ...`, `rtk npm run ...`, `rtk read` for cat
   // and head, and `rtk grep`.
   "Bash(rtk gh *)",
-  "Bash(rtk npm run db:*)",
+  "Bash(npm run db*)",
+  "Bash(rtk npm run db*)",
   "Bash(rtk git push --force*)",
   "Bash(rtk git push -f*)",
   "Bash(rtk git -C * push --force*)",

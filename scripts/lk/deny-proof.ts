@@ -1065,7 +1065,7 @@ export const CASES: readonly ProofCase[] = [
     "standins",
     "npm-db-reset",
     "npm run db:reset",
-    ["Bash(rtk npm run db:*)"],
+    ["Bash(rtk npm run db*)"],
     dbMarkerWritten,
   ),
   bashCase("rm-new", "rm-vfr", "rm -vfr victim", ["Bash(rm -vfr*)"], victimGone),
