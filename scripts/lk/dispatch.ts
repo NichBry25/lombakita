@@ -113,7 +113,6 @@ export const DENY_PATTERNS: readonly string[] = [
   ...rtkGitForms("push *--all*"),
   ...rtkGitForms("push *--mirror*"),
   ...rtkGitForms("push *--delete*"),
-  ...rtkGitForms("push *--prune*"),
   ...rtkGitForms("push -d*"),
   ...rtkGitForms("push * -d*"),
   ...rtkGitForms("push *:**"),

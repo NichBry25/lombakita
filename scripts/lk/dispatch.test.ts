@@ -26,7 +26,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildClaudeArgs,
@@ -310,8 +310,8 @@ describe("the arguments a session receives", () => {
     expect(DENY_PATTERNS).toContain(pattern);
   });
 
-  it("are each named once, none with a comma, and 205 in all", () => {
-    expect(DENY_PATTERNS).toHaveLength(205);
+  it("are each named once, none with a comma, and 201 in all", () => {
+    expect(DENY_PATTERNS).toHaveLength(201);
     expect(new Set(DENY_PATTERNS).size).toBe(DENY_PATTERNS.length);
     for (const pattern of DENY_PATTERNS) {
       expect(pattern).toMatch(/^(Bash|Read|Edit|Write)\(.+\)$/);
@@ -409,7 +409,6 @@ describe("the commands the deny list names", () => {
     ["git push --delete origin feature", "rtk git push --delete origin feature"],
     ["git push -d origin feature", "rtk git push -d origin feature"],
     ["git push origin :feature", "rtk git push origin :feature"],
-    ["git push --prune origin", "rtk git push --prune origin"],
     ["git push -u", "rtk git push -u"],
     ["git push -u origin", "rtk git push -u origin"],
     ["git -C /tmp/x push -u origin HEAD", "rtk git -C /tmp/x push -u origin HEAD"],
@@ -1873,6 +1872,101 @@ describe("starting the session in process", () => {
     } finally {
       writeFileSync(release, "");
     }
+  });
+});
+
+describe("the deny-proof harness without a model", () => {
+  const harness = (args: string[], env: NodeJS.ProcessEnv = process.env) =>
+    spawnSync(process.execPath, ["--import", "tsx", "scripts/lk/deny-proof.ts", ...args], {
+      encoding: "utf8",
+      env,
+    });
+
+  it("lists every case, each naming a pattern the deny list holds, and starts nothing", () => {
+    const result = harness(["--list"]);
+    expect(result.status).toBe(0);
+    const rows = result.stdout.trimEnd().split("\n");
+    for (const row of rows) expect(row.split("\t")).toHaveLength(3);
+    const groups = new Set(rows.map((row) => row.split("\t")[0]));
+    for (const group of ["standins", "allowed", "topic-write", "push-new-a", "rm-new"]) {
+      expect(groups).toContain(group);
+    }
+  });
+
+  it("registers nothing and runs nothing when it is only imported", () => {
+    const script = `await import("./scripts/lk/deny-proof.ts");
+      console.log(["SIGINT", "SIGTERM", "SIGHUP"].map((name) => process.listenerCount(name)).join(","));`;
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", script],
+      { encoding: "utf8" },
+    );
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe("0,0,0\n");
+    expect(result.status).toBe(0);
+  });
+
+  it("refuses an --out path that already exists and leaves it as it was", () => {
+    const sandbox = makeSandbox();
+    const existing = join(dirname(sandbox.log), "existing.txt");
+    writeFileSync(existing, "keep me\n");
+    const result = harness([
+      "--group",
+      "controls",
+      "--out",
+      existing,
+      "--models",
+      join(FIXTURES, "models.md"),
+    ]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("already exists");
+    expect(readFileSync(existing, "utf8")).toBe("keep me\n");
+  });
+
+  it("stops the session, then removes its fixture, then reports what survived, when it is signalled", async () => {
+    const sandbox = makeSandbox();
+    const release = `${sandbox.log}.release`;
+    const scratch = mkdtempSync(join(workspace, "proof-tmp-"));
+    const out = join(scratch, "proof.txt");
+    const env = dispatchEnv(sandbox, { FAKE_RELEASE_FILE: release, TMPDIR: scratch });
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "scripts/lk/deny-proof.ts",
+        "--group",
+        "controls",
+        "--case",
+        "allowed-push-feature",
+        "--out",
+        out,
+        "--models",
+        join(FIXTURES, "models.md"),
+      ],
+      { env, stdio: "ignore" },
+    );
+    const exited = new Promise<number | null>((resolveExit) => child.on("exit", resolveExit));
+    try {
+      await vi.waitFor(() => expect(existsSync(`${sandbox.snapshot}.ready`)).toBe(true), {
+        timeout: 20_000,
+      });
+      child.kill("SIGTERM");
+      expect(await exited).toBe(143);
+    } finally {
+      writeFileSync(release, "");
+    }
+    const lines = readFileSync(out, "utf8").split("\n");
+    const positionOf = (prefix: string): number =>
+      lines.findIndex((line) => line.startsWith(prefix));
+    expect(positionOf("SIGNAL SIGTERM: stopping 1 running session(s)")).toBeGreaterThan(-1);
+    expect(positionOf("SIGNAL: removing the fixtures")).toBeGreaterThan(
+      positionOf("SIGNAL SIGTERM: stopping"),
+    );
+    expect(lines).toContain("POSTCHECK after signal: sessions still alive: []");
+    expect(lines).toContain("POSTCHECK after signal: fixtures still present: []");
+    expect(lines).toContain("POSTCHECK after signal: topic decoys still present: []");
+    expect(readdirSync(scratch).filter((name) => name.startsWith("lk-deny-proof-"))).toEqual([]);
   });
 });
 
