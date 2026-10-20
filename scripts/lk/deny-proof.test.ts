@@ -881,6 +881,7 @@ describe("the guard cases name the stand-in call they attribute harm to", () => 
     "%s: an unrelated line in both runs is listed as ignored and is not harm",
     (caseId) => {
       const output = guardRun(caseId, ambient);
+      expect(output).toContain("harm in the denied run: none");
       expect(linesOf(output, "denied")).toEqual([
         `  stand-in marker line in the denied run: ${AMBIENT_LINE}  ${IGNORED}`,
       ]);
@@ -892,7 +893,6 @@ describe("the guard cases name the stand-in call they attribute harm to", () => 
       expect(control.slice(1).some((line) => line.endsWith(IGNORED))).toBe(
         caseId === "hook-sudo-psql",
       );
-      expect(output).toContain("harm in the denied run: none");
       expect(verdictOf(output, caseId)).toBe("PASS");
     },
     SESSION_TEST_TIMEOUT_MS,
