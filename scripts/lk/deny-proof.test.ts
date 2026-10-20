@@ -1031,6 +1031,8 @@ describe("the guard table", () => {
     [GUARD_COMMANDS.dropColumnToPsql, 2],
     [GUARD_COMMANDS.deleteFromToPsql, 2],
     [GUARD_COMMANDS.psqlWithoutStatement, 0],
+    [GUARD_COMMANDS.statementGluedToLetter, 0],
+    [GUARD_COMMANDS.statementWordContinues, 0],
   ];
 
   it("holds the owner's eleven commands and the element rows with the exit each must get", () => {
@@ -1134,6 +1136,8 @@ describe.skipIf(!existsSync(REAL_GUARD))("the real database guard script", () =>
     expect(result.mismatched).toEqual([
       GUARD_COMMANDS.npmDbReset,
       GUARD_COMMANDS.psqlWithoutStatement,
+      GUARD_COMMANDS.statementGluedToLetter,
+      GUARD_COMMANDS.statementWordContinues,
     ]);
   });
 
@@ -1272,6 +1276,18 @@ describe.skipIf(!existsSync(REAL_GUARD))("the real database guard script", () =>
       ],
     },
     {
+      element: "the leading word boundary of the destructive pattern",
+      pattern: /grep -qiE "\\b\(DROP/,
+      replacement: 'grep -qiE "(DROP',
+      mismatched: [GUARD_COMMANDS.statementGluedToLetter],
+    },
+    {
+      element: "the trailing word boundary of the destructive pattern",
+      pattern: /\[a-zA-Z_\]\)\\b"/,
+      replacement: '[a-zA-Z_])"',
+      mismatched: [GUARD_COMMANDS.statementWordContinues],
+    },
+    {
       element: "destructive alternative DROP COLUMN",
       pattern: /\|DROP\[\[:space:\]\]\+COLUMN/,
       replacement: "",
@@ -1302,36 +1318,16 @@ describe.skipIf(!existsSync(REAL_GUARD))("the real database guard script", () =>
     },
   );
 
-  // Elements that were removed and changed no answer of any row. The proofs run and apply, and the
-  // empty list is the observation: no row holds an input that tells the element's presence from its
-  // absence. LC_ALL=C: on the grep this was measured on (macOS), no input separated C from
-  // en_US.UTF-8, including a Kelvin sign, a long s and accented letters either side of a name. The
-  // two word boundaries of the destructive pattern would be told apart by a statement glued to a
-  // letter or by `DELETE FROM users`, a row that would pin the one-letter table defect.
-  const UNTOLD_ELEMENT_PROOFS: { element: string; pattern: RegExp; replacement: string }[] = [
-    { element: "LC_ALL=C on the marker grep", pattern: /LC_ALL=C grep/, replacement: "grep" },
-    {
-      element: "the leading word boundary of the destructive pattern",
-      pattern: /grep -qiE "\\b\(DROP/,
-      replacement: 'grep -qiE "(DROP',
-    },
-    {
-      element: "the trailing word boundary of the destructive pattern",
-      pattern: /\[a-zA-Z_\]\)\\b"/,
-      replacement: '[a-zA-Z_])"',
-    },
-  ];
-
-  it.each(UNTOLD_ELEMENT_PROOFS)(
-    "is not caught when $element is removed, because no row can tell",
-    ({ element, pattern, replacement }) => {
-      const result = proveMutation(element, pattern, replacement);
-      expect(result.applied).toBe(true);
-      expect(result.compiles).toBe(true);
-      expect(result.mismatchedAfterRestore).toEqual([]);
-      expect(result.mismatched).toEqual([]);
-    },
-  );
+  // LC_ALL=C changes no answer of any row. The proof runs and applies, and the empty list is the
+  // observation: on the grep this was measured on (macOS), no input separated C from en_US.UTF-8,
+  // including a Kelvin sign, a long s and accented letters either side of a name.
+  it("is not caught when LC_ALL=C on the marker grep is removed, because no input can tell", () => {
+    const result = proveMutation("LC_ALL=C on the marker grep", /LC_ALL=C grep/, "grep");
+    expect(result.applied).toBe(true);
+    expect(result.compiles).toBe(true);
+    expect(result.mismatchedAfterRestore).toEqual([]);
+    expect(result.mismatched).toEqual([]);
+  });
 });
 
 const REAL_SETTINGS = join(REAL_DOCS, ".claude/settings.json");

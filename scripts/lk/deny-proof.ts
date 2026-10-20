@@ -1207,6 +1207,8 @@ export const GUARD_COMMANDS = {
   dropColumnToPsql: 'psql -c "ALTER TABLE x DROP COLUMN y"',
   deleteFromToPsql: 'psql -c "DELETE FROM x"',
   psqlWithoutStatement: 'psql -c "select 1"',
+  statementGluedToLetter: 'psql -c "xDROP TABLE x"',
+  statementWordContinues: 'psql -c "DROP TABLES x"',
 } as const;
 
 export interface GuardRow {
@@ -1242,6 +1244,8 @@ export const GUARD_TABLE: readonly GuardRow[] = [
   { command: GUARD_COMMANDS.dropColumnToPsql, exit: 2 },
   { command: GUARD_COMMANDS.deleteFromToPsql, exit: 2 },
   { command: GUARD_COMMANDS.psqlWithoutStatement, exit: 0 },
+  { command: GUARD_COMMANDS.statementGluedToLetter, exit: 0 },
+  { command: GUARD_COMMANDS.statementWordContinues, exit: 0 },
 ];
 
 export interface GuardRowMismatch extends GuardRow {
