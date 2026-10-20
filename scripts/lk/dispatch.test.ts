@@ -311,8 +311,8 @@ describe("the arguments a session receives", () => {
     expect(DENY_PATTERNS).toContain(pattern);
   });
 
-  it("are each named once, none with a comma, and 202 in all", () => {
-    expect(DENY_PATTERNS).toHaveLength(202);
+  it("are each named once, none with a comma, and 224 in all", () => {
+    expect(DENY_PATTERNS).toHaveLength(224);
     expect(new Set(DENY_PATTERNS).size).toBe(DENY_PATTERNS.length);
     for (const pattern of DENY_PATTERNS) {
       expect(pattern).toMatch(/^(Bash|Read|Edit|Write)\(.+\)$/);
@@ -335,24 +335,25 @@ describe("the arguments a session receives", () => {
   });
 });
 
-// Stands in for the permission matcher's reading of a Bash pattern: `*` is the only wildcard, a
-// trailing ` *` also matches the bare command, every other character is literal, and a pattern
-// ending in `:*` is the old prefix syntax, which matches the prefix alone or followed by a space
-// and so never `npm run db:reset`. A match here predicts the matcher; only a real session proves it
-// (scripts/lk/deny-proof.ts).
+// Stands in for the permission matcher's reading of a Bash pattern: `*` is the only wildcard, every
+// other character is literal, a trailing ` *` matches the bare command only when it is the pattern's
+// one wildcard, and a pattern ending in `:*` is the old prefix syntax, which matches the prefix alone
+// or followed by a space and so never `npm run db:reset`. A match here predicts the matcher; only a
+// real session proves it (scripts/lk/deny-proof.ts).
 const patternMatches = (pattern: string, command: string): boolean => {
   const body = pattern.replace(/^Bash\((.*)\)$/, "$1");
   if (body.endsWith(":*")) {
     const prefix = body.slice(0, -2);
     return command === prefix || command.startsWith(`${prefix} `);
   }
-  const endsWithOptionalArguments = body.endsWith(" *");
-  const core = endsWithOptionalArguments ? body.slice(0, -2) : body;
+  const core = body.endsWith(" *") ? body.slice(0, -2) : body;
+  const bareEndingMatches = body.endsWith(" *") && !core.includes("*");
   const source = core
     .split("*")
     .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
     .join(".*");
-  return new RegExp(`^${source}${endsWithOptionalArguments ? "( .*)?" : ""}$`).test(command);
+  const arguments_ = body.endsWith(" *") ? (bareEndingMatches ? "( .*)?" : " .*") : "";
+  return new RegExp(`^${source}${arguments_}$`).test(command);
 };
 
 const patternsDenying = (command: string): string[] =>
@@ -417,6 +418,12 @@ describe("the pattern emulation", () => {
     expect(patternMatches("Bash(git restore . *)", "git restore .")).toBe(true);
     expect(patternMatches("Bash(git restore . *)", "git restore . x")).toBe(true);
     expect(patternMatches("Bash(git restore . *)", "git restore .gitignore")).toBe(false);
+  });
+
+  it("does not let a trailing space and star match the bare command once an earlier star exists", () => {
+    expect(patternMatches("Bash(git -C * restore . *)", "git -C /tmp/x restore .")).toBe(false);
+    expect(patternMatches("Bash(git -C * restore . *)", "git -C /tmp/x restore . x")).toBe(true);
+    expect(patternMatches("Bash(git -C * restore .)", "git -C /tmp/x restore .")).toBe(true);
   });
 });
 
@@ -1985,6 +1992,7 @@ describe("the deny-proof harness without a model", () => {
     expect(positionOf("SIGNAL: removing the fixtures")).toBeGreaterThan(
       positionOf("SIGNAL SIGTERM: stopping"),
     );
+    expect(lines).toContain("SIGNAL: 1 session(s) told to stop, 1 fixture(s) still in place");
     expect(lines).toContain("POSTCHECK after signal: sessions still alive: []");
     expect(lines).toContain("POSTCHECK after signal: fixtures still present: []");
     expect(lines).toContain("POSTCHECK after signal: topic decoys still present: []");

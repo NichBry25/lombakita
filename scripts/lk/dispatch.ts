@@ -62,6 +62,15 @@ const rtkGitForms = (rest: string): string[] => [
   `Bash(rtk git -C * ${rest})`,
 ];
 
+// A trailing ` *` matches the bare command only when it is the pattern's one wildcard. Every form
+// with an earlier `*` (the -C directory, a flag value) also names the ending with nothing after it.
+const gitFormsEndingIn = (rest: string): string[] => [
+  `Bash(git ${rest})`,
+  `Bash(git ${rest} *)`,
+  `Bash(git -C * ${rest})`,
+  `Bash(git -C * ${rest} *)`,
+];
+
 const RM_LEADING_LETTERS = ["f", "v", "i"];
 const RM_RECURSIVE_LETTERS = ["r", "R"];
 
@@ -140,20 +149,20 @@ export const DENY_PATTERNS: readonly string[] = [
   ...rtkGitForms("branch * -D*"),
   // Throwing away every uncommitted change in the tree. A path argument that only starts with a
   // dot, such as .gitignore or .github/x, is not the whole tree and stays allowed.
-  ...plainGitForms("checkout . *"),
-  ...plainGitForms("checkout -- . *"),
-  ...plainGitForms("checkout * -- . *"),
+  ...gitFormsEndingIn("checkout ."),
+  ...gitFormsEndingIn("checkout -- ."),
+  ...gitFormsEndingIn("checkout * -- ."),
   ...plainGitForms("checkout -f*"),
   ...plainGitForms("checkout * -f*"),
   ...plainGitForms("checkout --force*"),
-  ...plainGitForms("restore . *"),
-  ...plainGitForms("restore -- . *"),
-  ...plainGitForms("restore --worktree . *"),
-  ...plainGitForms("restore -W . *"),
-  ...plainGitForms("restore * --worktree . *"),
-  ...plainGitForms("restore * -W . *"),
-  ...plainGitForms("restore --source* . *"),
-  ...plainGitForms("restore -s * . *"),
+  ...gitFormsEndingIn("restore ."),
+  ...gitFormsEndingIn("restore -- ."),
+  ...gitFormsEndingIn("restore --worktree ."),
+  ...gitFormsEndingIn("restore -W ."),
+  ...gitFormsEndingIn("restore * --worktree ."),
+  ...gitFormsEndingIn("restore * -W ."),
+  ...gitFormsEndingIn("restore --source* ."),
+  ...gitFormsEndingIn("restore -s * ."),
   // The ntfy topic is a secret; the pattern covers ~, $HOME and absolute spellings of the path.
   "Read(~/.config/lombakita/**)",
   "Edit(~/.config/lombakita/**)",
