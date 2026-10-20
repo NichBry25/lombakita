@@ -1,9 +1,9 @@
 /*
- * Rule 36 probes for the gates Step 7.7-PRE added or repaired that need no browser.
+ * Rule 36 probes for the CI, audit-baseline and email-delivery gates that need no browser.
  *
  * Each one breaks the guard's premise in the file where it lives, then runs the detector and
  * requires it to go RED. A guard whose test still passes when the guard is gone is a guard nobody
- * has observed working; six of the twelve defects this step exists to fix were exactly that.
+ * has observed working.
  *
  * Usage: node scripts/testing/probes/config-gates.mjs
  * Runs only over committed work — the harness refuses if any listed file differs from HEAD.
