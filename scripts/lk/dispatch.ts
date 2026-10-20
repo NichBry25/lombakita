@@ -47,36 +47,39 @@ import {
   type ModelClass,
 } from "./models";
 
-// Matching is on the command text, so each git rule has a `git -C <dir>` twin. A branch whose name
-// contains "main" is blocked by the push rule on purpose: the text is not parsed. The permission
-// matcher knows `*` and nothing else: no character class, no `?`, and a pattern that ends in `:*`
-// is read as the old prefix syntax, which matches `npm run db` but never `npm run db:reset`. So the
-// db rules end in `db*` and the refspec rule spells the colon as `:**`.
-const plainGitForms = (rest: string): string[] => [`Bash(git ${rest})`, `Bash(git -C * ${rest})`];
+// Matching is on the command text. A git global option (-C, -c, --no-pager, --git-dir=) sits
+// between `git` and the subcommand, so each git rule has a twin with a wildcard there. The
+// wildcard also matches a commit message that holds the rule's words, and that over-block is
+// accepted. A branch whose name contains "main" is blocked by the push rule on purpose: the text is
+// not parsed. The permission matcher knows `*` and nothing else: no character class, no `?`, and a
+// pattern that ends in `:*` is read as the old prefix syntax, which matches `npm run db` but never
+// `npm run db:reset`. So the db rules end in `db*` and the refspec rule spells the colon as `:**`.
+const plainGitForms = (rest: string): string[] => [`Bash(git ${rest})`, `Bash(git * ${rest})`];
 
-// The rtk PreToolUse hook rewrites these git commands before the deny rules are checked, so the
-// session sees `rtk git ...` and the plain patterns never match the rewritten text.
+// The rtk PreToolUse hook rewrites push and branch commands before the deny rules are checked, so
+// the session sees `rtk git ...` and the plain patterns never match the rewritten text.
 const rtkGitForms = (rest: string): string[] => [
   ...plainGitForms(rest),
   `Bash(rtk git ${rest})`,
-  `Bash(rtk git -C * ${rest})`,
+  `Bash(rtk git * ${rest})`,
 ];
 
 // A trailing ` *` matches the bare command only when it is the pattern's one wildcard. Every form
-// with an earlier `*` (the -C directory, a flag value) also names the ending with nothing after it.
-const gitFormsEndingIn = (rest: string): string[] => [
+// with an earlier `*` (the global option, a flag value) also names the ending with nothing after it.
+export const gitFormsEndingIn = (rest: string): string[] => [
   `Bash(git ${rest})`,
   `Bash(git ${rest} *)`,
-  `Bash(git -C * ${rest})`,
-  `Bash(git -C * ${rest} *)`,
+  `Bash(git * ${rest})`,
+  `Bash(git * ${rest} *)`,
 ];
 
-const RM_LEADING_LETTERS = ["f", "v", "i"];
+const RM_LEADING_LETTERS = ["d", "f", "i", "I", "P", "v", "W", "x"];
 const RM_RECURSIVE_LETTERS = ["r", "R"];
 
-// A cluster of up to three letters over f, v, i, r and R that holds an r or R starts with zero,
-// one or two of f, v, i and then its first r or R; the `rm -r*` and `rm -R*` entries below take
-// the clusters that start with r or R. The same clusters are matched as a later argument.
+// A cluster of up to three of the macOS rm flag letters (d f i I P R r v W x) that holds an r or R
+// starts with zero, one or two non-recursive letters and then its first r or R; the `rm -r*` and
+// `rm -R*` entries take the clusters that start with r or R. The same clusters are matched as a
+// later argument. A cluster with three or more letters before its first r or R is not named.
 export const rmClusterPatterns = (): string[] => {
   const pairs = RM_LEADING_LETTERS.flatMap((first) =>
     RM_LEADING_LETTERS.map((second) => `${first}${second}`),
@@ -88,35 +91,81 @@ export const rmClusterPatterns = (): string[] => {
   return clusters.flatMap((cluster) => [`Bash(rm -${cluster}*)`, `Bash(rm * -${cluster}*)`]);
 };
 
+const PUSH_NON_FORCE_LETTERS = ["u", "v", "n", "q"];
+const PUSH_FORCE_OR_DELETE_LETTERS = ["f", "d"];
+
+// A cluster of push short flags (u v n q f d) that holds an f or d but does not start with one
+// starts with one or two of u v n q and then its first f or d; `push -f*` and `push -d*` take the
+// clusters that start with f or d. The same clusters are matched as a later argument, in the plain,
+// global option and rtk forms. A cluster with three or more letters before its first f or d is not
+// named.
+export const pushClusterPatterns = (): string[] => {
+  const pairs = PUSH_NON_FORCE_LETTERS.flatMap((first) =>
+    PUSH_NON_FORCE_LETTERS.map((second) => `${first}${second}`),
+  );
+  const leads = [...PUSH_NON_FORCE_LETTERS, ...pairs];
+  const clusters = leads.flatMap((lead) =>
+    PUSH_FORCE_OR_DELETE_LETTERS.map((letter) => `${lead}${letter}`),
+  );
+  return clusters.flatMap((cluster) => [
+    ...rtkGitForms(`push -${cluster}*`),
+    ...rtkGitForms(`push * -${cluster}*`),
+  ]);
+};
+
+// The git restore flags that leave the whole-tree discard in force when they stand just before the
+// dot. `--staged` is left out on purpose: `git restore --staged .` only unstages.
+const RESTORE_FLAGS_BEFORE_DOT = [
+  "-q",
+  "--quiet",
+  "-m",
+  "--merge",
+  "--ours",
+  "--theirs",
+  "--ignore-unmerged",
+  "--progress",
+  "--no-progress",
+  "--overlay",
+  "--no-overlay",
+  "--recurse-submodules",
+  "--no-recurse-submodules",
+];
+const WHOLE_TREE_SPELLINGS = [".", "./"];
+
+// Every restore ending that discards the whole tree: the bare dot, a restore flag or a revision
+// before it, `--worktree` or a W in a flag cluster anywhere before it, and the `--source` forms.
+export const restoreDiscardPatterns = (): string[] =>
+  WHOLE_TREE_SPELLINGS.flatMap((dot) => [
+    ...gitFormsEndingIn(`restore ${dot}`),
+    ...gitFormsEndingIn(`restore -- ${dot}`),
+    ...gitFormsEndingIn(`restore *--worktree* ${dot}`),
+    ...gitFormsEndingIn(`restore *W* ${dot}`),
+    ...gitFormsEndingIn(`restore --source* ${dot}`),
+    ...gitFormsEndingIn(`restore -s * ${dot}`),
+    ...RESTORE_FLAGS_BEFORE_DOT.flatMap((flag) => gitFormsEndingIn(`restore *${flag} ${dot}`)),
+  ]);
+
 export const DENY_PATTERNS: readonly string[] = [
-  "Bash(git push --force*)",
-  "Bash(git push -f*)",
-  "Bash(git -C * push --force*)",
-  "Bash(git -C * push -f*)",
-  "Bash(git reset --hard*)",
-  "Bash(git -C * reset --hard*)",
-  "Bash(git clean*)",
-  "Bash(git -C * clean*)",
+  ...plainGitForms("reset --hard*"),
+  ...plainGitForms("reset * --hard*"),
+  ...plainGitForms("clean*"),
   "Bash(rm -r*)",
   "Bash(sudo *)",
   "Bash(gh *)",
   "Bash(vercel *)",
   "Bash(railway *)",
   "Bash(npm run db:*)",
-  // A force flag or a `+` refspec anywhere after the remote.
-  "Bash(git push * --force*)",
-  "Bash(git push * -f*)",
-  "Bash(git push * +*)",
-  "Bash(git -C * push * --force*)",
-  "Bash(git -C * push * -f*)",
-  "Bash(git -C * push * +*)",
+  // A force flag, a `+` refspec or a flag cluster that holds f or d anywhere after the remote.
+  ...rtkGitForms("push --force*"),
+  ...rtkGitForms("push -f*"),
+  ...rtkGitForms("push * --force*"),
+  ...rtkGitForms("push * -f*"),
+  ...rtkGitForms("push * +*"),
+  ...pushClusterPatterns(),
   // A push to main, and the pushes that name no branch and so go wherever HEAD points.
-  "Bash(git push *main*)",
-  "Bash(git push)",
-  "Bash(git push origin)",
-  "Bash(git -C * push *main*)",
-  "Bash(git -C * push)",
-  "Bash(git -C * push origin)",
+  ...rtkGitForms("push *main*"),
+  ...rtkGitForms("push"),
+  ...rtkGitForms("push origin"),
   // HEAD as an argument, the flags that push or delete refs in bulk, a refspec with a colon (which
   // deletes when its source is empty) and the upstream flag with no branch after it.
   ...rtkGitForms("push *HEAD*"),
@@ -139,8 +188,7 @@ export const DENY_PATTERNS: readonly string[] = [
   ...rmClusterPatterns(),
   "Bash(/*/rm *)",
   // Deleting or resetting a branch outright, in either flag order.
-  "Bash(git branch -D*)",
-  "Bash(git -C * branch -D*)",
+  ...rtkGitForms("branch -D*"),
   ...rtkGitForms("branch -f*"),
   ...rtkGitForms("branch * -f*"),
   ...rtkGitForms("branch --force*"),
@@ -149,20 +197,14 @@ export const DENY_PATTERNS: readonly string[] = [
   ...rtkGitForms("branch * -D*"),
   // Throwing away every uncommitted change in the tree. A path argument that only starts with a
   // dot, such as .gitignore or .github/x, is not the whole tree and stays allowed.
-  ...gitFormsEndingIn("checkout ."),
-  ...gitFormsEndingIn("checkout -- ."),
-  ...gitFormsEndingIn("checkout * -- ."),
+  ...WHOLE_TREE_SPELLINGS.flatMap((dot) => [
+    ...gitFormsEndingIn(`checkout ${dot}`),
+    ...gitFormsEndingIn(`checkout * ${dot}`),
+  ]),
   ...plainGitForms("checkout -f*"),
   ...plainGitForms("checkout * -f*"),
   ...plainGitForms("checkout --force*"),
-  ...gitFormsEndingIn("restore ."),
-  ...gitFormsEndingIn("restore -- ."),
-  ...gitFormsEndingIn("restore --worktree ."),
-  ...gitFormsEndingIn("restore -W ."),
-  ...gitFormsEndingIn("restore * --worktree ."),
-  ...gitFormsEndingIn("restore * -W ."),
-  ...gitFormsEndingIn("restore --source* ."),
-  ...gitFormsEndingIn("restore -s * ."),
+  ...restoreDiscardPatterns(),
   // The ntfy topic is a secret; the pattern covers ~, $HOME and absolute spellings of the path.
   "Read(~/.config/lombakita/**)",
   "Edit(~/.config/lombakita/**)",
@@ -177,24 +219,6 @@ export const DENY_PATTERNS: readonly string[] = [
   "Bash(rtk gh *)",
   "Bash(npm run db*)",
   "Bash(rtk npm run db*)",
-  "Bash(rtk git push --force*)",
-  "Bash(rtk git push -f*)",
-  "Bash(rtk git -C * push --force*)",
-  "Bash(rtk git -C * push -f*)",
-  "Bash(rtk git push * --force*)",
-  "Bash(rtk git push * -f*)",
-  "Bash(rtk git push * +*)",
-  "Bash(rtk git -C * push * --force*)",
-  "Bash(rtk git -C * push * -f*)",
-  "Bash(rtk git -C * push * +*)",
-  "Bash(rtk git push *main*)",
-  "Bash(rtk git push)",
-  "Bash(rtk git push origin)",
-  "Bash(rtk git -C * push *main*)",
-  "Bash(rtk git -C * push)",
-  "Bash(rtk git -C * push origin)",
-  "Bash(rtk git branch -D*)",
-  "Bash(rtk git -C * branch -D*)",
   "Bash(rtk read *.config/lombakita/*)",
   "Bash(rtk grep *.config/lombakita/*)",
 ];
@@ -595,22 +619,17 @@ const sessionEndOf = (code: number | null, signal: NodeJS.Signals | null): Sessi
   return { exitCode: SIGNAL_EXIT_BASE + osConstants.signals[signal], signal };
 };
 
-// The handlers go in before the session is started: a signal that arrives once it exists must
-// reach it, and one that arrives earlier must not run the default action, which ends the
-// dispatcher and leaves the session behind a lock that looks free. A signal that arrived earlier
-// is delivered to the session as soon as it exists.
+// The handlers go in before the session is started, in the same synchronous run as the spawn, so a
+// signal that arrives once the session exists reaches it and none can run the default action,
+// which ends the dispatcher and leaves the session behind a lock that looks free.
 export const spawnSessionWithClaude: SpawnSession = (args, { cwd, env, logPath, onSpawn }) =>
   new Promise((resolveEnd, rejectEnd) => {
     const log = openSync(logPath, "a");
     let child: ChildProcess | undefined;
-    let signalBeforeSession: NodeJS.Signals | undefined;
     let settled = false;
     const forwarders = FORWARDED_SIGNALS.map((signal) => ({
       signal,
-      forward: () => {
-        if (child === undefined) signalBeforeSession = signal;
-        else child.kill(signal);
-      },
+      forward: () => child?.kill(signal),
     }));
     for (const { signal, forward } of forwarders) process.on(signal, forward);
     const release = (): void => {
@@ -642,7 +661,6 @@ export const spawnSessionWithClaude: SpawnSession = (args, { cwd, env, logPath, 
       else fail(startupError.cause);
     });
     if (child.pid === undefined) return;
-    if (signalBeforeSession !== undefined) child.kill(signalBeforeSession);
     try {
       onSpawn(child.pid);
     } catch (error) {

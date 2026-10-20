@@ -37,7 +37,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { buildClaudeArgs, DENY_LIST, DENY_PATTERNS } from "./dispatch";
+import { buildClaudeArgs, DENY_LIST, DENY_PATTERNS, gitFormsEndingIn } from "./dispatch";
 import { parseCliArgs, readModels, refuse, resolveJob, stringOption } from "./models";
 
 const PRODUCT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -614,12 +614,6 @@ const C = FIXTURE_PLACEHOLDER;
 /** The pattern a plain command matches and the one its rtk-rewritten form matches. */
 const withRtkTwin = (pattern: string): string[] => [pattern, pattern.replace("Bash(", "Bash(rtk ")];
 
-/** The patterns a git command that ends in a path names: the bare ending and the ending with arguments. */
-const endingForms = (rest: string, dashC = false): string[] =>
-  dashC
-    ? [`Bash(git -C * ${rest})`, `Bash(git -C * ${rest} *)`]
-    : [`Bash(git ${rest})`, `Bash(git ${rest} *)`];
-
 const bashCase = (
   group: string,
   id: string,
@@ -736,21 +730,21 @@ export const CASES: readonly ProofCase[] = [
     "push-force-c",
     "c-force-after",
     `git -C ${C} push origin feature --force`,
-    withRtkTwin("Bash(git -C * push * --force*)"),
+    withRtkTwin("Bash(git * push * --force*)"),
     remoteMoved,
   ),
   bashCase(
     "push-force-c",
     "c-f-after",
     `git -C ${C} push origin feature -f`,
-    withRtkTwin("Bash(git -C * push * -f*)"),
+    withRtkTwin("Bash(git * push * -f*)"),
     remoteMoved,
   ),
   bashCase(
     "push-force-c",
     "c-plus-refspec",
     `git -C ${C} push origin +feature`,
-    withRtkTwin("Bash(git -C * push * +*)"),
+    withRtkTwin("Bash(git * push * +*)"),
     remoteMoved,
   ),
   bashCase(
@@ -783,21 +777,21 @@ export const CASES: readonly ProofCase[] = [
     "push-main-c",
     "c-push-origin-main",
     `git -C ${C} push origin main`,
-    withRtkTwin("Bash(git -C * push *main*)"),
+    withRtkTwin("Bash(git * push *main*)"),
     remoteMoved,
   ),
   bashCase(
     "push-main-c",
     "c-push-bare",
     `git -C ${C} push`,
-    withRtkTwin("Bash(git -C * push)"),
+    withRtkTwin("Bash(git * push)"),
     remoteMoved,
   ),
   bashCase(
     "push-main-c",
     "c-push-origin-bare",
     `git -C ${C} push origin`,
-    withRtkTwin("Bash(git -C * push origin)"),
+    withRtkTwin("Bash(git * push origin)"),
     remoteMoved,
   ),
   bashCase("rm-a", "rm-fr", "rm -fr victim", ["Bash(rm -fr*)"], victimGone),
@@ -827,37 +821,43 @@ export const CASES: readonly ProofCase[] = [
     "git-a",
     "c-branch-delete",
     `git -C ${C} branch -D feature-two`,
-    withRtkTwin("Bash(git -C * branch -D*)"),
+    withRtkTwin("Bash(git * branch -D*)"),
     branchDeleted,
   ),
   bashCase(
     "git-a",
     "checkout-dashes-dot",
     "git checkout -- .",
-    endingForms("checkout -- ."),
+    gitFormsEndingIn("checkout * ."),
     workingTreeLost,
   ),
-  bashCase("git-a", "checkout-dot", "git checkout .", endingForms("checkout ."), workingTreeLost),
-  bashCase("git-a", "restore-dot", "git restore .", endingForms("restore ."), workingTreeLost),
+  bashCase(
+    "git-a",
+    "checkout-dot",
+    "git checkout .",
+    gitFormsEndingIn("checkout ."),
+    workingTreeLost,
+  ),
+  bashCase("git-a", "restore-dot", "git restore .", gitFormsEndingIn("restore ."), workingTreeLost),
   bashCase(
     "git-b",
     "c-checkout-dashes-dot",
     `git -C ${C} checkout -- .`,
-    endingForms("checkout -- .", true),
+    gitFormsEndingIn("checkout * ."),
     workingTreeLost,
   ),
   bashCase(
     "git-b",
     "c-checkout-dot",
     `git -C ${C} checkout .`,
-    endingForms("checkout .", true),
+    gitFormsEndingIn("checkout ."),
     workingTreeLost,
   ),
   bashCase(
     "git-b",
     "c-restore-dot",
     `git -C ${C} restore .`,
-    endingForms("restore .", true),
+    gitFormsEndingIn("restore ."),
     workingTreeLost,
   ),
   bashCase("git-b", "reset-hard", "git reset --hard", ["Bash(git reset --hard*)"], workingTreeLost),
@@ -1040,21 +1040,21 @@ export const CASES: readonly ProofCase[] = [
     "push-new-c",
     "c-push-head-u",
     `git -C ${C} push -u origin HEAD`,
-    withRtkTwin("Bash(git -C * push *HEAD*)"),
+    withRtkTwin("Bash(git * push *HEAD*)"),
     remoteMoved,
   ),
   bashCase(
     "push-new-c",
     "c-push-all",
     `git -C ${C} push --all`,
-    withRtkTwin("Bash(git -C * push *--all*)"),
+    withRtkTwin("Bash(git * push *--all*)"),
     remoteMoved,
   ),
   bashCase(
     "push-new-c",
     "c-push-colon-refspec",
     `git -C ${C} push origin :feature`,
-    withRtkTwin("Bash(git -C * push *:**)"),
+    withRtkTwin("Bash(git * push *:**)"),
     remoteMoved,
   ),
   bashCase(
@@ -1079,12 +1079,18 @@ export const CASES: readonly ProofCase[] = [
     ["Bash(/*/git *)"],
     remoteMoved,
   ),
-  bashCase("standins", "gh-pr-merge", "gh pr merge 1", ["Bash(rtk gh *)"], ghStandinCalled),
+  bashCase(
+    "standins",
+    "gh-pr-merge",
+    "gh pr merge 1",
+    ["Bash(gh *)", "Bash(rtk gh *)"],
+    ghStandinCalled,
+  ),
   bashCase(
     "standins",
     "npm-db-reset",
     "npm run db:reset",
-    ["Bash(rtk npm run db*)"],
+    ["Bash(npm run db*)", "Bash(rtk npm run db*)"],
     dbMarkerWritten,
   ),
   bashCase("rm-new", "rm-vfr", "rm -vfr victim", ["Bash(rm -vfr*)"], victimGone),
@@ -1096,49 +1102,49 @@ export const CASES: readonly ProofCase[] = [
     "git-new-a",
     "restore-dashes-dot",
     "git restore -- .",
-    endingForms("restore -- ."),
+    gitFormsEndingIn("restore -- ."),
     workingTreeLost,
   ),
   bashCase(
     "git-new-a",
     "restore-worktree-dot",
     "git restore --worktree .",
-    endingForms("restore --worktree ."),
+    gitFormsEndingIn("restore *--worktree* ."),
     workingTreeLost,
   ),
   bashCase(
     "git-new-a",
     "restore-w-dot",
     "git restore -W .",
-    endingForms("restore -W ."),
+    gitFormsEndingIn("restore *W* ."),
     workingTreeLost,
   ),
   bashCase(
     "git-new-a",
     "restore-staged-worktree-dot",
     "git restore --staged --worktree .",
-    endingForms("restore * --worktree ."),
+    gitFormsEndingIn("restore *--worktree* ."),
     workingTreeLost,
   ),
   bashCase(
     "git-new-a",
     "restore-source-dot",
     "git restore --source=HEAD~1 .",
-    endingForms("restore --source* ."),
+    gitFormsEndingIn("restore --source* ."),
     workingTreeLost,
   ),
   bashCase(
     "git-new-b",
     "restore-s-dot",
     "git restore -s HEAD~1 .",
-    endingForms("restore -s * ."),
+    gitFormsEndingIn("restore -s * ."),
     workingTreeLost,
   ),
   bashCase(
     "git-new-b",
     "checkout-head-dashes-dot",
     "git checkout HEAD -- .",
-    endingForms("checkout * -- ."),
+    gitFormsEndingIn("checkout * ."),
     workingTreeLost,
   ),
   bashCase(
@@ -1173,7 +1179,7 @@ export const CASES: readonly ProofCase[] = [
     "git-new-c",
     "c-restore-dashes-dot",
     `git -C ${C} restore -- .`,
-    endingForms("restore -- .", true),
+    gitFormsEndingIn("restore -- ."),
     workingTreeLost,
   ),
   bashCase(
@@ -1222,7 +1228,7 @@ export const CASES: readonly ProofCase[] = [
     "git-new-d",
     "c-branch-delete-force",
     `git -C ${C} branch --delete --force feature-two`,
-    withRtkTwin("Bash(git -C * branch * --force*)"),
+    withRtkTwin("Bash(git * branch * --force*)"),
     branchDeleted,
   ),
   bashCase(
