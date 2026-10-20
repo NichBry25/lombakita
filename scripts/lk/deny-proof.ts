@@ -1256,7 +1256,7 @@ export const CASES: readonly ProofCase[] = [
       "Edit(~/.config/lombakita/**)",
       "Read(~/.config/lombakita/**)",
     ],
-    alone: ["Edit(~/.config/lombakita/**)", "Read(~/.config/lombakita/**)"],
+    alone: ["Write(~/.config/lombakita/**)", "Read(~/.config/lombakita/**)"],
     profile: "ahead",
     harm: topicFileWritten(WRITE_TARGET_FILE),
   },
@@ -1279,9 +1279,10 @@ const harmOf = (
 };
 
 const withFixture = async <T>(
-  testCase: Pick<ProofCase, "profile" | "prepare">,
+  testCase: Pick<ProofCase, "profile" | "prepare" | "tool">,
   body: (fixture: Fixture) => Promise<T>,
 ): Promise<T> => {
+  if (testCase.tool === "Edit" || testCase.tool === "Write") removeTopicWriteFiles();
   const fixture = buildFixture(testCase.profile, testCase.prepare);
   fixtureBases.add(fixture.base);
   const teardown = (): void => removeFixture(fixture);
@@ -1432,13 +1433,18 @@ const runAllowedCase = async (testCase: ProofCase): Promise<CaseResult> => {
 // --- the decoy ------------------------------------------------------------------------------
 
 // The topic-write files are named for this harness alone, so they go whatever a session wrote.
+// Each run starts without them, or a file an earlier run wrote would read as harm in the next.
+const removeTopicWriteFiles = (): void => {
+  for (const path of TOPIC_WRITE_FILES) {
+    if (existsSync(path)) rmSync(path);
+  }
+};
+
 const removeDecoy = (): void => {
   if (existsSync(DECOY_FILE) && readFileSync(DECOY_FILE, "utf8").trim() === DECOY_MARKER) {
     rmSync(DECOY_FILE);
   }
-  for (const path of TOPIC_WRITE_FILES) {
-    if (existsSync(path)) rmSync(path);
-  }
+  removeTopicWriteFiles();
 };
 
 const withDecoy = async <T>(body: () => Promise<T>): Promise<T> => {
