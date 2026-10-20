@@ -48,7 +48,36 @@ import {
 } from "./models";
 
 // Matching is on the command text, so each git rule has a `git -C <dir>` twin. A branch whose name
-// contains "main" is blocked by the push rule on purpose: the text is not parsed.
+// contains "main" is blocked by the push rule on purpose: the text is not parsed. The permission
+// matcher knows `*` and nothing else: no character class, no `?`, and a pattern that ends in `:*`
+// is read as the old prefix syntax, so the refspec rule spells the colon as `:**`.
+const plainGitForms = (rest: string): string[] => [`Bash(git ${rest})`, `Bash(git -C * ${rest})`];
+
+// The rtk PreToolUse hook rewrites these git commands before the deny rules are checked, so the
+// session sees `rtk git ...` and the plain patterns never match the rewritten text.
+const rtkGitForms = (rest: string): string[] => [
+  ...plainGitForms(rest),
+  `Bash(rtk git ${rest})`,
+  `Bash(rtk git -C * ${rest})`,
+];
+
+const RM_LEADING_LETTERS = ["f", "v", "i"];
+const RM_RECURSIVE_LETTERS = ["r", "R"];
+
+// A cluster of up to three letters over f, v, i, r and R that holds an r or R starts with zero,
+// one or two of f, v, i and then its first r or R; the `rm -r*` and `rm -R*` entries below take
+// the clusters that start with r or R. The same clusters are matched as a later argument.
+export const rmClusterPatterns = (): string[] => {
+  const pairs = RM_LEADING_LETTERS.flatMap((first) =>
+    RM_LEADING_LETTERS.map((second) => `${first}${second}`),
+  );
+  const leads = [...RM_LEADING_LETTERS, ...pairs];
+  const clusters = leads.flatMap((lead) =>
+    RM_RECURSIVE_LETTERS.map((recursive) => `${lead}${recursive}`),
+  );
+  return clusters.flatMap((cluster) => [`Bash(rm -${cluster}*)`, `Bash(rm * -${cluster}*)`]);
+};
+
 export const DENY_PATTERNS: readonly string[] = [
   "Bash(git push --force*)",
   "Bash(git push -f*)",
@@ -71,41 +100,73 @@ export const DENY_PATTERNS: readonly string[] = [
   "Bash(git -C * push * --force*)",
   "Bash(git -C * push * -f*)",
   "Bash(git -C * push * +*)",
-  // A push to main, and the two pushes that name no branch and so go wherever HEAD points.
+  // A push to main, and the pushes that name no branch and so go wherever HEAD points.
   "Bash(git push *main*)",
   "Bash(git push)",
   "Bash(git push origin)",
   "Bash(git -C * push *main*)",
   "Bash(git -C * push)",
   "Bash(git -C * push origin)",
+  // HEAD as an argument, the flags that push or delete refs in bulk, a refspec with a colon (which
+  // deletes when its source is empty) and the upstream flag with no branch after it.
+  ...rtkGitForms("push *HEAD*"),
+  ...rtkGitForms("push *--all*"),
+  ...rtkGitForms("push *--mirror*"),
+  ...rtkGitForms("push *--delete*"),
+  ...rtkGitForms("push *--prune*"),
+  ...rtkGitForms("push -d*"),
+  ...rtkGitForms("push * -d*"),
+  ...rtkGitForms("push *:**"),
+  ...rtkGitForms("push -u"),
+  ...rtkGitForms("push -u origin"),
+  // Any git reached by an absolute path steps around every git rule here, so none is allowed.
+  "Bash(/*/git *)",
   // Recursive removal in every flag spelling, and rm reached by an absolute path.
   "Bash(rm -R*)",
-  "Bash(rm -fr*)",
-  "Bash(rm -fR*)",
   "Bash(rm --recursive*)",
   "Bash(rm * -r*)",
   "Bash(rm * -R*)",
   "Bash(rm * --recursive*)",
+  ...rmClusterPatterns(),
   "Bash(/*/rm *)",
-  // Deleting a branch outright and throwing away every uncommitted change in the tree.
+  // Deleting or resetting a branch outright, in either flag order.
   "Bash(git branch -D*)",
   "Bash(git -C * branch -D*)",
-  "Bash(git checkout -- .*)",
-  "Bash(git checkout .*)",
-  "Bash(git restore .*)",
-  "Bash(git -C * checkout -- .*)",
-  "Bash(git -C * checkout .*)",
-  "Bash(git -C * restore .*)",
+  ...rtkGitForms("branch -f*"),
+  ...rtkGitForms("branch * -f*"),
+  ...rtkGitForms("branch --force*"),
+  ...rtkGitForms("branch * --force*"),
+  ...rtkGitForms("branch -df*"),
+  ...rtkGitForms("branch * -D*"),
+  // Throwing away every uncommitted change in the tree. A path argument that only starts with a
+  // dot, such as .gitignore or .github/x, is not the whole tree and stays allowed.
+  ...plainGitForms("checkout . *"),
+  ...plainGitForms("checkout -- . *"),
+  ...plainGitForms("checkout * -- . *"),
+  ...plainGitForms("checkout -f*"),
+  ...plainGitForms("checkout * -f*"),
+  ...plainGitForms("checkout --force*"),
+  ...plainGitForms("restore . *"),
+  ...plainGitForms("restore -- . *"),
+  ...plainGitForms("restore --worktree . *"),
+  ...plainGitForms("restore -W . *"),
+  ...plainGitForms("restore * --worktree . *"),
+  ...plainGitForms("restore * -W . *"),
+  ...plainGitForms("restore --source* . *"),
+  ...plainGitForms("restore -s * . *"),
   // The ntfy topic is a secret; the pattern covers ~, $HOME and absolute spellings of the path.
   "Read(~/.config/lombakita/**)",
+  "Edit(~/.config/lombakita/**)",
+  "Write(~/.config/lombakita/**)",
   "Bash(cat *.config/lombakita/*)",
   "Bash(head *.config/lombakita/*)",
   "Bash(tail *.config/lombakita/*)",
   "Bash(less *.config/lombakita/*)",
   "Bash(grep *.config/lombakita/*)",
-  // The rtk PreToolUse hook rewrites these commands before the deny rules are checked, so a session
-  // sees `rtk git push ...`, `rtk read` for cat and head, and `rtk grep`; the plain patterns above
-  // never match the rewritten text.
+  // The rtk hook also rewrites these commands: `rtk gh ...`, `rtk npm run ...`, `rtk read` for cat
+  // and head, and `rtk grep`.
+  "Bash(rtk gh *)",
+  "Bash(rtk npm run db:*)",
   "Bash(rtk git push --force*)",
   "Bash(rtk git push -f*)",
   "Bash(rtk git -C * push --force*)",

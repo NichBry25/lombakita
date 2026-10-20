@@ -38,6 +38,7 @@ import {
   initWorkItem,
   isProcessAlive,
   readRunStatus,
+  rmClusterPatterns,
   runSmokeWithClaude,
   SMOKE_TIMEOUT_SECONDS,
   spawnSessionWithClaude,
@@ -207,8 +208,8 @@ describe("the arguments a session receives", () => {
     ]);
   });
 
-  it("keep every pattern the list had before it was widened", () => {
-    const original = [
+  it("name the force, reset, clean, rm, sudo, gh, vercel, railway and db patterns", () => {
+    const base = [
       "Bash(git push --force*)",
       "Bash(git push -f*)",
       "Bash(git -C * push --force*)",
@@ -224,7 +225,7 @@ describe("the arguments a session receives", () => {
       "Bash(railway *)",
       "Bash(npm run db:*)",
     ];
-    for (const pattern of original) expect(DENY_PATTERNS).toContain(pattern);
+    for (const pattern of base) expect(DENY_PATTERNS).toContain(pattern);
   });
 
   it.each([
@@ -241,8 +242,6 @@ describe("the arguments a session receives", () => {
     ["a push with no branch, with -C", "Bash(git -C * push)"],
     ["a push to the remote with no branch, with -C", "Bash(git -C * push origin)"],
     ["rm with a capital R flag", "Bash(rm -R*)"],
-    ["rm with -fr", "Bash(rm -fr*)"],
-    ["rm with -fR", "Bash(rm -fR*)"],
     ["rm with --recursive", "Bash(rm --recursive*)"],
     ["rm with -r given as a separate flag", "Bash(rm * -r*)"],
     ["rm with -R given as a separate flag", "Bash(rm * -R*)"],
@@ -250,13 +249,10 @@ describe("the arguments a session receives", () => {
     ["rm reached by an absolute path", "Bash(/*/rm *)"],
     ["git branch -D", "Bash(git branch -D*)"],
     ["git branch -D, with -C", "Bash(git -C * branch -D*)"],
-    ["git checkout -- .", "Bash(git checkout -- .*)"],
-    ["git checkout .", "Bash(git checkout .*)"],
-    ["git restore .", "Bash(git restore .*)"],
-    ["git checkout -- ., with -C", "Bash(git -C * checkout -- .*)"],
-    ["git checkout ., with -C", "Bash(git -C * checkout .*)"],
-    ["git restore ., with -C", "Bash(git -C * restore .*)"],
+    ["any git reached by an absolute path", "Bash(/*/git *)"],
     ["the Read tool on the topic folder", "Read(~/.config/lombakita/**)"],
+    ["the Edit tool on the topic folder", "Edit(~/.config/lombakita/**)"],
+    ["the Write tool on the topic folder", "Write(~/.config/lombakita/**)"],
     ["cat on the topic folder", "Bash(cat *.config/lombakita/*)"],
     ["head on the topic folder", "Bash(head *.config/lombakita/*)"],
     ["tail on the topic folder", "Bash(tail *.config/lombakita/*)"],
@@ -303,15 +299,17 @@ describe("the arguments a session receives", () => {
       "Bash(rtk read *.config/lombakita/*)",
     ],
     ["grep on the topic folder, as rtk rewrites it", "Bash(rtk grep *.config/lombakita/*)"],
+    ["gh, as rtk rewrites it", "Bash(rtk gh *)"],
+    ["a db script, as rtk rewrites it", "Bash(rtk npm run db:*)"],
   ])("name %s", (_what, pattern) => {
     expect(DENY_PATTERNS).toContain(pattern);
   });
 
-  it("hold 14 original patterns and 54 added ones, each once, none with a comma", () => {
-    expect(DENY_PATTERNS).toHaveLength(68);
+  it("are each named once, none with a comma, and 205 in all", () => {
+    expect(DENY_PATTERNS).toHaveLength(205);
     expect(new Set(DENY_PATTERNS).size).toBe(DENY_PATTERNS.length);
     for (const pattern of DENY_PATTERNS) {
-      expect(pattern).toMatch(/^(Bash|Read)\(.+\)$/);
+      expect(pattern).toMatch(/^(Bash|Read|Edit|Write)\(.+\)$/);
       expect(pattern).not.toContain(",");
     }
     expect(DENY_LIST.split(",")).toEqual([...DENY_PATTERNS]);
@@ -328,6 +326,157 @@ describe("the arguments a session receives", () => {
       "--output-format",
       "text",
     ]);
+  });
+});
+
+// Stands in for the permission matcher's reading of a Bash pattern: `*` is the only wildcard, a
+// trailing ` *` also matches the bare command, and every other character is literal. A match here
+// predicts the matcher; only a real session proves it (scripts/lk/deny-proof.ts).
+const patternMatches = (pattern: string, command: string): boolean => {
+  const body = pattern.replace(/^Bash\((.*)\)$/, "$1");
+  const endsWithOptionalArguments = body.endsWith(" *");
+  const core = endsWithOptionalArguments ? body.slice(0, -2) : body;
+  const source = core
+    .split("*")
+    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+    .join(".*");
+  return new RegExp(`^${source}${endsWithOptionalArguments ? "( .*)?" : ""}$`).test(command);
+};
+
+const patternsDenying = (command: string): string[] =>
+  DENY_PATTERNS.filter((pattern) => patternMatches(pattern, command));
+
+describe("the rm flag clusters", () => {
+  const LETTERS = ["f", "v", "i", "r", "R"];
+
+  const everyClusterWithAnR = (): string[] => {
+    const one = LETTERS;
+    const two = one.flatMap((first) => LETTERS.map((second) => `${first}${second}`));
+    const three = two.flatMap((pair) => LETTERS.map((third) => `${pair}${third}`));
+    return [...one, ...two, ...three].filter((cluster) => /[rR]/.test(cluster));
+  };
+
+  it("are generated as 24 clusters, each as the first flag and as a later flag", () => {
+    const patterns = rmClusterPatterns();
+    expect(patterns).toHaveLength(48);
+    expect(new Set(patterns).size).toBe(48);
+    expect(patterns).toContain("Bash(rm -fr*)");
+    expect(patterns).toContain("Bash(rm * -fr*)");
+    expect(patterns).toContain("Bash(rm -vfR*)");
+    expect(patterns).toContain("Bash(rm * -iiR*)");
+    expect(patterns).not.toContain("Bash(rm -r*)");
+    expect(patterns).not.toContain("Bash(rm -R*)");
+  });
+
+  it("are all in the deny list", () => {
+    for (const pattern of rmClusterPatterns()) expect(DENY_PATTERNS).toContain(pattern);
+  });
+
+  it("leave no cluster of one to three of f, v, i, r and R that holds an r or R uncovered", () => {
+    const clusters = everyClusterWithAnR();
+    expect(clusters).toHaveLength(116);
+    for (const cluster of clusters) {
+      expect(patternsDenying(`rm -${cluster} victim`), `rm -${cluster} victim`).not.toEqual([]);
+      expect(patternsDenying(`rm victim -${cluster}`), `rm victim -${cluster}`).not.toEqual([]);
+    }
+  });
+
+  it("let through a cluster with no r or R and a file name that merely holds -r", () => {
+    for (const command of [
+      "rm -f keep.txt",
+      "rm -v keep.txt",
+      "rm -fvi keep.txt",
+      "rm -f keep-report.txt",
+    ]) {
+      expect(patternsDenying(command), command).toEqual([]);
+    }
+  });
+});
+
+describe("the commands the deny list names", () => {
+  it.each([
+    ["git push -u origin HEAD", "rtk git push -u origin HEAD"],
+    ["git push origin HEAD", "rtk git push origin HEAD"],
+    ["git push HEAD", "rtk git push HEAD"],
+    ["git push --all", "rtk git push --all"],
+    ["git push --all origin", "rtk git push --all origin"],
+    ["git push --mirror origin", "rtk git push --mirror origin"],
+    ["git push --delete origin feature", "rtk git push --delete origin feature"],
+    ["git push -d origin feature", "rtk git push -d origin feature"],
+    ["git push origin :feature", "rtk git push origin :feature"],
+    ["git push --prune origin", "rtk git push --prune origin"],
+    ["git push -u", "rtk git push -u"],
+    ["git push -u origin", "rtk git push -u origin"],
+    ["git -C /tmp/x push -u origin HEAD", "rtk git -C /tmp/x push -u origin HEAD"],
+    ["git -C /tmp/x push --all", "rtk git -C /tmp/x push --all"],
+    ["git -C /tmp/x push origin :feature", "rtk git -C /tmp/x push origin :feature"],
+    ["/usr/bin/git push --force origin feature", "/usr/bin/git push --force origin feature"],
+    ["/usr/bin/git push origin feature", "/usr/bin/git push origin feature"],
+    ["/usr/bin/git -C /tmp/x push origin feature", "/usr/bin/git -C /tmp/x push origin feature"],
+    ["git branch --delete --force feature-two", "rtk git branch --delete --force feature-two"],
+    ["git branch --force --delete feature-two", "rtk git branch --force --delete feature-two"],
+    ["git branch -d -f feature-two", "rtk git branch -d -f feature-two"],
+    ["git branch -f -d feature-two", "rtk git branch -f -d feature-two"],
+    ["git branch -df feature-two", "rtk git branch -df feature-two"],
+    ["git branch -f feature-two main", "rtk git branch -f feature-two main"],
+    ["git -C /tmp/x branch --delete --force b", "rtk git -C /tmp/x branch --delete --force b"],
+    ["gh pr merge 1", "rtk gh pr merge 1"],
+    ["npm run db:reset", "rtk npm run db:reset"],
+  ])("deny %s and the text rtk rewrites it to", (command, rewritten) => {
+    expect(patternsDenying(command), command).not.toEqual([]);
+    expect(patternsDenying(rewritten), rewritten).not.toEqual([]);
+  });
+
+  it.each([
+    "rm -vfr victim",
+    "rm -fvr victim",
+    "rm -ir victim",
+    "rm -vR victim",
+    "rm victim -vfr",
+    "rm -f -vr victim",
+    "git restore -- .",
+    "git restore .",
+    "git restore --worktree .",
+    "git restore -W .",
+    "git restore --staged --worktree .",
+    "git restore --source=HEAD~1 .",
+    "git restore -s HEAD~1 .",
+    "git -C /tmp/x restore -- .",
+    "git checkout .",
+    "git checkout -- .",
+    "git checkout HEAD -- .",
+    "git checkout -f",
+    "git checkout -f feature",
+    "git checkout feature -f",
+    "git checkout --force",
+    "git -C /tmp/x checkout -f",
+  ])("deny %s", (command) => {
+    expect(patternsDenying(command), command).not.toEqual([]);
+  });
+
+  it.each([
+    "git push origin feature",
+    "git push -u origin feature",
+    "git push origin feature-fix",
+    "git push origin feature-draft",
+    "git -C /tmp/x push origin feature",
+    "git checkout feature",
+    "git checkout -b feature-three",
+    "git restore .gitignore",
+    "git restore --staged keep.txt",
+    "git restore keep.txt",
+    "git checkout .github/x",
+    "git checkout -- .gitignore",
+    "git branch feature-three",
+    "git branch -d feature-two",
+    "git -C /tmp/x branch --list",
+    "rm keep.txt",
+    "rm -f keep.txt",
+    "rm -v keep.txt",
+    "rm -f keep-report.txt",
+  ])("let %s through", (command) => {
+    expect(patternsDenying(command), command).toEqual([]);
+    expect(patternsDenying(`rtk ${command}`), `rtk ${command}`).toEqual([]);
   });
 });
 
