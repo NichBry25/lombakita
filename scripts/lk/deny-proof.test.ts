@@ -265,6 +265,21 @@ describe("the lone-rule verdict, one clause at a time", () => {
   );
 
   it(
+    "is FAIL when the lone rule refuses the command without the session reporting that it tried it",
+    () => {
+      const output = runHarness("topic-write", "edit-tool", {
+        FAKE_REFUSE_WHEN: `+${EDIT_RULE}`,
+        FAKE_UNREPORTED_WHEN: `-${WRITE_RULE}`,
+      });
+      expect(output).toContain("- lone-rule run");
+      expect(output).toMatch(/attempted=false denial names the command=true/);
+      expect(output).toContain("harm in the lone-rule run: none");
+      expect(verdictOf(output, "edit-tool")).toBe("FAIL");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
     "is FAIL when nothing refuses the command on its own, even though it does no harm",
     () => {
       const output = runHarness("topic-write", "edit-tool", {
@@ -315,7 +330,7 @@ describe("the allowed-control verdict", () => {
   it(
     "is FAIL when the command ran but the session never reported trying it",
     () => {
-      const output = runHarness("allowed", "ok-rm-plain", { FAKE_UNREPORTED: "1" });
+      const output = runHarness("allowed", "ok-rm-plain", { FAKE_UNREPORTED_WHEN: "always" });
       expect(output).toContain("effect: keep.txt was removed");
       expect(output).toContain("attempted=false");
       expect(verdictOf(output, "ok-rm-plain")).toBe("FAIL");
@@ -328,7 +343,7 @@ describe("the allowed-control verdict", () => {
     () => {
       const output = runHarness("allowed", "ok-status", {});
       expect(verdictOf(output, "ok-status")).toBe("ALLOWED OK");
-      expect(output).toContain("effect: the output holds On branch");
+      expect(output).toContain("effect: the output holds keep-report.txt");
     },
     SESSION_TEST_TIMEOUT_MS,
   );
@@ -346,6 +361,32 @@ describe("the memory gate", () => {
       expect(output).toContain("MEMORY LOW: 14% free, below 15%; no further session started");
       expect(verdictOf(output, "ok-rm-plain")).toBeUndefined();
       expect(existsSync(sessionMarker)).toBe(false);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "starts no control run once free memory has dropped below 15 percent since the denied run",
+    () => {
+      const droppingBin = mkdtempSync(join(workspace, "dropping-memory-"));
+      const countFile = join(droppingBin, "checks.txt");
+      copyFileSync(join(binDir, "claude"), join(droppingBin, "claude"));
+      chmodSync(join(droppingBin, "claude"), 0o755);
+      writeStandIn(
+        droppingBin,
+        "memory_pressure",
+        `echo x >> "${countFile}"\nif [ "$(wc -l < "${countFile}")" -gt 1 ]; then ${reportFreeMemory(14)}; else ${reportFreeMemory(50)}; fi`,
+      );
+      const output = runHarness(
+        "rm-a",
+        "rm-fr",
+        { FAKE_REFUSE_WHEN: "+Bash(rm -fr*)" },
+        droppingBin,
+      );
+      expect(output).toContain("harm in the denied run: none");
+      expect(output).toContain("MEMORY LOW: 14% free");
+      expect(output).not.toContain("harm in the control run");
+      expect(verdictOf(output, "rm-fr")).toBeUndefined();
     },
     SESSION_TEST_TIMEOUT_MS,
   );

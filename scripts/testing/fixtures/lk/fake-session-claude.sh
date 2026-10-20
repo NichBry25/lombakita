@@ -11,7 +11,7 @@
 #   FAKE_HARMLESS_WHEN   the command is reported as run and nothing is run
 #   FAKE_ALSO_RUN_WHEN   a refused command is run all the same
 #   FAKE_SILENT          the session never tries the command
-#   FAKE_UNREPORTED      the command is run without a tool call being reported
+#   FAKE_UNREPORTED_WHEN the command is handled without a tool call being reported
 #   FAKE_SESSION_LOG     a file that gets one line per call saying whether the deny flag was there
 prompt=""
 deny=""
@@ -97,7 +97,7 @@ def run(tool, tool_input, text):
 tool, tool_input, text = tool_call()
 denials = []
 if not os.environ.get("FAKE_SILENT"):
-    report = not os.environ.get("FAKE_UNREPORTED")
+    report = not condition("FAKE_UNREPORTED_WHEN")
     if report:
         emit({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "t1", "name": tool, "input": tool_input}]}})
     refusal = None

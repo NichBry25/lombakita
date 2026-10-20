@@ -1734,7 +1734,7 @@ export const CASES: readonly ProofCase[] = [
       : undefined,
   ),
   allowedCase("ok-commit", "git commit -m x", aBranchTipChanged, stageKeepFile),
-  allowedCase("ok-status", "git status", resultHolds("On branch")),
+  allowedCase("ok-status", "git status", resultHolds("keep-report.txt")),
   allowedCase("ok-diff", "git diff", resultHolds(DIRTY_LINE)),
   allowedCase("ok-log", "git log", resultHolds("first commit")),
   allowedCase("ok-rm-dashes", "rm -- keep.txt", keepRemoved),
