@@ -23,13 +23,13 @@
  * docs/.claude/hooks in the fixture's own .claude/settings.json, under the matcher and command of
  * the `hooks` block of docs/.claude/settings.json with only the script path swapped; the control
  * run of a database guard case installs the same script rewritten to exit 1 with its output on
- * stdout. A guard case runs with no deny flag, so only the hook can refuse its command; a plain hook
- * case goes through dispatch.ts. An allowed guard case also runs under the previous guard script,
- * which must refuse the command. Before any session of a hook group the wiring of the three hook
- * scripts in docs/.claude/settings.json is checked, and before any session of the hook group the
- * guard table is run through the script; the group stops if either disagrees. A measure case asserts
- * nothing: it runs one session and reports facts from the fixture and the session log (the
- * protect-file and SessionEnd hooks).
+ * stdout. A guard case runs with no deny flag, so the fixture's hook is the only deny or hook entry
+ * that can refuse its command; a plain hook case goes through dispatch.ts. An allowed guard case
+ * also runs under the previous guard script, which must refuse the command. Before any session of
+ * a hook group the wiring of the three hook scripts in docs/.claude/settings.json is checked, and
+ * before any session of the hook group the guard table is run through the script; the group stops
+ * if either disagrees. A measure case asserts nothing: it runs one session and reports facts from
+ * the fixture and the session log (the protect-file and SessionEnd hooks).
  * A settings case runs `claude` with no deny flag and the docs deny entries as the fixture's own
  * settings; its control run drops the covering entries. All read the docs files when they run,
  * never before, so `--list` works where docs/ is absent.
@@ -845,20 +845,33 @@ interface HookEntry {
 
 export interface HookWiring {
   script: string;
+  file: string;
   event: "PreToolUse" | "SessionEnd";
   matcher: string | undefined;
 }
 
-// What each hook case needs of the entry that runs its script: the event, and a matcher that takes
-// in the tool the case uses (SessionEnd has none).
+// What each hook case needs of the entry that runs its script: the event, a matcher that takes in
+// the tool the case uses (SessionEnd has none), and the file the harness copies for the case, which
+// the entry's command must run.
 export const HOOK_WIRING: readonly HookWiring[] = [
   {
     script: basename(PROTECT_HOOK_PATH_IN_FIXTURE),
+    file: PROTECT_HOOK_FILE,
     event: "PreToolUse",
     matcher: "Edit|Write|MultiEdit",
   },
-  { script: basename(HOOK_PATH_IN_FIXTURE), event: "PreToolUse", matcher: "Bash" },
-  { script: basename(SESSION_END_HOOK_PATH_IN_FIXTURE), event: "SessionEnd", matcher: undefined },
+  {
+    script: basename(HOOK_PATH_IN_FIXTURE),
+    file: DATABASE_GUARD_HOOK_FILE,
+    event: "PreToolUse",
+    matcher: "Bash",
+  },
+  {
+    script: basename(SESSION_END_HOOK_PATH_IN_FIXTURE),
+    file: SESSION_END_HOOK_FILE,
+    event: "SessionEnd",
+    matcher: undefined,
+  },
 ];
 
 const readHooksBlock = (settingsFile: string): HooksBlock => {
@@ -882,10 +895,32 @@ const scriptPathPattern = (script: string): RegExp =>
 const scriptPathInCommand = (command: string, script: string): string | undefined =>
   scriptPathPattern(script).exec(command)?.[0];
 
+const BASH_COMMAND_FORM = /^bash (\S+)$/;
+
+const realPathOrUndefined = (path: string): string | undefined => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return undefined;
+  }
+};
+
+const commandProblems = (script: string, copiedFile: string, command: string): string[] => {
+  const path = BASH_COMMAND_FORM.exec(command)?.[1];
+  if (path === undefined) return [`the command of ${script} is not bash <path>: ${command}`];
+  const runs = realPathOrUndefined(path);
+  if (runs === undefined) {
+    return [`the command of ${script} names no file that exists: ${command}`];
+  }
+  const copied = realPathOrUndefined(copiedFile);
+  if (runs === copied) return [];
+  return [`the command of ${script} runs ${runs}, the harness copies ${copied ?? copiedFile}`];
+};
+
 /** The ways the hooks block of a settings file leaves a hook script unwired for what its case needs. */
 export const hookWiringProblems = (settingsFile: string): string[] => {
   const hooks = readHooksBlock(settingsFile);
-  return HOOK_WIRING.flatMap(({ script, event, matcher }) => {
+  return HOOK_WIRING.flatMap(({ script, file, event, matcher }) => {
     const [entry, ...others] = hookEntriesNaming(hooks, script);
     if (entry === undefined || others.length > 0) {
       return [
@@ -899,10 +934,10 @@ export const hookWiringProblems = (settingsFile: string): string[] => {
         `the matcher of ${script} is ${entry.matcher ?? "none"}, the case needs ${matcher ?? "none"}`,
       );
     }
-    const path = scriptPathInCommand(entry.hook.command, script);
-    if (path === undefined || !existsSync(path)) {
-      problems.push(`the command of ${script} names no file that exists: ${entry.hook.command}`);
+    if (entry.hook.type !== "command") {
+      problems.push(`the type of ${script} is ${entry.hook.type ?? "none"}, not command`);
     }
+    problems.push(...commandProblems(script, file, entry.hook.command));
     return problems;
   });
 };
@@ -1079,8 +1114,8 @@ const hookCase = (
   controlPrepare: (root) => installDatabaseGuardHook(root, "exitsOneToStdout"),
 });
 
-// The deny list covers sudo and npm run db:, so these runs carry no deny flag and the hook is the
-// only thing that can refuse the command.
+// The deny list covers sudo and npm run db:, so these runs carry no deny flag and the fixture's hook
+// is the only entry that can refuse the command.
 const guardBlockedCase = (
   id: string,
   command: string,
@@ -1209,6 +1244,21 @@ export const GUARD_COMMANDS = {
   psqlWithoutStatement: 'psql -c "select 1"',
   statementGluedToLetter: 'psql -c "xDROP TABLE x"',
   statementWordContinues: 'psql -c "DROP TABLES x"',
+  // U+00E9 precomposed: a combining accent is not a character the class reads as a letter.
+  accentedLetterBeforeProgram: '\u00e9psql -c "DROP TABLE x"',
+  accentedLetterAfterProgram: 'psql\u00e9 -c "DROP TABLE x"',
+  underscoreBeforeProgram: '_psql -c "DROP TABLE x"',
+  underscoreAfterProgram: 'psql_x -c "DROP TABLE x"',
+  digitBeforeProgram: '2psql -c "DROP TABLE x"',
+  digitAfterProgram: 'psql2 -c "DROP TABLE x"',
+  dropTableTwoSpaces: 'psql -c "DROP  TABLE x"',
+  dropTableTab: 'psql -c "DROP\tTABLE x"',
+  dropColumnTwoSpaces: 'psql -c "DROP  COLUMN y"',
+  dropColumnTab: 'psql -c "DROP\tCOLUMN y"',
+  truncateTableTwoSpaces: 'psql -c "TRUNCATE  TABLE x"',
+  truncateTableTab: 'psql -c "TRUNCATE\tTABLE x"',
+  deleteFromTwoSpaces: 'psql -c "DELETE  FROM x"',
+  deleteFromTab: 'psql -c "DELETE\tFROM x"',
 } as const;
 
 export interface GuardRow {
@@ -1246,17 +1296,60 @@ export const GUARD_TABLE: readonly GuardRow[] = [
   { command: GUARD_COMMANDS.psqlWithoutStatement, exit: 0 },
   { command: GUARD_COMMANDS.statementGluedToLetter, exit: 0 },
   { command: GUARD_COMMANDS.statementWordContinues, exit: 0 },
+  { command: GUARD_COMMANDS.accentedLetterBeforeProgram, exit: 2 },
+  { command: GUARD_COMMANDS.accentedLetterAfterProgram, exit: 2 },
+  { command: GUARD_COMMANDS.underscoreBeforeProgram, exit: 0 },
+  { command: GUARD_COMMANDS.underscoreAfterProgram, exit: 0 },
+  { command: GUARD_COMMANDS.digitBeforeProgram, exit: 0 },
+  { command: GUARD_COMMANDS.digitAfterProgram, exit: 0 },
+  { command: GUARD_COMMANDS.dropTableTwoSpaces, exit: 2 },
+  { command: GUARD_COMMANDS.dropTableTab, exit: 2 },
+  { command: GUARD_COMMANDS.dropColumnTwoSpaces, exit: 2 },
+  { command: GUARD_COMMANDS.dropColumnTab, exit: 2 },
+  { command: GUARD_COMMANDS.truncateTableTwoSpaces, exit: 2 },
+  { command: GUARD_COMMANDS.truncateTableTab, exit: 2 },
+  { command: GUARD_COMMANDS.deleteFromTwoSpaces, exit: 2 },
+  { command: GUARD_COMMANDS.deleteFromTab, exit: 2 },
 ];
 
 export interface GuardRowMismatch extends GuardRow {
   got: number | null;
 }
 
+// The table is run under a UTF-8 locale it names itself: only there does a character class such as
+// [A-Za-z0-9_] on the script's grep take in letters beyond ASCII, so only there does a removed
+// LC_ALL=C change an answer.
+const TABLE_LOCALE = "en_US.UTF-8";
+
+// `locale -a` spells one locale en_US.UTF-8 on macOS and en_US.utf8 on glibc.
+const normalizedLocaleName = (name: string): string => name.trim().toLowerCase().replace("-", "");
+
+export const localeListed = (listing: string, locale: string): boolean =>
+  listing.split("\n").some((line) => normalizedLocaleName(line) === normalizedLocaleName(locale));
+
+export const tableLocaleInstalled = (): boolean =>
+  localeListed(spawnSync("locale", ["-a"], { encoding: "utf8" }).stdout ?? "", TABLE_LOCALE);
+
+export const TABLE_LOCALE_MISSING_NOTE = `cannot tell here: locale ${TABLE_LOCALE} is not installed`;
+
+/** The grep a script run by bash finds, under the locale the table runs in. */
+export const tableGrepPath = (): string => {
+  const found = spawnSync("bash", ["-c", "command -v grep"], {
+    encoding: "utf8",
+    env: { ...process.env, LC_ALL: TABLE_LOCALE },
+  });
+  return found.stdout.trim();
+};
+
 /** Runs each row's command text through the script the way a PreToolUse hook is run. */
 export const guardTableMismatches = (hookPath: string): GuardRowMismatch[] =>
   GUARD_TABLE.flatMap((row) => {
     const payload = JSON.stringify({ tool_name: "Bash", tool_input: { command: row.command } });
-    const run = spawnSync("bash", [hookPath], { input: payload, encoding: "utf8" });
+    const run = spawnSync("bash", [hookPath], {
+      input: payload,
+      encoding: "utf8",
+      env: { ...process.env, LC_ALL: TABLE_LOCALE },
+    });
     return run.status === row.exit ? [] : [{ ...row, got: run.status }];
   });
 
@@ -2242,8 +2335,11 @@ const emitFixture = (fixture: Fixture): void => {
   emit(`  fixture: ${fixture.root}`);
   const hooks = readFixtureHooks(fixture.root);
   if (hooks === undefined) return;
+  const redirectNote = Object.hasOwn(hooks as object, "SessionEnd")
+    ? ", and the fixture's output redirect appended"
+    : "";
   emit(
-    `  fixture hooks (the real hooks block of ${DOCS_SETTINGS_FILE}, script path swapped for the fixture's copy): ${JSON.stringify(hooks)}`,
+    `  fixture hooks (the entry of the hooks block of ${DOCS_SETTINGS_FILE} that this case uses, with the script path swapped for the fixture's copy${redirectNote}): ${JSON.stringify(hooks)}`,
   );
 };
 
@@ -2360,7 +2456,7 @@ const saveLog = (id: string, label: string, sourcePath: string): void => {
 const emitDeniedRunLabel = (testCase: ProofCase): void => {
   emit(
     testCase.mode === "settings"
-      ? "- denied run (claude started directly with no deny flag, LK_ROLE=implementer; the fixture's .claude/settings.json is the only thing that can refuse the command)"
+      ? "- denied run (claude started directly with no deny flag, LK_ROLE=implementer; the fixture's own .claude/settings.json holds the only hook and deny entries of the fixture, user-level settings are also in force and refuse nothing here, as the control run shows)"
       : "- denied run (through dispatch.ts, LK_ROLE=controller for that child only)",
   );
 };
@@ -2616,7 +2712,14 @@ const runOneCase = async (testCase: ProofCase): Promise<CaseResult> => {
 const assertGuardTableAgrees = (): void => {
   const mismatches = guardTableMismatches(DATABASE_GUARD_HOOK_FILE);
   if (mismatches.length === 0) {
-    emit(`guard table: all ${GUARD_TABLE.length} rows agree with ${DATABASE_GUARD_HOOK_FILE}`);
+    emit(
+      `guard table: all ${GUARD_TABLE.length} rows agree with ${DATABASE_GUARD_HOOK_FILE}; each row was run as bash ${DATABASE_GUARD_HOOK_FILE} with LC_ALL=${TABLE_LOCALE}, and the script's grep is ${tableGrepPath()}`,
+    );
+    if (!tableLocaleInstalled()) {
+      emit(
+        `guard table: ${TABLE_LOCALE_MISSING_NOTE}; a removed LC_ALL=C on the marker grep is not proved`,
+      );
+    }
     return;
   }
   emit(`guard table disagrees with ${DATABASE_GUARD_HOOK_FILE}; no session started`);
@@ -2630,7 +2733,7 @@ const assertHookWiring = (): void => {
   const problems = hookWiringProblems(DOCS_SETTINGS_FILE);
   if (problems.length === 0) {
     emit(
-      `hook wiring: ${HOOK_WIRING.length} hook scripts are each wired once in ${DOCS_SETTINGS_FILE}, under the matcher their cases need, and exist on disk`,
+      `hook wiring: ${HOOK_WIRING.length} hook scripts each have exactly one entry in ${DOCS_SETTINGS_FILE}, of type command, under the event and matcher their cases need, whose command is bash <path> with a path that resolves to the file the harness copies from ${join(DOCS_ROOT, ".claude/hooks")}`,
     );
     return;
   }

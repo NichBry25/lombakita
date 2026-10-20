@@ -23,11 +23,12 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { buildClaudeArgs, DENY_LIST, DENY_PATTERNS } from "./dispatch";
 import {
@@ -38,7 +39,11 @@ import {
   guardTableMismatches,
   HOOK_WIRING,
   hookWiringProblems,
+  localeListed,
   refusalReachedModel,
+  TABLE_LOCALE_MISSING_NOTE,
+  tableGrepPath,
+  tableLocaleInstalled,
 } from "./deny-proof";
 
 vi.mock("./dispatch", async (importOriginal) => {
@@ -143,7 +148,7 @@ const blockingHook = (migrateMessage = "UNGUARDED MIGRATION BLOCKED"): string =>
     "  exit 2",
     "fi",
     `if echo "$command" | ${DESTRUCTIVE_STATEMENT_GREP} \\`,
-    '  && echo "$command" | grep -qiE "(^|[^A-Za-z0-9_])(psql|drizzle-kit|pg_dump|pg_restore|neonctl)([^A-Za-z0-9_]|$)|npm run db:"; then',
+    '  && echo "$command" | LC_ALL=C grep -qiE "(^|[^A-Za-z0-9_])(psql|drizzle-kit|pg_dump|pg_restore|neonctl)([^A-Za-z0-9_]|$)|npm run db:"; then',
     '  echo "DESTRUCTIVE DATABASE OPERATION BLOCKED" >&2',
     "  exit 2",
     "fi",
@@ -715,7 +720,8 @@ describe("the hook cases", () => {
       };
       const docs = makeDocsRoot(blockingHook(), [], { hooksBlock: withTimeout });
       const output = hookRun("hook-pipe-to-psql", docs);
-      expect(output).toContain("hook wiring: 3 hook scripts are each wired once");
+      expect(output).toContain("hook wiring: 3 hook scripts each have exactly one entry in");
+      expect(output).not.toContain("wired once");
       const hooksLine = output.split("\n").find((line) => line.includes("fixture hooks")) ?? "";
       const hooksJson = hooksLine.slice(hooksLine.indexOf("): ") + 3);
       expect(hooksJson).toContain('"matcher":"Bash"');
@@ -732,6 +738,10 @@ describe("the hook cases", () => {
     () => {
       const output = hookRun("ok-hook-echo-hello", makeDocsRoot(blockingHook(), []));
       expect(output).toContain("guard table: all");
+      expect(output).toContain(
+        `with LC_ALL=en_US.UTF-8, and the script's grep is ${tableGrepPath()}`,
+      );
+      expect(output.includes(TABLE_LOCALE_MISSING_NOTE)).toBe(!tableLocaleInstalled());
       expect(output).toContain("effect: marker3.txt was written");
       expect(verdictOf(output, "ok-hook-echo-hello")).toBe("ALLOWED OK");
     },
@@ -761,7 +771,17 @@ describe("the guard cases, which carry no deny flag", () => {
       expect(output).toContain("harm in the denied run: none");
       expect(output).toContain(`harm in the control run: ${harm}`);
       expect(output).toContain("- denied run (claude started directly with no deny flag");
+      expect(output).toContain(
+        "the fixture's own .claude/settings.json holds the only hook and deny entries of the fixture, user-level settings are also in force and refuse nothing here, as the control run shows)",
+      );
+      expect(output).not.toContain("only thing that can refuse");
       expect(output).toContain("- control run (claude started directly with no deny flag");
+      expect(output).toContain("fixture hooks (the entry of the hooks block of ");
+      expect(output).toContain(
+        "that this case uses, with the script path swapped for the fixture's copy): ",
+      );
+      expect(output).not.toContain("the real hooks block");
+      expect(output).not.toContain("output redirect");
       expect(output).toContain("settings deny entries removed: []");
       expect(output).not.toContain("through dispatch.ts");
       expect(output).not.toContain("deny list minus");
@@ -884,6 +904,10 @@ describe("the protect-file cases", () => {
       expect(output).toContain(
         "MEASURED hook-protect-ssot: warning text in the tool result: false",
       );
+      expect(output).toContain(
+        "that this case uses, with the script path swapped for the fixture's copy): ",
+      );
+      expect(output).not.toContain("output redirect");
       expect(verdictOf(output, "hook-protect-ssot")).toBe("MEASURED");
     },
     SESSION_TEST_TIMEOUT_MS,
@@ -902,6 +926,18 @@ describe("the protect-file cases", () => {
       expect(output).toContain("MEASURED hook-protect-ssot-variant: write landed: true");
       expect(verdictOf(output, "hook-protect-ssot-variant")).toBe("MEASURED");
       expect(protectRun("hook-protect-ssot")).not.toContain("VARIANT");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "report that the variant did not run when the session runs no PreToolUse hook",
+    () => {
+      const output = protectRun("hook-protect-ssot-variant", { FAKE_NO_PRE_TOOL_HOOKS: "1" });
+      expect(output).toContain(
+        "MEASURED hook-protect-ssot-variant: the variant ran (protect-hook-ran.txt exists): false",
+      );
+      expect(output).toContain("MEASURED hook-protect-ssot-variant: write landed: true");
     },
     SESSION_TEST_TIMEOUT_MS,
   );
@@ -991,6 +1027,9 @@ describe("the SessionEnd case", () => {
       expect(output).toContain(
         "MEASURED hook-session-end: session-end-output.txt holds the checklist heading: true",
       );
+      expect(output).toContain(
+        "that this case uses, with the script path swapped for the fixture's copy, and the fixture's output redirect appended): ",
+      );
     },
     SESSION_TEST_TIMEOUT_MS,
   );
@@ -1033,6 +1072,20 @@ describe("the guard table", () => {
     [GUARD_COMMANDS.psqlWithoutStatement, 0],
     [GUARD_COMMANDS.statementGluedToLetter, 0],
     [GUARD_COMMANDS.statementWordContinues, 0],
+    [GUARD_COMMANDS.accentedLetterBeforeProgram, 2],
+    [GUARD_COMMANDS.accentedLetterAfterProgram, 2],
+    [GUARD_COMMANDS.underscoreBeforeProgram, 0],
+    [GUARD_COMMANDS.underscoreAfterProgram, 0],
+    [GUARD_COMMANDS.digitBeforeProgram, 0],
+    [GUARD_COMMANDS.digitAfterProgram, 0],
+    [GUARD_COMMANDS.dropTableTwoSpaces, 2],
+    [GUARD_COMMANDS.dropTableTab, 2],
+    [GUARD_COMMANDS.dropColumnTwoSpaces, 2],
+    [GUARD_COMMANDS.dropColumnTab, 2],
+    [GUARD_COMMANDS.truncateTableTwoSpaces, 2],
+    [GUARD_COMMANDS.truncateTableTab, 2],
+    [GUARD_COMMANDS.deleteFromTwoSpaces, 2],
+    [GUARD_COMMANDS.deleteFromTab, 2],
   ];
 
   it("holds the owner's eleven commands and the element rows with the exit each must get", () => {
@@ -1056,8 +1109,19 @@ describe("the guard table", () => {
       GUARD_COMMANDS.nameInsideAnotherName,
       GUARD_COMMANDS.nameEndingWithProgram,
       GUARD_COMMANDS.nameStartingWithProgram,
+      GUARD_COMMANDS.underscoreBeforeProgram,
+      GUARD_COMMANDS.underscoreAfterProgram,
+      GUARD_COMMANDS.digitBeforeProgram,
+      GUARD_COMMANDS.digitAfterProgram,
     ]);
     expect(mismatches.every((row) => row.got === 2 && row.exit === 0)).toBe(true);
+  });
+
+  it("tells a locale listing that holds the table's locale from one that does not", () => {
+    expect(localeListed("C\nen_US.UTF-8\nPOSIX\n", "en_US.UTF-8")).toBe(true);
+    expect(localeListed("C\nen_US.utf8\n", "en_US.UTF-8")).toBe(true);
+    expect(localeListed("C\nen_US.ISO8859-1\nPOSIX\n", "en_US.UTF-8")).toBe(false);
+    expect(TABLE_LOCALE_MISSING_NOTE).toBe("cannot tell here: locale en_US.UTF-8 is not installed");
   });
 });
 
@@ -1065,8 +1129,10 @@ const REAL_DOCS = join(process.cwd(), "docs");
 const GUARD_PATH_IN_DOCS = ".claude/hooks/check-destructive-bash.sh";
 const REAL_GUARD = join(REAL_DOCS, GUARD_PATH_IN_DOCS);
 
-// The real script is in the private docs repository, so these run only where it is checked out.
-describe.skipIf(!existsSync(REAL_GUARD))("the real database guard script", () => {
+// The real script is in the private docs repository, so these run only where it is checked out;
+// where docs/ is absent they are skipped, and the name says so.
+const REAL_GUARD_TITLE = "the real database guard script (skipped where docs/ is absent)";
+describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
   it("answers every row of the guard table as expected", () => {
     expect(guardTableMismatches(REAL_GUARD)).toEqual([]);
   });
@@ -1157,6 +1223,10 @@ describe.skipIf(!existsSync(REAL_GUARD))("the real database guard script", () =>
       GUARD_COMMANDS.nameInsideAnotherName,
       GUARD_COMMANDS.nameEndingWithProgram,
       GUARD_COMMANDS.nameStartingWithProgram,
+      GUARD_COMMANDS.underscoreBeforeProgram,
+      GUARD_COMMANDS.underscoreAfterProgram,
+      GUARD_COMMANDS.digitBeforeProgram,
+      GUARD_COMMANDS.digitAfterProgram,
     ]);
   });
 
@@ -1187,13 +1257,21 @@ describe.skipIf(!existsSync(REAL_GUARD))("the real database guard script", () =>
       element: "marker left boundary",
       pattern: /\(\^\|\[\^A-Za-z0-9_\]\)(?=\(psql\|)/,
       replacement: "",
-      mismatched: [GUARD_COMMANDS.nameEndingWithProgram],
+      mismatched: [
+        GUARD_COMMANDS.nameEndingWithProgram,
+        GUARD_COMMANDS.underscoreBeforeProgram,
+        GUARD_COMMANDS.digitBeforeProgram,
+      ],
     },
     {
       element: "marker right boundary",
       pattern: /\(\[\^A-Za-z0-9_\]\|\$\)/,
       replacement: "",
-      mismatched: [GUARD_COMMANDS.nameStartingWithProgram],
+      mismatched: [
+        GUARD_COMMANDS.nameStartingWithProgram,
+        GUARD_COMMANDS.underscoreAfterProgram,
+        GUARD_COMMANDS.digitAfterProgram,
+      ],
     },
     {
       element: "marker name psql",
@@ -1211,6 +1289,16 @@ describe.skipIf(!existsSync(REAL_GUARD))("the real database guard script", () =>
         GUARD_COMMANDS.lowerCaseStatementToPsql,
         GUARD_COMMANDS.dropColumnToPsql,
         GUARD_COMMANDS.deleteFromToPsql,
+        GUARD_COMMANDS.accentedLetterBeforeProgram,
+        GUARD_COMMANDS.accentedLetterAfterProgram,
+        GUARD_COMMANDS.dropTableTwoSpaces,
+        GUARD_COMMANDS.dropTableTab,
+        GUARD_COMMANDS.dropColumnTwoSpaces,
+        GUARD_COMMANDS.dropColumnTab,
+        GUARD_COMMANDS.truncateTableTwoSpaces,
+        GUARD_COMMANDS.truncateTableTab,
+        GUARD_COMMANDS.deleteFromTwoSpaces,
+        GUARD_COMMANDS.deleteFromTab,
       ],
     },
     {
@@ -1273,6 +1361,10 @@ describe.skipIf(!existsSync(REAL_GUARD))("the real database guard script", () =>
         GUARD_COMMANDS.upperCaseProgram,
         GUARD_COMMANDS.lowerCaseStatementToPsql,
         GUARD_COMMANDS.drizzleKitPushWithSql,
+        GUARD_COMMANDS.accentedLetterBeforeProgram,
+        GUARD_COMMANDS.accentedLetterAfterProgram,
+        GUARD_COMMANDS.dropTableTwoSpaces,
+        GUARD_COMMANDS.dropTableTab,
       ],
     },
     {
@@ -1291,42 +1383,113 @@ describe.skipIf(!existsSync(REAL_GUARD))("the real database guard script", () =>
       element: "destructive alternative DROP COLUMN",
       pattern: /\|DROP\[\[:space:\]\]\+COLUMN/,
       replacement: "",
-      mismatched: [GUARD_COMMANDS.dropColumnToPsql],
+      mismatched: [
+        GUARD_COMMANDS.dropColumnToPsql,
+        GUARD_COMMANDS.dropColumnTwoSpaces,
+        GUARD_COMMANDS.dropColumnTab,
+      ],
     },
     {
       element: "destructive alternative TRUNCATE TABLE",
       pattern: /\|TRUNCATE\[\[:space:\]\]\+TABLE/,
       replacement: "",
-      mismatched: [GUARD_COMMANDS.wrapperAroundProgram],
+      mismatched: [
+        GUARD_COMMANDS.wrapperAroundProgram,
+        GUARD_COMMANDS.truncateTableTwoSpaces,
+        GUARD_COMMANDS.truncateTableTab,
+      ],
     },
     {
       element: "destructive alternative DELETE FROM",
       pattern: /\|DELETE\[\[:space:\]\]\+FROM\[\[:space:\]\]\+\[a-zA-Z_\]/,
       replacement: "",
-      mismatched: [GUARD_COMMANDS.deleteFromToPsql],
+      mismatched: [
+        GUARD_COMMANDS.deleteFromToPsql,
+        GUARD_COMMANDS.deleteFromTwoSpaces,
+        GUARD_COMMANDS.deleteFromTab,
+      ],
+    },
+    {
+      element: "the underscore of the marker's left boundary class",
+      pattern: /\(\^\|\[\^A-Za-z0-9_\]\)(?=\(psql\|)/,
+      replacement: "(^|[^A-Za-z0-9])",
+      mismatched: [GUARD_COMMANDS.underscoreBeforeProgram],
+    },
+    {
+      element: "the 0-9 of the marker's left boundary class",
+      pattern: /\(\^\|\[\^A-Za-z0-9_\]\)(?=\(psql\|)/,
+      replacement: "(^|[^A-Za-z_])",
+      mismatched: [GUARD_COMMANDS.digitBeforeProgram],
+    },
+    {
+      element: "the underscore of the marker's right boundary class",
+      pattern: /\(\[\^A-Za-z0-9_\]\|\$\)/,
+      replacement: "([^A-Za-z0-9]|$)",
+      mismatched: [GUARD_COMMANDS.underscoreAfterProgram],
+    },
+    {
+      element: "the 0-9 of the marker's right boundary class",
+      pattern: /\(\[\^A-Za-z0-9_\]\|\$\)/,
+      replacement: "([^A-Za-z_]|$)",
+      mismatched: [GUARD_COMMANDS.digitAfterProgram],
+    },
+    {
+      element: "the repetition of the space run in DROP TABLE",
+      pattern: /DROP\[\[:space:\]\]\+TABLE/,
+      replacement: "DROP TABLE",
+      mismatched: [GUARD_COMMANDS.dropTableTwoSpaces, GUARD_COMMANDS.dropTableTab],
+    },
+    {
+      element: "the repetition of the space run in DROP COLUMN",
+      pattern: /DROP\[\[:space:\]\]\+COLUMN/,
+      replacement: "DROP COLUMN",
+      mismatched: [GUARD_COMMANDS.dropColumnTwoSpaces, GUARD_COMMANDS.dropColumnTab],
+    },
+    {
+      element: "the repetition of the space run in TRUNCATE TABLE",
+      pattern: /TRUNCATE\[\[:space:\]\]\+TABLE/,
+      replacement: "TRUNCATE TABLE",
+      mismatched: [GUARD_COMMANDS.truncateTableTwoSpaces, GUARD_COMMANDS.truncateTableTab],
+    },
+    {
+      element: "the repetition of the space run in DELETE FROM",
+      pattern: /DELETE\[\[:space:\]\]\+FROM/,
+      replacement: "DELETE FROM",
+      mismatched: [GUARD_COMMANDS.deleteFromTwoSpaces, GUARD_COMMANDS.deleteFromTab],
     },
   ];
 
-  it.each(ELEMENT_PROOFS)(
-    "is caught when $element is removed",
-    ({ element, pattern, replacement, mismatched }) => {
-      const result = proveMutation(element, pattern, replacement);
-      expect(result.applied).toBe(true);
-      expect(result.compiles).toBe(true);
-      expect(result.mismatchedAfterRestore).toEqual([]);
-      expect(result.mismatched).toEqual(mismatched);
-    },
-  );
-
-  // LC_ALL=C changes no answer of any row. The proof runs and applies, and the empty list is the
-  // observation: on the grep this was measured on (macOS), no input separated C from en_US.UTF-8,
-  // including a Kelvin sign, a long s and accented letters either side of a name.
-  it("is not caught when LC_ALL=C on the marker grep is removed, because no input can tell", () => {
-    const result = proveMutation("LC_ALL=C on the marker grep", /LC_ALL=C grep/, "grep");
+  const expectMutationCaught = ({
+    element,
+    pattern,
+    replacement,
+    mismatched,
+  }: (typeof ELEMENT_PROOFS)[number]): void => {
+    const result = proveMutation(element, pattern, replacement);
     expect(result.applied).toBe(true);
     expect(result.compiles).toBe(true);
     expect(result.mismatchedAfterRestore).toEqual([]);
-    expect(result.mismatched).toEqual([]);
+    expect(result.mismatched).toEqual(mismatched);
+  };
+
+  it.each(ELEMENT_PROOFS)("is caught when $element is removed", expectMutationCaught);
+
+  // Removing LC_ALL=C changes an answer only where a UTF-8 locale is installed to run the table in.
+  const LC_ALL_PROOF = {
+    element: "LC_ALL=C on the marker grep",
+    pattern: /LC_ALL=C grep/,
+    replacement: "grep",
+    mismatched: [
+      GUARD_COMMANDS.accentedLetterBeforeProgram,
+      GUARD_COMMANDS.accentedLetterAfterProgram,
+    ],
+  };
+  const lcAllTitle = tableLocaleInstalled()
+    ? `is caught when ${LC_ALL_PROOF.element} is removed`
+    : `is skipped, ${TABLE_LOCALE_MISSING_NOTE}: ${LC_ALL_PROOF.element} is not proved`;
+
+  it.skipIf(!tableLocaleInstalled())(lcAllTitle, () => {
+    expectMutationCaught(LC_ALL_PROOF);
   });
 });
 
@@ -1338,25 +1501,26 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
   "the hooks block of the real docs settings (skipped where docs/ is absent)",
   () => {
     interface SettingsShape {
-      hooks: Record<string, { matcher?: string; hooks: { command: string }[] }[]>;
+      hooks: Record<string, { matcher?: string; hooks: { type?: string; command: string }[] }[]>;
     }
 
     const realText = readFileSync(REAL_SETTINGS, "utf8");
 
-    // A mutation is made on a copy of the settings file and the copy is discarded; the real file is
-    // read again afterwards and asserted unchanged.
+    // A mutation is made on a copy of the settings file in a temp folder and the folder is
+    // discarded; the real file is read again afterwards and asserted unchanged. The folder's
+    // resolved path is returned for a mutation that points a command into it.
     const wiringProblemsOfMutatedCopy = (
-      mutate: (settings: SettingsShape) => void,
-    ): { problems: string[]; applied: boolean } => {
-      const folder = mkdtempSync(join(workspace, "settings-copy-"));
+      mutate: (settings: SettingsShape, folder: string) => void,
+    ): { problems: string[]; applied: boolean; folder: string } => {
+      const folder = realpathSync(mkdtempSync(join(workspace, "settings-copy-")));
       const copy = join(folder, "settings.json");
       try {
         const settings = JSON.parse(realText) as SettingsShape;
-        mutate(settings);
+        mutate(settings, folder);
         const mutatedText = JSON.stringify(settings);
         writeFileSync(copy, mutatedText);
         const problems = hookWiringProblems(copy);
-        return { problems, applied: mutatedText !== JSON.stringify(JSON.parse(realText)) };
+        return { problems, applied: mutatedText !== JSON.stringify(JSON.parse(realText)), folder };
       } finally {
         rmSync(folder, { recursive: true, force: true });
         expect(readFileSync(REAL_SETTINGS, "utf8")).toBe(realText);
@@ -1388,7 +1552,7 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
       expect(problems).toEqual([]);
     });
 
-    const SCRIPT_MUTATIONS = HOOK_WIRING.flatMap(({ script, matcher }) => [
+    const SCRIPT_MUTATIONS = HOOK_WIRING.flatMap(({ script, file, matcher }) => [
       {
         label: `${script}: the entry is deleted`,
         script,
@@ -1442,15 +1606,52 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
           `the command of ${script} names no file that exists: ${realCommandOf(script).replace("/.claude/hooks/", "/moved-checkout/.claude/hooks/")}`,
         ],
       },
+      {
+        label: `${script}: the path points at another existing directory with the same basename`,
+        script,
+        mutate: (settings: SettingsShape, folder: string) => {
+          const otherFile = join(folder, "other/.claude/hooks", script);
+          mkdirSync(dirname(otherFile), { recursive: true });
+          copyFileSync(file, otherFile);
+          for (const group of groupsNaming(settings, script)) {
+            for (const hook of group.hooks) hook.command = `bash ${otherFile}`;
+          }
+        },
+        expected: (folder: string) => [
+          `the command of ${script} runs ${join(folder, "other/.claude/hooks", script)}, the harness copies ${realpathSync(file)}`,
+        ],
+      },
+      {
+        label: `${script}: the command is echo of the path`,
+        script,
+        mutate: (settings: SettingsShape) => {
+          for (const group of groupsNaming(settings, script)) {
+            for (const hook of group.hooks) hook.command = hook.command.replace(/^bash /, "echo ");
+          }
+        },
+        expected: () => [
+          `the command of ${script} is not bash <path>: ${realCommandOf(script).replace(/^bash /, "echo ")}`,
+        ],
+      },
+      {
+        label: `${script}: the type of the entry is changed`,
+        script,
+        mutate: (settings: SettingsShape) => {
+          for (const group of groupsNaming(settings, script)) {
+            for (const hook of group.hooks) hook.type = "ChangedType";
+          }
+        },
+        expected: () => [`the type of ${script} is ChangedType, not command`],
+      },
     ]);
 
     it.each(SCRIPT_MUTATIONS)("turns red when $label", ({ script, mutate, expected }) => {
-      const { problems, applied } = wiringProblemsOfMutatedCopy(mutate);
+      const { problems, applied, folder } = wiringProblemsOfMutatedCopy(mutate);
       console.info(
         `WIRING MUTATION ${script}: applied=${applied} problems=${JSON.stringify(problems)}`,
       );
       expect(applied).toBe(true);
-      expect(problems).toEqual(expected());
+      expect(problems).toEqual(expected(folder));
     });
   },
 );

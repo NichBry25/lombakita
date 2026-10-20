@@ -16,6 +16,7 @@
 #   FAKE_HOOK_STDOUT_REACHES_MODEL  what a PreToolUse hook that exits 0 printed is added to the
 #                        tool result; unset, it is not, as in a real session
 #   FAKE_NO_SESSION_END  the SessionEnd hooks of ./.claude/settings.json are not run
+#   FAKE_NO_PRE_TOOL_HOOKS  the PreToolUse hooks of ./.claude/settings.json are not run
 prompt=""
 deny=""
 deny_flag="false"
@@ -80,6 +81,8 @@ def settings_refusal(tool, tool_input):
 
 
 def hook_refusal(tool, tool_input):
+    if os.environ.get("FAKE_NO_PRE_TOOL_HOOKS"):
+        return None
     for group in project_settings().get("hooks", {}).get("PreToolUse", []):
         if not re.fullmatch(group.get("matcher", ""), tool):
             continue
