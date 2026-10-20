@@ -38,8 +38,9 @@ import {
   GUARD_TABLE,
   guardTableMismatches,
   HOOK_WIRING,
-  hookWiringProblems,
   localeListed,
+  machineHookWiringProblems,
+  portableHookWiringProblems,
   refusalReachedModel,
   TABLE_LOCALE_MISSING_NOTE,
   tableGrepPath,
@@ -704,6 +705,53 @@ describe("the hook cases", () => {
         "the matcher of check-destructive-bash.sh is Bash|Task, the case needs Bash",
       );
       expect(output).not.toContain("CASE ");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "start no session when the docs settings name a path that is not the script, or is not on this machine",
+    () => {
+      const startedBin = mkdtempSync(join(workspace, "wiring-stop-"));
+      const sessionMarker = join(startedBin, "session-started.txt");
+      writeStandIn(startedBin, "memory_pressure", reportFreeMemory(50));
+      writeStandIn(startedBin, "claude", `echo started > "${sessionMarker}"`);
+      const guardCommandChangedTo = (change: (command: string) => string) => (docsRoot: string) => {
+        const block = hooksBlockFor(docsRoot);
+        const [protect, guard] = block.PreToolUse as { hooks: { command: string }[] }[];
+        const changed = guard?.hooks.map((hook) => ({ ...hook, command: change(hook.command) }));
+        block.PreToolUse = [protect, { ...guard, hooks: changed }];
+        return block;
+      };
+      const wrongFileName = guardCommandChangedTo((command) => `${command}.bak`);
+      const otherCheckout = guardCommandChangedTo((command) =>
+        command.replace("/.claude/hooks/", "/moved-checkout/.claude/hooks/"),
+      );
+      const wrongName = docsRun(
+        "hook",
+        "hook-pipe-to-psql",
+        makeDocsRoot(blockingHook(), [], { hooksBlock: wrongFileName }),
+        {},
+        startedBin,
+      );
+      expect(wrongName).toContain(
+        "the path in the command of check-destructive-bash.sh does not end with /.claude/hooks/check-destructive-bash.sh: bash ",
+      );
+      const moved = docsRun(
+        "hook",
+        "hook-pipe-to-psql",
+        makeDocsRoot(blockingHook(), [], { hooksBlock: otherCheckout }),
+        {},
+        startedBin,
+      );
+      expect(moved).toContain(
+        "the command of check-destructive-bash.sh names no file that exists: bash ",
+      );
+      for (const output of [wrongName, moved]) {
+        expect(output).toContain("no session started");
+        expect(output).not.toContain("CASE ");
+      }
+      expect(existsSync(sessionMarker)).toBe(false);
     },
     SESSION_TEST_TIMEOUT_MS,
   );
@@ -1496,7 +1544,9 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
 const REAL_SETTINGS = join(REAL_DOCS, ".claude/settings.json");
 
 // The real settings file is in the private docs repository, so these run only where it is checked
-// out; where docs/ is absent they are skipped, and the name says so.
+// out; where docs/ is absent they are skipped, and the name says so. The portable part of the
+// wiring check runs wherever the file is; the machine part runs only where the checkout the file
+// names is on this machine, because the file holds that machine's absolute paths.
 describe.skipIf(!existsSync(REAL_SETTINGS))(
   "the hooks block of the real docs settings (skipped where docs/ is absent)",
   () => {
@@ -1504,12 +1554,15 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
       hooks: Record<string, { matcher?: string; hooks: { type?: string; command: string }[] }[]>;
     }
 
+    type WiringCheck = (settingsFile: string) => string[];
+
     const realText = readFileSync(REAL_SETTINGS, "utf8");
 
     // A mutation is made on a copy of the settings file in a temp folder and the folder is
     // discarded; the real file is read again afterwards and asserted unchanged. The folder's
     // resolved path is returned for a mutation that points a command into it.
-    const wiringProblemsOfMutatedCopy = (
+    const problemsOfMutatedCopy = (
+      check: WiringCheck,
       mutate: (settings: SettingsShape, folder: string) => void,
     ): { problems: string[]; applied: boolean; folder: string } => {
       const folder = realpathSync(mkdtempSync(join(workspace, "settings-copy-")));
@@ -1519,7 +1572,7 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
         mutate(settings, folder);
         const mutatedText = JSON.stringify(settings);
         writeFileSync(copy, mutatedText);
-        const problems = hookWiringProblems(copy);
+        const problems = check(copy);
         return { problems, applied: mutatedText !== JSON.stringify(JSON.parse(realText)), folder };
       } finally {
         rmSync(folder, { recursive: true, force: true });
@@ -1537,23 +1590,14 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
       return groupsNaming(settings, script)[0]?.hooks[0]?.command ?? "";
     };
 
-    it("wires each of the three hook scripts once, under the matcher its case needs, to a script that exists", () => {
-      expect(HOOK_WIRING.map((wiring) => wiring.script)).toEqual([
-        "check-protected-file.sh",
-        "check-destructive-bash.sh",
-        "session-end-reminder.sh",
-      ]);
-      expect(hookWiringProblems(REAL_SETTINGS)).toEqual([]);
+    const checkoutNamedInRealSettingsIsHere = HOOK_WIRING.every(({ script }) => {
+      const path = /^bash (\S+)$/.exec(realCommandOf(script))?.[1];
+      return path !== undefined && existsSync(dirname(path));
     });
 
-    it("is read as it is: an unmutated copy has no problem", () => {
-      const { problems, applied } = wiringProblemsOfMutatedCopy(() => undefined);
-      expect(applied).toBe(false);
-      expect(problems).toEqual([]);
-    });
-
-    const SCRIPT_MUTATIONS = HOOK_WIRING.flatMap(({ script, file, matcher }) => [
+    const PORTABLE_MUTATIONS = HOOK_WIRING.flatMap(({ script, matcher }) => [
       {
+        kind: "deleted",
         label: `${script}: the entry is deleted`,
         script,
         mutate: (settings: SettingsShape) => {
@@ -1566,6 +1610,7 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
         expected: () => [`0 hook entries name ${script}, not 1`],
       },
       {
+        kind: "twice",
         label: `${script}: the entry is there twice`,
         script,
         mutate: (settings: SettingsShape) => {
@@ -1580,6 +1625,7 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
         expected: () => [`2 hook entries name ${script}, not 1`],
       },
       {
+        kind: "matcher",
         label: `${script}: the matcher is changed`,
         script,
         mutate: (settings: SettingsShape) => {
@@ -1589,6 +1635,46 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
           `the matcher of ${script} is ChangedMatcher, the case needs ${matcher ?? "none"}`,
         ],
       },
+      {
+        kind: "echo",
+        label: `${script}: the command is echo of the path`,
+        script,
+        mutate: (settings: SettingsShape) => {
+          for (const group of groupsNaming(settings, script)) {
+            for (const hook of group.hooks) hook.command = hook.command.replace(/^bash /, "echo ");
+          }
+        },
+        expected: () => [
+          `the command of ${script} is not bash <path>: ${realCommandOf(script).replace(/^bash /, "echo ")}`,
+        ],
+      },
+      {
+        kind: "type",
+        label: `${script}: the type of the entry is changed`,
+        script,
+        mutate: (settings: SettingsShape) => {
+          for (const group of groupsNaming(settings, script)) {
+            for (const hook of group.hooks) hook.type = "ChangedType";
+          }
+        },
+        expected: () => [`the type of ${script} is ChangedType, not command`],
+      },
+      {
+        kind: "path-end",
+        label: `${script}: the path ends in another file name`,
+        script,
+        mutate: (settings: SettingsShape) => {
+          for (const group of groupsNaming(settings, script)) {
+            for (const hook of group.hooks) hook.command = `${hook.command}.bak`;
+          }
+        },
+        expected: () => [
+          `the path in the command of ${script} does not end with /.claude/hooks/${script}: ${realCommandOf(script)}.bak`,
+        ],
+      },
+    ]);
+
+    const MACHINE_MUTATIONS = HOOK_WIRING.flatMap(({ script, file }) => [
       {
         label: `${script}: the checkout is moved`,
         script,
@@ -1621,38 +1707,101 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
           `the command of ${script} runs ${join(folder, "other/.claude/hooks", script)}, the harness copies ${realpathSync(file)}`,
         ],
       },
-      {
-        label: `${script}: the command is echo of the path`,
-        script,
-        mutate: (settings: SettingsShape) => {
-          for (const group of groupsNaming(settings, script)) {
-            for (const hook of group.hooks) hook.command = hook.command.replace(/^bash /, "echo ");
-          }
-        },
-        expected: () => [
-          `the command of ${script} is not bash <path>: ${realCommandOf(script).replace(/^bash /, "echo ")}`,
-        ],
-      },
-      {
-        label: `${script}: the type of the entry is changed`,
-        script,
-        mutate: (settings: SettingsShape) => {
-          for (const group of groupsNaming(settings, script)) {
-            for (const hook of group.hooks) hook.type = "ChangedType";
-          }
-        },
-        expected: () => [`the type of ${script} is ChangedType, not command`],
-      },
     ]);
 
-    it.each(SCRIPT_MUTATIONS)("turns red when $label", ({ script, mutate, expected }) => {
-      const { problems, applied, folder } = wiringProblemsOfMutatedCopy(mutate);
-      console.info(
-        `WIRING MUTATION ${script}: applied=${applied} problems=${JSON.stringify(problems)}`,
+    describe("the portable part of the wiring check", () => {
+      it("wires each of the three hook scripts once, under the matcher its case needs, in a bash command ending in the script", () => {
+        expect(HOOK_WIRING.map((wiring) => wiring.script)).toEqual([
+          "check-protected-file.sh",
+          "check-destructive-bash.sh",
+          "session-end-reminder.sh",
+        ]);
+        expect(portableHookWiringProblems(REAL_SETTINGS)).toEqual([]);
+      });
+
+      it("is read as it is: an unmutated copy has no problem", () => {
+        const { problems, applied } = problemsOfMutatedCopy(
+          portableHookWiringProblems,
+          () => undefined,
+        );
+        expect(applied).toBe(false);
+        expect(problems).toEqual([]);
+      });
+
+      it.each(PORTABLE_MUTATIONS)("turns red when $label", ({ script, mutate, expected }) => {
+        const { problems, applied } = problemsOfMutatedCopy(portableHookWiringProblems, mutate);
+        console.info(
+          `PORTABLE WIRING MUTATION ${script}: applied=${applied} problems=${JSON.stringify(problems)}`,
+        );
+        expect(applied).toBe(true);
+        expect(problems).toEqual(expected());
+      });
+
+      it.each(MACHINE_MUTATIONS)(
+        "stays green when $label, which only the machine part sees",
+        ({ mutate }) => {
+          const { problems, applied } = problemsOfMutatedCopy(portableHookWiringProblems, mutate);
+          expect(applied).toBe(true);
+          expect(problems).toEqual([]);
+        },
       );
-      expect(applied).toBe(true);
-      expect(problems).toEqual(expected(folder));
     });
+
+    describe("the machine part of the wiring check, where the entry cannot be read", () => {
+      const UNREADABLE_ENTRY_KINDS = ["deleted", "twice", "echo"];
+
+      it.each(PORTABLE_MUTATIONS.filter(({ kind }) => UNREADABLE_ENTRY_KINDS.includes(kind)))(
+        "reports nothing of the script when $label, which the portable part reports",
+        ({ script, mutate }) => {
+          const { problems, applied } = problemsOfMutatedCopy(machineHookWiringProblems, mutate);
+          expect(applied).toBe(true);
+          expect(problems.filter((problem) => problem.includes(script))).toEqual([]);
+        },
+      );
+    });
+
+    // Not a skip: with REQUIRE_DB_TESTS=1, as CI sets it, the runner fails any run that holds a
+    // collected test that did not run (scripts/testing/required-database-tests-reporter.ts). Where the
+    // checkout is not here, one test runs instead, says so in its name, and asserts the machine part
+    // reports the missing paths.
+    const MACHINE_ABSENT_TITLE =
+      "the checkout named in the docs settings is not on this machine: the machine part of the wiring check is not proved here, and reports the missing paths";
+
+    // No runIf or skipIf: both collect their tests as skipped, which the runner counts.
+    if (!checkoutNamedInRealSettingsIsHere) {
+      it(MACHINE_ABSENT_TITLE, () => {
+        const problems = machineHookWiringProblems(REAL_SETTINGS);
+        console.info(`MACHINE WIRING NOT PROVED HERE: ${JSON.stringify(problems)}`);
+        expect(problems.length).toBeGreaterThan(0);
+      });
+    } else {
+      describe("the machine part of the wiring check (the checkout named in the docs settings is on this machine)", () => {
+        it("finds each script at the path the real settings name, the file the harness copies", () => {
+          expect(machineHookWiringProblems(REAL_SETTINGS)).toEqual([]);
+        });
+
+        it("is read as it is: an unmutated copy has no problem", () => {
+          const { problems, applied } = problemsOfMutatedCopy(
+            machineHookWiringProblems,
+            () => undefined,
+          );
+          expect(applied).toBe(false);
+          expect(problems).toEqual([]);
+        });
+
+        it.each(MACHINE_MUTATIONS)("turns red when $label", ({ script, mutate, expected }) => {
+          const { problems, applied, folder } = problemsOfMutatedCopy(
+            machineHookWiringProblems,
+            mutate,
+          );
+          console.info(
+            `MACHINE WIRING MUTATION ${script}: applied=${applied} problems=${JSON.stringify(problems)}`,
+          );
+          expect(applied).toBe(true);
+          expect(problems).toEqual(expected(folder));
+        });
+      });
+    }
   },
 );
 

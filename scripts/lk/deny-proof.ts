@@ -26,7 +26,8 @@
  * stdout. A guard case runs with no deny flag, so the fixture's hook is the only deny or hook entry
  * that can refuse its command; a plain hook case goes through dispatch.ts. An allowed guard case
  * also runs under the previous guard script, which must refuse the command. Before any session of
- * a hook group the wiring of the three hook scripts in docs/.claude/settings.json is checked, and
+ * a hook group the wiring of the three hook scripts in docs/.claude/settings.json is checked, in a
+ * portable part (what the file alone says) and a machine part (the paths it names exist here), and
  * before any session of the hook group the guard table is run through the script; the group stops
  * if either disagrees. A measure case asserts nothing: it runs one session and reports facts from
  * the fixture and the session log (the protect-file and SessionEnd hooks).
@@ -905,22 +906,28 @@ const realPathOrUndefined = (path: string): string | undefined => {
   }
 };
 
-const commandProblems = (script: string, copiedFile: string, command: string): string[] => {
-  const path = BASH_COMMAND_FORM.exec(command)?.[1];
-  if (path === undefined) return [`the command of ${script} is not bash <path>: ${command}`];
-  const runs = realPathOrUndefined(path);
-  if (runs === undefined) {
-    return [`the command of ${script} names no file that exists: ${command}`];
-  }
-  const copied = realPathOrUndefined(copiedFile);
-  if (runs === copied) return [];
-  return [`the command of ${script} runs ${runs}, the harness copies ${copied ?? copiedFile}`];
+const soleEntryNaming = (hooks: HooksBlock, script: string): HookEntry | undefined => {
+  const entries = hookEntriesNaming(hooks, script);
+  return entries.length === 1 ? entries[0] : undefined;
 };
 
-/** The ways the hooks block of a settings file leaves a hook script unwired for what its case needs. */
-export const hookWiringProblems = (settingsFile: string): string[] => {
+const portableCommandProblems = (script: string, command: string): string[] => {
+  const path = BASH_COMMAND_FORM.exec(command)?.[1];
+  if (path === undefined) return [`the command of ${script} is not bash <path>: ${command}`];
+  if (path.endsWith(`/.claude/hooks/${script}`)) return [];
+  return [
+    `the path in the command of ${script} does not end with /.claude/hooks/${script}: ${command}`,
+  ];
+};
+
+/**
+ * The ways the hooks block of a settings file leaves a hook script unwired for what its case needs,
+ * judged from the file alone. True on any machine that holds the file, whichever checkout its paths
+ * name.
+ */
+export const portableHookWiringProblems = (settingsFile: string): string[] => {
   const hooks = readHooksBlock(settingsFile);
-  return HOOK_WIRING.flatMap(({ script, file, event, matcher }) => {
+  return HOOK_WIRING.flatMap(({ script, event, matcher }) => {
     const [entry, ...others] = hookEntriesNaming(hooks, script);
     if (entry === undefined || others.length > 0) {
       return [
@@ -937,8 +944,33 @@ export const hookWiringProblems = (settingsFile: string): string[] => {
     if (entry.hook.type !== "command") {
       problems.push(`the type of ${script} is ${entry.hook.type ?? "none"}, not command`);
     }
-    problems.push(...commandProblems(script, file, entry.hook.command));
+    problems.push(...portableCommandProblems(script, entry.hook.command));
     return problems;
+  });
+};
+
+const machineCommandProblems = (script: string, copiedFile: string, command: string): string[] => {
+  const path = BASH_COMMAND_FORM.exec(command)?.[1];
+  if (path === undefined) return [];
+  const runs = realPathOrUndefined(path);
+  if (runs === undefined) {
+    return [`the command of ${script} names no file that exists: ${command}`];
+  }
+  const copied = realPathOrUndefined(copiedFile);
+  if (runs === copied) return [];
+  return [`the command of ${script} runs ${runs}, the harness copies ${copied ?? copiedFile}`];
+};
+
+/**
+ * What only the machine named by the paths can say: each path exists and resolves to the file the
+ * harness copies. A script with no single entry, or no bash <path> command, is the portable part's
+ * to report and gets nothing here.
+ */
+export const machineHookWiringProblems = (settingsFile: string): string[] => {
+  const hooks = readHooksBlock(settingsFile);
+  return HOOK_WIRING.flatMap(({ script, file }) => {
+    const entry = soleEntryNaming(hooks, script);
+    return entry === undefined ? [] : machineCommandProblems(script, file, entry.hook.command);
   });
 };
 
@@ -2730,10 +2762,13 @@ const assertGuardTableAgrees = (): void => {
 };
 
 const assertHookWiring = (): void => {
-  const problems = hookWiringProblems(DOCS_SETTINGS_FILE);
+  const problems = [
+    ...portableHookWiringProblems(DOCS_SETTINGS_FILE),
+    ...machineHookWiringProblems(DOCS_SETTINGS_FILE),
+  ];
   if (problems.length === 0) {
     emit(
-      `hook wiring: ${HOOK_WIRING.length} hook scripts each have exactly one entry in ${DOCS_SETTINGS_FILE}, of type command, under the event and matcher their cases need, whose command is bash <path> with a path that resolves to the file the harness copies from ${join(DOCS_ROOT, ".claude/hooks")}`,
+      `hook wiring: ${HOOK_WIRING.length} hook scripts each have exactly one entry in ${DOCS_SETTINGS_FILE}, of type command, under the event and matcher their cases need, whose command is bash <path> with a path ending /.claude/hooks/<script> that exists on this machine and resolves to the file the harness copies from ${join(DOCS_ROOT, ".claude/hooks")}`,
     );
     return;
   }
