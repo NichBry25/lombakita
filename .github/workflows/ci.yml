@@ -16,7 +16,7 @@ concurrency:
 jobs:
   checks:
     name: lint, typecheck, test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Twenty was set before this job ran the guard probes, which spend most of their time invoking
     # vitest once per probe.
     timeout-minutes: 40
@@ -53,10 +53,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -130,7 +130,7 @@ jobs:
       # token or an absent branch must fail the job: a checkout that quietly proceeds without `docs/`
       # restores the exact false green this step exists to remove.
       - name: Check out the doc lane
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: NichBry25/lombakita-docs
           path: docs
@@ -199,7 +199,7 @@ jobs:
 
   browser-audits:
     name: browser audits
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # 45 was set when the mobile audit walked the inventory once. It walks it three times now, one
     # per width in MOBILE_VIEWPORTS, which took this job's longest step from about two minutes to
     # about five on a laptop and more than that on a runner, and the browser probes run six audits
@@ -296,10 +296,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
