@@ -13,6 +13,12 @@
 #   FAKE_SILENT          the session never tries the command
 #   FAKE_UNREPORTED_WHEN the command is handled without a tool call being reported
 #   FAKE_SESSION_LOG     a file that gets one line per call saying whether the deny flag was there
+#   FAKE_HOOK_STDOUT_REACHES_MODEL  what a PreToolUse hook that exits 0 printed is added to the
+#                        tool result; unset, it is not, as in a real session
+#   FAKE_NO_SESSION_END  the SessionEnd hooks of ./.claude/settings.json are not run
+#   FAKE_NO_PRE_TOOL_HOOKS  the PreToolUse hooks of ./.claude/settings.json are not run
+#   FAKE_AMBIENT_COMMAND a shell command run before the session's own call, as a process of the
+#                        machine would run one the session did not ask for
 prompt=""
 deny=""
 deny_flag="false"
@@ -52,6 +58,9 @@ def tool_call():
     edit = re.search(r"Use the (Edit|Write) tool .*create the file (\S+) holding exactly the text (\S+)\.", prompt)
     if edit:
         return edit.group(1), {"file_path": edit.group(2)}, edit.group(3)
+    block = re.search(r"\nBEGIN COMMAND\n(.*)\nEND COMMAND\n", prompt, re.S)
+    if block:
+        return "Bash", {"command": block.group(1)}, None
     return "Bash", {"command": prompt.split("\n")[1]}, None
 
 
@@ -74,26 +83,42 @@ def settings_refusal(tool, tool_input):
 
 
 def hook_refusal(tool, tool_input):
+    if os.environ.get("FAKE_NO_PRE_TOOL_HOOKS"):
+        return None
     for group in project_settings().get("hooks", {}).get("PreToolUse", []):
-        if group.get("matcher") != tool:
+        if not re.fullmatch(group.get("matcher", ""), tool):
             continue
         for hook in group.get("hooks", []):
             payload = json.dumps({"tool_name": tool, "tool_input": tool_input})
             done = subprocess.run(hook["command"], shell=True, input=payload, capture_output=True, text=True)
             if done.returncode == 2:
                 return "PreToolUse:%s hook error: [%s]: %s" % (tool, hook["command"], done.stderr)
+            if os.environ.get("FAKE_HOOK_STDOUT_REACHES_MODEL"):
+                hook_stdout.append(done.stdout)
     return None
+
+
+def run_session_end_hooks():
+    if os.environ.get("FAKE_NO_SESSION_END"):
+        return
+    for group in project_settings().get("hooks", {}).get("SessionEnd", []):
+        for hook in group.get("hooks", []):
+            subprocess.run(hook["command"], shell=True, capture_output=True, text=True)
 
 
 def run(tool, tool_input, text):
     if tool == "Bash":
         done = subprocess.run(tool_input["command"], shell=True, capture_output=True, text=True)
         return done.stdout + done.stderr
+    os.makedirs(os.path.dirname(tool_input["file_path"]), exist_ok=True)
     with open(tool_input["file_path"], "w") as handle:
         handle.write(text)
     return "written"
 
 
+if os.environ.get("FAKE_AMBIENT_COMMAND"):
+    subprocess.run(os.environ["FAKE_AMBIENT_COMMAND"], shell=True, capture_output=True, text=True)
+hook_stdout = []
 tool, tool_input, text = tool_call()
 denials = []
 if not os.environ.get("FAKE_SILENT"):
@@ -114,6 +139,7 @@ if not os.environ.get("FAKE_SILENT"):
     else:
         output = run(tool, tool_input, text)
     if report:
-        emit({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": output}]}})
+        emit({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "".join(hook_stdout) + output}]}})
 emit({"type": "result", "subtype": "success", "is_error": False, "num_turns": 2, "permission_denials": denials})
+run_session_end_hooks()
 PY
