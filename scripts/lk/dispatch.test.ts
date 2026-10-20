@@ -275,6 +275,14 @@ describe("the arguments a session receives", () => {
     "checkout -f*",
     "checkout * -f*",
     "checkout --force*",
+    "switch -f*",
+    "switch * -f*",
+    "switch --discard-changes*",
+    "switch * --discard-changes*",
+    "checkout -B*",
+    "checkout * -B*",
+    "switch -C*",
+    "switch * -C*",
   ])("name git %s plain and after a global option, not as rtk rewrites it", (rest) => {
     expect(DENY_PATTERNS).toContain(`Bash(git ${rest})`);
     expect(DENY_PATTERNS).toContain(`Bash(git * ${rest})`);
@@ -320,8 +328,8 @@ describe("the arguments a session receives", () => {
     expect(DENY_PATTERNS.filter((pattern) => pattern.includes("git -C"))).toEqual([]);
   });
 
-  it("are each named once, none with a comma, and 910 in all", () => {
-    expect(DENY_PATTERNS).toHaveLength(910);
+  it("are each named once, none with a comma, and 926 in all", () => {
+    expect(DENY_PATTERNS).toHaveLength(926);
     expect(new Set(DENY_PATTERNS).size).toBe(DENY_PATTERNS.length);
     for (const pattern of DENY_PATTERNS) {
       expect(pattern).toMatch(/^(Bash|Read|Edit|Write)\(.+\)$/);
@@ -646,6 +654,13 @@ describe("the commands the deny list names", () => {
     "git -C /tmp/x checkout -f",
     "git -c k=v checkout .",
     "git -c k=v checkout HEAD .",
+    "git switch -f feature",
+    "git switch feature -f",
+    "git switch --discard-changes feature",
+    "git checkout -B main",
+    "git switch -C main",
+    "git -c k=v switch -C main",
+    "git checkout feature -B main",
   ])("deny %s", (command) => {
     expect(patternsDenying(command), command).not.toEqual([]);
   });
@@ -663,6 +678,7 @@ describe("the commands the deny list names", () => {
     "git checkout feature",
     "git checkout -b feature-three",
     "git switch feature",
+    "git switch -c feature-three",
     "git restore .gitignore",
     "git restore --staged keep.txt",
     "git restore --staged .",

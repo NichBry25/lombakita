@@ -665,6 +665,11 @@ const branchMoved: ProofCase["harm"] = (before, after) =>
     ? undefined
     : "branch feature-two points somewhere else";
 
+const mainMoved: ProofCase["harm"] = (before, after) =>
+  refLine(before.localBranches, "main") === refLine(after.localBranches, "main")
+    ? undefined
+    : "branch main points somewhere else";
+
 const standInCalled: ProofCase["harm"] = (_before, after) =>
   after.standInCalled ? "a stand-in command was called" : undefined;
 
@@ -697,6 +702,10 @@ const withRtkTwin = (pattern: string): string[] => [pattern, pattern.replace("Ba
 
 const stageKeepFile = (root: string): void => {
   git(root, ["add", "keep.txt"], isolatedGitEnv());
+};
+
+const checkOutFeature = (root: string): void => {
+  git(root, ["checkout", "-q", "feature"], isolatedGitEnv());
 };
 
 /** The script as it was before it blocked: block messages on stdout and exit code 1. */
@@ -1604,6 +1613,44 @@ export const CASES: readonly ProofCase[] = [
     ["Bash(git reset * --hard*)"],
     workingTreeLost,
   ),
+  bashCase(
+    "switch",
+    "switch-f",
+    "git switch -f feature",
+    ["Bash(git switch -f*)", "Bash(git * switch -f*)"],
+    workingTreeLost,
+    "ahead",
+  ),
+  bashCase(
+    "switch",
+    "switch-discard-changes",
+    "git switch --discard-changes feature",
+    ["Bash(git switch --discard-changes*)", "Bash(git * switch --discard-changes*)"],
+    workingTreeLost,
+    "ahead",
+  ),
+  {
+    ...bashCase(
+      "switch",
+      "checkout-capital-b-main",
+      "git checkout -B main",
+      ["Bash(git checkout -B*)", "Bash(git * checkout -B*)"],
+      mainMoved,
+      "ahead",
+    ),
+    prepare: checkOutFeature,
+  },
+  {
+    ...bashCase(
+      "switch",
+      "switch-capital-c-main",
+      "git switch -C main",
+      ["Bash(git switch -C*)", "Bash(git * switch -C*)"],
+      mainMoved,
+      "ahead",
+    ),
+    prepare: checkOutFeature,
+  },
   hookCase(
     "hook-drizzle-migrate",
     "echo drizzle-kit migrate > marker.txt",
@@ -1643,6 +1690,7 @@ export const CASES: readonly ProofCase[] = [
   allowedCase("ok-push-v-feature", "git push -v origin feature", remoteAdvanced),
   allowedCase("ok-checkout-b", "git checkout -b x", currentBranchIs("x")),
   allowedCase("ok-switch-feature", "git switch feature", currentBranchIs("feature")),
+  allowedCase("ok-switch-c", "git switch -c y", currentBranchIs("y")),
   allowedCase(
     "ok-branch-d-merged",
     "git branch -d merged-branch",

@@ -204,6 +204,15 @@ export const DENY_PATTERNS: readonly string[] = [
   ...plainGitForms("checkout -f*"),
   ...plainGitForms("checkout * -f*"),
   ...plainGitForms("checkout --force*"),
+  // Forcing a switch discards uncommitted changes, and -B or -C resets a branch to where HEAD is.
+  ...plainGitForms("switch -f*"),
+  ...plainGitForms("switch * -f*"),
+  ...plainGitForms("switch --discard-changes*"),
+  ...plainGitForms("switch * --discard-changes*"),
+  ...plainGitForms("checkout -B*"),
+  ...plainGitForms("checkout * -B*"),
+  ...plainGitForms("switch -C*"),
+  ...plainGitForms("switch * -C*"),
   ...restoreDiscardPatterns(),
   // The ntfy topic is a secret; the pattern covers ~, $HOME and absolute spellings of the path.
   "Read(~/.config/lombakita/**)",
