@@ -138,7 +138,7 @@ const READ_COMMAND_LINE =
 const DESTRUCTIVE_STATEMENT_GREP =
   'grep -qiE "\\b(DROP[[:space:]]+TABLE|DROP[[:space:]]+COLUMN|TRUNCATE[[:space:]]+TABLE|DELETE[[:space:]]+FROM[[:space:]]+[a-zA-Z_])\\b"';
 
-// The way the edited database guard answers: a message on stderr and exit 2, and a destructive
+// The way the database guard answers: a message on stderr and exit 2, and a destructive
 // statement blocks only in a command that also names a program that runs SQL.
 const blockingHook = (migrateMessage = "UNGUARDED MIGRATION BLOCKED"): string =>
   [
@@ -888,9 +888,10 @@ describe("the guard cases, which carry no deny flag", () => {
       expect(output).toContain("harm in the denied run: none");
       expect(output).toContain(`harm in the control run: ${harm}`);
       expect(output).toContain("- denied run (claude started directly with no deny flag");
-      expect(output).toContain(
-        "the fixture's own .claude/settings.json holds the only hook and deny entries of the fixture, user-level settings are also in force and refuse nothing here, as the control run shows)",
+      expect(output).toMatch(
+        /holds the only hook and deny entries of the fixture; the denied run must also carry the refusal text ".+" in a tool result, so a refusal from user-level settings fails the case\)/,
       );
+      expect(output).not.toContain("refuse nothing here");
       expect(output).not.toContain("only thing that can refuse");
       expect(output).toContain("- control run (claude started directly with no deny flag");
       expect(output).toContain("fixture hooks (the entry of the hooks block of ");
@@ -1017,6 +1018,59 @@ describe("the guard cases name the stand-in call they attribute harm to", () => 
         `harm in the control run: the psql stand-in was called: ${PSQL_DROP_TABLE_LINE}`,
       );
       expect(verdictOf(output, "hook-sudo-psql")).toBe("PASS");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  const OWN_NAME_WITH_OTHER_ARGUMENTS: [string, string, string][] = [
+    ["hook-pipe-to-psql", 'psql -c "SELECT 1"', "psql -c SELECT 1"],
+    ["hook-bash-c-psql", "psql -c 'SELECT 2;'", "psql -c SELECT 2;"],
+    ["hook-bare-drizzle-kit-migrate", "drizzle-kit push", "drizzle-kit push"],
+    ["hook-docker-exec-psql", "docker ps", "docker ps"],
+  ];
+
+  it.each(OWN_NAME_WITH_OTHER_ARGUMENTS)(
+    "%s: a line with the case's own command name and other arguments makes the denied run INVALID and says why",
+    (caseId, ambientCommand, line) => {
+      const output = guardRun(caseId, { FAKE_AMBIENT_COMMAND: ambientCommand });
+      expect(linesOf(output, "denied")).toEqual([
+        `  stand-in marker line in the denied run: ${line}  UNCLASSIFIED (the ${line.split(" ")[0]} name of this command, other arguments)`,
+      ]);
+      expect(output).toContain(
+        `INVALID: the stand-in line "${line}" has the command name of this case and other arguments, so it may be a variant that got past the guard`,
+      );
+      expect(output).not.toContain("- control run");
+      expect(verdictOf(output, caseId)).toBe("INVALID");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "keeps a line of another command name as ignored, so the case still passes",
+    () => {
+      const output = guardRun("hook-pipe-to-psql", { FAKE_AMBIENT_COMMAND: "drizzle-kit push" });
+      expect(linesOf(output, "denied")).toEqual([
+        `  stand-in marker line in the denied run: drizzle-kit push  ${IGNORED}`,
+      ]);
+      expect(output).not.toContain("UNCLASSIFIED");
+      expect(output).not.toContain("INVALID: the stand-in line");
+      expect(verdictOf(output, "hook-pipe-to-psql")).toBe("PASS");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "reads FAIL, not INVALID, when the case's own line is there beside a line of its name with other arguments",
+    () => {
+      const output = guardRun("hook-env-psql", {
+        FAKE_AMBIENT_COMMAND: 'psql -c "SELECT 1"',
+        FAKE_ALSO_RUN_WHEN: "always",
+      });
+      expect(output).toContain(
+        `harm in the denied run: the psql stand-in was called: ${PSQL_DROP_TABLE_LINE}`,
+      );
+      expect(output).not.toContain("INVALID: the stand-in line");
+      expect(verdictOf(output, "hook-env-psql")).toBe("FAIL");
     },
     SESSION_TEST_TIMEOUT_MS,
   );
@@ -1468,8 +1522,10 @@ const GUARD_PATH_IN_DOCS = ".claude/hooks/check-destructive-bash.sh";
 const REAL_GUARD = join(REAL_DOCS, GUARD_PATH_IN_DOCS);
 
 // The real script is in the private docs repository, so these run only where it is checked out;
-// where docs/ is absent they are skipped, and the name says so.
-const REAL_GUARD_TITLE = "the real database guard script (skipped where docs/ is absent)";
+// where docs/ is absent they are skipped, which fails the run under the default REQUIRE_DB_TESTS,
+// and the name says so.
+const REAL_GUARD_TITLE =
+  "the real database guard script (needs docs/: a skipped test fails the run under the default REQUIRE_DB_TESTS)";
 describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
   it("answers every row of the guard table as expected", () => {
     expect(guardTableMismatches(REAL_GUARD)).toEqual([]);
@@ -1824,7 +1880,7 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
   };
   const lcAllTitle = tableLocaleInstalled()
     ? `is caught when ${LC_ALL_PROOF.element} is removed`
-    : `is skipped, ${TABLE_LOCALE_MISSING_NOTE}: ${LC_ALL_PROOF.element} is not proved`;
+    : `is skipped, which fails the run under the default REQUIRE_DB_TESTS, ${TABLE_LOCALE_MISSING_NOTE}: ${LC_ALL_PROOF.element} is not proved`;
 
   it.skipIf(!tableLocaleInstalled())(lcAllTitle, () => {
     expectMutationCaught(LC_ALL_PROOF);
@@ -1834,11 +1890,12 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
 const REAL_SETTINGS = join(REAL_DOCS, ".claude/settings.json");
 
 // The real settings file is in the private docs repository, so these run only where it is checked
-// out; where docs/ is absent they are skipped, and the name says so. The portable part of the
+// out; where docs/ is absent they are skipped, which fails the run under the default
+// REQUIRE_DB_TESTS, and the name says so. The portable part of the
 // wiring check runs wherever the file is; the machine part runs only where the checkout the file
 // names is on this machine, because the file holds that machine's absolute paths.
 describe.skipIf(!existsSync(REAL_SETTINGS))(
-  "the hooks block of the real docs settings (skipped where docs/ is absent)",
+  "the hooks block of the real docs settings (needs docs/: a skipped test fails the run under the default REQUIRE_DB_TESTS)",
   () => {
     interface SettingsShape {
       hooks: Record<string, { matcher?: string; hooks: { type?: string; command: string }[] }[]>;
@@ -2069,14 +2126,15 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
       );
     });
 
-    // Not a skip: with REQUIRE_DB_TESTS=1, as CI sets it, the runner fails any run that holds a
-    // collected test that did not run (scripts/testing/required-database-tests-reporter.ts). Where the
-    // checkout is not here, one test runs instead, says so in its name, and asserts the machine part
-    // reports the missing paths.
+    // Not a skip: under the default REQUIRE_DB_TESTS, as CI sets it, the runner fails any run that
+    // holds a collected test that did not run (scripts/testing/required-database-tests-reporter.ts).
+    // Where the checkout is not here, one test runs instead, says so in its name, and asserts the
+    // machine part reports the missing paths.
     const MACHINE_ABSENT_TITLE =
       "the checkout named in the docs settings is not on this machine: the machine part of the wiring check is not proved here, and reports the missing paths";
 
-    // No runIf or skipIf: both collect their tests as skipped, which the runner counts.
+    // A plain if here, not runIf or skipIf: both collect the test they hide as skipped, which the
+    // runner counts as a failure. The enclosing describe is the one skipIf, for a machine without docs/.
     if (!checkoutNamedInRealSettingsIsHere) {
       it(MACHINE_ABSENT_TITLE, () => {
         const problems = machineHookWiringProblems(REAL_SETTINGS);
@@ -2129,6 +2187,20 @@ describe("the settings cases", () => {
       expect(verdictOf(output, "twin-npx-vercel-env-pull")).toBe("PASS");
       const calls = readFileSync(sessionLog, "utf8").trimEnd().split("\n");
       expect(calls).toEqual(["deny_flag=false", "deny_flag=false"]);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "prints no claim about a refusal text for a settings case that names none",
+    () => {
+      const docs = makeDocsRoot(blockingHook(), [TWIN_ENTRY, "Bash(gh auth token*)"]);
+      const output = runHarness("twins", "twin-npx-vercel-env-pull", {
+        DENY_PROOF_DOCS_ROOT: docs,
+      });
+      expect(output).toContain("- denied run (claude started directly with no deny flag");
+      expect(output).not.toContain("must also carry the refusal text");
+      expect(output).not.toContain("user-level settings");
     },
     SESSION_TEST_TIMEOUT_MS,
   );
@@ -2209,7 +2281,7 @@ describe("the control run's arguments", () => {
 });
 
 describe("the database guard hook as the control runs it", () => {
-  const EDITED = [
+  const TWO_BLOCK_HOOK_TEXT = [
     "if blocked; then",
     '  echo "first message" >&2',
     "  exit 2",
@@ -2223,7 +2295,7 @@ describe("the database guard hook as the control runs it", () => {
   ].join("\n");
 
   it("goes back to exit 1 and standard output, and nothing else changes", () => {
-    const exitsOne = exitsOneToStdoutHookText(EDITED);
+    const exitsOne = exitsOneToStdoutHookText(TWO_BLOCK_HOOK_TEXT);
     expect(exitsOne).toBe(
       [
         "if blocked; then",
@@ -2240,12 +2312,12 @@ describe("the database guard hook as the control runs it", () => {
     );
   });
 
-  it("is refused for a script that is not the edited one", () => {
+  it("is refused for a script without two exit 2 lines and a stderr redirect", () => {
     expect(() => exitsOneToStdoutHookText("exit 0\n")).toThrow("not 2 and at least 1");
-    expect(() => exitsOneToStdoutHookText(EDITED.replace("exit 2", "exit 1"))).toThrow(
+    expect(() => exitsOneToStdoutHookText(TWO_BLOCK_HOOK_TEXT.replace("exit 2", "exit 1"))).toThrow(
       "not 2 and at least 1",
     );
-    expect(() => exitsOneToStdoutHookText(EDITED.replaceAll(" >&2", ""))).toThrow(
+    expect(() => exitsOneToStdoutHookText(TWO_BLOCK_HOOK_TEXT.replaceAll(" >&2", ""))).toThrow(
       "2 exit 2 lines and 0 stderr redirects",
     );
   });
