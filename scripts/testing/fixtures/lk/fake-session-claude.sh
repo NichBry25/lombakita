@@ -13,8 +13,8 @@
 #   FAKE_SILENT          the session never tries the command
 #   FAKE_UNREPORTED_WHEN the command is handled without a tool call being reported
 #   FAKE_SESSION_LOG     a file that gets one line per call saying whether the deny flag was there
-#   FAKE_HOOK_STDOUT_REACHES_MODEL  what a PreToolUse hook that exits 0 printed is added to the
-#                        tool result; unset, it is not, as in a real session
+#   FAKE_HOOK_STDOUT_REACHES_MODEL  what a PreToolUse hook printed to stdout is added to the tool
+#                        result for every exit code except 2; unset, it is not, as in a real session
 #   FAKE_NO_SESSION_END  the SessionEnd hooks of ./.claude/settings.json are not run
 #   FAKE_NO_PRE_TOOL_HOOKS  the PreToolUse hooks of ./.claude/settings.json are not run
 #   FAKE_AMBIENT_COMMAND a shell command run before the session's own call, as a process of the

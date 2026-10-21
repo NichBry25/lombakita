@@ -2068,6 +2068,50 @@ describe("starting the session in process", () => {
   });
 });
 
+// A settings case with no covers runs with no deny flag, so a hook is the only thing that can
+// refuse its command and the deny list never sees it. The twin cases carry covers and stay.
+const SETTINGS_CASES_WITHOUT_COVERS = [
+  "hook-pipe-to-psql",
+  "hook-bash-c-psql",
+  "hook-env-psql",
+  "hook-sudo-psql",
+  "hook-bare-drizzle-kit-migrate",
+  "hook-docker-exec-psql",
+  "hook-npm-db-reset-with-sql",
+  "ok-hook-heredoc-sql-text",
+  "ok-hook-echo-drop-table-to-file",
+  "ok-hook-grep-drizzle-folder",
+  "ok-hook-npm-db-reset",
+  "hook-protect-ssot",
+  "hook-protect-ssot-variant",
+  "hook-protect-state-machines",
+  "hook-protect-contracts",
+  "hook-protect-product-contracts",
+  "hook-protect-control",
+  "hook-session-end",
+];
+
+interface CaseCovers {
+  id: string;
+  mode?: string;
+  covers: readonly string[];
+}
+
+const isSettingsCaseWithoutCovers = (testCase: CaseCovers): boolean =>
+  testCase.mode === "settings" && testCase.covers.length === 0;
+
+const exclusionProblems = (cases: readonly CaseCovers[], listed: readonly string[]): string[] => [
+  ...listed
+    .filter(
+      (id) =>
+        !cases.some((testCase) => testCase.id === id && isSettingsCaseWithoutCovers(testCase)),
+    )
+    .map((id) => `${id} is listed but is not a settings case with no covers`),
+  ...cases
+    .filter((testCase) => isSettingsCaseWithoutCovers(testCase) && !listed.includes(testCase.id))
+    .map((testCase) => `${testCase.id} is a settings case with no covers and is not listed`),
+];
+
 describe("the deny-proof harness without a model", () => {
   const harness = (args: string[], env: NodeJS.ProcessEnv = process.env) =>
     spawnSync(process.execPath, ["--import", "tsx", "scripts/lk/deny-proof.ts", ...args], {
@@ -2091,12 +2135,9 @@ describe("the deny-proof harness without a model", () => {
   it("gives every Bash case a covers list that holds every pattern naming its command, and no allowed control a refusing pattern", async () => {
     const { CASES } = await import("./deny-proof");
     const problems: string[] = [];
-    // A settings case with no covers runs with no deny flag, so a hook is the only thing that can
-    // refuse its command and the deny list never sees it. The twin cases carry covers and stay.
     const bashCases = CASES.filter(
       (candidate) =>
-        candidate.tool === "Bash" &&
-        !(candidate.mode === "settings" && candidate.covers.length === 0),
+        candidate.tool === "Bash" && !SETTINGS_CASES_WITHOUT_COVERS.includes(candidate.id),
     );
     for (const testCase of bashCases) {
       const command = testCase.command.split("<fixture>").join("/tmp/lk-deny-proof-x/repo");
@@ -2114,6 +2155,34 @@ describe("the deny-proof harness without a model", () => {
       if (missing.length > 0) problems.push(`${testCase.id}: ${command} <- ${missing.join(" ")}`);
     }
     expect(problems).toEqual([]);
+  });
+
+  it("lists every settings case with no covers that the deny list check leaves out, and no other", async () => {
+    const { CASES } = await import("./deny-proof");
+    expect(exclusionProblems(CASES, SETTINGS_CASES_WITHOUT_COVERS)).toEqual([]);
+  });
+
+  it("names a listed id that is not a settings case with no covers, or is no case at all", () => {
+    const cases = [
+      { id: "kept", mode: "settings", covers: ["Bash(x*)"] },
+      { id: "dispatched", covers: [] },
+    ];
+    expect(exclusionProblems(cases, ["kept", "dispatched", "gone"])).toEqual([
+      "kept is listed but is not a settings case with no covers",
+      "dispatched is listed but is not a settings case with no covers",
+      "gone is listed but is not a settings case with no covers",
+    ]);
+  });
+
+  it("names a settings case with no covers that is not listed", () => {
+    const cases = [
+      { id: "listed", mode: "settings", covers: [] },
+      { id: "unlisted", mode: "settings", covers: [] },
+      { id: "twin", mode: "settings", covers: ["Bash(x*)"] },
+    ];
+    expect(exclusionProblems(cases, ["listed"])).toEqual([
+      "unlisted is a settings case with no covers and is not listed",
+    ]);
   });
 
   it("registers nothing and runs nothing when it is only imported", () => {

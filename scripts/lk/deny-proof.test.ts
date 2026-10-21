@@ -138,7 +138,7 @@ const READ_COMMAND_LINE =
 const DESTRUCTIVE_STATEMENT_GREP =
   'grep -qiE "\\b(DROP[[:space:]]+TABLE|DROP[[:space:]]+COLUMN|TRUNCATE[[:space:]]+TABLE|DELETE[[:space:]]+FROM[[:space:]]+[a-zA-Z_])\\b"';
 
-// The way the edited database guard answers: a message on stderr and exit 2, and a destructive
+// The way the database guard answers: a message on stderr and exit 2, and a destructive
 // statement blocks only in a command that also names a program that runs SQL.
 const blockingHook = (migrateMessage = "UNGUARDED MIGRATION BLOCKED"): string =>
   [
@@ -587,6 +587,15 @@ const docsRun = (
     path,
   );
 
+// A bin whose `claude` only writes a marker file, so a test can tell whether a session was started.
+const markerSessionBin = (prefix: string): { bin: string; marker: string } => {
+  const bin = mkdtempSync(join(workspace, prefix));
+  const marker = join(bin, "session-started.txt");
+  writeStandIn(bin, "memory_pressure", reportFreeMemory(50));
+  writeStandIn(bin, "claude", `echo started > "${marker}"`);
+  return { bin, marker };
+};
+
 describe("the hook cases", () => {
   const hookRun = (caseId: string, docsRoot: string, extra: Record<string, string> = {}): string =>
     docsRun("hook", caseId, docsRoot, extra);
@@ -757,6 +766,60 @@ describe("the hook cases", () => {
   );
 
   it(
+    "start no session when the docs settings move the database guard to PostToolUse, which the event check names",
+    () => {
+      const { bin, marker } = markerSessionBin("event-stop-");
+      const guardUnderPostToolUse = (docsRoot: string) => {
+        const block = hooksBlockFor(docsRoot);
+        const [protect, guard] = block.PreToolUse as unknown[];
+        block.PreToolUse = [protect];
+        block.PostToolUse = [guard];
+        return block;
+      };
+      const output = docsRun(
+        "hook",
+        "hook-pipe-to-psql",
+        makeDocsRoot(blockingHook(), [], { hooksBlock: guardUnderPostToolUse }),
+        {},
+        bin,
+      );
+      expect(output).toContain("check-destructive-bash.sh is under PostToolUse, not PreToolUse");
+      expect(output).toContain("no session started");
+      expect(output).not.toContain("CASE ");
+      expect(existsSync(marker)).toBe(false);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "start no session when the docs settings name another existing file called like the guard, which the machine part names",
+    () => {
+      const { bin, marker } = markerSessionBin("wrong-file-stop-");
+      const otherCheckout = realpathSync(mkdtempSync(join(workspace, "other-checkout-")));
+      const otherGuard = join(otherCheckout, ".claude/hooks/check-destructive-bash.sh");
+      mkdirSync(dirname(otherGuard), { recursive: true });
+      writeFileSync(otherGuard, blockingHook());
+      const guardRunningOtherFile = (docsRoot: string) => {
+        const block = hooksBlockFor(docsRoot);
+        const [protect] = block.PreToolUse as unknown[];
+        const command = { type: "command", command: `bash ${otherGuard}` };
+        block.PreToolUse = [protect, { matcher: "Bash", hooks: [command] }];
+        return block;
+      };
+      const docs = makeDocsRoot(blockingHook(), [], { hooksBlock: guardRunningOtherFile });
+      const output = docsRun("hook", "hook-pipe-to-psql", docs, {}, bin);
+      const copied = join(realpathSync(docs), ".claude/hooks/check-destructive-bash.sh");
+      expect(output).toContain(
+        `the command of check-destructive-bash.sh runs ${otherGuard}, the harness copies ${copied}`,
+      );
+      expect(output).toContain("no session started");
+      expect(output).not.toContain("CASE ");
+      expect(existsSync(marker)).toBe(false);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
     "build the fixture's hooks from the entry in the docs settings, swapping only the script path",
     () => {
       const withTimeout = (docsRoot: string) => {
@@ -825,9 +888,10 @@ describe("the guard cases, which carry no deny flag", () => {
       expect(output).toContain("harm in the denied run: none");
       expect(output).toContain(`harm in the control run: ${harm}`);
       expect(output).toContain("- denied run (claude started directly with no deny flag");
-      expect(output).toContain(
-        "the fixture's own .claude/settings.json holds the only hook and deny entries of the fixture, user-level settings are also in force and refuse nothing here, as the control run shows)",
+      expect(output).toMatch(
+        /holds the only hook and deny entries of the fixture; the denied run must also carry the refusal text ".+" in a tool result, so a refusal from user-level settings fails the case\)/,
       );
+      expect(output).not.toContain("refuse nothing here");
       expect(output).not.toContain("only thing that can refuse");
       expect(output).toContain("- control run (claude started directly with no deny flag");
       expect(output).toContain("fixture hooks (the entry of the hooks block of ");
@@ -954,6 +1018,59 @@ describe("the guard cases name the stand-in call they attribute harm to", () => 
         `harm in the control run: the psql stand-in was called: ${PSQL_DROP_TABLE_LINE}`,
       );
       expect(verdictOf(output, "hook-sudo-psql")).toBe("PASS");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  const OWN_NAME_WITH_OTHER_ARGUMENTS: [string, string, string][] = [
+    ["hook-pipe-to-psql", 'psql -c "SELECT 1"', "psql -c SELECT 1"],
+    ["hook-bash-c-psql", "psql -c 'SELECT 2;'", "psql -c SELECT 2;"],
+    ["hook-bare-drizzle-kit-migrate", "drizzle-kit push", "drizzle-kit push"],
+    ["hook-docker-exec-psql", "docker ps", "docker ps"],
+  ];
+
+  it.each(OWN_NAME_WITH_OTHER_ARGUMENTS)(
+    "%s: a line with the case's own command name and other arguments makes the denied run INVALID and says why",
+    (caseId, ambientCommand, line) => {
+      const output = guardRun(caseId, { FAKE_AMBIENT_COMMAND: ambientCommand });
+      expect(linesOf(output, "denied")).toEqual([
+        `  stand-in marker line in the denied run: ${line}  UNCLASSIFIED (the ${line.split(" ")[0]} name of this command, other arguments)`,
+      ]);
+      expect(output).toContain(
+        `INVALID: the stand-in line "${line}" has the command name of this case and other arguments, so it may be a variant that got past the guard`,
+      );
+      expect(output).not.toContain("- control run");
+      expect(verdictOf(output, caseId)).toBe("INVALID");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "keeps a line of another command name as ignored, so the case still passes",
+    () => {
+      const output = guardRun("hook-pipe-to-psql", { FAKE_AMBIENT_COMMAND: "drizzle-kit push" });
+      expect(linesOf(output, "denied")).toEqual([
+        `  stand-in marker line in the denied run: drizzle-kit push  ${IGNORED}`,
+      ]);
+      expect(output).not.toContain("UNCLASSIFIED");
+      expect(output).not.toContain("INVALID: the stand-in line");
+      expect(verdictOf(output, "hook-pipe-to-psql")).toBe("PASS");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "reads FAIL, not INVALID, when the case's own line is there beside a line of its name with other arguments",
+    () => {
+      const output = guardRun("hook-env-psql", {
+        FAKE_AMBIENT_COMMAND: 'psql -c "SELECT 1"',
+        FAKE_ALSO_RUN_WHEN: "always",
+      });
+      expect(output).toContain(
+        `harm in the denied run: the psql stand-in was called: ${PSQL_DROP_TABLE_LINE}`,
+      );
+      expect(output).not.toContain("INVALID: the stand-in line");
+      expect(verdictOf(output, "hook-env-psql")).toBe("FAIL");
     },
     SESSION_TEST_TIMEOUT_MS,
   );
@@ -1220,6 +1337,107 @@ describe("the SessionEnd case", () => {
   );
 });
 
+// The hook-protect and hook-end cases assert nothing, so the wiring check is the only thing that
+// stops their groups on a bad hooks block.
+describe("the wiring check in the hook-protect and hook-end groups", () => {
+  const protectUnderPostToolUse = (docsRoot: string) => {
+    const block = hooksBlockFor(docsRoot);
+    const [protect, guard] = block.PreToolUse as unknown[];
+    block.PreToolUse = [guard];
+    block.PostToolUse = [protect];
+    return block;
+  };
+
+  const sessionEndUnderStop = (docsRoot: string) => {
+    const block = hooksBlockFor(docsRoot);
+    block.Stop = block.SessionEnd;
+    delete block.SessionEnd;
+    return block;
+  };
+
+  it(
+    "hook-protect starts no session and names the wiring when the protect script is under PostToolUse",
+    () => {
+      const { bin, marker } = markerSessionBin("protect-group-stop-");
+      const docs = makeDocsRoot(blockingHook(), [], { hooksBlock: protectUnderPostToolUse });
+      const output = docsRun("hook-protect", "hook-protect-ssot", docs, {}, bin);
+      expect(output).toContain("check-protected-file.sh is under PostToolUse, not PreToolUse");
+      expect(output).toContain("no session started");
+      expect(output).not.toContain("CASE ");
+      expect(existsSync(marker)).toBe(false);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "hook-end starts no session and names the wiring when the SessionEnd script is under Stop",
+    () => {
+      const { bin, marker } = markerSessionBin("end-group-stop-");
+      const docs = makeDocsRoot(blockingHook(), [], { hooksBlock: sessionEndUnderStop });
+      const output = docsRun("hook-end", "hook-session-end", docs, {}, bin);
+      expect(output).toContain("session-end-reminder.sh is under Stop, not SessionEnd");
+      expect(output).toContain("no session started");
+      expect(output).not.toContain("CASE ");
+      expect(existsSync(marker)).toBe(false);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+});
+
+describe("the list of hook scripts the wiring check covers", () => {
+  it("holds the protect, database guard and SessionEnd scripts, each with the event, matcher and file its cases need", () => {
+    const rows = HOOK_WIRING.map(({ script, event, matcher }) => ({ script, event, matcher }));
+    expect(rows).toEqual([
+      { script: "check-protected-file.sh", event: "PreToolUse", matcher: "Edit|Write|MultiEdit" },
+      { script: "check-destructive-bash.sh", event: "PreToolUse", matcher: "Bash" },
+      { script: "session-end-reminder.sh", event: "SessionEnd", matcher: undefined },
+    ]);
+    for (const { script, file } of HOOK_WIRING) {
+      expect(file.endsWith(`/.claude/hooks/${script}`)).toBe(true);
+    }
+  });
+});
+
+describe("the wiring check functions on a settings file written for the test", () => {
+  const settingsFileHolding = (settings: Record<string, unknown>): string => {
+    const folder = mkdtempSync(join(workspace, "wiring-settings-"));
+    const file = join(folder, "settings.json");
+    writeFileSync(file, JSON.stringify(settings));
+    return file;
+  };
+
+  const MISSING_GUARD = join(workspace, "no-such-checkout/.claude/hooks/check-destructive-bash.sh");
+  const guardProblems = (problems: string[]): string[] =>
+    problems.filter((problem) => problem.includes("check-destructive-bash.sh"));
+
+  it.each([
+    ["the portable part", portableHookWiringProblems],
+    ["the machine part", machineHookWiringProblems],
+  ])("%s refuses a settings file that holds no hooks block", (_name, check) => {
+    const file = settingsFileHolding({ permissions: { deny: [] } });
+    expect(() => check(file)).toThrow("holds no hooks block");
+  });
+
+  it("the machine part reports nothing of a script that two entries name, whatever their paths", () => {
+    const block = hooksBlockFor(makeDocsRoot(blockingHook(), []));
+    const missing = { type: "command", command: `bash ${MISSING_GUARD}` };
+    block.PreToolUse = [
+      { matcher: "Bash", hooks: [missing] },
+      { matcher: "Bash", hooks: [missing] },
+    ];
+    const problems = machineHookWiringProblems(settingsFileHolding({ hooks: block }));
+    expect(guardProblems(problems)).toEqual([]);
+  });
+
+  it("the machine part reports nothing of a script whose command is not bash <path>", () => {
+    const block = hooksBlockFor(makeDocsRoot(blockingHook(), []));
+    const echoed = { type: "command", command: `echo ${MISSING_GUARD}` };
+    block.PreToolUse = [{ matcher: "Bash", hooks: [echoed] }];
+    const problems = machineHookWiringProblems(settingsFileHolding({ hooks: block }));
+    expect(guardProblems(problems)).toEqual([]);
+  });
+});
+
 describe("the guard table", () => {
   const SPEC_ROWS: [string, 0 | 2][] = [
     [GUARD_COMMANDS.heredocSqlText, 0],
@@ -1304,8 +1522,10 @@ const GUARD_PATH_IN_DOCS = ".claude/hooks/check-destructive-bash.sh";
 const REAL_GUARD = join(REAL_DOCS, GUARD_PATH_IN_DOCS);
 
 // The real script is in the private docs repository, so these run only where it is checked out;
-// where docs/ is absent they are skipped, and the name says so.
-const REAL_GUARD_TITLE = "the real database guard script (skipped where docs/ is absent)";
+// where docs/ is absent they are skipped, which fails the run under the default REQUIRE_DB_TESTS,
+// and the name says so.
+const REAL_GUARD_TITLE =
+  "the real database guard script (needs docs/: a skipped test fails the run under the default REQUIRE_DB_TESTS)";
 describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
   it("answers every row of the guard table as expected", () => {
     expect(guardTableMismatches(REAL_GUARD)).toEqual([]);
@@ -1660,7 +1880,7 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
   };
   const lcAllTitle = tableLocaleInstalled()
     ? `is caught when ${LC_ALL_PROOF.element} is removed`
-    : `is skipped, ${TABLE_LOCALE_MISSING_NOTE}: ${LC_ALL_PROOF.element} is not proved`;
+    : `is skipped, which fails the run under the default REQUIRE_DB_TESTS, ${TABLE_LOCALE_MISSING_NOTE}: ${LC_ALL_PROOF.element} is not proved`;
 
   it.skipIf(!tableLocaleInstalled())(lcAllTitle, () => {
     expectMutationCaught(LC_ALL_PROOF);
@@ -1670,11 +1890,12 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
 const REAL_SETTINGS = join(REAL_DOCS, ".claude/settings.json");
 
 // The real settings file is in the private docs repository, so these run only where it is checked
-// out; where docs/ is absent they are skipped, and the name says so. The portable part of the
+// out; where docs/ is absent they are skipped, which fails the run under the default
+// REQUIRE_DB_TESTS, and the name says so. The portable part of the
 // wiring check runs wherever the file is; the machine part runs only where the checkout the file
 // names is on this machine, because the file holds that machine's absolute paths.
 describe.skipIf(!existsSync(REAL_SETTINGS))(
-  "the hooks block of the real docs settings (skipped where docs/ is absent)",
+  "the hooks block of the real docs settings (needs docs/: a skipped test fails the run under the default REQUIRE_DB_TESTS)",
   () => {
     interface SettingsShape {
       hooks: Record<string, { matcher?: string; hooks: { type?: string; command: string }[] }[]>;
@@ -1706,6 +1927,11 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
       }
     };
 
+    // A `$label` title is cut at 40 characters, which makes the titles of these rows identical; a
+    // `%s` title keeps the whole label.
+    const withTitle = <Row extends { label: string }>(rows: readonly Row[]): [string, Row][] =>
+      rows.map((row) => [row.label, row]);
+
     const groupsNaming = (settings: SettingsShape, script: string) =>
       Object.values(settings.hooks)
         .flat()
@@ -1721,7 +1947,10 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
       return path !== undefined && existsSync(dirname(path));
     });
 
-    const PORTABLE_MUTATIONS = HOOK_WIRING.flatMap(({ script, matcher }) => [
+    const eventOtherThan = (event: string): string =>
+      event === "SessionEnd" ? "Stop" : "PostToolUse";
+
+    const PORTABLE_MUTATIONS = HOOK_WIRING.flatMap(({ script, event, matcher }) => [
       {
         kind: "deleted",
         label: `${script}: the entry is deleted`,
@@ -1749,6 +1978,22 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
           }
         },
         expected: () => [`2 hook entries name ${script}, not 1`],
+      },
+      {
+        kind: "event",
+        label: `${script}: the entry is moved from ${event} to ${eventOtherThan(event)}, which the event check names`,
+        script,
+        mutate: (settings: SettingsShape) => {
+          const moved = groupsNaming(settings, script);
+          for (const name of Object.keys(settings.hooks)) {
+            settings.hooks[name] = (settings.hooks[name] ?? []).filter(
+              (group) => !moved.includes(group),
+            );
+          }
+          const destination = eventOtherThan(event);
+          settings.hooks[destination] = [...(settings.hooks[destination] ?? []), ...moved];
+        },
+        expected: () => [`${script} is under ${eventOtherThan(event)}, not ${event}`],
       },
       {
         kind: "matcher",
@@ -1854,18 +2099,21 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
         expect(problems).toEqual([]);
       });
 
-      it.each(PORTABLE_MUTATIONS)("turns red when $label", ({ script, mutate, expected }) => {
-        const { problems, applied } = problemsOfMutatedCopy(portableHookWiringProblems, mutate);
-        console.info(
-          `PORTABLE WIRING MUTATION ${script}: applied=${applied} problems=${JSON.stringify(problems)}`,
-        );
-        expect(applied).toBe(true);
-        expect(problems).toEqual(expected());
-      });
+      it.each(withTitle(PORTABLE_MUTATIONS))(
+        "turns red when %s",
+        (_label, { script, mutate, expected }) => {
+          const { problems, applied } = problemsOfMutatedCopy(portableHookWiringProblems, mutate);
+          console.info(
+            `PORTABLE WIRING MUTATION ${script}: applied=${applied} problems=${JSON.stringify(problems)}`,
+          );
+          expect(applied).toBe(true);
+          expect(problems).toEqual(expected());
+        },
+      );
 
-      it.each(MACHINE_MUTATIONS)(
-        "stays green when $label, which only the machine part sees",
-        ({ mutate }) => {
+      it.each(withTitle(MACHINE_MUTATIONS))(
+        "stays green when %s, which only the machine part sees",
+        (_label, { mutate }) => {
           const { problems, applied } = problemsOfMutatedCopy(portableHookWiringProblems, mutate);
           expect(applied).toBe(true);
           expect(problems).toEqual([]);
@@ -1876,9 +2124,13 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
     describe("the machine part of the wiring check, where the entry cannot be read", () => {
       const UNREADABLE_ENTRY_KINDS = ["deleted", "twice", "echo"];
 
-      it.each(PORTABLE_MUTATIONS.filter(({ kind }) => UNREADABLE_ENTRY_KINDS.includes(kind)))(
-        "reports nothing of the script when $label, which the portable part reports",
-        ({ script, mutate }) => {
+      const unreadable = PORTABLE_MUTATIONS.filter(({ kind }) =>
+        UNREADABLE_ENTRY_KINDS.includes(kind),
+      );
+
+      it.each(withTitle(unreadable))(
+        "reports nothing of the script when %s, which the portable part reports",
+        (_label, { script, mutate }) => {
           const { problems, applied } = problemsOfMutatedCopy(machineHookWiringProblems, mutate);
           expect(applied).toBe(true);
           expect(problems.filter((problem) => problem.includes(script))).toEqual([]);
@@ -1886,14 +2138,15 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
       );
     });
 
-    // Not a skip: with REQUIRE_DB_TESTS=1, as CI sets it, the runner fails any run that holds a
-    // collected test that did not run (scripts/testing/required-database-tests-reporter.ts). Where the
-    // checkout is not here, one test runs instead, says so in its name, and asserts the machine part
-    // reports the missing paths.
+    // Not a skip: under the default REQUIRE_DB_TESTS, as CI sets it, the runner fails any run that
+    // holds a collected test that did not run (scripts/testing/required-database-tests-reporter.ts).
+    // Where the checkout is not here, one test runs instead, says so in its name, and asserts the
+    // machine part reports the missing paths.
     const MACHINE_ABSENT_TITLE =
       "the checkout named in the docs settings is not on this machine: the machine part of the wiring check is not proved here, and reports the missing paths";
 
-    // No runIf or skipIf: both collect their tests as skipped, which the runner counts.
+    // A plain if here, not runIf or skipIf: both collect the test they hide as skipped, which the
+    // runner counts as a failure. The enclosing describe is the one skipIf, for a machine without docs/.
     if (!checkoutNamedInRealSettingsIsHere) {
       it(MACHINE_ABSENT_TITLE, () => {
         const problems = machineHookWiringProblems(REAL_SETTINGS);
@@ -1915,17 +2168,20 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
           expect(problems).toEqual([]);
         });
 
-        it.each(MACHINE_MUTATIONS)("turns red when $label", ({ script, mutate, expected }) => {
-          const { problems, applied, folder } = problemsOfMutatedCopy(
-            machineHookWiringProblems,
-            mutate,
-          );
-          console.info(
-            `MACHINE WIRING MUTATION ${script}: applied=${applied} problems=${JSON.stringify(problems)}`,
-          );
-          expect(applied).toBe(true);
-          expect(problems).toEqual(expected(folder));
-        });
+        it.each(withTitle(MACHINE_MUTATIONS))(
+          "turns red when %s",
+          (_label, { script, mutate, expected }) => {
+            const { problems, applied, folder } = problemsOfMutatedCopy(
+              machineHookWiringProblems,
+              mutate,
+            );
+            console.info(
+              `MACHINE WIRING MUTATION ${script}: applied=${applied} problems=${JSON.stringify(problems)}`,
+            );
+            expect(applied).toBe(true);
+            expect(problems).toEqual(expected(folder));
+          },
+        );
       });
     }
   },
@@ -1946,6 +2202,20 @@ describe("the settings cases", () => {
       expect(verdictOf(output, "twin-npx-vercel-env-pull")).toBe("PASS");
       const calls = readFileSync(sessionLog, "utf8").trimEnd().split("\n");
       expect(calls).toEqual(["deny_flag=false", "deny_flag=false"]);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "prints no claim about a refusal text for a settings case that names none",
+    () => {
+      const docs = makeDocsRoot(blockingHook(), [TWIN_ENTRY, "Bash(gh auth token*)"]);
+      const output = runHarness("twins", "twin-npx-vercel-env-pull", {
+        DENY_PROOF_DOCS_ROOT: docs,
+      });
+      expect(output).toContain("- denied run (claude started directly with no deny flag");
+      expect(output).not.toContain("must also carry the refusal text");
+      expect(output).not.toContain("user-level settings");
     },
     SESSION_TEST_TIMEOUT_MS,
   );
@@ -2026,7 +2296,7 @@ describe("the control run's arguments", () => {
 });
 
 describe("the database guard hook as the control runs it", () => {
-  const EDITED = [
+  const TWO_BLOCK_HOOK_TEXT = [
     "if blocked; then",
     '  echo "first message" >&2',
     "  exit 2",
@@ -2040,7 +2310,7 @@ describe("the database guard hook as the control runs it", () => {
   ].join("\n");
 
   it("goes back to exit 1 and standard output, and nothing else changes", () => {
-    const exitsOne = exitsOneToStdoutHookText(EDITED);
+    const exitsOne = exitsOneToStdoutHookText(TWO_BLOCK_HOOK_TEXT);
     expect(exitsOne).toBe(
       [
         "if blocked; then",
@@ -2057,12 +2327,12 @@ describe("the database guard hook as the control runs it", () => {
     );
   });
 
-  it("is refused for a script that is not the edited one", () => {
+  it("is refused for a script without two exit 2 lines and a stderr redirect", () => {
     expect(() => exitsOneToStdoutHookText("exit 0\n")).toThrow("not 2 and at least 1");
-    expect(() => exitsOneToStdoutHookText(EDITED.replace("exit 2", "exit 1"))).toThrow(
+    expect(() => exitsOneToStdoutHookText(TWO_BLOCK_HOOK_TEXT.replace("exit 2", "exit 1"))).toThrow(
       "not 2 and at least 1",
     );
-    expect(() => exitsOneToStdoutHookText(EDITED.replaceAll(" >&2", ""))).toThrow(
+    expect(() => exitsOneToStdoutHookText(TWO_BLOCK_HOOK_TEXT.replaceAll(" >&2", ""))).toThrow(
       "2 exit 2 lines and 0 stderr redirects",
     );
   });
