@@ -1927,6 +1927,11 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
       }
     };
 
+    // A `$label` title is cut at 40 characters, which makes the titles of these rows identical; a
+    // `%s` title keeps the whole label.
+    const withTitle = <Row extends { label: string }>(rows: readonly Row[]): [string, Row][] =>
+      rows.map((row) => [row.label, row]);
+
     const groupsNaming = (settings: SettingsShape, script: string) =>
       Object.values(settings.hooks)
         .flat()
@@ -2094,18 +2099,21 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
         expect(problems).toEqual([]);
       });
 
-      it.each(PORTABLE_MUTATIONS)("turns red when $label", ({ script, mutate, expected }) => {
-        const { problems, applied } = problemsOfMutatedCopy(portableHookWiringProblems, mutate);
-        console.info(
-          `PORTABLE WIRING MUTATION ${script}: applied=${applied} problems=${JSON.stringify(problems)}`,
-        );
-        expect(applied).toBe(true);
-        expect(problems).toEqual(expected());
-      });
+      it.each(withTitle(PORTABLE_MUTATIONS))(
+        "turns red when %s",
+        (_label, { script, mutate, expected }) => {
+          const { problems, applied } = problemsOfMutatedCopy(portableHookWiringProblems, mutate);
+          console.info(
+            `PORTABLE WIRING MUTATION ${script}: applied=${applied} problems=${JSON.stringify(problems)}`,
+          );
+          expect(applied).toBe(true);
+          expect(problems).toEqual(expected());
+        },
+      );
 
-      it.each(MACHINE_MUTATIONS)(
-        "stays green when $label, which only the machine part sees",
-        ({ mutate }) => {
+      it.each(withTitle(MACHINE_MUTATIONS))(
+        "stays green when %s, which only the machine part sees",
+        (_label, { mutate }) => {
           const { problems, applied } = problemsOfMutatedCopy(portableHookWiringProblems, mutate);
           expect(applied).toBe(true);
           expect(problems).toEqual([]);
@@ -2116,9 +2124,13 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
     describe("the machine part of the wiring check, where the entry cannot be read", () => {
       const UNREADABLE_ENTRY_KINDS = ["deleted", "twice", "echo"];
 
-      it.each(PORTABLE_MUTATIONS.filter(({ kind }) => UNREADABLE_ENTRY_KINDS.includes(kind)))(
-        "reports nothing of the script when $label, which the portable part reports",
-        ({ script, mutate }) => {
+      const unreadable = PORTABLE_MUTATIONS.filter(({ kind }) =>
+        UNREADABLE_ENTRY_KINDS.includes(kind),
+      );
+
+      it.each(withTitle(unreadable))(
+        "reports nothing of the script when %s, which the portable part reports",
+        (_label, { script, mutate }) => {
           const { problems, applied } = problemsOfMutatedCopy(machineHookWiringProblems, mutate);
           expect(applied).toBe(true);
           expect(problems.filter((problem) => problem.includes(script))).toEqual([]);
@@ -2156,17 +2168,20 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
           expect(problems).toEqual([]);
         });
 
-        it.each(MACHINE_MUTATIONS)("turns red when $label", ({ script, mutate, expected }) => {
-          const { problems, applied, folder } = problemsOfMutatedCopy(
-            machineHookWiringProblems,
-            mutate,
-          );
-          console.info(
-            `MACHINE WIRING MUTATION ${script}: applied=${applied} problems=${JSON.stringify(problems)}`,
-          );
-          expect(applied).toBe(true);
-          expect(problems).toEqual(expected(folder));
-        });
+        it.each(withTitle(MACHINE_MUTATIONS))(
+          "turns red when %s",
+          (_label, { script, mutate, expected }) => {
+            const { problems, applied, folder } = problemsOfMutatedCopy(
+              machineHookWiringProblems,
+              mutate,
+            );
+            console.info(
+              `MACHINE WIRING MUTATION ${script}: applied=${applied} problems=${JSON.stringify(problems)}`,
+            );
+            expect(applied).toBe(true);
+            expect(problems).toEqual(expected(folder));
+          },
+        );
       });
     }
   },
