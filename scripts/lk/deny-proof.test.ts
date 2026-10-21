@@ -587,6 +587,15 @@ const docsRun = (
     path,
   );
 
+// A bin whose `claude` only writes a marker file, so a test can tell whether a session was started.
+const markerSessionBin = (prefix: string): { bin: string; marker: string } => {
+  const bin = mkdtempSync(join(workspace, prefix));
+  const marker = join(bin, "session-started.txt");
+  writeStandIn(bin, "memory_pressure", reportFreeMemory(50));
+  writeStandIn(bin, "claude", `echo started > "${marker}"`);
+  return { bin, marker };
+};
+
 describe("the hook cases", () => {
   const hookRun = (caseId: string, docsRoot: string, extra: Record<string, string> = {}): string =>
     docsRun("hook", caseId, docsRoot, extra);
@@ -752,6 +761,60 @@ describe("the hook cases", () => {
         expect(output).not.toContain("CASE ");
       }
       expect(existsSync(sessionMarker)).toBe(false);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "start no session when the docs settings move the database guard to PostToolUse, which the event check names",
+    () => {
+      const { bin, marker } = markerSessionBin("event-stop-");
+      const guardUnderPostToolUse = (docsRoot: string) => {
+        const block = hooksBlockFor(docsRoot);
+        const [protect, guard] = block.PreToolUse as unknown[];
+        block.PreToolUse = [protect];
+        block.PostToolUse = [guard];
+        return block;
+      };
+      const output = docsRun(
+        "hook",
+        "hook-pipe-to-psql",
+        makeDocsRoot(blockingHook(), [], { hooksBlock: guardUnderPostToolUse }),
+        {},
+        bin,
+      );
+      expect(output).toContain("check-destructive-bash.sh is under PostToolUse, not PreToolUse");
+      expect(output).toContain("no session started");
+      expect(output).not.toContain("CASE ");
+      expect(existsSync(marker)).toBe(false);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "start no session when the docs settings name another existing file called like the guard, which the machine part names",
+    () => {
+      const { bin, marker } = markerSessionBin("wrong-file-stop-");
+      const otherCheckout = realpathSync(mkdtempSync(join(workspace, "other-checkout-")));
+      const otherGuard = join(otherCheckout, ".claude/hooks/check-destructive-bash.sh");
+      mkdirSync(dirname(otherGuard), { recursive: true });
+      writeFileSync(otherGuard, blockingHook());
+      const guardRunningOtherFile = (docsRoot: string) => {
+        const block = hooksBlockFor(docsRoot);
+        const [protect] = block.PreToolUse as unknown[];
+        const command = { type: "command", command: `bash ${otherGuard}` };
+        block.PreToolUse = [protect, { matcher: "Bash", hooks: [command] }];
+        return block;
+      };
+      const docs = makeDocsRoot(blockingHook(), [], { hooksBlock: guardRunningOtherFile });
+      const output = docsRun("hook", "hook-pipe-to-psql", docs, {}, bin);
+      const copied = join(realpathSync(docs), ".claude/hooks/check-destructive-bash.sh");
+      expect(output).toContain(
+        `the command of check-destructive-bash.sh runs ${otherGuard}, the harness copies ${copied}`,
+      );
+      expect(output).toContain("no session started");
+      expect(output).not.toContain("CASE ");
+      expect(existsSync(marker)).toBe(false);
     },
     SESSION_TEST_TIMEOUT_MS,
   );
@@ -1218,6 +1281,107 @@ describe("the SessionEnd case", () => {
     },
     SESSION_TEST_TIMEOUT_MS,
   );
+});
+
+// The hook-protect and hook-end cases assert nothing, so the wiring check is the only thing that
+// stops their groups on a bad hooks block.
+describe("the wiring check in the hook-protect and hook-end groups", () => {
+  const protectUnderPostToolUse = (docsRoot: string) => {
+    const block = hooksBlockFor(docsRoot);
+    const [protect, guard] = block.PreToolUse as unknown[];
+    block.PreToolUse = [guard];
+    block.PostToolUse = [protect];
+    return block;
+  };
+
+  const sessionEndUnderStop = (docsRoot: string) => {
+    const block = hooksBlockFor(docsRoot);
+    block.Stop = block.SessionEnd;
+    delete block.SessionEnd;
+    return block;
+  };
+
+  it(
+    "hook-protect starts no session and names the wiring when the protect script is under PostToolUse",
+    () => {
+      const { bin, marker } = markerSessionBin("protect-group-stop-");
+      const docs = makeDocsRoot(blockingHook(), [], { hooksBlock: protectUnderPostToolUse });
+      const output = docsRun("hook-protect", "hook-protect-ssot", docs, {}, bin);
+      expect(output).toContain("check-protected-file.sh is under PostToolUse, not PreToolUse");
+      expect(output).toContain("no session started");
+      expect(output).not.toContain("CASE ");
+      expect(existsSync(marker)).toBe(false);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "hook-end starts no session and names the wiring when the SessionEnd script is under Stop",
+    () => {
+      const { bin, marker } = markerSessionBin("end-group-stop-");
+      const docs = makeDocsRoot(blockingHook(), [], { hooksBlock: sessionEndUnderStop });
+      const output = docsRun("hook-end", "hook-session-end", docs, {}, bin);
+      expect(output).toContain("session-end-reminder.sh is under Stop, not SessionEnd");
+      expect(output).toContain("no session started");
+      expect(output).not.toContain("CASE ");
+      expect(existsSync(marker)).toBe(false);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+});
+
+describe("the list of hook scripts the wiring check covers", () => {
+  it("holds the protect, database guard and SessionEnd scripts, each with the event, matcher and file its cases need", () => {
+    const rows = HOOK_WIRING.map(({ script, event, matcher }) => ({ script, event, matcher }));
+    expect(rows).toEqual([
+      { script: "check-protected-file.sh", event: "PreToolUse", matcher: "Edit|Write|MultiEdit" },
+      { script: "check-destructive-bash.sh", event: "PreToolUse", matcher: "Bash" },
+      { script: "session-end-reminder.sh", event: "SessionEnd", matcher: undefined },
+    ]);
+    for (const { script, file } of HOOK_WIRING) {
+      expect(file.endsWith(`/.claude/hooks/${script}`)).toBe(true);
+    }
+  });
+});
+
+describe("the wiring check functions on a settings file written for the test", () => {
+  const settingsFileHolding = (settings: Record<string, unknown>): string => {
+    const folder = mkdtempSync(join(workspace, "wiring-settings-"));
+    const file = join(folder, "settings.json");
+    writeFileSync(file, JSON.stringify(settings));
+    return file;
+  };
+
+  const MISSING_GUARD = join(workspace, "no-such-checkout/.claude/hooks/check-destructive-bash.sh");
+  const guardProblems = (problems: string[]): string[] =>
+    problems.filter((problem) => problem.includes("check-destructive-bash.sh"));
+
+  it.each([
+    ["the portable part", portableHookWiringProblems],
+    ["the machine part", machineHookWiringProblems],
+  ])("%s refuses a settings file that holds no hooks block", (_name, check) => {
+    const file = settingsFileHolding({ permissions: { deny: [] } });
+    expect(() => check(file)).toThrow("holds no hooks block");
+  });
+
+  it("the machine part reports nothing of a script that two entries name, whatever their paths", () => {
+    const block = hooksBlockFor(makeDocsRoot(blockingHook(), []));
+    const missing = { type: "command", command: `bash ${MISSING_GUARD}` };
+    block.PreToolUse = [
+      { matcher: "Bash", hooks: [missing] },
+      { matcher: "Bash", hooks: [missing] },
+    ];
+    const problems = machineHookWiringProblems(settingsFileHolding({ hooks: block }));
+    expect(guardProblems(problems)).toEqual([]);
+  });
+
+  it("the machine part reports nothing of a script whose command is not bash <path>", () => {
+    const block = hooksBlockFor(makeDocsRoot(blockingHook(), []));
+    const echoed = { type: "command", command: `echo ${MISSING_GUARD}` };
+    block.PreToolUse = [{ matcher: "Bash", hooks: [echoed] }];
+    const problems = machineHookWiringProblems(settingsFileHolding({ hooks: block }));
+    expect(guardProblems(problems)).toEqual([]);
+  });
 });
 
 describe("the guard table", () => {
@@ -1721,7 +1885,10 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
       return path !== undefined && existsSync(dirname(path));
     });
 
-    const PORTABLE_MUTATIONS = HOOK_WIRING.flatMap(({ script, matcher }) => [
+    const eventOtherThan = (event: string): string =>
+      event === "SessionEnd" ? "Stop" : "PostToolUse";
+
+    const PORTABLE_MUTATIONS = HOOK_WIRING.flatMap(({ script, event, matcher }) => [
       {
         kind: "deleted",
         label: `${script}: the entry is deleted`,
@@ -1749,6 +1916,22 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
           }
         },
         expected: () => [`2 hook entries name ${script}, not 1`],
+      },
+      {
+        kind: "event",
+        label: `${script}: the entry is moved from ${event} to ${eventOtherThan(event)}, which the event check names`,
+        script,
+        mutate: (settings: SettingsShape) => {
+          const moved = groupsNaming(settings, script);
+          for (const name of Object.keys(settings.hooks)) {
+            settings.hooks[name] = (settings.hooks[name] ?? []).filter(
+              (group) => !moved.includes(group),
+            );
+          }
+          const destination = eventOtherThan(event);
+          settings.hooks[destination] = [...(settings.hooks[destination] ?? []), ...moved];
+        },
+        expected: () => [`${script} is under ${eventOtherThan(event)}, not ${event}`],
       },
       {
         kind: "matcher",
