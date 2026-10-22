@@ -23,6 +23,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -866,6 +867,219 @@ describe("refusals, each before anything is started", () => {
   });
 });
 
+describe("the governance grant", () => {
+  const writeSpec = (sandbox: Sandbox, slug: string, text: string): void => {
+    writeFileSync(join(sandbox.root, ".work", slug, "01-spec.md"), text);
+  };
+
+  const grantEnvOf = (call: Call | undefined): string | undefined =>
+    /LK_GOVERNANCE_GRANT=(.*)$/.exec(call?.env ?? "")?.[1];
+
+  const runWithSpec = (
+    spec: string | undefined,
+    overrides: Record<string, string | undefined> = {},
+  ) => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    if (spec !== undefined) writeSpec(sandbox, "alpha", spec);
+    return { sandbox, result: run(sandbox, "alpha", [], overrides) };
+  };
+
+  const expectGrantInBothCalls = (sandbox: Sandbox, grant: string): void => {
+    const [smoke, session, ...rest] = readCalls(sandbox);
+    expect(rest).toEqual([]);
+    expect(grantEnvOf(smoke)).toBe(grant);
+    expect(grantEnvOf(session)).toBe(grant);
+  };
+
+  it("is the empty string in the smoke call and the session when the work item has no spec", () => {
+    const { sandbox, result } = runWithSpec(undefined);
+    expect(result.status).toBe(0);
+    expectGrantInBothCalls(sandbox, "");
+  });
+
+  it.each([
+    ["a spec with no grant line", "Goal: something\n"],
+    ["a grant line with nothing after it", "governance-grant:\n"],
+    ["a grant line with only blanks after it", "governance-grant:   \t \n"],
+    [
+      "a line that mentions the grant mid-sentence",
+      "Grant line note: governance-grant: docs/project/SSOT.md\n",
+    ],
+    ["an indented grant line", "  governance-grant: docs/project/SSOT.md\n"],
+  ])("is the empty string for %s", (_name, spec) => {
+    const { sandbox, result } = runWithSpec(spec);
+    expect(result.status).toBe(0);
+    expectGrantInBothCalls(sandbox, "");
+  });
+
+  it("is the entries of the grant line joined by colons, split on any whitespace", () => {
+    const { sandbox, result } = runWithSpec(
+      "Goal: x\ngovernance-grant:  docs/project/SSOT.md\tdocs/.claude/  .github/workflows/x.yml \r\nMore text\n",
+    );
+    expect(result.status).toBe(0);
+    expectGrantInBothCalls(sandbox, "docs/project/SSOT.md:docs/.claude/:.github/workflows/x.yml");
+  });
+
+  it("reads only the grant line, not a parenthesised remark on the next line", () => {
+    const { sandbox, result } = runWithSpec(
+      "governance-grant: docs/project/SSOT.md\n(Owner ruling: exact paths, a record only.)\n",
+    );
+    expect(result.status).toBe(0);
+    expectGrantInBothCalls(sandbox, "docs/project/SSOT.md");
+  });
+
+  it("accepts the spellings the refusals below have good twins for", () => {
+    const entries = [
+      "docs/project/SSOT.md",
+      "docs/project/",
+      "docs/.claude/settings.json",
+      "docs/contracts/",
+      ".gitignore",
+      ".github/workflows/x.yml",
+    ];
+    const { sandbox, result } = runWithSpec(`governance-grant: ${entries.join(" ")}\n`);
+    expect(result.status).toBe(0);
+    expectGrantInBothCalls(sandbox, entries.join(":"));
+  });
+
+  it("is the real path of each entry, relative to the product root, a folder keeping its slash", () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    mkdirSync(join(sandbox.root, "docs/product/contracts"), { recursive: true });
+    symlinkSync("product/contracts", join(sandbox.root, "docs/contracts"));
+    writeFileSync(join(sandbox.root, "docs/project/SSOT.md"), "x");
+    symlinkSync("project/SSOT.md", join(sandbox.root, "docs/ssot-link.md"));
+    writeSpec(sandbox, "alpha", "governance-grant: docs/contracts/ docs/ssot-link.md\n");
+    const result = run(sandbox, "alpha");
+    expect(result.status).toBe(0);
+    expectGrantInBothCalls(sandbox, "docs/product/contracts/:docs/project/SSOT.md");
+  });
+
+  it("is spelled below docs/ when docs/ is a link to a checkout outside the product root", () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const checkout = join(dirname(sandbox.root), "docs-checkout");
+    renameSync(join(sandbox.root, "docs"), checkout);
+    symlinkSync(checkout, join(sandbox.root, "docs"));
+    writeSpec(sandbox, "alpha", "governance-grant: docs/project/SSOT.md docs/project/\n");
+    const result = run(sandbox, "alpha");
+    expect(result.status).toBe(0);
+    expectGrantInBothCalls(sandbox, "docs/project/SSOT.md:docs/project/");
+  });
+
+  it("overwrites a value in the controller's own environment when the spec has no grant line", () => {
+    const leaked = { LK_GOVERNANCE_GRANT: "docs/project/SSOT.md" };
+    const { sandbox, result } = runWithSpec(undefined, leaked);
+    expect(result.status).toBe(0);
+    expectGrantInBothCalls(sandbox, "");
+  });
+
+  it("overwrites a value in the controller's own environment with the spec's own entries", () => {
+    const leaked = { LK_GOVERNANCE_GRANT: "docs/product/state-machines.md" };
+    const { sandbox, result } = runWithSpec("governance-grant: docs/project/SSOT.md\n", leaked);
+    expect(result.status).toBe(0);
+    expectGrantInBothCalls(sandbox, "docs/project/SSOT.md");
+  });
+
+  it("hands the session its grant without starting a process, and never a leaked one", async () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    writeSpec(sandbox, "alpha", "governance-grant: docs/project/SSOT.md docs/.claude/\n");
+    const sessions: Env[] = [];
+    const smokes: Env[] = [];
+    const deps: DispatchDeps = {
+      spawnSession: async (_args, { env }) => {
+        sessions.push(env);
+        return { exitCode: 0 };
+      },
+      runSmoke: (_model, smokeOptions) => {
+        smokes.push(smokeOptions.env);
+        return { status: 0, stdout: "ok", timedOut: false };
+      },
+      isProcessAlive: () => true,
+      pid: 4242,
+      print: () => undefined,
+    };
+    const options: RunOptions = {
+      slug: "alpha",
+      job: "implement",
+      tier: "1",
+      model: undefined,
+      noSmoke: false,
+      dryRun: false,
+    };
+    const leaked = { LK_ROLE: "controller", LK_GOVERNANCE_GRANT: "docs/product/state-machines.md" };
+    await dispatchRun(options, sandbox.root, leaked, deps);
+    expect(sessions[0]?.LK_GOVERNANCE_GRANT).toBe("docs/project/SSOT.md:docs/.claude/");
+    expect(smokes[0]?.LK_GOVERNANCE_GRANT).toBe("docs/project/SSOT.md:docs/.claude/");
+  });
+
+  // Each refusal is shown with a good entry beside the bad one, so the refusal is the bad entry's.
+  const REFUSED_ENTRIES: [kind: string, entry: string, reason: string][] = [
+    ["an entry holding a colon", "docs/a:b", "holds a colon"],
+    ["an absolute entry", "/etc/hosts", "starts with a slash"],
+    ["an entry starting with a tilde", "~/x", "starts with a tilde"],
+    ["an entry holding ..", "docs/../x", "holds .."],
+    ["an entry climbing out of the root", "../outside/x", "holds .."],
+    ["an entry with a star", "docs/*", "holds a wildcard character"],
+    ["an entry with a question mark", "docs/project/SSOT.m?", "holds a wildcard character"],
+    ["an entry with a bracket", "docs/project/[a]", "holds a wildcard character"],
+    ["the product root as a dot", ".", "resolves to the product root"],
+    ["the product root with a slash", "./", "resolves to the product root"],
+    ["the docs root with a slash", "docs/", "resolves to the docs root"],
+    ["the docs root with no slash", "docs", "resolves to the docs root"],
+    ["a path under .git", ".git/config", "resolves to a path under .git"],
+    ["a path under docs/.git", "docs/.git/config", "resolves to a path under .git"],
+    ["a path under .git in another letter case", ".GIT/config", "resolves to a path under .git"],
+    [
+      "an existing folder with no trailing slash",
+      "docs/project",
+      "names a folder without a trailing slash",
+    ],
+    [
+      "a path through a link to outside the repository",
+      "link-out/x.md",
+      "resolves outside the product root",
+    ],
+  ];
+
+  it.each(REFUSED_ENTRIES)("refuses %s before anything is started", (_kind, entry, reason) => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const outside = join(dirname(sandbox.root), "outside");
+    mkdirSync(outside);
+    symlinkSync(outside, join(sandbox.root, "link-out"));
+    writeSpec(sandbox, "alpha", `governance-grant: docs/project/SSOT.md ${entry}\n`);
+    const result = run(sandbox, "alpha", [], { FAKE_SMOKE: "fail" });
+    expectRefused(result, `governance grant entry "${entry}" ${reason}`, sandbox, "alpha");
+    expect(existsSync(lockPath(sandbox))).toBe(false);
+  });
+
+  it("refuses a spec that holds two grant lines, before anything is started", () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    writeSpec(
+      sandbox,
+      "alpha",
+      "governance-grant: docs/project/SSOT.md\ngovernance-grant: docs/.claude/\n",
+    );
+    const result = run(sandbox, "alpha", [], { FAKE_SMOKE: "fail" });
+    expectRefused(result, "holds 2 governance-grant: lines, not 1", sandbox, "alpha");
+    expect(existsSync(lockPath(sandbox))).toBe(false);
+  });
+
+  it("refuses a bad entry on a dry run too, and writes nothing", () => {
+    const sandbox = makeSandbox();
+    const folder = addWorkItem(sandbox, "alpha");
+    writeSpec(sandbox, "alpha", "governance-grant: docs/\n");
+    const result = run(sandbox, "alpha", ["--dry-run"]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('governance grant entry "docs/" resolves to the docs root');
+    expect(readdirSync(folder).sort()).toEqual(["01-spec.md", "02-prompt.md"]);
+  });
+});
+
 describe("the lock", () => {
   it("refuses while a live process holds it and leaves it untouched", () => {
     const sandbox = makeSandbox();
@@ -924,7 +1138,7 @@ describe("the smoke call", () => {
     run(sandbox, "alpha");
     const [smoke] = readCalls(sandbox);
     expect(smoke?.args).toEqual(buildSmokeArgs(STANDARD_MODEL));
-    expect(smoke?.env).toBe("LK_ROLE=implementer LK_SLUG=alpha");
+    expect(smoke?.env).toBe("LK_ROLE=implementer LK_SLUG=alpha LK_GOVERNANCE_GRANT=");
   });
 
   it.each([
@@ -1011,7 +1225,7 @@ describe("a real run", () => {
     expect(session?.args).toEqual(buildClaudeArgs(VALID_PROMPT, STANDARD_MODEL));
     expect(session?.args).toContain(DENY_LIST);
     expect(session?.args).toContain("bypassPermissions");
-    expect(session?.env).toBe("LK_ROLE=implementer LK_SLUG=alpha");
+    expect(session?.env).toBe("LK_ROLE=implementer LK_SLUG=alpha LK_GOVERNANCE_GRANT=");
   });
 
   it("records running while the session runs and done with exit 0 afterwards", () => {
@@ -1328,12 +1542,15 @@ describe("dispatchRun with injected seams", () => {
       {
         args: buildClaudeArgs(VALID_PROMPT, STANDARD_MODEL),
         cwd: sandbox.root,
-        env: { LK_ROLE: "implementer", LK_SLUG: "alpha", KEEP: "yes" },
+        env: { LK_ROLE: "implementer", LK_SLUG: "alpha", LK_GOVERNANCE_GRANT: "", KEEP: "yes" },
         logPath: join(sandbox.root, ".work/alpha/session.jsonl"),
       },
     ]);
     expect(smokes).toEqual([
-      { model: STANDARD_MODEL, env: { LK_ROLE: "implementer", LK_SLUG: "alpha", KEEP: "yes" } },
+      {
+        model: STANDARD_MODEL,
+        env: { LK_ROLE: "implementer", LK_SLUG: "alpha", LK_GOVERNANCE_GRANT: "", KEEP: "yes" },
+      },
     ]);
     expect(readRecord(sandbox, "alpha")).toMatchObject({ status: "failed", exit: 5, pid: 4242 });
     expect(existsSync(lockPath(sandbox))).toBe(false);
@@ -2082,12 +2299,26 @@ const SETTINGS_CASES_WITHOUT_COVERS = [
   "ok-hook-echo-drop-table-to-file",
   "ok-hook-grep-drizzle-folder",
   "ok-hook-npm-db-reset",
-  "hook-protect-ssot",
-  "hook-protect-ssot-variant",
-  "hook-protect-state-machines",
-  "hook-protect-contracts",
-  "hook-protect-product-contracts",
+  "hook-protect-impl-ssot",
+  "hook-protect-impl-state-machines",
+  "hook-protect-impl-contracts",
+  "hook-protect-impl-product-contracts",
+  "hook-protect-impl-claude-dir",
+  "hook-protect-impl-rulebook",
+  "hook-protect-impl-models",
+  "hook-protect-impl-git",
+  "hook-protect-impl-git-redirect",
+  "hook-protect-grant-allowed",
+  "hook-protect-grant-other-path",
+  "hook-protect-controller",
+  "hook-protect-bash-redirect",
+  "hook-protect-case",
+  "hook-protect-traversal",
+  "hook-protect-grant-symlink",
+  "hook-protect-grant-whole-docs",
   "hook-protect-control",
+  "hook-protect-git-command",
+  "hook-protect-backlog",
   "hook-session-end",
 ];
 

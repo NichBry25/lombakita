@@ -13,6 +13,13 @@
  * Every refusal is one line starting `LK REFUSED: ` and exits 1. One session runs at a time,
  * enforced by `.work/.lock`.
  *
+ * LK_GOVERNANCE_GRANT, in every session and smoke call, is the entries of the one
+ * `governance-grant:` line of `.work/<slug>/01-spec.md`, each resolved once, here, to its real path
+ * relative to the product root (a folder entry keeps its trailing slash), joined by colons, or the
+ * empty string, so a value in the dispatcher's own environment never reaches a session. The hook
+ * never resolves an entry again. More than one such line, or an entry the protect-file hook would
+ * refuse, stops `run` like any other refusal.
+ *
  * A session killed by a signal is recorded as failed with exit 128 plus the signal number and the
  * signal's name. A real run that removes a stale lock marks the dead holder's run record, if it
  * still says running, as failed and lost.
@@ -26,13 +33,14 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { constants as osConstants } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   isRequestedTier,
@@ -240,6 +248,9 @@ export const END_MARKER = "END OF PROMPT";
 const WORK_DIR = ".work";
 const LOCK_FILE = ".lock";
 const PROMPT_FILE = "02-prompt.md";
+const SPEC_FILE = "01-spec.md";
+const GRANT_LINE_PREFIX = "governance-grant:";
+const GRANT_WILDCARDS = /[*?[\]]/;
 const RUN_FILE = "run.json";
 const SESSION_LOG_FILE = "session.jsonl";
 const MODELS_FILE_IN_ROOT = "docs/project/models.md";
@@ -351,6 +362,73 @@ const readPromptText = (root: string, slug: string): string => {
   const lastLine = text.split("\n").findLast((line) => line.trim() !== "");
   if (lastLine !== END_MARKER) refuse(`${promptPath} does not end with the line ${END_MARKER}`);
   return text;
+};
+
+// The real path of the longest prefix of the path that exists, with the rest appended.
+const realPathOfLongestPrefix = (path: string): string => {
+  try {
+    return realpathSync(path);
+  } catch {
+    const parent = dirname(path);
+    return parent === path ? path : join(realPathOfLongestPrefix(parent), basename(path));
+  }
+};
+
+const isUnder = (path: string, folder: string): boolean =>
+  path === folder || path.startsWith(`${folder}${sep}`);
+
+type GrantEntryResolution = { problem: string } | { resolved: string };
+
+/** The part of a real path below a folder, as it is spelled on disk, with a slash after a folder entry. */
+const belowFolder = (path: string, folder: string): string => path.slice(folder.length + 1);
+
+const resolveGrantEntry = (root: string, entry: string): GrantEntryResolution => {
+  if (entry.includes(":")) return { problem: "holds a colon" };
+  if (entry.startsWith("/")) return { problem: "starts with a slash" };
+  if (entry.startsWith("~")) return { problem: "starts with a tilde" };
+  if (entry.includes("..")) return { problem: "holds .." };
+  if (GRANT_WILDCARDS.test(entry)) return { problem: "holds a wildcard character" };
+  const realRoot = realPathOfLongestPrefix(root);
+  const realDocs = realPathOfLongestPrefix(join(root, "docs"));
+  const resolved = realPathOfLongestPrefix(resolve(root, entry));
+  const folded = resolved.toLowerCase();
+  const foldedRoot = realRoot.toLowerCase();
+  const foldedDocs = realDocs.toLowerCase();
+  if (folded === foldedRoot) return { problem: "resolves to the product root" };
+  if (folded === foldedDocs) return { problem: "resolves to the docs root" };
+  if (folded.split(sep).includes(".git")) return { problem: "resolves to a path under .git" };
+  const underRoot = isUnder(folded, foldedRoot);
+  if (!underRoot && !isUnder(folded, foldedDocs)) {
+    return { problem: "resolves outside the product root" };
+  }
+  if (!entry.endsWith("/") && existsSync(resolved) && statSync(resolved).isDirectory()) {
+    return { problem: "names a folder without a trailing slash" };
+  }
+  const relative = underRoot
+    ? belowFolder(resolved, realRoot)
+    : join("docs", belowFolder(resolved, realDocs));
+  return { resolved: entry.endsWith("/") ? `${relative}/` : relative };
+};
+
+/** The entries of the one `governance-grant:` line of the work item's spec as real paths, or none. */
+export const readGovernanceGrant = (root: string, slug: string): string[] => {
+  const specPath = workPath(root, slug, SPEC_FILE);
+  if (!existsSync(specPath)) return [];
+  const grantLines = readFileSync(specPath, "utf8")
+    .split("\n")
+    .filter((line) => line.startsWith(GRANT_LINE_PREFIX));
+  if (grantLines.length > 1) {
+    refuse(`${specPath} holds ${grantLines.length} ${GRANT_LINE_PREFIX} lines, not 1`);
+  }
+  const entries = (grantLines[0] ?? "")
+    .slice(GRANT_LINE_PREFIX.length)
+    .split(/\s+/)
+    .filter(Boolean);
+  return entries.map((entry) => {
+    const resolution = resolveGrantEntry(root, entry);
+    if ("problem" in resolution) refuse(`governance grant entry "${entry}" ${resolution.problem}`);
+    return resolution.resolved;
+  });
 };
 
 const resolveSession = (
@@ -471,10 +549,11 @@ const writeRunRecord = (root: string, record: RunRecord): void => {
   writeFileSync(workPath(root, record.slug, RUN_FILE), `${JSON.stringify(record, null, 2)}\n`);
 };
 
-const sessionEnv = (env: Env, slug: string): Env => ({
+const sessionEnv = (env: Env, slug: string, grant: readonly string[]): Env => ({
   ...env,
   LK_ROLE: "implementer",
   LK_SLUG: slug,
+  LK_GOVERNANCE_GRANT: grant.join(":"),
 });
 
 const refuseUnlessModelAnswers = (
@@ -504,7 +583,7 @@ const runSession = async (
   root: string,
   record: RunRecord,
   promptText: string,
-  env: Env,
+  childEnv: Env,
   deps: DispatchDeps,
 ): Promise<number> => {
   const holder: LockHolder = { pid: deps.pid, slug: record.slug };
@@ -514,7 +593,7 @@ const runSession = async (
     writeRunRecord(root, record);
     end = await deps.spawnSession(buildClaudeArgs(promptText, record.model), {
       cwd: root,
-      env: sessionEnv(env, record.slug),
+      env: childEnv,
       logPath: workPath(root, record.slug, SESSION_LOG_FILE),
       onSpawn: (childPid) => recordChildInLock(root, holder, childPid),
     });
@@ -545,6 +624,7 @@ export const dispatchRun = async (
   requireControllerRole(env);
   const slug = requireValidSlug(options.slug);
   const promptText = readPromptText(root, slug);
+  const childEnv = sessionEnv(env, slug, readGovernanceGrant(root, slug));
   const session = resolveSession(root, options.job, options.tier, options.model);
   refuseIfLockHeld(root, deps, !options.dryRun);
   if (options.dryRun) {
@@ -552,11 +632,7 @@ export const dispatchRun = async (
     return 0;
   }
   if (!options.noSmoke) {
-    refuseUnlessModelAnswers(
-      session.model,
-      { cwd: root, env: sessionEnv(env, slug) },
-      deps.runSmoke,
-    );
+    refuseUnlessModelAnswers(session.model, { cwd: root, env: childEnv }, deps.runSmoke);
   }
   const record: RunRecord = {
     slug,
@@ -567,7 +643,7 @@ export const dispatchRun = async (
     started: new Date().toISOString(),
     pid: deps.pid,
   };
-  const exitCode = await runSession(root, record, promptText, env, deps);
+  const exitCode = await runSession(root, record, promptText, childEnv, deps);
   deps.print(`LK DISPATCH ${slug} ${exitCode === 0 ? "done" : "failed"} exit ${exitCode}`);
   return exitCode;
 };
