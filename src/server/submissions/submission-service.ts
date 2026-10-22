@@ -290,8 +290,8 @@ export const generateSubmissionUploadUrl = async (
   }
 
   // The signed URL binds the type implied by the FILENAME, not the browser's own `file.type` — it
-  // is empty for several accepted formats and client-controlled in every case. The upload must
-  // then be PUT with that same content type or R2 rejects the signature.
+  // is empty for several accepted formats and client-controlled in every case. The type is part
+  // of the signed request, and the client sends the type the server returns.
   // `requireAccess` has already confirmed this competitionId owns this registration, so it is safe
   // to build the key from it rather than re-reading the registration's own competition.
   const fileKey = `${buildSubmissionRegistrationPrefix(competitionId, registrationId)}${randomUUID()}`;

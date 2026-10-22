@@ -79,8 +79,8 @@ export const isR2Available = (): boolean => {
 
 // Mint a short-lived presigned PUT URL the browser uses to upload a submission file
 // directly to R2. Caller is responsible for checking `isR2Available()` first; this throws if the
-// bucket is unconfigured. `ContentType` is bound into the signature only when a mime type is
-// provided, so the client must send a matching Content-Type header on the PUT.
+// bucket is unconfigured. When a mime type is given, the content type is part of the signed
+// request and appears in the signed header list. When it is null, nothing about the type is signed.
 export const generatePresignedPutUrl = async (
   fileKey: string,
   fileMimeType: string | null,
@@ -96,7 +96,11 @@ export const generatePresignedPutUrl = async (
     ContentType: fileMimeType ?? undefined,
   });
 
-  return getSignedUrl(getR2Client(), command, { expiresIn: expirySeconds });
+  // The option is conditional because the presigner lists content-type as signed even when the
+  // command carries no ContentType.
+  const signableHeaders = fileMimeType === null ? undefined : new Set(["content-type"]);
+
+  return getSignedUrl(getR2Client(), command, { expiresIn: expirySeconds, signableHeaders });
 };
 
 // Mint a short-lived presigned GET URL for reading a private object (profile avatar / resume /
