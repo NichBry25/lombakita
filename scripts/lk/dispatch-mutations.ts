@@ -1,0 +1,170 @@
+/**
+ * The mutations of the dispatcher's grant resolution and of the pin on the old protect script, each
+ * with the tests that must turn red for it and no others. A mutated file is run against the test
+ * files below in a throwaway copy of scripts/lk; the failures the unmutated copy already has are
+ * subtracted.
+ */
+
+import { spawnSync } from "node:child_process";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+
+export interface DispatcherMutation {
+  element: string;
+  pattern: RegExp;
+  replacement: string;
+  /** The file the pattern edits; the default is the dispatcher. */
+  path?: string;
+  /** Whether the test of this full name must fail under the mutation. */
+  redTest: (fullName: string) => boolean;
+}
+
+export const DISPATCHER_PATH = "scripts/lk/dispatch.ts";
+const PIN_PATH = "scripts/lk/protect-corpus.ts";
+const TEST_FILES = ["scripts/lk/dispatch.test.ts", "scripts/lk/protect-corpus.test.ts"];
+const COPIED_FOLDERS = ["scripts/lk", "scripts/testing/fixtures/lk"];
+const RESOLVED_ENTRY_TEST = "is the real path of each entry";
+const DOCS_LINK_TEST = "is spelled below docs/ when docs/ is a link";
+const FOLDER_SLASH_TESTS = [
+  "is the entries of the grant line joined by colons",
+  "accepts the spellings the refusals below have good twins for",
+  "hands the session its grant without starting a process",
+  RESOLVED_ENTRY_TEST,
+  DOCS_LINK_TEST,
+];
+const LINK_OUT_TEST = "refuses a path through a link to outside the repository";
+const CHANGED_SCRIPT_TESTS = ["is refused when one byte differs", "prints no script text"];
+
+const namedAny = (fragments: readonly string[]) => (fullName: string) =>
+  fragments.some((fragment) => fullName.includes(fragment));
+
+export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
+  {
+    element: "the dispatcher resolving each grant entry by realpath",
+    pattern: /^ {2}const resolved = realPathOfLongestPrefix\(resolve\(root, entry\)\);$/m,
+    replacement: "  const resolved = resolve(realRoot, entry);",
+    redTest: namedAny([RESOLVED_ENTRY_TEST, LINK_OUT_TEST]),
+  },
+  {
+    element: "the dispatcher passing the entry as written instead of the resolved path",
+    pattern:
+      /^ {2}return \{ resolved: entry\.endsWith\("\/"\) \? `\$\{relative\}\/` : relative \};$/m,
+    replacement: "  return { resolved: entry };",
+    redTest: namedAny([RESOLVED_ENTRY_TEST]),
+  },
+  {
+    element: "the dispatcher keeping the slash of a resolved folder entry",
+    pattern:
+      /^ {2}return \{ resolved: entry\.endsWith\("\/"\) \? `\$\{relative\}\/` : relative \};$/m,
+    replacement: "  return { resolved: relative };",
+    redTest: namedAny(FOLDER_SLASH_TESTS),
+  },
+  {
+    element: "the dispatcher spelling a path below docs/ for a linked docs checkout",
+    pattern: /^ {4}: join\("docs", belowFolder\(resolved, realDocs\)\);$/m,
+    replacement: "    : belowFolder(resolved, realDocs);",
+    redTest: namedAny([DOCS_LINK_TEST]),
+  },
+  {
+    element: "the blob id comparison of the old protect script",
+    path: PIN_PATH,
+    pattern: /^ {2}if \(found !== OLD_PROTECT_BLOB_ID\) \{$/m,
+    replacement: "  if (false) {",
+    redTest: namedAny(CHANGED_SCRIPT_TESTS),
+  },
+];
+
+interface TestResult {
+  fullName: string;
+  failed: boolean;
+}
+
+const NODE_ONLY_VITEST_CONFIG = `export default { test: { environment: "node", include: ${JSON.stringify(TEST_FILES)} } };\n`;
+
+const filesIn = (repoRoot: string, folder: string): string[] =>
+  spawnSync("git", ["-C", repoRoot, "ls-files", "--", folder], { encoding: "utf8" })
+    .stdout.split("\n")
+    .filter((path) => path !== "");
+
+const copyCommittedFolders = (repoRoot: string, treeRoot: string): void => {
+  for (const folder of COPIED_FOLDERS) {
+    for (const path of filesIn(repoRoot, folder)) {
+      const target = join(treeRoot, path);
+      if (existsSync(target)) continue;
+      mkdirSync(dirname(target), { recursive: true });
+      copyFileSync(join(repoRoot, path), target);
+    }
+  }
+};
+
+/** Runs the test files in the tree against the docs checkout and returns every test with whether it failed. */
+export const runDispatcherTests = (
+  repoRoot: string,
+  treeRoot: string,
+  docsRoot: string,
+): TestResult[] => {
+  copyCommittedFolders(repoRoot, treeRoot);
+  writeFileSync(join(treeRoot, "vitest.config.mjs"), NODE_ONLY_VITEST_CONFIG);
+  writeFileSync(join(treeRoot, "package.json"), readFileSync(join(repoRoot, "package.json")));
+  symlinkSync(join(repoRoot, "node_modules"), join(treeRoot, "node_modules"));
+  const outputFile = join(treeRoot, "vitest-results.json");
+  const ran = spawnSync(
+    process.execPath,
+    [
+      join(repoRoot, "node_modules/vitest/vitest.mjs"),
+      "run",
+      ...TEST_FILES,
+      "--config",
+      "vitest.config.mjs",
+      "--maxWorkers=2",
+      "--reporter=json",
+      `--outputFile=${outputFile}`,
+    ],
+    { cwd: treeRoot, encoding: "utf8", env: { ...process.env, DENY_PROOF_DOCS_ROOT: docsRoot } },
+  );
+  if (ran.error !== undefined) throw ran.error;
+  const report = JSON.parse(readFileSync(outputFile, "utf8")) as {
+    testResults: { assertionResults: { fullName: string; status: string }[] }[];
+  };
+  return report.testResults.flatMap((file) =>
+    file.assertionResults.map((test) => ({
+      fullName: test.fullName,
+      failed: test.status === "failed",
+    })),
+  );
+};
+
+export interface DispatcherVerdict {
+  declared: string[];
+  red: string[];
+  missing: string[];
+  extra: string[];
+}
+
+/** Compares the tests the mutation turned red, beyond those already failing, with the tests it declares. */
+export const judgeDispatcherMutation = (
+  mutation: DispatcherMutation,
+  baseline: readonly TestResult[],
+  mutated: readonly TestResult[],
+): DispatcherVerdict => {
+  const alreadyFailing = new Set(
+    baseline.filter((test) => test.failed).map((test) => test.fullName),
+  );
+  const red = mutated
+    .filter((test) => test.failed && !alreadyFailing.has(test.fullName))
+    .map((test) => test.fullName);
+  const declared = baseline.map((test) => test.fullName).filter(mutation.redTest);
+  return {
+    declared,
+    red,
+    missing: declared.filter((name) => !red.includes(name)),
+    extra: red.filter((name) => !declared.includes(name)),
+  };
+};

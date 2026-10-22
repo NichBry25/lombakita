@@ -14,7 +14,7 @@ smoke=""
     printf 'ARG %s\0' "$arg"
     if [ "$arg" = "--max-turns" ]; then smoke=1; fi
   done
-  printf 'ENV LK_ROLE=%s LK_SLUG=%s\0' "$LK_ROLE" "$LK_SLUG"
+  printf 'ENV LK_ROLE=%s LK_SLUG=%s LK_GOVERNANCE_GRANT=%s\0' "$LK_ROLE" "$LK_SLUG" "$LK_GOVERNANCE_GRANT"
   printf 'CWD %s\0' "$(pwd -P)"
 } >> "$log"
 

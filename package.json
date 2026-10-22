@@ -44,6 +44,7 @@
     "verify:branch-protection": "node scripts/testing/verify-branch-protection.mjs",
     "verify:reflow-only": "node --import tsx scripts/testing/prove-reflow-only.ts",
     "verify:contrast-selftest": "node scripts/testing/contrast-audit-selftest.mjs",
+    "verify:hook-proof": "node --import tsx scripts/lk/verify-hook-proof.ts",
     "verify:guard-probes": "node scripts/testing/probes/config-gates.mjs",
     "verify:reindex-probe": "node scripts/testing/probes/reindex-expects-rows.mjs",
     "verify:backfill-probe": "node scripts/testing/probes/backfill-rejected-batch.mjs",
