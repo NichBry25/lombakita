@@ -229,7 +229,6 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
       "during the smoke call",
       "when the first snapshot cannot be taken",
       "snapshot-before.json cannot be replaced",
-      "when .work/alpha is a link",
     ]),
   },
   {
@@ -290,6 +289,9 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
   {
     element: "the after-run check reading the grant again after the session",
     pattern: /^ {2}const verdict = checkProtectedPaths\(root, check\);$/m,
+    // The space after the name keeps a text search for the call at the dispatcher's one site. All
+    // but the first test turn red because a second resolution refuses an entry the session has
+    // put a link or a folder at.
     replacement:
       "  const verdict = checkProtectedPaths(root, { ...check, grant: readGovernanceGrant (root, record.slug) });",
     redTest: namedAny([
@@ -376,17 +378,17 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
   },
   {
     element: "the after-run check refusing a work folder that is a link at dispatch start",
-    pattern: /^ {2}requireRealWorkFolder\(root, slug\);$/m,
+    pattern: /^ {2}if \(!options\.dryRun\) requireRealWorkFolder\(root, slug\);$/m,
     replacement: "",
-    redTest: namedAny(["when .work/alpha is a link"]),
+    redTest: namedAny(["when .work/alpha is a link", "when .work is a link"]),
   },
   {
-    element: "the after-run check checking the work folder after the first evidence write",
+    element: "the after-run check refusing a work folder that is a link before the lock is taken",
     pattern:
-      /^ {2}requireRealWorkFolder\(root, slug\);\n {2}try \{\n {4}writeSnapshotEvidence\(root, slug, SNAPSHOT_BEFORE_FILE, snapshot\);\n {2}\} catch \(error\) \{\n {4}return refuse\(`cannot write \$\{SNAPSHOT_BEFORE_FILE\}: \$\{messageOf\(error\)\}`\);\n {2}\}$/m,
+      /^ {2}if \(!options\.dryRun\) requireRealWorkFolder\(root, slug\);\n {2}refuseIfLockHeld\(root, deps, !options\.dryRun\);\n {2}if \(options\.dryRun\) \{\n {4}printDryRun\(options, session, promptText, deps\.print\);\n {4}return 0;\n {2}\}\n {2}const exitCode = await runHoldingLock\(root, lockHolderOf\(deps, slug\), deps\.print, async \(\) => \{$/m,
     replacement:
-      "  try {\n    writeSnapshotEvidence(root, slug, SNAPSHOT_BEFORE_FILE, snapshot);\n  } catch (error) {\n    return refuse(`cannot write ${SNAPSHOT_BEFORE_FILE}: ${messageOf(error)}`);\n  }\n  requireRealWorkFolder(root, slug);",
-    redTest: namedAny(["writes nothing through the link when .work/alpha is a link"]),
+      "  refuseIfLockHeld(root, deps, !options.dryRun);\n  if (options.dryRun) {\n    printDryRun(options, session, promptText, deps.print);\n    return 0;\n  }\n  const exitCode = await runHoldingLock(root, lockHolderOf(deps, slug), deps.print, async () => {\n    requireRealWorkFolder(root, slug);",
+    redTest: namedAny(["when .work is a link"]),
   },
   {
     element: "the after-run check making the work folder writable before a write after the session",

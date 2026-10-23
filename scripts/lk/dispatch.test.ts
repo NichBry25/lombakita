@@ -3729,6 +3729,21 @@ describe("the protected path check", () => {
       expect(existsSync(lockPath(sandbox))).toBe(false);
     });
 
+    it("refuses before the lock is taken and writes nothing through the link when .work is a link", async () => {
+      const sandbox = preparedSandbox();
+      const linked = mkdtempSync(join(workspace, "linked-work-"));
+      renameSync(join(sandbox.root, ".work/alpha"), join(linked, "alpha"));
+      rmSync(join(sandbox.root, ".work"), { recursive: true });
+      symlinkSync(linked, join(sandbox.root, ".work"));
+      const { calls, deps } = startedBy();
+      await expect(
+        dispatchRun({ ...options, noSmoke: false }, sandbox.root, { LK_ROLE: "controller" }, deps),
+      ).rejects.toThrow(/\.work is not a real folder$/);
+      expect(calls).toEqual([]);
+      expect(readdirSync(linked)).toEqual(["alpha"]);
+      expect(readdirSync(join(linked, "alpha"))).toEqual(["02-prompt.md"]);
+    });
+
     it("prints one LK REFUSED line and exits 1 on the command line when docs/ is absent", () => {
       const sandbox = preparedSandbox();
       realFs.rmSync(join(sandbox.root, "docs"), { recursive: true, force: true });

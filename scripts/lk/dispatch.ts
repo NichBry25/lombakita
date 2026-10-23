@@ -42,13 +42,13 @@
  * The session can write the work folder, so the files the dispatcher owns there (both snapshots and
  * run.json) are written to a new temporary file and renamed over the target: a rename replaces a
  * link or a read-only file where a write would follow the link or fail. The lock file is written the
- * same way, under a random name. A first snapshot that cannot be written refuses the run, and so
- * does a work folder that is a link. Once the session has ended, each write is made only if `.work`
- * and `.work/<slug>` are still the real folders, after the dispatcher has made the work item's
- * folder writable again. A write that fails or a lock removal that fails prints `LK RECORD NOT
- * WRITTEN:` or `LK LOCK NOT REMOVED:` and never replaces the exit code with an exception. A failed
- * write exits 4 when the session exited 0. A changed path is printed with its control characters
- * escaped.
+ * same way, under a random name. A work folder that is a link refuses the run before the lock is
+ * taken, and so does a first snapshot that cannot be written. Once the session has ended, each
+ * write is made only if `.work` and `.work/<slug>` are still the real folders, after the dispatcher
+ * has made the work item's folder writable again. A write that fails or a lock removal that fails
+ * prints `LK RECORD NOT WRITTEN:` or `LK LOCK NOT REMOVED:` and never replaces the exit code with an
+ * exception. A failed write exits 4 when the session exited 0. A changed path is printed with its
+ * control characters escaped.
  */
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
@@ -718,7 +718,6 @@ const snapshotBeforeRun = (root: string, slug: string): SnapshotEntry[] => {
   } catch (error) {
     return refuse(`cannot snapshot the protected paths: ${messageOf(error)}`);
   }
-  requireRealWorkFolder(root, slug);
   try {
     writeSnapshotEvidence(root, slug, SNAPSHOT_BEFORE_FILE, snapshot);
   } catch (error) {
@@ -960,6 +959,7 @@ export const dispatchRun = async (
   const grant = readGovernanceGrant(root, slug);
   const childEnv = sessionEnv(env, slug, grant);
   const session = resolveSession(root, options.job, options.tier, options.model);
+  if (!options.dryRun) requireRealWorkFolder(root, slug);
   refuseIfLockHeld(root, deps, !options.dryRun);
   if (options.dryRun) {
     printDryRun(options, session, promptText, deps.print);
