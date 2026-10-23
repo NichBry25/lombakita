@@ -38,6 +38,10 @@ const FOLDER_SLASH_TESTS = [
   "hands the session its grant without starting a process",
   RESOLVED_ENTRY_TEST,
   DOCS_LINK_TEST,
+  "ends done when the file the run changes is below a folder grant",
+  "ends done when the session creates the granted folder and a file in it",
+  "ends done when the session removes the granted folder",
+  "ends failed when the session replaces an existing granted folder with a link",
 ];
 const LINK_OUT_TEST = "refuses a path through a link to outside the repository";
 const CHANGED_SCRIPT_TESTS = ["is refused when one byte differs", "prints no script text"];
@@ -306,18 +310,12 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
   {
     element: "the after-run check reading the grant again after the session",
     pattern: /^ {2}const verdict = checkProtectedPaths\(root, check\);$/m,
-    // The space after the name keeps a text search for the call at the dispatcher's one site. All
-    // but the first test turn red because a second resolution refuses an entry the session has
-    // put a link or a folder at.
+    // The space after the name keeps a text search for the call at the dispatcher's one site. A
+    // second resolution that refuses an entry the session has put a link or a folder at keeps the
+    // grant read before the session, so a test is red only when the grant read again covers a change.
     replacement:
-      "  const verdict = checkProtectedPaths(root, { ...check, grant: readGovernanceGrant (root, record.slug) });",
-    redTest: namedAny([
-      "rewrites the grant line of the spec",
-      "names the missing ancestor when the session creates it as a link",
-      "replaces the granted file with a folder",
-      "creates a granted folder that does not exist yet as a link",
-      "replaces an existing granted folder with a link",
-    ]),
+      "  let grant = check.grant;\n  try {\n    grant = readGovernanceGrant (root, record.slug);\n  } catch {\n    grant = check.grant;\n  }\n  const verdict = checkProtectedPaths(root, { ...check, grant });",
+    redTest: namedAny(["rewrites the grant line of the spec"]),
   },
   {
     element: "the after-run check comparing the permission bits of an entry",
