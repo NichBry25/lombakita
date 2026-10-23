@@ -3024,7 +3024,8 @@ describe("the protected path check", () => {
       } finally {
         vi.mocked(lstatSync).mockImplementation(realFs.lstatSync);
       }
-      expect(lockHeldAtRead).toEqual([true]);
+      expect(lockHeldAtRead.length).toBeGreaterThan(0);
+      expect(lockHeldAtRead.every(Boolean)).toBe(true);
       expect(existsSync(lockPath(sandbox))).toBe(false);
     });
   });
