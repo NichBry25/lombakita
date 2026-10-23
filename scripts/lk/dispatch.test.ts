@@ -3270,6 +3270,14 @@ describe("the protected path check", () => {
       );
       expect(leftovers).toEqual([]);
     });
+
+    it("prints one LK REFUSED line and exits 1 on the command line when snapshot-before.json cannot be replaced", () => {
+      const sandbox = preparedSandbox();
+      mkdirSync(workFile(sandbox, "snapshot-before.json"));
+      const result = run(sandbox, "alpha");
+      expectRefused(result, "cannot write snapshot-before.json: ", sandbox, "alpha");
+      expect(existsSync(lockPath(sandbox))).toBe(false);
+    });
   });
 
   describe("the product root spellings of the docs files", () => {
