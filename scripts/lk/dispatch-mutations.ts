@@ -43,6 +43,7 @@ const LINK_OUT_TEST = "refuses a path through a link to outside the repository";
 const CHANGED_SCRIPT_TESTS = ["is refused when one byte differs", "prints no script text"];
 
 const SNAPSHOT_PATH = "scripts/lk/protected-snapshot.ts";
+const SET_LITERAL_TEST = "is exactly the set the item specified";
 // Every test whose run must end failed because of a protected change carries this phrase.
 const CHANGE_FAILS_TEST = "ends failed";
 // The tests that need the bytes of a file to be read, either to see them change or to fail on them.
@@ -63,7 +64,8 @@ const BYTES_CHANGED_TESTS = [
   "writes the snapshot taken before the session and the one taken after it",
   "the sha256 of its bytes",
   "forges a read-only run.json",
-  "makes the work folder unwritable",
+  "forges run.json as done and makes the work folder read-only",
+  "cannot be replaced after a protected change",
 ];
 // The tests that need a file below a folder of the set to be seen.
 const BELOW_FOLDER_TESTS = [
@@ -77,6 +79,12 @@ const BELOW_FOLDER_TESTS = [
   "adds a sibling of the granted folder",
   "whose mode the session changes",
   "names the file below it",
+  "names the missing ancestor when the session creates it",
+  "creates a granted file that does not exist yet as a link",
+  "creates a granted folder that does not exist yet as a link",
+  "replaces an existing granted folder with a link",
+  "merely starts with the name of a granted",
+  "holds a newline",
 ];
 // The tests whose session exits with its own failure code, which the check leaves as it is.
 const SESSION_FAILS_ITSELF_TESTS = [
@@ -131,7 +139,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
   {
     element: "the after-run check comparing the two snapshots",
     pattern: /^ {4}const changes = diffSnapshots\(check\.before, after\);$/m,
-    replacement: "    const changes: PathChange[] = [];",
+    replacement: "    const changes: KindedChange[] = [];",
     redTest: namedAny([CHANGE_FAILS_TEST]),
   },
   {
@@ -174,7 +182,11 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     pattern:
       /^ {2}return isCreationOrRemoval && entry\.startsWith\(`\$\{withoutTrailingSlash\(path\)\}\/`\);$/m,
     replacement: "  return false;",
-    redTest: namedAny(["with its parent folder missing", "with docs/.claude missing as well"]),
+    redTest: namedAny([
+      "with its parent folder missing",
+      "with docs/.claude missing as well",
+      "creates the folders and the file a file grant names",
+    ]),
   },
   {
     element: "the after-run check replacing the files it owns in the work folder",
@@ -194,16 +206,18 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
       /^ {2}try \{\n {4}step\(\);\n {4}return true;\n {2}\} catch \(error\) \{\n {4}print\(`\$\{notice\}: \$\{messageOf\(error\)\}`\);\n {4}return false;\n {2}\}$/m,
     replacement: "  step();\n  return true;",
     redTest: namedAny([
-      "makes the work folder unwritable",
+      "cannot be replaced after a protected change",
       "LK LOCK NOT REMOVED",
       "when only snapshot-after.json cannot be replaced",
+      "when only run.json cannot be replaced",
+      "becomes a link",
     ]),
   },
   {
     element: "the after-run check watching the product root spellings of the docs files",
     pattern: /^ {2}"CLAUDE\.md",\n {2}"AGENTS\.md",\n {2}"\.claude",\n/m,
     replacement: "",
-    redTest: namedAny(["at the product root"]),
+    redTest: namedAny(["at the product root", SET_LITERAL_TEST]),
   },
   {
     element: "the after-run check taking its first snapshot before the smoke call",
@@ -228,6 +242,184 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     pattern: /^ {4}verdict\.checkError = messageOf\(error\);$/m,
     replacement: "",
     redTest: namedAny(["records checkError"]),
+  },
+  {
+    element: "the after-run check covering a folder above a granted path whatever sits there",
+    pattern: /^ {2}if \(kind !== "folder"\) return false;$/m,
+    replacement: "",
+    redTest: namedAny([
+      "names the missing ancestor when the session creates it",
+      "creates a granted folder that does not exist yet as a link",
+    ]),
+  },
+  {
+    element: "the after-run check covering a link at a granted path",
+    pattern: /^ {2}if \(kind === "link"\) return false;$/m,
+    replacement: "",
+    redTest: namedAny([
+      "creates a granted file that does not exist yet as a link",
+      "creates a granted folder that does not exist yet as a link",
+    ]),
+  },
+  {
+    element: "the after-run check covering a granted path that changed kind",
+    pattern: /^ {2}if \(change === "kind changed"\) return false;$/m,
+    replacement: "",
+    redTest: namedAny(["replaces the granted file with a folder"]),
+  },
+  {
+    element: "the after-run check matching a file grant by prefix",
+    pattern: /^ {2}if \(!entry\.endsWith\("\/"\)\) return path === entry;$/m,
+    replacement: '  if (!entry.endsWith("/")) return path.startsWith(entry);',
+    redTest: namedAny(["merely starts with the name of a granted file"]),
+  },
+  {
+    element: "the after-run check matching a folder grant without its slash",
+    pattern: /^ {2}return path\.startsWith\(entry\);$/m,
+    replacement: "  return path.startsWith(withoutTrailingSlash(entry));",
+    redTest: namedAny(["merely starts with the name of a granted folder"]),
+  },
+  {
+    element: "the after-run check comparing paths without folding case",
+    pattern:
+      /^ {2}const folded = \{ \.\.\.change, path: change\.path\.toLowerCase\(\) \};\n {2}return entries\.some\(\(entry\) => entryCoversChange\(entry\.toLowerCase\(\), folded\)\);$/m,
+    replacement: "  return entries.some((entry) => entryCoversChange(entry, change));",
+    redTest: namedAny(["spells the path in another case"]),
+  },
+  {
+    element: "the after-run check reading the grant again after the session",
+    pattern: /^ {2}const verdict = checkProtectedPaths\(root, check\);$/m,
+    replacement:
+      "  const verdict = checkProtectedPaths(root, { ...check, grant: readGovernanceGrant (root, record.slug) });",
+    redTest: namedAny(["rewrites the grant line of the spec"]),
+  },
+  {
+    element: "the after-run check comparing the permission bits of an entry",
+    path: SNAPSHOT_PATH,
+    pattern: /^ {2}before\.mode === after\.mode && /m,
+    replacement: "  ",
+    redTest: namedAny([
+      "reports a permission change as changed",
+      "whose mode the session changes",
+      "prints one line per path with its kind of change",
+    ]),
+  },
+  {
+    element: "the after-run check comparing the target of a link",
+    path: SNAPSHOT_PATH,
+    pattern: / && before\.target === after\.target;$/m,
+    replacement: ";",
+    redTest: namedAny(["reports a link whose target text changed as changed", "is retargeted"]),
+  },
+  {
+    element: "the after-run check refusing a run when docs/ is absent",
+    pattern: /^ {2}if \(!options\.dryRun\) requireDocsFolder\(root\);$/m,
+    replacement: "",
+    redTest: namedAny(["when docs/ is absent"]),
+  },
+  {
+    element: "the after-run check refusing a run whose first snapshot cannot be taken",
+    pattern:
+      /^ {4}return refuse\(`cannot snapshot the protected paths: \$\{messageOf\(error\)\}`\);$/m,
+    replacement: "    throw error;",
+    redTest: namedAny(["when the first snapshot cannot be taken"]),
+  },
+  {
+    element:
+      "the after-run check ending a run done when only the second snapshot file was not written",
+    pattern:
+      /^ {2}return checkFailed \|\| !evidenceWritten \? failureExit\(end\) : end\.exitCode;$/m,
+    replacement: "  return checkFailed ? failureExit(end) : end.exitCode;",
+    redTest: namedAny(["exits 4 and prints LK RECORD NOT WRITTEN when only snapshot-after.json"]),
+  },
+  {
+    element: "the after-run check ending a run done when only the run record was not written",
+    pattern: /^ {2}return recordWritten \? exitCode : failureExit\(end\);$/m,
+    replacement: "  return exitCode;",
+    redTest: namedAny(["exits 4 and prints LK RECORD NOT WRITTEN when only run.json"]),
+  },
+  {
+    element: "the after-run check watching the git parts of both repositories",
+    pattern:
+      /^ {2}"\.git\/config",\n {2}"\.git\/hooks\/",\n {2}"docs\/\.git\/config",\n {2}"docs\/\.git\/hooks\/",\n/m,
+    replacement: "",
+    redTest: namedAny([
+      SET_LITERAL_TEST,
+      "ends failed when the run changes the file .git/config",
+      "ends failed when the run changes the file docs/.git/config",
+      "adds a file below the folder .git/hooks/",
+      "adds a file below the folder docs/.git/hooks/",
+      "records checkError and exits 4",
+      "when the first snapshot cannot be taken",
+    ]),
+  },
+  {
+    element: "the after-run check checking the work folder after the session before each write",
+    pattern: /^ {6}requireRealWorkFolder\(root, slug\);$/m,
+    replacement: "",
+    redTest: namedAny(["becomes a link"]),
+  },
+  {
+    element: "the after-run check checking the work folder before removing the lock",
+    pattern: /^ {8}requireRealWorkFolder\(root\);$/m,
+    replacement: "",
+    redTest: namedAny(["when .work itself becomes a link"]),
+  },
+  {
+    element: "the after-run check refusing a work folder that is a link at dispatch start",
+    pattern: /^ {2}requireRealWorkFolder\(root, slug\);$/m,
+    replacement: "",
+    redTest: namedAny(["when .work/alpha is a link"]),
+  },
+  {
+    element: "the after-run check checking the work folder after the first evidence write",
+    pattern:
+      /^ {2}requireRealWorkFolder\(root, slug\);\n {2}try \{\n {4}writeSnapshotEvidence\(root, slug, SNAPSHOT_BEFORE_FILE, snapshot\);\n {2}\} catch \(error\) \{\n {4}return refuse\(`cannot write \$\{SNAPSHOT_BEFORE_FILE\}: \$\{messageOf\(error\)\}`\);\n {2}\}$/m,
+    replacement:
+      "  try {\n    writeSnapshotEvidence(root, slug, SNAPSHOT_BEFORE_FILE, snapshot);\n  } catch (error) {\n    return refuse(`cannot write ${SNAPSHOT_BEFORE_FILE}: ${messageOf(error)}`);\n  }\n  requireRealWorkFolder(root, slug);",
+    redTest: namedAny(["writes nothing through the link when .work/alpha is a link"]),
+  },
+  {
+    element: "the after-run check making the work folder writable before a write after the session",
+    pattern: /^ {6}chmodSync\(workPath\(root, slug\), WORK_FOLDER_MODE\);$/m,
+    replacement: "",
+    redTest: namedAny(["forges run.json as done and makes the work folder read-only"]),
+  },
+  {
+    element: "the after-run check naming the lock temporary file by the pid",
+    pattern:
+      /^ {2}const temporaryPath = workPath\(root, `\$\{LOCK_FILE\}\.\$\{randomUUID\(\)\}\$\{TEMPORARY_SUFFIX\}`\);$/m,
+    replacement:
+      "  const temporaryPath = workPath(root, `${LOCK_FILE}.${holder.pid}${TEMPORARY_SUFFIX}`);",
+    redTest: namedAny([
+      "when a link sits at the temporary name its pid would use",
+      "publishes a finished file with link",
+      "publishes the session pid with rename",
+    ]),
+  },
+  {
+    element: "the after-run check printing a changed path as the filesystem spells it",
+    pattern:
+      /^ {4}print\(`LK PROTECTED PATH CHANGED: \$\{escapedPath\(path\)\} \(\$\{change\}\)`\);$/m,
+    replacement: "    print(`LK PROTECTED PATH CHANGED: ${path} (${change})`);",
+    redTest: namedAny(["holds a newline"]),
+  },
+  {
+    element: "the after-run check taking the lock before the smoke call",
+    pattern:
+      /^ {2}const exitCode = await runHoldingLock\(root, lockHolderOf\(deps, slug\), deps\.print, async \(\) => \{\n {4}const before = snapshotBeforeRun\(root, slug\);\n {4}if \(!options\.noSmoke\) \{\n {6}refuseUnlessModelAnswers\(session\.model, \{ cwd: root, env: childEnv \}, deps\.runSmoke\);\n {4}\}$/m,
+    replacement:
+      "  const before = snapshotBeforeRun(root, slug);\n  if (!options.noSmoke) {\n    refuseUnlessModelAnswers(session.model, { cwd: root, env: childEnv }, deps.runSmoke);\n  }\n  const exitCode = await runHoldingLock(root, lockHolderOf(deps, slug), deps.print, async () => {",
+    redTest: namedAny(["holds the lock while the smoke call runs"]),
+  },
+  {
+    element: "the after-run check releasing the lock before the second snapshot",
+    pattern: /^ {4}exitCode = concludeRun\(root, record, end, check, deps\.print\);$/m,
+    replacement:
+      "    try {\n      rmSync(workPath(root, LOCK_FILE), { force: true });\n    } catch {\n      // the lock cannot be removed here\n    }\n    exitCode = concludeRun(root, record, end, check, deps.print);",
+    redTest: namedAny([
+      "is still held when snapshot-after.json and then run.json are put in place",
+    ]),
   },
 ];
 

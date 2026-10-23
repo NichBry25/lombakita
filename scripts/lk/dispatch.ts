@@ -49,9 +49,11 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
+  chmodSync,
   closeSync,
   existsSync,
   linkSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -80,6 +82,7 @@ import {
   diffSnapshots,
   snapshotProtectedPaths,
   withoutTrailingSlash,
+  type KindedChange,
   type PathChange,
   type SnapshotEntry,
 } from "./protected-snapshot";
@@ -288,6 +291,7 @@ export const SMOKE_TIMEOUT_SECONDS = 60;
 const SNAPSHOT_BEFORE_FILE = "snapshot-before.json";
 const SNAPSHOT_AFTER_FILE = "snapshot-after.json";
 const PROTECTED_CHANGE_EXIT = 4;
+const WORK_FOLDER_MODE = 0o755;
 const RECORD_NOT_WRITTEN = "LK RECORD NOT WRITTEN";
 const LOCK_NOT_REMOVED = "LK LOCK NOT REMOVED";
 
@@ -575,15 +579,19 @@ const refuseIfLockHeld = (root: string, deps: DispatchDeps, removeStale: boolean
   if (markedLost) deps.print(`LK NOTE: run ${holder.slug} was left running and is marked lost`);
 };
 
-/** Writes the content to a temporary file next to the lock, hands the path to `publish`, then removes it. */
+/**
+ * Writes the content to a temporary file next to the lock, hands the path to `publish`, then removes it.
+ * The name is random and the create is exclusive, so a link the session planted at a guessed name is
+ * never written through.
+ */
 const publishLockContent = (
   root: string,
   holder: LockHolder,
   publish: (temporaryPath: string) => void,
 ): void => {
-  const temporaryPath = workPath(root, `${LOCK_FILE}.${holder.pid}${TEMPORARY_SUFFIX}`);
+  const temporaryPath = workPath(root, `${LOCK_FILE}.${randomUUID()}${TEMPORARY_SUFFIX}`);
   try {
-    writeFileSync(temporaryPath, JSON.stringify(holder));
+    writeFileSync(temporaryPath, JSON.stringify(holder), { flag: "wx" });
     publish(temporaryPath);
   } finally {
     rmSync(temporaryPath, { force: true });
@@ -623,6 +631,28 @@ const writeOwnedFile = (path: string, text: string): void => {
 
 const writeRunRecord = (root: string, record: RunRecord): void => {
   writeOwnedFile(workPath(root, record.slug, RUN_FILE), `${JSON.stringify(record, null, 2)}\n`);
+};
+
+const isRealFolder = (path: string): boolean => {
+  try {
+    return lstatSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+// The session can rename `.work` or `.work/<slug>` and put a link in its place, and a write by path
+// then lands wherever the link points. Given a slug, the work item's folder is checked as well.
+const requireRealWorkFolder = (root: string, slug?: string): void => {
+  const realRoot = realpathSync(root);
+  const names = slug === undefined ? [WORK_DIR] : [WORK_DIR, join(WORK_DIR, slug)];
+  for (const name of names) {
+    const folder = join(root, name);
+    if (!isRealFolder(folder)) refuse(`${folder} is not a real folder`);
+    const resolved = realpathSync(folder);
+    const expected = join(realRoot, name);
+    if (resolved !== expected) refuse(`${folder} resolves to ${resolved}, not ${expected}`);
+  }
 };
 
 const sessionEnv = (env: Env, slug: string, grant: readonly string[]): Env => ({
@@ -683,6 +713,7 @@ const snapshotBeforeRun = (root: string, slug: string): SnapshotEntry[] => {
   } catch (error) {
     return refuse(`cannot snapshot the protected paths: ${messageOf(error)}`);
   }
+  requireRealWorkFolder(root, slug);
   try {
     writeSnapshotEvidence(root, slug, SNAPSHOT_BEFORE_FILE, snapshot);
   } catch (error) {
@@ -692,28 +723,40 @@ const snapshotBeforeRun = (root: string, slug: string): SnapshotEntry[] => {
 };
 
 // A file entry covers that exact path. A folder entry, which ends in a slash, covers the folder
-// itself, spelled without the slash, and every path below it.
-const entryCoversPath = (entry: string, path: string): boolean => {
+// itself, spelled without the slash, and every path below it. A link at a covered path is not
+// covered, and neither is a path that changed kind, because the grant named the earlier one.
+const entryCoversPath = (entry: string, { path, change, kind }: KindedChange): boolean => {
+  if (kind === "link") return false;
+  if (change === "kind changed") return false;
   if (!entry.endsWith("/")) return path === entry;
   if (path === withoutTrailingSlash(entry)) return true;
   return path.startsWith(entry);
 };
 
 // Reaching a granted path creates the folders above it and removing it can remove them, which the
-// hook allows. A change of mode or of kind to such a folder stays uncovered.
-const entryCoversChange = (entry: string, { path, change }: PathChange): boolean => {
-  if (entryCoversPath(entry, path)) return true;
+// hook allows. A link or a file at such a path is not a folder, and a change of mode is no creation.
+const entryCoversFolderAbove = (entry: string, { path, change, kind }: KindedChange): boolean => {
+  if (kind !== "folder") return false;
   const isCreationOrRemoval = change === "added" || change === "removed";
   return isCreationOrRemoval && entry.startsWith(`${withoutTrailingSlash(path)}/`);
 };
 
-const isCoveredBy = (entries: readonly string[], change: PathChange): boolean => {
+const entryCoversChange = (entry: string, change: KindedChange): boolean =>
+  entryCoversPath(entry, change) || entryCoversFolderAbove(entry, change);
+
+const isCoveredBy = (entries: readonly string[], change: KindedChange): boolean => {
   const folded = { ...change, path: change.path.toLowerCase() };
   return entries.some((entry) => entryCoversChange(entry.toLowerCase(), folded));
 };
 
-const uncoveredChanges = (changes: readonly PathChange[], grant: readonly string[]): PathChange[] =>
-  changes.filter((change) => !isCoveredBy(grant, change));
+// The kind only decides coverage, so it is dropped before a change is recorded or printed.
+const uncoveredChanges = (
+  changes: readonly KindedChange[],
+  grant: readonly string[],
+): PathChange[] =>
+  changes
+    .filter((change) => !isCoveredBy(grant, change))
+    .map(({ path, change }) => ({ path, change }));
 
 /** What a run holds from the first snapshot on: the snapshot itself and the grant read before the session. */
 interface ProtectedCheck {
@@ -741,9 +784,13 @@ const checkProtectedPaths = (root: string, check: ProtectedCheck): CheckVerdict 
   return verdict;
 };
 
+// A path is a name the session chose, so a newline or an escape sequence in it must not reach the
+// output as one.
+const escapedPath = (path: string): string => JSON.stringify(path).slice(1, -1);
+
 const printCheckVerdict = (verdict: CheckVerdict, print: (line: string) => void): void => {
   for (const { path, change } of verdict.changed) {
-    print(`LK PROTECTED PATH CHANGED: ${path} (${change})`);
+    print(`LK PROTECTED PATH CHANGED: ${escapedPath(path)} (${change})`);
   }
   if (verdict.checkError !== undefined) {
     print(`LK PROTECTED PATH CHECK FAILED: ${verdict.checkError}`);
@@ -790,6 +837,25 @@ const attemptAfterSession = (
   }
 };
 
+// A write after the session goes into a folder that is still the real one, and the session may
+// have made it read-only, which the owner of the folder can undo.
+const attemptWorkFolderWrite = (
+  notice: string,
+  root: string,
+  slug: string,
+  step: () => void,
+  print: (line: string) => void,
+): boolean =>
+  attemptAfterSession(
+    notice,
+    () => {
+      requireRealWorkFolder(root, slug);
+      chmodSync(workPath(root, slug), WORK_FOLDER_MODE);
+      step();
+    },
+    print,
+  );
+
 /** Takes the lock, runs `work` while holding it and removes the lock however `work` ends. */
 const runHoldingLock = async <Result>(
   root: string,
@@ -803,7 +869,10 @@ const runHoldingLock = async <Result>(
   } finally {
     attemptAfterSession(
       LOCK_NOT_REMOVED,
-      () => rmSync(workPath(root, LOCK_FILE), { force: true }),
+      () => {
+        requireRealWorkFolder(root);
+        rmSync(workPath(root, LOCK_FILE), { force: true });
+      },
       print,
     );
   }
@@ -818,7 +887,7 @@ const writeAfterSnapshotEvidence = (
   const { after } = verdict;
   if (after === undefined) return true;
   const write = () => writeSnapshotEvidence(root, slug, SNAPSHOT_AFTER_FILE, after);
-  return attemptAfterSession(RECORD_NOT_WRITTEN, write, print);
+  return attemptWorkFolderWrite(RECORD_NOT_WRITTEN, root, slug, write, print);
 };
 
 /** Takes the second snapshot, prints what it found, writes the final record and returns the dispatcher's exit. */
@@ -835,7 +904,13 @@ const concludeRun = (
   const exitCode = runExitCode(end, verdict, evidenceWritten);
   const writeFinalRecord = () =>
     writeRunRecord(root, finalRunRecord(record, end, verdict, exitCode));
-  const recordWritten = attemptAfterSession(RECORD_NOT_WRITTEN, writeFinalRecord, print);
+  const recordWritten = attemptWorkFolderWrite(
+    RECORD_NOT_WRITTEN,
+    root,
+    record.slug,
+    writeFinalRecord,
+    print,
+  );
   return recordWritten ? exitCode : failureExit(end);
 };
 

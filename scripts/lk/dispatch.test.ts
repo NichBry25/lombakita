@@ -31,7 +31,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildClaudeArgs,
@@ -1714,6 +1714,8 @@ describe("how the lock is written", () => {
   const temporaryFiles = (sandbox: Sandbox): string[] =>
     readdirSync(join(sandbox.root, ".work")).filter((name) => name.endsWith(".tmp"));
 
+  const RANDOM_LOCK_TEMPORARY = /\/\.work\/\.lock\.[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}\.tmp$/;
+
   it("publishes a finished file with link, so the lock never exists part written", async () => {
     const sandbox = makeSandbox();
     addWorkItem(sandbox, "alpha");
@@ -1731,8 +1733,9 @@ describe("how the lock is written", () => {
       return realFs.linkSync(source, target);
     });
     await dispatchRun(options, sandbox.root, controllerEnv, deps());
+    expect(seen?.source).toMatch(RANDOM_LOCK_TEMPORARY);
     expect(seen).toEqual({
-      source: join(sandbox.root, ".work/.lock.4242.tmp"),
+      source: seen?.source,
       target: lockPath(sandbox),
       content: JSON.stringify({ pid: 4242, slug: "alpha" }),
       targetExisted: false,
@@ -1774,14 +1777,27 @@ describe("how the lock is written", () => {
     } finally {
       restoreRename();
     }
+    expect(seen?.source).toMatch(RANDOM_LOCK_TEMPORARY);
     expect(seen).toEqual({
-      source: join(sandbox.root, ".work/.lock.4242.tmp"),
+      source: seen?.source,
       target: lockPath(sandbox),
       content: JSON.stringify({ pid: 4242, slug: "alpha", childPid: 777 }),
       before: JSON.stringify({ pid: 4242, slug: "alpha" }),
     });
     expect(inodeAfter).not.toBe(inodeBefore);
     expect(temporaryFiles(sandbox)).toEqual([]);
+  });
+
+  it("keeps a protected file untouched and ends done when a link sits at the temporary name its pid would use", async () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const protectedFile = join(sandbox.root, "docs/AGENTS.md");
+    writeFileSync(protectedFile, "kept\n");
+    symlinkSync(protectedFile, join(sandbox.root, ".work/.lock.4242.tmp"));
+    const code = await dispatchRun(options, sandbox.root, controllerEnv, deps());
+    expect(code).toBe(0);
+    expect(readFileSync(protectedFile, "utf8")).toBe("kept\n");
+    expect(readRecord(sandbox, "alpha")).toMatchObject({ status: "done", exit: 0 });
   });
 
   it("removes its temporary file when the lock is already taken", async () => {
@@ -2556,6 +2572,29 @@ describe("the protected path check", () => {
     ".claude": "docs/.claude",
   };
 
+  // The set as the item specified it, written out so that an entry added to PROTECTED_SET or
+  // dropped from it shows up here. The sandbox and the per-entry cases are built from this list.
+  const SPECIFIED_PROTECTED_SET = [
+    "docs/project/SSOT.md",
+    "docs/product/state-machines.md",
+    "docs/CLAUDE.md",
+    "docs/CLAUDE-reference.md",
+    "docs/AGENTS.md",
+    "docs/project/controller.md",
+    "docs/product/ui-preferences.md",
+    "docs/project/models.md",
+    "docs/product/contracts/",
+    "docs/contracts/",
+    "docs/.claude/",
+    ".git/config",
+    ".git/hooks/",
+    "docs/.git/config",
+    "docs/.git/hooks/",
+    "CLAUDE.md",
+    "AGENTS.md",
+    ".claude",
+  ];
+
   const sha256Of = (text: string): string => createHash("sha256").update(text).digest("hex");
 
   const pathIn = (sandbox: Sandbox, path: string): string => join(sandbox.root, path);
@@ -2572,7 +2611,7 @@ describe("the protected path check", () => {
   // Every path of the set gets something on disk. docs/contracts is a link, as it is on the owner's
   // machine. The root links are made from their own table, so a set without them still has them.
   const seedProtectedPaths = (sandbox: Sandbox): void => {
-    for (const path of PROTECTED_SET.filter((entry) => !(entry in ROOT_LINKS))) {
+    for (const path of SPECIFIED_PROTECTED_SET.filter((entry) => !(entry in ROOT_LINKS))) {
       const absolute = pathIn(sandbox, path);
       if (path === "docs/contracts/") {
         symlinkSync("product/contracts", absolute.slice(0, -1));
@@ -2729,7 +2768,7 @@ describe("the protected path check", () => {
       expect(existsSync(lockPath(sandbox))).toBe(false);
     });
 
-    it.each(PROTECTED_SET.filter((path) => !path.endsWith("/") && !(path in ROOT_LINKS)))(
+    it.each(SPECIFIED_PROTECTED_SET.filter((path) => !path.endsWith("/") && !(path in ROOT_LINKS)))(
       "ends failed when the run changes the file %s",
       async (path) => {
         const sandbox = preparedSandbox();
@@ -2740,19 +2779,18 @@ describe("the protected path check", () => {
       },
     );
 
-    it.each(PROTECTED_SET.filter((path) => path.endsWith("/") && path !== "docs/contracts/"))(
-      "ends failed when the run adds a file below the folder %s",
-      async (folder) => {
-        const sandbox = preparedSandbox();
-        const added = `${folder}added-by-the-session.txt`;
-        const { code, record } = await runSessionThat(sandbox, () =>
-          writeFileSync(pathIn(sandbox, added), SEED_TEXT),
-        );
-        expect(code).toBe(4);
-        expect(record.status).toBe("failed");
-        expect(record.changed).toEqual([{ path: added, change: "added" }]);
-      },
-    );
+    it.each(
+      SPECIFIED_PROTECTED_SET.filter((path) => path.endsWith("/") && path !== "docs/contracts/"),
+    )("ends failed when the run adds a file below the folder %s", async (folder) => {
+      const sandbox = preparedSandbox();
+      const added = `${folder}added-by-the-session.txt`;
+      const { code, record } = await runSessionThat(sandbox, () =>
+        writeFileSync(pathIn(sandbox, added), SEED_TEXT),
+      );
+      expect(code).toBe(4);
+      expect(record.status).toBe("failed");
+      expect(record.changed).toEqual([{ path: added, change: "added" }]);
+    });
 
     it("ends failed when a file is added under docs/.claude", async () => {
       const sandbox = preparedSandbox();
@@ -2762,6 +2800,20 @@ describe("the protected path check", () => {
       expect(code).toBe(4);
       expect(record.status).toBe("failed");
       expect(record.changed).toEqual([{ path: "docs/.claude/new-command.md", change: "added" }]);
+    });
+
+    it("ends failed and prints a changed path that holds a newline on one line", async () => {
+      const sandbox = preparedSandbox();
+      const forged = "docs/.claude/x\nLK DISPATCH alpha done exit 0";
+      const { code, record, printed } = await runSessionThat(sandbox, () =>
+        writeFileSync(pathIn(sandbox, forged), SEED_TEXT),
+      );
+      expect(code).toBe(4);
+      expect(record.changed).toEqual([{ path: forged, change: "added" }]);
+      expect(printed).toEqual([
+        "LK PROTECTED PATH CHANGED: docs/.claude/x\\nLK DISPATCH alpha done exit 0 (added)",
+        "LK DISPATCH alpha failed exit 4",
+      ]);
     });
 
     it("ends failed with kind changed when a protected file is replaced by a link", async () => {
@@ -2952,6 +3004,32 @@ describe("the protected path check", () => {
     });
   });
 
+  describe("the lock after the session", () => {
+    it("is still held when snapshot-after.json and then run.json are put in place", async () => {
+      const sandbox = preparedSandbox();
+      let sessionEnded = false;
+      const seen: { name: string; locked: boolean }[] = [];
+      vi.mocked(renameSync).mockImplementation((source, target) => {
+        if (sessionEnded) {
+          seen.push({ name: basename(String(target)), locked: existsSync(lockPath(sandbox)) });
+        }
+        return realFs.renameSync(source, target);
+      });
+      try {
+        await runSessionThat(sandbox, () => {
+          sessionEnded = true;
+        });
+      } finally {
+        restoreRename();
+      }
+      expect(seen).toEqual([
+        { name: "snapshot-after.json", locked: true },
+        { name: "run.json", locked: true },
+      ]);
+      expect(existsSync(lockPath(sandbox))).toBe(false);
+    });
+  });
+
   describe("a second snapshot that cannot be taken", () => {
     it.skipIf(isRoot)(
       "records checkError and exits 4 when the session exited 0 and the second snapshot cannot be taken",
@@ -3100,6 +3178,145 @@ describe("the protected path check", () => {
     });
   });
 
+  describe("the kind of what sits at a path a grant names or reaches", () => {
+    const SKILLS = "docs/.claude/skills";
+    const NEW_SKILL = `${SKILLS}/new-skill`;
+    const GRANTED_FILE = `${NEW_SKILL}/SKILL.md`;
+
+    const outsideFolder = (): string => mkdtempSync(join(workspace, "outside-"));
+
+    const expectOnlyChange = (outcome: Outcome, path: string, change: string): void => {
+      expect(outcome.code).toBe(4);
+      expect(outcome.record).toMatchObject({ status: "failed", exit: 4 });
+      expect(outcome.record.changed).toEqual([{ path, change }]);
+      expect(outcome.printed).toEqual([
+        changedLine(path, change),
+        "LK DISPATCH alpha failed exit 4",
+      ]);
+    };
+
+    it("ends done when the session creates the folders and the file a file grant names", async () => {
+      const sandbox = preparedSandbox(`governance-grant: ${GRANTED_FILE}`);
+      const { code, record, printed } = await runSessionThat(sandbox, () => {
+        mkdirSync(pathIn(sandbox, NEW_SKILL), { recursive: true });
+        writeFileSync(pathIn(sandbox, GRANTED_FILE), SEED_TEXT);
+      });
+      expect(code).toBe(0);
+      expect(record).toMatchObject({ status: "done", exit: 0 });
+      expect("changed" in record).toBe(false);
+      expect(printed).toEqual(["LK DISPATCH alpha done exit 0"]);
+    });
+
+    it("ends failed and names the missing ancestor when the session creates it as a link to a folder outside the set", async () => {
+      const sandbox = preparedSandbox(`governance-grant: ${GRANTED_FILE}`);
+      const outside = outsideFolder();
+      mkdirSync(pathIn(sandbox, SKILLS));
+      const outcome = await runSessionThat(sandbox, () => {
+        symlinkSync(outside, pathIn(sandbox, NEW_SKILL));
+        writeFileSync(pathIn(sandbox, GRANTED_FILE), SEED_TEXT);
+      });
+      expect(readFileSync(join(outside, "SKILL.md"), "utf8")).toBe(SEED_TEXT);
+      expectOnlyChange(outcome, NEW_SKILL, "added");
+    });
+
+    it("ends failed and names the missing ancestor when the session creates it as a plain file", async () => {
+      const sandbox = preparedSandbox(`governance-grant: ${GRANTED_FILE}`);
+      mkdirSync(pathIn(sandbox, SKILLS));
+      const outcome = await runSessionThat(sandbox, () =>
+        writeFileSync(pathIn(sandbox, NEW_SKILL), SEED_TEXT),
+      );
+      expectOnlyChange(outcome, NEW_SKILL, "added");
+    });
+
+    it("ends failed with kind changed when the session replaces the granted file with a link", async () => {
+      const sandbox = preparedSandbox("governance-grant: docs/AGENTS.md");
+      const outside = outsideFolder();
+      const outcome = await runSessionThat(sandbox, () => {
+        rmSync(pathIn(sandbox, "docs/AGENTS.md"));
+        symlinkSync(join(outside, "agents.md"), pathIn(sandbox, "docs/AGENTS.md"));
+      });
+      expectOnlyChange(outcome, "docs/AGENTS.md", "kind changed");
+    });
+
+    it("ends failed with kind changed when the session replaces the granted file with a folder", async () => {
+      const sandbox = preparedSandbox("governance-grant: docs/AGENTS.md");
+      const outcome = await runSessionThat(sandbox, () => {
+        rmSync(pathIn(sandbox, "docs/AGENTS.md"));
+        mkdirSync(pathIn(sandbox, "docs/AGENTS.md"));
+      });
+      expectOnlyChange(outcome, "docs/AGENTS.md", "kind changed");
+    });
+
+    it("ends failed with added when the session creates a granted file that does not exist yet as a link", async () => {
+      const sandbox = preparedSandbox(`governance-grant: ${GRANTED_FILE}`);
+      const outside = outsideFolder();
+      mkdirSync(pathIn(sandbox, NEW_SKILL), { recursive: true });
+      const outcome = await runSessionThat(sandbox, () =>
+        symlinkSync(join(outside, "skill.md"), pathIn(sandbox, GRANTED_FILE)),
+      );
+      expectOnlyChange(outcome, GRANTED_FILE, "added");
+    });
+
+    it("ends failed when the session creates a granted folder that does not exist yet as a link", async () => {
+      const sandbox = preparedSandbox(`governance-grant: ${NEW_SKILL}/`);
+      const outside = outsideFolder();
+      mkdirSync(pathIn(sandbox, SKILLS));
+      const outcome = await runSessionThat(sandbox, () =>
+        symlinkSync(outside, pathIn(sandbox, NEW_SKILL)),
+      );
+      expectOnlyChange(outcome, NEW_SKILL, "added");
+    });
+
+    it("ends failed when the session replaces an existing granted folder with a link", async () => {
+      const sandbox = preparedSandbox(`governance-grant: ${SKILLS}/a/`);
+      mkdirSync(pathIn(sandbox, `${SKILLS}/a`), { recursive: true });
+      writeFileSync(pathIn(sandbox, `${SKILLS}/a/x`), SEED_TEXT);
+      const outside = outsideFolder();
+      const outcome = await runSessionThat(sandbox, () => {
+        rmSync(pathIn(sandbox, `${SKILLS}/a`), { recursive: true });
+        symlinkSync(outside, pathIn(sandbox, `${SKILLS}/a`));
+      });
+      expectOnlyChange(outcome, `${SKILLS}/a`, "kind changed");
+    });
+
+    it("ends done when the session edits the granted file in place", async () => {
+      const sandbox = preparedSandbox("governance-grant: docs/AGENTS.md");
+      const { code, record } = await runSessionThat(sandbox, () =>
+        appendTo(sandbox, "docs/AGENTS.md"),
+      );
+      expect(code).toBe(0);
+      expect(record).toMatchObject({ status: "done", exit: 0 });
+      expect("changed" in record).toBe(false);
+    });
+
+    it("ends failed and names a file that merely starts with the name of a granted file", async () => {
+      const sandbox = preparedSandbox("governance-grant: docs/.claude/a");
+      const outcome = await runSessionThat(sandbox, () =>
+        writeFileSync(pathIn(sandbox, "docs/.claude/ab"), SEED_TEXT),
+      );
+      expectOnlyChange(outcome, "docs/.claude/ab", "added");
+    });
+
+    it("ends failed and names a folder that merely starts with the name of a granted folder", async () => {
+      const sandbox = preparedSandbox(`governance-grant: ${SKILLS}/a/`);
+      mkdirSync(pathIn(sandbox, `${SKILLS}/a`), { recursive: true });
+      const { code, record, printed } = await runSessionThat(sandbox, () => {
+        mkdirSync(pathIn(sandbox, `${SKILLS}/ab`));
+        writeFileSync(pathIn(sandbox, `${SKILLS}/ab/x`), SEED_TEXT);
+      });
+      expect(code).toBe(4);
+      expect(record.changed).toEqual([
+        { path: `${SKILLS}/ab`, change: "added" },
+        { path: `${SKILLS}/ab/x`, change: "added" },
+      ]);
+      expect(printed).toEqual([
+        changedLine(`${SKILLS}/ab`, "added"),
+        changedLine(`${SKILLS}/ab/x`, "added"),
+        "LK DISPATCH alpha failed exit 4",
+      ]);
+    });
+  });
+
   describe("the files the dispatcher owns in the work folder", () => {
     const RUN_LINE = "LK DISPATCH alpha done exit 0";
 
@@ -3167,29 +3384,52 @@ describe("the protected path check", () => {
     );
 
     it.skipIf(isRoot)(
-      "ends failed and prints LK RECORD NOT WRITTEN when the session makes the work folder unwritable",
+      "ends failed with run.json holding status failed when the session forges run.json as done and makes the work folder read-only",
       async () => {
         const sandbox = preparedSandbox();
         const folder = join(sandbox.root, ".work/alpha");
         let outcome: Outcome;
         try {
           outcome = await runSessionThat(sandbox, () => {
+            writeFileSync(
+              workFile(sandbox, "run.json"),
+              JSON.stringify({ slug: "alpha", status: "done", exit: 0 }),
+            );
             chmodSync(folder, 0o555);
             appendTo(sandbox, "docs/AGENTS.md");
           });
         } finally {
           chmodSync(folder, 0o755);
         }
-        const { code, printed } = outcome;
-        const notWritten = printed.filter((line) => line.startsWith("LK RECORD NOT WRITTEN: "));
+        const { code, record, printed } = outcome;
         expect(code).toBe(4);
-        expect(printed[0]).toBe(changedLine("docs/AGENTS.md", "changed"));
-        expect(printed.at(-1)).toBe("LK DISPATCH alpha failed exit 4");
-        expect(notWritten.length).toBeGreaterThan(0);
-        expect(notWritten[0]).toContain("snapshot-after.json");
-        expect(existsSync(lockPath(sandbox))).toBe(false);
+        expect(record).toMatchObject({ status: "failed", exit: 4 });
+        expect(record.changed).toEqual([{ path: "docs/AGENTS.md", change: "changed" }]);
+        expect(printed).toEqual([
+          changedLine("docs/AGENTS.md", "changed"),
+          "LK DISPATCH alpha failed exit 4",
+        ]);
       },
     );
+
+    it("ends failed and prints LK RECORD NOT WRITTEN when snapshot-after.json cannot be replaced after a protected change", async () => {
+      const sandbox = preparedSandbox();
+      const blocker = workFile(sandbox, "snapshot-after.json");
+      const { code, record, printed } = await runSessionThat(sandbox, () => {
+        mkdirSync(blocker);
+        writeFileSync(join(blocker, "keep.txt"), SEED_TEXT);
+        appendTo(sandbox, "docs/AGENTS.md");
+      });
+      const notWritten = printed.filter((line) => line.startsWith("LK RECORD NOT WRITTEN: "));
+      expect(code).toBe(4);
+      expect(record).toMatchObject({ status: "failed", exit: 4 });
+      expect(record.changed).toEqual([{ path: "docs/AGENTS.md", change: "changed" }]);
+      expect(printed[0]).toBe(changedLine("docs/AGENTS.md", "changed"));
+      expect(printed.at(-1)).toBe("LK DISPATCH alpha failed exit 4");
+      expect(notWritten).toHaveLength(1);
+      expect(notWritten[0]).toContain("snapshot-after.json");
+      expect(existsSync(lockPath(sandbox))).toBe(false);
+    });
 
     it.each([
       { sessionExit: 0, status: "done" },
@@ -3240,6 +3480,32 @@ describe("the protected path check", () => {
       },
     );
 
+    it.each([
+      { sessionExit: 0, expected: 4 },
+      { sessionExit: 3, expected: 3 },
+    ])(
+      "exits $expected and prints LK RECORD NOT WRITTEN when only run.json cannot be replaced after a session that exits $sessionExit",
+      async ({ sessionExit, expected }) => {
+        const sandbox = preparedSandbox();
+        const runFile = workFile(sandbox, "run.json");
+        const printed: string[] = [];
+        const deps = depsFor(
+          printed,
+          () => {
+            rmSync(runFile);
+            mkdirSync(runFile);
+          },
+          sessionExit,
+        );
+        const code = await dispatchRun(options, sandbox.root, { LK_ROLE: "controller" }, deps);
+        expect(code).toBe(expected);
+        expect(printed).toHaveLength(2);
+        expect(printed[0]).toMatch(/^LK RECORD NOT WRITTEN: .*run\.json/);
+        expect(printed[1]).toBe(`LK DISPATCH alpha failed exit ${expected}`);
+        expect(statSync(runFile).isDirectory()).toBe(true);
+      },
+    );
+
     it("refuses with the cannot write line and starts nothing when snapshot-before.json cannot be replaced", async () => {
       const sandbox = preparedSandbox();
       mkdirSync(workFile(sandbox, "snapshot-before.json"));
@@ -3277,6 +3543,68 @@ describe("the protected path check", () => {
       const result = run(sandbox, "alpha");
       expectRefused(result, "cannot write snapshot-before.json: ", sandbox, "alpha");
       expect(existsSync(lockPath(sandbox))).toBe(false);
+    });
+  });
+
+  describe("a work folder that the session replaces with a link", () => {
+    const listing = (folder: string): string[] => readdirSync(folder).sort();
+
+    const notWrittenLines = (printed: string[]): string[] =>
+      printed.filter((line) => line.startsWith("LK RECORD NOT WRITTEN: "));
+
+    it.each([
+      { sessionExit: 0, expected: 4 },
+      { sessionExit: 3, expected: 3 },
+    ])(
+      "exits $expected and prints LK RECORD NOT WRITTEN and writes nothing into docs/.claude when .work/alpha becomes a link to it after a session that exits $sessionExit",
+      async ({ sessionExit, expected }) => {
+        const sandbox = preparedSandbox();
+        const linked = pathIn(sandbox, "docs/.claude");
+        const listedBefore = listing(linked);
+        const folder = join(sandbox.root, ".work/alpha");
+        const moved = join(sandbox.root, ".work/alpha-moved");
+        const printed: string[] = [];
+        const deps = depsFor(
+          printed,
+          () => {
+            renameSync(folder, moved);
+            symlinkSync(linked, folder);
+          },
+          sessionExit,
+        );
+        const code = await dispatchRun(options, sandbox.root, { LK_ROLE: "controller" }, deps);
+        expect(listing(linked)).toEqual(listedBefore);
+        expect(code).toBe(expected);
+        expect(notWrittenLines(printed)).toHaveLength(2);
+        expect(printed.at(-1)).toBe(`LK DISPATCH alpha failed exit ${expected}`);
+        expect(existsSync(lockPath(sandbox))).toBe(false);
+        const stale = JSON.parse(readFileSync(join(moved, "run.json"), "utf8")) as RunRecord;
+        expect(stale.status).toBe("running");
+      },
+    );
+
+    it("exits 4 and prints LK RECORD NOT WRITTEN and LK LOCK NOT REMOVED and writes and removes nothing there when .work itself becomes a link", async () => {
+      const sandbox = preparedSandbox();
+      const decoy = mkdtempSync(join(workspace, "decoy-work-"));
+      mkdirSync(join(decoy, "alpha"));
+      writeFileSync(join(decoy, ".lock"), "decoy\n");
+      const work = join(sandbox.root, ".work");
+      const printed: string[] = [];
+      const deps = depsFor(
+        printed,
+        () => {
+          renameSync(work, join(sandbox.root, ".work-moved"));
+          symlinkSync(decoy, work);
+        },
+        0,
+      );
+      const code = await dispatchRun(options, sandbox.root, { LK_ROLE: "controller" }, deps);
+      expect(listing(join(decoy, "alpha"))).toEqual([]);
+      expect(readFileSync(join(decoy, ".lock"), "utf8")).toBe("decoy\n");
+      expect(code).toBe(4);
+      expect(notWrittenLines(printed)).toHaveLength(2);
+      expect(printed.filter((line) => line.startsWith("LK LOCK NOT REMOVED: "))).toHaveLength(1);
+      expect(printed.at(-1)).toBe("LK DISPATCH alpha failed exit 4");
     });
   });
 
@@ -3373,6 +3701,32 @@ describe("the protected path check", () => {
         ),
       );
       expectNothingLeftBehind(sandbox, calls);
+    });
+
+    const linkWorkFolder = (sandbox: Sandbox): string => {
+      const real = join(sandbox.root, ".work/alpha-real");
+      renameSync(join(sandbox.root, ".work/alpha"), real);
+      symlinkSync(real, join(sandbox.root, ".work/alpha"));
+      return real;
+    };
+
+    it("refuses before anything starts and writes nothing through the link when .work/alpha is a link", async () => {
+      const sandbox = preparedSandbox();
+      const real = linkWorkFolder(sandbox);
+      const { calls, deps } = startedBy();
+      await expect(
+        dispatchRun({ ...options, noSmoke: false }, sandbox.root, { LK_ROLE: "controller" }, deps),
+      ).rejects.toThrow(/\.work\/alpha is not a real folder$/);
+      expectNothingLeftBehind(sandbox, calls);
+      expect(readdirSync(real)).toEqual(["02-prompt.md"]);
+    });
+
+    it("prints one LK REFUSED line and exits 1 on the command line when .work/alpha is a link", () => {
+      const sandbox = preparedSandbox();
+      linkWorkFolder(sandbox);
+      const result = run(sandbox, "alpha");
+      expectRefused(result, "is not a real folder", sandbox, "alpha");
+      expect(existsSync(lockPath(sandbox))).toBe(false);
     });
 
     it("prints one LK REFUSED line and exits 1 on the command line when docs/ is absent", () => {
@@ -3485,6 +3839,10 @@ describe("the protected path check", () => {
 
     it("covers every path of PROTECTED_PATHS in protect-table.ts", () => {
       expect(uncoveredBy(PROTECTED_SET)).toEqual([]);
+    });
+
+    it("is exactly the set the item specified, entry by entry", () => {
+      expect(PROTECTED_SET).toEqual(SPECIFIED_PROTECTED_SET);
     });
 
     it("is checked by a pin that names the path a set leaves out", () => {
@@ -3616,10 +3974,44 @@ describe("the protected path check", () => {
         file("created", "a"),
       ];
       expect(diffSnapshots(before, after)).toEqual([
-        { path: "edited", change: "changed" },
-        { path: "deleted", change: "removed" },
-        { path: "linked", change: "kind changed" },
-        { path: "created", change: "added" },
+        { path: "edited", change: "changed", kind: "file" },
+        { path: "deleted", change: "removed", kind: "file" },
+        { path: "linked", change: "kind changed", kind: "link" },
+        { path: "created", change: "added", kind: "file" },
+      ]);
+    });
+
+    it("carries the kind that sits at the path now, and the kind a removed path had", () => {
+      const folder = (path: string): SnapshotEntry => ({ path, kind: "folder", mode: 0o755 });
+      const link = (path: string): SnapshotEntry => ({
+        path,
+        kind: "link",
+        mode: 0o755,
+        target: "elsewhere",
+      });
+      const before: SnapshotEntry[] = [
+        folder("removed-folder"),
+        link("removed-link"),
+        link("link-to-folder"),
+        file("file-to-folder", "a"),
+        { path: "added-folder", kind: "absent" },
+        { path: "added-link", kind: "absent" },
+      ];
+      const after: SnapshotEntry[] = [
+        { path: "removed-folder", kind: "absent" },
+        { path: "removed-link", kind: "absent" },
+        folder("link-to-folder"),
+        folder("file-to-folder"),
+        folder("added-folder"),
+        link("added-link"),
+      ];
+      expect(diffSnapshots(before, after)).toEqual([
+        { path: "removed-folder", change: "removed", kind: "folder" },
+        { path: "removed-link", change: "removed", kind: "link" },
+        { path: "link-to-folder", change: "kind changed", kind: "folder" },
+        { path: "file-to-folder", change: "kind changed", kind: "folder" },
+        { path: "added-folder", change: "added", kind: "folder" },
+        { path: "added-link", change: "added", kind: "link" },
       ]);
     });
 
@@ -3630,7 +4022,7 @@ describe("the protected path check", () => {
 
     it("reports a permission change as changed", () => {
       expect(diffSnapshots([file("a", "a", 0o644)], [file("a", "a", 0o600)])).toEqual([
-        { path: "a", change: "changed" },
+        { path: "a", change: "changed", kind: "file" },
       ]);
     });
 
@@ -3642,7 +4034,7 @@ describe("the protected path check", () => {
         target,
       });
       expect(diffSnapshots([link("one")], [link("two")])).toEqual([
-        { path: "l", change: "changed" },
+        { path: "l", change: "changed", kind: "link" },
       ]);
     });
 
@@ -3651,7 +4043,7 @@ describe("the protected path check", () => {
         [],
       );
       expect(diffSnapshots([file("docs/AGENTS.md", "a")], [file("docs/agents.md", "b")])).toEqual([
-        { path: "docs/agents.md", change: "changed" },
+        { path: "docs/agents.md", change: "changed", kind: "file" },
       ]);
     });
   });

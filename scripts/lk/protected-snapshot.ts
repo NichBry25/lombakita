@@ -38,6 +38,11 @@ export interface PathChange {
   change: ChangeKind;
 }
 
+/** A change with the kind that sits at its path now, or the kind a removed path had. Never written or printed. */
+export interface KindedChange extends PathChange {
+  kind: PathKind;
+}
+
 const PERMISSION_BITS = 0o7777;
 const MISSING_PATH_CODES = new Set(["ENOENT", "ENOTDIR"]);
 
@@ -110,13 +115,14 @@ const hasSameContent = (before: SnapshotEntry, after: SnapshotEntry): boolean =>
 const changeBetween = (
   before: SnapshotEntry | undefined,
   after: SnapshotEntry | undefined,
-): PathChange | undefined => {
+): KindedChange | undefined => {
   if (isThere(before) && isThere(after)) {
-    if (before.kind !== after.kind) return { path: after.path, change: "kind changed" };
-    return hasSameContent(before, after) ? undefined : { path: after.path, change: "changed" };
+    const { path, kind } = after;
+    if (before.kind !== kind) return { path, change: "kind changed", kind };
+    return hasSameContent(before, after) ? undefined : { path, change: "changed", kind };
   }
-  if (isThere(after)) return { path: after.path, change: "added" };
-  if (isThere(before)) return { path: before.path, change: "removed" };
+  if (isThere(after)) return { path: after.path, change: "added", kind: after.kind };
+  if (isThere(before)) return { path: before.path, change: "removed", kind: before.kind };
   return undefined;
 };
 
@@ -124,11 +130,11 @@ const changeBetween = (
 export const diffSnapshots = (
   before: readonly SnapshotEntry[],
   after: readonly SnapshotEntry[],
-): PathChange[] => {
+): KindedChange[] => {
   const earlier = indexByFoldedPath(before);
   const later = indexByFoldedPath(after);
   const paths = new Set([...earlier.keys(), ...later.keys()]);
-  const changes: PathChange[] = [];
+  const changes: KindedChange[] = [];
   for (const path of paths) {
     const change = changeBetween(earlier.get(path), later.get(path));
     if (change !== undefined) changes.push(change);
