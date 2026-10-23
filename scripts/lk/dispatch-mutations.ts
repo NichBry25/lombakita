@@ -86,6 +86,16 @@ const BELOW_FOLDER_TESTS = [
   "merely starts with the name of a granted",
   "holds a newline",
 ];
+// The tests of a folder above the set that is replaced by a link, has its mode changed or is
+// created as a link, and the ones that read what the first snapshot records of such folders.
+const FOLDER_ABOVE_SET_TESTS = [
+  "a link to a copy of itself",
+  "its mode changes",
+  "names docs/product with added",
+  "writes the folders above the set into snapshot-before.json",
+  "records the folders above the paths of the set",
+  "counts a path whose parent is a file as absent",
+];
 // The tests whose session exits with its own failure code, which the check leaves as it is.
 const SESSION_FAILS_ITSELF_TESTS = [
   "own exit 3",
@@ -154,7 +164,8 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     pattern:
       /^ {2}return entries\.some\(\(entry\) => entryCoversChange\(entry\.toLowerCase\(\), folded\)\);$/m,
     replacement: "  return true;",
-    redTest: namedAny([CHANGE_FAILS_TEST]),
+    redTest: (fullName) =>
+      namedAny([CHANGE_FAILS_TEST])(fullName) && !namedAny(FOLDER_ABOVE_SET_TESTS)(fullName),
   },
   {
     element: "the after-run check hashing the bytes of a file",
@@ -311,6 +322,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
       "reports a permission change as changed",
       "whose mode the session changes",
       "prints one line per path with its kind of change",
+      "its mode changes",
     ]),
   },
   {
@@ -358,6 +370,9 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
       "is checked by a pin that names the path a set leaves out",
       "ends failed when the run changes the file .git/config",
       "ends failed when the run changes the file docs/.git/config",
+      "names the folder .git with kind changed",
+      "names the folder docs/.git with kind changed",
+      "writes the folders above the set into snapshot-before.json",
       "adds a file below the folder .git/hooks/",
       "adds a file below the folder docs/.git/hooks/",
       "records checkError and exits 4",
@@ -435,6 +450,29 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
       "is still held while the second snapshot reads the protected paths",
       "has written the final record by the time the lock is removed",
     ]),
+  },
+  {
+    element: "the after-run check recording the folders above the set",
+    path: SNAPSHOT_PATH,
+    pattern:
+      /^ {2}const entries: SnapshotEntry\[\] = ancestorFoldersOf\(set\)\.map\(\(path\) => entryAt\(root, path\)\);$/m,
+    replacement: "  const entries: SnapshotEntry[] = [];",
+    redTest: namedAny(FOLDER_ABOVE_SET_TESTS),
+  },
+  {
+    element:
+      "the after-run check leaving a folder above the set that appears or disappears unreported",
+    pattern: /^ {2}kind === "folder" && \(change === "added" \|\| change === "removed"\);$/m,
+    replacement: "  false;",
+    redTest: namedAny(["ends done when docs/product is absent at the start"]),
+  },
+  {
+    element: "the after-run check letting a grant cover a change at a folder above the set",
+    pattern:
+      /^ {2}if \(isAncestorOfSet\(change\)\) return !isUnreportedAncestorChange\(change\);$/m,
+    replacement:
+      "  if (isAncestorOfSet(change)) return !isUnreportedAncestorChange(change) && !isCoveredBy(grant, change);",
+    redTest: namedAny(["when a grant names the folder and its mode changes"]),
   },
 ];
 

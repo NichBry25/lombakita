@@ -15,6 +15,7 @@ import {
   appendFileSync,
   chmodSync,
   copyFileSync,
+  cpSync,
   existsSync,
   linkSync,
   lstatSync,
@@ -31,7 +32,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildClaudeArgs,
@@ -58,7 +59,12 @@ import {
 } from "./dispatch";
 import { LkRefusal, type Env } from "./models";
 import { PROTECTED_PATHS } from "./protect-table";
-import { diffSnapshots, snapshotProtectedPaths, type SnapshotEntry } from "./protected-snapshot";
+import {
+  ancestorFoldersOf,
+  diffSnapshots,
+  snapshotProtectedPaths,
+  type SnapshotEntry,
+} from "./protected-snapshot";
 
 // The dispatcher's own calls to these are wrapped, not replaced, so a case can watch what the
 // dispatcher hands them and make one fail once.
@@ -3666,6 +3672,133 @@ describe("the protected path check", () => {
     );
   });
 
+  describe("a folder above the protected set", () => {
+    // The folders above the paths of the set, written out so that a set entry that moves one
+    // shows up here.
+    const FOLDERS_ABOVE_THE_SET = [".git", "docs", "docs/.git", "docs/product", "docs/project"];
+
+    const replaceWithLinkToCopy = (sandbox: Sandbox, path: string): void => {
+      const folder = pathIn(sandbox, path);
+      const copy = `${folder}-copy`;
+      cpSync(folder, copy, { recursive: true, verbatimSymlinks: true });
+      rmSync(folder, { recursive: true });
+      symlinkSync(basename(copy), folder);
+    };
+
+    const sandboxWithoutProduct = (grantLine?: string): Sandbox => {
+      const sandbox = preparedSandbox(grantLine);
+      rmSync(pathIn(sandbox, "docs/product"), { recursive: true });
+      return sandbox;
+    };
+
+    it("ends failed and names docs/project with kind changed when it is replaced by a link to a copy of itself", async () => {
+      const sandbox = preparedSandbox();
+      const { code, record, printed } = await runSessionThat(sandbox, () =>
+        replaceWithLinkToCopy(sandbox, "docs/project"),
+      );
+      expect(readText(sandbox, "docs/project/SSOT.md")).toBe(SEED_TEXT);
+      expect(code).toBe(4);
+      expect(record).toMatchObject({ status: "failed", exit: 4 });
+      expect(record.changed).toEqual([{ path: "docs/project", change: "kind changed" }]);
+      expect(printed).toEqual([
+        changedLine("docs/project", "kind changed"),
+        "LK DISPATCH alpha failed exit 4",
+      ]);
+    });
+
+    it.each(FOLDERS_ABOVE_THE_SET)(
+      "ends failed and names the folder %s with kind changed when it is replaced by a link to a copy of itself",
+      async (path) => {
+        const sandbox = preparedSandbox();
+        const { code, record } = await runSessionThat(sandbox, () =>
+          replaceWithLinkToCopy(sandbox, path),
+        );
+        expect(code).toBe(4);
+        expect(record.status).toBe("failed");
+        expect(record.changed).toEqual([{ path, change: "kind changed" }]);
+      },
+    );
+
+    it.skipIf(isRoot)(
+      "ends failed and names docs/project with changed when its mode changes",
+      async () => {
+        const sandbox = preparedSandbox();
+        const { code, record } = await runSessionThat(sandbox, () =>
+          chmodSync(pathIn(sandbox, "docs/project"), 0o700),
+        );
+        expect(code).toBe(4);
+        expect(record.status).toBe("failed");
+        expect(record.changed).toEqual([{ path: "docs/project", change: "changed" }]);
+      },
+    );
+
+    it.skipIf(isRoot)(
+      "ends failed and names docs/project with changed when a grant names the folder and its mode changes",
+      async () => {
+        const sandbox = preparedSandbox("governance-grant: docs/project/");
+        const { code, record } = await runSessionThat(sandbox, () =>
+          chmodSync(pathIn(sandbox, "docs/project"), 0o700),
+        );
+        expect(code).toBe(4);
+        expect(record.status).toBe("failed");
+        expect(record.changed).toEqual([{ path: "docs/project", change: "changed" }]);
+      },
+    );
+
+    it("ends done when docs/product is absent at the start and the session creates it as a folder with a file outside the set", async () => {
+      const sandbox = sandboxWithoutProduct();
+      const { code, record, printed } = await runSessionThat(sandbox, () => {
+        mkdirSync(pathIn(sandbox, "docs/product"));
+        writeFileSync(pathIn(sandbox, "docs/product/notes.md"), SEED_TEXT);
+      });
+      expect(code).toBe(0);
+      expect(record).toMatchObject({ status: "done", exit: 0 });
+      expect("changed" in record).toBe(false);
+      expect(printed).toEqual(["LK DISPATCH alpha done exit 0"]);
+    });
+
+    it("ends failed and names docs/product with added when docs/product is absent at the start and the session creates it as a link", async () => {
+      const sandbox = sandboxWithoutProduct();
+      const outside = mkdtempSync(join(workspace, "outside-"));
+      const { code, record, printed } = await runSessionThat(sandbox, () =>
+        symlinkSync(outside, pathIn(sandbox, "docs/product")),
+      );
+      expect(code).toBe(4);
+      expect(record.status).toBe("failed");
+      expect(record.changed).toEqual([{ path: "docs/product", change: "added" }]);
+      expect(printed).toEqual([
+        changedLine("docs/product", "added"),
+        "LK DISPATCH alpha failed exit 4",
+      ]);
+    });
+
+    it("ends done when docs/product is absent at the start and a file grant names a file in it that the session creates", async () => {
+      const sandbox = sandboxWithoutProduct("governance-grant: docs/product/state-machines.md");
+      const { code, record, printed } = await runSessionThat(sandbox, () => {
+        mkdirSync(pathIn(sandbox, "docs/product"));
+        writeFileSync(pathIn(sandbox, "docs/product/state-machines.md"), SEED_TEXT);
+      });
+      expect(code).toBe(0);
+      expect(record).toMatchObject({ status: "done", exit: 0 });
+      expect("changed" in record).toBe(false);
+      expect(printed).toEqual(["LK DISPATCH alpha done exit 0"]);
+    });
+
+    it("writes the folders above the set into snapshot-before.json and no other path outside the set", async () => {
+      const sandbox = preparedSandbox();
+      await runSessionThat(sandbox, () => undefined);
+      const entries = JSON.parse(
+        readFileSync(workFile(sandbox, "snapshot-before.json"), "utf8"),
+      ) as SnapshotEntry[];
+      const isBelowAFolderEntry = (path: string): boolean =>
+        SPECIFIED_PROTECTED_SET.some((entry) => entry.endsWith("/") && path.startsWith(entry));
+      const outsideTheSet = entries
+        .map(({ path }) => path)
+        .filter((path) => !SPECIFIED_PROTECTED_SET.includes(path) && !isBelowAFolderEntry(path));
+      expect(outsideTheSet.sort()).toEqual([...FOLDERS_ABOVE_THE_SET].sort());
+    });
+  });
+
   describe("a run that cannot start", () => {
     const startedBy = (): { calls: string[]; deps: DispatchDeps } => {
       const calls: string[] = [];
@@ -3843,6 +3976,47 @@ describe("the protected path check", () => {
     });
   });
 
+  describe("through the real session runner and a fake claude that runs a shell command", () => {
+    const shellBin = join(workspace, "bin-shell");
+    mkdirSync(shellBin);
+    writeFileSync(join(shellBin, "claude"), '#!/bin/sh\nexec sh -c "$FAKE_SESSION_COMMAND"\n');
+    chmodSync(join(shellBin, "claude"), 0o755);
+
+    const dispatchRunningCommand = async (sandbox: Sandbox, command: string): Promise<Outcome> => {
+      const printed: string[] = [];
+      const deps: DispatchDeps = {
+        spawnSession: spawnSessionWithClaude,
+        runSmoke: () => ({ status: 0, stdout: "ok", timedOut: false }),
+        isProcessAlive,
+        pid: process.pid,
+        print: (line) => printed.push(line),
+      };
+      const env = dispatchEnv(sandbox, {
+        LK_ROLE: "controller",
+        PATH: `${shellBin}:${process.env.PATH ?? ""}`,
+        FAKE_SESSION_COMMAND: command,
+      });
+      const code = await dispatchRun(options, sandbox.root, env, deps);
+      return { code, record: readRecord(sandbox, "alpha"), printed };
+    };
+
+    it("ends failed with exit 4 and names docs/project when the session replaces it with a link to a copy of itself", async () => {
+      const sandbox = preparedSandbox();
+      const { code, record, printed } = await dispatchRunningCommand(
+        sandbox,
+        "cp -Rp docs/project docs/project-copy && rm -rf docs/project && ln -s project-copy docs/project",
+      );
+      expect(readText(sandbox, "docs/project/SSOT.md")).toBe(SEED_TEXT);
+      expect(code).toBe(4);
+      expect(record).toMatchObject({ status: "failed", exit: 4 });
+      expect(record.changed).toEqual([{ path: "docs/project", change: "kind changed" }]);
+      expect(printed).toEqual([
+        changedLine("docs/project", "kind changed"),
+        "LK DISPATCH alpha failed exit 4",
+      ]);
+    });
+  });
+
   describe("the protected set", () => {
     const coversPath = (entry: string, path: string): boolean =>
       entry.endsWith("/") ? path.startsWith(entry) : path === entry;
@@ -3931,6 +4105,12 @@ describe("the protected path check", () => {
       const root = scratchFolder();
       writeFileSync(join(root, "parent"), "a file, not a folder");
       expect(snapshotProtectedPaths(root, ["parent/config", "parent/hooks/"])).toEqual([
+        {
+          path: "parent",
+          kind: "file",
+          mode: expect.any(Number),
+          sha256: sha256Of("a file, not a folder"),
+        },
         { path: "parent/config", kind: "absent" },
         { path: "parent/hooks/", kind: "absent" },
       ]);
@@ -3945,6 +4125,28 @@ describe("the protected path check", () => {
       } finally {
         chmodSync(join(root, "locked.txt"), 0o644);
       }
+    });
+
+    it("records the folders above the paths of the set, each once and never walked", () => {
+      const root = scratchFolder();
+      mkdirSync(join(root, "a/b"), { recursive: true });
+      writeFileSync(join(root, "a/sibling.txt"), "x");
+      writeFileSync(join(root, "a/b/f.txt"), "f");
+      writeFileSync(join(root, "a/b/g.txt"), "g");
+      const entries = snapshotProtectedPaths(root, ["a/b/f.txt", "a/b/g.txt"]);
+      expect(entries.map(({ path, kind }) => [path, kind])).toEqual([
+        ["a", "folder"],
+        ["a/b", "folder"],
+        ["a/b/f.txt", "file"],
+        ["a/b/g.txt", "file"],
+      ]);
+    });
+
+    it("derives the folders above a set: none for the root, none the set holds itself", () => {
+      expect(ancestorFoldersOf(["a/b/c.txt", "a/b/", "a/d/e/", "f.txt", "g/"])).toEqual([
+        "a",
+        "a/d",
+      ]);
     });
 
     it("walks every file of a folder, with no cap", () => {

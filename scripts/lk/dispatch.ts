@@ -39,6 +39,10 @@
  * folder above it that the session created or removed on the way to it, as the hook allows, and
  * only when what sits there is a folder.
  *
+ * The folders above the set (ancestorFoldersOf) are snapshotted as well. A change at one of them
+ * is reported and no grant covers it, except a folder appearing or disappearing, which is never
+ * reported.
+ *
  * The session can write the work folder, so the files the dispatcher owns there (both snapshots and
  * run.json) are written to a new temporary file and renamed over the target: a rename replaces a
  * link or a read-only file where a write would follow the link or fail. The lock file is written the
@@ -84,6 +88,7 @@ import {
   type ModelClass,
 } from "./models";
 import {
+  ancestorFoldersOf,
   diffSnapshots,
   snapshotProtectedPaths,
   withoutTrailingSlash,
@@ -324,6 +329,10 @@ export const PROTECTED_SET: readonly string[] = [
   "AGENTS.md",
   ".claude",
 ];
+
+const PROTECTED_ANCESTORS: ReadonlySet<string> = new Set(
+  ancestorFoldersOf(PROTECTED_SET).map((path) => path.toLowerCase()),
+);
 
 export const buildClaudeArgs = (promptText: string, model: string): string[] => [
   "-p",
@@ -753,13 +762,28 @@ const isCoveredBy = (entries: readonly string[], change: KindedChange): boolean 
   return entries.some((entry) => entryCoversChange(entry.toLowerCase(), folded));
 };
 
-// The kind only decides coverage, so it is dropped before a change is recorded or printed.
-const uncoveredChanges = (
+const isAncestorOfSet = ({ path }: KindedChange): boolean =>
+  PROTECTED_ANCESTORS.has(path.toLowerCase());
+
+// The one change at a folder above the set that is never reported: the folder appearing or
+// disappearing, because every path of the set below it is compared on its own.
+const isUnreportedAncestorChange = ({ change, kind }: KindedChange): boolean =>
+  kind === "folder" && (change === "added" || change === "removed");
+
+// A grant lets a session write the paths it names, not move the folder those paths are reached
+// through, so a change at a folder above the set is reported whatever the grant names.
+const isReported = (change: KindedChange, grant: readonly string[]): boolean => {
+  if (isAncestorOfSet(change)) return !isUnreportedAncestorChange(change);
+  return !isCoveredBy(grant, change);
+};
+
+// The kind only decides what is reported, so it is dropped before a change is recorded or printed.
+const reportedChanges = (
   changes: readonly KindedChange[],
   grant: readonly string[],
 ): PathChange[] =>
   changes
-    .filter((change) => !isCoveredBy(grant, change))
+    .filter((change) => isReported(change, grant))
     .map(({ path, change }) => ({ path, change }));
 
 /** What a run holds from the first snapshot on: the snapshot itself and the grant read before the session. */
@@ -780,7 +804,7 @@ const checkProtectedPaths = (root: string, check: ProtectedCheck): CheckVerdict 
   try {
     const after = snapshotProtectedPaths(root, PROTECTED_SET);
     const changes = diffSnapshots(check.before, after);
-    verdict.changed = uncoveredChanges(changes, check.grant);
+    verdict.changed = reportedChanges(changes, check.grant);
     verdict.after = after;
   } catch (error) {
     verdict.checkError = messageOf(error);

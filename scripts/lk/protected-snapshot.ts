@@ -7,6 +7,10 @@
  * order, so every file below it has an entry of its own. Nothing is capped, neither the files
  * walked nor the bytes hashed.
  *
+ * The folders above the paths of the set are recorded too, each as one entry of its own and never
+ * walked: a folder replaced by a link to a copy of itself leaves every path below it reading the
+ * same, and only the folder's own entry shows it.
+ *
  * A path that does not exist, or whose parent is a file, is absent. Any other read error is thrown,
  * because a path that cannot be read cannot be called unchanged.
  *
@@ -99,8 +103,25 @@ const indexByFoldedPath = (snapshot: readonly SnapshotEntry[]): Map<string, Snap
   return index;
 };
 
+/**
+ * The folders above the paths of the set: every proper prefix of a path, the root excluded, and no
+ * prefix that is itself an entry of the set, because such an entry is recorded and walked already.
+ */
+export const ancestorFoldersOf = (set: readonly string[]): string[] => {
+  const entries = new Set(set.map(withoutTrailingSlash));
+  const ancestors = new Set<string>();
+  for (const path of set) {
+    const parts = withoutTrailingSlash(path).split("/");
+    for (let length = 1; length < parts.length; length += 1) {
+      const prefix = parts.slice(0, length).join("/");
+      if (!entries.has(prefix)) ancestors.add(prefix);
+    }
+  }
+  return [...ancestors];
+};
+
 export const snapshotProtectedPaths = (root: string, set: readonly string[]): SnapshotEntry[] => {
-  const entries: SnapshotEntry[] = [];
+  const entries: SnapshotEntry[] = ancestorFoldersOf(set).map((path) => entryAt(root, path));
   for (const path of set) collectEntries(root, path, entries);
   indexByFoldedPath(entries);
   return entries;
