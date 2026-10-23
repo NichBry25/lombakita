@@ -229,6 +229,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
       "during the smoke call",
       "when the first snapshot cannot be taken",
       "snapshot-before.json cannot be replaced",
+      "when .work/alpha is a link",
     ]),
   },
   {
@@ -429,7 +430,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     replacement:
       "    try {\n      requireRealWorkFolder(root);\n      rmSync(workPath(root, LOCK_FILE), { force: true });\n    } catch {\n      // the lock cannot be removed here\n    }\n    exitCode = concludeRun(root, record, end, check, deps.print);",
     redTest: namedAny([
-      "is still held when snapshot-after.json and then run.json are put in place",
+      "is still held while the second snapshot reads the protected paths",
       "has written the final record by the time the lock is removed",
     ]),
   },

@@ -71,6 +71,7 @@ vi.mock("node:fs", async (importOriginal) => {
   return {
     ...actual,
     linkSync: vi.fn(actual.linkSync),
+    lstatSync: vi.fn(actual.lstatSync),
     renameSync: vi.fn(actual.renameSync),
     rmSync: vi.fn(actual.rmSync),
   };
@@ -3005,27 +3006,25 @@ describe("the protected path check", () => {
   });
 
   describe("the lock after the session", () => {
-    it("is still held when snapshot-after.json and then run.json are put in place", async () => {
+    it("is still held while the second snapshot reads the protected paths", async () => {
       const sandbox = preparedSandbox();
+      const agents = pathIn(sandbox, "docs/AGENTS.md");
       let sessionEnded = false;
-      const seen: { name: string; locked: boolean }[] = [];
-      vi.mocked(renameSync).mockImplementation((source, target) => {
-        if (sessionEnded) {
-          seen.push({ name: basename(String(target)), locked: existsSync(lockPath(sandbox)) });
+      const lockHeldAtRead: boolean[] = [];
+      vi.mocked(lstatSync).mockImplementation(((path, options) => {
+        if (sessionEnded && String(path) === agents) {
+          lockHeldAtRead.push(existsSync(lockPath(sandbox)));
         }
-        return realFs.renameSync(source, target);
-      });
+        return realFs.lstatSync(path, options as never);
+      }) as typeof lstatSync);
       try {
         await runSessionThat(sandbox, () => {
           sessionEnded = true;
         });
       } finally {
-        restoreRename();
+        vi.mocked(lstatSync).mockImplementation(realFs.lstatSync);
       }
-      expect(seen).toEqual([
-        { name: "snapshot-after.json", locked: true },
-        { name: "run.json", locked: true },
-      ]);
+      expect(lockHeldAtRead).toEqual([true]);
       expect(existsSync(lockPath(sandbox))).toBe(false);
     });
   });
