@@ -45,7 +45,7 @@ const isMissingPath = (error: unknown): boolean =>
   MISSING_PATH_CODES.has((error as NodeJS.ErrnoException).code ?? "");
 
 // A trailing slash makes the system follow a link, and a link is recorded as itself.
-const withoutTrailingSlash = (path: string): string =>
+export const withoutTrailingSlash = (path: string): string =>
   path.endsWith("/") ? path.slice(0, -1) : path;
 
 const sha256Of = (absolute: string): string =>

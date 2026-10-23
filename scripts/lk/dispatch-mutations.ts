@@ -1,8 +1,8 @@
 /**
  * The mutations of the dispatcher's grant resolution, of its after-run protected path check and of
- * the pin on the old protect script, each with the tests that must turn red for it and no others. A mutated file is run against the test
- * files below in a throwaway copy of scripts/lk; the failures the unmutated copy already has are
- * subtracted.
+ * the pin on the old protect script, each with the tests that must turn red for it and no others.
+ * A mutated file is run against the test files below in a throwaway copy of scripts/lk; the
+ * failures the unmutated copy already has are subtracted.
  */
 
 import { spawnSync } from "node:child_process";
@@ -62,6 +62,8 @@ const BYTES_CHANGED_TESTS = [
   "exit 3 when the session writes a protected file and fails",
   "writes the snapshot taken before the session and the one taken after it",
   "the sha256 of its bytes",
+  "forges a read-only run.json",
+  "makes the work folder unwritable",
 ];
 // The tests that need a file below a folder of the set to be seen.
 const BELOW_FOLDER_TESTS = [
@@ -71,10 +73,26 @@ const BELOW_FOLDER_TESTS = [
   "prints one line per path with its kind of change",
   "walks it in sorted order, nested folders included",
   "walks every file of a folder, with no cap",
+  "the same session has no grant",
+  "adds a sibling of the granted folder",
+  "whose mode the session changes",
+  "names the file below it",
 ];
+// The tests whose session exits with its own failure code, which the check leaves as it is.
+const SESSION_FAILS_ITSELF_TESTS = [
+  "own exit 3",
+  "cannot be started after the change",
+  "exit 3 when the session writes a protected file",
+];
+// The tests that need a run to end 4 and do not carry the phrase every protected change carries.
+const EXIT_4_TESTS = ["records checkError and exits 4", "exits 4 and prints LK RECORD NOT WRITTEN"];
 
 const namedAny = (fragments: readonly string[]) => (fullName: string) =>
   fragments.some((fragment) => fullName.includes(fragment));
+
+const endsAtExit4 = (fullName: string): boolean =>
+  !namedAny(SESSION_FAILS_ITSELF_TESTS)(fullName) &&
+  namedAny([CHANGE_FAILS_TEST, ...EXIT_4_TESTS])(fullName);
 
 export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
   {
@@ -126,7 +144,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
   {
     element: "the after-run check letting the grant decide what is covered",
     pattern:
-      /^ {2}return entries\.some\(\(entry\) => entryCovers\(entry\.toLowerCase\(\), foldedPath\)\);$/m,
+      /^ {2}return entries\.some\(\(entry\) => entryCoversChange\(entry\.toLowerCase\(\), folded\)\);$/m,
     replacement: "  return true;",
     redTest: namedAny([CHANGE_FAILS_TEST]),
   },
@@ -144,6 +162,68 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     pattern: /^ {2}if \(entry\.kind !== "folder"\) return;$/m,
     replacement: "  return;",
     redTest: namedAny(BELOW_FOLDER_TESTS),
+  },
+  {
+    element: "the after-run check covering the folder a folder grant names",
+    pattern: /^ {2}if \(path === withoutTrailingSlash\(entry\)\) return true;$/m,
+    replacement: "",
+    redTest: namedAny(["mode of the folder the grant names"]),
+  },
+  {
+    element: "the after-run check covering the folders created to reach a granted path",
+    pattern:
+      /^ {2}return isCreationOrRemoval && entry\.startsWith\(`\$\{withoutTrailingSlash\(path\)\}\/`\);$/m,
+    replacement: "  return false;",
+    redTest: namedAny(["with its parent folder missing", "with docs/.claude missing as well"]),
+  },
+  {
+    element: "the after-run check replacing the files it owns in the work folder",
+    pattern: /^const writeOwnedFile = \(path: string, text: string\): void => \{\n[\s\S]*?\n\};$/m,
+    replacement:
+      "const writeOwnedFile = (path: string, text: string): void => {\n  writeFileSync(path, text);\n};",
+    redTest: namedAny([
+      "links snapshot-after.json to a protected file",
+      "links run.json to a protected file",
+      "a link sits at snapshot-before.json",
+      "forges a read-only run.json",
+    ]),
+  },
+  {
+    element: "the after-run check printing a failed step after the session instead of throwing",
+    pattern:
+      /^ {2}try \{\n {4}step\(\);\n {4}return true;\n {2}\} catch \(error\) \{\n {4}print\(`\$\{notice\}: \$\{messageOf\(error\)\}`\);\n {4}return false;\n {2}\}$/m,
+    replacement: "  step();\n  return true;",
+    redTest: namedAny([
+      "makes the work folder unwritable",
+      "LK LOCK NOT REMOVED",
+      "when only snapshot-after.json cannot be replaced",
+    ]),
+  },
+  {
+    element: "the after-run check watching the product root spellings of the docs files",
+    pattern: /^ {2}"CLAUDE\.md",\n {2}"AGENTS\.md",\n {2}"\.claude",\n/m,
+    replacement: "",
+    redTest: namedAny(["at the product root"]),
+  },
+  {
+    element: "the after-run check taking its first snapshot before the smoke call",
+    pattern:
+      /^ {4}const before = snapshotBeforeRun\(root, slug\);\n {4}if \(!options\.noSmoke\) \{\n {6}refuseUnlessModelAnswers\(session\.model, \{ cwd: root, env: childEnv \}, deps\.runSmoke\);\n {4}\}$/m,
+    replacement:
+      "    if (!options.noSmoke) {\n      refuseUnlessModelAnswers(session.model, { cwd: root, env: childEnv }, deps.runSmoke);\n    }\n    const before = snapshotBeforeRun(root, slug);",
+    redTest: namedAny(["during the smoke call", "when the first snapshot cannot be taken"]),
+  },
+  {
+    element: "the after-run check raising the exit to 4 when the session exited 0",
+    pattern: /^ {2}end\.exitCode === 0 \? PROTECTED_CHANGE_EXIT : end\.exitCode;$/m,
+    replacement: "  end.exitCode;",
+    redTest: endsAtExit4,
+  },
+  {
+    element: "the after-run check recording a second snapshot that cannot be taken",
+    pattern: /^ {4}verdict\.checkError = messageOf\(error\);$/m,
+    replacement: "",
+    redTest: namedAny(["records checkError"]),
   },
 ];
 

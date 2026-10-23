@@ -17,6 +17,7 @@ import {
   copyFileSync,
   existsSync,
   linkSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -189,6 +190,19 @@ const readRecord = (sandbox: Sandbox, slug: string): RunRecord =>
   JSON.parse(readFileSync(join(sandbox.root, ".work", slug, "run.json"), "utf8")) as RunRecord;
 
 const lockPath = (sandbox: Sandbox): string => join(sandbox.root, ".work/.lock");
+
+// The dispatcher also renames files of its own onto the work folder, so a case that watches or
+// fails the rewrite of the lock names the lock as the target of the rename.
+const renameOntoLockWith = (sandbox: Sandbox, beforeRename: () => void): void => {
+  vi.mocked(renameSync).mockImplementation((source, target) => {
+    if (String(target) === lockPath(sandbox)) beforeRename();
+    return realFs.renameSync(source, target);
+  });
+};
+
+const restoreRename = (): void => {
+  vi.mocked(renameSync).mockImplementation(realFs.renameSync);
+};
 
 const expectRefused = (
   result: ReturnType<typeof dispatch>,
@@ -1729,32 +1743,37 @@ describe("how the lock is written", () => {
   it("publishes the session pid with rename, so a reader sees the old lock or the new one", async () => {
     const sandbox = makeSandbox();
     addWorkItem(sandbox, "alpha");
-    vi.mocked(renameSync).mockClear();
     let seen: { source: string; target: string; content: string; before: string } | undefined;
-    vi.mocked(renameSync).mockImplementationOnce((source, target) => {
-      seen = {
-        source: String(source),
-        target: String(target),
-        content: readFileSync(source, "utf8"),
-        before: readFileSync(target, "utf8"),
-      };
+    vi.mocked(renameSync).mockImplementation((source, target) => {
+      if (String(target) === lockPath(sandbox)) {
+        seen = {
+          source: String(source),
+          target: String(target),
+          content: readFileSync(source, "utf8"),
+          before: readFileSync(target, "utf8"),
+        };
+      }
       return realFs.renameSync(source, target);
     });
     let inodeBefore = 0;
     let inodeAfter = 0;
-    await dispatchRun(
-      options,
-      sandbox.root,
-      controllerEnv,
-      deps({
-        spawnSession: async (_args, { onSpawn }) => {
-          inodeBefore = statSync(lockPath(sandbox)).ino;
-          onSpawn(777);
-          inodeAfter = statSync(lockPath(sandbox)).ino;
-          return { exitCode: 0 };
-        },
-      }),
-    );
+    try {
+      await dispatchRun(
+        options,
+        sandbox.root,
+        controllerEnv,
+        deps({
+          spawnSession: async (_args, { onSpawn }) => {
+            inodeBefore = statSync(lockPath(sandbox)).ino;
+            onSpawn(777);
+            inodeAfter = statSync(lockPath(sandbox)).ino;
+            return { exitCode: 0 };
+          },
+        }),
+      );
+    } finally {
+      restoreRename();
+    }
     expect(seen).toEqual({
       source: join(sandbox.root, ".work/.lock.4242.tmp"),
       target: lockPath(sandbox),
@@ -1782,12 +1801,16 @@ describe("how the lock is written", () => {
   it("removes its temporary file when the rename fails", async () => {
     const sandbox = makeSandbox();
     addWorkItem(sandbox, "alpha");
-    vi.mocked(renameSync).mockImplementationOnce(() => {
+    renameOntoLockWith(sandbox, () => {
       throw new Error("disk full");
     });
-    await expect(dispatchRun(options, sandbox.root, controllerEnv, deps())).rejects.toThrow(
-      "disk full",
-    );
+    try {
+      await expect(dispatchRun(options, sandbox.root, controllerEnv, deps())).rejects.toThrow(
+        "disk full",
+      );
+    } finally {
+      restoreRename();
+    }
     expect(temporaryFiles(sandbox)).toEqual([]);
     expect(existsSync(lockPath(sandbox))).toBe(false);
     expect(readRecord(sandbox, "alpha")).toMatchObject({ status: "failed", exit: 1 });
@@ -2261,7 +2284,7 @@ describe("starting the session in process", () => {
     addWorkItem(sandbox, "alpha");
     const release = `${sandbox.log}.release`;
     let childPid = -1;
-    vi.mocked(renameSync).mockImplementationOnce(() => {
+    renameOntoLockWith(sandbox, () => {
       throw new Error("disk full");
     });
     const deps: DispatchDeps = {
@@ -2299,6 +2322,7 @@ describe("starting the session in process", () => {
       expect(readRecord(sandbox, "alpha")).toMatchObject({ status: "failed", exit: 1 });
       expect(existsSync(lockPath(sandbox))).toBe(false);
     } finally {
+      restoreRename();
       writeFileSync(release, "");
     }
   });
@@ -2525,10 +2549,19 @@ describe("the protected path check", () => {
   const SEED_TEXT = "seed\n";
   const GIT_CONFIG_TEXT = "[core]\n\trepositoryformatversion = 0\n";
   const isRoot = process.getuid?.() === 0;
+  // The product-root spellings of the docs files are links into docs/, as on the owner's machine.
+  const ROOT_LINKS: Record<string, string> = {
+    "CLAUDE.md": "docs/CLAUDE.md",
+    "AGENTS.md": "docs/AGENTS.md",
+    ".claude": "docs/.claude",
+  };
 
   const sha256Of = (text: string): string => createHash("sha256").update(text).digest("hex");
 
   const pathIn = (sandbox: Sandbox, path: string): string => join(sandbox.root, path);
+
+  const workFile = (sandbox: Sandbox, file: string): string =>
+    join(sandbox.root, ".work/alpha", file);
 
   const readText = (sandbox: Sandbox, path: string): string =>
     readFileSync(pathIn(sandbox, path), "utf8");
@@ -2536,9 +2569,10 @@ describe("the protected path check", () => {
   const appendTo = (sandbox: Sandbox, path: string): void =>
     appendFileSync(pathIn(sandbox, path), "changed\n");
 
-  // Every path of the set gets something on disk. docs/contracts is a link, as it is on the owner's machine.
+  // Every path of the set gets something on disk. docs/contracts is a link, as it is on the owner's
+  // machine. The root links are made from their own table, so a set without them still has them.
   const seedProtectedPaths = (sandbox: Sandbox): void => {
-    for (const path of PROTECTED_SET) {
+    for (const path of PROTECTED_SET.filter((entry) => !(entry in ROOT_LINKS))) {
       const absolute = pathIn(sandbox, path);
       if (path === "docs/contracts/") {
         symlinkSync("product/contracts", absolute.slice(0, -1));
@@ -2549,6 +2583,9 @@ describe("the protected path check", () => {
         mkdirSync(dirname(absolute), { recursive: true });
         writeFileSync(absolute, path.endsWith(".git/config") ? GIT_CONFIG_TEXT : SEED_TEXT);
       }
+    }
+    for (const [name, target] of Object.entries(ROOT_LINKS)) {
+      symlinkSync(target, pathIn(sandbox, name));
     }
   };
 
@@ -2692,7 +2729,7 @@ describe("the protected path check", () => {
       expect(existsSync(lockPath(sandbox))).toBe(false);
     });
 
-    it.each(PROTECTED_SET.filter((path) => !path.endsWith("/")))(
+    it.each(PROTECTED_SET.filter((path) => !path.endsWith("/") && !(path in ROOT_LINKS)))(
       "ends failed when the run changes the file %s",
       async (path) => {
         const sandbox = preparedSandbox();
@@ -2937,6 +2974,358 @@ describe("the protected path check", () => {
           "LK DISPATCH alpha failed exit 4",
         ]);
         expect(existsSync(lockPath(sandbox))).toBe(false);
+      },
+    );
+  });
+
+  describe("a grant below docs/.claude", () => {
+    const SKILLS = "docs/.claude/skills";
+
+    const seedSkill = (sandbox: Sandbox, name: string): void => {
+      mkdirSync(pathIn(sandbox, `${SKILLS}/${name}`), { recursive: true });
+      writeFileSync(pathIn(sandbox, `${SKILLS}/${name}/x`), SEED_TEXT);
+    };
+
+    const createNewSkill = (sandbox: Sandbox): void => {
+      mkdirSync(pathIn(sandbox, `${SKILLS}/new-skill`), { recursive: true });
+      writeFileSync(pathIn(sandbox, `${SKILLS}/new-skill/SKILL.md`), SEED_TEXT);
+    };
+
+    const parentStates: { title: string; prepare: (sandbox: Sandbox) => void }[] = [
+      {
+        title: "with its parent folder present",
+        prepare: (sandbox) => mkdirSync(pathIn(sandbox, SKILLS)),
+      },
+      { title: "with its parent folder missing", prepare: () => undefined },
+      {
+        title: "with docs/.claude missing as well",
+        prepare: (sandbox) => rmSync(pathIn(sandbox, "docs/.claude"), { recursive: true }),
+      },
+    ];
+
+    it.each(parentStates)(
+      "ends done when the session creates the granted folder and a file in it, $title",
+      async ({ prepare }) => {
+        const sandbox = preparedSandbox(`governance-grant: ${SKILLS}/new-skill/`);
+        prepare(sandbox);
+        const { code, record, printed } = await runSessionThat(sandbox, () =>
+          createNewSkill(sandbox),
+        );
+        expect(existsSync(pathIn(sandbox, `${SKILLS}/new-skill/SKILL.md`))).toBe(true);
+        expect(code).toBe(0);
+        expect(record).toMatchObject({ status: "done", exit: 0 });
+        expect("changed" in record).toBe(false);
+        expect(printed).toEqual(["LK DISPATCH alpha done exit 0"]);
+      },
+    );
+
+    it("ends failed when the same session has no grant", async () => {
+      const sandbox = preparedSandbox();
+      mkdirSync(pathIn(sandbox, SKILLS));
+      const { code, record, printed } = await runSessionThat(sandbox, () =>
+        createNewSkill(sandbox),
+      );
+      expect(code).toBe(4);
+      expect(record.status).toBe("failed");
+      expect(record.changed).toEqual([
+        { path: `${SKILLS}/new-skill`, change: "added" },
+        { path: `${SKILLS}/new-skill/SKILL.md`, change: "added" },
+      ]);
+      expect(printed).toEqual([
+        changedLine(`${SKILLS}/new-skill`, "added"),
+        changedLine(`${SKILLS}/new-skill/SKILL.md`, "added"),
+        "LK DISPATCH alpha failed exit 4",
+      ]);
+    });
+
+    it("ends done when the session removes the granted folder", async () => {
+      const sandbox = preparedSandbox(`governance-grant: ${SKILLS}/a/`);
+      seedSkill(sandbox, "a");
+      const { code, record, printed } = await runSessionThat(sandbox, () =>
+        rmSync(pathIn(sandbox, `${SKILLS}/a`), { recursive: true }),
+      );
+      expect(existsSync(pathIn(sandbox, `${SKILLS}/a`))).toBe(false);
+      expect(code).toBe(0);
+      expect(record).toMatchObject({ status: "done", exit: 0 });
+      expect("changed" in record).toBe(false);
+      expect(printed).toEqual(["LK DISPATCH alpha done exit 0"]);
+    });
+
+    it("ends done when the session changes the mode of the folder the grant names", async () => {
+      const sandbox = preparedSandbox(`governance-grant: ${SKILLS}/a/`);
+      seedSkill(sandbox, "a");
+      const { code, record, printed } = await runSessionThat(sandbox, () =>
+        chmodSync(pathIn(sandbox, `${SKILLS}/a`), 0o700),
+      );
+      expect(statSync(pathIn(sandbox, `${SKILLS}/a`)).mode & 0o777).toBe(0o700);
+      expect(code).toBe(0);
+      expect(record).toMatchObject({ status: "done", exit: 0 });
+      expect("changed" in record).toBe(false);
+      expect(printed).toEqual(["LK DISPATCH alpha done exit 0"]);
+    });
+
+    it("ends failed and names both paths when the session adds a sibling of the granted folder", async () => {
+      const sandbox = preparedSandbox(`governance-grant: ${SKILLS}/a/`);
+      seedSkill(sandbox, "a");
+      const { code, record, printed } = await runSessionThat(sandbox, () => {
+        mkdirSync(pathIn(sandbox, `${SKILLS}/b`));
+        writeFileSync(pathIn(sandbox, `${SKILLS}/b/x`), SEED_TEXT);
+      });
+      expect(code).toBe(4);
+      expect(record.status).toBe("failed");
+      expect(record.changed).toEqual([
+        { path: `${SKILLS}/b`, change: "added" },
+        { path: `${SKILLS}/b/x`, change: "added" },
+      ]);
+      expect(printed).toEqual([
+        changedLine(`${SKILLS}/b`, "added"),
+        changedLine(`${SKILLS}/b/x`, "added"),
+        "LK DISPATCH alpha failed exit 4",
+      ]);
+    });
+
+    it("ends failed and names the folder when a file grant sits below a folder whose mode the session changes", async () => {
+      const sandbox = preparedSandbox(`governance-grant: ${SKILLS}/a/x`);
+      seedSkill(sandbox, "a");
+      const { code, record, printed } = await runSessionThat(sandbox, () =>
+        chmodSync(pathIn(sandbox, `${SKILLS}/a`), 0o700),
+      );
+      expect(code).toBe(4);
+      expect(record.status).toBe("failed");
+      expect(record.changed).toEqual([{ path: `${SKILLS}/a`, change: "changed" }]);
+      expect(printed).toEqual([
+        changedLine(`${SKILLS}/a`, "changed"),
+        "LK DISPATCH alpha failed exit 4",
+      ]);
+    });
+  });
+
+  describe("the files the dispatcher owns in the work folder", () => {
+    const RUN_LINE = "LK DISPATCH alpha done exit 0";
+
+    const expectSnapshotFile = (sandbox: Sandbox, file: string): void => {
+      expect(lstatSync(workFile(sandbox, file)).isFile()).toBe(true);
+      const parsed: unknown = JSON.parse(readFileSync(workFile(sandbox, file), "utf8"));
+      expect(Array.isArray(parsed)).toBe(true);
+    };
+
+    it("keeps a protected file untouched and ends done when the session links snapshot-after.json to a protected file", async () => {
+      const sandbox = preparedSandbox();
+      const { code, record, printed } = await runSessionThat(sandbox, () =>
+        symlinkSync(pathIn(sandbox, "docs/CLAUDE.md"), workFile(sandbox, "snapshot-after.json")),
+      );
+      expect(readText(sandbox, "docs/CLAUDE.md")).toBe(SEED_TEXT);
+      expectSnapshotFile(sandbox, "snapshot-after.json");
+      expect(code).toBe(0);
+      expect(record).toMatchObject({ status: "done", exit: 0 });
+      expect(printed).toEqual([RUN_LINE]);
+    });
+
+    it("keeps a protected file untouched and ends done when the session links run.json to a protected file", async () => {
+      const sandbox = preparedSandbox();
+      const runFile = workFile(sandbox, "run.json");
+      const { code, record, printed } = await runSessionThat(sandbox, () => {
+        rmSync(runFile);
+        symlinkSync(pathIn(sandbox, "docs/CLAUDE.md"), runFile);
+      });
+      expect(readText(sandbox, "docs/CLAUDE.md")).toBe(SEED_TEXT);
+      expect(lstatSync(runFile).isFile()).toBe(true);
+      expect(code).toBe(0);
+      expect(record).toMatchObject({ status: "done", exit: 0 });
+      expect(printed).toEqual([RUN_LINE]);
+    });
+
+    it("keeps a protected file untouched when a link sits at snapshot-before.json before the dispatch", async () => {
+      const sandbox = preparedSandbox();
+      symlinkSync(pathIn(sandbox, "docs/CLAUDE.md"), workFile(sandbox, "snapshot-before.json"));
+      const { code, record, printed } = await runSessionThat(sandbox, () => undefined);
+      expect(readText(sandbox, "docs/CLAUDE.md")).toBe(SEED_TEXT);
+      expectSnapshotFile(sandbox, "snapshot-before.json");
+      expect(code).toBe(0);
+      expect(record).toMatchObject({ status: "done", exit: 0 });
+      expect(printed).toEqual([RUN_LINE]);
+    });
+
+    it.skipIf(isRoot)(
+      "ends failed with run.json holding status failed when the session forges a read-only run.json saying done",
+      async () => {
+        const sandbox = preparedSandbox();
+        const runFile = workFile(sandbox, "run.json");
+        const { code, record, printed } = await runSessionThat(sandbox, () => {
+          writeFileSync(runFile, JSON.stringify({ slug: "alpha", status: "done", exit: 0 }));
+          chmodSync(runFile, 0o444);
+          appendTo(sandbox, "docs/AGENTS.md");
+        });
+        expect(code).toBe(4);
+        expect(record).toMatchObject({ status: "failed", exit: 4 });
+        expect(record.changed).toEqual([{ path: "docs/AGENTS.md", change: "changed" }]);
+        expect(printed).toEqual([
+          changedLine("docs/AGENTS.md", "changed"),
+          "LK DISPATCH alpha failed exit 4",
+        ]);
+      },
+    );
+
+    it.skipIf(isRoot)(
+      "ends failed and prints LK RECORD NOT WRITTEN when the session makes the work folder unwritable",
+      async () => {
+        const sandbox = preparedSandbox();
+        const folder = join(sandbox.root, ".work/alpha");
+        let outcome: Outcome;
+        try {
+          outcome = await runSessionThat(sandbox, () => {
+            chmodSync(folder, 0o555);
+            appendTo(sandbox, "docs/AGENTS.md");
+          });
+        } finally {
+          chmodSync(folder, 0o755);
+        }
+        const { code, printed } = outcome;
+        const notWritten = printed.filter((line) => line.startsWith("LK RECORD NOT WRITTEN: "));
+        expect(code).toBe(4);
+        expect(printed[0]).toBe(changedLine("docs/AGENTS.md", "changed"));
+        expect(printed.at(-1)).toBe("LK DISPATCH alpha failed exit 4");
+        expect(notWritten.length).toBeGreaterThan(0);
+        expect(notWritten[0]).toContain("snapshot-after.json");
+        expect(existsSync(lockPath(sandbox))).toBe(false);
+      },
+    );
+
+    it.each([
+      { sessionExit: 0, status: "done" },
+      { sessionExit: 3, status: "failed" },
+    ])(
+      "prints LK LOCK NOT REMOVED and returns the exit of the run when the session replaces the lock with a folder and exits $sessionExit",
+      async ({ sessionExit, status }) => {
+        const sandbox = preparedSandbox();
+        const { code, record, printed } = await runSessionThat(
+          sandbox,
+          () => {
+            rmSync(lockPath(sandbox));
+            mkdirSync(lockPath(sandbox));
+          },
+          sessionExit,
+        );
+        expect(code).toBe(sessionExit);
+        expect(record).toMatchObject({ status, exit: sessionExit });
+        expect(printed).toHaveLength(2);
+        expect(printed[0]).toMatch(/^LK LOCK NOT REMOVED: /);
+        expect(printed[1]).toBe(`LK DISPATCH alpha ${status} exit ${sessionExit}`);
+        expect(statSync(lockPath(sandbox)).isDirectory()).toBe(true);
+      },
+    );
+
+    it.each([
+      { sessionExit: 0, expected: 4 },
+      { sessionExit: 3, expected: 3 },
+    ])(
+      "exits $expected and prints LK RECORD NOT WRITTEN when only snapshot-after.json cannot be replaced after a session that exits $sessionExit",
+      async ({ sessionExit, expected }) => {
+        const sandbox = preparedSandbox();
+        const { code, record, printed } = await runSessionThat(
+          sandbox,
+          () => mkdirSync(workFile(sandbox, "snapshot-after.json")),
+          sessionExit,
+        );
+        expect(code).toBe(expected);
+        expect(record).toMatchObject({ status: "failed", exit: expected });
+        expect("changed" in record).toBe(false);
+        expect(printed).toHaveLength(2);
+        expect(printed[0]).toMatch(/^LK RECORD NOT WRITTEN: .*snapshot-after\.json/);
+        expect(printed[1]).toBe(`LK DISPATCH alpha failed exit ${expected}`);
+        const leftovers = readdirSync(join(sandbox.root, ".work/alpha")).filter((name) =>
+          name.endsWith(".tmp"),
+        );
+        expect(leftovers).toEqual([]);
+      },
+    );
+
+    it("refuses with the cannot write line and starts nothing when snapshot-before.json cannot be replaced", async () => {
+      const sandbox = preparedSandbox();
+      mkdirSync(workFile(sandbox, "snapshot-before.json"));
+      const calls: string[] = [];
+      const deps = depsFor([], () => undefined, 0, {
+        spawnSession: async () => {
+          calls.push("session");
+          return { exitCode: 0 };
+        },
+        runSmoke: () => {
+          calls.push("smoke");
+          return { status: 0, stdout: "ok", timedOut: false };
+        },
+      });
+      const failure = await dispatchRun(
+        { ...options, noSmoke: false },
+        sandbox.root,
+        { LK_ROLE: "controller" },
+        deps,
+      ).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(LkRefusal);
+      expect((failure as LkRefusal).message).toMatch(/^cannot write snapshot-before\.json: /);
+      expect(calls).toEqual([]);
+      expect(existsSync(lockPath(sandbox))).toBe(false);
+      expect(existsSync(workFile(sandbox, "run.json"))).toBe(false);
+      const leftovers = readdirSync(join(sandbox.root, ".work/alpha")).filter((name) =>
+        name.endsWith(".tmp"),
+      );
+      expect(leftovers).toEqual([]);
+    });
+  });
+
+  describe("the product root spellings of the docs files", () => {
+    it.each(["CLAUDE.md", "AGENTS.md"])(
+      "ends failed when the link %s at the product root is replaced by a real file",
+      async (name) => {
+        const sandbox = preparedSandbox();
+        const { code, record, printed } = await runSessionThat(sandbox, () => {
+          rmSync(pathIn(sandbox, name));
+          writeFileSync(pathIn(sandbox, name), SEED_TEXT);
+        });
+        expect(code).toBe(4);
+        expect(record.status).toBe("failed");
+        expect(record.changed).toEqual([{ path: name, change: "kind changed" }]);
+        expect(printed).toEqual([
+          changedLine(name, "kind changed"),
+          "LK DISPATCH alpha failed exit 4",
+        ]);
+      },
+    );
+
+    it("ends failed and names the file below it when the link .claude at the product root is replaced by a real folder with a file in it", async () => {
+      const sandbox = preparedSandbox();
+      const { code, record, printed } = await runSessionThat(sandbox, () => {
+        rmSync(pathIn(sandbox, ".claude"));
+        mkdirSync(pathIn(sandbox, ".claude"));
+        writeFileSync(pathIn(sandbox, ".claude/settings.json"), SEED_TEXT);
+      });
+      expect(code).toBe(4);
+      expect(record.status).toBe("failed");
+      expect(record.changed).toEqual([
+        { path: ".claude", change: "kind changed" },
+        { path: ".claude/settings.json", change: "added" },
+      ]);
+      expect(printed).toEqual([
+        changedLine(".claude", "kind changed"),
+        changedLine(".claude/settings.json", "added"),
+        "LK DISPATCH alpha failed exit 4",
+      ]);
+    });
+
+    it.each([
+      { name: "CLAUDE.md", target: "docs/AGENTS.md" },
+      { name: "AGENTS.md", target: "docs/CLAUDE.md" },
+      { name: ".claude", target: "docs/product" },
+    ])(
+      "ends failed with changed when the link $name at the product root is retargeted",
+      async ({ name, target }) => {
+        const sandbox = preparedSandbox();
+        const { code, record } = await runSessionThat(sandbox, () => {
+          rmSync(pathIn(sandbox, name));
+          symlinkSync(target, pathIn(sandbox, name));
+        });
+        expect(code).toBe(4);
+        expect(record.status).toBe("failed");
+        expect(record.changed).toEqual([{ path: name, change: "changed" }]);
       },
     );
   });
