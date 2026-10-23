@@ -23,6 +23,16 @@
  * A session killed by a signal is recorded as failed with exit 128 plus the signal number and the
  * signal's name. A real run that removes a stale lock marks the dead holder's run record, if it
  * still says running, as failed and lost.
+ *
+ * A real run holds the lock from before the smoke call until the run record is final. Under it the
+ * run snapshots PROTECTED_SET before the smoke call and again after the session ends
+ * (protected-snapshot.ts), and compares the two with what the grant covers. A path that changed,
+ * was added, was removed or changed kind and is not covered fails the run: status failed, the paths
+ * in `changed`, one `LK PROTECTED PATH CHANGED:` line each, and exit 4 when the session itself
+ * exited 0. A second snapshot that cannot be taken fails it the same way, with `checkError`.
+ * Nothing is restored. A run refuses when docs/ is absent or the first snapshot cannot be taken.
+ * Both snapshots are also written to the work folder as evidence and are never read back, and the
+ * grant is the one read before the session started.
  */
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
@@ -54,6 +64,12 @@ import {
   type Env,
   type ModelClass,
 } from "./models";
+import {
+  diffSnapshots,
+  snapshotProtectedPaths,
+  type PathChange,
+  type SnapshotEntry,
+} from "./protected-snapshot";
 
 // Matching is on the command text. A git global option (-C, -c, --no-pager, --git-dir=) sits
 // between `git` and the subcommand, so each git rule has a twin with a wildcard there. The
@@ -256,6 +272,29 @@ const SESSION_LOG_FILE = "session.jsonl";
 const MODELS_FILE_IN_ROOT = "docs/project/models.md";
 const SMOKE_PROMPT = "reply with the single word ok";
 export const SMOKE_TIMEOUT_SECONDS = 60;
+const SNAPSHOT_BEFORE_FILE = "snapshot-before.json";
+const SNAPSHOT_AFTER_FILE = "snapshot-after.json";
+const PROTECTED_CHANGE_EXIT = 4;
+
+// Relative to the product root. A folder entry ends in a slash. Every `path` of PROTECTED_PATHS in
+// protect-table.ts must fall inside this set, and a test pins that.
+export const PROTECTED_SET: readonly string[] = [
+  "docs/project/SSOT.md",
+  "docs/product/state-machines.md",
+  "docs/CLAUDE.md",
+  "docs/CLAUDE-reference.md",
+  "docs/AGENTS.md",
+  "docs/project/controller.md",
+  "docs/product/ui-preferences.md",
+  "docs/project/models.md",
+  "docs/product/contracts/",
+  "docs/contracts/",
+  "docs/.claude/",
+  ".git/config",
+  ".git/hooks/",
+  "docs/.git/config",
+  "docs/.git/hooks/",
+];
 
 export const buildClaudeArgs = (promptText: string, model: string): string[] => [
   "-p",
@@ -295,6 +334,10 @@ export interface RunRecord {
   exit?: number;
   signal?: string;
   lost?: boolean;
+  /** The protected paths the run changed that its grant does not cover. */
+  changed?: PathChange[];
+  /** Why the after-run check could not be made. */
+  checkError?: string;
   ended?: string;
 }
 
@@ -579,16 +622,130 @@ const printDryRun = (
   print(`args: ${JSON.stringify(args)}`);
 };
 
+const lockHolderOf = (deps: DispatchDeps, slug: string): LockHolder => ({ pid: deps.pid, slug });
+
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const requireDocsFolder = (root: string): void => {
+  const docsPath = join(root, "docs");
+  if (!existsSync(docsPath) || !statSync(docsPath).isDirectory()) {
+    refuse(`${docsPath} is absent or not a folder, the protected paths cannot be snapshotted`);
+  }
+};
+
+const writeSnapshotEvidence = (
+  root: string,
+  slug: string,
+  file: string,
+  snapshot: readonly SnapshotEntry[],
+): void => {
+  writeFileSync(workPath(root, slug, file), `${JSON.stringify(snapshot, null, 2)}\n`);
+};
+
+const snapshotBeforeRun = (root: string, slug: string): SnapshotEntry[] => {
+  let snapshot: SnapshotEntry[];
+  try {
+    snapshot = snapshotProtectedPaths(root, PROTECTED_SET);
+  } catch (error) {
+    return refuse(`cannot snapshot the protected paths: ${messageOf(error)}`);
+  }
+  writeSnapshotEvidence(root, slug, SNAPSHOT_BEFORE_FILE, snapshot);
+  return snapshot;
+};
+
+const entryCovers = (entry: string, path: string): boolean =>
+  entry.endsWith("/") ? path.startsWith(entry) : path === entry;
+
+// A file entry covers that exact path and a folder entry, which ends in a slash, every path below it.
+const isCoveredBy = (entries: readonly string[], path: string): boolean => {
+  const foldedPath = path.toLowerCase();
+  return entries.some((entry) => entryCovers(entry.toLowerCase(), foldedPath));
+};
+
+const uncoveredChanges = (changes: readonly PathChange[], grant: readonly string[]): PathChange[] =>
+  changes.filter((change) => !isCoveredBy(grant, change.path));
+
+/** What a run holds from the first snapshot on: the snapshot itself and the grant read before the session. */
+interface ProtectedCheck {
+  before: readonly SnapshotEntry[];
+  grant: readonly string[];
+}
+
+interface CheckVerdict {
+  changed: PathChange[];
+  checkError?: string;
+}
+
+const checkProtectedPaths = (root: string, slug: string, check: ProtectedCheck): CheckVerdict => {
+  const verdict: CheckVerdict = { changed: [] };
+  try {
+    const after = snapshotProtectedPaths(root, PROTECTED_SET);
+    const changes = diffSnapshots(check.before, after);
+    verdict.changed = uncoveredChanges(changes, check.grant);
+    writeSnapshotEvidence(root, slug, SNAPSHOT_AFTER_FILE, after);
+  } catch (error) {
+    verdict.checkError = messageOf(error);
+  }
+  return verdict;
+};
+
+const printCheckVerdict = (verdict: CheckVerdict, print: (line: string) => void): void => {
+  for (const { path, change } of verdict.changed) {
+    print(`LK PROTECTED PATH CHANGED: ${path} (${change})`);
+  }
+  if (verdict.checkError !== undefined) {
+    print(`LK PROTECTED PATH CHECK FAILED: ${verdict.checkError}`);
+  }
+};
+
+const runExitCode = (end: SessionEnd, verdict: CheckVerdict): number => {
+  const checkFailed = verdict.changed.length > 0 || verdict.checkError !== undefined;
+  return end.exitCode === 0 && checkFailed ? PROTECTED_CHANGE_EXIT : end.exitCode;
+};
+
+const finalRunRecord = (
+  record: RunRecord,
+  end: SessionEnd,
+  verdict: CheckVerdict,
+  exit: number,
+): RunRecord => ({
+  ...record,
+  status: exit === 0 ? "done" : "failed",
+  exit,
+  ...(end.signal === undefined ? {} : { signal: end.signal }),
+  ...(verdict.changed.length === 0 ? {} : { changed: verdict.changed }),
+  ...(verdict.checkError === undefined ? {} : { checkError: verdict.checkError }),
+  ended: new Date().toISOString(),
+});
+
+/** Takes the lock, runs `work` while holding it and removes the lock however `work` ends. */
+const runHoldingLock = async <Result>(
+  root: string,
+  holder: LockHolder,
+  work: () => Promise<Result>,
+): Promise<Result> => {
+  writeLock(root, holder);
+  try {
+    return await work();
+  } finally {
+    rmSync(workPath(root, LOCK_FILE), { force: true });
+  }
+};
+
+// The after-run check runs however the session ended, so a session that failed to start or was
+// killed is still charged with what it changed.
 const runSession = async (
   root: string,
   record: RunRecord,
   promptText: string,
   childEnv: Env,
+  check: ProtectedCheck,
   deps: DispatchDeps,
 ): Promise<number> => {
-  const holder: LockHolder = { pid: deps.pid, slug: record.slug };
-  writeLock(root, holder);
+  const holder = lockHolderOf(deps, record.slug);
   let end: SessionEnd = { exitCode: 1 };
+  let exitCode: number;
   try {
     writeRunRecord(root, record);
     end = await deps.spawnSession(buildClaudeArgs(promptText, record.model), {
@@ -598,20 +755,12 @@ const runSession = async (
       onSpawn: (childPid) => recordChildInLock(root, holder, childPid),
     });
   } finally {
-    try {
-      const status = end.exitCode === 0 ? "done" : "failed";
-      writeRunRecord(root, {
-        ...record,
-        status,
-        exit: end.exitCode,
-        ...(end.signal === undefined ? {} : { signal: end.signal }),
-        ended: new Date().toISOString(),
-      });
-    } finally {
-      rmSync(workPath(root, LOCK_FILE), { force: true });
-    }
+    const verdict = checkProtectedPaths(root, record.slug, check);
+    printCheckVerdict(verdict, deps.print);
+    exitCode = runExitCode(end, verdict);
+    writeRunRecord(root, finalRunRecord(record, end, verdict, exitCode));
   }
-  return end.exitCode;
+  return exitCode;
 };
 
 /** Returns the exit code the dispatcher itself should exit with. */
@@ -623,27 +772,32 @@ export const dispatchRun = async (
 ): Promise<number> => {
   requireControllerRole(env);
   const slug = requireValidSlug(options.slug);
+  if (!options.dryRun) requireDocsFolder(root);
   const promptText = readPromptText(root, slug);
-  const childEnv = sessionEnv(env, slug, readGovernanceGrant(root, slug));
+  const grant = readGovernanceGrant(root, slug);
+  const childEnv = sessionEnv(env, slug, grant);
   const session = resolveSession(root, options.job, options.tier, options.model);
   refuseIfLockHeld(root, deps, !options.dryRun);
   if (options.dryRun) {
     printDryRun(options, session, promptText, deps.print);
     return 0;
   }
-  if (!options.noSmoke) {
-    refuseUnlessModelAnswers(session.model, { cwd: root, env: childEnv }, deps.runSmoke);
-  }
-  const record: RunRecord = {
-    slug,
-    job: options.job,
-    tier: options.tier,
-    ...session,
-    status: "running",
-    started: new Date().toISOString(),
-    pid: deps.pid,
-  };
-  const exitCode = await runSession(root, record, promptText, childEnv, deps);
+  const exitCode = await runHoldingLock(root, lockHolderOf(deps, slug), async () => {
+    const before = snapshotBeforeRun(root, slug);
+    if (!options.noSmoke) {
+      refuseUnlessModelAnswers(session.model, { cwd: root, env: childEnv }, deps.runSmoke);
+    }
+    const record: RunRecord = {
+      slug,
+      job: options.job,
+      tier: options.tier,
+      ...session,
+      status: "running",
+      started: new Date().toISOString(),
+      pid: deps.pid,
+    };
+    return runSession(root, record, promptText, childEnv, { before, grant }, deps);
+  });
   deps.print(`LK DISPATCH ${slug} ${exitCode === 0 ? "done" : "failed"} exit ${exitCode}`);
   return exitCode;
 };

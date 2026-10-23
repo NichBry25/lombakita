@@ -1,6 +1,6 @@
 /**
- * The mutations of the dispatcher's grant resolution and of the pin on the old protect script, each
- * with the tests that must turn red for it and no others. A mutated file is run against the test
+ * The mutations of the dispatcher's grant resolution, of its after-run protected path check and of
+ * the pin on the old protect script, each with the tests that must turn red for it and no others. A mutated file is run against the test
  * files below in a throwaway copy of scripts/lk; the failures the unmutated copy already has are
  * subtracted.
  */
@@ -42,6 +42,36 @@ const FOLDER_SLASH_TESTS = [
 const LINK_OUT_TEST = "refuses a path through a link to outside the repository";
 const CHANGED_SCRIPT_TESTS = ["is refused when one byte differs", "prints no script text"];
 
+const SNAPSHOT_PATH = "scripts/lk/protected-snapshot.ts";
+// Every test whose run must end failed because of a protected change carries this phrase.
+const CHANGE_FAILS_TEST = "ends failed";
+// The tests whose only change is to the bytes of a file the set already holds.
+const BYTES_CHANGED_TESTS = [
+  "names the file in changed, records exit 4",
+  "ends failed when the run changes the file ",
+  "outside a folder grant",
+  "lists only the path no grant covers",
+  "committed in the docs repository",
+  "rewrites snapshot-before.json",
+  "rewrites the grant line of the spec",
+  "during the smoke call",
+  "own exit 3 and still lists the path",
+  "cannot be started after the change",
+  "ends failed with exit 4 when the session writes a protected file",
+  "exit 3 when the session writes a protected file and fails",
+  "writes the snapshot taken before the session and the one taken after it",
+  "the sha256 of its bytes",
+];
+// The tests that need a file below a folder of the set to be seen.
+const BELOW_FOLDER_TESTS = [
+  "adds a file below the folder ",
+  "a file is added under docs/.claude",
+  "docs/.claude/seed.txt outside a folder grant",
+  "prints one line per path with its kind of change",
+  "walks it in sorted order, nested folders included",
+  "walks every file of a folder, with no cap",
+];
+
 const namedAny = (fragments: readonly string[]) => (fullName: string) =>
   fragments.some((fragment) => fullName.includes(fragment));
 
@@ -78,6 +108,41 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     pattern: /^ {2}if \(found !== OLD_PROTECT_BLOB_ID\) \{$/m,
     replacement: "  if (false) {",
     redTest: namedAny(CHANGED_SCRIPT_TESTS),
+  },
+  {
+    element: "the after-run check comparing the two snapshots",
+    pattern: /^ {4}const changes = diffSnapshots\(check\.before, after\);$/m,
+    replacement: "    const changes: PathChange[] = [];",
+    redTest: namedAny([CHANGE_FAILS_TEST]),
+  },
+  {
+    element: "the after-run check taking its first snapshot before the session",
+    pattern: /^ {4}const changes = diffSnapshots\(check\.before, after\);$/m,
+    replacement:
+      "    const changes = diffSnapshots(snapshotProtectedPaths(root, PROTECTED_SET), after);",
+    redTest: namedAny([CHANGE_FAILS_TEST]),
+  },
+  {
+    element: "the after-run check letting the grant decide what is covered",
+    pattern:
+      /^ {2}return entries\.some\(\(entry\) => entryCovers\(entry\.toLowerCase\(\), foldedPath\)\);$/m,
+    replacement: "  return true;",
+    redTest: namedAny([CHANGE_FAILS_TEST]),
+  },
+  {
+    element: "the after-run check hashing the bytes of a file",
+    path: SNAPSHOT_PATH,
+    pattern:
+      /^ {2}if \(stats\.isFile\(\)\) return \{ path, kind: "file", mode, sha256: sha256Of\(absolute\) \};$/m,
+    replacement: '  if (stats.isFile()) return { path, kind: "file", mode };',
+    redTest: namedAny(BYTES_CHANGED_TESTS),
+  },
+  {
+    element: "the after-run check walking into protected folders",
+    path: SNAPSHOT_PATH,
+    pattern: /^ {2}if \(entry\.kind !== "folder"\) return;$/m,
+    replacement: "  return;",
+    redTest: namedAny(BELOW_FOLDER_TESTS),
   },
 ];
 
