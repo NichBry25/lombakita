@@ -85,6 +85,7 @@ const BELOW_FOLDER_TESTS = [
   "replaces an existing granted folder with a link",
   "merely starts with the name of a granted",
   "holds a newline",
+  "prints one check-failed line",
 ];
 // The tests of a folder above the set that is replaced by a link, has its mode changed or is
 // created as a link, and the ones that read what the first snapshot records of such folders.
@@ -103,7 +104,11 @@ const SESSION_FAILS_ITSELF_TESTS = [
   "exit 3 when the session writes a protected file",
 ];
 // The tests that need a run to end 4 and do not carry the phrase every protected change carries.
-const EXIT_4_TESTS = ["records checkError and exits 4", "exits 4 and prints LK RECORD NOT WRITTEN"];
+const EXIT_4_TESTS = [
+  "records checkError and exits 4",
+  "exits 4 and prints LK RECORD NOT WRITTEN",
+  "prints one check-failed line",
+];
 
 const namedAny = (fragments: readonly string[]) => (fullName: string) =>
   fragments.some((fragment) => fullName.includes(fragment));
@@ -426,7 +431,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
   {
     element: "the after-run check printing a changed path as the filesystem spells it",
     pattern:
-      /^ {4}print\(`LK PROTECTED PATH CHANGED: \$\{escapedPath\(path\)\} \(\$\{change\}\)`\);$/m,
+      /^ {4}print\(`LK PROTECTED PATH CHANGED: \$\{escapedText\(path\)\} \(\$\{change\}\)`\);$/m,
     replacement: "    print(`LK PROTECTED PATH CHANGED: ${path} (${change})`);",
     redTest: namedAny(["holds a newline"]),
   },
@@ -450,6 +455,13 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
       "is still held while the second snapshot reads the protected paths",
       "has written the final record by the time the lock is removed",
     ]),
+  },
+  {
+    element: "the after-run check printing the text of a failed check as the filesystem spells it",
+    pattern:
+      /^ {4}print\(`LK PROTECTED PATH CHECK FAILED: \$\{escapedText\(verdict\.checkError\)\}`\);$/m,
+    replacement: "    print(`LK PROTECTED PATH CHECK FAILED: ${verdict.checkError}`);",
+    redTest: namedAny(["prints one check-failed line"]),
   },
   {
     element: "the after-run check recording the folders above the set",

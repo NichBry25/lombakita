@@ -51,8 +51,9 @@
  * write is made only if `.work` and `.work/<slug>` are still the real folders, after the dispatcher
  * has made the work item's folder writable again. A write that fails or a lock removal that fails
  * prints `LK RECORD NOT WRITTEN:` or `LK LOCK NOT REMOVED:` and never replaces the exit code with an
- * exception. A failed write exits 4 when the session exited 0. A changed path is printed with its
- * control characters escaped.
+ * exception. A failed write exits 4 when the session exited 0. A changed path and the message of a
+ * failed check are printed with their control characters escaped, and `checkError` keeps the message
+ * as it is.
  */
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
@@ -812,16 +813,16 @@ const checkProtectedPaths = (root: string, check: ProtectedCheck): CheckVerdict 
   return verdict;
 };
 
-// A path is a name the session chose, so a newline or an escape sequence in it must not reach the
-// output as one.
-const escapedPath = (path: string): string => JSON.stringify(path).slice(1, -1);
+// A path, and the message of an error that quotes one, are names the session chose, so a newline or
+// an escape sequence in them must not reach the output as one.
+const escapedText = (text: string): string => JSON.stringify(text).slice(1, -1);
 
 const printCheckVerdict = (verdict: CheckVerdict, print: (line: string) => void): void => {
   for (const { path, change } of verdict.changed) {
-    print(`LK PROTECTED PATH CHANGED: ${escapedPath(path)} (${change})`);
+    print(`LK PROTECTED PATH CHANGED: ${escapedText(path)} (${change})`);
   }
   if (verdict.checkError !== undefined) {
-    print(`LK PROTECTED PATH CHECK FAILED: ${verdict.checkError}`);
+    print(`LK PROTECTED PATH CHECK FAILED: ${escapedText(verdict.checkError)}`);
   }
 };
 
