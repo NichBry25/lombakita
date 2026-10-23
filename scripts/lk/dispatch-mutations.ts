@@ -211,7 +211,11 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
       /^ {4}const before = snapshotBeforeRun\(root, slug\);\n {4}if \(!options\.noSmoke\) \{\n {6}refuseUnlessModelAnswers\(session\.model, \{ cwd: root, env: childEnv \}, deps\.runSmoke\);\n {4}\}$/m,
     replacement:
       "    if (!options.noSmoke) {\n      refuseUnlessModelAnswers(session.model, { cwd: root, env: childEnv }, deps.runSmoke);\n    }\n    const before = snapshotBeforeRun(root, slug);",
-    redTest: namedAny(["during the smoke call", "when the first snapshot cannot be taken"]),
+    redTest: namedAny([
+      "during the smoke call",
+      "when the first snapshot cannot be taken",
+      "snapshot-before.json cannot be replaced",
+    ]),
   },
   {
     element: "the after-run check raising the exit to 4 when the session exited 0",
