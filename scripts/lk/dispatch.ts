@@ -35,15 +35,20 @@
  * grant is the one read before the session started.
  *
  * A file entry of the grant covers that path. A folder entry covers every path below it and the
- * folder itself. Any entry also covers a folder above it that the session created or removed on
- * the way to it, as the hook allows.
+ * folder itself. Neither covers a link, nor a path that changed kind. Any entry also covers a
+ * folder above it that the session created or removed on the way to it, as the hook allows, and
+ * only when what sits there is a folder.
  *
  * The session can write the work folder, so the files the dispatcher owns there (both snapshots and
  * run.json) are written to a new temporary file and renamed over the target: a rename replaces a
- * link or a read-only file where a write would follow the link or fail. A first snapshot that
- * cannot be written refuses the run. Once the session has ended, a write or the lock removal that
- * fails prints `LK RECORD NOT WRITTEN:` or `LK LOCK NOT REMOVED:` and never replaces the exit code
- * with an exception. A failed write exits 4 when the session exited 0.
+ * link or a read-only file where a write would follow the link or fail. The lock file is written the
+ * same way, under a random name. A first snapshot that cannot be written refuses the run, and so
+ * does a work folder that is a link. Once the session has ended, each write is made only if `.work`
+ * and `.work/<slug>` are still the real folders, after the dispatcher has made the work item's
+ * folder writable again. A write that fails or a lock removal that fails prints `LK RECORD NOT
+ * WRITTEN:` or `LK LOCK NOT REMOVED:` and never replaces the exit code with an exception. A failed
+ * write exits 4 when the session exited 0. A changed path is printed with its control characters
+ * escaped.
  */
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
