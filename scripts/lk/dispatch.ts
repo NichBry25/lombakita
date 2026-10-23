@@ -813,9 +813,19 @@ const checkProtectedPaths = (root: string, check: ProtectedCheck): CheckVerdict 
   return verdict;
 };
 
+// JSON.stringify escapes the C0 controls and leaves the C1 controls, among them U+0085 and U+009B,
+// which a terminal can read as a line break or the start of an escape sequence.
+const C1_CONTROLS = /[\u0080-\u009f]/g;
+
+const escapedC1Controls = (text: string): string =>
+  text.replace(
+    C1_CONTROLS,
+    (control) => `\\u${control.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+
 // A path, and the message of an error that quotes one, are names the session chose, so a newline or
 // an escape sequence in them must not reach the output as one.
-const escapedText = (text: string): string => JSON.stringify(text).slice(1, -1);
+const escapedText = (text: string): string => escapedC1Controls(JSON.stringify(text).slice(1, -1));
 
 const printCheckVerdict = (verdict: CheckVerdict, print: (line: string) => void): void => {
   for (const { path, change } of verdict.changed) {

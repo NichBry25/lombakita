@@ -85,6 +85,7 @@ const BELOW_FOLDER_TESTS = [
   "replaces an existing granted folder with a link",
   "merely starts with the name of a granted",
   "holds a newline",
+  "holds U+0085",
   "prints one check-failed line",
 ];
 // The tests of a folder above the set that is replaced by a link, has its mode changed or is
@@ -433,7 +434,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     pattern:
       /^ {4}print\(`LK PROTECTED PATH CHANGED: \$\{escapedText\(path\)\} \(\$\{change\}\)`\);$/m,
     replacement: "    print(`LK PROTECTED PATH CHANGED: ${path} (${change})`);",
-    redTest: namedAny(["holds a newline"]),
+    redTest: namedAny(["holds a newline", "holds U+0085"]),
   },
   {
     element: "the after-run check taking the lock before the smoke call",
@@ -462,6 +463,13 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
       /^ {4}print\(`LK PROTECTED PATH CHECK FAILED: \$\{escapedText\(verdict\.checkError\)\}`\);$/m,
     replacement: "    print(`LK PROTECTED PATH CHECK FAILED: ${verdict.checkError}`);",
     redTest: namedAny(["prints one check-failed line"]),
+  },
+  {
+    element: "the after-run check escaping the C1 control characters of a printed name",
+    pattern:
+      /^const escapedText = \(text: string\): string => escapedC1Controls\(JSON\.stringify\(text\)\.slice\(1, -1\)\);$/m,
+    replacement: "const escapedText = (text: string): string => JSON.stringify(text).slice(1, -1);",
+    redTest: namedAny(["holds U+0085", "with U+009B escaped"]),
   },
   {
     element: "the after-run check recording the folders above the set",

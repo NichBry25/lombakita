@@ -2823,6 +2823,20 @@ describe("the protected path check", () => {
       ]);
     });
 
+    it("ends failed and prints a changed path that holds U+0085 with the character escaped", async () => {
+      const sandbox = preparedSandbox();
+      const named = "docs/.claude/x\u0085y";
+      const { code, record, printed } = await runSessionThat(sandbox, () =>
+        writeFileSync(pathIn(sandbox, named), SEED_TEXT),
+      );
+      expect(code).toBe(4);
+      expect(record.changed).toEqual([{ path: named, change: "added" }]);
+      expect(printed).toEqual([
+        "LK PROTECTED PATH CHANGED: docs/.claude/x\\u0085y (added)",
+        "LK DISPATCH alpha failed exit 4",
+      ]);
+    });
+
     it("ends failed with kind changed when a protected file is replaced by a link", async () => {
       const sandbox = preparedSandbox();
       const { code, record } = await runSessionThat(sandbox, () => {
@@ -3086,6 +3100,20 @@ describe("the protected path check", () => {
       ]);
       const outputLines = printed.join("\n").split("\n");
       expect(outputLines.filter((line) => line.startsWith("LK DISPATCH alpha done"))).toEqual([]);
+    });
+
+    it("records checkError and prints one check-failed line with U+009B escaped when a fifo name holds it", async () => {
+      const sandbox = preparedSandbox();
+      const named = "docs/.claude/y\u009bz";
+      const { code, record, printed } = await runSessionThat(sandbox, () =>
+        makeFifo(pathIn(sandbox, named)),
+      );
+      expect(code).toBe(4);
+      expect(record.checkError).toBe(`${named} is neither a file, a link nor a folder`);
+      expect(printed).toEqual([
+        "LK PROTECTED PATH CHECK FAILED: docs/.claude/y\\u009bz is neither a file, a link nor a folder",
+        "LK DISPATCH alpha failed exit 4",
+      ]);
     });
   });
 
