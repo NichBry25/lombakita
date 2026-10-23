@@ -291,7 +291,13 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     pattern: /^ {2}const verdict = checkProtectedPaths\(root, check\);$/m,
     replacement:
       "  const verdict = checkProtectedPaths(root, { ...check, grant: readGovernanceGrant (root, record.slug) });",
-    redTest: namedAny(["rewrites the grant line of the spec"]),
+    redTest: namedAny([
+      "rewrites the grant line of the spec",
+      "names the missing ancestor when the session creates it as a link",
+      "replaces the granted file with a folder",
+      "creates a granted folder that does not exist yet as a link",
+      "replaces an existing granted folder with a link",
+    ]),
   },
   {
     element: "the after-run check comparing the permission bits of an entry",
@@ -345,6 +351,8 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     replacement: "",
     redTest: namedAny([
       SET_LITERAL_TEST,
+      "covers every path of PROTECTED_PATHS",
+      "is checked by a pin that names the path a set leaves out",
       "ends failed when the run changes the file .git/config",
       "ends failed when the run changes the file docs/.git/config",
       "adds a file below the folder .git/hooks/",
@@ -410,15 +418,19 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
       /^ {2}const exitCode = await runHoldingLock\(root, lockHolderOf\(deps, slug\), deps\.print, async \(\) => \{\n {4}const before = snapshotBeforeRun\(root, slug\);\n {4}if \(!options\.noSmoke\) \{\n {6}refuseUnlessModelAnswers\(session\.model, \{ cwd: root, env: childEnv \}, deps\.runSmoke\);\n {4}\}$/m,
     replacement:
       "  const before = snapshotBeforeRun(root, slug);\n  if (!options.noSmoke) {\n    refuseUnlessModelAnswers(session.model, { cwd: root, env: childEnv }, deps.runSmoke);\n  }\n  const exitCode = await runHoldingLock(root, lockHolderOf(deps, slug), deps.print, async () => {",
-    redTest: namedAny(["holds the lock while the smoke call runs"]),
+    redTest: namedAny([
+      "holds the lock while the smoke call runs",
+      "takes the lock first, before the smoke call",
+    ]),
   },
   {
     element: "the after-run check releasing the lock before the second snapshot",
     pattern: /^ {4}exitCode = concludeRun\(root, record, end, check, deps\.print\);$/m,
     replacement:
-      "    try {\n      rmSync(workPath(root, LOCK_FILE), { force: true });\n    } catch {\n      // the lock cannot be removed here\n    }\n    exitCode = concludeRun(root, record, end, check, deps.print);",
+      "    try {\n      requireRealWorkFolder(root);\n      rmSync(workPath(root, LOCK_FILE), { force: true });\n    } catch {\n      // the lock cannot be removed here\n    }\n    exitCode = concludeRun(root, record, end, check, deps.print);",
     redTest: namedAny([
       "is still held when snapshot-after.json and then run.json are put in place",
+      "has written the final record by the time the lock is removed",
     ]),
   },
 ];
