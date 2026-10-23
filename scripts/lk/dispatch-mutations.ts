@@ -45,8 +45,9 @@ const CHANGED_SCRIPT_TESTS = ["is refused when one byte differs", "prints no scr
 const SNAPSHOT_PATH = "scripts/lk/protected-snapshot.ts";
 // Every test whose run must end failed because of a protected change carries this phrase.
 const CHANGE_FAILS_TEST = "ends failed";
-// The tests whose only change is to the bytes of a file the set already holds.
+// The tests that need the bytes of a file to be read, either to see them change or to fail on them.
 const BYTES_CHANGED_TESTS = [
+  "throws for a file it cannot read",
   "names the file in changed, records exit 4",
   "ends failed when the run changes the file ",
   "outside a folder grant",
