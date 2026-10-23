@@ -4197,6 +4197,13 @@ describe("the protected path check", () => {
       ]);
     });
 
+    it("refuses a folder above the set and a path of the set that differ only in case", () => {
+      const root = scratchFolder();
+      expect(() => snapshotProtectedPaths(root, ["a/f.txt", "A"])).toThrow(
+        "one path once case is folded",
+      );
+    });
+
     it("derives the folders above a set: none for the root, none the set holds itself", () => {
       expect(ancestorFoldersOf(["a/b/c.txt", "a/b/", "a/d/e/", "f.txt", "g/"])).toEqual([
         "a",

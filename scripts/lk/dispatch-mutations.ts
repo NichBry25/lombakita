@@ -67,6 +67,7 @@ const BYTES_CHANGED_TESTS = [
   "exit 3 when the session writes a protected file and fails",
   "writes the snapshot taken before the session and the one taken after it",
   "the sha256 of its bytes",
+  "counts a path whose parent is a file as absent",
   "forges a read-only run.json",
   "forges run.json as done and makes the work folder read-only",
   "cannot be replaced after a protected change",
@@ -100,6 +101,7 @@ const FOLDER_ABOVE_SET_TESTS = [
   "names docs/product with added",
   "writes the folders above the set into snapshot-before.json",
   "records the folders above the paths of the set",
+  "refuses a folder above the set and a path of the set that differ only in case",
   "counts a path whose parent is a file as absent",
 ];
 // The tests whose session exits with its own failure code, which the check leaves as it is.
