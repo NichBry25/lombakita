@@ -104,6 +104,24 @@ const FOLDER_ABOVE_SET_TESTS = [
   "refuses a folder above the set and a path of the set that differ only in case",
   "counts a path whose parent is a file as absent",
 ];
+// The tests where a folder grant covers the mode change of the folder it names above the set, and
+// the ones where a grant that does not name that folder leaves its change reported.
+const GRANT_COVERS_FOLDER_ABOVE_TESTS = [
+  "covers the mode change of docs/project",
+  "covers the mode change of docs/product",
+];
+const GRANT_LEAVES_FOLDER_ABOVE_REPORTED_TESTS = [
+  "names docs/product with changed when a grant names",
+  "when its own folder grant is there and it is replaced by a link to a copy of itself",
+];
+// The tests that print a refusal built from text the session chose, and the one that prints a notice.
+const REFUSAL_PRINT_TESTS = [
+  "because a fifo below docs/.claude is named with a newline",
+  "because a fifo name below docs/.claude holds it",
+  "when the lock names a slug with a newline",
+  "when a grant entry of the spec contains U+0085",
+];
+const NOTICE_PRINT_TEST = "prints each notice on one line when the work folder";
 // The tests whose session exits with its own failure code, which the check leaves as it is.
 const SESSION_FAILS_ITSELF_TESTS = [
   "own exit 3",
@@ -176,8 +194,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     pattern:
       /^ {2}return entries\.some\(\(entry\) => entryCoversChange\(entry\.toLowerCase\(\), folded\)\);$/m,
     replacement: "  return true;",
-    redTest: (fullName) =>
-      namedAny([CHANGE_FAILS_TEST])(fullName) && !namedAny(FOLDER_ABOVE_SET_TESTS)(fullName),
+    redTest: namedAny([CHANGE_FAILS_TEST]),
   },
   {
     element: "the after-run check hashing the bytes of a file",
@@ -198,7 +215,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     element: "the after-run check covering the folder a folder grant names",
     pattern: /^ {2}if \(path === withoutTrailingSlash\(entry\)\) return true;$/m,
     replacement: "",
-    redTest: namedAny(["mode of the folder the grant names"]),
+    redTest: namedAny(["mode of the folder the grant names", ...GRANT_COVERS_FOLDER_ABOVE_TESTS]),
   },
   {
     element: "the after-run check covering the folders created to reach a granted path",
@@ -226,7 +243,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
   {
     element: "the after-run check printing a failed step after the session instead of throwing",
     pattern:
-      /^ {2}try \{\n {4}step\(\);\n {4}return true;\n {2}\} catch \(error\) \{\n {4}print\(`\$\{notice\}: \$\{messageOf\(error\)\}`\);\n {4}return false;\n {2}\}$/m,
+      /^ {2}try \{\n {4}step\(\);\n {4}return true;\n {2}\} catch \(error\) \{\n {4}print\(`\$\{notice\}: \$\{escapedControlCharacters\(messageOf\(error\)\)\}`\);\n {4}return false;\n {2}\}$/m,
     replacement: "  step();\n  return true;",
     redTest: namedAny([
       "cannot be replaced after a protected change",
@@ -234,6 +251,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
       "when only snapshot-after.json cannot be replaced",
       "when only run.json cannot be replaced",
       "becomes a link",
+      NOTICE_PRINT_TEST,
     ]),
   },
   {
@@ -307,7 +325,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     pattern:
       /^ {2}const folded = \{ \.\.\.change, path: change\.path\.toLowerCase\(\) \};\n {2}return entries\.some\(\(entry\) => entryCoversChange\(entry\.toLowerCase\(\), folded\)\);$/m,
     replacement: "  return entries.some((entry) => entryCoversChange(entry, change));",
-    redTest: namedAny(["spells the path in another case"]),
+    redTest: namedAny(["spells the path in another case", "is spelled DOCS/PROJECT/"]),
   },
   {
     element: "the after-run check reading the grant again after the session",
@@ -389,7 +407,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     element: "the after-run check checking the work folder after the session before each write",
     pattern: /^ {6}requireRealWorkFolder\(root, slug\);$/m,
     replacement: "",
-    redTest: namedAny(["becomes a link"]),
+    redTest: namedAny(["becomes a link", NOTICE_PRINT_TEST]),
   },
   {
     element: "the after-run check checking the work folder before removing the lock",
@@ -469,7 +487,33 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     pattern:
       /^const escapedText = \(text: string\): string => escapedC1Controls\(JSON\.stringify\(text\)\.slice\(1, -1\)\);$/m,
     replacement: "const escapedText = (text: string): string => JSON.stringify(text).slice(1, -1);",
-    redTest: namedAny(["holds U+0085", "with U+009B escaped"]),
+    redTest: namedAny([
+      "holds U+0085",
+      "with U+009B escaped",
+      "prints U+0085 escaped",
+      "prints U+009B escaped",
+      "contains U+0085",
+    ]),
+  },
+  {
+    element: "the after-run check printing a refusal as the filesystem spells it",
+    pattern:
+      /^ {4}console\.error\(`LK REFUSED: \$\{escapedControlCharacters\(error\.message\)\}`\);$/m,
+    replacement: "    console.error(`LK REFUSED: ${error.message}`);",
+    redTest: namedAny(REFUSAL_PRINT_TESTS),
+  },
+  {
+    element: "the after-run check printing the run record of status as the filesystem spells it",
+    pattern: /^ {4}console\.log\(escapedC1Controls\(statusText\)\);$/m,
+    replacement: "    console.log(statusText);",
+    redTest: namedAny(["prints U+009B of the run record"]),
+  },
+  {
+    element: "the after-run check printing the message of a notice as the filesystem spells it",
+    pattern:
+      /^ {4}print\(`\$\{notice\}: \$\{escapedControlCharacters\(messageOf\(error\)\)\}`\);$/m,
+    replacement: "    print(`${notice}: ${messageOf(error)}`);",
+    redTest: namedAny([NOTICE_PRINT_TEST]),
   },
   {
     element: "the after-run check recording the folders above the set",
@@ -480,19 +524,32 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     redTest: namedAny(FOLDER_ABOVE_SET_TESTS),
   },
   {
-    element:
-      "the after-run check leaving a folder above the set that appears or disappears unreported",
+    element: "the after-run check reporting a folder above the set that appears",
     pattern: /^ {2}kind === "folder" && \(change === "added" \|\| change === "removed"\);$/m,
-    replacement: "  false;",
-    redTest: namedAny(["ends done when docs/product is absent at the start"]),
+    replacement: '  kind === "folder" && change === "removed";',
+    redTest: namedAny(["creates it as a folder with a file outside the set"]),
   },
   {
-    element: "the after-run check letting a grant cover a change at a folder above the set",
-    pattern:
-      /^ {2}if \(isAncestorOfSet\(change\)\) return !isUnreportedAncestorChange\(change\);$/m,
+    element: "the after-run check reporting a folder above the set that disappears",
+    pattern: /^ {2}kind === "folder" && \(change === "added" \|\| change === "removed"\);$/m,
+    replacement: '  kind === "folder" && change === "added";',
+    redTest: namedAny([
+      "holds only a file outside the set at the start and the session removes it",
+    ]),
+  },
+  {
+    element:
+      "the after-run check reporting a change at a folder above the set whatever the grant names",
+    pattern: /^ {2}return !isCoveredBy\(grant, change\);$/m,
+    replacement: "  return isAncestorOfSet(change) || !isCoveredBy(grant, change);",
+    redTest: namedAny(GRANT_COVERS_FOLDER_ABOVE_TESTS),
+  },
+  {
+    element: "the after-run check covering a change at a folder above the set by any grant at all",
+    pattern: /^ {2}return !isCoveredBy\(grant, change\);$/m,
     replacement:
-      "  if (isAncestorOfSet(change)) return !isUnreportedAncestorChange(change) && !isCoveredBy(grant, change);",
-    redTest: namedAny(["when a grant names the folder and its mode changes"]),
+      "  return isAncestorOfSet(change) ? grant.length === 0 : !isCoveredBy(grant, change);",
+    redTest: namedAny(GRANT_LEAVES_FOLDER_ABOVE_REPORTED_TESTS),
   },
 ];
 

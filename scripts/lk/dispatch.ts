@@ -39,9 +39,11 @@
  * folder above it that the session created or removed on the way to it, as the hook allows, and
  * only when what sits there is a folder.
  *
- * The folders above the set (ancestorFoldersOf) are snapshotted as well. A change at one of them
- * is reported and no grant covers it, except a folder appearing or disappearing, which is never
- * reported.
+ * The folders above the set (ancestorFoldersOf) are snapshotted as well. A folder appearing or
+ * disappearing there is never reported. Any other change at one of them is covered like a change
+ * at any path, so a folder entry that names the folder (docs/project/, docs/product/) covers a
+ * change of its mode, and no entry covers a link, a path that changed kind or a folder it does not
+ * name. No entry can name docs, .git or docs/.git, so a change at those is always reported.
  *
  * The session can write the work folder, so the files the dispatcher owns there (both snapshots and
  * run.json) are written to a new temporary file and renamed over the target: a rename replaces a
@@ -51,9 +53,13 @@
  * write is made only if `.work` and `.work/<slug>` are still the real folders, after the dispatcher
  * has made the work item's folder writable again. A write that fails or a lock removal that fails
  * prints `LK RECORD NOT WRITTEN:` or `LK LOCK NOT REMOVED:` and never replaces the exit code with an
- * exception. A failed write exits 4 when the session exited 0. A changed path and the message of a
- * failed check are printed with their control characters escaped, and `checkError` keeps the message
- * as it is.
+ * exception. A failed write exits 4 when the session exited 0.
+ *
+ * A session can choose a name below a protected folder, the slug in `.work/.lock`, a grant entry of
+ * the spec and the text of `run.json`. A changed path, the message of a failed check, every refusal
+ * and the message of a notice are printed with their control characters escaped, and `status`
+ * prints `run.json` with the C1 controls escaped, which keeps it valid JSON. `checkError` and the
+ * files on disk keep the text as it is.
  */
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
@@ -771,10 +777,12 @@ const isAncestorOfSet = ({ path }: KindedChange): boolean =>
 const isUnreportedAncestorChange = ({ change, kind }: KindedChange): boolean =>
   kind === "folder" && (change === "added" || change === "removed");
 
-// A grant lets a session write the paths it names, not move the folder those paths are reached
-// through, so a change at a folder above the set is reported whatever the grant names.
+// A folder above the set goes through the same coverage as any other path once the exception for
+// its appearing or disappearing is out of the way, so a folder entry that names the folder covers
+// a change of its mode. No entry can name docs, .git or docs/.git, and a link or a path that
+// changed kind is never covered, so those changes are always reported.
 const isReported = (change: KindedChange, grant: readonly string[]): boolean => {
-  if (isAncestorOfSet(change)) return !isUnreportedAncestorChange(change);
+  if (isAncestorOfSet(change) && isUnreportedAncestorChange(change)) return false;
   return !isCoveredBy(grant, change);
 };
 
@@ -827,6 +835,11 @@ const escapedC1Controls = (text: string): string =>
 // an escape sequence in them must not reach the output as one.
 const escapedText = (text: string): string => escapedC1Controls(JSON.stringify(text).slice(1, -1));
 
+// Only the control characters are escaped, spelled as escapedText spells them, so a message with
+// none prints as it is, a quote or a backslash included.
+const escapedControlCharacters = (text: string): string =>
+  text.replace(/\p{Cc}/gu, (control) => escapedText(control));
+
 const printCheckVerdict = (verdict: CheckVerdict, print: (line: string) => void): void => {
   for (const { path, change } of verdict.changed) {
     print(`LK PROTECTED PATH CHANGED: ${escapedText(path)} (${change})`);
@@ -871,7 +884,7 @@ const attemptAfterSession = (
     step();
     return true;
   } catch (error) {
-    print(`${notice}: ${messageOf(error)}`);
+    print(`${notice}: ${escapedControlCharacters(messageOf(error))}`);
     return false;
   }
 };
@@ -1151,7 +1164,8 @@ const runCommand = async (argv: string[]): Promise<number> => {
     return 0;
   }
   if (command === "status") {
-    console.log(readRunStatus(root, slug));
+    const statusText = readRunStatus(root, slug);
+    console.log(escapedC1Controls(statusText));
     return 0;
   }
   if (command !== "run") refuse("usage: dispatch.ts <init|run|status> <slug> [options]");
@@ -1174,7 +1188,7 @@ const main = async (): Promise<void> => {
     process.exitCode = await runCommand(process.argv.slice(2));
   } catch (error) {
     if (!(error instanceof LkRefusal)) throw error;
-    console.error(`LK REFUSED: ${error.message}`);
+    console.error(`LK REFUSED: ${escapedControlCharacters(error.message)}`);
     process.exitCode = 1;
   }
 };
