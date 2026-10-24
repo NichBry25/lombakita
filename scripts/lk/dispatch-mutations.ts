@@ -106,10 +106,7 @@ const FOLDER_ABOVE_SET_TESTS = [
 ];
 // The tests where a folder grant covers the mode change of the folder it names above the set, and
 // the ones where a grant that does not name that folder leaves its change reported.
-const GRANT_COVERS_FOLDER_ABOVE_TESTS = [
-  "covers the mode change of docs/project",
-  "covers the mode change of docs/product",
-];
+const GRANT_COVERS_FOLDER_ABOVE_TESTS = ["covers the mode change of"];
 const GRANT_LEAVES_FOLDER_ABOVE_REPORTED_TESTS = [
   "names docs/product with changed when a grant names",
   "when its own folder grant is there and it is replaced by a link to a copy of itself",
@@ -490,8 +487,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     redTest: namedAny([
       "holds U+0085",
       "with U+009B escaped",
-      "prints U+0085 escaped",
-      "prints U+009B escaped",
+      "because a fifo name below docs/.claude holds it",
       "contains U+0085",
     ]),
   },
