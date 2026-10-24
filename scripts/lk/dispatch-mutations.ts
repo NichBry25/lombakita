@@ -112,9 +112,12 @@ const GRANT_LEAVES_FOLDER_ABOVE_REPORTED_TESTS = [
   "when its own folder grant is there and it is replaced by a link to a copy of itself",
 ];
 // The tests that print a refusal built from text the session chose, and the one that prints a notice.
+const FIFO_REFUSAL_TESTS = [
+  "a fifo below docs/.claude named with a newline",
+  "a fifo below docs/.claude whose name holds it",
+];
 const REFUSAL_PRINT_TESTS = [
-  "because a fifo below docs/.claude is named with a newline",
-  "because a fifo name below docs/.claude holds it",
+  ...FIFO_REFUSAL_TESTS,
   "when the lock names a slug with a newline",
   "when a grant entry of the spec contains U+0085",
 ];
@@ -206,7 +209,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     path: SNAPSHOT_PATH,
     pattern: /^ {2}if \(entry\.kind !== "folder"\) return;$/m,
     replacement: "  return;",
-    redTest: namedAny(BELOW_FOLDER_TESTS),
+    redTest: namedAny([...BELOW_FOLDER_TESTS, ...FIFO_REFUSAL_TESTS]),
   },
   {
     element: "the after-run check covering the folder a folder grant names",
@@ -267,6 +270,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
       "during the smoke call",
       "when the first snapshot cannot be taken",
       "snapshot-before.json cannot be replaced",
+      ...FIFO_REFUSAL_TESTS,
     ]),
   },
   {
@@ -364,7 +368,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     pattern:
       /^ {4}return refuse\(`cannot snapshot the protected paths: \$\{messageOf\(error\)\}`\);$/m,
     replacement: "    throw error;",
-    redTest: namedAny(["when the first snapshot cannot be taken"]),
+    redTest: namedAny(["when the first snapshot cannot be taken", ...FIFO_REFUSAL_TESTS]),
   },
   {
     element:
@@ -487,7 +491,7 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
     redTest: namedAny([
       "holds U+0085",
       "with U+009B escaped",
-      "because a fifo name below docs/.claude holds it",
+      "a fifo below docs/.claude whose name holds it",
       "contains U+0085",
     ]),
   },

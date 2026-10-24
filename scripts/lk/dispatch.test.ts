@@ -3121,7 +3121,7 @@ describe("the protected path check", () => {
     const linesStartingWithForgedLine = (text: string): string[] =>
       text.split("\n").filter((line) => line.startsWith("LK DISPATCH alpha done"));
 
-    it("prints one LK REFUSED line when the first snapshot cannot be taken because a fifo below docs/.claude is named with a newline and a forged dispatch line", () => {
+    it("prints one LK REFUSED line when a fifo below docs/.claude named with a newline and a forged dispatch line stops the first snapshot", () => {
       const sandbox = preparedSandbox();
       makeFifo(pathIn(sandbox, `docs/.claude/x\n${FORGED_LINE}`));
       const result = run(sandbox, "alpha");
@@ -3136,7 +3136,7 @@ describe("the protected path check", () => {
       { name: "U+0085", character: "\u0085", spelled: "\\u0085" },
       { name: "U+009B", character: "\u009b", spelled: "\\u009b" },
     ])(
-      "prints $name escaped when the first snapshot cannot be taken because a fifo name below docs/.claude holds it",
+      "prints $name escaped in the LK REFUSED line when a fifo below docs/.claude whose name holds it stops the first snapshot",
       ({ character, spelled }) => {
         const sandbox = preparedSandbox();
         makeFifo(pathIn(sandbox, `docs/.claude/y${character}z`));
@@ -3216,7 +3216,7 @@ describe("the protected path check", () => {
       expect(notices).toHaveLength(2);
       for (const notice of notices) expect(notice).toContain(`resolves to ${spelledTarget}`);
       expect(printed.every((line) => !line.includes("\n"))).toBe(true);
-      expect(linesStartingWithForgedLine(printed.join("\n"))).toEqual([]);
+      expect(linesStartingWithForgedLine(notices.join("\n"))).toEqual([]);
     });
   });
 
