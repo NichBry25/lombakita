@@ -814,14 +814,24 @@ const standInLineOf = (call: StandInCall): string =>
 
 const isStandInCall = (line: string, call: StandInCall): boolean => line === standInLineOf(call);
 
-// A call to npx is named by npx and the first word after it that does not start with a dash, so an
-// option before the program, as in npx -y vercel, does not change the name. Any other call is
-// named by its first word, and so is an npx line with no word that does not start with a dash.
+// A trailing @version picks a release of a package, so it is not part of the package name. An @
+// that opens the word is a scope, and an @ followed by a / is part of a name.
+const packageNameOf = (word: string): string => {
+  const versionStart = word.lastIndexOf("@");
+  if (versionStart <= 0) return word;
+  const hasSlashAfterAt = word.slice(versionStart + 1).includes("/");
+  return hasSlashAfterAt ? word : word.slice(0, versionStart);
+};
+
+// A call to npx is named by npx and the package it runs: the first word after it that does not
+// start with a dash, without its trailing @version. So npx -y vercel@latest is named npx vercel.
+// Any other call is named by its first word, and so is an npx line with no word that does not
+// start with a dash.
 const ownNameOf = (line: string, call: StandInCall): string => {
   const [first = "", ...rest] = line.split(" ");
   if (call.name !== "npx") return first;
   const handedProgram = rest.find((word) => !word.startsWith("-"));
-  return handedProgram === undefined ? first : `${first} ${handedProgram}`;
+  return handedProgram === undefined ? first : `${first} ${packageNameOf(handedProgram)}`;
 };
 
 // A line that has the case's own command name and other arguments is a call the case cannot
