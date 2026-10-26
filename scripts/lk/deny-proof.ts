@@ -962,13 +962,33 @@ const hookEntriesNaming = (hooks: HooksBlock, script: string): HookEntry[] =>
     ),
   );
 
+// A double quote ends the path, so the quotes of the quoted command form stay around the swapped path.
 const scriptPathPattern = (script: string): RegExp =>
-  new RegExp(`\\S*${script.replaceAll(".", "\\.")}`);
+  new RegExp(`[^\\s"]*${script.replaceAll(".", "\\.")}`);
 
 const scriptPathInCommand = (command: string, script: string): string | undefined =>
   scriptPathPattern(script).exec(command)?.[0];
 
-const BASH_COMMAND_FORM = /^bash (\S+)$/;
+const PROJECT_DIRECTORY_PREFIX = "$CLAUDE_PROJECT_DIR/";
+const UNQUOTED_COMMAND_FORM = /^bash ([^\s"]+)$/;
+const QUOTED_COMMAND_FORM = /^bash "([^\s"]+)"$/;
+
+/**
+ * The hook path of a command that is `bash <path>` or `bash "$CLAUDE_PROJECT_DIR/<path>"`, as the
+ * command writes it, or undefined for any other command.
+ */
+export const hookPathInCommand = (command: string): string | undefined => {
+  const unquoted = UNQUOTED_COMMAND_FORM.exec(command)?.[1];
+  if (unquoted !== undefined) return unquoted;
+  const quoted = QUOTED_COMMAND_FORM.exec(command)?.[1];
+  return quoted?.startsWith(PROJECT_DIRECTORY_PREFIX) ? quoted : undefined;
+};
+
+/** The path with a leading $CLAUDE_PROJECT_DIR read as the checkout this harness runs from. */
+export const expandProjectDirectory = (path: string): string =>
+  path.startsWith(PROJECT_DIRECTORY_PREFIX)
+    ? join(PRODUCT_ROOT, path.slice(PROJECT_DIRECTORY_PREFIX.length))
+    : path;
 
 const realPathOrUndefined = (path: string): string | undefined => {
   try {
@@ -984,7 +1004,7 @@ const soleEntryNaming = (hooks: HooksBlock, script: string): HookEntry | undefin
 };
 
 const portableCommandProblems = (script: string, command: string): string[] => {
-  const path = BASH_COMMAND_FORM.exec(command)?.[1];
+  const path = hookPathInCommand(command);
   if (path === undefined) return [`the command of ${script} is not bash <path>: ${command}`];
   if (path.endsWith(`/.claude/hooks/${script}`)) return [];
   return [
@@ -1022,9 +1042,9 @@ export const portableHookWiringProblems = (settingsFile: string): string[] => {
 };
 
 const machineCommandProblems = (script: string, copiedFile: string, command: string): string[] => {
-  const path = BASH_COMMAND_FORM.exec(command)?.[1];
-  if (path === undefined) return [];
-  const runs = realPathOrUndefined(path);
+  const writtenPath = hookPathInCommand(command);
+  if (writtenPath === undefined) return [];
+  const runs = realPathOrUndefined(expandProjectDirectory(writtenPath));
   if (runs === undefined) {
     return [`the command of ${script} names no file that exists: ${command}`];
   }

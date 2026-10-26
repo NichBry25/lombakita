@@ -34,10 +34,12 @@ import { buildClaudeArgs, DENY_LIST, DENY_PATTERNS } from "./dispatch";
 import {
   controlArgs,
   exitsOneToStdoutHookText,
+  expandProjectDirectory,
   GUARD_COMMANDS,
   GUARD_TABLE,
   guardTableMismatches,
   HOOK_WIRING,
+  hookPathInCommand,
   localeListed,
   machineHookWiringProblems,
   portableHookWiringProblems,
@@ -226,13 +228,14 @@ interface DocsRootOptions {
 
 const TWIN_ENTRY = "Bash(rtk npx vercel env pull*)";
 
+// The portable spelling of a hook command: the project folder through $CLAUDE_PROJECT_DIR, quoted.
+const quotedCommandFor = (script: string): string =>
+  `bash "$CLAUDE_PROJECT_DIR/.claude/hooks/${script}"`;
+
 // The shape of the hooks block of the real docs settings: a command per script, under the matcher
 // its tool needs, with the Notification entry the fixtures never use.
-const hooksBlockFor = (docsRoot: string): Record<string, unknown> => {
-  const commandFor = (script: string) => ({
-    type: "command",
-    command: `bash ${docsRoot}/.claude/hooks/${script}`,
-  });
+const hooksBlockWith = (commandText: (script: string) => string): Record<string, unknown> => {
+  const commandFor = (script: string) => ({ type: "command", command: commandText(script) });
   return {
     PreToolUse: [
       { matcher: "Edit|Write|MultiEdit|Bash", hooks: [commandFor("check-protected-file.sh")] },
@@ -242,6 +245,9 @@ const hooksBlockFor = (docsRoot: string): Record<string, unknown> => {
     Notification: [{ hooks: [{ type: "command", command: "node notify.ts --hook" }] }],
   };
 };
+
+const hooksBlockFor = (docsRoot: string): Record<string, unknown> =>
+  hooksBlockWith((script) => `bash ${docsRoot}/.claude/hooks/${script}`);
 
 const makeDocsRoot = (
   hookText: string,
@@ -850,6 +856,35 @@ describe("the hook cases", () => {
       expect(hooksJson).toContain("/repo/.claude/hooks/check-destructive-bash.sh");
       expect(hooksJson).not.toContain(docs);
       expect(verdictOf(output, "hook-pipe-to-psql")).toBe("PASS");
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
+  // In this process and not through the harness: the harness refuses a quoted command here, because
+  // $CLAUDE_PROJECT_DIR names the product checkout and not the synthetic docs root.
+  it(
+    "build the fixture command of a quoted-form settings file with balanced quotes around the fixture's copy",
+    async () => {
+      const docs = makeDocsRoot(blockingHook(), [], {
+        hooksBlock: () => hooksBlockWith(quotedCommandFor),
+      });
+      vi.stubEnv("DENY_PROOF_DOCS_ROOT", docs);
+      vi.resetModules();
+      try {
+        const { CASES } = await import("./deny-proof");
+        const guardCase = CASES.find((candidate) => candidate.id === "hook-pipe-to-psql");
+        const root = mkdtempSync(join(workspace, "fixture-root-"));
+        guardCase?.prepare?.(root);
+        const settings = JSON.parse(readFileSync(join(root, ".claude/settings.json"), "utf8")) as {
+          hooks: { PreToolUse: { hooks: { command: string }[] }[] };
+        };
+        const command = settings.hooks.PreToolUse[0]?.hooks[0]?.command ?? "";
+        expect(command.split('"').length - 1).toBe(2);
+        expect(command).toBe(`bash "${join(root, ".claude/hooks/check-destructive-bash.sh")}"`);
+      } finally {
+        vi.unstubAllEnvs();
+        vi.resetModules();
+      }
     },
     SESSION_TEST_TIMEOUT_MS,
   );
@@ -2207,13 +2242,20 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
     // The machine part judges the settings against the checkout the tests read, so it is proved
     // only where the checkout the settings name is that one: not under DENY_PROOF_DOCS_ROOT.
     const checkoutNamedInRealSettingsIsHere = HOOK_WIRING.every(({ script, file }) => {
-      const path = /^bash (\S+)$/.exec(realCommandOf(script))?.[1];
-      return (
-        path !== undefined &&
-        existsSync(dirname(path)) &&
-        realpathSync(dirname(path)) === realpathSync(dirname(file))
-      );
+      const writtenPath = hookPathInCommand(realCommandOf(script));
+      if (writtenPath === undefined) return false;
+      const folder = dirname(expandProjectDirectory(writtenPath));
+      return existsSync(folder) && realpathSync(folder) === realpathSync(dirname(file));
     });
+
+    // The quoted form of the three hook commands, on a copy of the real settings.
+    const quoteHookCommands = (settings: SettingsShape): void => {
+      for (const { script } of HOOK_WIRING) {
+        for (const group of groupsNaming(settings, script)) {
+          for (const hook of group.hooks) hook.command = quotedCommandFor(script);
+        }
+      }
+    };
 
     const eventOtherThan = (event: string): string =>
       event === "SessionEnd" ? "Stop" : "PostToolUse";
@@ -2367,6 +2409,28 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
         expect(problems).toEqual([]);
       });
 
+      it("accepts the quoted form: a copy of the real settings with the three hook commands as bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/<script>\" has no problem", () => {
+        const { problems } = problemsOfMutatedCopy(portableHookWiringProblems, quoteHookCommands);
+        expect(problems).toEqual([]);
+      });
+
+      it.each(HOOK_WIRING.map(({ script }) => script))(
+        "reads a quoted path that does not start with $CLAUDE_PROJECT_DIR/ as not bash <path>: %s",
+        (script) => {
+          const command = `bash "/somewhere/.claude/hooks/${script}"`;
+          const { problems, applied } = problemsOfMutatedCopy(
+            portableHookWiringProblems,
+            (settings) => {
+              for (const group of groupsNaming(settings, script)) {
+                for (const hook of group.hooks) hook.command = command;
+              }
+            },
+          );
+          expect(applied).toBe(true);
+          expect(problems).toEqual([`the command of ${script} is not bash <path>: ${command}`]);
+        },
+      );
+
       it.each(withTitle(PORTABLE_MUTATIONS))(
         "turns red when %s",
         (_label, { script, mutate, expected }) => {
@@ -2449,6 +2513,18 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
           );
           expect(applied).toBe(false);
           expect(problems).toEqual([]);
+        });
+
+        it("reads $CLAUDE_PROJECT_DIR as this checkout: a copy of the real settings with the three hook commands quoted has no problem", () => {
+          const { problems } = problemsOfMutatedCopy(machineHookWiringProblems, quoteHookCommands);
+          expect(problems).toEqual([]);
+        });
+
+        it("passes both parts on the real settings file as it stands", () => {
+          expect([
+            ...portableHookWiringProblems(REAL_SETTINGS),
+            ...machineHookWiringProblems(REAL_SETTINGS),
+          ]).toEqual([]);
         });
 
         it.each(withTitle(MACHINE_MUTATIONS))(
