@@ -808,17 +808,23 @@ const mainMoved: ProofCase["harm"] = (before, after) =>
     ? undefined
     : "branch main points somewhere else";
 
-const anyStandInCalled: ProofCase["harm"] = (_before, after) =>
-  after.standInLines.length > 0 ? "a stand-in command was called" : undefined;
-
 // A marker line is `<name> <args>` as the stand-in wrote it, trimmed.
-const isStandInCall = (line: string, call: StandInCall): boolean =>
-  line === (call.args === "" ? call.name : `${call.name} ${call.args}`);
+const standInLineOf = (call: StandInCall): string =>
+  call.args === "" ? call.name : `${call.name} ${call.args}`;
+
+const isStandInCall = (line: string, call: StandInCall): boolean => line === standInLineOf(call);
+
+// npx runs the program it is handed, so a call to npx is named by npx and that program.
+const ownNameOf = (line: string, call: StandInCall): string =>
+  line
+    .split(" ")
+    .slice(0, call.name === "npx" ? 2 : 1)
+    .join(" ");
 
 // A line that has the case's own command name and other arguments is a call the case cannot
 // attribute: it may be a variant of the command that got past the guard.
 const isOwnNameWithOtherArguments = (line: string, call: StandInCall): boolean =>
-  line.split(" ")[0] === call.name && !isStandInCall(line, call);
+  ownNameOf(line, call) === ownNameOf(standInLineOf(call), call) && !isStandInCall(line, call);
 
 const ownStandInCalled =
   (call: StandInCall): ProofCase["harm"] =>
@@ -1479,7 +1485,12 @@ const protectAllowedCase = (
 
 // The covering entries come from the docs file when the case runs; a case whose entry is not there
 // refuses to run rather than proving nothing.
-const settingsCase = (id: string, command: string, covers: string[]): ProofCase => {
+const settingsCase = (
+  id: string,
+  command: string,
+  covers: string[],
+  standInCall: StandInCall,
+): ProofCase => {
   const entriesWithout = (dropped: readonly string[]): string[] => {
     const entries = readDocsDenyEntries();
     const missing = covers.filter((entry) => !entries.includes(entry));
@@ -1494,7 +1505,8 @@ const settingsCase = (id: string, command: string, covers: string[]): ProofCase 
     covers,
     profile: "ahead",
     mode: "settings",
-    harm: anyStandInCalled,
+    harm: ownStandInCalled(standInCall),
+    standInCall,
     prepare: (root) => writeFixtureDenyEntries(root, entriesWithout([])),
     controlPrepare: (root) => writeFixtureDenyEntries(root, entriesWithout(covers)),
   };
@@ -1654,6 +1666,8 @@ export const guardTableMismatches = (hookPath: string): GuardRowMismatch[] =>
     });
     return run.status === row.exit ? [] : [{ ...row, got: run.status }];
   });
+
+const GH_PR_MERGE_CALL: StandInCall = { name: "gh", args: "pr merge 1" };
 
 export const CASES: readonly ProofCase[] = [
   bashCase(
@@ -2058,13 +2072,16 @@ export const CASES: readonly ProofCase[] = [
     ["Bash(/*/git *)"],
     remoteMoved,
   ),
-  bashCase(
-    "standins",
-    "gh-pr-merge",
-    "gh pr merge 1",
-    ["Bash(gh *)", "Bash(rtk gh *)"],
-    anyStandInCalled,
-  ),
+  {
+    ...bashCase(
+      "standins",
+      "gh-pr-merge",
+      "gh pr merge 1",
+      ["Bash(gh *)", "Bash(rtk gh *)"],
+      ownStandInCalled(GH_PR_MERGE_CALL),
+    ),
+    standInCall: GH_PR_MERGE_CALL,
+  },
   bashCase(
     "standins",
     "npm-db-reset",
@@ -2638,18 +2655,36 @@ export const CASES: readonly ProofCase[] = [
       `${SESSION_END_OUTPUT_FILE} holds the checklist heading: ${after.watched[SESSION_END_OUTPUT_FILE]?.includes(SESSION_END_HEADING) === true}`,
     ],
   },
-  settingsCase("twin-npx-vercel-env-pull", "npx vercel env pull", [
-    "Bash(rtk npx vercel env pull*)",
-  ]),
-  settingsCase("twin-npx-vercel-env-add", "npx vercel env add x", [
-    "Bash(rtk npx vercel env add*)",
-  ]),
-  settingsCase("twin-npx-vercel-env-rm", "npx vercel env rm x", ["Bash(rtk npx vercel env rm*)"]),
-  settingsCase("twin-npx-railway-run", "npx railway run echo", ["Bash(rtk npx railway run*)"]),
-  settingsCase("twin-npx-railway-variables", "npx railway variables", [
-    "Bash(rtk npx railway variables*)",
-  ]),
-  settingsCase("twin-npx-railway-ssh", "npx railway ssh", ["Bash(rtk npx railway ssh*)"]),
+  settingsCase(
+    "twin-npx-vercel-env-pull",
+    "npx vercel env pull",
+    ["Bash(rtk npx vercel env pull*)"],
+    { name: "npx", args: "vercel env pull" },
+  ),
+  settingsCase(
+    "twin-npx-vercel-env-add",
+    "npx vercel env add x",
+    ["Bash(rtk npx vercel env add*)"],
+    { name: "npx", args: "vercel env add x" },
+  ),
+  settingsCase("twin-npx-vercel-env-rm", "npx vercel env rm x", ["Bash(rtk npx vercel env rm*)"], {
+    name: "npx",
+    args: "vercel env rm x",
+  }),
+  settingsCase("twin-npx-railway-run", "npx railway run echo", ["Bash(rtk npx railway run*)"], {
+    name: "npx",
+    args: "railway run echo",
+  }),
+  settingsCase(
+    "twin-npx-railway-variables",
+    "npx railway variables",
+    ["Bash(rtk npx railway variables*)"],
+    { name: "npx", args: "railway variables" },
+  ),
+  settingsCase("twin-npx-railway-ssh", "npx railway ssh", ["Bash(rtk npx railway ssh*)"], {
+    name: "npx",
+    args: "railway ssh",
+  }),
   allowedCase("ok-push-v-feature", "git push -v origin feature", remoteAdvanced),
   allowedCase("ok-checkout-b", "git checkout -b x", currentBranchIs("x")),
   allowedCase("ok-switch-feature", "git switch feature", currentBranchIs("feature")),
