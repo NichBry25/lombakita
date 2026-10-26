@@ -23,13 +23,53 @@
  * A session killed by a signal is recorded as failed with exit 128 plus the signal number and the
  * signal's name. A real run that removes a stale lock marks the dead holder's run record, if it
  * still says running, as failed and lost.
+ *
+ * A real run holds the lock from before the smoke call until the run record is final. Under it the
+ * run snapshots PROTECTED_SET before the smoke call and again after the session ends
+ * (protected-snapshot.ts), and compares the two with what the grant covers. A path that changed,
+ * was added, was removed or changed kind and is not covered fails the run: status failed, the paths
+ * in `changed`, one `LK PROTECTED PATH CHANGED:` line each, and exit 4 when the session itself
+ * exited 0. A second snapshot that cannot be taken fails it the same way, with `checkError`.
+ * Nothing is restored. A run refuses when docs/ is absent or the first snapshot cannot be taken.
+ * Both snapshots are also written to the work folder as evidence and are never read back, and the
+ * grant is the one read before the session started.
+ *
+ * A file entry of the grant covers that path. A folder entry covers every path below it and the
+ * folder itself. Neither covers a link, nor a path that changed kind. Any entry also covers a
+ * folder above it that the session created or removed on the way to it, as the hook allows, and
+ * only when what sits there is a folder.
+ *
+ * The folders above the set (ancestorFoldersOf) are snapshotted as well. A folder appearing or
+ * disappearing there is never reported. Any other change at one of them is covered like a change
+ * at any path, so a folder entry that names the folder (docs/project/, docs/product/) covers a
+ * change of its mode, and no entry covers a link, a path that changed kind or a folder it does not
+ * name. No entry can name docs, .git or docs/.git, so a change at those is always reported.
+ *
+ * The session can write the work folder, so the files the dispatcher owns there (both snapshots and
+ * run.json) are written to a new temporary file and renamed over the target: a rename replaces a
+ * link or a read-only file where a write would follow the link or fail. The lock file is written the
+ * same way, under a random name. A work folder that is a link refuses the run before the lock is
+ * taken, and so does a first snapshot that cannot be written. Once the session has ended, each
+ * write is made only if `.work` and `.work/<slug>` are still the real folders, after the dispatcher
+ * has made the work item's folder writable again. A write that fails or a lock removal that fails
+ * prints `LK RECORD NOT WRITTEN:` or `LK LOCK NOT REMOVED:` and never replaces the exit code with an
+ * exception. A failed write exits 4 when the session exited 0.
+ *
+ * A session can choose a name below a protected folder, the slug in `.work/.lock`, a grant entry of
+ * the spec and the text of `run.json`. A changed path, the message of a failed check, every refusal
+ * and the message of a notice are printed with their control characters escaped, and `status`
+ * prints `run.json` with the C1 controls escaped, which keeps it valid JSON. `checkError` and the
+ * files on disk keep the text as it is.
  */
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
+  chmodSync,
   closeSync,
   existsSync,
   linkSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -54,6 +94,15 @@ import {
   type Env,
   type ModelClass,
 } from "./models";
+import {
+  ancestorFoldersOf,
+  diffSnapshots,
+  snapshotProtectedPaths,
+  withoutTrailingSlash,
+  type KindedChange,
+  type PathChange,
+  type SnapshotEntry,
+} from "./protected-snapshot";
 
 // Matching is on the command text. A git global option (-C, -c, --no-pager, --git-dir=) sits
 // between `git` and the subcommand, so each git rule has a twin with a wildcard there. The
@@ -256,6 +305,41 @@ const SESSION_LOG_FILE = "session.jsonl";
 const MODELS_FILE_IN_ROOT = "docs/project/models.md";
 const SMOKE_PROMPT = "reply with the single word ok";
 export const SMOKE_TIMEOUT_SECONDS = 60;
+const SNAPSHOT_BEFORE_FILE = "snapshot-before.json";
+const SNAPSHOT_AFTER_FILE = "snapshot-after.json";
+const PROTECTED_CHANGE_EXIT = 4;
+const WORK_FOLDER_MODE = 0o755;
+const RECORD_NOT_WRITTEN = "LK RECORD NOT WRITTEN";
+const LOCK_NOT_REMOVED = "LK LOCK NOT REMOVED";
+
+// Relative to the product root. A folder entry ends in a slash. Every `path` of PROTECTED_PATHS in
+// protect-table.ts must fall inside this set, and a test pins that. The last three are the
+// spellings of the docs files that a session loads from the product root, links into docs/ on the
+// owner's machine, so a link is recorded as a link and a real folder there is walked.
+export const PROTECTED_SET: readonly string[] = [
+  "docs/project/SSOT.md",
+  "docs/product/state-machines.md",
+  "docs/CLAUDE.md",
+  "docs/CLAUDE-reference.md",
+  "docs/AGENTS.md",
+  "docs/project/controller.md",
+  "docs/product/ui-preferences.md",
+  "docs/project/models.md",
+  "docs/product/contracts/",
+  "docs/contracts/",
+  "docs/.claude/",
+  ".git/config",
+  ".git/hooks/",
+  "docs/.git/config",
+  "docs/.git/hooks/",
+  "CLAUDE.md",
+  "AGENTS.md",
+  ".claude",
+];
+
+const PROTECTED_ANCESTORS: ReadonlySet<string> = new Set(
+  ancestorFoldersOf(PROTECTED_SET).map((path) => path.toLowerCase()),
+);
 
 export const buildClaudeArgs = (promptText: string, model: string): string[] => [
   "-p",
@@ -295,6 +379,10 @@ export interface RunRecord {
   exit?: number;
   signal?: string;
   lost?: boolean;
+  /** The protected paths the run changed that its grant does not cover. */
+  changed?: PathChange[];
+  /** Why the after-run check could not be made. */
+  checkError?: string;
   ended?: string;
 }
 
@@ -467,7 +555,7 @@ const readLock = (lockPath: string): LockHolder => {
   return refuse(`${lockPath} is unreadable, remove it by hand once no session is running`);
 };
 
-const LOCK_TEMP_SUFFIX = ".tmp";
+const TEMPORARY_SUFFIX = ".tmp";
 
 const readRunRecord = (runPath: string): RunRecord | undefined => {
   try {
@@ -512,15 +600,19 @@ const refuseIfLockHeld = (root: string, deps: DispatchDeps, removeStale: boolean
   if (markedLost) deps.print(`LK NOTE: run ${holder.slug} was left running and is marked lost`);
 };
 
-/** Writes the content to a temporary file next to the lock, hands the path to `publish`, then removes it. */
+/**
+ * Writes the content to a temporary file next to the lock, hands the path to `publish`, then removes it.
+ * The name is random and the create is exclusive, so a link the session planted at a guessed name is
+ * never written through.
+ */
 const publishLockContent = (
   root: string,
   holder: LockHolder,
   publish: (temporaryPath: string) => void,
 ): void => {
-  const temporaryPath = workPath(root, `${LOCK_FILE}.${holder.pid}${LOCK_TEMP_SUFFIX}`);
+  const temporaryPath = workPath(root, `${LOCK_FILE}.${randomUUID()}${TEMPORARY_SUFFIX}`);
   try {
-    writeFileSync(temporaryPath, JSON.stringify(holder));
+    writeFileSync(temporaryPath, JSON.stringify(holder), { flag: "wx" });
     publish(temporaryPath);
   } finally {
     rmSync(temporaryPath, { force: true });
@@ -545,8 +637,43 @@ const recordChildInLock = (root: string, holder: LockHolder, childPid: number): 
   );
 };
 
+// The session can write the work folder. A write follows a link left at the target and fails on a
+// read-only file, a rename replaces either, so the target is only ever replaced and never written.
+const writeOwnedFile = (path: string, text: string): void => {
+  const temporaryPath = `${path}.${randomUUID()}${TEMPORARY_SUFFIX}`;
+  try {
+    writeFileSync(temporaryPath, text, { flag: "wx" });
+    renameSync(temporaryPath, path);
+  } catch (error) {
+    rmSync(temporaryPath, { force: true });
+    throw error;
+  }
+};
+
 const writeRunRecord = (root: string, record: RunRecord): void => {
-  writeFileSync(workPath(root, record.slug, RUN_FILE), `${JSON.stringify(record, null, 2)}\n`);
+  writeOwnedFile(workPath(root, record.slug, RUN_FILE), `${JSON.stringify(record, null, 2)}\n`);
+};
+
+const isRealFolder = (path: string): boolean => {
+  try {
+    return lstatSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+// The session can rename `.work` or `.work/<slug>` and put a link in its place, and a write by path
+// then lands wherever the link points. Given a slug, the work item's folder is checked as well.
+const requireRealWorkFolder = (root: string, slug?: string): void => {
+  const realRoot = realpathSync(root);
+  const names = slug === undefined ? [WORK_DIR] : [WORK_DIR, join(WORK_DIR, slug)];
+  for (const name of names) {
+    const folder = join(root, name);
+    if (!isRealFolder(folder)) refuse(`${folder} is not a real folder`);
+    const resolved = realpathSync(folder);
+    const expected = join(realRoot, name);
+    if (resolved !== expected) refuse(`${folder} resolves to ${resolved}, not ${expected}`);
+  }
 };
 
 const sessionEnv = (env: Env, slug: string, grant: readonly string[]): Env => ({
@@ -579,16 +706,279 @@ const printDryRun = (
   print(`args: ${JSON.stringify(args)}`);
 };
 
+const lockHolderOf = (deps: DispatchDeps, slug: string): LockHolder => ({ pid: deps.pid, slug });
+
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const requireDocsFolder = (root: string): void => {
+  const docsPath = join(root, "docs");
+  if (!existsSync(docsPath) || !statSync(docsPath).isDirectory()) {
+    refuse(`${docsPath} is absent or not a folder, the protected paths cannot be snapshotted`);
+  }
+};
+
+const writeSnapshotEvidence = (
+  root: string,
+  slug: string,
+  file: string,
+  snapshot: readonly SnapshotEntry[],
+): void => {
+  writeOwnedFile(workPath(root, slug, file), `${JSON.stringify(snapshot, null, 2)}\n`);
+};
+
+const snapshotBeforeRun = (root: string, slug: string): SnapshotEntry[] => {
+  let snapshot: SnapshotEntry[];
+  try {
+    snapshot = snapshotProtectedPaths(root, PROTECTED_SET);
+  } catch (error) {
+    return refuse(`cannot snapshot the protected paths: ${messageOf(error)}`);
+  }
+  try {
+    writeSnapshotEvidence(root, slug, SNAPSHOT_BEFORE_FILE, snapshot);
+  } catch (error) {
+    return refuse(`cannot write ${SNAPSHOT_BEFORE_FILE}: ${messageOf(error)}`);
+  }
+  return snapshot;
+};
+
+// A file entry covers that exact path. A folder entry, which ends in a slash, covers the folder
+// itself, spelled without the slash, and every path below it. A link at a covered path is not
+// covered, and neither is a path that changed kind, because the grant named the earlier one.
+const entryCoversPath = (entry: string, { path, change, kind }: KindedChange): boolean => {
+  if (kind === "link") return false;
+  if (change === "kind changed") return false;
+  if (!entry.endsWith("/")) return path === entry;
+  if (path === withoutTrailingSlash(entry)) return true;
+  return path.startsWith(entry);
+};
+
+// Reaching a granted path creates the folders above it and removing it can remove them, which the
+// hook allows. A link or a file at such a path is not a folder, and a change of mode is no creation.
+const entryCoversFolderAbove = (entry: string, { path, change, kind }: KindedChange): boolean => {
+  if (kind !== "folder") return false;
+  const isCreationOrRemoval = change === "added" || change === "removed";
+  return isCreationOrRemoval && entry.startsWith(`${withoutTrailingSlash(path)}/`);
+};
+
+const entryCoversChange = (entry: string, change: KindedChange): boolean =>
+  entryCoversPath(entry, change) || entryCoversFolderAbove(entry, change);
+
+const isCoveredBy = (entries: readonly string[], change: KindedChange): boolean => {
+  const folded = { ...change, path: change.path.toLowerCase() };
+  return entries.some((entry) => entryCoversChange(entry.toLowerCase(), folded));
+};
+
+const isAncestorOfSet = ({ path }: KindedChange): boolean =>
+  PROTECTED_ANCESTORS.has(path.toLowerCase());
+
+// The one change at a folder above the set that is never reported: the folder appearing or
+// disappearing, because every path of the set below it is compared on its own.
+const isUnreportedAncestorChange = ({ change, kind }: KindedChange): boolean =>
+  kind === "folder" && (change === "added" || change === "removed");
+
+// A folder above the set goes through the same coverage as any other path once the exception for
+// its appearing or disappearing is out of the way, so a folder entry that names the folder covers
+// a change of its mode. No entry can name docs, .git or docs/.git, and a link or a path that
+// changed kind is never covered, so those changes are always reported.
+const isReported = (change: KindedChange, grant: readonly string[]): boolean => {
+  if (isAncestorOfSet(change) && isUnreportedAncestorChange(change)) return false;
+  return !isCoveredBy(grant, change);
+};
+
+// The kind only decides what is reported, so it is dropped before a change is recorded or printed.
+const reportedChanges = (
+  changes: readonly KindedChange[],
+  grant: readonly string[],
+): PathChange[] =>
+  changes
+    .filter((change) => isReported(change, grant))
+    .map(({ path, change }) => ({ path, change }));
+
+/** What a run holds from the first snapshot on: the snapshot itself and the grant read before the session. */
+interface ProtectedCheck {
+  before: readonly SnapshotEntry[];
+  grant: readonly string[];
+}
+
+interface CheckVerdict {
+  changed: PathChange[];
+  checkError?: string;
+  /** The second snapshot, set when it could be taken. */
+  after?: SnapshotEntry[];
+}
+
+const checkProtectedPaths = (root: string, check: ProtectedCheck): CheckVerdict => {
+  const verdict: CheckVerdict = { changed: [] };
+  try {
+    const after = snapshotProtectedPaths(root, PROTECTED_SET);
+    const changes = diffSnapshots(check.before, after);
+    verdict.changed = reportedChanges(changes, check.grant);
+    verdict.after = after;
+  } catch (error) {
+    verdict.checkError = messageOf(error);
+  }
+  return verdict;
+};
+
+// JSON.stringify escapes the C0 controls and leaves the C1 controls, among them U+0085 and U+009B,
+// which a terminal can read as a line break or the start of an escape sequence.
+const C1_CONTROLS = /[\u0080-\u009f]/g;
+
+const escapedC1Controls = (text: string): string =>
+  text.replace(
+    C1_CONTROLS,
+    (control) => `\\u${control.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+
+// A path, and the message of an error that quotes one, are names the session chose, so a newline or
+// an escape sequence in them must not reach the output as one.
+const escapedText = (text: string): string => escapedC1Controls(JSON.stringify(text).slice(1, -1));
+
+// Only the control characters are escaped, spelled as escapedText spells them, so a message with
+// none prints as it is, a quote or a backslash included.
+const escapedControlCharacters = (text: string): string =>
+  text.replace(/\p{Cc}/gu, (control) => escapedText(control));
+
+const printCheckVerdict = (verdict: CheckVerdict, print: (line: string) => void): void => {
+  for (const { path, change } of verdict.changed) {
+    print(`LK PROTECTED PATH CHANGED: ${escapedText(path)} (${change})`);
+  }
+  if (verdict.checkError !== undefined) {
+    print(`LK PROTECTED PATH CHECK FAILED: ${escapedText(verdict.checkError)}`);
+  }
+};
+
+// The exit a run that must not end done gets: the session's own code when it already failed.
+const failureExit = (end: SessionEnd): number =>
+  end.exitCode === 0 ? PROTECTED_CHANGE_EXIT : end.exitCode;
+
+const runExitCode = (end: SessionEnd, verdict: CheckVerdict, evidenceWritten: boolean): number => {
+  const checkFailed = verdict.changed.length > 0 || verdict.checkError !== undefined;
+  return checkFailed || !evidenceWritten ? failureExit(end) : end.exitCode;
+};
+
+const finalRunRecord = (
+  record: RunRecord,
+  end: SessionEnd,
+  verdict: CheckVerdict,
+  exit: number,
+): RunRecord => ({
+  ...record,
+  status: exit === 0 ? "done" : "failed",
+  exit,
+  ...(end.signal === undefined ? {} : { signal: end.signal }),
+  ...(verdict.changed.length === 0 ? {} : { changed: verdict.changed }),
+  ...(verdict.checkError === undefined ? {} : { checkError: verdict.checkError }),
+  ended: new Date().toISOString(),
+});
+
+// What follows the session must not replace the exit of the run with an exception, so a step that
+// fails is printed under its notice and the caller decides what the failure costs.
+const attemptAfterSession = (
+  notice: string,
+  step: () => void,
+  print: (line: string) => void,
+): boolean => {
+  try {
+    step();
+    return true;
+  } catch (error) {
+    print(`${notice}: ${escapedControlCharacters(messageOf(error))}`);
+    return false;
+  }
+};
+
+// A write after the session goes into a folder that is still the real one, and the session may
+// have made it read-only, which the owner of the folder can undo.
+const attemptWorkFolderWrite = (
+  notice: string,
+  root: string,
+  slug: string,
+  step: () => void,
+  print: (line: string) => void,
+): boolean =>
+  attemptAfterSession(
+    notice,
+    () => {
+      requireRealWorkFolder(root, slug);
+      chmodSync(workPath(root, slug), WORK_FOLDER_MODE);
+      step();
+    },
+    print,
+  );
+
+/** Takes the lock, runs `work` while holding it and removes the lock however `work` ends. */
+const runHoldingLock = async <Result>(
+  root: string,
+  holder: LockHolder,
+  print: (line: string) => void,
+  work: () => Promise<Result>,
+): Promise<Result> => {
+  writeLock(root, holder);
+  try {
+    return await work();
+  } finally {
+    attemptAfterSession(
+      LOCK_NOT_REMOVED,
+      () => {
+        requireRealWorkFolder(root);
+        rmSync(workPath(root, LOCK_FILE), { force: true });
+      },
+      print,
+    );
+  }
+};
+
+const writeAfterSnapshotEvidence = (
+  root: string,
+  slug: string,
+  verdict: CheckVerdict,
+  print: (line: string) => void,
+): boolean => {
+  const { after } = verdict;
+  if (after === undefined) return true;
+  const write = () => writeSnapshotEvidence(root, slug, SNAPSHOT_AFTER_FILE, after);
+  return attemptWorkFolderWrite(RECORD_NOT_WRITTEN, root, slug, write, print);
+};
+
+/** Takes the second snapshot, prints what it found, writes the final record and returns the dispatcher's exit. */
+const concludeRun = (
+  root: string,
+  record: RunRecord,
+  end: SessionEnd,
+  check: ProtectedCheck,
+  print: (line: string) => void,
+): number => {
+  const verdict = checkProtectedPaths(root, check);
+  printCheckVerdict(verdict, print);
+  const evidenceWritten = writeAfterSnapshotEvidence(root, record.slug, verdict, print);
+  const exitCode = runExitCode(end, verdict, evidenceWritten);
+  const writeFinalRecord = () =>
+    writeRunRecord(root, finalRunRecord(record, end, verdict, exitCode));
+  const recordWritten = attemptWorkFolderWrite(
+    RECORD_NOT_WRITTEN,
+    root,
+    record.slug,
+    writeFinalRecord,
+    print,
+  );
+  return recordWritten ? exitCode : failureExit(end);
+};
+
+// The after-run check runs however the session ended, so a session that failed to start or was
+// killed is still charged with what it changed.
 const runSession = async (
   root: string,
   record: RunRecord,
   promptText: string,
   childEnv: Env,
+  check: ProtectedCheck,
   deps: DispatchDeps,
 ): Promise<number> => {
-  const holder: LockHolder = { pid: deps.pid, slug: record.slug };
-  writeLock(root, holder);
+  const holder = lockHolderOf(deps, record.slug);
   let end: SessionEnd = { exitCode: 1 };
+  let exitCode: number;
   try {
     writeRunRecord(root, record);
     end = await deps.spawnSession(buildClaudeArgs(promptText, record.model), {
@@ -598,20 +988,9 @@ const runSession = async (
       onSpawn: (childPid) => recordChildInLock(root, holder, childPid),
     });
   } finally {
-    try {
-      const status = end.exitCode === 0 ? "done" : "failed";
-      writeRunRecord(root, {
-        ...record,
-        status,
-        exit: end.exitCode,
-        ...(end.signal === undefined ? {} : { signal: end.signal }),
-        ended: new Date().toISOString(),
-      });
-    } finally {
-      rmSync(workPath(root, LOCK_FILE), { force: true });
-    }
+    exitCode = concludeRun(root, record, end, check, deps.print);
   }
-  return end.exitCode;
+  return exitCode;
 };
 
 /** Returns the exit code the dispatcher itself should exit with. */
@@ -623,27 +1002,33 @@ export const dispatchRun = async (
 ): Promise<number> => {
   requireControllerRole(env);
   const slug = requireValidSlug(options.slug);
+  if (!options.dryRun) requireDocsFolder(root);
   const promptText = readPromptText(root, slug);
-  const childEnv = sessionEnv(env, slug, readGovernanceGrant(root, slug));
+  const grant = readGovernanceGrant(root, slug);
+  const childEnv = sessionEnv(env, slug, grant);
   const session = resolveSession(root, options.job, options.tier, options.model);
+  if (!options.dryRun) requireRealWorkFolder(root, slug);
   refuseIfLockHeld(root, deps, !options.dryRun);
   if (options.dryRun) {
     printDryRun(options, session, promptText, deps.print);
     return 0;
   }
-  if (!options.noSmoke) {
-    refuseUnlessModelAnswers(session.model, { cwd: root, env: childEnv }, deps.runSmoke);
-  }
-  const record: RunRecord = {
-    slug,
-    job: options.job,
-    tier: options.tier,
-    ...session,
-    status: "running",
-    started: new Date().toISOString(),
-    pid: deps.pid,
-  };
-  const exitCode = await runSession(root, record, promptText, childEnv, deps);
+  const exitCode = await runHoldingLock(root, lockHolderOf(deps, slug), deps.print, async () => {
+    const before = snapshotBeforeRun(root, slug);
+    if (!options.noSmoke) {
+      refuseUnlessModelAnswers(session.model, { cwd: root, env: childEnv }, deps.runSmoke);
+    }
+    const record: RunRecord = {
+      slug,
+      job: options.job,
+      tier: options.tier,
+      ...session,
+      status: "running",
+      started: new Date().toISOString(),
+      pid: deps.pid,
+    };
+    return runSession(root, record, promptText, childEnv, { before, grant }, deps);
+  });
   deps.print(`LK DISPATCH ${slug} ${exitCode === 0 ? "done" : "failed"} exit ${exitCode}`);
   return exitCode;
 };
@@ -779,7 +1164,8 @@ const runCommand = async (argv: string[]): Promise<number> => {
     return 0;
   }
   if (command === "status") {
-    console.log(readRunStatus(root, slug));
+    const statusText = readRunStatus(root, slug);
+    console.log(escapedC1Controls(statusText));
     return 0;
   }
   if (command !== "run") refuse("usage: dispatch.ts <init|run|status> <slug> [options]");
@@ -802,7 +1188,7 @@ const main = async (): Promise<void> => {
     process.exitCode = await runCommand(process.argv.slice(2));
   } catch (error) {
     if (!(error instanceof LkRefusal)) throw error;
-    console.error(`LK REFUSED: ${error.message}`);
+    console.error(`LK REFUSED: ${escapedControlCharacters(error.message)}`);
     process.exitCode = 1;
   }
 };
