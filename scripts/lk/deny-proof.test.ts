@@ -2287,6 +2287,11 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
       { suffix: ", in the quoted form", rewrite: quoteHookCommands, commandOf: quotedCommandFor },
     ];
 
+    // The path is the last word of the command, so a command that ends in a double quote takes
+    // the .bak inside the quotes and stays bash <path> with a path that ends in another file name.
+    const withBakOnPath = (command: string): string =>
+      command.endsWith('"') ? `${command.slice(0, -1)}.bak"` : `${command}.bak`;
+
     // Each change leaves a command that is weaker than bash <path>, and the check must name it.
     const WEAKER_COMMAND_FORMS = [
       {
@@ -2392,19 +2397,20 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
         },
         expected: () => [`the type of ${script} is ChangedType, not command`],
       },
-      {
+      ...COMMAND_FORMS.map((form) => ({
         kind: "path-end",
-        label: `${script}: the path ends in another file name`,
+        label: `${script}: the path ends in another file name${form.suffix}`,
         script,
         mutate: (settings: SettingsShape) => {
+          form.rewrite(settings);
           for (const group of groupsNaming(settings, script)) {
-            for (const hook of group.hooks) hook.command = `${hook.command}.bak`;
+            for (const hook of group.hooks) hook.command = withBakOnPath(hook.command);
           }
         },
         expected: () => [
-          `the path in the command of ${script} does not end with /.claude/hooks/${script}: ${realCommandOf(script)}.bak`,
+          `the path in the command of ${script} does not end with /.claude/hooks/${script}: ${withBakOnPath(form.commandOf(script))}`,
         ],
-      },
+      })),
       ...WEAKER_COMMAND_FORMS.flatMap((weaker) =>
         COMMAND_FORMS.map((form) => ({
           kind: weaker.kind,
