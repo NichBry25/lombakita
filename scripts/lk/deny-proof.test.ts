@@ -835,6 +835,26 @@ describe("the hook cases", () => {
     SESSION_TEST_TIMEOUT_MS,
   );
 
+  // The PATH holds the stand-in's bin and the system folders only, so a stand-in that is not found
+  // fails the run, where the machine's PATH would reach a real claude and start a session.
+  it(
+    "start the claude stand-in when the wiring is good, the positive control for the session-started marker of the stop tests",
+    () => {
+      const { bin, marker } = markerSessionBin("marker-control-");
+      const output = docsRun(
+        "hook",
+        "hook-pipe-to-psql",
+        makeDocsRoot(blockingHook(), []),
+        { PATH: `${bin}:/usr/bin:/bin` },
+        bin,
+      );
+      expect(output).toContain("hook wiring: 3 hook scripts each have exactly one entry in");
+      expect(output).not.toContain("no session started");
+      expect(existsSync(marker)).toBe(true);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
+
   it(
     "build the fixture's hooks from the entry in the docs settings, swapping only the script path",
     () => {
@@ -2260,6 +2280,37 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
     const eventOtherThan = (event: string): string =>
       event === "SessionEnd" ? "Stop" : "PostToolUse";
 
+    // The real file as it is, and a copy of it with the three hook commands in the quoted form.
+    const COMMAND_FORMS = [
+      { suffix: "", rewrite: () => undefined, commandOf: realCommandOf },
+      { suffix: ", in the quoted form", rewrite: quoteHookCommands, commandOf: quotedCommandFor },
+    ];
+
+    // Each change leaves a command that is weaker than bash <path>, and the check must name it.
+    const WEAKER_COMMAND_FORMS = [
+      {
+        kind: "trailing-text",
+        what: "text is appended to the command",
+        change: (command: string) => `${command} > /dev/null`,
+        problem: (script: string, command: string) =>
+          `the command of ${script} is not bash <path>: ${command}`,
+      },
+      {
+        kind: "other-directory",
+        what: "the directory of the path is /hooks/, not /.claude/hooks/",
+        change: (command: string) => command.replace("/.claude/hooks/", "/hooks/"),
+        problem: (script: string, command: string) =>
+          `the path in the command of ${script} does not end with /.claude/hooks/${script}: ${command}`,
+      },
+      {
+        kind: "leading-word",
+        what: "env is put before bash",
+        change: (command: string) => `env ${command}`,
+        problem: (script: string, command: string) =>
+          `the command of ${script} is not bash <path>: ${command}`,
+      },
+    ];
+
     const PORTABLE_MUTATIONS = HOOK_WIRING.flatMap(({ script, event, matcher }) => [
       {
         kind: "deleted",
@@ -2353,6 +2404,20 @@ describe.skipIf(!existsSync(REAL_SETTINGS))(
           `the path in the command of ${script} does not end with /.claude/hooks/${script}: ${realCommandOf(script)}.bak`,
         ],
       },
+      ...WEAKER_COMMAND_FORMS.flatMap((weaker) =>
+        COMMAND_FORMS.map((form) => ({
+          kind: weaker.kind,
+          label: `${script}: ${weaker.what}${form.suffix}`,
+          script,
+          mutate: (settings: SettingsShape) => {
+            form.rewrite(settings);
+            for (const group of groupsNaming(settings, script)) {
+              for (const hook of group.hooks) hook.command = weaker.change(hook.command);
+            }
+          },
+          expected: () => [weaker.problem(script, weaker.change(form.commandOf(script)))],
+        })),
+      ),
     ]);
 
     const MACHINE_MUTATIONS = HOOK_WIRING.flatMap(({ script, file }) => [
