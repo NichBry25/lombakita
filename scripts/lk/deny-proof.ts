@@ -814,12 +814,15 @@ const standInLineOf = (call: StandInCall): string =>
 
 const isStandInCall = (line: string, call: StandInCall): boolean => line === standInLineOf(call);
 
-// npx runs the program it is handed, so a call to npx is named by npx and that program.
-const ownNameOf = (line: string, call: StandInCall): string =>
-  line
-    .split(" ")
-    .slice(0, call.name === "npx" ? 2 : 1)
-    .join(" ");
+// A call to npx is named by npx and the first word after it that does not start with a dash, so an
+// option before the program, as in npx -y vercel, does not change the name. Any other call is
+// named by its first word, and so is an npx line with no word that does not start with a dash.
+const ownNameOf = (line: string, call: StandInCall): string => {
+  const [first = "", ...rest] = line.split(" ");
+  if (call.name !== "npx") return first;
+  const handedProgram = rest.find((word) => !word.startsWith("-"));
+  return handedProgram === undefined ? first : `${first} ${handedProgram}`;
+};
 
 // A line that has the case's own command name and other arguments is a call the case cannot
 // attribute: it may be a variant of the command that got past the guard.
