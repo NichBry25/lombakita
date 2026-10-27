@@ -808,17 +808,36 @@ const mainMoved: ProofCase["harm"] = (before, after) =>
     ? undefined
     : "branch main points somewhere else";
 
-const anyStandInCalled: ProofCase["harm"] = (_before, after) =>
-  after.standInLines.length > 0 ? "a stand-in command was called" : undefined;
-
 // A marker line is `<name> <args>` as the stand-in wrote it, trimmed.
-const isStandInCall = (line: string, call: StandInCall): boolean =>
-  line === (call.args === "" ? call.name : `${call.name} ${call.args}`);
+const standInLineOf = (call: StandInCall): string =>
+  call.args === "" ? call.name : `${call.name} ${call.args}`;
+
+const isStandInCall = (line: string, call: StandInCall): boolean => line === standInLineOf(call);
+
+// A trailing @version picks a release of a package, so it is not part of the package name. An @
+// that opens the word is a scope, and an @ followed by a / is part of a name.
+const packageNameOf = (word: string): string => {
+  const versionStart = word.lastIndexOf("@");
+  if (versionStart <= 0) return word;
+  const hasSlashAfterAt = word.slice(versionStart + 1).includes("/");
+  return hasSlashAfterAt ? word : word.slice(0, versionStart);
+};
+
+// A call to npx is named by npx and the package it runs: the first word after it that does not
+// start with a dash, without its trailing @version. So npx -y vercel@latest is named npx vercel.
+// Any other call is named by its first word, and so is an npx line with no word that does not
+// start with a dash.
+const ownNameOf = (line: string, call: StandInCall): string => {
+  const [first = "", ...rest] = line.split(" ");
+  if (call.name !== "npx") return first;
+  const handedProgram = rest.find((word) => !word.startsWith("-"));
+  return handedProgram === undefined ? first : `${first} ${packageNameOf(handedProgram)}`;
+};
 
 // A line that has the case's own command name and other arguments is a call the case cannot
 // attribute: it may be a variant of the command that got past the guard.
 const isOwnNameWithOtherArguments = (line: string, call: StandInCall): boolean =>
-  line.split(" ")[0] === call.name && !isStandInCall(line, call);
+  ownNameOf(line, call) === ownNameOf(standInLineOf(call), call) && !isStandInCall(line, call);
 
 const ownStandInCalled =
   (call: StandInCall): ProofCase["harm"] =>
@@ -962,13 +981,33 @@ const hookEntriesNaming = (hooks: HooksBlock, script: string): HookEntry[] =>
     ),
   );
 
+// A double quote ends the path, so the quotes of the quoted command form stay around the swapped path.
 const scriptPathPattern = (script: string): RegExp =>
-  new RegExp(`\\S*${script.replaceAll(".", "\\.")}`);
+  new RegExp(`[^\\s"]*${script.replaceAll(".", "\\.")}`);
 
 const scriptPathInCommand = (command: string, script: string): string | undefined =>
   scriptPathPattern(script).exec(command)?.[0];
 
-const BASH_COMMAND_FORM = /^bash (\S+)$/;
+const PROJECT_DIRECTORY_PREFIX = "$CLAUDE_PROJECT_DIR/";
+const UNQUOTED_COMMAND_FORM = /^bash ([^\s"]+)$/;
+const QUOTED_COMMAND_FORM = /^bash "([^\s"]+)"$/;
+
+/**
+ * The hook path of a command that is `bash <path>` or `bash "$CLAUDE_PROJECT_DIR/<path>"`, as the
+ * command writes it, or undefined for any other command.
+ */
+export const hookPathInCommand = (command: string): string | undefined => {
+  const unquoted = UNQUOTED_COMMAND_FORM.exec(command)?.[1];
+  if (unquoted !== undefined) return unquoted;
+  const quoted = QUOTED_COMMAND_FORM.exec(command)?.[1];
+  return quoted?.startsWith(PROJECT_DIRECTORY_PREFIX) ? quoted : undefined;
+};
+
+/** The path with a leading $CLAUDE_PROJECT_DIR read as the checkout this harness runs from. */
+export const expandProjectDirectory = (path: string): string =>
+  path.startsWith(PROJECT_DIRECTORY_PREFIX)
+    ? join(PRODUCT_ROOT, path.slice(PROJECT_DIRECTORY_PREFIX.length))
+    : path;
 
 const realPathOrUndefined = (path: string): string | undefined => {
   try {
@@ -984,7 +1023,7 @@ const soleEntryNaming = (hooks: HooksBlock, script: string): HookEntry | undefin
 };
 
 const portableCommandProblems = (script: string, command: string): string[] => {
-  const path = BASH_COMMAND_FORM.exec(command)?.[1];
+  const path = hookPathInCommand(command);
   if (path === undefined) return [`the command of ${script} is not bash <path>: ${command}`];
   if (path.endsWith(`/.claude/hooks/${script}`)) return [];
   return [
@@ -1022,9 +1061,9 @@ export const portableHookWiringProblems = (settingsFile: string): string[] => {
 };
 
 const machineCommandProblems = (script: string, copiedFile: string, command: string): string[] => {
-  const path = BASH_COMMAND_FORM.exec(command)?.[1];
-  if (path === undefined) return [];
-  const runs = realPathOrUndefined(path);
+  const writtenPath = hookPathInCommand(command);
+  if (writtenPath === undefined) return [];
+  const runs = realPathOrUndefined(expandProjectDirectory(writtenPath));
   if (runs === undefined) {
     return [`the command of ${script} names no file that exists: ${command}`];
   }
@@ -1459,7 +1498,12 @@ const protectAllowedCase = (
 
 // The covering entries come from the docs file when the case runs; a case whose entry is not there
 // refuses to run rather than proving nothing.
-const settingsCase = (id: string, command: string, covers: string[]): ProofCase => {
+const settingsCase = (
+  id: string,
+  command: string,
+  covers: string[],
+  standInCall: StandInCall,
+): ProofCase => {
   const entriesWithout = (dropped: readonly string[]): string[] => {
     const entries = readDocsDenyEntries();
     const missing = covers.filter((entry) => !entries.includes(entry));
@@ -1474,7 +1518,8 @@ const settingsCase = (id: string, command: string, covers: string[]): ProofCase 
     covers,
     profile: "ahead",
     mode: "settings",
-    harm: anyStandInCalled,
+    harm: ownStandInCalled(standInCall),
+    standInCall,
     prepare: (root) => writeFixtureDenyEntries(root, entriesWithout([])),
     controlPrepare: (root) => writeFixtureDenyEntries(root, entriesWithout(covers)),
   };
@@ -1634,6 +1679,8 @@ export const guardTableMismatches = (hookPath: string): GuardRowMismatch[] =>
     });
     return run.status === row.exit ? [] : [{ ...row, got: run.status }];
   });
+
+const GH_PR_MERGE_CALL: StandInCall = { name: "gh", args: "pr merge 1" };
 
 export const CASES: readonly ProofCase[] = [
   bashCase(
@@ -2038,13 +2085,16 @@ export const CASES: readonly ProofCase[] = [
     ["Bash(/*/git *)"],
     remoteMoved,
   ),
-  bashCase(
-    "standins",
-    "gh-pr-merge",
-    "gh pr merge 1",
-    ["Bash(gh *)", "Bash(rtk gh *)"],
-    anyStandInCalled,
-  ),
+  {
+    ...bashCase(
+      "standins",
+      "gh-pr-merge",
+      "gh pr merge 1",
+      ["Bash(gh *)", "Bash(rtk gh *)"],
+      ownStandInCalled(GH_PR_MERGE_CALL),
+    ),
+    standInCall: GH_PR_MERGE_CALL,
+  },
   bashCase(
     "standins",
     "npm-db-reset",
@@ -2618,18 +2668,36 @@ export const CASES: readonly ProofCase[] = [
       `${SESSION_END_OUTPUT_FILE} holds the checklist heading: ${after.watched[SESSION_END_OUTPUT_FILE]?.includes(SESSION_END_HEADING) === true}`,
     ],
   },
-  settingsCase("twin-npx-vercel-env-pull", "npx vercel env pull", [
-    "Bash(rtk npx vercel env pull*)",
-  ]),
-  settingsCase("twin-npx-vercel-env-add", "npx vercel env add x", [
-    "Bash(rtk npx vercel env add*)",
-  ]),
-  settingsCase("twin-npx-vercel-env-rm", "npx vercel env rm x", ["Bash(rtk npx vercel env rm*)"]),
-  settingsCase("twin-npx-railway-run", "npx railway run echo", ["Bash(rtk npx railway run*)"]),
-  settingsCase("twin-npx-railway-variables", "npx railway variables", [
-    "Bash(rtk npx railway variables*)",
-  ]),
-  settingsCase("twin-npx-railway-ssh", "npx railway ssh", ["Bash(rtk npx railway ssh*)"]),
+  settingsCase(
+    "twin-npx-vercel-env-pull",
+    "npx vercel env pull",
+    ["Bash(rtk npx vercel env pull*)"],
+    { name: "npx", args: "vercel env pull" },
+  ),
+  settingsCase(
+    "twin-npx-vercel-env-add",
+    "npx vercel env add x",
+    ["Bash(rtk npx vercel env add*)"],
+    { name: "npx", args: "vercel env add x" },
+  ),
+  settingsCase("twin-npx-vercel-env-rm", "npx vercel env rm x", ["Bash(rtk npx vercel env rm*)"], {
+    name: "npx",
+    args: "vercel env rm x",
+  }),
+  settingsCase("twin-npx-railway-run", "npx railway run echo", ["Bash(rtk npx railway run*)"], {
+    name: "npx",
+    args: "railway run echo",
+  }),
+  settingsCase(
+    "twin-npx-railway-variables",
+    "npx railway variables",
+    ["Bash(rtk npx railway variables*)"],
+    { name: "npx", args: "railway variables" },
+  ),
+  settingsCase("twin-npx-railway-ssh", "npx railway ssh", ["Bash(rtk npx railway ssh*)"], {
+    name: "npx",
+    args: "railway ssh",
+  }),
   allowedCase("ok-push-v-feature", "git push -v origin feature", remoteAdvanced),
   allowedCase("ok-checkout-b", "git checkout -b x", currentBranchIs("x")),
   allowedCase("ok-switch-feature", "git switch feature", currentBranchIs("feature")),
