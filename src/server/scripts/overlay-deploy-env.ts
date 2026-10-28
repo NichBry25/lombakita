@@ -96,8 +96,9 @@ const assertRewriteParsesToMerged = (rewritten: string, expected: EnvMap): void 
   }
 };
 
-// A `NAME: value` line is not a variable. Node 20 and 22 fold it into the name of the next key, up to
-// the next `=` wherever that sits, and Node 24 drops it, so `parseEnv` cannot be what refuses the
+// A `NAME: value` line is not a variable. Node versions differ: some fold the line into the NEXT
+// key's name, up to the next = wherever that sits, and others drop it, so `parseEnv` cannot be what
+// refuses the
 // replacement of that line on every version. Only the line scan reads the file the same way on all of
 // them. Run it on the lines as pulled: a line already replaced holds an `=` it did not have.
 const assertNoNameValueLineBeforeAnotherKey = (

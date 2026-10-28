@@ -701,10 +701,13 @@ describe("pulled-file line forms", () => {
     expect(overlayEnvFileText(original, { REDIS_URL: "r" }).text).toBe("A=1\nREDIS_URL='r'\nB=2\n");
   });
 
-  // Node's parser does not read `NAME: value` as a variable: Node 20 and 22 fold the line into the
-  // NEXT key's name and Node 24 drops it. The line scan is what refuses, so the run stops the same
-  // way on every version instead of rewriting a file whose other keys it can no longer vouch for.
+  // Node's parser does not read `NAME: value` as a variable. Node versions differ: some fold the line
+  // into the NEXT key's name and others drop it. The line scan is what refuses, so the run stops the
+  // same way on every version instead of rewriting a file whose other keys it can no longer vouch for.
   it("refuses a `NAME: value` line that is followed by another key", () => {
+    expect(() => overlayEnvFileText("A=1\nREDIS_URL: plain\nB=2\n", { REDIS_URL: "r" })).toThrow(
+      "an overlay key uses the NAME: value form before another key",
+    );
     expect(() => overlayEnvFileText("A=1\nREDIS_URL: plain\nB=2\n", { REDIS_URL: "r" })).toThrow(
       OverlayVerificationError,
     );
