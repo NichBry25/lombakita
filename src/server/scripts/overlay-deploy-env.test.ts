@@ -482,6 +482,20 @@ describe("the script, run as `npm run deploy:overlay-env` runs it", { timeout: 6
       expectNoValueInOutput(overlay, allValues);
     });
 
+    it("when a NAME: value line is followed by another key", () => {
+      const original = "A=1\nREDIS_URL: plain\nB=2\n";
+      writeFileSync(filePath, original);
+
+      const overlay = runOverlay({ REDIS_URL: MIRROR_VALUES.REDIS_URL });
+
+      expect(overlay.status).toBe(1);
+      expect(overlay.stderr.trim()).toBe(
+        `Deploy env overlay failed: OverlayVerificationError (${filePath})`,
+      );
+      expect(readFileSync(filePath, "utf8")).toBe(original);
+      expectNoValueInOutput(overlay, allValues);
+    });
+
     it("when the pulled file does not exist", () => {
       const overlay = runOverlay(mirrorFrom(MIRROR_VALUES));
 
@@ -687,10 +701,13 @@ describe("pulled-file line forms", () => {
     expect(overlayEnvFileText(original, { REDIS_URL: "r" }).text).toBe("A=1\nREDIS_URL='r'\nB=2\n");
   });
 
-  // Node's parser does not read `NAME: value` as a variable: it folds the line into the NEXT key's
-  // name. The re-parse check is what notices, so the run stops instead of rewriting a file whose
-  // other keys it can no longer vouch for.
+  // Node's parser does not read `NAME: value` as a variable. Node versions differ: some fold the line
+  // into the NEXT key's name and others drop it. The line scan is what refuses, so the run stops the
+  // same way on every version instead of rewriting a file whose other keys it can no longer vouch for.
   it("refuses a `NAME: value` line that is followed by another key", () => {
+    expect(() => overlayEnvFileText("A=1\nREDIS_URL: plain\nB=2\n", { REDIS_URL: "r" })).toThrow(
+      "an overlay key uses the NAME: value form before another key",
+    );
     expect(() => overlayEnvFileText("A=1\nREDIS_URL: plain\nB=2\n", { REDIS_URL: "r" })).toThrow(
       OverlayVerificationError,
     );
