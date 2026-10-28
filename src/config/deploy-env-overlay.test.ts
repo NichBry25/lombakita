@@ -582,3 +582,69 @@ describe("deploy.yml wiring", () => {
     );
   });
 });
+
+// A push that changes only these folders must not start a production Deploy run: every run waits
+// for approval and blocks the runs behind it. The list is compared whole, so a pattern that grows
+// to cover files the deployed app reads fails here instead of silently skipping a deploy. Read as
+// text, like the block above: this repo has no YAML parser.
+describe("deploy.yml push filter", () => {
+  const IGNORED_TOOLING_PATTERNS = ["scripts/lk/**", "scripts/project/**", "scripts/testing/**"];
+  const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/deploy.yml"), "utf8");
+  const jobsStart = workflow.indexOf("\njobs:");
+  const beforeJobs = workflow.slice(0, jobsStart);
+
+  // The trigger's own line plus every line nested under it, up to the next line indented two
+  // spaces or less.
+  const triggerBlock = (name: string): string => {
+    const lines = beforeJobs.split("\n");
+    const headerIndex = lines.findIndex((line) => line.startsWith(`  ${name}:`));
+
+    if (headerIndex === -1) {
+      return "";
+    }
+
+    const following = lines.slice(headerIndex + 1);
+    const nestedLength = following.findIndex((line) => !/^ {3,}\S/.test(line));
+    const nested = nestedLength === -1 ? following : following.slice(0, nestedLength);
+
+    return [lines[headerIndex], ...nested].join("\n");
+  };
+
+  const pathsIgnoreEntries = (block: string): string[] => {
+    const lines = block.split("\n");
+    const keyIndex = lines.findIndex((line) => /^ {4}paths-ignore:$/.test(line));
+
+    if (keyIndex === -1) {
+      return [];
+    }
+
+    const entryPattern = /^ {6}- (["']?)(.*)\1$/;
+    const following = lines.slice(keyIndex + 1);
+    const listLength = following.findIndex((line) => !entryPattern.test(line));
+    const listLines = listLength === -1 ? following : following.slice(0, listLength);
+
+    return listLines.map((line) => entryPattern.exec(line)?.[2] ?? "");
+  };
+
+  it("finds the jobs line and the three triggers", () => {
+    expect(jobsStart).toBeGreaterThan(-1);
+
+    for (const name of ["push", "pull_request", "workflow_dispatch"]) {
+      expect(triggerBlock(name), name).not.toBe("");
+    }
+  });
+
+  it("ignores exactly the three tooling folders on push, in this order", () => {
+    expect(pathsIgnoreEntries(triggerBlock("push"))).toEqual(IGNORED_TOOLING_PATTERNS);
+  });
+
+  it.each(["pull_request", "workflow_dispatch"])("%s carries no paths filter", (name) => {
+    expect(triggerBlock(name)).not.toMatch(/\bpaths(-ignore)?\s*:/);
+  });
+
+  it("declares the paths-ignore key once before the jobs", () => {
+    const keys = beforeJobs.match(/^\s*paths-ignore:/gm) ?? [];
+
+    expect(keys).toHaveLength(1);
+  });
+});
