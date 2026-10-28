@@ -96,6 +96,33 @@ const assertRewriteParsesToMerged = (rewritten: string, expected: EnvMap): void 
   }
 };
 
+// A `NAME: value` line is not a variable. Node 20 and 22 fold it into the name of the next key, up to
+// the next `=` wherever that sits, and Node 24 drops it, so `parseEnv` cannot be what refuses the
+// replacement of that line on every version. Only the line scan reads the file the same way on all of
+// them. Run it on the lines as pulled: a line already replaced holds an `=` it did not have.
+const assertNoNameValueLineBeforeAnotherKey = (
+  pieces: readonly string[],
+  lineIndexes: ReadonlyMap<string, number>,
+  filled: readonly OverlayReportEntry[],
+): void => {
+  for (const { name } of filled) {
+    const index = lineIndexes.get(name);
+
+    if (index === undefined) {
+      continue;
+    }
+
+    const isNameValueLine = !(pieces[index] ?? "").includes("=");
+    const keyFollows = pieces.slice(index + 1).some((piece) => piece.includes("="));
+
+    if (isNameValueLine && keyFollows) {
+      throw new OverlayVerificationError(
+        "an overlay key uses the NAME: value form before another key",
+      );
+    }
+  }
+};
+
 export const overlayEnvFileText = (
   text: string,
   mirror: EnvMap,
@@ -110,9 +137,13 @@ export const overlayEnvFileText = (
     return { text, report, placeholdersOutsideOverlay };
   }
 
+  const filled = report.filter((item) => item.status === "filled-from-github");
+
+  assertNoNameValueLineBeforeAnotherKey(pieces, lineIndexes, filled);
+
   const appendedLines: string[] = [];
 
-  for (const entry of report.filter((item) => item.status === "filled-from-github")) {
+  for (const entry of filled) {
     const line = `${entry.name}='${merged[entry.name]}'`;
     const index = lineIndexes.get(entry.name);
 
