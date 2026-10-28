@@ -3,6 +3,10 @@ name: Deploy
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "scripts/lk/**"
+      - "scripts/project/**"
+      - "scripts/testing/**"
   pull_request:
     branches: [main]
   workflow_dispatch: {}
