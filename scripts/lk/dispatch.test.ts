@@ -348,6 +348,8 @@ describe("the arguments a session receives", () => {
     ["gh, as rtk rewrites it", "Bash(rtk gh *)"],
     ["a db script, spelled so db:reset matches", "Bash(npm run db*)"],
     ["a db script, as rtk rewrites it", "Bash(rtk npm run db*)"],
+    ["npx railway connect", "Bash(npx railway connect*)"],
+    ["npx railway connect, as rtk rewrites it", "Bash(rtk npx railway connect*)"],
   ])("name %s", (_what, pattern) => {
     expect(DENY_PATTERNS).toContain(pattern);
   });
@@ -356,8 +358,8 @@ describe("the arguments a session receives", () => {
     expect(DENY_PATTERNS.filter((pattern) => pattern.includes("git -C"))).toEqual([]);
   });
 
-  it("are each named once, none with a comma, and 926 in all", () => {
-    expect(DENY_PATTERNS).toHaveLength(926);
+  it("are each named once, none with a comma, and 928 in all", () => {
+    expect(DENY_PATTERNS).toHaveLength(928);
     expect(new Set(DENY_PATTERNS).size).toBe(DENY_PATTERNS.length);
     for (const pattern of DENY_PATTERNS) {
       expect(pattern).toMatch(/^(Bash|Read|Edit|Write)\(.+\)$/);

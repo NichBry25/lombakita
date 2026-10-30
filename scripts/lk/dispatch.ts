@@ -211,6 +211,8 @@ export const DENY_PATTERNS: readonly string[] = [
   "Bash(gh *)",
   "Bash(vercel *)",
   "Bash(railway *)",
+  "Bash(npx railway connect*)",
+  "Bash(rtk npx railway connect*)",
   "Bash(npm run db:*)",
   // A force flag, a `+` refspec or a flag cluster that holds f or d anywhere after the remote.
   ...rtkGitForms("push --force*"),
