@@ -159,7 +159,7 @@ const READ_COMMAND_LINE =
   'command=$(python3 -c \'import sys,json;print(json.load(sys.stdin)["tool_input"]["command"])\')';
 
 const DESTRUCTIVE_STATEMENT_GREP =
-  'grep -qiE "\\b(DROP[[:space:]]+TABLE|DROP[[:space:]]+COLUMN|TRUNCATE[[:space:]]+TABLE|DELETE[[:space:]]+FROM[[:space:]]+[a-zA-Z_])\\b"';
+  'grep -qiE "\\b(DROP[[:space:]]+TABLE|DROP[[:space:]]+COLUMN|DROP[[:space:]]+SCHEMA|DROP[[:space:]]+DATABASE|TRUNCATE[[:space:]]+TABLE)\\b|\\bDELETE[[:space:]]+FROM[[:space:]]+[\\"\\\\A-Za-z_]"';
 
 // The way the database guard answers: a message on stderr and exit 2, and a destructive
 // statement blocks only in a command that also names a program that runs SQL.
@@ -167,12 +167,15 @@ const blockingHook = (migrateMessage = "UNGUARDED MIGRATION BLOCKED"): string =>
   [
     "#!/bin/bash",
     READ_COMMAND_LINE,
-    'if echo "$command" | grep -qE "(^|[;&|[:space:]])drizzle-kit[[:space:]]+migrate([[:space:]]|$)"; then',
+    'if echo "$command" | grep -qE "(^|[;&|[:space:]])drizzle-kit[[:space:]]+migrate([[:space:]]|$)|-c[[:space:]]+(\'[^\']*drizzle-kit[[:space:]]+migrate[^\']*\'|\\"[^\\"]*drizzle-kit[[:space:]]+migrate[^\\"]*\\")"; then',
     `  echo "${migrateMessage}" >&2`,
     "  exit 2",
     "fi",
-    `if echo "$command" | ${DESTRUCTIVE_STATEMENT_GREP} \\`,
-    '  && echo "$command" | LC_ALL=C grep -qiE "(^|[^A-Za-z0-9_])(psql|drizzle-kit|pg_dump|pg_restore|neonctl)([^A-Za-z0-9_]|$)|npm run db:"; then',
+    "continuation=$'\\\\\\n'",
+    'joined_command=${command//"$continuation"/}',
+    "flattened_command=$(printf '%s' \"$joined_command\" | tr '\\r\\n' '  ')",
+    `if echo "$flattened_command" | ${DESTRUCTIVE_STATEMENT_GREP} \\`,
+    '  && echo "$command" | LC_ALL=C grep -qiE "(^|[^A-Za-z0-9_])(psql|drizzle-kit|pg_dump|pg_restore|neonctl)([^A-Za-z0-9_]|$)|npm run db:|railway[[:space:]]+connect"; then',
     '  echo "DESTRUCTIVE DATABASE OPERATION BLOCKED" >&2',
     "  exit 2",
     "fi",
@@ -185,11 +188,14 @@ const wideBlockingHook = (): string =>
   [
     "#!/bin/bash",
     READ_COMMAND_LINE,
-    'if echo "$command" | grep -qE "(^|[;&|[:space:]])drizzle-kit[[:space:]]+migrate([[:space:]]|$)"; then',
+    'if echo "$command" | grep -qE "(^|[;&|[:space:]])drizzle-kit[[:space:]]+migrate([[:space:]]|$)|-c[[:space:]]+(\'[^\']*drizzle-kit[[:space:]]+migrate[^\']*\'|\\"[^\\"]*drizzle-kit[[:space:]]+migrate[^\\"]*\\")"; then',
     '  echo "UNGUARDED MIGRATION BLOCKED" >&2',
     "  exit 2",
     "fi",
-    `if echo "$command" | ${DESTRUCTIVE_STATEMENT_GREP}; then`,
+    "continuation=$'\\\\\\n'",
+    'joined_command=${command//"$continuation"/}',
+    "flattened_command=$(printf '%s' \"$joined_command\" | tr '\\r\\n' '  ')",
+    `if echo "$flattened_command" | ${DESTRUCTIVE_STATEMENT_GREP}; then`,
     '  echo "DESTRUCTIVE DATABASE OPERATION BLOCKED" >&2',
     "  exit 2",
     "fi",
@@ -1603,6 +1609,24 @@ describe("the guard table", () => {
     [GUARD_COMMANDS.truncateTableTab, 2],
     [GUARD_COMMANDS.deleteFromTwoSpaces, 2],
     [GUARD_COMMANDS.deleteFromTab, 2],
+    [GUARD_COMMANDS.deleteFromLongName, 2],
+    [GUARD_COMMANDS.deleteFromSchemaQualified, 2],
+    [GUARD_COMMANDS.deleteFromQuotedName, 2],
+    [GUARD_COMMANDS.grepDeleteFromInSource, 0],
+    [GUARD_COMMANDS.dropSchemaCascade, 2],
+    [GUARD_COMMANDS.dropDatabase, 2],
+    [GUARD_COMMANDS.dropSchemaTwoSpaces, 2],
+    [GUARD_COMMANDS.dropSchemaTab, 2],
+    [GUARD_COMMANDS.dropDatabaseTwoSpaces, 2],
+    [GUARD_COMMANDS.dropDatabaseTab, 2],
+    [GUARD_COMMANDS.dropTableSplitByNewline, 2],
+    [GUARD_COMMANDS.dropTableSplitByCrlf, 2],
+    [GUARD_COMMANDS.dropTableInHeredocToPsql, 2],
+    [GUARD_COMMANDS.dropTableBackslashContinuation, 2],
+    [GUARD_COMMANDS.bashCSingleQuotedMigrate, 2],
+    [GUARD_COMMANDS.bashCDoubleQuotedMigrate, 2],
+    [GUARD_COMMANDS.grepDrizzleKitMigrateInDocs, 0],
+    [GUARD_COMMANDS.echoDropTableToRailwayConnect, 2],
   ];
 
   it("holds the owner's eleven commands and the element rows with the exit each must get", () => {
@@ -1695,7 +1719,7 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
   it("is caught when the destructive-statement half of rule two is removed", async () => {
     const result = await proveGuardMutation(
       "destructive-statement half of rule two",
-      /^if echo "\$command" \| grep -qiE "\\b\(DROP[^\n]*$/m,
+      /^if echo "\$flattened_command" \| grep -qiE "\\b\(DROP[^\n]*$/m,
       "if true \\",
     );
     expect(result.applied).toBe(true);
@@ -1706,6 +1730,7 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
       GUARD_COMMANDS.psqlWithoutStatement,
       GUARD_COMMANDS.statementGluedToLetter,
       GUARD_COMMANDS.statementWordContinues,
+      GUARD_COMMANDS.grepDrizzleKitMigrateInDocs,
     ]);
   });
 
@@ -1744,6 +1769,8 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
     expect(result.mismatched).toEqual([
       GUARD_COMMANDS.echoDrizzleMigrate,
       GUARD_COMMANDS.bareDrizzleKitMigrate,
+      GUARD_COMMANDS.bashCSingleQuotedMigrate,
+      GUARD_COMMANDS.bashCDoubleQuotedMigrate,
     ]);
   });
 
@@ -1801,6 +1828,19 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
         GUARD_COMMANDS.truncateTableTab,
         GUARD_COMMANDS.deleteFromTwoSpaces,
         GUARD_COMMANDS.deleteFromTab,
+        GUARD_COMMANDS.deleteFromLongName,
+        GUARD_COMMANDS.deleteFromSchemaQualified,
+        GUARD_COMMANDS.deleteFromQuotedName,
+        GUARD_COMMANDS.dropSchemaCascade,
+        GUARD_COMMANDS.dropDatabase,
+        GUARD_COMMANDS.dropSchemaTwoSpaces,
+        GUARD_COMMANDS.dropSchemaTab,
+        GUARD_COMMANDS.dropDatabaseTwoSpaces,
+        GUARD_COMMANDS.dropDatabaseTab,
+        GUARD_COMMANDS.dropTableSplitByNewline,
+        GUARD_COMMANDS.dropTableSplitByCrlf,
+        GUARD_COMMANDS.dropTableInHeredocToPsql,
+        GUARD_COMMANDS.dropTableBackslashContinuation,
       ],
     },
     {
@@ -1829,8 +1869,8 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
     },
     {
       element: "marker npm run db:",
-      pattern: /\|npm run db:"/,
-      replacement: '"',
+      pattern: /\|npm run db:\|railway/,
+      replacement: "|railway",
       mismatched: [GUARD_COMMANDS.npmDbResetWithSql],
     },
     {
@@ -1867,6 +1907,11 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
         GUARD_COMMANDS.accentedLetterAfterProgram,
         GUARD_COMMANDS.dropTableTwoSpaces,
         GUARD_COMMANDS.dropTableTab,
+        GUARD_COMMANDS.dropTableSplitByNewline,
+        GUARD_COMMANDS.dropTableSplitByCrlf,
+        GUARD_COMMANDS.dropTableInHeredocToPsql,
+        GUARD_COMMANDS.dropTableBackslashContinuation,
+        GUARD_COMMANDS.echoDropTableToRailwayConnect,
       ],
     },
     {
@@ -1877,8 +1922,8 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
     },
     {
       element: "the trailing word boundary of the destructive pattern",
-      pattern: /\[a-zA-Z_\]\)\\b"/,
-      replacement: '[a-zA-Z_])"',
+      pattern: /TRUNCATE\[\[:space:\]\]\+TABLE\)\\b\|/,
+      replacement: "TRUNCATE[[:space:]]+TABLE)|",
       mismatched: [GUARD_COMMANDS.statementWordContinues],
     },
     {
@@ -1903,12 +1948,15 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
     },
     {
       element: "destructive alternative DELETE FROM",
-      pattern: /\|DELETE\[\[:space:\]\]\+FROM\[\[:space:\]\]\+\[a-zA-Z_\]/,
+      pattern: /\|\\bDELETE\[\[:space:\]\]\+FROM\[\[:space:\]\]\+\[\\"\\\\A-Za-z_\]/,
       replacement: "",
       mismatched: [
         GUARD_COMMANDS.deleteFromToPsql,
         GUARD_COMMANDS.deleteFromTwoSpaces,
         GUARD_COMMANDS.deleteFromTab,
+        GUARD_COMMANDS.deleteFromLongName,
+        GUARD_COMMANDS.deleteFromSchemaQualified,
+        GUARD_COMMANDS.deleteFromQuotedName,
       ],
     },
     {
@@ -1939,7 +1987,11 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
       element: "the repetition of the space run in DROP TABLE",
       pattern: /DROP\[\[:space:\]\]\+TABLE/,
       replacement: "DROP TABLE",
-      mismatched: [GUARD_COMMANDS.dropTableTwoSpaces, GUARD_COMMANDS.dropTableTab],
+      mismatched: [
+        GUARD_COMMANDS.dropTableTwoSpaces,
+        GUARD_COMMANDS.dropTableTab,
+        GUARD_COMMANDS.dropTableSplitByCrlf,
+      ],
     },
     {
       element: "the repetition of the space run in DROP COLUMN",
@@ -1958,6 +2010,53 @@ describe.skipIf(!existsSync(REAL_GUARD))(REAL_GUARD_TITLE, () => {
       pattern: /DELETE\[\[:space:\]\]\+FROM/,
       replacement: "DELETE FROM",
       mismatched: [GUARD_COMMANDS.deleteFromTwoSpaces, GUARD_COMMANDS.deleteFromTab],
+    },
+    {
+      element: "statement word DROP SCHEMA",
+      pattern: /\|DROP\[\[:space:\]\]\+SCHEMA/,
+      replacement: "",
+      mismatched: [
+        GUARD_COMMANDS.dropSchemaCascade,
+        GUARD_COMMANDS.dropSchemaTwoSpaces,
+        GUARD_COMMANDS.dropSchemaTab,
+      ],
+    },
+    {
+      element: "statement word DROP DATABASE",
+      pattern: /\|DROP\[\[:space:\]\]\+DATABASE/,
+      replacement: "",
+      mismatched: [
+        GUARD_COMMANDS.dropDatabase,
+        GUARD_COMMANDS.dropDatabaseTwoSpaces,
+        GUARD_COMMANDS.dropDatabaseTab,
+      ],
+    },
+    {
+      element: "line flattening before the statement grep",
+      pattern: /^if echo "\$flattened_command" /m,
+      replacement: 'if echo "$command" ',
+      mismatched: [
+        GUARD_COMMANDS.dropTableSplitByNewline,
+        GUARD_COMMANDS.dropTableSplitByCrlf,
+        GUARD_COMMANDS.dropTableInHeredocToPsql,
+        GUARD_COMMANDS.dropTableBackslashContinuation,
+      ],
+    },
+    {
+      element: "second pattern of rule one",
+      pattern:
+        /\|-c\[\[:space:\]\]\+\('\[\^'\]\*drizzle-kit\[\[:space:\]\]\+migrate\[\^'\]\*'\|\\"\[\^\\"\]\*drizzle-kit\[\[:space:\]\]\+migrate\[\^\\"\]\*\\"\)/,
+      replacement: "",
+      mismatched: [
+        GUARD_COMMANDS.bashCSingleQuotedMigrate,
+        GUARD_COMMANDS.bashCDoubleQuotedMigrate,
+      ],
+    },
+    {
+      element: "marker name railway connect",
+      pattern: /\|railway\[\[:space:\]\]\+connect"/,
+      replacement: '"',
+      mismatched: [GUARD_COMMANDS.echoDropTableToRailwayConnect],
     },
   ];
 
