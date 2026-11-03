@@ -24,6 +24,7 @@ import { getQueueRegistrations, getRegisteredQueueNames } from "@/server/async/r
 import { registerRetentionPurgeSchedule } from "@/server/async/retention-scheduler";
 import { registerPaymentExpirySchedule } from "@/server/async/payment-expiry-scheduler";
 import { registerEmailEgressSchedule } from "@/server/async/email-egress-scheduler";
+import { registerSavedDeadlineReminderSchedule } from "@/server/async/saved-deadline-reminder-scheduler";
 import { captureWorkerJobFailure } from "@/server/observability/worker-sentry";
 import { createBullmqRedisClient } from "@/server/redis/client";
 
@@ -260,6 +261,15 @@ export const createAsyncWorkerRuntime = (): AsyncWorkerRuntime => {
       await registerEmailEgressSchedule();
     } catch (error) {
       logger.error("Email egress schedule registration failed", {
+        detail: toSafeErrorMessage(error),
+      });
+    }
+
+    // Its own try again: the saved-deadline reminders share nothing with the jobs above.
+    try {
+      await registerSavedDeadlineReminderSchedule();
+    } catch (error) {
+      logger.error("Saved deadline reminder schedule registration failed", {
         detail: toSafeErrorMessage(error),
       });
     }
