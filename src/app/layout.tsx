@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { DM_Sans, Young_Serif } from "next/font/google";
 import { ApplicationHeader } from "@/components/navigation/application-header";
 import { SiteFooter } from "@/components/navigation/site-footer";
+import { MobileTabBar } from "@/components/navigation/mobile-tab-bar";
 import { publicEnv } from "@/config/env";
 import { NON_INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { resolveSiteOrigin } from "@/config/site-url";
@@ -37,6 +38,12 @@ export const metadata: Metadata = {
   robots: NON_INDEXABLE_ROBOTS,
 };
 
+// Applies the reader's theme before the first paint. Without it every page arrived in the light
+// theme and switched to dark only once the header had hydrated, so a dark-theme reader saw the
+// light page flash on every load. Mirrors resolveInitialTheme in the header, which still owns the
+// toggle; the header finds the attribute already set and changes nothing.
+const THEME_BOOTSTRAP_SCRIPT = `try{var t=localStorage.getItem("lombakita-theme");if(t!=="light"&&t!=="dark"){t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}document.documentElement.dataset.theme=t}catch(e){}`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -49,6 +56,9 @@ export default function RootLayout({
       data-theme="light"
       suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
+      </head>
       <body className="min-h-full">
         <AppProviders>
           <a className="skip-link" href="#main-content">
@@ -60,6 +70,7 @@ export default function RootLayout({
               {children}
             </div>
             <SiteFooter />
+            <MobileTabBar />
           </div>
         </AppProviders>
       </body>
