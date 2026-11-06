@@ -40,6 +40,7 @@
     "lk:models": "node --import tsx scripts/lk/models.ts",
     "lk:dispatch": "node --import tsx scripts/lk/dispatch.ts",
     "lk:notify": "node --import tsx scripts/lk/notify.ts",
+    "lk:pstack-guard-proof": "node --import tsx scripts/lk/pstack-guard-proof.ts",
     "verify:assertion-strength": "node --import tsx scripts/testing/assertion-strength.ts",
     "verify:branch-protection": "node scripts/testing/verify-branch-protection.mjs",
     "verify:reflow-only": "node --import tsx scripts/testing/prove-reflow-only.ts",
