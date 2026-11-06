@@ -3,12 +3,13 @@
 /**
  * The pstack guard proof, in process with injected sessions and as a stand-in process.
  *
- * No test starts `claude`: the cases of runCase and main hand it a scripted session, and the cases
- * of runClaudeSession start a shell script that the test writes into a scratch folder. The event
- * lines A to G are real lines of session logs, used as literal strings.
+ * No test starts `claude`: the cases of runCase and main hand it a scripted session, the cases of
+ * runClaudeSession start a shell script that the test writes into a scratch folder, and the process
+ * tests run the real script with such a shell script first on PATH. The session log lines below are
+ * trimmed real lines of session logs, used as literal strings.
  */
 
-import { spawnSync } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -16,12 +17,15 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { LkRefusal } from "./models";
 import {
@@ -32,6 +36,7 @@ import {
   findCallResult,
   findModelCall,
   fixtureFolders,
+  foreignToolNames,
   formatCase,
   formatFinalLine,
   homeFileProblems,
@@ -63,44 +68,59 @@ type DeniedJudgment = Parameters<typeof verdictOf>[0];
 type ControlJudgment = NonNullable<Parameters<typeof verdictOf>[1]>;
 
 // ---------------------------------------------------------------------------------------------
-// Session log lines A to G, as printed by real sessions
+// Session log lines, trimmed from real sessions
 // ---------------------------------------------------------------------------------------------
 
-const EVENT_A =
+const AGENT_CALL =
   '{"type":"assistant","message":{"type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_018WnViM7321iNWfRPEAmB8C","name":"Agent","input":{"description":"Reply ok","subagent_type":"pstack:poteto-agent","prompt":"Reply with the single word ok and do nothing else."},"caller":{"type":"direct"}}]},"parent_tool_use_id":null}';
-const EVENT_B =
+const AGENT_CALL_REFUSED_RESULT =
   '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"Agent type \'pstack:poteto-agent\' has been denied by permission rule \'Agent(pstack:poteto-agent)\' from projectSettings.","is_error":true,"tool_use_id":"toolu_018WnViM7321iNWfRPEAmB8C"}]},"parent_tool_use_id":null}';
-const EVENT_C =
+const AGENT_CALL_ALLOWED_RESULT =
   '{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01WcyZZBk7g87ySx61FJwW24","type":"tool_result","content":[{"type":"text","text":"Async agent launched successfully."}]}]},"parent_tool_use_id":null}';
-const EVENT_D =
+const SKILL_CALL_ALLOWED_RESULT =
   '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01HhBqnkas5ef9fxRzUCec84","content":"Launching skill: pstack:setup-pstack"}]},"parent_tool_use_id":null}';
-const EVENT_E =
+const SKILL_REFUSAL_SYSTEM_EVENT =
   '{"type":"system","subtype":"permission_denied","tool_name":"Skill","tool_use_id":"toolu_014h4mFvRC7k6vyc5rkpWa4e","decision_reason_type":"rule","message":"Skill execution blocked by permission rules"}';
-const EVENT_F =
+const SKILL_CALL =
   '{"type":"assistant","message":{"type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_014h4mFvRC7k6vyc5rkpWa4e","name":"Skill","input":{"skill":"pstack:setup-pstack"},"caller":{"type":"direct"}}]},"parent_tool_use_id":null}';
-const EVENT_G =
+const SKILL_CALL_REFUSED_RESULT =
   '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"Skill execution blocked by permission rules","is_error":true,"tool_use_id":"toolu_014h4mFvRC7k6vyc5rkpWa4e"}]},"parent_tool_use_id":null}';
 
-const ID_A = "toolu_018WnViM7321iNWfRPEAmB8C";
-const ID_C = "toolu_01WcyZZBk7g87ySx61FJwW24";
-const ID_D = "toolu_01HhBqnkas5ef9fxRzUCec84";
-const ID_F = "toolu_014h4mFvRC7k6vyc5rkpWa4e";
+const AGENT_CALL_ID = "toolu_018WnViM7321iNWfRPEAmB8C";
+const AGENT_CALL_ALLOWED_RESULT_ID = "toolu_01WcyZZBk7g87ySx61FJwW24";
+const SKILL_CALL_ALLOWED_RESULT_ID = "toolu_01HhBqnkas5ef9fxRzUCec84";
+const SKILL_CALL_ID = "toolu_014h4mFvRC7k6vyc5rkpWa4e";
 
-// C and D answer calls that the log lines A and F do not make, so each takes the id of the call it
-// is paired with in a control run.
-const EVENT_C_FOR_A = EVENT_C.replace(ID_C, ID_A);
-const EVENT_D_FOR_F = EVENT_D.replace(ID_D, ID_F);
-const EVENT_A_FROM_AGENT = EVENT_A.replace(
+// The allowed results answer calls that the Agent call and the Skill call above do not make, so
+// each takes the id of the call it is paired with in a control run.
+const AGENT_CALL_ALLOWED_RESULT_FOR_CALL = AGENT_CALL_ALLOWED_RESULT.replace(
+  AGENT_CALL_ALLOWED_RESULT_ID,
+  AGENT_CALL_ID,
+);
+const SKILL_CALL_ALLOWED_RESULT_FOR_CALL = SKILL_CALL_ALLOWED_RESULT.replace(
+  SKILL_CALL_ALLOWED_RESULT_ID,
+  SKILL_CALL_ID,
+);
+const AGENT_CALL_FROM_STARTED_AGENT = AGENT_CALL.replace(
+  '"parent_tool_use_id":null',
+  '"parent_tool_use_id":"toolu_01StartedAgent"',
+);
+
+const READ_CALL =
+  '{"type":"assistant","message":{"type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_01ReadCall","name":"Read","input":{"file_path":"notes.txt"}}]},"parent_tool_use_id":null}';
+const GLOB_CALL =
+  '{"type":"assistant","message":{"type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_01GlobCall","name":"Glob","input":{"pattern":"*.md"}}]},"parent_tool_use_id":null}';
+const READ_CALL_FROM_STARTED_AGENT = READ_CALL.replace(
   '"parent_tool_use_id":null',
   '"parent_tool_use_id":"toolu_01StartedAgent"',
 );
 
 const logOf = (...lines: string[]): string => `${lines.join("\n")}\n`;
 
-const DENIED_AGENT_LOG = logOf(EVENT_A, EVENT_B);
-const ALLOWED_AGENT_LOG = logOf(EVENT_A, EVENT_C_FOR_A);
-const DENIED_SKILL_LOG = logOf(EVENT_F, EVENT_E, EVENT_G);
-const ALLOWED_SKILL_LOG = logOf(EVENT_F, EVENT_D_FOR_F);
+const DENIED_AGENT_LOG = logOf(AGENT_CALL, AGENT_CALL_REFUSED_RESULT);
+const ALLOWED_AGENT_LOG = logOf(AGENT_CALL, AGENT_CALL_ALLOWED_RESULT_FOR_CALL);
+const DENIED_SKILL_LOG = logOf(SKILL_CALL, SKILL_REFUSAL_SYSTEM_EVENT, SKILL_CALL_REFUSED_RESULT);
+const ALLOWED_SKILL_LOG = logOf(SKILL_CALL, SKILL_CALL_ALLOWED_RESULT_FOR_CALL);
 const NO_CALL_LOG = logOf('{"type":"result","subtype":"success"}');
 
 const caseById = (id: string): ProofCase => {
@@ -250,24 +270,31 @@ describe("buildSessionArguments", () => {
 // ---------------------------------------------------------------------------------------------
 
 describe("parseSessionLog", () => {
-  it("skips a line that is not JSON, skips event E without throwing and keeps A to D, F and G", () => {
+  it("skips a line that is not JSON, skips the system event whose message is a string and keeps the call and result lines", () => {
     const text = logOf(
       "a plain line from the tool",
-      EVENT_A,
+      AGENT_CALL,
       "{ this starts like an event but is not JSON",
-      EVENT_B,
-      EVENT_C,
-      EVENT_D,
-      EVENT_E,
+      AGENT_CALL_REFUSED_RESULT,
+      AGENT_CALL_ALLOWED_RESULT,
+      SKILL_CALL_ALLOWED_RESULT,
+      SKILL_REFUSAL_SYSTEM_EVENT,
       "[1,2,3]",
-      EVENT_F,
-      EVENT_G,
+      SKILL_CALL,
+      SKILL_CALL_REFUSED_RESULT,
     );
 
     const events = parseSessionLog(text);
 
     expect(events).toEqual(
-      [EVENT_A, EVENT_B, EVENT_C, EVENT_D, EVENT_F, EVENT_G].map((line) => JSON.parse(line)),
+      [
+        AGENT_CALL,
+        AGENT_CALL_REFUSED_RESULT,
+        AGENT_CALL_ALLOWED_RESULT,
+        SKILL_CALL_ALLOWED_RESULT,
+        SKILL_CALL,
+        SKILL_CALL_REFUSED_RESULT,
+      ].map((line) => JSON.parse(line)),
     );
   });
 
@@ -283,34 +310,34 @@ describe("parseSessionLog", () => {
 });
 
 describe("findModelCall", () => {
-  it("finds A for the agent case", () => {
-    const call = findModelCall(parseSessionLog(logOf(EVENT_A)), AGENT_CASE);
+  it("finds AGENT_CALL for the agent case", () => {
+    const call = findModelCall(parseSessionLog(logOf(AGENT_CALL)), AGENT_CASE);
 
-    expect(call?.id).toBe(ID_A);
+    expect(call?.id).toBe(AGENT_CALL_ID);
   });
 
-  it("finds F for the skill case", () => {
-    const call = findModelCall(parseSessionLog(logOf(EVENT_F)), SKILL_CASE);
+  it("finds SKILL_CALL for the skill case", () => {
+    const call = findModelCall(parseSessionLog(logOf(SKILL_CALL)), SKILL_CASE);
 
-    expect(call?.id).toBe(ID_F);
+    expect(call?.id).toBe(SKILL_CALL_ID);
   });
 
-  it("ignores A with a non-null parent_tool_use_id", () => {
-    const events = parseSessionLog(logOf(EVENT_A_FROM_AGENT));
+  it("ignores AGENT_CALL with a non-null parent_tool_use_id", () => {
+    const events = parseSessionLog(logOf(AGENT_CALL_FROM_STARTED_AGENT));
 
     expect(findModelCall(events, AGENT_CASE)).toBeUndefined();
   });
 
   it("ignores a call of another tool name", () => {
-    const renamed = EVENT_A.replace('"name":"Agent"', '"name":"Task"');
+    const renamed = AGENT_CALL.replace('"name":"Agent"', '"name":"Task"');
 
     expect(findModelCall(parseSessionLog(logOf(renamed)), AGENT_CASE)).toBeUndefined();
-    expect(findModelCall(parseSessionLog(logOf(EVENT_A)), SKILL_CASE)).toBeUndefined();
-    expect(findModelCall(parseSessionLog(logOf(EVENT_F)), AGENT_CASE)).toBeUndefined();
+    expect(findModelCall(parseSessionLog(logOf(AGENT_CALL)), SKILL_CASE)).toBeUndefined();
+    expect(findModelCall(parseSessionLog(logOf(SKILL_CALL)), AGENT_CASE)).toBeUndefined();
   });
 
   it("ignores a call with the bare name poteto-agent", () => {
-    const bare = EVENT_A.replace(
+    const bare = AGENT_CALL.replace(
       '"subagent_type":"pstack:poteto-agent"',
       '"subagent_type":"poteto-agent"',
     );
@@ -319,7 +346,7 @@ describe("findModelCall", () => {
   });
 
   it("ignores a call whose target field is missing", () => {
-    const noTarget = EVENT_F.replace(
+    const noTarget = SKILL_CALL.replace(
       '"skill":"pstack:setup-pstack"',
       '"other":"pstack:setup-pstack"',
     );
@@ -330,23 +357,59 @@ describe("findModelCall", () => {
   it("ignores an event whose message is a string, without throwing", () => {
     const stringMessage: SessionEvent[] = [
       { type: "assistant", message: "a string", parent_tool_use_id: null },
-      JSON.parse(EVENT_E),
+      JSON.parse(SKILL_REFUSAL_SYSTEM_EVENT),
     ];
 
     expect(findModelCall(stringMessage, SKILL_CASE)).toBeUndefined();
   });
 
   it("takes the first of two matching calls", () => {
-    const second = EVENT_A.replace(ID_A, "toolu_0SecondCall");
-    const events = parseSessionLog(logOf(EVENT_A, second));
+    const second = AGENT_CALL.replace(AGENT_CALL_ID, "toolu_0SecondCall");
+    const events = parseSessionLog(logOf(AGENT_CALL, second));
 
-    expect(findModelCall(events, AGENT_CASE)?.id).toBe(ID_A);
+    expect(findModelCall(events, AGENT_CASE)?.id).toBe(AGENT_CALL_ID);
+  });
+});
+
+describe("foreignToolNames", () => {
+  it("returns no name when every tool use is an Agent or a Skill call", () => {
+    const events = parseSessionLog(logOf(AGENT_CALL, SKILL_CALL, AGENT_CALL_REFUSED_RESULT));
+
+    expect(foreignToolNames(events)).toEqual([]);
+  });
+
+  it("returns no name for an empty log", () => {
+    expect(foreignToolNames([])).toEqual([]);
+  });
+
+  it("counts a Read call in an event with a non-null parent_tool_use_id", () => {
+    const events = parseSessionLog(logOf(AGENT_CALL, READ_CALL_FROM_STARTED_AGENT));
+
+    expect(foreignToolNames(events)).toEqual(["Read"]);
+  });
+
+  it("returns a name that appears twice once", () => {
+    const events = parseSessionLog(logOf(READ_CALL, READ_CALL_FROM_STARTED_AGENT, READ_CALL));
+
+    expect(foreignToolNames(events)).toEqual(["Read"]);
+  });
+
+  it("returns two names in the order they were first seen", () => {
+    const events = parseSessionLog(logOf(GLOB_CALL, AGENT_CALL, READ_CALL, GLOB_CALL));
+
+    expect(foreignToolNames(events)).toEqual(["Glob", "Read"]);
+  });
+
+  it("ignores a tool use that sits in an event that is not from the assistant", () => {
+    const inUserEvent = READ_CALL.replace('"type":"assistant"', '"type":"user"');
+
+    expect(foreignToolNames(parseSessionLog(logOf(inUserEvent)))).toEqual([]);
   });
 });
 
 describe("findCallResult", () => {
-  it("finds B, a refusal with string content", () => {
-    const result = findCallResult(parseSessionLog(logOf(EVENT_B)), ID_A);
+  it("finds AGENT_CALL_REFUSED_RESULT, a refusal with string content", () => {
+    const result = findCallResult(parseSessionLog(logOf(AGENT_CALL_REFUSED_RESULT)), AGENT_CALL_ID);
 
     expect(result).toEqual({
       isError: true,
@@ -354,28 +417,41 @@ describe("findCallResult", () => {
     });
   });
 
-  it("finds C, an allowed call with array content", () => {
-    const result = findCallResult(parseSessionLog(logOf(EVENT_C)), ID_C);
+  it("finds AGENT_CALL_ALLOWED_RESULT, an allowed call with array content", () => {
+    const result = findCallResult(
+      parseSessionLog(logOf(AGENT_CALL_ALLOWED_RESULT)),
+      AGENT_CALL_ALLOWED_RESULT_ID,
+    );
 
     expect(result).toEqual({ isError: false, text: "Async agent launched successfully." });
   });
 
-  it("finds D, an allowed call with string content", () => {
-    const result = findCallResult(parseSessionLog(logOf(EVENT_D)), ID_D);
+  it("finds SKILL_CALL_ALLOWED_RESULT, an allowed call with string content", () => {
+    const result = findCallResult(
+      parseSessionLog(logOf(SKILL_CALL_ALLOWED_RESULT)),
+      SKILL_CALL_ALLOWED_RESULT_ID,
+    );
 
     expect(result).toEqual({ isError: false, text: "Launching skill: pstack:setup-pstack" });
   });
 
-  it("finds G, a refusal of the skill call", () => {
-    const result = findCallResult(parseSessionLog(logOf(EVENT_G)), ID_F);
+  it("finds SKILL_CALL_REFUSED_RESULT, a refusal of the skill call", () => {
+    const result = findCallResult(parseSessionLog(logOf(SKILL_CALL_REFUSED_RESULT)), SKILL_CALL_ID);
 
     expect(result).toEqual({ isError: true, text: "Skill execution blocked by permission rules" });
   });
 
   it("ignores a result of another id", () => {
-    expect(
-      findCallResult(parseSessionLog(logOf(EVENT_B, EVENT_C, EVENT_D, EVENT_G)), "toolu_other"),
-    ).toBeUndefined();
+    const events = parseSessionLog(
+      logOf(
+        AGENT_CALL_REFUSED_RESULT,
+        AGENT_CALL_ALLOWED_RESULT,
+        SKILL_CALL_ALLOWED_RESULT,
+        SKILL_CALL_REFUSED_RESULT,
+      ),
+    );
+
+    expect(findCallResult(events, "toolu_other")).toBeUndefined();
   });
 
   it("joins the text blocks of array content with a newline and skips other blocks", () => {
@@ -385,7 +461,7 @@ describe("findCallResult", () => {
         content: [
           {
             type: "tool_result",
-            tool_use_id: ID_A,
+            tool_use_id: AGENT_CALL_ID,
             content: [
               { type: "text", text: "first" },
               { type: "image", source: "ignored" },
@@ -397,30 +473,38 @@ describe("findCallResult", () => {
       parent_tool_use_id: null,
     };
 
-    expect(findCallResult([event], ID_A)).toEqual({ isError: false, text: "first\nsecond" });
+    expect(findCallResult([event], AGENT_CALL_ID)).toEqual({
+      isError: false,
+      text: "first\nsecond",
+    });
   });
 
   it("reports is_error absent as not an error and counts only the value true", () => {
     const withValue = (isError: unknown): SessionEvent => ({
       type: "user",
       message: {
-        content: [{ type: "tool_result", tool_use_id: ID_A, content: "x", is_error: isError }],
+        content: [
+          { type: "tool_result", tool_use_id: AGENT_CALL_ID, content: "x", is_error: isError },
+        ],
       },
       parent_tool_use_id: null,
     });
 
-    expect(findCallResult(parseSessionLog(logOf(EVENT_D_FOR_F)), ID_F)?.isError).toBe(false);
-    expect(findCallResult([withValue("true")], ID_A)?.isError).toBe(false);
-    expect(findCallResult([withValue(true)], ID_A)?.isError).toBe(true);
+    expect(
+      findCallResult(parseSessionLog(logOf(SKILL_CALL_ALLOWED_RESULT_FOR_CALL)), SKILL_CALL_ID)
+        ?.isError,
+    ).toBe(false);
+    expect(findCallResult([withValue("true")], AGENT_CALL_ID)?.isError).toBe(false);
+    expect(findCallResult([withValue(true)], AGENT_CALL_ID)?.isError).toBe(true);
   });
 
   it("ignores a result that sits in a started agent's event", () => {
-    const fromAgent = EVENT_B.replace(
+    const fromAgent = AGENT_CALL_REFUSED_RESULT.replace(
       '"parent_tool_use_id":null',
       '"parent_tool_use_id":"toolu_01StartedAgent"',
     );
 
-    expect(findCallResult(parseSessionLog(logOf(fromAgent)), ID_A)).toBeUndefined();
+    expect(findCallResult(parseSessionLog(logOf(fromAgent)), AGENT_CALL_ID)).toBeUndefined();
   });
 
   it("ignores an event whose message is a string, without throwing", () => {
@@ -428,7 +512,7 @@ describe("findCallResult", () => {
       { type: "user", message: "a string", parent_tool_use_id: null },
     ];
 
-    expect(findCallResult(stringMessage, ID_A)).toBeUndefined();
+    expect(findCallResult(stringMessage, AGENT_CALL_ID)).toBeUndefined();
   });
 });
 
@@ -437,9 +521,10 @@ describe("findCallResult", () => {
 // ---------------------------------------------------------------------------------------------
 
 const callEventFor = (testCase: ProofCase): SessionEvent =>
-  JSON.parse(testCase.tool === "Agent" ? EVENT_A : EVENT_F);
+  JSON.parse(testCase.tool === "Agent" ? AGENT_CALL : SKILL_CALL);
 
-const callIdFor = (testCase: ProofCase): string => (testCase.tool === "Agent" ? ID_A : ID_F);
+const callIdFor = (testCase: ProofCase): string =>
+  testCase.tool === "Agent" ? AGENT_CALL_ID : SKILL_CALL_ID;
 
 const resultEventFor = (toolUseId: string, isError: boolean, text: string): SessionEvent => ({
   type: "user",
@@ -493,6 +578,57 @@ const eventsForCombination = (testCase: ProofCase, combination: Combination): Se
   return events;
 };
 
+interface LiteralDeniedRow {
+  name: string;
+  combination: Combination;
+  expected: DeniedJudgment;
+}
+
+interface LiteralControlRow {
+  name: string;
+  combination: Combination;
+  expected: ControlJudgment;
+}
+
+const LITERAL_DENIED_ROWS: LiteralDeniedRow[] = [
+  {
+    name: "refusal text present with isError false",
+    combination: {
+      attempted: true,
+      resultExists: true,
+      isError: false,
+      refusalTextPresent: true,
+      timedOut: false,
+    },
+    expected: { attempted: true, refused: false, timedOut: false },
+  },
+  {
+    name: "isError true with the refusal text absent",
+    combination: {
+      attempted: true,
+      resultExists: true,
+      isError: true,
+      refusalTextPresent: false,
+      timedOut: false,
+    },
+    expected: { attempted: true, refused: false, timedOut: false },
+  },
+];
+
+const LITERAL_CONTROL_ROWS: LiteralControlRow[] = [
+  {
+    name: "isError true",
+    combination: {
+      attempted: true,
+      resultExists: true,
+      isError: true,
+      refusalTextPresent: true,
+      timedOut: false,
+    },
+    expected: { attempted: true, allowed: false, timedOut: false },
+  },
+];
+
 describe("judgeDeniedRun", () => {
   it.each(PROOF_CASES.map((testCase) => [testCase.id, testCase] as const))(
     "returns the judgment of every combination for %s",
@@ -517,7 +653,17 @@ describe("judgeDeniedRun", () => {
     },
   );
 
-  it("reads the real refusals B and G as refused", () => {
+  it.each(
+    PROOF_CASES.flatMap((testCase) =>
+      LITERAL_DENIED_ROWS.map((row) => [testCase.id, row.name, testCase, row] as const),
+    ),
+  )("returns the written-out judgment for %s with %s", (_id, _name, testCase, row) => {
+    const events = eventsForCombination(testCase, row.combination);
+
+    expect(judgeDeniedRun(events, testCase, row.combination.timedOut)).toEqual(row.expected);
+  });
+
+  it("reads the real refusals of the Agent call and the Skill call as refused", () => {
     expect(judgeDeniedRun(parseSessionLog(DENIED_AGENT_LOG), AGENT_CASE, false)).toEqual({
       attempted: true,
       refused: true,
@@ -530,7 +676,7 @@ describe("judgeDeniedRun", () => {
     });
   });
 
-  it("reads the real allowed results C and D as not refused", () => {
+  it("reads the real allowed results of the Agent call and the Skill call as not refused", () => {
     expect(judgeDeniedRun(parseSessionLog(ALLOWED_AGENT_LOG), AGENT_CASE, false).refused).toBe(
       false,
     );
@@ -540,7 +686,10 @@ describe("judgeDeniedRun", () => {
   });
 
   it("does not take the refusal text of the other case", () => {
-    const events = [callEventFor(SKILL_CASE), resultEventFor(ID_F, true, AGENT_CASE.refusalText)];
+    const events = [
+      callEventFor(SKILL_CASE),
+      resultEventFor(SKILL_CALL_ID, true, AGENT_CASE.refusalText),
+    ];
 
     expect(judgeDeniedRun(events, SKILL_CASE, false).refused).toBe(false);
   });
@@ -568,7 +717,17 @@ describe("judgeControlRun", () => {
     },
   );
 
-  it("reads the real allowed results C and D as allowed", () => {
+  it.each(
+    PROOF_CASES.flatMap((testCase) =>
+      LITERAL_CONTROL_ROWS.map((row) => [testCase.id, row.name, testCase, row] as const),
+    ),
+  )("returns the written-out judgment for %s with %s", (_id, _name, testCase, row) => {
+    const events = eventsForCombination(testCase, row.combination);
+
+    expect(judgeControlRun(events, testCase, row.combination.timedOut)).toEqual(row.expected);
+  });
+
+  it("reads the real allowed results of the Agent call and the Skill call as allowed", () => {
     expect(judgeControlRun(parseSessionLog(ALLOWED_AGENT_LOG), AGENT_CASE, false)).toEqual({
       attempted: true,
       allowed: true,
@@ -581,7 +740,7 @@ describe("judgeControlRun", () => {
     });
   });
 
-  it("reads the real refusals B and G as not allowed", () => {
+  it("reads the real refusals of the Agent call and the Skill call as not allowed", () => {
     expect(judgeControlRun(parseSessionLog(DENIED_AGENT_LOG), AGENT_CASE, false).allowed).toBe(
       false,
     );
@@ -634,6 +793,23 @@ describe("verdictOf", () => {
 
   it("is PASS when the denied call was refused and the control was allowed", () => {
     expect(verdictOf(refusedDenial, allowedControl)).toBe("PASS");
+    expect(verdictOf(refusedDenial, allowedControl, { denied: [], control: [] })).toBe("PASS");
+  });
+
+  it("is FAIL when the denied run holds a foreign tool use, ahead of NOT ATTEMPTED", () => {
+    const noCall = { attempted: false, refused: false, timedOut: false };
+    const foreign = { denied: ["Read"], control: [] };
+
+    expect(verdictOf(noCall, undefined, foreign)).toBe("FAIL");
+    expect(verdictOf(refusedDenial, allowedControl, foreign)).toBe("FAIL");
+  });
+
+  it("is FAIL when the control run holds a foreign tool use, ahead of INVALID", () => {
+    const foreign = { denied: [], control: ["Read"] };
+
+    expect(verdictOf(refusedDenial, allowedControl, foreign)).toBe("FAIL");
+    expect(verdictOf(refusedDenial, { ...allowedControl, allowed: false }, foreign)).toBe("FAIL");
+    expect(verdictOf(refusedDenial, undefined, foreign)).toBe("FAIL");
   });
 });
 
@@ -685,7 +861,9 @@ describe("runCase", () => {
       id: "agent-poteto",
       retried: false,
       denied: REFUSED_DENIAL,
+      deniedForeign: [],
       control: ALLOWED_CONTROL,
+      controlForeign: [],
       error: undefined,
       verdict: "PASS",
     });
@@ -719,9 +897,12 @@ describe("runCase", () => {
   });
 
   it("fails when the denied call was refused with other text", async () => {
-    const otherRefusal = EVENT_B.replace("has been denied by permission rule", "was stopped by");
+    const otherRefusal = AGENT_CALL_REFUSED_RESULT.replace(
+      "has been denied by permission rule",
+      "was stopped by",
+    );
     const { runSession, requests } = scriptedSessions([
-      loggedSession(logOf(EVENT_A, otherRefusal)),
+      loggedSession(logOf(AGENT_CALL, otherRefusal)),
     ]);
 
     const report = await runCase(AGENT_CASE, runSession);
@@ -744,7 +925,9 @@ describe("runCase", () => {
       id: "agent-poteto",
       retried: true,
       denied: { attempted: false, refused: false, timedOut: false },
+      deniedForeign: [],
       control: undefined,
+      controlForeign: [],
       error: undefined,
       verdict: "NOT ATTEMPTED",
     });
@@ -860,7 +1043,9 @@ describe("runCase", () => {
       id: "agent-poteto",
       retried: false,
       denied: undefined,
+      deniedForeign: [],
       control: undefined,
+      controlForeign: [],
       error: "spawn exploded second line",
       verdict: "FAIL",
     });
@@ -894,7 +1079,9 @@ describe("runCase", () => {
       id: "agent-poteto",
       retried: false,
       denied: REFUSED_DENIAL,
+      deniedForeign: [],
       control: undefined,
+      controlForeign: [],
       error: "boom",
       verdict: "INVALID",
     });
@@ -920,6 +1107,74 @@ describe("runCase", () => {
       deniedRequest("denied-retry"),
       CONTROL_REQUEST,
     ]);
+  });
+
+  it("fails at once, with no retry, when the first denied run made no call and used a foreign tool", async () => {
+    const { runSession, requests } = scriptedSessions([loggedSession(logOf(READ_CALL))]);
+
+    const report = await runCase(AGENT_CASE, runSession);
+
+    expect(report).toEqual({
+      id: "agent-poteto",
+      retried: false,
+      denied: { attempted: false, refused: false, timedOut: false },
+      deniedForeign: ["Read"],
+      control: undefined,
+      controlForeign: [],
+      error: undefined,
+      verdict: "FAIL",
+    });
+    expect(requests).toEqual([deniedRequest("denied")]);
+  });
+
+  it("fails and starts no control run when a refused denied run also used a foreign tool", async () => {
+    const { runSession, requests } = scriptedSessions([
+      loggedSession(logOf(AGENT_CALL, READ_CALL_FROM_STARTED_AGENT, AGENT_CALL_REFUSED_RESULT)),
+    ]);
+
+    const report = await runCase(AGENT_CASE, runSession);
+
+    expect(report.verdict).toBe("FAIL");
+    expect(report.denied).toEqual(REFUSED_DENIAL);
+    expect(report.deniedForeign).toEqual(["Read"]);
+    expect(report.control).toBeUndefined();
+    expect(requests).toEqual([deniedRequest("denied")]);
+  });
+
+  it("takes the foreign names of the retry, the last denied run, and fails", async () => {
+    const { runSession, requests } = scriptedSessions([
+      loggedSession(NO_CALL_LOG),
+      loggedSession(logOf(READ_CALL, GLOB_CALL)),
+    ]);
+
+    const report = await runCase(AGENT_CASE, runSession);
+
+    expect(report.verdict).toBe("FAIL");
+    expect(report.retried).toBe(true);
+    expect(report.deniedForeign).toEqual(["Read", "Glob"]);
+    expect(report.control).toBeUndefined();
+    expect(requests).toEqual([deniedRequest("denied"), deniedRequest("denied-retry")]);
+  });
+
+  it("fails when the control run holds a foreign tool use", async () => {
+    const { runSession, requests } = scriptedSessions([
+      loggedSession(DENIED_AGENT_LOG),
+      loggedSession(logOf(AGENT_CALL, AGENT_CALL_ALLOWED_RESULT_FOR_CALL, READ_CALL)),
+    ]);
+
+    const report = await runCase(AGENT_CASE, runSession);
+
+    expect(report).toEqual({
+      id: "agent-poteto",
+      retried: false,
+      denied: REFUSED_DENIAL,
+      deniedForeign: [],
+      control: ALLOWED_CONTROL,
+      controlForeign: ["Read"],
+      error: undefined,
+      verdict: "FAIL",
+    });
+    expect(requests).toEqual([deniedRequest("denied"), CONTROL_REQUEST]);
   });
 });
 
@@ -1113,17 +1368,27 @@ const runMain = async (
 
 const outArguments = (scratch: MainScratch): string[] => ["--out", scratch.outPath];
 
-const expectRefused = (run: MainRun, scratch: MainScratch, reason: string): void => {
+const expectRefused = (
+  run: MainRun,
+  scratch: MainScratch,
+  reason: string,
+  existingOutText?: string,
+): void => {
   expect(run.printed).toEqual([`pstack-guard-proof REFUSED: ${reason}`]);
   expect(run.code).toBe(2);
   expect(run.requests).toEqual([]);
-  expect(existsSync(scratch.outPath)).toBe(false);
+  if (existingOutText === undefined) {
+    expect(existsSync(scratch.outPath)).toBe(false);
+  } else {
+    expect(readFileSync(scratch.outPath, "utf8")).toBe(existingOutText);
+  }
 };
 
 interface RefusalRow {
   name: string;
   arrange: (scratch: MainScratch) => { argv: string[]; overrides?: Partial<MainDeps> };
   reason: (scratch: MainScratch) => string;
+  existingOutText?: string;
 }
 
 const breakDocsSettings = (scratch: MainScratch, text: string): void => {
@@ -1152,6 +1417,14 @@ const REFUSAL_ROWS: RefusalRow[] = [
     name: "an --out parent folder that does not exist",
     arrange: (scratch) => ({ argv: ["--out", join(scratch.folder, "missing", "out.txt")] }),
     reason: (scratch) => `--out parent folder does not exist: ${join(scratch.folder, "missing")}`,
+  },
+  {
+    name: "an --out parent that is a file",
+    arrange: (scratch) => {
+      writeFileSync(join(scratch.folder, "a-file"), "not a folder\n");
+      return { argv: ["--out", join(scratch.folder, "a-file", "out.txt")] };
+    },
+    reason: (scratch) => `--out parent folder does not exist: ${join(scratch.folder, "a-file")}`,
   },
   {
     name: "an unreadable docs settings file",
@@ -1236,6 +1509,16 @@ const ORDER_ROWS: RefusalRow[] = [
     }),
     reason: () => "unknown case: nope",
   },
+  {
+    name: "an existing --out path comes before a docs file that lacks an entry",
+    arrange: (scratch) => {
+      writeFileSync(scratch.outPath, "keep me\n");
+      breakDocsSettings(scratch, settingsTextWith([AGENT_ENTRY]));
+      return { argv: outArguments(scratch) };
+    },
+    reason: (scratch) => `--out names a path that exists: ${scratch.outPath}`,
+    existingOutText: "keep me\n",
+  },
 ];
 
 describe("main refusals", () => {
@@ -1258,7 +1541,7 @@ describe("main refusals", () => {
 
       const run = await runMain(scratch, argv, overrides);
 
-      expectRefused(run, scratch, row.reason(scratch));
+      expectRefused(run, scratch, row.reason(scratch), row.existingOutText);
     });
   });
 
@@ -1277,7 +1560,7 @@ describe("main refusals", () => {
     });
   });
 
-  it("refuses an existing --out path before it looks at the docs file", async () => {
+  it("refuses an unknown case before an existing --out path", async () => {
     await withMainScratch(async (scratch) => {
       writeFileSync(scratch.outPath, "keep me\n");
 
@@ -1407,6 +1690,17 @@ describe("main runs", () => {
 
       expect(run.printed[1]).toBe("claude: unknown");
       expect(run.printed[4]).toBe(`docs root override: ${scratch.docsRoot}`);
+    });
+  });
+
+  it("prints docs root override: none for an empty DENY_PROOF_DOCS_ROOT", async () => {
+    await withMainScratch(async (scratch) => {
+      const run = await runMain(scratch, outArguments(scratch), {
+        environment: { DENY_PROOF_DOCS_ROOT: "" },
+      });
+
+      expect(run.printed[4]).toBe("docs root override: none");
+      expect(run.code).toBe(0);
     });
   });
 
@@ -1595,7 +1889,9 @@ describe("formatCase", () => {
     id: "agent-poteto",
     retried: false,
     denied: { attempted: true, refused: true, timedOut: false },
+    deniedForeign: [],
     control: { attempted: true, allowed: true, timedOut: false },
+    controlForeign: [],
     error: undefined,
     verdict: "PASS",
   };
@@ -1667,6 +1963,35 @@ describe("formatCase", () => {
       "  control run: error",
       "  error: spawn exploded",
       "  verdict: INVALID",
+    ]);
+  });
+
+  it("prints the foreign tool use of the denied run directly after the denied run line", () => {
+    const report: CaseReport = {
+      ...baseReport,
+      deniedForeign: ["Read", "Glob"],
+      control: undefined,
+      verdict: "FAIL",
+    };
+
+    expect(formatCase(report)).toEqual([
+      "CASE agent-poteto",
+      "  denied run: attempted=true refused=true timed_out=false",
+      "  denied run foreign tool use: Read, Glob",
+      "  control run: not started",
+      "  verdict: FAIL",
+    ]);
+  });
+
+  it("prints the foreign tool use of the control run directly after the control run line", () => {
+    const report: CaseReport = { ...baseReport, controlForeign: ["Read"], verdict: "FAIL" };
+
+    expect(formatCase(report)).toEqual([
+      "CASE agent-poteto",
+      "  denied run: attempted=true refused=true timed_out=false",
+      "  control run: attempted=true allowed=true timed_out=false",
+      "  control run foreign tool use: Read",
+      "  verdict: FAIL",
     ]);
   });
 
@@ -1820,6 +2145,7 @@ const recordingSignalDeps = (overrides: Partial<SignalDeps> = {}): [SignalDeps, 
     runningPids: () => [],
     stopSession: (pid) => record.calls.push(`stop:${pid}`),
     wait: (milliseconds) => record.calls.push(`wait:${milliseconds}`),
+    killSession: (pid) => record.calls.push(`kill:${pid}`),
     fixtureFolders: () => [],
     removeFixtures: () => record.calls.push("remove"),
     isAlive: (pid) => {
@@ -1865,7 +2191,7 @@ describe("installSignalHandlers", () => {
 });
 
 describe("terminateAfterSignal", () => {
-  it("prints the lines in order and calls the deps in the order stop, wait, remove, alive, home, exit", async () => {
+  it("prints the lines in order and calls the deps in the order stop, wait, alive check, remove, alive check, home, exit", async () => {
     await withScratchFolder((scratch) => {
       const present = join(scratch, "present");
       mkdirSync(present);
@@ -1892,6 +2218,8 @@ describe("terminateAfterSignal", () => {
         "stop:101",
         "stop:102",
         "wait:2000",
+        "alive:101",
+        "alive:102",
         "remove",
         "alive:101",
         "alive:102",
@@ -1899,6 +2227,47 @@ describe("terminateAfterSignal", () => {
         "exit:143",
       ]);
     });
+  });
+
+  it("kills a session that is still alive after the wait, before the fixtures are removed", () => {
+    let killedSession111 = false;
+    const [deps, record] = recordingSignalDeps({
+      runningPids: () => [111, 222],
+      killSession: (pid) => {
+        record.calls.push(`kill:${pid}`);
+        if (pid === 111) killedSession111 = true;
+      },
+      isAlive: (pid) => {
+        record.calls.push(`alive:${pid}`);
+        return pid === 111 && !killedSession111;
+      },
+    });
+
+    terminateAfterSignal("SIGTERM", 143, deps);
+
+    expect(record.calls).toEqual([
+      "stop:111",
+      "stop:222",
+      "wait:2000",
+      "alive:111",
+      "kill:111",
+      "alive:222",
+      "remove",
+      "alive:111",
+      "alive:222",
+      "home",
+      "exit:143",
+    ]);
+    expect(record.printed).toContain("POSTCHECK after signal: sessions still alive: []");
+  });
+
+  it("prints no snapshot when the home file check has no snapshot to compare with", () => {
+    const [deps, record] = recordingSignalDeps({ homeFileProblems: () => undefined });
+
+    terminateAfterSignal("SIGHUP", 129, deps);
+
+    expect(record.printed.at(-1)).toBe("POSTCHECK after signal: home file problems: no snapshot");
+    expect(record.calls.at(-1)).toBe("exit:129");
   });
 
   it("lists the sessions still alive, the fixtures still present and the home file problems", async () => {
@@ -1962,6 +2331,27 @@ describe("makeFixture", () => {
         '{"permissions":{"deny":[]}}\n',
       );
       expect(fixtureFolders()).toContain(folder);
+    });
+  });
+
+  it("ignores every GIT_ variable of the environment and makes its own .git folder", async () => {
+    await withTemporaryTmpdir((base) => {
+      const elsewhere = join(base, "elsewhere.git");
+      const originalGitDir = process.env.GIT_DIR;
+      const originalConfigCount = process.env.GIT_CONFIG_COUNT;
+      process.env.GIT_DIR = elsewhere;
+      process.env.GIT_CONFIG_COUNT = "1";
+      try {
+        const folder = makeFixture(undefined);
+
+        expect(existsSync(join(folder, ".git"))).toBe(true);
+        expect(existsSync(elsewhere)).toBe(false);
+      } finally {
+        if (originalGitDir === undefined) delete process.env.GIT_DIR;
+        else process.env.GIT_DIR = originalGitDir;
+        if (originalConfigCount === undefined) delete process.env.GIT_CONFIG_COUNT;
+        else process.env.GIT_CONFIG_COUNT = originalConfigCount;
+      }
     });
   });
 
@@ -2052,18 +2442,49 @@ describe("removeFixtureFolder", () => {
 const sleep = (milliseconds: number): Promise<void> =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
 
-const waitUntil = async (condition: () => boolean): Promise<void> => {
+const pollUntil = async (condition: () => boolean, limitMs: number): Promise<boolean> => {
   const startedAt = Date.now();
   while (!condition()) {
-    if (Date.now() - startedAt > 5_000) throw new Error("the condition was not met in time");
+    if (Date.now() - startedAt > limitMs) return false;
     await sleep(20);
   }
+  return true;
+};
+
+const waitUntil = async (condition: () => boolean): Promise<void> => {
+  if (!(await pollUntil(condition, 5_000))) throw new Error("the condition was not met in time");
 };
 
 const writeExecutable = (path: string, lines: string[]): void => {
   writeFileSync(path, `${lines.join("\n")}\n`);
   chmodSync(path, 0o755);
 };
+
+// A session that has exited is a zombie until its parent reaps it, so a zombie counts as gone.
+const processIsAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  const state = spawnSync("ps", ["-o", "state=", "-p", String(pid)], { encoding: "utf8" });
+  return !state.stdout.trim().startsWith("Z");
+};
+
+// The file is created empty before the pid is written, and pids 0 and 1 are never a stand-in.
+const readStandInPid = (pidFile: string): number | undefined => {
+  if (!existsSync(pidFile)) return undefined;
+  const pid = Number(readFileSync(pidFile, "utf8").trim());
+  return Number.isInteger(pid) && pid > 1 ? pid : undefined;
+};
+
+const killProcessIfAlive = (pid: number | undefined): void => {
+  if (pid !== undefined && processIsAlive(pid)) process.kill(pid, "SIGKILL");
+};
+
+// Sleeps one second at a time, so a killed stand-in leaves a sleep that ends within a second, and
+// stops by itself after a minute if a test is cut short before it can kill the stand-in.
+const SLEEP_ONE_SECOND_FOR_A_MINUTE = `for tick in ${Array.from({ length: 60 }, (_, index) => index + 1).join(" ")}; do sleep 1; done`;
 
 const sessionRequestAt = (logPrefix: string): Parameters<typeof runClaudeSession>[0] => ({
   caseId: "agent-poteto",
@@ -2254,6 +2675,333 @@ describe("runClaudeSession", () => {
       }
     });
   });
+
+  it("hands the session no GIT_ variable while the test environment holds GIT_DIR", async () => {
+    await withScratchFolder(async (scratch) => {
+      const originalGitDir = process.env.GIT_DIR;
+      process.env.GIT_DIR = join(scratch, "elsewhere.git");
+      try {
+        const namesFile = join(scratch, "git-names.txt");
+        const binary = join(scratch, "claude-standin.sh");
+        writeExecutable(binary, ["#!/bin/sh", `env | cut -d= -f1 | grep '^GIT_' > '${namesFile}'`]);
+        const logPrefix = join(scratch, "out.txt.agent-poteto.denied");
+
+        await runClaudeSession(sessionRequestAt(logPrefix), { claudeBinary: binary });
+
+        expect(readFileSync(namesFile, "utf8")).toBe("");
+        expect(existsSync(join(scratch, "elsewhere.git"))).toBe(false);
+      } finally {
+        if (originalGitDir === undefined) delete process.env.GIT_DIR;
+        else process.env.GIT_DIR = originalGitDir;
+        removeAllFixtures();
+      }
+    });
+  });
+
+  it("creates both log files readable and writable by their owner only", async () => {
+    await withScratchFolder(async (scratch) => {
+      try {
+        const binary = join(scratch, "claude-standin.sh");
+        writeExecutable(binary, ["#!/bin/sh", "echo out", "echo err 1>&2"]);
+        const logPrefix = join(scratch, "out.txt.agent-poteto.denied");
+
+        await runClaudeSession(sessionRequestAt(logPrefix), { claudeBinary: binary });
+
+        expect(statSync(`${logPrefix}.jsonl`).mode & 0o777).toBe(0o600);
+        expect(statSync(`${logPrefix}.stderr.txt`).mode & 0o777).toBe(0o600);
+      } finally {
+        removeAllFixtures();
+      }
+    });
+  });
+
+  it("rejects with the log write error, ends the session with SIGTERM and lists no pid", async () => {
+    await withScratchFolder(async (scratch) => {
+      const pidFile = join(scratch, "pid.txt");
+      try {
+        const binary = join(scratch, "claude-standin.sh");
+        writeExecutable(binary, [
+          "#!/bin/sh",
+          `echo "$$" > '${pidFile}'`,
+          "echo one output line",
+          SLEEP_ONE_SECOND_FOR_A_MINUTE,
+        ]);
+        const logPrefix = join(scratch, "out.txt.agent-poteto.denied");
+        const writeError = new Error("disk full");
+
+        await expect(
+          runClaudeSession(sessionRequestAt(logPrefix), {
+            claudeBinary: binary,
+            limitMs: 20_000,
+            appendLog: () => {
+              throw writeError;
+            },
+          }),
+        ).rejects.toBe(writeError);
+
+        const standInPid = readStandInPid(pidFile);
+        if (standInPid === undefined) throw new Error("the stand-in did not write its pid");
+        expect(processIsAlive(standInPid)).toBe(false);
+        expect(runningSessionPids()).toEqual([]);
+      } finally {
+        killProcessIfAlive(readStandInPid(pidFile));
+        removeAllFixtures();
+      }
+    });
+  }, 15_000);
+});
+
+// ---------------------------------------------------------------------------------------------
+// The script as a process, with a stand-in for `claude` first on PATH
+// ---------------------------------------------------------------------------------------------
+
+const PRODUCT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const SCRIPT_PATH = join(PRODUCT_ROOT, "scripts/lk/pstack-guard-proof.ts");
+const STAND_IN_VERSION = "stand-in 1.0";
+const PROCESS_TEST_TIMEOUT_MS = 60_000;
+const FIXTURE_PREFIX = "lk-pstack-guard-proof-";
+
+const STAND_IN_VERSION_LINES = [
+  "#!/bin/sh",
+  'if [ "$1" = "--version" ]; then',
+  `  echo "${STAND_IN_VERSION}"`,
+  "  exit 0",
+  "fi",
+];
+
+// Answers from the files that the test wrote: a refusal when the settings text of its working
+// directory holds the entry, an allowed call otherwise.
+const ANSWERING_STAND_IN_LINES = [
+  ...STAND_IN_VERSION_LINES,
+  'echo "$$" > "$STAND_IN_FOLDER/pid.txt"',
+  'case "$2" in',
+  '  *"Agent tool"*) kind=agent ;;',
+  "  *) kind=skill ;;",
+  "esac",
+  "if grep -q 'pstack:' .claude/settings.json; then",
+  '  cat "$STAND_IN_FOLDER/$kind-denied.jsonl"',
+  "else",
+  '  cat "$STAND_IN_FOLDER/$kind-allowed.jsonl"',
+  "fi",
+];
+
+// Ignores SIGTERM before it writes its pid, so only SIGKILL ends it.
+const LOOPING_STAND_IN_LINES = [
+  ...STAND_IN_VERSION_LINES,
+  "trap '' TERM",
+  'echo "$$" > "$STAND_IN_FOLDER/pid.txt"',
+  SLEEP_ONE_SECOND_FOR_A_MINUTE,
+];
+
+interface ProofProcessLayout {
+  binFolder: string;
+  homeFolder: string;
+  tmpFolder: string;
+  standInFolder: string;
+  pidFile: string;
+  docsFolder: string;
+  outPath: string;
+}
+
+const prepareProofProcessLayout = (base: string, standInLines: string[]): ProofProcessLayout => {
+  const layout: ProofProcessLayout = {
+    binFolder: join(base, "bin"),
+    homeFolder: join(base, "home"),
+    tmpFolder: join(base, "tmp"),
+    standInFolder: join(base, "stand-in"),
+    pidFile: join(base, "stand-in", "pid.txt"),
+    docsFolder: join(base, "docs"),
+    outPath: join(base, "out", "out.txt"),
+  };
+  for (const folder of [
+    layout.binFolder,
+    layout.homeFolder,
+    layout.tmpFolder,
+    layout.standInFolder,
+    dirname(layout.outPath),
+  ]) {
+    mkdirSync(folder);
+  }
+  writeDocsSettings(layout.docsFolder, settingsTextWith([AGENT_ENTRY, SKILL_ENTRY]));
+  writeExecutable(join(layout.binFolder, "claude"), standInLines);
+  writeFileSync(join(layout.standInFolder, "agent-denied.jsonl"), DENIED_AGENT_LOG);
+  writeFileSync(join(layout.standInFolder, "agent-allowed.jsonl"), ALLOWED_AGENT_LOG);
+  writeFileSync(join(layout.standInFolder, "skill-denied.jsonl"), DENIED_SKILL_LOG);
+  writeFileSync(join(layout.standInFolder, "skill-allowed.jsonl"), ALLOWED_SKILL_LOG);
+  return layout;
+};
+
+// The copy is for the child only: the test's own environment is never changed.
+const proofProcessEnvironment = (
+  layout: ProofProcessLayout,
+  docsRootValue: string,
+): NodeJS.ProcessEnv => ({
+  ...process.env,
+  PATH: `${layout.binFolder}:${process.env.PATH ?? ""}`,
+  HOME: layout.homeFolder,
+  TMPDIR: layout.tmpFolder,
+  DENY_PROOF_DOCS_ROOT: docsRootValue,
+  STAND_IN_FOLDER: layout.standInFolder,
+});
+
+// A real `claude` first on PATH would start real sessions, so the test stops before it starts the
+// script unless the stand-in answers `--version`.
+const expectStandInFirstOnPath = (environment: NodeJS.ProcessEnv): void => {
+  const result = spawnSync("claude", ["--version"], { env: environment, encoding: "utf8" });
+
+  expect(result.stdout.trim()).toBe(STAND_IN_VERSION);
+};
+
+interface ProofProcessExit {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+}
+
+interface ProofProcess {
+  child: ChildProcess;
+  closed: Promise<ProofProcessExit>;
+  output: () => { stdout: string; stderr: string };
+}
+
+const startProofProcess = (
+  layout: ProofProcessLayout,
+  environment: NodeJS.ProcessEnv,
+): ProofProcess => {
+  const child = spawn(process.execPath, ["--import", "tsx", SCRIPT_PATH, "--out", layout.outPath], {
+    cwd: PRODUCT_ROOT,
+    env: environment,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString("utf8");
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString("utf8");
+  });
+  const closed = new Promise<ProofProcessExit>((resolveClosed) => {
+    child.on("close", (code, signal) => resolveClosed({ code, signal }));
+  });
+  return { child, closed, output: () => ({ stdout, stderr }) };
+};
+
+// The script goes first, so it cannot start another stand-in once the last one is killed. The wait
+// is bounded because a stand-in that outlives the script keeps the output pipes open.
+const stopProofProcess = async (proof: ProofProcess, pidFile: string): Promise<void> => {
+  const scriptIsRunning = proof.child.exitCode === null && proof.child.signalCode === null;
+  if (scriptIsRunning) proof.child.kill("SIGKILL");
+  killProcessIfAlive(readStandInPid(pidFile));
+  await Promise.race([proof.closed, sleep(5_000)]);
+};
+
+const fixturesLeftIn = (tmpFolder: string): string[] =>
+  readdirSync(tmpFolder).filter((name) => name.startsWith(FIXTURE_PREFIX));
+
+describe("the script as a process", () => {
+  it(
+    "runs the whole proof through the entry point against a stand-in and passes",
+    async () => {
+      await withScratchFolder(async (base) => {
+        const layout = prepareProofProcessLayout(base, ANSWERING_STAND_IN_LINES);
+        const environment = proofProcessEnvironment(layout, layout.docsFolder);
+        expectStandInFirstOnPath(environment);
+        const proof = startProofProcess(layout, environment);
+        try {
+          const exit = await proof.closed;
+          const { stdout, stderr } = proof.output();
+          const lines = stdout.trimEnd().split("\n");
+
+          expect(exit, stderr).toEqual({ code: 0, signal: null });
+          expect(lines.at(-1)).toBe("pstack-guard-proof PASSED");
+          expect(lines).toContain("CASE agent-poteto");
+          expect(lines).toContain("CASE skill-setup");
+          expect(lines.filter((line) => line === "  verdict: PASS")).toHaveLength(2);
+          expect(lines).toContain(`claude: ${STAND_IN_VERSION}`);
+          expect(lines).toContain(
+            `docs settings: ${join(layout.docsFolder, ".claude/settings.json")}`,
+          );
+          expect(readFileSync(layout.outPath, "utf8")).toBe(stdout);
+          for (const name of [
+            "agent-poteto.denied",
+            "agent-poteto.control",
+            "skill-setup.denied",
+            "skill-setup.control",
+          ]) {
+            expect(existsSync(`${layout.outPath}.${name}.jsonl`), name).toBe(true);
+          }
+          expect(fixturesLeftIn(layout.tmpFolder)).toEqual([]);
+        } finally {
+          await stopProofProcess(proof, layout.pidFile);
+        }
+      });
+    },
+    PROCESS_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "stops, kills and cleans up after a SIGTERM and exits 143",
+    async () => {
+      await withScratchFolder(async (base) => {
+        const layout = prepareProofProcessLayout(base, LOOPING_STAND_IN_LINES);
+        const environment = proofProcessEnvironment(layout, layout.docsFolder);
+        expectStandInFirstOnPath(environment);
+        const proof = startProofProcess(layout, environment);
+        try {
+          const pidWritten = await pollUntil(
+            () => readStandInPid(layout.pidFile) !== undefined,
+            20_000,
+          );
+          const standInPid = readStandInPid(layout.pidFile);
+          if (!pidWritten || standInPid === undefined) {
+            throw new Error("the stand-in did not write its pid within 20 seconds");
+          }
+
+          proof.child.kill("SIGTERM");
+          const exit = await proof.closed;
+          const { stdout, stderr } = proof.output();
+          const lines = stdout.split("\n");
+
+          expect(exit, stderr).toEqual({ code: 143, signal: null });
+          expect(lines).toContain("SIGNAL SIGTERM: stopping 1 running session(s)");
+          expect(lines).toContain("POSTCHECK after signal: sessions still alive: []");
+          expect(lines).toContain("POSTCHECK after signal: fixtures still present: []");
+          const standInGone = await pollUntil(() => !processIsAlive(standInPid), 2_000);
+          expect(standInGone, "the stand-in survived the signal path").toBe(true);
+          expect(fixturesLeftIn(layout.tmpFolder)).toEqual([]);
+        } finally {
+          await stopProofProcess(proof, layout.pidFile);
+        }
+      });
+    },
+    PROCESS_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "reads the real docs settings file when DENY_PROOF_DOCS_ROOT is empty",
+    async () => {
+      await withScratchFolder(async (base) => {
+        const layout = prepareProofProcessLayout(base, ANSWERING_STAND_IN_LINES);
+        const environment = proofProcessEnvironment(layout, "");
+        expectStandInFirstOnPath(environment);
+        const proof = startProofProcess(layout, environment);
+        try {
+          const exit = await proof.closed;
+          const { stdout, stderr } = proof.output();
+          const lines = stdout.split("\n");
+
+          expect(lines).toContain("docs root override: none");
+          expect(lines).toContain(
+            `docs settings: ${join(PRODUCT_ROOT, "docs/.claude/settings.json")}`,
+          );
+          expect(exit, stderr).toEqual({ code: 0, signal: null });
+        } finally {
+          await stopProofProcess(proof, layout.pidFile);
+        }
+      });
+    },
+    PROCESS_TEST_TIMEOUT_MS,
+  );
 });
 
 // ---------------------------------------------------------------------------------------------

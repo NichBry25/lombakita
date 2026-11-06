@@ -1,5 +1,5 @@
 /**
- * Proves that the two pstack deny entries in the docs settings file still block a real session.
+ * Proves that the two deny entry strings, which the docs settings file must hold, block a session started in a throwaway folder.
  *
  * Run: node --import tsx scripts/lk/pstack-guard-proof.ts --out <file> [--case <id>]
  *
@@ -13,14 +13,16 @@
  * control call goes through, so an entry that was never exercised cannot pass. A model that never
  * makes the call is NOT ATTEMPTED, and a control run that does not go through is INVALID.
  *
- * A session holds only the Agent and Skill tools and no connector, and the tools that write a file
- * are disallowed. The setup skill writes two files under the home folder when it runs to the end;
+ * The main session holds only the Agent and Skill tools and no connector, the tools that write a
+ * file are disallowed, and a tool use of any other name in any event, a started agent's included,
+ * fails the case. The setup skill writes two files under the home folder when it runs to the end;
  * their hashes are taken before the first session and compared after the last.
  *
  * Every refusal runs before the `--out` file exists and before any session starts. The fixture
  * folders are removed in a `finally` and in the signal path, and what survived is asserted.
  *
  * Each session leaves a transcript folder under ~/.claude/projects, an entry in ~/.claude.json and runs the user-level hooks. None of these is removed here.
+ * The SIGNAL and POSTCHECK lines of the signal path go to the console only.
  *
  * Nothing here is a *.test.ts, so `npm run test` never starts a model.
  */
@@ -36,6 +38,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -51,11 +54,13 @@ const CLAUDE_BINARY = "claude";
 const SESSION_LIMIT_MS = 300_000;
 const KILL_GRACE_MS = 15_000;
 const SIGNAL_STOP_WAIT_MS = 2_000;
+const VERSION_TIMEOUT_MS = 10_000;
+const LOG_FILE_MODE = 0o600;
 const SESSION_TOOLS = "Agent,Skill";
+const SESSION_TOOL_NAMES = SESSION_TOOLS.split(",");
 const DISALLOWED_TOOLS = "Write,Edit,MultiEdit,NotebookEdit,Bash";
 const MAX_TURNS = "6";
 const HOME_FILES = [".claude/rules/pstack-models.md", ".cursor/rules/pstack-models.mdc"] as const;
-const GIT_LOCATION_VARIABLES = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"] as const;
 const TERMINATION_SIGNALS = [
   ["SIGINT", 130],
   ["SIGTERM", 143],
@@ -81,7 +86,6 @@ interface ProofCase {
 
 interface ModelCall {
   id: string;
-  input: Record<string, unknown>;
 }
 
 interface CallResult {
@@ -117,6 +121,7 @@ interface SessionOptions {
   claudeBinary?: string;
   limitMs?: number;
   killGraceMs?: number;
+  appendLog?: (path: string, chunk: Buffer) => void;
 }
 
 interface SessionResult {
@@ -126,11 +131,37 @@ interface SessionResult {
 
 type RunSession = (request: CaseSessionRequest) => Promise<SessionResult>;
 
+interface ForeignToolUse {
+  denied: string[];
+  control: string[];
+}
+
+interface DeniedRun {
+  judgment: DeniedJudgment;
+  foreign: string[];
+}
+
+interface ControlRun {
+  judgment: ControlJudgment;
+  foreign: string[];
+}
+
 interface CaseReport {
   id: string;
   retried: boolean;
   denied: DeniedJudgment | undefined;
+  deniedForeign: string[];
   control: ControlJudgment | undefined;
+  controlForeign: string[];
+  error: string | undefined;
+  verdict: Verdict;
+}
+
+interface CaseReportParts {
+  id: string;
+  retried: boolean;
+  denied: DeniedRun | undefined;
+  control: ControlRun | undefined;
   error: string | undefined;
   verdict: Verdict;
 }
@@ -151,10 +182,11 @@ interface SignalDeps {
   runningPids: () => number[];
   stopSession: (pid: number) => void;
   wait: (milliseconds: number) => void;
+  killSession: (pid: number) => void;
   fixtureFolders: () => string[];
   removeFixtures: () => void;
   isAlive: (pid: number) => boolean;
-  homeFileProblems: () => string[];
+  homeFileProblems: () => string[] | undefined;
   print: (line: string) => void;
   exit: (code: number) => void;
 }
@@ -245,10 +277,13 @@ export const fixtureFolders = (): string[] => [...fixtureFolderList];
 
 export const runningSessionPids = (): number[] => [...runningPids];
 
-// An inherited GIT_DIR, for one, would make `git init` write into that repository.
+// An inherited GIT_DIR would make `git init` write into another repository, and GIT_CONFIG_COUNT
+// would change what every git command reads, so no GIT_ variable reaches git or a session.
 const gitEnvironment = (): NodeJS.ProcessEnv => {
   const environment = { ...process.env };
-  for (const name of GIT_LOCATION_VARIABLES) delete environment[name];
+  for (const name of Object.keys(environment)) {
+    if (name.startsWith("GIT_")) delete environment[name];
+  }
   return environment;
 };
 
@@ -287,16 +322,17 @@ export const removeFixtureFolder = (folder: string): void => {
   rmSync(folder, { recursive: true, force: true });
 };
 
-const createEmptyFileExclusively = (path: string): void => {
-  writeFileSync(path, "", { flag: "wx" });
+const createEmptyFileExclusively = (path: string, mode?: number): void => {
+  writeFileSync(path, "", { flag: "wx", mode });
 };
 
+// A transcript can hold whatever a session printed, so only its owner may read the log files.
 const createSessionLogFiles = (logPrefix: string): { jsonlPath: string; stderrPath: string } => {
   const jsonlPath = `${logPrefix}.jsonl`;
   const stderrPath = `${logPrefix}.stderr.txt`;
-  createEmptyFileExclusively(jsonlPath);
+  createEmptyFileExclusively(jsonlPath, LOG_FILE_MODE);
   try {
-    createEmptyFileExclusively(stderrPath);
+    createEmptyFileExclusively(stderrPath, LOG_FILE_MODE);
   } catch (error) {
     rmSync(jsonlPath);
     throw error;
@@ -311,28 +347,46 @@ export const runClaudeSession = async (
   const claudeBinary = options.claudeBinary ?? CLAUDE_BINARY;
   const limitMs = options.limitMs ?? SESSION_LIMIT_MS;
   const killGraceMs = options.killGraceMs ?? KILL_GRACE_MS;
+  const appendLog = options.appendLog ?? appendFileSync;
   const { jsonlPath, stderrPath } = createSessionLogFiles(request.logPrefix);
   const fixture = makeFixture(request.entry);
   const child = spawn(claudeBinary, buildSessionArguments(request.prompt, request.model), {
     cwd: fixture,
-    env: process.env,
+    env: gitEnvironment(),
     stdio: ["ignore", "pipe", "pipe"],
   });
   const pid = child.pid;
   if (pid !== undefined) runningPids.add(pid);
   const stdoutChunks: Buffer[] = [];
+  let limitReached = false;
+  let terminationStarted = false;
+  let killTimer: NodeJS.Timeout | undefined;
+  let logFailure: { error: unknown } | undefined;
+  const terminateWithGrace = (): void => {
+    if (terminationStarted) return;
+    terminationStarted = true;
+    child.kill("SIGTERM");
+    killTimer = setTimeout(() => child.kill("SIGKILL"), killGraceMs);
+  };
+  // A log that cannot be written leaves a session nobody can read, so the session is ended and the
+  // first write error is what the call rejects with once the process has closed.
+  const appendLogOrTerminate = (path: string, chunk: Buffer): void => {
+    try {
+      appendLog(path, chunk);
+    } catch (error) {
+      logFailure ??= { error };
+      terminateWithGrace();
+    }
+  };
   child.stdout.on("data", (chunk: Buffer) => {
-    appendFileSync(jsonlPath, chunk);
     stdoutChunks.push(chunk);
+    appendLogOrTerminate(jsonlPath, chunk);
   });
-  child.stderr.on("data", (chunk: Buffer) => appendFileSync(stderrPath, chunk));
+  child.stderr.on("data", (chunk: Buffer) => appendLogOrTerminate(stderrPath, chunk));
   const timedOut = await new Promise<boolean>((resolveRun, rejectRun) => {
-    let limitReached = false;
-    let killTimer: NodeJS.Timeout | undefined;
     const limitTimer = setTimeout(() => {
       limitReached = true;
-      child.kill("SIGTERM");
-      killTimer = setTimeout(() => child.kill("SIGKILL"), killGraceMs);
+      terminateWithGrace();
     }, limitMs);
     const stopWaiting = (): void => {
       clearTimeout(limitTimer);
@@ -350,6 +404,7 @@ export const runClaudeSession = async (
       resolveRun(limitReached);
     });
   });
+  if (logFailure !== undefined) throw logFailure.error;
   return { timedOut, log: Buffer.concat(stdoutChunks).toString("utf8") };
 };
 
@@ -399,7 +454,7 @@ const asModelCall = (block: unknown, testCase: ProofCase): ModelCall | undefined
   }
   if (typeof block.id !== "string" || !isRecord(block.input)) return undefined;
   if (block.input[testCase.targetField] !== testCase.target) return undefined;
-  return { id: block.id, input: block.input };
+  return { id: block.id };
 };
 
 export const findModelCall = (
@@ -438,6 +493,26 @@ export const findCallResult = (
   return undefined;
 };
 
+const foreignToolNameOf = (block: unknown): string | undefined => {
+  if (!isRecord(block) || block.type !== "tool_use") return undefined;
+  if (typeof block.name !== "string" || SESSION_TOOL_NAMES.includes(block.name)) return undefined;
+  return block.name;
+};
+
+// Every thread counts here, a started agent's included: the tool limit of the session is what keeps
+// a started agent from writing a file or reaching a connector, and a name outside it breaks that.
+export const foreignToolNames = (events: readonly SessionEvent[]): string[] => {
+  const names: string[] = [];
+  for (const event of events) {
+    if (event.type !== "assistant") continue;
+    for (const block of contentBlocksOf(event)) {
+      const name = foreignToolNameOf(block);
+      if (name !== undefined && !names.includes(name)) names.push(name);
+    }
+  }
+  return names;
+};
+
 const attemptedCallAndResult = (
   events: readonly SessionEvent[],
   testCase: ProofCase,
@@ -471,10 +546,14 @@ export const judgeControlRun = (
   return { attempted, allowed, timedOut };
 };
 
+const NO_FOREIGN_TOOL_USE: ForeignToolUse = { denied: [], control: [] };
+
 export const verdictOf = (
   denied: DeniedJudgment,
   control: ControlJudgment | undefined,
+  foreign: ForeignToolUse = NO_FOREIGN_TOOL_USE,
 ): Verdict => {
+  if (foreign.denied.length > 0 || foreign.control.length > 0) return "FAIL";
   if (denied.timedOut) return "FAIL";
   if (!denied.attempted) return "NOT ATTEMPTED";
   if (!denied.refused) return "FAIL";
@@ -499,72 +578,89 @@ const runDeniedSession = async (
   testCase: ProofCase,
   runSession: RunSession,
   run: "denied" | "denied-retry",
-): Promise<DeniedJudgment> => {
+): Promise<DeniedRun> => {
   const { timedOut, log } = await runSession(sessionRequestFor(testCase, run));
-  return judgeDeniedRun(parseSessionLog(log), testCase, timedOut);
+  const events = parseSessionLog(log);
+  return {
+    judgment: judgeDeniedRun(events, testCase, timedOut),
+    foreign: foreignToolNames(events),
+  };
 };
 
 const runControlSession = async (
   testCase: ProofCase,
   runSession: RunSession,
-): Promise<ControlJudgment> => {
+): Promise<ControlRun> => {
   const { timedOut, log } = await runSession(sessionRequestFor(testCase, "control"));
-  return judgeControlRun(parseSessionLog(log), testCase, timedOut);
+  const events = parseSessionLog(log);
+  return {
+    judgment: judgeControlRun(events, testCase, timedOut),
+    foreign: foreignToolNames(events),
+  };
 };
 
+const deniedSidePassed = (denied: DeniedJudgment, deniedForeign: readonly string[]): boolean =>
+  denied.attempted && denied.refused && !denied.timedOut && deniedForeign.length === 0;
+
+// A run that made no call is tried once more, unless it already broke the tool limit or timed out.
+const shouldRetryDeniedRun = (denied: DeniedRun): boolean =>
+  !denied.judgment.attempted && !denied.judgment.timedOut && denied.foreign.length === 0;
+
+const buildCaseReport = (parts: CaseReportParts): CaseReport => ({
+  id: parts.id,
+  retried: parts.retried,
+  denied: parts.denied?.judgment,
+  deniedForeign: parts.denied?.foreign ?? [],
+  control: parts.control?.judgment,
+  controlForeign: parts.control?.foreign ?? [],
+  error: parts.error,
+  verdict: parts.verdict,
+});
+
 export const runCase = async (testCase: ProofCase, runSession: RunSession): Promise<CaseReport> => {
+  const id = testCase.id;
   let retried = false;
-  let denied: DeniedJudgment;
+  let denied: DeniedRun;
   try {
     denied = await runDeniedSession(testCase, runSession, "denied");
-    if (!denied.timedOut && !denied.attempted) {
+    if (shouldRetryDeniedRun(denied)) {
       retried = true;
       denied = await runDeniedSession(testCase, runSession, "denied-retry");
     }
   } catch (error) {
     const message = messageOnOneLine(error);
-    return {
-      id: testCase.id,
+    return buildCaseReport({
+      id,
       retried,
       denied: undefined,
       control: undefined,
       error: message,
       verdict: "FAIL",
-    };
+    });
   }
-  const deniedSideVerdict = verdictOf(denied, undefined);
-  if (deniedSideVerdict !== "INVALID") {
-    return {
-      id: testCase.id,
-      retried,
-      denied,
-      control: undefined,
-      error: undefined,
-      verdict: deniedSideVerdict,
-    };
+  if (!deniedSidePassed(denied.judgment, denied.foreign)) {
+    const verdict = verdictOf(denied.judgment, undefined, { denied: denied.foreign, control: [] });
+    return buildCaseReport({ id, retried, denied, control: undefined, error: undefined, verdict });
   }
-  let control: ControlJudgment;
+  let control: ControlRun;
   try {
     control = await runControlSession(testCase, runSession);
   } catch (error) {
     const message = messageOnOneLine(error);
-    return {
-      id: testCase.id,
+    return buildCaseReport({
+      id,
       retried,
       denied,
       control: undefined,
       error: message,
       verdict: "INVALID",
-    };
+    });
   }
-  return {
-    id: testCase.id,
-    retried,
-    denied,
-    control,
-    error: undefined,
-    verdict: verdictOf(denied, control),
-  };
+  const verdict = verdictOf(denied.judgment, control.judgment, {
+    denied: denied.foreign,
+    control: control.foreign,
+  });
+  return buildCaseReport({ id, retried, denied, control, error: undefined, verdict });
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -580,6 +676,9 @@ const controlLineOf = (report: CaseReport): string => {
   return controlThrew ? "  control run: error" : "  control run: not started";
 };
 
+const foreignLinesOf = (run: "denied" | "control", names: readonly string[]): string[] =>
+  names.length === 0 ? [] : [`  ${run} run foreign tool use: ${names.join(", ")}`];
+
 export const formatCase = (report: CaseReport): string[] => {
   const lines = [`CASE ${report.id}`];
   if (report.retried) lines.push("  denied run retried: the model did not attempt the call");
@@ -589,7 +688,9 @@ export const formatCase = (report: CaseReport): string[] => {
     const { attempted, refused, timedOut } = report.denied;
     lines.push(`  denied run: attempted=${attempted} refused=${refused} timed_out=${timedOut}`);
   }
+  lines.push(...foreignLinesOf("denied", report.deniedForeign));
   lines.push(controlLineOf(report));
+  lines.push(...foreignLinesOf("control", report.controlForeign));
   if (report.error !== undefined) lines.push(`  error: ${report.error}`);
   lines.push(`  verdict: ${report.verdict}`);
   return lines;
@@ -667,11 +768,13 @@ export const homeFileProblems = (before: HomeSnapshot, after: HomeSnapshot): str
     return change === undefined ? [] : [`POSTCHECK FAILED: ${previous.path} ${change}`];
   });
 
+// Set by `main` before the first session and cleared when `main` ends, so a signal that arrives with
+// no run in progress has no snapshot to compare against.
 let homeSnapshotBeforeSessions: HomeSnapshot | undefined;
 
-const homeProblemsSinceSnapshot = (homeFolder: string): string[] =>
+const homeProblemsSinceSnapshot = (homeFolder: string): string[] | undefined =>
   homeSnapshotBeforeSessions === undefined
-    ? []
+    ? undefined
     : homeFileProblems(homeSnapshotBeforeSessions, snapshotHomeFiles(homeFolder));
 
 // ---------------------------------------------------------------------------------------------
@@ -694,13 +797,17 @@ const isAlive = (pid: number): boolean => {
   return !state.stdout.trim().startsWith("Z");
 };
 
-const stopSessionByPid = (pid: number): void => {
+const signalSession = (pid: number, signal: "SIGTERM" | "SIGKILL"): void => {
   try {
-    process.kill(pid, "SIGTERM");
+    process.kill(pid, signal);
   } catch {
-    // A session that has already ended needs no stop.
+    // A session that has already ended needs no signal; a survivor shows in the alive check.
   }
 };
+
+const stopSessionByPid = (pid: number): void => signalSession(pid, "SIGTERM");
+
+const killSessionByPid = (pid: number): void => signalSession(pid, "SIGKILL");
 
 const removeFixtureFolders = (removeFolder: (folder: string) => void): void => {
   for (const folder of fixtureFolders()) {
@@ -715,13 +822,16 @@ const removeFixtureFolders = (removeFolder: (folder: string) => void): void => {
 const existingFolders = (folders: readonly string[]): string[] =>
   folders.filter((folder) => existsSync(folder));
 
-// The sessions are told to stop and given a moment to exit before their fixtures go, so nothing is
-// still writing into a folder that is being removed.
+// The sessions are told to stop and given a moment to exit, and one that is still alive is killed,
+// before their fixtures go, so nothing is still writing into a folder that is being removed.
 export const terminateAfterSignal = (signal: string, exitCode: number, deps: SignalDeps): void => {
   const stoppedPids = deps.runningPids();
   deps.print(`SIGNAL ${signal}: stopping ${stoppedPids.length} running session(s)`);
   for (const pid of stoppedPids) deps.stopSession(pid);
   deps.wait(SIGNAL_STOP_WAIT_MS);
+  for (const pid of stoppedPids) {
+    if (deps.isAlive(pid)) deps.killSession(pid);
+  }
   const fixturesInPlace = existingFolders(deps.fixtureFolders()).length;
   deps.print(
     `SIGNAL: ${stoppedPids.length} session(s) told to stop, ${fixturesInPlace} fixture(s) still in place`,
@@ -733,7 +843,9 @@ export const terminateAfterSignal = (signal: string, exitCode: number, deps: Sig
   const stillPresent = existingFolders(deps.fixtureFolders());
   deps.print(`POSTCHECK after signal: fixtures still present: ${JSON.stringify(stillPresent)}`);
   const homeProblems = deps.homeFileProblems();
-  deps.print(`POSTCHECK after signal: home file problems: ${JSON.stringify(homeProblems)}`);
+  const homeProblemsText =
+    homeProblems === undefined ? "no snapshot" : JSON.stringify(homeProblems);
+  deps.print(`POSTCHECK after signal: home file problems: ${homeProblemsText}`);
   deps.exit(exitCode);
 };
 
@@ -751,6 +863,15 @@ const pathExists = (path: string): boolean => {
   try {
     lstatSync(path);
     return true;
+  } catch (error) {
+    if (!isAbsentError(error)) throw error;
+    return false;
+  }
+};
+
+const isExistingDirectory = (path: string): boolean => {
+  try {
+    return statSync(path).isDirectory();
   } catch (error) {
     if (!isAbsentError(error)) throw error;
     return false;
@@ -778,7 +899,7 @@ const planProof = (argv: string[], deps: MainDeps): ProofPlan => {
   const outPath = resolve(out);
   if (pathExists(outPath)) refuse(`--out names a path that exists: ${outPath}`);
   const outParent = dirname(outPath);
-  if (!existsSync(outParent)) refuse(`--out parent folder does not exist: ${outParent}`);
+  if (!isExistingDirectory(outParent)) refuse(`--out parent folder does not exist: ${outParent}`);
   const settingsPath = readDocsEntries(
     deps.docsRoot,
     cases.map((testCase) => testCase.entry),
@@ -787,12 +908,16 @@ const planProof = (argv: string[], deps: MainDeps): ProofPlan => {
   return { cases, outPath, settingsPath, model };
 };
 
+// An empty value counts as unset, as it does in a shell line that clears the variable.
+const docsRootOverrideOf = (value: string | undefined): string | undefined =>
+  value === "" ? undefined : value;
+
 const headerLines = (plan: ProofPlan, deps: MainDeps): string[] => [
   `pstack-guard-proof started ${deps.now().toISOString()}`,
   `claude: ${deps.readClaudeVersion()}`,
   `model: ${plan.model}`,
   `docs settings: ${plan.settingsPath}`,
-  `docs root override: ${deps.environment.DENY_PROOF_DOCS_ROOT ?? "none"}`,
+  `docs root override: ${docsRootOverrideOf(deps.environment.DENY_PROOF_DOCS_ROOT) ?? "none"}`,
 ];
 
 const runSelectedCases = async (
@@ -857,6 +982,7 @@ export const main = async (argv: string[], deps: MainDeps): Promise<number> => {
     failureExitCode = exitCodeAfterFailure(error, deps);
   } finally {
     postcheckLines = postcheckLinesAfterRun(deps, homeBefore);
+    homeSnapshotBeforeSessions = undefined;
     for (const line of postcheckLines) emit(line);
   }
   if (failureExitCode !== undefined) return failureExitCode;
@@ -870,7 +996,11 @@ export const main = async (argv: string[], deps: MainDeps): Promise<number> => {
 // ---------------------------------------------------------------------------------------------
 
 const readClaudeVersion = (): string => {
-  const result = spawnSync(CLAUDE_BINARY, ["--version"], { cwd: PRODUCT_ROOT, encoding: "utf8" });
+  const result = spawnSync(CLAUDE_BINARY, ["--version"], {
+    cwd: PRODUCT_ROOT,
+    encoding: "utf8",
+    timeout: VERSION_TIMEOUT_MS,
+  });
   if (result.error !== undefined || result.status !== 0) return "unknown";
   const firstLine = result.stdout.split("\n")[0]?.trim() ?? "";
   return firstLine === "" ? "unknown" : firstLine;
@@ -880,6 +1010,7 @@ const buildSignalDeps = (homeFolder: string): SignalDeps => ({
   runningPids: runningSessionPids,
   stopSession: stopSessionByPid,
   wait: waitMilliseconds,
+  killSession: killSessionByPid,
   fixtureFolders,
   removeFixtures: () => removeFixtureFolders(removeFixtureFolder),
   isAlive,
@@ -890,11 +1021,12 @@ const buildSignalDeps = (homeFolder: string): SignalDeps => ({
 
 const runAsScript = (): void => {
   const homeFolder = homedir();
+  // The variable deny-proof.ts uses to point at a synthetic docs folder. A real run leaves it unset.
   const environment = { DENY_PROOF_DOCS_ROOT: process.env.DENY_PROOF_DOCS_ROOT };
   const deps: MainDeps = {
     runSession: (request) => runClaudeSession(request),
     removeFixtureFolder,
-    docsRoot: environment.DENY_PROOF_DOCS_ROOT ?? join(PRODUCT_ROOT, "docs"),
+    docsRoot: docsRootOverrideOf(environment.DENY_PROOF_DOCS_ROOT) ?? join(PRODUCT_ROOT, "docs"),
     homeFolder,
     modelsFile: MODELS_FILE,
     print: (line) => console.log(line),
