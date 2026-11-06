@@ -27,6 +27,7 @@ import {
   buildCheckInputs,
   checkBoundary,
   checkDeny,
+  checkFlag,
   checkLeak,
   checkMode,
   countFailedChecks,
@@ -321,6 +322,23 @@ describe("flag", () => {
       "skill is model-invocable and not disabled: zeta",
     ]);
   });
+
+  it("sorts its lines by text whatever the order of the installed skills", () => {
+    const installed = {
+      skills: [
+        { name: "zeta", modelInvocable: true },
+        { name: "mu", modelInvocable: true },
+        { name: "alpha", modelInvocable: true },
+      ],
+      agents: [],
+    };
+
+    expect(checkFlag([], installed)).toEqual([
+      "skill is model-invocable and not disabled: alpha",
+      "skill is model-invocable and not disabled: mu",
+      "skill is model-invocable and not disabled: zeta",
+    ]);
+  });
 });
 
 describe("deny", () => {
@@ -413,14 +431,58 @@ describe("pairings", () => {
   });
 });
 
+describe("the folder read", () => {
+  const byName = (left: { name: string }, right: { name: string }): number =>
+    left.name < right.name ? -1 : 1;
+
+  it("returns the files of a nested folder, each named by its path below the folder", () => {
+    const fixture = makeFixture({
+      productFiles: {
+        "docs/.claude/agents/sub/deep.md": "deep agent\n",
+        "docs/.claude/agents/sub/inner/deeper.txt": "deeper text\n",
+        "docs/.claude/commands/sub/second/third.md": "third level\n",
+      },
+    });
+    const { agentFiles, commandFiles } = readInputs(fixture.productRoot);
+
+    expect([...agentFiles].sort(byName)).toEqual([
+      { name: "agent-one.md", text: "agent\n" },
+      { name: "sub/deep.md", text: "deep agent\n" },
+      { name: "sub/inner/deeper.txt", text: "deeper text\n" },
+    ]);
+    expect([...commandFiles].sort(byName)).toEqual([
+      { name: "cmd-one.md", text: "command\n" },
+      { name: "sub/second/third.md", text: "third level\n" },
+    ]);
+  });
+});
+
 describe("boundary", () => {
-  it("passes when the word is in a file that is not .md or in a subfolder, which are not read", () => {
+  it("names a file that is not .md and a file in a subfolder, in both folders", () => {
     const fixture = makeFixture({
       productFiles: {
         "docs/.claude/agents/notes.txt": "pstack in a text file\n",
         "docs/.claude/agents/sub/deep.md": "pstack in a subfolder\n",
         "docs/.claude/commands/notes.txt": "pstack in a text file\n",
         "docs/.claude/commands/sub/deep.md": "pstack in a subfolder\n",
+      },
+    });
+
+    expect(failuresOf(fixture, "boundary")).toEqual([
+      "docs/.claude/agents/notes.txt names pstack",
+      "docs/.claude/agents/sub/deep.md names pstack",
+      "docs/.claude/commands/notes.txt names pstack",
+      "docs/.claude/commands/sub/deep.md names pstack",
+    ]);
+  });
+
+  it("passes when a nested file and a file that is not .md hold no word", () => {
+    const fixture = makeFixture({
+      productFiles: {
+        "docs/.claude/agents/notes.txt": "a plain text file\n",
+        "docs/.claude/agents/sub/deep.md": "a nested agent\n",
+        "docs/.claude/commands/notes.txt": "a plain text file\n",
+        "docs/.claude/commands/sub/deep.md": "a nested command\n",
       },
     });
 
@@ -432,14 +494,30 @@ describe("boundary", () => {
       productFiles: {
         "docs/.claude/agents/agent-two.md": "This agent writes PSTACK once.\n",
         "docs/.claude/commands/cmd-two.md": "A Pstack mention.\n",
-        "docs/.claude/agents/notes.txt": "pstack in a text file\n",
-        "docs/.claude/agents/sub/deep.md": "pstack in a subfolder\n",
       },
     });
 
     expect(failuresOf(fixture, "boundary")).toEqual([
       "docs/.claude/agents/agent-two.md names pstack",
       "docs/.claude/commands/cmd-two.md names pstack",
+    ]);
+  });
+
+  it("sorts its lines by text whatever the order of the files it is given", () => {
+    const agentFiles = [
+      { name: "sub/b.md", text: "pstack\n" },
+      { name: "a.md", text: "pstack\n" },
+    ];
+    const commandFiles = [
+      { name: "d.md", text: "pstack\n" },
+      { name: "c.md", text: "pstack\n" },
+    ];
+
+    expect(checkBoundary(agentFiles, commandFiles)).toEqual([
+      "docs/.claude/agents/a.md names pstack",
+      "docs/.claude/agents/sub/b.md names pstack",
+      "docs/.claude/commands/c.md names pstack",
+      "docs/.claude/commands/d.md names pstack",
     ]);
   });
 });
@@ -633,6 +711,18 @@ describe("refusals of the installed copy and the inputs", () => {
 
     expect(refusalOf(() => readInputs(fixture.productRoot))).toBe(
       "entry that is neither a regular file nor a folder: docs/.claude/agents/linked.md",
+    );
+  });
+
+  it("refuses a symbolic link at the second depth of the agents folder", () => {
+    const fixture = makeFixture({
+      productFiles: { "docs/.claude/agents/sub/real.md": "a real file\n" },
+    });
+    const subFolder = join(fixture.productRoot, "docs/.claude/agents/sub");
+    symlinkSync(join(subFolder, "real.md"), join(subFolder, "linked.md"));
+
+    expect(refusalOf(() => readInputs(fixture.productRoot))).toBe(
+      "entry that is neither a regular file nor a folder: docs/.claude/agents/sub/linked.md",
     );
   });
 

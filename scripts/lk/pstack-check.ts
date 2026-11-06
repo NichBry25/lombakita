@@ -335,7 +335,7 @@ export const parseSettingsDeny = (settingsText: string): string[] => {
 // The inputs
 // ---------------------------------------------------------------------------------------------
 
-export interface MarkdownFile {
+export interface FolderFile {
   name: string;
   text: string;
 }
@@ -346,8 +346,8 @@ export interface RawInputs {
   settingsText: string;
   modeText: string;
   claudeText: string;
-  agentFiles: MarkdownFile[];
-  commandFiles: MarkdownFile[];
+  agentFiles: FolderFile[];
+  commandFiles: FolderFile[];
 }
 
 function readInputFile(productRoot: string, relativePath: string): string {
@@ -359,8 +359,13 @@ function readInputFile(productRoot: string, relativePath: string): string {
   }
 }
 
-/** The `.md` files directly in a folder. Other files and subfolders are not read. */
-function readMarkdownFiles(productRoot: string, relativeFolder: string): MarkdownFile[] {
+/**
+ * Every regular file at any depth below a folder, whatever its name. The boundary is that the word
+ * never appears in any file of the two folders, so no file may go unread, and an entry that is
+ * neither a regular file nor a folder is refused because it cannot be classified. The name of a file
+ * is its path below the folder, with `/` between the parts.
+ */
+function readFolderFiles(productRoot: string, relativeFolder: string): FolderFile[] {
   let entries: Dirent[];
   try {
     entries = readdirSync(join(productRoot, relativeFolder), { withFileTypes: true });
@@ -368,16 +373,26 @@ function readMarkdownFiles(productRoot: string, relativeFolder: string): Markdow
     if (isAbsent(error)) return refuse(`input file missing: ${relativeFolder}`);
     throw error;
   }
+  return readFilesBelow(productRoot, relativeFolder, entries);
+}
+
+/** Names are relative to `relativeDir`, which is itself relative to the product root. */
+function readFilesBelow(
+  productRoot: string,
+  relativeDir: string,
+  entries: readonly Dirent[],
+): FolderFile[] {
   return entries.flatMap((entry) => {
-    if (entry.isDirectory()) return [];
-    if (!entry.isFile()) {
-      return refuse(
-        `entry that is neither a regular file nor a folder: ${relativeFolder}/${entry.name}`,
-      );
+    const relativePath = `${relativeDir}/${entry.name}`;
+    if (entry.isDirectory()) {
+      const nestedEntries = readdirSync(join(productRoot, relativePath), { withFileTypes: true });
+      const nestedFiles = readFilesBelow(productRoot, relativePath, nestedEntries);
+      return nestedFiles.map((file) => ({ name: `${entry.name}/${file.name}`, text: file.text }));
     }
-    if (!entry.name.endsWith(".md")) return [];
-    const text = readFileSync(join(productRoot, relativeFolder, entry.name), "utf8");
-    return [{ name: entry.name, text }];
+    if (!entry.isFile()) {
+      return refuse(`entry that is neither a regular file nor a folder: ${relativePath}`);
+    }
+    return [{ name: entry.name, text: readFileSync(join(productRoot, relativePath), "utf8") }];
   });
 }
 
@@ -387,8 +402,8 @@ export const readInputs = (productRoot: string): RawInputs => ({
   settingsText: readInputFile(productRoot, SETTINGS_PATH),
   modeText: readInputFile(productRoot, MODE_PATH),
   claudeText: readInputFile(productRoot, CLAUDE_PATH),
-  agentFiles: readMarkdownFiles(productRoot, FOLDER_PATHS.agents),
-  commandFiles: readMarkdownFiles(productRoot, FOLDER_PATHS.commands),
+  agentFiles: readFolderFiles(productRoot, FOLDER_PATHS.agents),
+  commandFiles: readFolderFiles(productRoot, FOLDER_PATHS.commands),
 });
 
 /** The top-level numbered lines of the rule list, as digit strings in file order. */
@@ -412,12 +427,15 @@ export interface CheckInputs {
   installed: InstalledItems;
   modeText: string;
   ruleNumbers: string[];
-  agentFiles: MarkdownFile[];
-  commandFiles: MarkdownFile[];
+  agentFiles: FolderFile[];
+  commandFiles: FolderFile[];
   homeFolder: string;
 }
 
-/** Parses everything the seven checks read, in the order a refusal is listed. */
+/**
+ * Parses the files the checks read, in the order a refusal is listed. It also reads the installed
+ * plugin folder from disk, so it is not a function of `raw` alone.
+ */
 export const buildCheckInputs = (
   raw: RawInputs,
   installedPath: string,
@@ -491,7 +509,7 @@ const firstPairingFailure = (
   pairing: Pairing,
   items: readonly ConfigItem[],
   installed: InstalledItems,
-  agentFiles: readonly MarkdownFile[],
+  agentFiles: readonly FolderFile[],
 ): string | undefined => {
   if (!agentFiles.some((file) => file.name === `${pairing.agent}.md`)) {
     return `paired agent does not exist: ${pairing.agent}`;
@@ -510,18 +528,18 @@ export const checkPairings = (
   pairings: readonly Pairing[],
   items: readonly ConfigItem[],
   installed: InstalledItems,
-  agentFiles: readonly MarkdownFile[],
+  agentFiles: readonly FolderFile[],
 ): string[] =>
   pairings.flatMap((pairing) => {
     const failure = firstPairingFailure(pairing, items, installed, agentFiles);
     return failure === undefined ? [] : [failure];
   });
 
-const namesPstack = (file: MarkdownFile): boolean => file.text.toLowerCase().includes("pstack");
+const namesPstack = (file: FolderFile): boolean => file.text.toLowerCase().includes("pstack");
 
 export const checkBoundary = (
-  agentFiles: readonly MarkdownFile[],
-  commandFiles: readonly MarkdownFile[],
+  agentFiles: readonly FolderFile[],
+  commandFiles: readonly FolderFile[],
 ): string[] => {
   const namingAgents = agentFiles.filter(namesPstack);
   const namingCommands = commandFiles.filter(namesPstack);
