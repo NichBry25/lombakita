@@ -3,13 +3,13 @@
 /**
  * The pstack check.
  *
- * Every fixture is synthetic: a register, a lock, a mode, a rule list, an installed copy and a home
- * folder written under a temporary folder. The cases build their inputs through the same exported
- * functions the runner calls (readInstalledPath, readInputs, buildCheckInputs, runChecks), so a
- * check that is not wired into runChecks fails here and not only in its own unit.
+ * Every fixture is synthetic: a config, a pairings list, a settings file, a mode, a rule list, an
+ * installed copy, agent and command files and a home folder written under a temporary folder. The
+ * cases build their inputs through the same exported functions the runner calls (readInstalledPath,
+ * readInputs, buildCheckInputs, runChecks), so a check that is not wired into runChecks fails here
+ * and not only in its own unit.
  */
 
-import { createHash } from "node:crypto";
 import {
   chmodSync,
   mkdirSync,
@@ -25,15 +25,19 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   PstackRefusal,
   buildCheckInputs,
+  checkBoundary,
+  checkDeny,
   checkLeak,
+  checkMode,
   countFailedChecks,
   exitCodeOf,
   formatRefusal,
   formatReport,
-  hashTree,
-  parseLock,
-  parseRegister,
+  parseConfig,
+  parsePairings,
+  parseSettingsDeny,
   readInputs,
+  readInstalledItems,
   readInstalledPath,
   readRuleNumbers,
   runChecks,
@@ -53,43 +57,31 @@ const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
 // The synthetic tree
 // ---------------------------------------------------------------------------------------------
 
-const TABLE_A_HEADING = "## Table A: pstack skills and agents";
-const TABLE_A_HEADER = "| pstack item | Kind | Status | Authority | Lombakita counterpart | Note |";
-const TABLE_B_HEADING = "## Table B: Lombakita rules of docs/CLAUDE.md";
-const TABLE_B_HEADER = "| Rule | Bucket | Nearest pstack item | Origin |";
-const TABLE_C_HEADING = "## Table C: Lombakita commands, agents, skills and hooks";
-const TABLE_C_HEADER = "| Lombakita item | Kind | Bucket | Nearest pstack item | Note |";
+type ItemJson = Record<string, unknown>;
 
-const row = (...cells: string[]): string => `| ${cells.join(" | ")} |`;
-const separator = (columns: number): string => `|${"---|".repeat(columns)}`;
+const item = (
+  name: string,
+  kind: "skill" | "agent",
+  verdict: "use" | "watch" | "disabled",
+  hard = false,
+): ItemJson => ({ name, kind, verdict, hard });
+
+const DEFAULT_ITEMS: ItemJson[] = [
+  item("alpha", "skill", "use"),
+  item("beta", "skill", "disabled", true),
+  item("gamma", "agent", "watch"),
+];
+
+const DEFAULT_RULES = ["2"];
+const DEFAULT_MENTIONS = ["~/.codex/shared.md"];
+const DEFAULT_PAIRINGS_TEXT = "# synthetic pairings\n\nagent-one: alpha\n";
+const DEFAULT_DENY_ENTRIES = ["Read(./.env)", "Skill(pstack:beta)"];
 
 const DEFAULT_INSTALLED_FILES: Record<string, string> = {
   "skills/alpha/SKILL.md": "---\nname: alpha\ndisable-model-invocation: true\n---\nalpha body\n",
   "skills/beta/SKILL.md": "---\nname: beta\n---\nbeta body\n",
   "agents/gamma.md": "gamma body\n",
-  "README.md": "readme\n",
 };
-
-const DEFAULT_TABLE_A = [
-  row("alpha", "skill", "ADOPT", "pstack", "none", "synthetic"),
-  row("beta", "skill", "FORBIDDEN", "n/a", "none", ""),
-  row("gamma", "agent", "NOT-USED", "n/a", "none", ""),
-];
-
-const DEFAULT_TABLE_B = [
-  row("1", "G2", "none", "none"),
-  row("2", "L", "none", "a synthetic failure"),
-  row("3", "L", "none", "none"),
-];
-
-const DEFAULT_TABLE_C = [
-  row("docs/.claude/commands/cmd-one.md", "command", "L", "none", ""),
-  row("docs/.claude/agents/agent-one.md", "agent", "L", "none", ""),
-  row("docs/.claude/skills/skill-one", "skill", "L", "none", ""),
-  row("docs/.claude/skills/lombakita-mode", "skill", "L", "none", ""),
-  row("docs/.claude/hooks/hook-one.sh", "hook", "L", "none", ""),
-  row("user level: sample", "user skill", "G2", "none", ""),
-];
 
 const DEFAULT_CLAUDE_TEXT = [
   "# synthetic rule book",
@@ -107,18 +99,11 @@ const DEFAULT_CLAUDE_TEXT = [
   "",
 ].join("\n");
 
-const DEFAULT_MODE_TEXT = "synthetic mode\n\n- Rule 2: a synthetic failure.\n";
+const DEFAULT_MODE_TEXT = "synthetic mode\n\nNever run beta.\n\n- Rule 2: a synthetic failure.\n";
 
 const DEFAULT_PRODUCT_FILES: Record<string, string> = {
   "docs/.claude/commands/cmd-one.md": "command\n",
-  "docs/.claude/commands/notes.txt": "not a command\n",
-  "docs/.claude/commands/VENDORED-UI-SKILLS.md": "a list, not a command\n",
   "docs/.claude/agents/agent-one.md": "agent\n",
-  "docs/.claude/skills/skill-one/SKILL.md": "skill\n",
-  "docs/.claude/skills/VENDORED-UI-SKILLS.md": "a list, not a skill\n",
-  "docs/.claude/hooks/hook-one.sh": "echo hook\n",
-  "docs/.claude/hooks/proof/note.txt": "a folder, not a hook\n",
-  "docs/.claude/hooks/.DS_Store": "noise\n",
 };
 
 const DEFAULT_HOME_FILES: Record<string, string> = {
@@ -129,12 +114,13 @@ const DEFAULT_HOME_FILES: Record<string, string> = {
 
 interface FixtureOverrides {
   installedFiles?: Record<string, string>;
-  tableA?: string[];
-  tableB?: string[];
-  tableC?: string[];
+  items?: ItemJson[];
+  failureBornRules?: string[];
   mentions?: string[];
-  registerText?: string;
-  lockText?: string;
+  configText?: string;
+  pairingsText?: string;
+  denyEntries?: string[];
+  settingsText?: string;
   claudeText?: string;
   modeText?: string;
   productFiles?: Record<string, string>;
@@ -147,8 +133,6 @@ interface Fixture {
   installedPath: string;
 }
 
-const sha256OfText = (text: string): string => createHash("sha256").update(text).digest("hex");
-
 const writeFileDeep = (path: string, text: string): void => {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, text);
@@ -160,45 +144,17 @@ const writeFiles = (folder: string, files: Record<string, string>): void => {
   }
 };
 
-const lockTextOf = (files: Record<string, string>): string =>
-  Object.entries(files)
-    .map(([path, text]) => `${sha256OfText(text)}  ./${path}`)
-    .join("\n") + "\n";
+/** A key whose change is `undefined` is left out of the text, which is how a test drops a key. */
+const configTextOf = (changes: Record<string, unknown> = {}): string =>
+  JSON.stringify({
+    items: DEFAULT_ITEMS,
+    failureBornRules: DEFAULT_RULES,
+    allowedMentions: DEFAULT_MENTIONS,
+    ...changes,
+  });
 
-const registerTextOf = (parts: {
-  tableA: string[];
-  tableB: string[];
-  tableC: string[];
-  mentions: string[];
-}): string =>
-  [
-    "# synthetic register",
-    "",
-    "## Allowed mentions of Lombakita at user level",
-    "",
-    "An introduction line that is not a mention.",
-    "",
-    ...parts.mentions.map((mention) => `- ${mention}`),
-    "",
-    TABLE_A_HEADING,
-    "",
-    TABLE_A_HEADER,
-    separator(6),
-    ...parts.tableA,
-    "",
-    TABLE_B_HEADING,
-    "",
-    TABLE_B_HEADER,
-    separator(4),
-    ...parts.tableB,
-    "",
-    TABLE_C_HEADING,
-    "",
-    TABLE_C_HEADER,
-    separator(5),
-    ...parts.tableC,
-    "",
-  ].join("\n");
+const settingsTextOf = (denyEntries: string[]): string =>
+  JSON.stringify({ hooks: {}, permissions: { deny: denyEntries } });
 
 const pluginsFileTextOf = (installedPath: string): string =>
   JSON.stringify({
@@ -217,20 +173,20 @@ const makeFixture = (overrides: FixtureOverrides = {}): Fixture => {
   const productRoot = join(base, "product");
   const homeFolder = join(base, "home");
   const installedPath = join(base, "installed");
-  const installedFiles = overrides.installedFiles ?? DEFAULT_INSTALLED_FILES;
 
-  writeFiles(installedPath, installedFiles);
+  writeFiles(installedPath, overrides.installedFiles ?? DEFAULT_INSTALLED_FILES);
   writeFiles(productRoot, { ...DEFAULT_PRODUCT_FILES, ...overrides.productFiles });
   writeFiles(productRoot, {
-    "docs/project/pstack-policy.md":
-      overrides.registerText ??
-      registerTextOf({
-        tableA: overrides.tableA ?? DEFAULT_TABLE_A,
-        tableB: overrides.tableB ?? DEFAULT_TABLE_B,
-        tableC: overrides.tableC ?? DEFAULT_TABLE_C,
-        mentions: overrides.mentions ?? ["~/.codex/shared.md"],
+    "docs/.claude/pstack/config.json":
+      overrides.configText ??
+      configTextOf({
+        items: overrides.items ?? DEFAULT_ITEMS,
+        failureBornRules: overrides.failureBornRules ?? DEFAULT_RULES,
+        allowedMentions: overrides.mentions ?? DEFAULT_MENTIONS,
       }),
-    "docs/project/pstack-lock.sha256": overrides.lockText ?? lockTextOf(installedFiles),
+    "docs/.claude/pstack/pairings": overrides.pairingsText ?? DEFAULT_PAIRINGS_TEXT,
+    "docs/.claude/settings.json":
+      overrides.settingsText ?? settingsTextOf(overrides.denyEntries ?? DEFAULT_DENY_ENTRIES),
     "docs/CLAUDE.md": overrides.claudeText ?? DEFAULT_CLAUDE_TEXT,
     "docs/.claude/skills/lombakita-mode/SKILL.md": overrides.modeText ?? DEFAULT_MODE_TEXT,
   });
@@ -266,141 +222,68 @@ const refusalOf = (action: () => unknown): string => {
 };
 
 // ---------------------------------------------------------------------------------------------
-// The six checks
+// The seven checks
 // ---------------------------------------------------------------------------------------------
 
 describe("runChecks", () => {
-  it("returns the six checks in the order drift, unclassified, pointer, flag, failure-born, leak", () => {
+  it("returns the seven checks in the order unscreened, flag, deny, pairings, boundary, mode, leak", () => {
     const names = runFixture(makeFixture()).map((result) => result.name);
-    expect(names).toEqual(["drift", "unclassified", "pointer", "flag", "failure-born", "leak"]);
+    expect(names).toEqual(["unscreened", "flag", "deny", "pairings", "boundary", "mode", "leak"]);
   });
 
   it("passes every check on a synthetic tree that agrees with itself", () => {
     const results = runFixture(makeFixture());
-    expect(results.map((result) => result.failures)).toEqual([[], [], [], [], [], []]);
+    expect(results.map((result) => result.failures)).toEqual([[], [], [], [], [], [], []]);
     expect(formatReport(results).at(-1)).toBe("verify:pstack PASSED");
     expect(exitCodeOf(countFailedChecks(results))).toBe(0);
   });
 });
 
-describe("drift", () => {
-  it("names a changed, an added and a removed file, marking the ones below an ADOPT skill", () => {
-    const fixture = makeFixture();
-    writeFileDeep(join(fixture.installedPath, "skills/alpha/SKILL.md"), "changed\n");
-    writeFileDeep(join(fixture.installedPath, "skills/beta/SKILL.md"), "changed\n");
-    writeFileDeep(join(fixture.installedPath, "skills/alpha/extra.md"), "new\n");
-    writeFileDeep(join(fixture.installedPath, "new.txt"), "new\n");
-    rmSync(join(fixture.installedPath, "README.md"));
+describe("unscreened", () => {
+  it("passes when every installed skill and agent has a config item of its kind and every item is installed", () => {
+    expect(failuresOf(makeFixture(), "unscreened")).toEqual([]);
+  });
 
-    expect(failuresOf(fixture, "drift")).toEqual([
-      "added: ./new.txt",
-      "added: ./skills/alpha/extra.md (referenced)",
-      "changed: ./skills/alpha/SKILL.md (referenced)",
-      "changed: ./skills/beta/SKILL.md",
-      "removed: ./README.md",
+  it("names an unscreened skill, an unscreened agent and a screened item that is not installed", () => {
+    const fixture = makeFixture({
+      installedFiles: {
+        ...DEFAULT_INSTALLED_FILES,
+        "skills/zeta/SKILL.md": "---\nname: zeta\n---\n",
+        "agents/eta.md": "eta body\n",
+      },
+      items: [...DEFAULT_ITEMS, item("theta", "skill", "watch")],
+    });
+
+    expect(failuresOf(fixture, "unscreened")).toEqual([
+      "pstack agent not screened: eta",
+      "pstack skill not screened: zeta",
+      "screened item is not installed: skill theta",
     ]);
   });
 
-  it("skips a non-empty .in_use folder at the root of the installed copy", () => {
-    const fixture = makeFixture();
-    writeFileDeep(join(fixture.installedPath, ".in_use/4242.pid"), "4242\n");
-
-    expect(failuresOf(fixture, "drift")).toEqual([]);
-    expect(
-      [...hashTree(fixture.installedPath).keys()].some((path) => path.includes(".in_use")),
-    ).toBe(false);
-  });
-
-  it("skips an empty .in_use folder at the root of the installed copy", () => {
-    const fixture = makeFixture();
-    mkdirSync(join(fixture.installedPath, ".in_use"));
-
-    expect(failuresOf(fixture, "drift")).toEqual([]);
-  });
-
-  it("does not skip a .in_use folder below the root", () => {
-    const fixture = makeFixture();
-    writeFileDeep(join(fixture.installedPath, "skills/alpha/.in_use/4242.pid"), "4242\n");
-
-    expect(failuresOf(fixture, "drift")).toEqual([
-      "added: ./skills/alpha/.in_use/4242.pid (referenced)",
-    ]);
-  });
-});
-
-describe("unclassified", () => {
-  it("names a pstack skill that has no row", () => {
+  it("takes the kind as part of the identity of an item", () => {
     const fixture = makeFixture({
-      tableA: DEFAULT_TABLE_A.filter((line) => !line.includes("beta")),
+      items: [item("alpha", "agent", "watch"), ...DEFAULT_ITEMS.slice(1)],
     });
-    expect(failuresOf(fixture, "unclassified")).toEqual(["pstack skill without a row: beta"]);
-  });
 
-  it("names a pstack agent that has no row", () => {
-    const fixture = makeFixture({
-      tableA: DEFAULT_TABLE_A.filter((line) => !line.includes("gamma")),
-    });
-    expect(failuresOf(fixture, "unclassified")).toEqual(["pstack agent without a row: gamma"]);
-  });
-
-  it("names a rule that has no row", () => {
-    const fixture = makeFixture({ tableB: DEFAULT_TABLE_B.slice(0, 2) });
-    expect(failuresOf(fixture, "unclassified")).toEqual(["rule without a row: 3"]);
-  });
-
-  it("names a rule row beyond the last rule", () => {
-    const fixture = makeFixture({ tableB: [...DEFAULT_TABLE_B, row("9", "L", "none", "none")] });
-    expect(failuresOf(fixture, "unclassified")).toEqual(["rule row beyond the last rule: 9"]);
-  });
-
-  it("names a Lombakita item that has no row", () => {
-    const fixture = makeFixture({
-      productFiles: { "docs/.claude/commands/extra.md": "command\n" },
-    });
-    expect(failuresOf(fixture, "unclassified")).toEqual([
-      "Lombakita item without a row: docs/.claude/commands/extra.md",
-    ]);
-  });
-
-  it("names a row for a Lombakita item that does not exist, and exempts a user level row", () => {
-    const fixture = makeFixture({
-      tableC: [...DEFAULT_TABLE_C, row("docs/.claude/hooks/ghost.sh", "hook", "L", "none", "")],
-    });
-    expect(failuresOf(fixture, "unclassified")).toEqual([
-      "row for a Lombakita item that does not exist: docs/.claude/hooks/ghost.sh",
-    ]);
-  });
-
-  it("sorts its failure lines by their text", () => {
-    const fixture = makeFixture({
-      tableA: DEFAULT_TABLE_A.filter((line) => !line.includes("beta") && !line.includes("gamma")),
-      tableB: DEFAULT_TABLE_B.slice(0, 2),
-    });
-    expect(failuresOf(fixture, "unclassified")).toEqual([
-      "pstack agent without a row: gamma",
-      "pstack skill without a row: beta",
-      "rule without a row: 3",
-    ]);
-  });
-});
-
-describe("pointer", () => {
-  it("names a registered skill and a registered agent that are not installed", () => {
-    const fixture = makeFixture({
-      tableA: [
-        ...DEFAULT_TABLE_A,
-        row("delta", "skill", "PARKED", "n/a", "none", ""),
-        row("epsilon", "agent", "PARKED", "n/a", "none", ""),
-      ],
-    });
-    expect(failuresOf(fixture, "pointer")).toEqual([
-      "register names a pstack agent that is not installed: epsilon",
-      "register names a pstack skill that is not installed: delta",
+    expect(failuresOf(fixture, "unscreened")).toEqual([
+      "pstack skill not screened: alpha",
+      "screened item is not installed: agent alpha",
     ]);
   });
 });
 
 describe("flag", () => {
+  it("passes when every model-invocable skill is disabled in the config", () => {
+    const fixture = makeFixture();
+    const beta = readInstalledItems(fixture.installedPath).skills.find(
+      (skill) => skill.name === "beta",
+    );
+
+    expect(beta?.modelInvocable).toBe(true);
+    expect(failuresOf(fixture, "flag")).toEqual([]);
+  });
+
   it.each([
     { name: "no such line", alpha: "---\nname: alpha\n---\nbody\n" },
     {
@@ -416,41 +299,182 @@ describe("flag", () => {
       installedFiles: { ...DEFAULT_INSTALLED_FILES, "skills/alpha/SKILL.md": alpha },
     });
     expect(failuresOf(fixture, "flag")).toEqual([
-      "skill is model-invocable and not FORBIDDEN: alpha",
+      "skill is model-invocable and not disabled: alpha",
     ]);
   });
 
-  it("names a model-invocable skill that has no row", () => {
+  it("names a model-invocable skill that has no config item and one whose verdict is watch", () => {
     const fixture = makeFixture({
       installedFiles: {
         ...DEFAULT_INSTALLED_FILES,
         "skills/zeta/SKILL.md": "---\nname: zeta\n---\n",
       },
+      items: [
+        item("alpha", "skill", "use"),
+        item("beta", "skill", "watch"),
+        item("gamma", "agent", "watch"),
+      ],
     });
+
     expect(failuresOf(fixture, "flag")).toEqual([
-      "skill is model-invocable and not FORBIDDEN: zeta",
+      "skill is model-invocable and not disabled: beta",
+      "skill is model-invocable and not disabled: zeta",
     ]);
   });
 });
 
-describe("failure-born", () => {
-  it("names a rule with an origin that the mode does not name", () => {
-    const fixture = makeFixture({ modeText: "synthetic mode that names no rule\n" });
-    expect(failuresOf(fixture, "failure-born")).toEqual([
-      "rule 2 has an origin and the mode does not name Rule 2",
+describe("deny", () => {
+  it("passes when each hard item has its deny entry, in the agent form and in the skill form", () => {
+    const fixture = makeFixture({
+      items: [item("beta", "skill", "disabled", true), item("gamma", "agent", "disabled", true)],
+      denyEntries: [
+        "Read(./.env)",
+        "Skill(other:alpha)",
+        "Agent(pstack:gamma)",
+        "Skill(pstack:beta)",
+      ],
+    });
+
+    expect(failuresOf(fixture, "deny")).toEqual([]);
+  });
+
+  it("names a hard item without its deny entry and a deny entry without a hard item", () => {
+    const fixture = makeFixture({
+      items: [item("beta", "skill", "disabled", true), item("gamma", "agent", "disabled", true)],
+      denyEntries: [
+        "Agent(pstack:beta)",
+        "Skill(pstack:gamma)",
+        "Skill(pstack:zeta)",
+        "Bash(ls*)",
+        "Read(./.env)",
+      ],
+    });
+
+    expect(failuresOf(fixture, "deny")).toEqual([
+      "deny entry without a hard item: Agent(pstack:beta)",
+      "deny entry without a hard item: Skill(pstack:gamma)",
+      "deny entry without a hard item: Skill(pstack:zeta)",
+      "hard item without a deny entry: agent gamma",
+      "hard item without a deny entry: skill beta",
+    ]);
+  });
+});
+
+describe("pairings", () => {
+  const withZeta = {
+    ...DEFAULT_INSTALLED_FILES,
+    "skills/zeta/SKILL.md": "---\nname: zeta\n---\n",
+  };
+
+  it("passes when every paired agent exists and every paired skill is installed, screened and not disabled", () => {
+    expect(failuresOf(makeFixture(), "pairings")).toEqual([]);
+  });
+
+  it("names a pairing by its first defect, in the order of the file", () => {
+    const fixture = makeFixture({
+      installedFiles: withZeta,
+      productFiles: { "docs/.claude/agents/sub/nested-agent.md": "nested\n" },
+      pairingsText: [
+        "# a comment line",
+        "agent-one: nowhere",
+        "",
+        "agent-one: zeta",
+        "agent-one: beta",
+        "missing-agent: alpha",
+        "lost-agent: nowhere",
+        "nested-agent: alpha",
+        "agent-one: alpha",
+      ].join("\n"),
+    });
+
+    expect(failuresOf(fixture, "pairings")).toEqual([
+      "paired skill is not installed: nowhere",
+      "paired skill is not screened: zeta",
+      "paired skill is disabled: beta",
+      "paired agent does not exist: missing-agent",
+      "paired agent does not exist: lost-agent",
+      "paired agent does not exist: nested-agent",
+    ]);
+  });
+
+  it("gives the line of the agent only when the agent does not exist and the skill is not installed", () => {
+    const fixture = makeFixture({ pairingsText: "lost-agent: nowhere\n" });
+
+    expect(failuresOf(fixture, "pairings")).toEqual(["paired agent does not exist: lost-agent"]);
+  });
+
+  it("returns its lines in the order of the file and does not sort them", () => {
+    const fixture = makeFixture({ pairingsText: "agent-one: zz-missing\nagent-one: aa-missing\n" });
+
+    expect(failuresOf(fixture, "pairings")).toEqual([
+      "paired skill is not installed: zz-missing",
+      "paired skill is not installed: aa-missing",
+    ]);
+  });
+});
+
+describe("boundary", () => {
+  it("passes when the word is in a file that is not .md or in a subfolder, which are not read", () => {
+    const fixture = makeFixture({
+      productFiles: {
+        "docs/.claude/agents/notes.txt": "pstack in a text file\n",
+        "docs/.claude/agents/sub/deep.md": "pstack in a subfolder\n",
+        "docs/.claude/commands/notes.txt": "pstack in a text file\n",
+        "docs/.claude/commands/sub/deep.md": "pstack in a subfolder\n",
+      },
+    });
+
+    expect(failuresOf(fixture, "boundary")).toEqual([]);
+  });
+
+  it("names a .md file of either folder that holds the word in any letter case", () => {
+    const fixture = makeFixture({
+      productFiles: {
+        "docs/.claude/agents/agent-two.md": "This agent writes PSTACK once.\n",
+        "docs/.claude/commands/cmd-two.md": "A Pstack mention.\n",
+        "docs/.claude/agents/notes.txt": "pstack in a text file\n",
+        "docs/.claude/agents/sub/deep.md": "pstack in a subfolder\n",
+      },
+    });
+
+    expect(failuresOf(fixture, "boundary")).toEqual([
+      "docs/.claude/agents/agent-two.md names pstack",
+      "docs/.claude/commands/cmd-two.md names pstack",
+    ]);
+  });
+});
+
+describe("mode", () => {
+  it("passes when the mode names every failure-born rule and every disabled item", () => {
+    expect(failuresOf(makeFixture(), "mode")).toEqual([]);
+  });
+
+  it("names a rule that is not in the rule book, a rule the mode does not name and a disabled item the mode does not name", () => {
+    const fixture = makeFixture({
+      failureBornRules: ["2", "9"],
+      modeText: "Rule 20 is named here\n",
+    });
+
+    expect(failuresOf(fixture, "mode")).toEqual([
+      "disabled item is not named by the mode: beta",
+      "failure-born rule 2 is not named by the mode as Rule 2",
+      "failure-born rule 9 is not a rule of docs/CLAUDE.md",
+      "failure-born rule 9 is not named by the mode as Rule 9",
     ]);
   });
 
   it("does not take Rule 20 for Rule 2", () => {
-    const fixture = makeFixture({ modeText: "Rule 20 is named here\n" });
-    expect(failuresOf(fixture, "failure-born")).toEqual([
-      "rule 2 has an origin and the mode does not name Rule 2",
+    const fixture = makeFixture({ modeText: "Never run beta. Rule 20 is named here\n" });
+
+    expect(failuresOf(fixture, "mode")).toEqual([
+      "failure-born rule 2 is not named by the mode as Rule 2",
     ]);
   });
 
   it("finds Rule 2 after an earlier Rule 20, and at the very end of the text", () => {
-    const fixture = makeFixture({ modeText: "Rule 20 first, then Rule 2" });
-    expect(failuresOf(fixture, "failure-born")).toEqual([]);
+    const fixture = makeFixture({ modeText: "Never run beta. Rule 20 first, then Rule 2" });
+
+    expect(failuresOf(fixture, "mode")).toEqual([]);
   });
 });
 
@@ -468,7 +492,7 @@ describe("leak", () => {
     ]);
   });
 
-  it("allows the mentions the register lists, written with or without ~/", () => {
+  it("allows the mentions the config lists, written with or without ~/", () => {
     const fixture = makeFixture({ mentions: [] });
     expect(failuresOf(fixture, "leak")).toEqual([
       "~/.codex/shared.md names Lombakita and is not an allowed mention",
@@ -508,10 +532,52 @@ describe("leak", () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// What the parsers accept
+// ---------------------------------------------------------------------------------------------
+
+describe("the parsers", () => {
+  it("reads a config with a note on an item and an item name that repeats under another kind", () => {
+    const config = parseConfig(
+      configTextOf({
+        items: [
+          { ...item("alpha", "skill", "use"), note: "a synthetic note" },
+          item("alpha", "agent", "watch"),
+        ],
+      }),
+    );
+
+    expect(config).toEqual({
+      items: [
+        { name: "alpha", kind: "skill", verdict: "use", hard: false },
+        { name: "alpha", kind: "agent", verdict: "watch", hard: false },
+      ],
+      failureBornRules: DEFAULT_RULES,
+      allowedMentions: DEFAULT_MENTIONS,
+    });
+  });
+
+  it("reads the pairings in file order and skips empty lines and lines that start with #", () => {
+    const pairings = parsePairings("# a comment\n\nagent-one: skill-b\r\nagent-two: skill-a\n");
+
+    expect(pairings).toEqual([
+      { agent: "agent-one", skill: "skill-b" },
+      { agent: "agent-two", skill: "skill-a" },
+    ]);
+  });
+
+  it("reads the deny list of the settings file", () => {
+    expect(parseSettingsDeny(settingsTextOf(["Read(./.env)", "Skill(pstack:beta)"]))).toEqual([
+      "Read(./.env)",
+      "Skill(pstack:beta)",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
 // The refusals, one test each, each asserting its own fixed text
 // ---------------------------------------------------------------------------------------------
 
-describe("refusals", () => {
+describe("refusals of the installed copy and the inputs", () => {
   it("refuses when installed_plugins.json is missing or has no pstack entry", () => {
     const fixture = makeFixture();
     const pluginsFile = join(fixture.homeFolder, ".claude/plugins/installed_plugins.json");
@@ -538,93 +604,35 @@ describe("refusals", () => {
     );
   });
 
-  it("refuses when an input file is missing", () => {
+  it("refuses when an input file is missing, naming the first missing one in the order of the inputs", () => {
     const fixture = makeFixture();
-    rmSync(join(fixture.productRoot, "docs/project/pstack-lock.sha256"));
+    rmSync(join(fixture.productRoot, "docs/CLAUDE.md"));
+    expect(refusalOf(() => readInputs(fixture.productRoot))).toBe(
+      "input file missing: docs/CLAUDE.md",
+    );
+
+    rmSync(join(fixture.productRoot, "docs/.claude/pstack/pairings"));
+    expect(refusalOf(() => readInputs(fixture.productRoot))).toBe(
+      "input file missing: docs/.claude/pstack/pairings",
+    );
+  });
+
+  it("refuses when the agents folder is missing", () => {
+    const fixture = makeFixture();
+    rmSync(join(fixture.productRoot, "docs/.claude/agents"), { recursive: true });
 
     expect(refusalOf(() => readInputs(fixture.productRoot))).toBe(
-      "input file missing: docs/project/pstack-lock.sha256",
+      "input file missing: docs/.claude/agents",
     );
   });
 
-  it("refuses when a table is missing or its header row is not exact", () => {
-    const withoutTableC = registerTextOf({
-      tableA: DEFAULT_TABLE_A,
-      tableB: DEFAULT_TABLE_B,
-      tableC: DEFAULT_TABLE_C,
-      mentions: [],
-    })
-      .split("\n")
-      .filter((line) => line !== TABLE_C_HEADING)
-      .join("\n");
-    const renamedHeader = registerTextOf({
-      tableA: DEFAULT_TABLE_A,
-      tableB: DEFAULT_TABLE_B,
-      tableC: DEFAULT_TABLE_C,
-      mentions: [],
-    }).replace(TABLE_B_HEADER, "| Rule | Bucket | Nearest | Origin |");
-
-    expect(refusalOf(() => runFixture(makeFixture({ registerText: withoutTableC })))).toBe(
-      `table missing: ${TABLE_C_HEADING}`,
-    );
-    expect(refusalOf(() => runFixture(makeFixture({ registerText: renamedHeader })))).toBe(
-      `table missing: ${TABLE_B_HEADING}`,
-    );
-  });
-
-  it("refuses a row with the wrong number of cells", () => {
-    const fixture = makeFixture({ tableB: [...DEFAULT_TABLE_B, row("4", "L", "none")] });
-
-    expect(refusalOf(() => runFixture(fixture))).toBe(
-      `row with the wrong number of cells in ${TABLE_B_HEADING}: 4`,
-    );
-  });
-
-  it("refuses a value outside its allowed set", () => {
-    const fixture = makeFixture({
-      tableA: [...DEFAULT_TABLE_A, row("delta", "skill", "MAYBE", "n/a", "none", "")],
-    });
-
-    expect(refusalOf(() => runFixture(fixture))).toBe(
-      `value outside its allowed set in ${TABLE_A_HEADING}: MAYBE`,
-    );
-  });
-
-  it("refuses a repeated key", () => {
-    const fixture = makeFixture({
-      tableA: [...DEFAULT_TABLE_A, row("alpha", "skill", "PARKED", "n/a", "none", "")],
-    });
-
-    expect(refusalOf(() => runFixture(fixture))).toBe(`repeated key in ${TABLE_A_HEADING}: alpha`);
-  });
-
-  it("refuses a lock line that is not in the lock format, naming its line number", () => {
-    const goodLine = `${sha256OfText("x")}  ./one.txt`;
-    const lockWith = (...lines: string[]) => lines.join("\n") + "\n";
-    const refusalFor = (lockText: string) => refusalOf(() => runFixture(makeFixture({ lockText })));
-
-    expect(refusalFor(lockWith(goodLine, "not a lock line"))).toBe(
-      "lock line not in the lock format: 2",
-    );
-    expect(refusalFor(lockWith(goodLine, `${sha256OfText("y").slice(1)}  ./two.txt`))).toBe(
-      "lock line not in the lock format: 2",
-    );
-    expect(refusalFor(lockWith(goodLine, `${sha256OfText("y")} ./two.txt`))).toBe(
-      "lock line not in the lock format: 2",
-    );
-    expect(refusalFor(lockWith(goodLine, `${sha256OfText("y")}  two.txt`))).toBe(
-      "lock line not in the lock format: 2",
-    );
-    expect(refusalFor(lockWith(goodLine, goodLine))).toBe("lock line not in the lock format: 2");
-  });
-
-  it("refuses an entry that is neither a regular file nor a folder", () => {
+  it("refuses a symbolic link inside the agents folder", () => {
     const fixture = makeFixture();
-    const link = join(fixture.installedPath, "linked.md");
-    symlinkSync(join(fixture.installedPath, "README.md"), link);
+    const agentsFolder = join(fixture.productRoot, "docs/.claude/agents");
+    symlinkSync(join(agentsFolder, "agent-one.md"), join(agentsFolder, "linked.md"));
 
-    expect(refusalOf(() => runFixture(fixture))).toBe(
-      `entry that is neither a regular file nor a folder: ${link}`,
+    expect(refusalOf(() => readInputs(fixture.productRoot))).toBe(
+      "entry that is neither a regular file nor a folder: docs/.claude/agents/linked.md",
     );
   });
 
@@ -637,7 +645,6 @@ describe("refusals", () => {
     });
     const lockedFile = join(fixture.homeFolder, ".claude/skills/locked/secret.md");
     const lockedFolder = join(fixture.homeFolder, ".claude/skills/closed");
-    const installedFile = join(fixture.installedPath, "README.md");
     const reason = "unreadable path below a declared location: ";
     try {
       chmodSync(lockedFile, 0o000);
@@ -646,13 +653,261 @@ describe("refusals", () => {
 
       chmodSync(lockedFolder, 0o000);
       expect(refusalOf(() => checkLeak(fixture.homeFolder, []))).toBe(`${reason}${lockedFolder}`);
-
-      chmodSync(installedFile, 0o000);
-      expect(refusalOf(() => hashTree(fixture.installedPath))).toBe(`${reason}${installedFile}`);
     } finally {
       chmodSync(lockedFile, 0o644);
       chmodSync(lockedFolder, 0o755);
-      chmodSync(installedFile, 0o644);
+    }
+  });
+});
+
+describe("refusals of the config", () => {
+  it("refuses a config that is not valid JSON", () => {
+    expect(refusalOf(() => parseConfig("{not json"))).toBe("config.json is not valid JSON");
+  });
+
+  it("refuses a top level that is not an object", () => {
+    for (const text of ["[]", "null", "3", '"items"']) {
+      expect(refusalOf(() => parseConfig(text))).toBe("config.json top level is not an object");
+    }
+  });
+
+  it("refuses a key that is not allowed, at the top level and in an item", () => {
+    expect(refusalOf(() => parseConfig(configTextOf({ extra: 1 })))).toBe(
+      "config.json has a key that is not allowed: extra",
+    );
+    expect(
+      refusalOf(() =>
+        parseConfig(configTextOf({ items: [{ ...item("alpha", "skill", "use"), colour: "red" }] })),
+      ),
+    ).toBe("config.json has a key that is not allowed: colour");
+  });
+
+  it("refuses a missing top-level key", () => {
+    for (const key of ["items", "failureBornRules", "allowedMentions"]) {
+      expect(refusalOf(() => parseConfig(configTextOf({ [key]: undefined })))).toBe(
+        `config.json is missing the key: ${key}`,
+      );
+    }
+  });
+
+  it("refuses items that is not a list", () => {
+    for (const items of [{}, "alpha", null]) {
+      expect(refusalOf(() => parseConfig(configTextOf({ items })))).toBe(
+        "config.json items is not a list",
+      );
+    }
+  });
+
+  it("refuses an item without a usable name, and an element that is not an object", () => {
+    const elements: unknown[] = [
+      { kind: "skill", verdict: "use", hard: false },
+      { name: "", kind: "skill", verdict: "use", hard: false },
+      { name: 5, kind: "skill", verdict: "use", hard: false },
+      null,
+      "alpha",
+      [],
+      7,
+    ];
+    for (const element of elements) {
+      expect(refusalOf(() => parseConfig(configTextOf({ items: [element] })))).toBe(
+        "config.json item without a name",
+      );
+    }
+  });
+
+  it("refuses an item kind that is not skill or agent, and a missing kind", () => {
+    for (const kind of ["plugin", "Skill", 3, undefined]) {
+      const items = [{ name: "alpha", kind, verdict: "use", hard: false }];
+      expect(refusalOf(() => parseConfig(configTextOf({ items })))).toBe(
+        "config.json item kind is not skill or agent: alpha",
+      );
+    }
+  });
+
+  it("refuses an item verdict that is not use, watch or disabled, and a missing verdict", () => {
+    for (const verdict of ["allowed", "USE", true, undefined]) {
+      const items = [{ name: "alpha", kind: "skill", verdict, hard: false }];
+      expect(refusalOf(() => parseConfig(configTextOf({ items })))).toBe(
+        "config.json item verdict is not use, watch or disabled: alpha",
+      );
+    }
+  });
+
+  it("refuses an item hard that is not true or false, and a missing hard", () => {
+    for (const hard of ["yes", 1, null, undefined]) {
+      const items = [{ name: "alpha", kind: "skill", verdict: "use", hard }];
+      expect(refusalOf(() => parseConfig(configTextOf({ items })))).toBe(
+        "config.json item hard is not true or false: alpha",
+      );
+    }
+  });
+
+  it("refuses an item note that is not a string", () => {
+    for (const note of [5, null, ["a note"]]) {
+      const items = [{ ...item("alpha", "skill", "use"), note }];
+      expect(refusalOf(() => parseConfig(configTextOf({ items })))).toBe(
+        "config.json item note is not a string: alpha",
+      );
+    }
+  });
+
+  it("refuses an item that is hard and not disabled", () => {
+    for (const verdict of ["use", "watch"] as const) {
+      const items = [item("alpha", "skill", verdict, true)];
+      expect(refusalOf(() => parseConfig(configTextOf({ items })))).toBe(
+        "config.json item is hard and not disabled: alpha",
+      );
+    }
+  });
+
+  it("refuses a repeated item of the same kind and name", () => {
+    const items = [
+      item("alpha", "skill", "use"),
+      item("beta", "skill", "use"),
+      item("alpha", "skill", "watch"),
+    ];
+
+    expect(refusalOf(() => parseConfig(configTextOf({ items })))).toBe(
+      "config.json repeated item: skill alpha",
+    );
+  });
+
+  it("refuses failureBornRules that is not a list of digit strings", () => {
+    for (const failureBornRules of ["26", [26], [""], ["2a"], ["-1"], ["2", null]]) {
+      expect(refusalOf(() => parseConfig(configTextOf({ failureBornRules })))).toBe(
+        "config.json failureBornRules is not a list of digit strings",
+      );
+    }
+  });
+
+  it("refuses allowedMentions that is not a list of strings", () => {
+    for (const allowedMentions of ["~/.codex/shared.md", [1], ["~/.codex/shared.md", null]]) {
+      expect(refusalOf(() => parseConfig(configTextOf({ allowedMentions })))).toBe(
+        "config.json allowedMentions is not a list of strings",
+      );
+    }
+  });
+});
+
+describe("the order of the refusals of the config", () => {
+  const goodItem = item("alpha", "skill", "use");
+
+  it.each([
+    {
+      name: "a top-level key that is not allowed before a missing key",
+      text: JSON.stringify({ extra: 1 }),
+      reason: "config.json has a key that is not allowed: extra",
+    },
+    {
+      name: "a missing key before items that is not a list",
+      text: JSON.stringify({ items: "alpha", failureBornRules: [] }),
+      reason: "config.json is missing the key: allowedMentions",
+    },
+    {
+      name: "items that is not a list before failureBornRules",
+      text: configTextOf({ items: "alpha", failureBornRules: "26" }),
+      reason: "config.json items is not a list",
+    },
+    {
+      name: "an item key that is not allowed before its missing name",
+      text: configTextOf({ items: [{ colour: "red" }] }),
+      reason: "config.json has a key that is not allowed: colour",
+    },
+    {
+      name: "the kind before the verdict",
+      text: configTextOf({ items: [{ name: "alpha", kind: "x", verdict: "x", hard: "x" }] }),
+      reason: "config.json item kind is not skill or agent: alpha",
+    },
+    {
+      name: "the verdict before hard",
+      text: configTextOf({ items: [{ name: "alpha", kind: "skill", verdict: "x", hard: "x" }] }),
+      reason: "config.json item verdict is not use, watch or disabled: alpha",
+    },
+    {
+      name: "the note before hard together with a verdict other than disabled",
+      text: configTextOf({ items: [{ ...item("alpha", "skill", "use", true), note: 5 }] }),
+      reason: "config.json item note is not a string: alpha",
+    },
+    {
+      name: "a later item's defect before a repeated item",
+      text: configTextOf({
+        items: [goodItem, goodItem, { ...item("beta", "skill", "use"), note: 5 }],
+      }),
+      reason: "config.json item note is not a string: beta",
+    },
+    {
+      name: "a repeated item before failureBornRules",
+      text: configTextOf({ items: [goodItem, goodItem], failureBornRules: "26" }),
+      reason: "config.json repeated item: skill alpha",
+    },
+    {
+      name: "failureBornRules before allowedMentions",
+      text: configTextOf({ failureBornRules: "26", allowedMentions: "x" }),
+      reason: "config.json failureBornRules is not a list of digit strings",
+    },
+  ])("gives $name", ({ text, reason }) => {
+    expect(refusalOf(() => parseConfig(text))).toBe(reason);
+  });
+
+  it("parses the config, then the pairings, then the settings deny list", () => {
+    const refusalForFixture = (overrides: FixtureOverrides): string =>
+      refusalOf(() => runFixture(makeFixture(overrides)));
+
+    expect(
+      refusalForFixture({ configText: "{not json", pairingsText: "bad line", settingsText: "{" }),
+    ).toBe("config.json is not valid JSON");
+    expect(refusalForFixture({ pairingsText: "bad line", settingsText: "{" })).toBe(
+      "pairings line not in the form agent: skill: 1",
+    );
+    expect(refusalForFixture({ settingsText: "{" })).toBe("settings.json is not valid JSON");
+  });
+});
+
+describe("refusals of the pairings and the settings", () => {
+  it("refuses a pairings line not in the form agent: skill, naming its line number", () => {
+    const badLines = [
+      "agent-one alpha",
+      "Agent-One: alpha",
+      "agent-one:alpha",
+      "agent-one:  alpha",
+      "agent-one: alpha extra",
+      " agent-one: alpha",
+      "   ",
+    ];
+    for (const badLine of badLines) {
+      const text = ["# a comment", "", "agent-one: beta", badLine].join("\n");
+      expect(refusalOf(() => parsePairings(text))).toBe(
+        "pairings line not in the form agent: skill: 4",
+      );
+    }
+  });
+
+  it("refuses a pairing that repeats, and gives the form defect of a line before a later repeat", () => {
+    expect(
+      refusalOf(() => parsePairings("agent-one: alpha\nagent-two: alpha\nagent-one: alpha\n")),
+    ).toBe("repeated pairing: agent-one: alpha");
+    expect(refusalOf(() => parsePairings("agent-one: alpha\nbad line\nagent-one: alpha\n"))).toBe(
+      "pairings line not in the form agent: skill: 2",
+    );
+  });
+
+  it("refuses a settings file that is not valid JSON", () => {
+    expect(refusalOf(() => parseSettingsDeny("{not json"))).toBe("settings.json is not valid JSON");
+  });
+
+  it("refuses a settings file with no permissions.deny list of strings", () => {
+    const texts = [
+      "{}",
+      "[]",
+      '{"permissions": []}',
+      '{"permissions": {}}',
+      '{"permissions": {"deny": "Read(./.env)"}}',
+      '{"permissions": {"deny": ["Read(./.env)", 4]}}',
+    ];
+    for (const text of texts) {
+      expect(refusalOf(() => parseSettingsDeny(text))).toBe(
+        "settings.json has no permissions.deny list of strings",
+      );
     }
   });
 });
@@ -665,60 +920,78 @@ describe("output", () => {
   const passing = (name: CheckName): CheckResult => ({ name, failures: [] });
 
   it("prints a PASS or FAIL line per check, each failure indented under its check, then the verdict", () => {
-    const manyFailures = Array.from({ length: 30 }, (_, index) => `added: ./file-${index}`);
+    const manyFailures = Array.from(
+      { length: 30 },
+      (_, index) => `screened item is not installed: skill item-${index}`,
+    );
     const results: CheckResult[] = [
-      { name: "drift", failures: ["changed: ./a (referenced)", "removed: ./b"] },
-      passing("unclassified"),
-      passing("pointer"),
-      { name: "flag", failures: manyFailures },
-      passing("failure-born"),
+      {
+        name: "unscreened",
+        failures: ["pstack agent not screened: eta", "pstack skill not screened: zeta"],
+      },
+      passing("flag"),
+      passing("deny"),
+      { name: "pairings", failures: manyFailures },
+      passing("boundary"),
+      passing("mode"),
       passing("leak"),
     ];
 
     expect(formatReport(results)).toEqual([
-      "FAIL drift",
-      "  - changed: ./a (referenced)",
-      "  - removed: ./b",
-      "PASS unclassified",
-      "PASS pointer",
-      "FAIL flag",
+      "FAIL unscreened",
+      "  - pstack agent not screened: eta",
+      "  - pstack skill not screened: zeta",
+      "PASS flag",
+      "PASS deny",
+      "FAIL pairings",
       ...manyFailures.map((failure) => `  - ${failure}`),
-      "PASS failure-born",
+      "PASS boundary",
+      "PASS mode",
       "PASS leak",
       "verify:pstack FAILED (2 checks failed)",
     ]);
   });
 
   it("ends a clean report with the PASSED line", () => {
-    const names: CheckName[] = ["drift", "unclassified", "pointer", "flag", "failure-born", "leak"];
+    const names: CheckName[] = [
+      "unscreened",
+      "flag",
+      "deny",
+      "pairings",
+      "boundary",
+      "mode",
+      "leak",
+    ];
 
     expect(formatReport(names.map(passing))).toEqual([
-      "PASS drift",
-      "PASS unclassified",
-      "PASS pointer",
+      "PASS unscreened",
       "PASS flag",
-      "PASS failure-born",
+      "PASS deny",
+      "PASS pairings",
+      "PASS boundary",
+      "PASS mode",
       "PASS leak",
       "verify:pstack PASSED",
     ]);
   });
 
   it("formats a refusal as one REFUSED line", () => {
-    expect(formatRefusal("table missing: ## Table A")).toBe(
-      "verify:pstack REFUSED: table missing: ## Table A",
+    expect(formatRefusal("config.json is not valid JSON")).toBe(
+      "verify:pstack REFUSED: config.json is not valid JSON",
     );
   });
 
   it("exits 0 for no failed check and 1 for any", () => {
     expect(exitCodeOf(0)).toBe(0);
     expect(exitCodeOf(1)).toBe(1);
-    expect(exitCodeOf(6)).toBe(1);
+    expect(exitCodeOf(7)).toBe(1);
   });
 });
 
 // ---------------------------------------------------------------------------------------------
-// The real register, lock, rule list and mode, read through process.cwd() as the runner reads them.
-// None of these asserts anything about the installed plugin or the home folder.
+// The real config, pairings, settings, mode, rule book and folders, read through process.cwd() as
+// the runner reads them. None of these asserts anything about the installed plugin or the home
+// folder.
 // ---------------------------------------------------------------------------------------------
 
 const readDocFile = (relativePath: string): string => {
@@ -733,85 +1006,46 @@ const readDocFile = (relativePath: string): string => {
   }
 };
 
-const REAL_REGISTER_PATH = "docs/project/pstack-policy.md";
-const REAL_LOCK_PATH = "docs/project/pstack-lock.sha256";
+const REAL_CONFIG_PATH = "docs/.claude/pstack/config.json";
+const REAL_PAIRINGS_PATH = "docs/.claude/pstack/pairings";
+const REAL_SETTINGS_PATH = "docs/.claude/settings.json";
 const REAL_CLAUDE_PATH = "docs/CLAUDE.md";
 const REAL_MODE_PATH = "docs/.claude/skills/lombakita-mode/SKILL.md";
 
 describe("the real files", () => {
-  it("parses the register without a refusal and finds rows in every table", () => {
-    const register = parseRegister(readDocFile(REAL_REGISTER_PATH));
+  it("parses the config without a refusal and finds items", () => {
+    const config = parseConfig(readDocFile(REAL_CONFIG_PATH));
 
-    expect(register.pstackItems.length).toBeGreaterThan(0);
-    expect(register.rules.length).toBeGreaterThan(0);
-    expect(register.lombakitaItems.length).toBeGreaterThan(0);
-    expect(register.allowedMentions.length).toBeGreaterThan(0);
+    expect(config.items.length).toBeGreaterThan(0);
   });
 
-  it("lists in Table A the same skills and agents the lock lists", () => {
-    const lockLines = readDocFile(REAL_LOCK_PATH).split("\n");
-    const namesFromLock = (pattern: RegExp): string[] =>
-      lockLines.flatMap((line) => pattern.exec(line)?.[1] ?? []).sort();
-    const register = parseRegister(readDocFile(REAL_REGISTER_PATH));
-    const namesInTableA = (kind: string): string[] =>
-      register.pstackItems
-        .filter((item) => item.kind === kind)
-        .map((item) => item.name)
-        .sort();
-
-    const lockedSkills = namesFromLock(/^[0-9a-f]{64} {2}\.\/skills\/([^/]+)\/SKILL\.md$/);
-    const lockedAgents = namesFromLock(/^[0-9a-f]{64} {2}\.\/agents\/([^/]+)\.md$/);
-
-    expect(lockedSkills.length).toBeGreaterThan(0);
-    expect(namesInTableA("skill")).toEqual(lockedSkills);
-    expect(namesInTableA("agent")).toEqual(lockedAgents);
+  it("parses the pairings without a refusal", () => {
+    expect(() => parsePairings(readDocFile(REAL_PAIRINGS_PATH))).not.toThrow();
   });
 
-  it("gives every rule of the rule book a row in Table B", () => {
-    const claudeText = readDocFile(REAL_CLAUDE_PATH);
-    const lines = claudeText.split("\n");
-    const startAt = lines.indexOf("## Implementation Rules");
-    const endAt = lines.indexOf("## UI Level Defaults");
-    const ruleNumbers = lines
-      .slice(startAt + 1, endAt)
-      .flatMap((line) => /^(\d+)\. /.exec(line)?.[1] ?? []);
-    const register = parseRegister(readDocFile(REAL_REGISTER_PATH));
+  it("parses the settings deny list without a refusal and finds entries", () => {
+    const denyEntries = parseSettingsDeny(readDocFile(REAL_SETTINGS_PATH));
 
-    expect(startAt).toBeGreaterThanOrEqual(0);
-    expect(endAt).toBeGreaterThan(startAt);
-    expect(ruleNumbers.length).toBeGreaterThan(0);
-    expect(readRuleNumbers(claudeText)).toEqual(ruleNumbers);
-    for (const rule of ruleNumbers) {
-      expect(
-        register.rules.some((candidate) => candidate.rule === rule),
-        `rule ${rule} has no row in Table B`,
-      ).toBe(true);
-    }
+    expect(denyEntries.length).toBeGreaterThan(0);
   });
 
-  it("has the mode name Rule N for every Table B row that has an origin", () => {
-    const modeText = readDocFile(REAL_MODE_PATH);
-    const register = parseRegister(readDocFile(REAL_REGISTER_PATH));
-    const rowsWithOrigin = register.rules.filter((candidate) => candidate.origin !== "none");
+  it("has the mode name every failure-born rule and every disabled item, and the rule book hold those rules", () => {
+    const config = parseConfig(readDocFile(REAL_CONFIG_PATH));
+    const ruleNumbers = readRuleNumbers(readDocFile(REAL_CLAUDE_PATH));
 
-    expect(rowsWithOrigin.length).toBeGreaterThan(0);
-    for (const { rule } of rowsWithOrigin) {
-      expect(
-        new RegExp(`Rule ${rule}(?![0-9])`).test(modeText),
-        `the mode does not name Rule ${rule}`,
-      ).toBe(true);
-    }
+    expect(checkMode(config, ruleNumbers, readDocFile(REAL_MODE_PATH))).toEqual([]);
   });
-});
 
-describe("parseLock", () => {
-  it("reads an uppercase hash as the same hash in lowercase, and accepts a missing final newline", () => {
-    const hash = sha256OfText("x");
-    const lock = parseLock(`${hash.toUpperCase()}  ./one.txt\n${hash}  ./two.txt`);
+  it("finds no file in the real agents and commands folders that names the word", () => {
+    const rawInputs = readInputs(process.cwd());
 
-    expect([...lock.entries()]).toEqual([
-      ["./one.txt", hash],
-      ["./two.txt", hash],
-    ]);
+    expect(checkBoundary(rawInputs.agentFiles, rawInputs.commandFiles)).toEqual([]);
+  });
+
+  it("gives every hard item of the real config its deny entry and every pstack deny entry a hard item", () => {
+    const config = parseConfig(readDocFile(REAL_CONFIG_PATH));
+    const denyEntries = parseSettingsDeny(readDocFile(REAL_SETTINGS_PATH));
+
+    expect(checkDeny(config.items, denyEntries)).toEqual([]);
   });
 });
