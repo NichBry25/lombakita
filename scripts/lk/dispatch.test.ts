@@ -1172,7 +1172,7 @@ describe("the smoke call", () => {
 
   it.each([
     { answer: "ok", accepted: true },
-    { answer: "Nicholas, ok.", accepted: true },
+    { answer: "Developer, ok.", accepted: true },
     { answer: "OK!", accepted: true },
     { answer: "the token is broken", accepted: false },
     { answer: "book", accepted: false },

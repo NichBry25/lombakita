@@ -21,12 +21,12 @@ smoke=""
 if [ -n "$smoke" ]; then
   case "$FAKE_SMOKE" in
     silent) echo "no idea"; exit 0 ;;
-    okfail) echo "Nicholas, ok"; exit 1 ;;
+    okfail) echo "Developer, ok"; exit 1 ;;
     fail) echo "model not found" >&2; exit 1 ;;
     text) echo "$FAKE_SMOKE_TEXT"; exit 0 ;;
     broken) echo "the model is broken"; exit 0 ;;
     hang) exec sleep 30 ;;
-    *) echo "Nicholas, OK"; exit 0 ;;
+    *) echo "Developer, OK"; exit 0 ;;
   esac
 fi
 
