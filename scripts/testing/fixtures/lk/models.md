@@ -4,11 +4,11 @@ Fixture for the lk script tests. The ids are made up and name no real model.
 
 ## Classes
 
-| Class | Model |
-|---|---|
-| Heavy | claude-test-heavy |
-| Standard | claude-test-standard |
-| Light | claude-test-light |
+| Class | Model | Effort |
+|---|---|---|
+| Heavy | claude-test-heavy | max |
+| Standard | claude-test-standard | |
+| Light | claude-test-light | low |
 
 ## Jobs
 

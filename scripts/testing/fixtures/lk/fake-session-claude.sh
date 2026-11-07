@@ -22,14 +22,16 @@
 prompt=""
 deny=""
 deny_flag="false"
+effort="none"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -p) prompt="$2"; shift 2 ;;
     --disallowedTools) deny="$2"; deny_flag="true"; shift 2 ;;
+    --effort) effort="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
-if [ -n "$FAKE_SESSION_LOG" ]; then echo "deny_flag=$deny_flag" >> "$FAKE_SESSION_LOG"; fi
+if [ -n "$FAKE_SESSION_LOG" ]; then echo "deny_flag=$deny_flag effort=$effort" >> "$FAKE_SESSION_LOG"; fi
 exec python3 - "$prompt" "$deny" <<'PY'
 import fnmatch
 import json

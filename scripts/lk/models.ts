@@ -34,7 +34,14 @@ export type RequestedTier = Exclude<RowTier, "any">;
 
 export const MODEL_ID_PATTERN = /^claude-[a-z0-9-]+$/;
 
-const CLASS_TABLE_HEAD = ["| Class | Model |", "|---|---|"] as const;
+export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+export type ClassEffort = EffortLevel | "default";
+
+const CLASS_TABLE_HEADS = [
+  ["| Class | Model | Effort |", "|---|---|---|"],
+  ["| Class | Model |", "|---|---|"],
+] as const;
 const JOB_TABLE_HEAD = ["| Job | Tier | Class |", "|---|---|---|"] as const;
 
 export interface JobRow {
@@ -45,6 +52,7 @@ export interface JobRow {
 
 export interface ModelTable {
   models: Record<ModelClass, string>;
+  efforts: Record<ModelClass, ClassEffort>;
   jobs: readonly JobRow[];
 }
 
@@ -63,6 +71,9 @@ const isModelClass = (value: string): value is ModelClass =>
 const isJob = (value: string): value is Job => (JOBS as readonly string[]).includes(value);
 
 const isRowTier = (value: string): value is RowTier => (TIERS as readonly string[]).includes(value);
+
+const isEffortLevel = (value: string): value is EffortLevel =>
+  (EFFORT_LEVELS as readonly string[]).includes(value);
 
 export const isRequestedTier = (value: string): value is RequestedTier =>
   value === "1" || value === "2" || value === "3";
@@ -100,23 +111,56 @@ const readTable = (lines: string[], head: readonly [string, string], file: strin
   return rows;
 };
 
-const readClassTable = (lines: string[], file: string): Record<ModelClass, string> => {
-  const found = new Map<ModelClass, string>();
-  for (const { cells, line } of readTable(lines, CLASS_TABLE_HEAD, file)) {
-    const [name = "", model = ""] = cells;
+/** The head of the one class table the file holds, with or without the Effort column. */
+const classTableHeadOf = (lines: string[], file: string): readonly [string, string] => {
+  const heads = lines.flatMap((text) => CLASS_TABLE_HEADS.filter((head) => head[0] === text));
+  const [head] = heads;
+  if (head === undefined || heads.length !== 1) {
+    const names = CLASS_TABLE_HEADS.map((candidate) => `"${candidate[0]}"`).join(" or ");
+    refuse(`${file}: expected exactly one class table headed ${names}, found ${heads.length}`);
+  }
+  return head;
+};
+
+/** An empty Effort cell, and the missing cell of a two-column table, read as `default`. */
+const readEffortCell = (cell: string, file: string, line: number): ClassEffort => {
+  if (cell === "") return "default";
+  if (!isEffortLevel(cell)) {
+    const levels = EFFORT_LEVELS.join(", ");
+    refuse(`${file} line ${line}: effort must be empty or one of ${levels}, not "${cell}"`);
+  }
+  return cell;
+};
+
+interface ClassRow {
+  model: string;
+  effort: ClassEffort;
+}
+
+const readClassTable = (lines: string[], file: string): Pick<ModelTable, "models" | "efforts"> => {
+  const found = new Map<ModelClass, ClassRow>();
+  for (const { cells, line } of readTable(lines, classTableHeadOf(lines, file), file)) {
+    const [name = "", model = "", effortCell = ""] = cells;
     if (!isModelClass(name)) refuse(`${file} line ${line}: unknown class "${name}"`);
     if (!MODEL_ID_PATTERN.test(model)) {
       refuse(`${file} line ${line}: "${model}" is not a model id (${MODEL_ID_PATTERN.source})`);
     }
+    const effort = readEffortCell(effortCell, file, line);
     if (found.has(name)) refuse(`${file} line ${line}: class ${name} is listed twice`);
-    found.set(name, model);
+    found.set(name, { model, effort });
   }
-  const modelOf = (name: ModelClass): string => {
-    const model = found.get(name);
-    if (model === undefined) refuse(`${file}: class ${name} is missing from the Classes table`);
-    return model;
+  const rowOf = (name: ModelClass): ClassRow => {
+    const row = found.get(name);
+    if (row === undefined) refuse(`${file}: class ${name} is missing from the Classes table`);
+    return row;
   };
-  return { Heavy: modelOf("Heavy"), Standard: modelOf("Standard"), Light: modelOf("Light") };
+  const heavy = rowOf("Heavy");
+  const standard = rowOf("Standard");
+  const light = rowOf("Light");
+  return {
+    models: { Heavy: heavy.model, Standard: standard.model, Light: light.model },
+    efforts: { Heavy: heavy.effort, Standard: standard.effort, Light: light.effort },
+  };
 };
 
 const readJobTable = (lines: string[], file: string): JobRow[] => {
@@ -143,7 +187,7 @@ export const readModels = (path: string): ModelTable => {
     return refuse(`cannot read the model table at ${path}`);
   }
   const lines = text.split("\n");
-  return { models: readClassTable(lines, path), jobs: readJobTable(lines, path) };
+  return { ...readClassTable(lines, path), jobs: readJobTable(lines, path) };
 };
 
 export const modelForClass = (table: ModelTable, name: ModelClass): string => table.models[name];
@@ -153,12 +197,16 @@ export const resolveJob = (
   table: ModelTable,
   job: string,
   tier: RequestedTier,
-): { class: ModelClass; model: string } => {
+): { class: ModelClass; model: string; effort: ClassEffort } => {
   const exact = table.jobs.find((row) => row.job === job && row.tier === tier);
   const anyTier = table.jobs.find((row) => row.job === job && row.tier === "any");
   const row = exact ?? anyTier;
   if (row === undefined) refuse(`no class for job ${job} tier ${tier}`);
-  return { class: row.class, model: modelForClass(table, row.class) };
+  return {
+    class: row.class,
+    model: modelForClass(table, row.class),
+    effort: table.efforts[row.class],
+  };
 };
 
 type ParsedValues = Record<string, string | boolean | (string | boolean)[] | undefined>;
@@ -201,17 +249,17 @@ const main = (): void => {
       if (job !== undefined || tier !== undefined)
         refuse("give --class or --job with --tier, not both");
       if (!isModelClass(requestedClass)) refuse(`unknown class "${requestedClass}"`);
-      const model = modelForClass(readModels(file), requestedClass);
-      console.log(asJson ? JSON.stringify({ class: requestedClass, model }) : model);
+      const table = readModels(file);
+      const model = modelForClass(table, requestedClass);
+      const effort = table.efforts[requestedClass];
+      console.log(asJson ? JSON.stringify({ class: requestedClass, model, effort }) : model);
       return;
     }
     if (job === undefined || tier === undefined) refuse("give --class, or --job with --tier");
     if (!isRequestedTier(tier)) refuse(`tier must be 1, 2 or 3, not "${tier}"`);
     const resolved = resolveJob(readModels(file), job, tier);
     console.log(
-      asJson
-        ? JSON.stringify({ job, tier, class: resolved.class, model: resolved.model })
-        : `${resolved.class} ${resolved.model}`,
+      asJson ? JSON.stringify({ job, tier, ...resolved }) : `${resolved.class} ${resolved.model}`,
     );
   } catch (error) {
     if (!(error instanceof LkRefusal)) throw error;

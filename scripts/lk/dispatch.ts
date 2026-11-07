@@ -91,6 +91,7 @@ import {
   refuse,
   resolveJob,
   stringOption,
+  type ClassEffort,
   type Env,
   type ModelClass,
 } from "./models";
@@ -343,11 +344,16 @@ const PROTECTED_ANCESTORS: ReadonlySet<string> = new Set(
   ancestorFoldersOf(PROTECTED_SET).map((path) => path.toLowerCase()),
 );
 
-export const buildClaudeArgs = (promptText: string, model: string): string[] => [
+export const buildClaudeArgs = (
+  promptText: string,
+  model: string,
+  effort: ClassEffort = "default",
+): string[] => [
   "-p",
   promptText,
   "--model",
   model,
+  ...(effort === "default" ? [] : ["--effort", effort]),
   "--permission-mode",
   "bypassPermissions",
   "--disallowedTools",
@@ -357,11 +363,12 @@ export const buildClaudeArgs = (promptText: string, model: string): string[] => 
   "--verbose",
 ];
 
-export const buildSmokeArgs = (model: string): string[] => [
+export const buildSmokeArgs = (model: string, effort: ClassEffort = "default"): string[] => [
   "-p",
   SMOKE_PROMPT,
   "--model",
   model,
+  ...(effort === "default" ? [] : ["--effort", effort]),
   "--max-turns",
   "1",
   "--output-format",
@@ -374,6 +381,7 @@ export interface RunRecord {
   tier: string;
   class: ModelClass;
   model: string;
+  effort: ClassEffort;
   override: boolean;
   status: "running" | "done" | "failed";
   started: string;
@@ -410,6 +418,7 @@ export type SpawnSession = (
 
 export type RunSmoke = (
   model: string,
+  effort: ClassEffort,
   options: ProcessOptions,
 ) => { status: number | null; stdout: string; timedOut: boolean };
 
@@ -526,14 +535,14 @@ const resolveSession = (
   job: string,
   tier: string,
   modelOverride: string | undefined,
-): { class: ModelClass; model: string; override: boolean } => {
+): { class: ModelClass; model: string; effort: ClassEffort; override: boolean } => {
   if (!isRequestedTier(tier)) refuse(`tier must be 1, 2 or 3, not "${tier}"`);
   const resolved = resolveJob(readModels(join(root, MODELS_FILE_IN_ROOT)), job, tier);
   if (modelOverride === undefined) return { ...resolved, override: false };
   if (!MODEL_ID_PATTERN.test(modelOverride)) {
     refuse(`--model "${modelOverride}" is not a model id (${MODEL_ID_PATTERN.source})`);
   }
-  return { class: resolved.class, model: modelOverride, override: true };
+  return { class: resolved.class, model: modelOverride, effort: resolved.effort, override: true };
 };
 
 /** `pid` is the dispatcher; `childPid` is the session it started, once there is one. */
@@ -686,24 +695,25 @@ const sessionEnv = (env: Env, slug: string, grant: readonly string[]): Env => ({
 });
 
 const refuseUnlessModelAnswers = (
-  model: string,
+  session: { model: string; effort: ClassEffort },
   options: ProcessOptions,
   runSmoke: RunSmoke,
 ): void => {
-  const { status, stdout, timedOut } = runSmoke(model, options);
+  const { model, effort } = session;
+  const { status, stdout, timedOut } = runSmoke(model, effort, options);
   if (timedOut) refuse(`model ${model} did not answer within ${SMOKE_TIMEOUT_SECONDS} seconds`);
   if (status !== 0 || !/\bok\b/i.test(stdout)) refuse(`model ${model} did not answer`);
 };
 
 const printDryRun = (
   options: RunOptions,
-  session: { class: ModelClass; model: string; override: boolean },
+  session: { class: ModelClass; model: string; effort: ClassEffort; override: boolean },
   promptText: string,
   print: (line: string) => void,
 ): void => {
-  const args = buildClaudeArgs(`<${promptText.length} characters>`, session.model);
+  const args = buildClaudeArgs(`<${promptText.length} characters>`, session.model, session.effort);
   print(
-    `LK DRY-RUN ${options.slug} job=${options.job} tier=${options.tier} class=${session.class} model=${session.model} override=${session.override}`,
+    `LK DRY-RUN ${options.slug} job=${options.job} tier=${options.tier} class=${session.class} model=${session.model} effort=${session.effort} override=${session.override}`,
   );
   print(`args: ${JSON.stringify(args)}`);
 };
@@ -983,7 +993,7 @@ const runSession = async (
   let exitCode: number;
   try {
     writeRunRecord(root, record);
-    end = await deps.spawnSession(buildClaudeArgs(promptText, record.model), {
+    end = await deps.spawnSession(buildClaudeArgs(promptText, record.model, record.effort), {
       cwd: root,
       env: childEnv,
       logPath: workPath(root, record.slug, SESSION_LOG_FILE),
@@ -1018,7 +1028,7 @@ export const dispatchRun = async (
   const exitCode = await runHoldingLock(root, lockHolderOf(deps, slug), deps.print, async () => {
     const before = snapshotBeforeRun(root, slug);
     if (!options.noSmoke) {
-      refuseUnlessModelAnswers(session.model, { cwd: root, env: childEnv }, deps.runSmoke);
+      refuseUnlessModelAnswers(session, { cwd: root, env: childEnv }, deps.runSmoke);
     }
     const record: RunRecord = {
       slug,
@@ -1064,8 +1074,8 @@ export const isProcessAlive = (pid: number): boolean => {
 
 export const createRunSmoke =
   (timeoutSeconds: number): RunSmoke =>
-  (model, { cwd, env }) => {
-    const result = spawnSync("claude", buildSmokeArgs(model), {
+  (model, effort, { cwd, env }) => {
+    const result = spawnSync("claude", buildSmokeArgs(model, effort), {
       cwd,
       env: toChildEnv(env),
       encoding: "utf8",
