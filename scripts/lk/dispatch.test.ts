@@ -88,6 +88,7 @@ const realChildProcess =
 const realFs = await vi.importActual<typeof import("node:fs")>("node:fs");
 
 const FIXTURES = join(process.cwd(), "scripts/testing/fixtures/lk");
+const HEAVY_MODEL = "claude-test-heavy";
 const STANDARD_MODEL = "claude-test-standard";
 const LIGHT_MODEL = "claude-test-light";
 const VALID_PROMPT = "Write the result file.\n\nEND OF PROMPT\n";
@@ -379,6 +380,47 @@ describe("the arguments a session receives", () => {
       "--output-format",
       "text",
     ]);
+  });
+
+  it("put the effort pair directly after the model for an effort level", () => {
+    expect(buildClaudeArgs("the prompt", "claude-x", "high")).toEqual([
+      "-p",
+      "the prompt",
+      "--model",
+      "claude-x",
+      "--effort",
+      "high",
+      "--permission-mode",
+      "bypassPermissions",
+      "--disallowedTools",
+      DENY_LIST,
+      "--output-format",
+      "stream-json",
+      "--verbose",
+    ]);
+  });
+
+  it("hold no effort pair for the default effort", () => {
+    const args = buildClaudeArgs("the prompt", "claude-x", "default");
+    expect(args).not.toContain("--effort");
+    expect(args).toEqual(buildClaudeArgs("the prompt", "claude-x"));
+  });
+
+  it("give the model check the effort pair directly after the model, and none for the default effort", () => {
+    expect(buildSmokeArgs("claude-x", "max")).toEqual([
+      "-p",
+      "reply with the single word ok",
+      "--model",
+      "claude-x",
+      "--effort",
+      "max",
+      "--max-turns",
+      "1",
+      "--output-format",
+      "text",
+    ]);
+    expect(buildSmokeArgs("claude-x", "default")).not.toContain("--effort");
+    expect(buildSmokeArgs("claude-x", "default")).toEqual(buildSmokeArgs("claude-x"));
   });
 });
 
@@ -1022,7 +1064,7 @@ describe("the governance grant", () => {
         sessions.push(env);
         return { exitCode: 0 };
       },
-      runSmoke: (_model, smokeOptions) => {
+      runSmoke: (_model, _effort, smokeOptions) => {
         smokes.push(smokeOptions.env);
         return { status: 0, stdout: "ok", timedOut: false };
       },
@@ -1212,7 +1254,7 @@ describe("--dry-run", () => {
     expect(result.status).toBe(0);
     const [head, args] = result.stdout.trimEnd().split("\n");
     expect(head).toBe(
-      `LK DRY-RUN alpha job=implement tier=1 class=Standard model=${STANDARD_MODEL} override=false`,
+      `LK DRY-RUN alpha job=implement tier=1 class=Standard model=${STANDARD_MODEL} effort=default override=false`,
     );
     expect(args).toBe(
       `args: ${JSON.stringify(buildClaudeArgs(`<${VALID_PROMPT.length} characters>`, STANDARD_MODEL))}`,
@@ -1343,6 +1385,84 @@ describe("a real run", () => {
     dispatch(sandbox, ["run", "beta", "--job", "implement", "--tier", "2", "--no-smoke"]);
     expect(readRecord(sandbox, "alpha")).toMatchObject({ class: "Light", model: LIGHT_MODEL });
     expect(readRecord(sandbox, "beta")).toMatchObject({ class: "Standard", model: STANDARD_MODEL });
+  });
+});
+
+describe("the effort of the resolved class", () => {
+  const argsFromModel = (args: string[] | undefined): string[] => {
+    const modelAt = args?.indexOf("--model") ?? -1;
+    return args?.slice(modelAt, modelAt + 4) ?? [];
+  };
+
+  it("reaches the model check and the session of a review at tier 1 and is recorded as max", () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const result = dispatch(sandbox, ["run", "alpha", "--job", "review", "--tier", "1"]);
+    expect(result.status).toBe(0);
+    const [smoke, session, ...rest] = readCalls(sandbox);
+    expect(rest).toEqual([]);
+    expect(argsFromModel(smoke?.args)).toEqual(["--model", HEAVY_MODEL, "--effort", "max"]);
+    expect(argsFromModel(session?.args)).toEqual(["--model", HEAVY_MODEL, "--effort", "max"]);
+    expect(smoke?.args).toEqual(buildSmokeArgs(HEAVY_MODEL, "max"));
+    expect(session?.args).toEqual(buildClaudeArgs(VALID_PROMPT, HEAVY_MODEL, "max"));
+    const record = readRecord(sandbox, "alpha");
+    expect(record).toMatchObject({ class: "Heavy", model: HEAVY_MODEL, effort: "max" });
+    const keys = Object.keys(record);
+    expect(keys[keys.indexOf("model") + 1]).toBe("effort");
+  });
+
+  it("is absent from both calls of an implement run at tier 2 and is recorded as default", () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const result = dispatch(sandbox, ["run", "alpha", "--job", "implement", "--tier", "2"]);
+    expect(result.status).toBe(0);
+    const calls = readCalls(sandbox);
+    expect(calls).toHaveLength(2);
+    for (const call of calls) expect(call.args).not.toContain("--effort");
+    expect(readRecord(sandbox, "alpha")).toMatchObject({
+      class: "Standard",
+      model: STANDARD_MODEL,
+      effort: "default",
+    });
+  });
+
+  it("is printed as max on the first dry run line and carried in its argument line", () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const result = dispatch(sandbox, [
+      "run",
+      "alpha",
+      "--job",
+      "review",
+      "--tier",
+      "1",
+      "--dry-run",
+    ]);
+    expect(result.status).toBe(0);
+    const [head, argsLine = ""] = result.stdout.trimEnd().split("\n");
+    expect(head).toBe(
+      `LK DRY-RUN alpha job=review tier=1 class=Heavy model=${HEAVY_MODEL} effort=max override=false`,
+    );
+    expect(argsLine.startsWith("args: ")).toBe(true);
+    const args = JSON.parse(argsLine.slice("args: ".length)) as string[];
+    expect(argsFromModel(args)).toEqual(["--model", HEAVY_MODEL, "--effort", "max"]);
+    expect(readCalls(sandbox)).toEqual([]);
+  });
+
+  it("is kept when the model is overridden", () => {
+    const sandbox = makeSandbox();
+    addWorkItem(sandbox, "alpha");
+    const extra = ["--model", "claude-test-other"];
+    dispatch(sandbox, ["run", "alpha", "--job", "review", "--tier", "1", ...extra]);
+    const [smoke, session] = readCalls(sandbox);
+    expect(smoke?.args).toEqual(buildSmokeArgs("claude-test-other", "max"));
+    expect(session?.args).toEqual(buildClaudeArgs(VALID_PROMPT, "claude-test-other", "max"));
+    expect(readRecord(sandbox, "alpha")).toMatchObject({
+      class: "Heavy",
+      model: "claude-test-other",
+      effort: "max",
+      override: true,
+    });
   });
 });
 
@@ -1548,7 +1668,7 @@ describe("dispatchRun with injected seams", () => {
         sessions.push({ args, cwd, env, logPath });
         return { exitCode: 5 };
       },
-      runSmoke: (model, smokeOptions) => {
+      runSmoke: (model, _effort, smokeOptions) => {
         smokes.push({ model, env: smokeOptions.env });
         return { status: 0, stdout: "ok", timedOut: false };
       },
@@ -2136,7 +2256,7 @@ describe("the smoke call as a process", () => {
   it("is cut off after the time it is given and reported as timed out", () => {
     const sandbox = makeSandbox();
     const started = Date.now();
-    const outcome = createRunSmoke(0.3)("claude-x", {
+    const outcome = createRunSmoke(0.3)("claude-x", "default", {
       cwd: sandbox.root,
       env: smokeEnv(sandbox, "hang"),
     });
@@ -2146,7 +2266,7 @@ describe("the smoke call as a process", () => {
 
   it("does not call a call that answered a timeout", () => {
     const sandbox = makeSandbox();
-    const outcome = createRunSmoke(30)("claude-x", {
+    const outcome = createRunSmoke(30)("claude-x", "default", {
       cwd: sandbox.root,
       env: smokeEnv(sandbox, "ok"),
     });
@@ -2156,14 +2276,14 @@ describe("the smoke call as a process", () => {
 
   it("runs in the directory it is given", () => {
     const sandbox = makeSandbox();
-    createRunSmoke(30)("claude-x", { cwd: sandbox.root, env: smokeEnv(sandbox, "ok") });
+    createRunSmoke(30)("claude-x", "default", { cwd: sandbox.root, env: smokeEnv(sandbox, "ok") });
     expect(realpathSync(readCalls(sandbox)[0]?.cwd ?? "")).toBe(realpathSync(sandbox.root));
   });
 
   it("is started with sixty seconds and a kill that cannot be ignored by the production runner", () => {
     const sandbox = makeSandbox();
     vi.mocked(spawnSync).mockClear();
-    runSmokeWithClaude("claude-x", { cwd: sandbox.root, env: smokeEnv(sandbox, "ok") });
+    runSmokeWithClaude("claude-x", "default", { cwd: sandbox.root, env: smokeEnv(sandbox, "ok") });
     const [, , spawnOptions] = vi.mocked(spawnSync).mock.calls[0] ?? [];
     expect(spawnOptions).toMatchObject({ timeout: 60_000, killSignal: "SIGKILL" });
   });

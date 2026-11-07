@@ -61,7 +61,14 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildClaudeArgs, DENY_LIST, DENY_PATTERNS, gitFormsEndingIn } from "./dispatch";
-import { parseCliArgs, readModels, refuse, resolveJob, stringOption } from "./models";
+import {
+  parseCliArgs,
+  readModels,
+  refuse,
+  resolveJob,
+  stringOption,
+  type ClassEffort,
+} from "./models";
 import { protectTableMismatches, PROTECT_TABLE } from "./protect-table";
 
 const PRODUCT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -643,8 +650,9 @@ export const controlArgs = (
   promptText: string,
   model: string,
   covers: readonly string[],
+  effort: ClassEffort,
 ): string[] => {
-  const args = buildClaudeArgs(promptText, model);
+  const args = buildClaudeArgs(promptText, model, effort);
   const flagIndex = args.indexOf("--disallowedTools");
   const reduced = DENY_PATTERNS.filter((pattern) => !covers.includes(pattern)).join(",");
   if (flagIndex < 0 || args[flagIndex + 1] !== DENY_LIST) {
@@ -655,8 +663,12 @@ export const controlArgs = (
   return swapped;
 };
 
-const argsWithoutDenyList = (promptText: string, model: string): string[] => {
-  const args = buildClaudeArgs(promptText, model);
+export const argsWithoutDenyList = (
+  promptText: string,
+  model: string,
+  effort: ClassEffort,
+): string[] => {
+  const args = buildClaudeArgs(promptText, model, effort);
   const flagIndex = args.indexOf("--disallowedTools");
   if (flagIndex < 0) throw new Error("buildClaudeArgs carries no deny list to leave out");
   return args.filter((_arg, index) => index !== flagIndex && index !== flagIndex + 1);
@@ -681,7 +693,10 @@ const runClaudeDirectly = async (
   return { timedOut, exitCode, events: parseEvents(rawLogPath), rawLogPath };
 };
 
-const modelForProof = (): string => resolveJob(readModels(modelsFile), "lookup", "3").model;
+const sessionForProof = (): { model: string; effort: ClassEffort } => {
+  const { model, effort } = resolveJob(readModels(modelsFile), "lookup", "3");
+  return { model, effort };
+};
 
 const runControl = (
   testCase: ProofCase,
@@ -689,19 +704,22 @@ const runControl = (
   removed: readonly string[],
 ): Promise<SessionOutcome> => {
   const promptText = promptFor(testCase, fixture);
+  const proofSession = sessionForProof();
   const args =
     testCase.mode === "settings"
-      ? argsWithoutDenyList(promptText, modelForProof())
-      : controlArgs(promptText, modelForProof(), removed);
+      ? argsWithoutDenyList(promptText, proofSession.model, proofSession.effort)
+      : controlArgs(promptText, proofSession.model, removed, proofSession.effort);
   return runClaudeDirectly(fixture, args, testCase.controlSession ?? testCase.session);
 };
 
-const runSettingsDenied = (testCase: ProofCase, fixture: Fixture): Promise<SessionOutcome> =>
-  runClaudeDirectly(
+const runSettingsDenied = (testCase: ProofCase, fixture: Fixture): Promise<SessionOutcome> => {
+  const proofSession = sessionForProof();
+  return runClaudeDirectly(
     fixture,
-    argsWithoutDenyList(promptFor(testCase, fixture), modelForProof()),
+    argsWithoutDenyList(promptFor(testCase, fixture), proofSession.model, proofSession.effort),
     testCase.session,
   );
+};
 
 const blocksOf = (event: SessionEvent): Record<string, unknown>[] => {
   const content = event.message?.content;
@@ -3139,9 +3157,10 @@ const refusedTwinRun = (testCase: ProofCase, twin: NonNullable<ProofCase["refuse
   withFixture(testCase, false, async (fixture) => {
     const expected = renderCommand(testCase.command, fixture);
     emitFixture(fixture);
+    const proofSession = sessionForProof();
     const outcome = await runClaudeDirectly(
       fixture,
-      argsWithoutDenyList(promptFor(testCase, fixture), modelForProof()),
+      argsWithoutDenyList(promptFor(testCase, fixture), proofSession.model, proofSession.effort),
       twin.session,
     );
     saveLog(testCase.id, "twin", outcome.rawLogPath);

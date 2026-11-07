@@ -32,6 +32,7 @@ import { dirname, join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { buildClaudeArgs, DENY_LIST, DENY_PATTERNS } from "./dispatch";
 import {
+  argsWithoutDenyList,
   controlArgs,
   exitsOneToStdoutHookText,
   expandProjectDirectory,
@@ -976,8 +977,8 @@ describe("the guard cases, which carry no deny flag", () => {
       expect(output).not.toContain("deny list minus");
       expect(verdictOf(output, caseId)).toBe("PASS");
       expect(readFileSync(sessionLog, "utf8").trimEnd().split("\n")).toEqual([
-        "deny_flag=false",
-        "deny_flag=false",
+        "deny_flag=false effort=low",
+        "deny_flag=false effort=low",
       ]);
     },
     SESSION_TEST_TIMEOUT_MS,
@@ -2733,7 +2734,7 @@ describe("the settings cases", () => {
       );
       expect(verdictOf(output, "twin-npx-vercel-env-pull")).toBe("PASS");
       const calls = readFileSync(sessionLog, "utf8").trimEnd().split("\n");
-      expect(calls).toEqual(["deny_flag=false", "deny_flag=false"]);
+      expect(calls).toEqual(["deny_flag=false effort=low", "deny_flag=false effort=low"]);
     },
     SESSION_TEST_TIMEOUT_MS,
   );
@@ -3108,7 +3109,7 @@ describe("the control run's arguments", () => {
 
   it("carry the deny list minus exactly the covering patterns", () => {
     const covers = ["Bash(rm -fr*)", "Bash(rm -Rf*)"];
-    const args = controlArgs("the prompt", "claude-x", covers);
+    const args = controlArgs("the prompt", "claude-x", covers, "default");
     const list = args[args.indexOf("--disallowedTools") + 1]?.split(",");
     expect(list).toEqual(DENY_PATTERNS.filter((pattern) => !covers.includes(pattern)));
     expect(args.filter((_arg, index) => index !== args.indexOf("--disallowedTools") + 1)).toEqual(
@@ -3118,17 +3119,64 @@ describe("the control run's arguments", () => {
 
   it("are refused when the session arguments carry no deny list flag", () => {
     withBuiltArguments(["-p", "the prompt", "--model", "claude-x"]);
-    expect(() => controlArgs("the prompt", "claude-x", [])).toThrow(
+    expect(() => controlArgs("the prompt", "claude-x", [], "default")).toThrow(
       "no longer carries the deny list",
     );
   });
 
   it("are refused when the flag holds something other than the deny list", () => {
     withBuiltArguments(["-p", "the prompt", "--disallowedTools", "Bash(rm -fr*)"]);
-    expect(() => controlArgs("the prompt", "claude-x", [])).toThrow(
+    expect(() => controlArgs("the prompt", "claude-x", [], "default")).toThrow(
       "no longer carries the deny list",
     );
   });
+
+  it("equal the session arguments built with the same effort, with only the deny list value swapped", () => {
+    const covers = ["Bash(rm -fr*)"];
+    const args = controlArgs("the prompt", "claude-x", covers, "high");
+    const built = buildClaudeArgs("the prompt", "claude-x", "high");
+    const expected = [...built];
+    expected[built.indexOf("--disallowedTools") + 1] = DENY_PATTERNS.filter(
+      (pattern) => !covers.includes(pattern),
+    ).join(",");
+    expect(args).toEqual(expected);
+    const modelAt = args.indexOf("--model");
+    expect(args.slice(modelAt, modelAt + 4)).toEqual(["--model", "claude-x", "--effort", "high"]);
+  });
+
+  it("keep the effort pair when the deny list is left out", () => {
+    const args = argsWithoutDenyList("the prompt", "claude-x", "low");
+    expect(args).not.toContain("--disallowedTools");
+    expect(args).not.toContain(DENY_LIST);
+    expect(args).toEqual(
+      buildClaudeArgs("the prompt", "claude-x", "low").filter(
+        (arg) => arg !== "--disallowedTools" && arg !== DENY_LIST,
+      ),
+    );
+    const modelAt = args.indexOf("--model");
+    expect(args.slice(modelAt, modelAt + 4)).toEqual(["--model", "claude-x", "--effort", "low"]);
+  });
+});
+
+describe("the effort a proof's sessions carry", () => {
+  it(
+    "is the effort of the fixture's Light class in the denied run through dispatch.ts and in the control run",
+    () => {
+      const sessionLog = join(workspace, "effort-sessions.txt");
+      const output = runHarness("rm-a", "rm-fr", {
+        FAKE_REFUSE_WHEN: "+Bash(rm -fr*)",
+        FAKE_SESSION_LOG: sessionLog,
+      });
+      expect(output).toContain("- denied run (through dispatch.ts");
+      expect(output).toContain("- control run (claude directly, deny list minus");
+      expect(verdictOf(output, "rm-fr")).toBe("PASS");
+      expect(readFileSync(sessionLog, "utf8").trimEnd().split("\n")).toEqual([
+        "deny_flag=true effort=low",
+        "deny_flag=true effort=low",
+      ]);
+    },
+    SESSION_TEST_TIMEOUT_MS,
+  );
 });
 
 describe("the database guard hook as the control runs it", () => {

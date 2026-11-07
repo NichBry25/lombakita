@@ -263,9 +263,9 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
   {
     element: "the after-run check taking its first snapshot before the smoke call",
     pattern:
-      /^ {4}const before = snapshotBeforeRun\(root, slug\);\n {4}if \(!options\.noSmoke\) \{\n {6}refuseUnlessModelAnswers\(session\.model, \{ cwd: root, env: childEnv \}, deps\.runSmoke\);\n {4}\}$/m,
+      /^ {4}const before = snapshotBeforeRun\(root, slug\);\n {4}if \(!options\.noSmoke\) \{\n {6}refuseUnlessModelAnswers\(session, \{ cwd: root, env: childEnv \}, deps\.runSmoke\);\n {4}\}$/m,
     replacement:
-      "    if (!options.noSmoke) {\n      refuseUnlessModelAnswers(session.model, { cwd: root, env: childEnv }, deps.runSmoke);\n    }\n    const before = snapshotBeforeRun(root, slug);",
+      "    if (!options.noSmoke) {\n      refuseUnlessModelAnswers(session, { cwd: root, env: childEnv }, deps.runSmoke);\n    }\n    const before = snapshotBeforeRun(root, slug);",
     redTest: namedAny([
       "during the smoke call",
       "when the first snapshot cannot be taken",
@@ -458,9 +458,9 @@ export const DISPATCHER_MUTATIONS: readonly DispatcherMutation[] = [
   {
     element: "the after-run check taking the lock before the smoke call",
     pattern:
-      /^ {2}const exitCode = await runHoldingLock\(root, lockHolderOf\(deps, slug\), deps\.print, async \(\) => \{\n {4}const before = snapshotBeforeRun\(root, slug\);\n {4}if \(!options\.noSmoke\) \{\n {6}refuseUnlessModelAnswers\(session\.model, \{ cwd: root, env: childEnv \}, deps\.runSmoke\);\n {4}\}$/m,
+      /^ {2}const exitCode = await runHoldingLock\(root, lockHolderOf\(deps, slug\), deps\.print, async \(\) => \{\n {4}const before = snapshotBeforeRun\(root, slug\);\n {4}if \(!options\.noSmoke\) \{\n {6}refuseUnlessModelAnswers\(session, \{ cwd: root, env: childEnv \}, deps\.runSmoke\);\n {4}\}$/m,
     replacement:
-      "  const before = snapshotBeforeRun(root, slug);\n  if (!options.noSmoke) {\n    refuseUnlessModelAnswers(session.model, { cwd: root, env: childEnv }, deps.runSmoke);\n  }\n  const exitCode = await runHoldingLock(root, lockHolderOf(deps, slug), deps.print, async () => {",
+      "  const before = snapshotBeforeRun(root, slug);\n  if (!options.noSmoke) {\n    refuseUnlessModelAnswers(session, { cwd: root, env: childEnv }, deps.runSmoke);\n  }\n  const exitCode = await runHoldingLock(root, lockHolderOf(deps, slug), deps.print, async () => {",
     redTest: namedAny([
       "holds the lock while the smoke call runs",
       "takes the lock first, before the smoke call",
