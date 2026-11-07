@@ -29,6 +29,7 @@ import {
   listPublicReviews,
 } from "@/server/competitions/competition-reviews-service";
 import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
+import { RecordRecentlyViewed } from "@/components/competitions/record-recently-viewed";
 import { SaveButton } from "./save-button";
 import { DetailActions } from "./detail-actions";
 import { CompetitionReviewForm } from "./competition-review-form";
@@ -406,6 +407,19 @@ export default async function CompetitionDetailPage({
 
   return (
     <main>
+      <RecordRecentlyViewed
+        item={{
+          id: competition.id,
+          slug: competition.slug,
+          institutionSlug: competition.organizer.slug,
+          title: competition.title,
+          institutionName: competition.organizer.name,
+          category: competition.category,
+          registrationEndAt: competition.registrationEndAt
+            ? new Date(competition.registrationEndAt).toISOString()
+            : null,
+        }}
+      />
       <section
         className="brand-band competition-detail-hero"
         data-category={competition.category ?? "other"}

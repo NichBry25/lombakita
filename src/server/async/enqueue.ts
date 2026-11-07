@@ -9,6 +9,7 @@ import {
   type AsyncJobPayloadByName,
   type PaymentOutcomePayload,
   type PaymentProofSubmittedPayload,
+  type SavedDeadlineReminderPayload,
 } from "@/server/async/contracts";
 import { buildAsyncJobId, sanitizeIdempotencyKey } from "@/server/async/idempotency";
 import { logEnqueueAccepted, logEnqueueRequested } from "@/server/async/observability";
@@ -368,6 +369,19 @@ export const enqueuePaymentProofSubmitted = async (
  * payment + outcome alone would announce the first refusal and silently drop the second, which is
  * the one the payer most needs, because it lands with less of the deadline left.
  */
+// One job per student per daily sweep. The key is the student and the sweep's date, so a sweep
+// that runs twice on the same day (a redeploy racing the schedule) hands BullMQ the same job id and
+// the student gets one email, not two.
+export const enqueueSavedDeadlineReminder = async (
+  input: SavedDeadlineReminderPayload,
+): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.savedDeadlineReminder>> => {
+  return enqueueAsyncJob({
+    jobName: ASYNC_JOB_NAMES.savedDeadlineReminder,
+    idempotencyKey: `${input.userId}__${input.anchorAt.slice(0, 10)}`,
+    payload: { ...input },
+  });
+};
+
 export const enqueuePaymentOutcome = async (
   input: PaymentOutcomePayload,
 ): Promise<EnqueueAsyncJobResult<typeof ASYNC_JOB_NAMES.paymentOutcome>> => {

@@ -1,12 +1,15 @@
 // @vitest-environment node
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { mockListFeaturedCompetitions, mockLoggerError } = vi.hoisted(() => ({
-  mockListFeaturedCompetitions: vi.fn(),
-  mockLoggerError: vi.fn(),
-}));
+const { mockListFeaturedCompetitions, mockListPublicCompetitions, mockLoggerError } = vi.hoisted(
+  () => ({
+    mockListFeaturedCompetitions: vi.fn(),
+    mockListPublicCompetitions: vi.fn(),
+    mockLoggerError: vi.fn(),
+  }),
+);
 
 // Render a real <a> so renderToStaticMarkup can assert href attributes without a router context.
 vi.mock("next/link", () => {
@@ -20,6 +23,7 @@ vi.mock("next/link", () => {
 });
 vi.mock("@/server/competitions/competition-public-service", () => ({
   listFeaturedCompetitions: mockListFeaturedCompetitions,
+  listPublicCompetitions: mockListPublicCompetitions,
 }));
 vi.mock("@/lib/logger", () => ({
   logger: { error: mockLoggerError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
@@ -51,7 +55,28 @@ const featuredItem = (n: number) => ({
   institutionName: "Universitas Indonesia",
 });
 
+const listing = (data: ReturnType<typeof featuredItem>[]) => ({
+  data,
+  meta: { total: data.length, page: 1, limit: 50, totalPages: 1, searchEngine: "db" as const },
+});
+
+// Routes the two row reads by the filters the page passes, so a test can fill one row and not the
+// other.
+const mockShelves = ({
+  closing = [],
+  pool = [],
+}: {
+  closing?: ReturnType<typeof featuredItem>[];
+  pool?: ReturnType<typeof featuredItem>[];
+}) =>
+  mockListPublicCompetitions.mockImplementation(async (filters: { status?: string }) =>
+    listing(filters.status === "closing" ? closing : pool),
+  );
+
 describe("HomePage", () => {
+  beforeEach(() => {
+    mockShelves({});
+  });
   afterEach(() => vi.clearAllMocks());
 
   it("renders the hero and discovery sections with featured competitions present", async () => {
@@ -98,6 +123,59 @@ describe("HomePage", () => {
     expect(mockLoggerError).toHaveBeenCalledWith(
       "home.featured-competitions.load-failed",
       expect.objectContaining({ error: "db unavailable" }),
+    );
+  });
+
+  it("sends each arena card to the listing already filtered to that arena", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([]);
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    expect(html).toContain('href="/competitions?category=hackathon"');
+    expect(html).toContain('href="/competitions?category=scientific_writing"');
+  });
+
+  it("fills the closing-soon, newest and arena rows from the live listing", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([]);
+    mockShelves({
+      closing: [{ ...featuredItem(7), title: "Lomba Hampir Tutup" }],
+      pool: [featuredItem(1), { ...featuredItem(2), category: "business" as never }],
+    });
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    expect(mockListPublicCompetitions).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "closing", sort: "deadline_asc" }),
+    );
+    expect(html).toContain("Segera ditutup");
+    expect(html).toContain("Lomba Hampir Tutup");
+    expect(html).toContain("Kompetisi terbaru");
+    // One row per arena that has something open, linked to that arena's full listing.
+    expect(html).toContain('href="/competitions?category=business"');
+    expect(html).not.toContain("Kompetisi pertama sedang dikurasi");
+  });
+
+  it("says the catalogue is being prepared when nothing is live, instead of showing empty rows", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([]);
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    expect(html).toContain("Kompetisi pertama sedang dikurasi");
+    expect(html).toContain("Tandai minatmu");
+    expect(html).not.toContain("Segera ditutup");
+    expect(html).not.toContain("shelf-track");
+  });
+
+  it("drops a row — and records the failure — when its read throws", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([]);
+    mockListPublicCompetitions.mockRejectedValue(new Error("db unavailable"));
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    expect(html).toContain("Pilih arenamu");
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      "home.shelf.load-failed",
+      expect.objectContaining({ shelf: "pool", error: "db unavailable" }),
     );
   });
 });

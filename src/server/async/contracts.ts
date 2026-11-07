@@ -30,6 +30,8 @@ export const ASYNC_JOB_NAMES = {
   emailEgressProbe: "email.egress.probe",
   paymentProofSubmitted: "payment.proof.submitted",
   paymentOutcome: "payment.outcome",
+  savedDeadlineReminderSweep: "saved.deadline.reminder.sweep",
+  savedDeadlineReminder: "saved.deadline.reminder",
 } as const;
 
 export type AsyncJobName = (typeof ASYNC_JOB_NAMES)[keyof typeof ASYNC_JOB_NAMES];
@@ -225,6 +227,22 @@ export type EmailEgressProbePayload = {
   scheduledFor: string;
 };
 
+// No request triggers this one either — it fires on a timer (see
+// `saved-deadline-reminder-scheduler.ts`). A saved competition nearing its deadline is a fact about
+// the calendar, and the student who needs telling is the one who has not come back to look. The
+// payload carries the fire time only for log correlation; the sweep reads the due list itself.
+export type SavedDeadlineReminderSweepPayload = {
+  scheduledFor: string;
+};
+
+// One student's reminders from one daily sweep. The worker re-reads what is still due at
+// `anchorAt` rather than trusting a list carried on the payload, so a competition the student
+// registered for or unsaved in between is dropped instead of reminded about.
+export type SavedDeadlineReminderPayload = {
+  userId: string;
+  anchorAt: string;
+};
+
 export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.probePing]: AsyncProbeJobPayload;
   [ASYNC_JOB_NAMES.competitionSearchSync]: CompetitionSearchSyncPayload;
@@ -244,6 +262,8 @@ export type AsyncJobPayloadByName = {
   [ASYNC_JOB_NAMES.emailEgressProbe]: EmailEgressProbePayload;
   [ASYNC_JOB_NAMES.paymentProofSubmitted]: PaymentProofSubmittedPayload;
   [ASYNC_JOB_NAMES.paymentOutcome]: PaymentOutcomePayload;
+  [ASYNC_JOB_NAMES.savedDeadlineReminderSweep]: SavedDeadlineReminderSweepPayload;
+  [ASYNC_JOB_NAMES.savedDeadlineReminder]: SavedDeadlineReminderPayload;
 };
 
 export const ASYNC_JOB_QUEUE_BY_NAME = {
@@ -274,4 +294,9 @@ export const ASYNC_JOB_QUEUE_BY_NAME = {
   // sweep causes, which is exactly what the note above means by "enqueued separately".
   [ASYNC_JOB_NAMES.paymentProofSubmitted]: ASYNC_QUEUE_NAMES.notifications,
   [ASYNC_JOB_NAMES.paymentOutcome]: ASYNC_QUEUE_NAMES.notifications,
+  // The same split as the payment-expiry sweep: the sweep is maintenance and sits on
+  // infrastructure, and the per-student reminders it causes are participant events on
+  // notifications.
+  [ASYNC_JOB_NAMES.savedDeadlineReminderSweep]: ASYNC_QUEUE_NAMES.infrastructure,
+  [ASYNC_JOB_NAMES.savedDeadlineReminder]: ASYNC_QUEUE_NAMES.notifications,
 } as const satisfies Record<AsyncJobName, AsyncQueueName>;

@@ -16,8 +16,9 @@ describe("async queue registration baseline", () => {
     // rejection notice added recruiter.verification.rejected; participant document verification
     // added registration.document.requested + registration.document.reviewed — all on the
     // notifications queue. The scheduled jobs are on infrastructure: retention.purge,
-    // payment.expiry.sweep and email.egress.probe.
-    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(18);
+    // payment.expiry.sweep, email.egress.probe and saved.deadline.reminder.sweep; the reminders
+    // that last sweep causes are saved.deadline.reminder on notifications.
+    expect(ASYNC_JOB_REGISTRATIONS).toHaveLength(20);
 
     const probe = getRegistrationByJobName(ASYNC_JOB_NAMES.probePing);
     expect(probe).toBeDefined();
@@ -98,6 +99,12 @@ describe("async queue registration baseline", () => {
     const egressJob = getRegistrationByJobName(ASYNC_JOB_NAMES.emailEgressProbe);
     expect(egressJob).toBeDefined();
     expect(egressJob?.queueName).toBe(ASYNC_QUEUE_NAMES.infrastructure);
+
+    // The reminder sweep is maintenance; the reminders it causes are participant events.
+    const reminderSweepJob = getRegistrationByJobName(ASYNC_JOB_NAMES.savedDeadlineReminderSweep);
+    expect(reminderSweepJob?.queueName).toBe(ASYNC_QUEUE_NAMES.infrastructure);
+    const reminderJob = getRegistrationByJobName(ASYNC_JOB_NAMES.savedDeadlineReminder);
+    expect(reminderJob?.queueName).toBe(ASYNC_QUEUE_NAMES.notifications);
   });
 
   it("exposes queue-level processor registrations", () => {
@@ -109,11 +116,11 @@ describe("async queue registration baseline", () => {
         ASYNC_QUEUE_NAMES.notifications,
       ]),
     );
-    // probe.ping + the three scheduled jobs: retention.purge, payment.expiry.sweep and
-    // email.egress.probe.
-    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.infrastructure)).toHaveLength(4);
+    // probe.ping + the four scheduled jobs: retention.purge, payment.expiry.sweep,
+    // email.egress.probe and saved.deadline.reminder.sweep.
+    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.infrastructure)).toHaveLength(5);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.competition)).toHaveLength(1);
     expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.results)).toHaveLength(1);
-    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.notifications)).toHaveLength(12);
+    expect(getQueueRegistrations(ASYNC_QUEUE_NAMES.notifications)).toHaveLength(13);
   });
 });
