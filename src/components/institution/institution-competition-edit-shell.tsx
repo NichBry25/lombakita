@@ -1100,7 +1100,7 @@ export const InstitutionCompetitionEditShell = ({
             </Button>
             {isDraft ? (
               <Button
-                variant="secondary"
+                variant="outline"
                 type="button"
                 onClick={onPublish}
                 loading={isPublishing}

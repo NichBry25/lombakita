@@ -546,7 +546,7 @@ function DeadlineForm({
         />
       </div>
       <div className="record-actions">
-        <Button type="button" variant="secondary" onClick={onCancel}>
+        <Button type="button" variant="ghost" onClick={onCancel}>
           Batal
         </Button>
         <Button type="submit">Perpanjang</Button>

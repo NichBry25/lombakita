@@ -49,11 +49,12 @@ export function SaveButton({ competitionId, initialSaved, expectedUserId }: Prop
   return (
     <IconButton
       type="button"
-      variant={saved ? "secondary" : "outline"}
+      variant="outline"
       size="lg"
       className="detail-save-action"
       icon="bookmark"
-      label={saved ? "Hapus dari tersimpan" : "Simpan kompetisi"}
+      label="Simpan kompetisi"
+      aria-pressed={saved}
       data-saved={saved ? "true" : "false"}
       onClick={handleToggle}
       loading={loading}
