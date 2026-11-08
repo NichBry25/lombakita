@@ -395,7 +395,6 @@ svg {
   border-radius: var(--blob-radius-a);
   background: var(--color-inset);
   color: var(--color-ink-faint);
-  box-shadow: var(--shadow-sm);
 }
 
 .institution-card-logo img {
@@ -460,17 +459,13 @@ svg {
 }
 
 /* Tangerine action card: the brand's solid orange fill uses terracotta (white label at 4.81:1;
-   pure tangerine fails AA behind text) framed by a tangerine border and peach offset, so the
-   panel reads as the primary "do this" action. */
+   pure tangerine fails AA behind text), so the panel reads as the primary "do this" action. */
 .hub-card--action {
-  border-color: var(--brand-tangerine);
   background: var(--color-action);
   color: var(--color-action-ink);
-  box-shadow: var(--space-2) var(--space-2) 0 var(--surface-offset-block);
 }
 
 .hub-card--action:hover {
-  border-color: var(--brand-tangerine);
   background: var(--color-action-hover);
   color: var(--color-action-ink);
 }
@@ -3123,7 +3118,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   color: var(--brand-lime);
 }
 
-.competition-card:has(.status-badge[data-status="featured"]) {
+.competition-card:not(.featured-carousel-slide):has(.status-badge[data-status="featured"]) {
   border: var(--border-strong) solid var(--brand-tangerine);
   box-shadow: var(--space-3) var(--space-3) 0 var(--surface-offset-block);
 }
@@ -3244,7 +3239,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scroll-behavior: smooth;
-  /* Room for the featured card's tangerine border + peach offset shadow (down/right) and hover lift. */
   padding: var(--space-2) var(--space-4) var(--space-4) var(--space-1);
   scrollbar-width: none;
 }
@@ -3724,7 +3718,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   width: calc(var(--touch-target) + var(--space-3));
   height: calc(var(--touch-target) + var(--space-3));
   place-items: center;
-  border: var(--border-thin) solid var(--overlay-highlight);
   border-radius: var(--blob-radius-a);
   background: var(--overlay-highlight);
   color: var(--brand-lime);
@@ -3991,7 +3984,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   width: calc(var(--touch-target) + var(--space-5));
   height: calc(var(--touch-target) + var(--space-5));
   place-items: center;
-  border: var(--border-thin) solid var(--overlay-highlight);
   border-radius: var(--radius-circle);
   background: var(--overlay-highlight);
   color: var(--brand-lime);
@@ -4378,7 +4370,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   min-height: var(--control-height-sm);
   align-items: center;
   padding-inline: var(--space-3);
-  border: var(--border-thin) solid var(--color-accent);
   border-radius: var(--radius-pill);
   background: var(--color-accent-bg);
   color: var(--color-accent);
@@ -4398,7 +4389,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
 .inbox-card[data-unread="true"] {
   border-color: var(--color-info-border);
-  box-shadow: var(--shadow-md);
 }
 
 .inbox-card[data-unread="true"]::before {
@@ -4500,7 +4490,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   height: calc(var(--touch-target) * 2);
   overflow: hidden;
   place-items: center;
-  border: var(--border-thin) solid var(--overlay-highlight);
   border-radius: var(--blob-radius-a);
   background: var(--overlay-highlight);
   color: var(--brand-lime);
@@ -4853,7 +4842,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   border-radius: var(--blob-radius-a);
   background: var(--color-inset);
   color: var(--color-ink-faint);
-  box-shadow: var(--shadow-sm);
 }
 
 .pf-avatar img {
@@ -5145,7 +5133,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   border: var(--space-1) solid var(--color-surface);
   background: var(--color-inset);
   color: var(--color-ink-faint);
-  box-shadow: var(--shadow-sm);
 }
 
 .pf-media-avatar img {
@@ -5968,7 +5955,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   width: calc(var(--touch-target) * 2);
   height: calc(var(--touch-target) * 2);
   place-items: center;
-  border: var(--border-thin) solid var(--overlay-highlight);
   border-radius: var(--blob-radius-b);
   background: var(--overlay-highlight);
   color: var(--brand-lime);
@@ -6225,11 +6211,9 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
    * The featured card's offset peach block needs room to its right that a phone does not have —
    * it ends up touching or crossing the viewport edge and reads as a rendering fault. The
    * tangerine frame alone marks the card as featured at this width, and the "Unggulan" badge
-   * still names it, so dropping the offset costs no signal. Same treatment for the hub action
-   * card, which uses the identical offset-block pattern.
+   * still names it, so dropping the offset costs no signal.
    */
-  .competition-card:has(.status-badge[data-status="featured"]),
-  .hub-card--action {
+  .competition-card:has(.status-badge[data-status="featured"]) {
     box-shadow: none;
   }
 
