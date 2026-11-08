@@ -1242,6 +1242,7 @@ svg {
   border-bottom: var(--border-thin) solid var(--color-line-soft);
   text-align: start;
   vertical-align: top;
+  font-variant-numeric: tabular-nums;
 }
 
 /* MANUAL-D41: a header cell is the containing block for its own children. Without this, an
@@ -1827,6 +1828,7 @@ button.header-nav-link {
   font-size: var(--text-micro);
   font-weight: 500;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .site-footer {
@@ -2505,6 +2507,7 @@ button.header-nav-link {
   font-size: var(--text-body);
   font-weight: 600;
   letter-spacing: normal;
+  font-variant-numeric: tabular-nums;
 }
 
 .filter-sort-field {
@@ -3592,6 +3595,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 
 .detail-fee-amount {
   color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
 }
 
 .detail-rail-divider {

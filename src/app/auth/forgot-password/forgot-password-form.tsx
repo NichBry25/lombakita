@@ -92,7 +92,13 @@ export function ForgotPasswordForm({ initialEmail }: ForgotPasswordFormProps) {
           disabled={secondsUntilResend > 0}
           onClick={() => void requestLink()}
         >
-          {secondsUntilResend > 0 ? `Kirim ulang dalam ${secondsUntilResend} detik` : "Kirim ulang"}
+          {secondsUntilResend > 0 ? (
+            <>
+              Kirim ulang dalam <span className="data-text">{secondsUntilResend}</span> detik
+            </>
+          ) : (
+            "Kirim ulang"
+          )}
         </Button>
         <ButtonLink href="/auth/login" variant="ghost">
           Kembali ke halaman masuk
