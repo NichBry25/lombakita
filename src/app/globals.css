@@ -3633,6 +3633,10 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   text-align: center;
 }
 
+.register-sticky-bar {
+  display: none;
+}
+
 .detail-verification-panel {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -6128,6 +6132,23 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .detail-cta-rail {
     position: static;
     grid-row: 1;
+  }
+
+  .register-sticky-bar[data-visible="true"] {
+    position: fixed;
+    inset-inline: var(--space-0);
+    inset-block-end: var(--space-0);
+    z-index: var(--z-sticky-tabs);
+    display: block;
+    padding: var(--space-3) var(--page-padding-mobile)
+      max(var(--space-3), env(safe-area-inset-bottom));
+  }
+
+  body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
+    inset-block-end: calc(
+      var(--control-height-lg) + (var(--space-3) * 2) +
+        max(var(--space-3), env(safe-area-inset-bottom))
+    );
   }
 
   .competition-grid,

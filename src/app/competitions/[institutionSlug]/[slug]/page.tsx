@@ -29,6 +29,7 @@ import {
   listPublicReviews,
 } from "@/server/competitions/competition-reviews-service";
 import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
+import { RegisterStickyBar } from "./register-sticky-bar";
 import { SaveButton } from "./save-button";
 import { DetailActions } from "./detail-actions";
 import { CompetitionReviewForm } from "./competition-review-form";
@@ -723,7 +724,7 @@ export default async function CompetitionDetailPage({
             <FeeDisplay feeAmount={competition.feeAmount} feeCurrency={competition.feeCurrency} />
           </div>
           <div className="detail-rail-actions">
-            <div className="detail-primary-actions">
+            <div className="detail-primary-actions" id="register-actions">
               <CTANavLink
                 ctaState={competition.ctaState}
                 registrationPath={registrationPath}
@@ -738,6 +739,14 @@ export default async function CompetitionDetailPage({
                 />
               ) : null}
             </div>
+            {organizerIsVerified ? (
+              <div className="pf-badges">
+                <span className="status-badge" data-status="open">
+                  <Icon name="check" size="sm" aria-hidden="true" />
+                  Institusi Terverifikasi
+                </span>
+              </div>
+            ) : null}
             {!session?.user ? (
               <p className="detail-rail-note">
                 <Link href="/auth/login">Masuk</Link> sebagai mahasiswa untuk mendaftar.
@@ -766,6 +775,14 @@ export default async function CompetitionDetailPage({
             />
           </div>
         </aside>
+        <RegisterStickyBar targetId="register-actions">
+          <CTANavLink
+            ctaState={competition.ctaState}
+            registrationPath={registrationPath}
+            isCandidate={isCandidate}
+            isCancelled={competition.cancelledAt !== null}
+          />
+        </RegisterStickyBar>
       </div>
 
       <CompetitionRail
