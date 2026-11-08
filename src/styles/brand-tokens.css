@@ -366,8 +366,8 @@
   --cover-list-height: 10.5rem;
   --cover-detail-height: 14.375rem;
   --skeleton-media-min: calc(var(--control-height-lg) * 3.25);
-  --page-padding: 1.75rem;
-  --page-padding-mobile: 1.125rem;
+  --page-padding: max(1.75rem, env(safe-area-inset-left), env(safe-area-inset-right));
+  --page-padding-mobile: max(1.125rem, env(safe-area-inset-left), env(safe-area-inset-right));
   --header-height: 4rem;
   --grid-gap: 1.375rem;
   --detail-gap: 2.25rem;

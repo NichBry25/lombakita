@@ -1624,6 +1624,7 @@ svg {
   gap: var(--space-2);
   color: var(--color-ink);
   text-decoration: none;
+  min-height: var(--touch-target);
 }
 
 .brand-lockup:hover {

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { DM_Sans, Young_Serif } from "next/font/google";
 import { ApplicationHeader } from "@/components/navigation/application-header";
 import { SiteFooter } from "@/components/navigation/site-footer";
@@ -19,6 +19,12 @@ const youngSerif = Young_Serif({
   subsets: ["latin", "latin-ext"],
   weight: "400",
 });
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 export const metadata: Metadata = {
   // Resolves every relative Open Graph and canonical URL below it against this deployment's own
