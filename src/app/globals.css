@@ -3899,7 +3899,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   width: calc(var(--touch-target) + var(--space-3));
   height: calc(var(--touch-target) + var(--space-3));
   place-items: center;
-  border: var(--border-thin) solid var(--color-info-border);
   border-radius: var(--radius-circle);
   background: var(--color-info-surface);
   color: var(--color-info-text);
@@ -6216,7 +6215,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
    * tangerine frame alone marks the card as featured at this width, and the "Unggulan" badge
    * still names it, so dropping the offset costs no signal.
    */
-  .competition-card:has(.status-badge[data-status="featured"]) {
+  .competition-card:not(.featured-carousel-slide):has(.status-badge[data-status="featured"]) {
     box-shadow: none;
   }
 
