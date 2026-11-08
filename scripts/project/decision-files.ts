@@ -1,17 +1,18 @@
 /**
- * Decision files: one file per decision under `project/decisions/`, and the generated tables in
- * `project/decision-log.md` that are rendered from them.
+ * Decision files: one file per decision under `project/decisions/`, and the generated tables
+ * rendered from them: the index in `project/decision-log.md` and the full table in
+ * `project/decision-table.md`.
  *
  * A decision file is a header block between two `---` lines followed by the rationale as the body.
  * A header value is everything after `key: ` to the end of the line, verbatim. It is never quoted
  * and never parsed as YAML, because a title or rationale may hold colons, quotes and pipes that
  * YAML would read as syntax.
  *
- * The log carries two generated regions. Each is a whole table, header and delimiter rows included,
- * with its begin marker line above the header row and its end marker line below the last row, so
- * the markers sit outside the table and a table reader still sees one unbroken table. Everything
- * between a pair of markers is replaced wholesale on every build, so a hand edit there is drift
- * and `decisions:check` reports it.
+ * Each of the two files carries one generated region. Each is a whole table, header and delimiter
+ * rows included, with its begin marker line above the header row and its end marker line below the
+ * last row, so the markers sit outside the table and a table reader still sees one unbroken table.
+ * Everything between a pair of markers is replaced wholesale on every build, so a hand edit there is
+ * drift and `decisions:check` reports it.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -19,6 +20,7 @@ import { join } from "node:path";
 
 export const DECISIONS_DIR_IN_DOCS = "project/decisions";
 export const DECISION_LOG_IN_DOCS = "project/decision-log.md";
+export const DECISION_TABLE_IN_DOCS = "project/decision-table.md";
 
 export const INDEX_BEGIN = "<!-- decisions:index:begin -->";
 export const INDEX_END = "<!-- decisions:index:end -->";
@@ -231,6 +233,18 @@ export function readDecisionLog(docs: string): string {
   }
 }
 
+/** The text of `project/decision-table.md` under the docs directory, refusing one that is blank. */
+export function readDecisionTable(docs: string): string {
+  let text: string;
+  try {
+    text = readFileSync(join(docs, DECISION_TABLE_IN_DOCS), "utf8");
+  } catch {
+    throw new DecisionRefusal(DECISION_TABLE_IN_DOCS, "could not be read");
+  }
+  if (text.trim() === "") throw new DecisionRefusal(DECISION_TABLE_IN_DOCS, "is empty");
+  return text;
+}
+
 /** DEC rows in ascending numeric id, then notes by ascending file name. */
 export function orderDecisions(files: DecisionFile[]): DecisionFile[] {
   const unknown = files.find((file) => !isKnownType(file.type));
@@ -254,69 +268,96 @@ export const formatSeededRow = (d: DecisionFile): string =>
 
 const INTRO_LEAD = /^[0-9]+ decisions, DEC-0001 to DEC-[0-9]{4}/;
 
-function markerIndex(lines: string[], marker: string): number {
+function markerIndex(lines: string[], subject: string, marker: string): number {
   const found = lines.flatMap((line, index) => (line.trim() === marker ? [index] : []));
   if (found.length !== 1) {
     throw new DecisionRefusal(
-      DECISION_LOG_IN_DOCS,
+      subject,
       `expected exactly one ${marker} line, found ${found.length}`,
     );
   }
   return found[0] as number;
 }
 
-/** The log text with both generated regions and the intro count replaced by a fresh render. */
-export function renderDecisionLog(logText: string, files: DecisionFile[]): string {
-  const lines = logText.split("\n");
-  const indexBegin = markerIndex(lines, INDEX_BEGIN);
-  const indexEnd = markerIndex(lines, INDEX_END);
-  const seededBegin = markerIndex(lines, SEEDED_BEGIN);
-  const seededEnd = markerIndex(lines, SEEDED_END);
-  if (!(indexBegin < indexEnd && indexEnd < seededBegin && seededBegin < seededEnd)) {
+/** The 0-based lines of a generated region's two markers. */
+type MarkedRegion = { begin: number; end: number };
+
+function markedRegion(
+  lines: string[],
+  subject: string,
+  markers: { begin: string; end: string; order: string },
+): MarkedRegion {
+  const begin = markerIndex(lines, subject, markers.begin);
+  const end = markerIndex(lines, subject, markers.end);
+  if (begin >= end) throw new DecisionRefusal(subject, markers.order);
+  return { begin, end };
+}
+
+const indexRegion = (logLines: string[]): MarkedRegion =>
+  markedRegion(logLines, DECISION_LOG_IN_DOCS, {
+    begin: INDEX_BEGIN,
+    end: INDEX_END,
+    order: "the two markers are not in index-begin, index-end order",
+  });
+
+const seededRegion = (tableLines: string[]): MarkedRegion =>
+  markedRegion(tableLines, DECISION_TABLE_IN_DOCS, {
+    begin: SEEDED_BEGIN,
+    end: SEEDED_END,
+    order: "the two markers are not in seeded-begin, seeded-end order",
+  });
+
+function refuseNonRowLinesInRegion(lines: string[], subject: string, region: MarkedRegion): void {
+  const stray = lines
+    .slice(region.begin + 1, region.end)
+    .findIndex((line) => !line.startsWith("|"));
+  if (stray !== -1) {
     throw new DecisionRefusal(
-      DECISION_LOG_IN_DOCS,
-      "the four markers are not in index-begin, index-end, seeded-begin, seeded-end order",
+      subject,
+      `line ${region.begin + stray + 2}: a generated region holds only table rows, and a build would delete this line; move it outside the markers`,
     );
   }
+}
 
-  for (const [begin, end] of [
-    [indexBegin, indexEnd],
-    [seededBegin, seededEnd],
-  ] as const) {
-    const stray = lines.slice(begin + 1, end).findIndex((line) => !line.startsWith("|"));
-    if (stray !== -1) {
-      throw new DecisionRefusal(
-        DECISION_LOG_IN_DOCS,
-        `line ${begin + stray + 2}: a generated region holds only table rows, and a build would delete this line; move it outside the markers`,
-      );
-    }
+function refuseMarkersTouchingTableLines(
+  lines: string[],
+  subject: string,
+  region: MarkedRegion,
+): void {
+  if (lines[region.begin - 1]?.startsWith("|")) {
+    throw new DecisionRefusal(
+      subject,
+      `line ${region.begin + 1}: a begin marker must sit above its table, not under a table line`,
+    );
   }
+  if (lines[region.end + 1]?.startsWith("|")) {
+    throw new DecisionRefusal(
+      subject,
+      `line ${region.end + 1}: an end marker must sit below its table, not above a table line`,
+    );
+  }
+}
 
-  for (const at of [indexBegin, seededBegin]) {
-    if (lines[at - 1]?.startsWith("|")) {
-      throw new DecisionRefusal(
-        DECISION_LOG_IN_DOCS,
-        `line ${at + 1}: a begin marker must sit above its table, not under a table line`,
-      );
-    }
-  }
-  for (const at of [indexEnd, seededEnd]) {
-    if (lines[at + 1]?.startsWith("|")) {
-      throw new DecisionRefusal(
-        DECISION_LOG_IN_DOCS,
-        `line ${at + 1}: an end marker must sit below its table, not above a table line`,
-      );
-    }
-  }
+/** The table lines of a region below its head row and its delimiter row. */
+const rowsBelowHead = (lines: string[], region: MarkedRegion): string[] =>
+  lines.slice(region.begin + 3, region.end).filter((line) => line.startsWith("|"));
 
-  const ordered = orderDecisions(files);
-  const decisions = ordered.filter((file) => file.type === "decision");
+const firstCell = (row: string): string => (row.split("|")[1] ?? "").trim();
+
+/** The log text with its index region and the intro count replaced by a fresh render. */
+export function renderDecisionLog(logText: string, files: DecisionFile[]): string {
+  const lines = logText.split("\n");
+  const index = indexRegion(lines);
+  refuseNonRowLinesInRegion(lines, DECISION_LOG_IN_DOCS, index);
+  refuseMarkersTouchingTableLines(lines, DECISION_LOG_IN_DOCS, index);
+
+  const decisions = orderDecisions(files).filter((file) => file.type === "decision");
   const highest = decisions[decisions.length - 1]?.id;
   if (highest === undefined)
     throw new DecisionRefusal(DECISION_LOG_IN_DOCS, "there are no decision files to render");
 
   const introAt = lines.findIndex((line) => INTRO_LEAD.test(line));
-  if (introAt === -1 || introAt > indexBegin) {
+  if (introAt === -1 || introAt > index.begin) {
     throw new DecisionRefusal(
       DECISION_LOG_IN_DOCS,
       "no intro line starting with the decisions count above the index table",
@@ -328,14 +369,66 @@ export function renderDecisionLog(logText: string, files: DecisionFile[]): strin
   );
 
   const rendered = [
-    ...lines.slice(0, indexBegin + 1),
+    ...lines.slice(0, index.begin + 1),
     ...INDEX_TABLE_HEAD,
     ...decisions.map(formatIndexRow),
-    ...lines.slice(indexEnd, seededBegin + 1),
-    ...SEEDED_TABLE_HEAD,
-    ...ordered.map(formatSeededRow),
-    ...lines.slice(seededEnd),
+    ...lines.slice(index.end),
   ];
   rendered[introAt] = intro;
   return rendered.join("\n");
+}
+
+/** The table text with its seeded region replaced by a fresh render. */
+export function renderDecisionTable(tableText: string, files: DecisionFile[]): string {
+  const lines = tableText.split("\n");
+  const seeded = seededRegion(lines);
+  refuseNonRowLinesInRegion(lines, DECISION_TABLE_IN_DOCS, seeded);
+  refuseMarkersTouchingTableLines(lines, DECISION_TABLE_IN_DOCS, seeded);
+  if (rowsBelowHead(lines, seeded).length === 0) {
+    throw new DecisionRefusal(
+      DECISION_TABLE_IN_DOCS,
+      `holds no table row between ${SEEDED_BEGIN} and ${SEEDED_END}`,
+    );
+  }
+
+  const rendered = [
+    ...lines.slice(0, seeded.begin + 1),
+    ...SEEDED_TABLE_HEAD,
+    ...orderDecisions(files).map(formatSeededRow),
+    ...lines.slice(seeded.end),
+  ];
+  return rendered.join("\n");
+}
+
+/**
+ * Refuses the first line, the log first, that starts with `|` outside both generated regions and
+ * whose first cell is an id the full table holds: a copy of a record that every census would count
+ * twice.
+ */
+export function refuseStrayDecisionRows(logText: string, tableText: string): void {
+  const logLines = logText.split("\n");
+  const tableLines = tableText.split("\n");
+  const index = indexRegion(logLines);
+  const seeded = seededRegion(tableLines);
+  const ids = new Set(rowsBelowHead(tableLines, seeded).map(firstCell));
+
+  refuseStrayRowsIn(logLines, DECISION_LOG_IN_DOCS, index, ids);
+  refuseStrayRowsIn(tableLines, DECISION_TABLE_IN_DOCS, seeded, ids);
+}
+
+function refuseStrayRowsIn(
+  lines: string[],
+  subject: string,
+  region: MarkedRegion,
+  ids: Set<string>,
+): void {
+  const stray = lines.findIndex(
+    (line, at) =>
+      (at < region.begin || at > region.end) && line.startsWith("|") && ids.has(firstCell(line)),
+  );
+  if (stray === -1) return;
+  throw new DecisionRefusal(
+    subject,
+    `line ${stray + 1}: ${firstCell(lines[stray] as string)} heads a full table row outside the generated table of ${DECISION_TABLE_IN_DOCS}`,
+  );
 }

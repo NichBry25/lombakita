@@ -53,11 +53,13 @@ const DOC_LANE = "docs";
 const REGISTER_IN_DOC_REPO = "project/open-debt.md";
 const REGISTER_ARCHIVE_IN_DOC_REPO = "archive/project/open-debt-archive.md";
 const DECISION_LOG_IN_DOC_REPO = "project/decision-log.md";
+const DECISION_TABLE_IN_DOC_REPO = "project/decision-table.md";
 const CLOSE_STEP_IN_DOC_REPO = ".claude/commands/close-step.md";
 
 const REGISTER = join(DOC_LANE, REGISTER_IN_DOC_REPO);
 const REGISTER_ARCHIVE = join(DOC_LANE, REGISTER_ARCHIVE_IN_DOC_REPO);
 const DECISION_LOG = join(DOC_LANE, DECISION_LOG_IN_DOC_REPO);
+const DECISION_TABLE = join(DOC_LANE, DECISION_TABLE_IN_DOC_REPO);
 const CLOSE_STEP = join(DOC_LANE, CLOSE_STEP_IN_DOC_REPO);
 
 let failures = 0;
@@ -168,7 +170,12 @@ const main = (): void => {
 
   try {
     items = censusDebtItems([REGISTER, REGISTER_ARCHIVE]);
-    measurements = measureRegister([REGISTER, REGISTER_ARCHIVE], REGISTER_ARCHIVE, DECISION_LOG);
+    measurements = measureRegister(
+      [REGISTER, REGISTER_ARCHIVE],
+      REGISTER_ARCHIVE,
+      DECISION_LOG,
+      DECISION_TABLE,
+    );
     baseline = committedRegister(DOC_LANE, REGISTER_IN_DOC_REPO);
     archiveBaseline = committedRegister(DOC_LANE, REGISTER_ARCHIVE_IN_DOC_REPO);
     order = runningOrder(CLOSE_STEP);
@@ -189,6 +196,7 @@ const main = (): void => {
   console.log(`  register          ${REGISTER}`);
   console.log(`  register archive  ${REGISTER_ARCHIVE}`);
   console.log(`  decision log      ${DECISION_LOG}`);
+  console.log(`  decision table    ${DECISION_TABLE}`);
   console.log(
     `  baseline          ${DOC_LANE}@${baseline.revision} ` +
       `(${REGISTER_IN_DOC_REPO}, ${REGISTER_ARCHIVE_IN_DOC_REPO})`,

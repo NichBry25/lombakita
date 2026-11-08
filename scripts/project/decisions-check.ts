@@ -7,8 +7,9 @@
  * Exits 1 and prints the id and the reason for every failure. A directory it cannot read, or a log
  * it cannot render, is a failure and never an empty pass.
  *
- * A fresh render of the log is read by the register census's own functions for six of its eight
- * decision-log counts, and each must be zero: rows outside every table, rows written on another
+ * A fresh render of the log and of the table, read as one population, is read by the register
+ * census's own functions for six of its eight decision-log counts, and each must be zero: rows
+ * outside every table, rows written on another
  * row's line, rows whose cell count is not their columns' count, rows whose Date cell is not a
  * date, supersede claims naming their own row, and supersede claims naming an id with no row. The
  * other two are not run: the floor on Supersedes cells that hold nothing but an id, and the filed
@@ -21,6 +22,7 @@ import {
   DECISIONS_DIR_IN_DOCS,
   DECISION_LOG_IN_DOCS,
   DECISION_STATUSES,
+  DECISION_TABLE_IN_DOCS,
   NOTE_STATUS,
   DecisionRefusal,
   docsDirectory,
@@ -28,7 +30,10 @@ import {
   isKnownType,
   readDecisionDirectory,
   readDecisionLog,
+  readDecisionTable,
+  refuseStrayDecisionRows,
   renderDecisionLog,
+  renderDecisionTable,
   type DecisionDirectory,
   type DecisionFile,
   type DecisionProblem,
@@ -134,12 +139,18 @@ const supersedesProblems = (name: string, d: DecisionFile, ids: Set<string>): De
       reason: `supersedes names ${token}, which has no decision file`,
     }));
 
+/** The files the rows sit in, the log first, as one subject. */
+const subjectOf = (rows: DecisionRow[]): string =>
+  [DECISION_LOG_IN_DOCS, DECISION_TABLE_IN_DOCS]
+    .filter((file) => rows.some((row) => row.file === file))
+    .join(", ");
+
 const censusProblem = (what: string, rows: DecisionRow[]): DecisionProblem[] =>
   rows.length === 0
     ? []
     : [
         {
-          subject: DECISION_LOG_IN_DOCS,
+          subject: subjectOf(rows),
           reason: `${what}: ${rows.length} (${rows.map((row) => row.id).join(", ")})`,
         },
       ];
@@ -152,11 +163,21 @@ const supersedeClaimRows = (
     .filter((finding) => finding.kind === kind)
     .map((finding) => finding.row);
 
-/** What the register census would count in a fresh render of the log, using the census's own readers. */
-const censusProblems = (fresh: string): DecisionProblem[] => {
-  const records = decisionRecords(fresh, DECISION_LOG_IN_DOCS);
+/**
+ * What the register census would count in a fresh render of the log and the table, read as one
+ * population, using the census's own readers.
+ */
+const censusProblems = (freshLog: string, freshTable: string): DecisionProblem[] => {
+  const records = [
+    ...decisionRecords(freshLog, DECISION_LOG_IN_DOCS),
+    ...decisionRecords(freshTable, DECISION_TABLE_IN_DOCS),
+  ];
+  const orphans = [
+    ...orphanedDecisionRows(freshLog, DECISION_LOG_IN_DOCS),
+    ...orphanedDecisionRows(freshTable, DECISION_TABLE_IN_DOCS),
+  ];
   return [
-    ...censusProblem("rows outside every table", orphanedDecisionRows(fresh, DECISION_LOG_IN_DOCS)),
+    ...censusProblem("rows outside every table", orphans),
     ...censusProblem(
       "rows written on another row's line",
       gluedRecords(records).map((record) => record.row),
@@ -177,26 +198,36 @@ const censusProblems = (fresh: string): DecisionProblem[] => {
   ];
 };
 
-const logProblems = (docs: string, files: DecisionFile[]): DecisionProblem[] => {
-  let onDisk: string;
-  let fresh: string;
+const driftProblem = (subject: string, onDisk: string, fresh: string): DecisionProblem[] =>
+  fresh === onDisk
+    ? []
+    : [
+        {
+          subject,
+          reason: "a generated region differs from a fresh build; run npm run decisions:build",
+        },
+      ];
+
+const generatedFileProblems = (docs: string, files: DecisionFile[]): DecisionProblem[] => {
+  let logOnDisk: string;
+  let tableOnDisk: string;
+  let freshLog: string;
+  let freshTable: string;
   try {
-    onDisk = readDecisionLog(docs);
-    fresh = renderDecisionLog(onDisk, files);
+    logOnDisk = readDecisionLog(docs);
+    tableOnDisk = readDecisionTable(docs);
+    refuseStrayDecisionRows(logOnDisk, tableOnDisk);
+    freshLog = renderDecisionLog(logOnDisk, files);
+    freshTable = renderDecisionTable(tableOnDisk, files);
   } catch (error) {
     if (!(error instanceof DecisionRefusal)) throw error;
     return [{ subject: error.subject, reason: error.reason }];
   }
-  const drift: DecisionProblem[] =
-    fresh === onDisk
-      ? []
-      : [
-          {
-            subject: DECISION_LOG_IN_DOCS,
-            reason: "a generated region differs from a fresh build; run npm run decisions:build",
-          },
-        ];
-  return [...drift, ...censusProblems(fresh)];
+  return [
+    ...driftProblem(DECISION_LOG_IN_DOCS, logOnDisk, freshLog),
+    ...driftProblem(DECISION_TABLE_IN_DOCS, tableOnDisk, freshTable),
+    ...censusProblems(freshLog, freshTable),
+  ];
 };
 
 const main = (): void => {
@@ -221,7 +252,7 @@ const main = (): void => {
         ...statusProblem(fileName, decision),
         ...supersedesProblems(fileName, decision, ids),
       ]),
-      ...(directory.problems.length === 0 ? logProblems(docs, files) : []),
+      ...(directory.problems.length === 0 ? generatedFileProblems(docs, files) : []),
     ];
   } catch (error) {
     if (!(error instanceof DecisionRefusal)) throw error;

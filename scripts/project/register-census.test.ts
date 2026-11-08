@@ -60,6 +60,7 @@ afterAll(() => {
 const OPEN_DEBT = "docs/project/open-debt.md";
 const OPEN_DEBT_ARCHIVE = "docs/archive/project/open-debt-archive.md";
 const DECISION_LOG = "docs/project/decision-log.md";
+const DECISION_TABLE = "docs/project/decision-table.md";
 
 /** Reads one throwaway register and returns its items. */
 const itemsOf = (name: string, source: string) => {
@@ -492,7 +493,7 @@ describe("a register held in more than one file", () => {
   });
 
   it("prints the skipped members with the file they sit in", () => {
-    const measured = measureRegister([first, second], second, DECISION_LOG).find(
+    const measured = measureRegister([first, second], second, DECISION_LOG, DECISION_TABLE).find(
       (measurement) =>
         measurement.obligation.what === "register bullets whose head id is not a register id",
     );
@@ -510,7 +511,7 @@ describe("the archive obligation", () => {
 
   const measuredWith = (archiveText: string): number | undefined => {
     writeFileSync(archive, archiveText);
-    const found = measureRegister([live, archive], archive, DECISION_LOG).find(
+    const found = measureRegister([live, archive], archive, DECISION_LOG, DECISION_TABLE).find(
       (measurement) => measurement.obligation.what === archiveUnfinished,
     );
     return found?.measured;
@@ -584,13 +585,15 @@ describe("the archive obligation", () => {
   });
 
   it("refuses an archive file that is not among the register files", () => {
-    expect(() => measureRegister([live], archive, DECISION_LOG)).toThrow(RegisterRefusal);
+    expect(() => measureRegister([live], archive, DECISION_LOG, DECISION_TABLE)).toThrow(
+      RegisterRefusal,
+    );
   });
 
   it("refuses an archive file that cannot be read", () => {
     const absent = join(workspace, "absent-archive.md");
 
-    expect(() => measureRegister([live, absent], absent, DECISION_LOG)).toThrow(
+    expect(() => measureRegister([live, absent], absent, DECISION_LOG, DECISION_TABLE)).toThrow(
       /absent-archive\.md/,
     );
   });
@@ -628,6 +631,7 @@ describe("the register gate as a process", () => {
       else writeFileSync(target, text);
     };
     copyOf("project/decision-log.md", place);
+    copyOf("project/decision-table.md", place);
     copyOf(".claude/commands/close-step.md", place);
     for (const [relative, text] of Object.entries(committed)) place(relative, text ?? null);
 
@@ -744,6 +748,78 @@ describe("the register gate as a process", () => {
 
     expect(gate.status).toBe(1);
     expect(gate.err).toContain(`${ARCHIVE_PATH}:0: the committed revision could not be read`);
+  }, 30_000);
+
+  const LOG_PATH = "project/decision-log.md";
+  const TABLE_PATH = "project/decision-table.md";
+  const SEEDED_BEGIN_LINE = "<!-- decisions:seeded:begin -->\n";
+  const SEEDED_END_LINE = "<!-- decisions:seeded:end -->\n";
+  const REGISTERS = { [REGISTER_PATH]: LIVE, [ARCHIVE_PATH]: OLD };
+
+  const docsText = (relative: string): string =>
+    readFileSync(join(process.cwd(), "docs", relative), "utf8");
+
+  const lastTableRow = (): string => {
+    const lines = docsText(TABLE_PATH).split("\n");
+    const end = lines.indexOf(SEEDED_END_LINE.trimEnd());
+    return lines[end - 1] as string;
+  };
+
+  const firstCellOf = (row: string): string => (row.split("|")[1] ?? "").trim();
+
+  /** The gate's refusal of a copied row, naming the last line of `text` that holds `row`. */
+  const strayRefusal = (relative: string, text: string, row: string): string => {
+    const line = text.split("\n").lastIndexOf(row) + 1;
+    return `FAIL: the census refuses docs/${relative}:${line}: ${firstCellOf(row)} heads a full table row outside the generated table of docs/${TABLE_PATH}`;
+  };
+
+  it("verify:register refuses a missing decision table", () => {
+    const gate = runGate(laneWith(REGISTERS, { [TABLE_PATH]: null }));
+
+    expect(gate.status).not.toBe(0);
+    expect(gate.err).toContain(
+      `FAIL: the census refuses docs/${TABLE_PATH}:0: the decision table could not be read`,
+    );
+  }, 30_000);
+
+  it("verify:register refuses an empty decision table", () => {
+    const gate = runGate(laneWith(REGISTERS, { [TABLE_PATH]: "\n" }));
+
+    expect(gate.status).not.toBe(0);
+    expect(gate.err).toContain(
+      `FAIL: the census refuses docs/${TABLE_PATH}:0: the decision table is empty`,
+    );
+  }, 30_000);
+
+  it("verify:register refuses a decision table with no rows", () => {
+    const table = docsText(TABLE_PATH);
+    const begin = table.indexOf(SEEDED_BEGIN_LINE) + SEEDED_BEGIN_LINE.length;
+    const end = table.indexOf(SEEDED_END_LINE);
+    const emptied = table.slice(0, begin) + table.slice(end);
+    const gate = runGate(laneWith(REGISTERS, { [TABLE_PATH]: emptied }));
+
+    expect(gate.status).not.toBe(0);
+    expect(gate.err).toContain(
+      `FAIL: the census refuses docs/${TABLE_PATH}:0: the decision table holds no table row between <!-- decisions:seeded:begin --> and <!-- decisions:seeded:end -->`,
+    );
+  }, 30_000);
+
+  it("verify:register refuses a full table row in the log", () => {
+    const row = lastTableRow();
+    const log = docsText(LOG_PATH).replace("\n## Update Rules\n", `\n${row}\n\n## Update Rules\n`);
+    const gate = runGate(laneWith(REGISTERS, { [LOG_PATH]: log }));
+
+    expect(gate.status).not.toBe(0);
+    expect(gate.err).toContain(strayRefusal(LOG_PATH, log, row));
+  }, 30_000);
+
+  it("verify:register refuses a full table row below the decision table", () => {
+    const row = lastTableRow();
+    const table = docsText(TABLE_PATH).replace(SEEDED_END_LINE, `${SEEDED_END_LINE}\n${row}\n`);
+    const gate = runGate(laneWith(REGISTERS, { [TABLE_PATH]: table }));
+
+    expect(gate.status).not.toBe(0);
+    expect(gate.err).toContain(strayRefusal(TABLE_PATH, table, row));
   }, 30_000);
 });
 
@@ -924,7 +1000,12 @@ describe("the register ratchets", () => {
 
 let cached: RegisterMeasurement[] | null = null;
 const measurements = (): RegisterMeasurement[] => {
-  cached ??= measureRegister([OPEN_DEBT, OPEN_DEBT_ARCHIVE], OPEN_DEBT_ARCHIVE, DECISION_LOG);
+  cached ??= measureRegister(
+    [OPEN_DEBT, OPEN_DEBT_ARCHIVE],
+    OPEN_DEBT_ARCHIVE,
+    DECISION_LOG,
+    DECISION_TABLE,
+  );
   return cached;
 };
 

@@ -22,6 +22,7 @@ import {
   parseDecisionFile,
   readDecisionDirectory,
   renderDecisionLog,
+  renderDecisionTable,
   type DecisionFile,
 } from "./decision-files";
 
@@ -56,6 +57,7 @@ const sha256 = (path: string): string =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 
 const LOG = "project/decision-log.md";
+const TABLE = "project/decision-table.md";
 
 const run = (script: string, args: string[]) =>
   spawnSync("node", ["--import", "tsx", `scripts/project/${script}`, ...args], {
@@ -290,6 +292,7 @@ describe("the log renderer and the build refuse what they cannot render faithful
   const files = () =>
     readDecisionDirectory(join(CLEAN_FIXTURE, "project/decisions")).entries.map((e) => e.decision);
   const log = () => readFileSync(join(CLEAN_FIXTURE, "project/decision-log.md"), "utf8");
+  const table = () => readFileSync(join(CLEAN_FIXTURE, TABLE), "utf8");
 
   it("refuses markers out of order, a repeated marker and an intro below the index", () => {
     const swapped = log()
@@ -312,11 +315,11 @@ describe("the log renderer and the build refuse what they cannot render faithful
       "| ID | Decision | Status | Date |\n<!-- decisions:index:begin -->",
     );
     expect(() => renderDecisionLog(under, files())).toThrow(/begin marker must sit above/);
-    const above = log().replace(
+    const above = table().replace(
       "<!-- decisions:seeded:end -->",
       "<!-- decisions:seeded:end -->\n| stray | row |",
     );
-    expect(() => renderDecisionLog(above, files())).toThrow(/end marker must sit below/);
+    expect(() => renderDecisionTable(above, files())).toThrow(/end marker must sit below/);
   });
 
   it("refuses a file of an unknown type instead of dropping it", () => {
@@ -347,17 +350,21 @@ describe("the log renderer and the build refuse what they cannot render faithful
   });
 });
 
-/** Edits the log of a fresh fixture copy and returns what the check printed. */
-const checkAfterLogEdit = (name: string, edit: (log: string) => string) => {
+/** Edits one generated file of a fresh fixture copy and returns what the check printed. */
+const checkAfterFileEdit = (name: string, file: string, edit: (text: string) => string) => {
   const docs = freshDocs(name);
-  const logPath = join(docs, LOG);
-  const before = readFileSync(logPath, "utf8");
+  const path = join(docs, file);
+  const before = readFileSync(path, "utf8");
   const after = edit(before);
-  expect(after, "the edit left the log unchanged").not.toBe(before);
-  writeFileSync(logPath, after);
+  expect(after, `the edit left ${file} unchanged`).not.toBe(before);
+  writeFileSync(path, after);
   const result = run("decisions-check.ts", ["--docs", docs]);
-  return { docs, logPath, status: result.status, stderr: result.stderr };
+  return { docs, path, status: result.status, stderr: result.stderr };
 };
+
+/** Edits the log of a fresh fixture copy and returns what the check printed. */
+const checkAfterLogEdit = (name: string, edit: (log: string) => string) =>
+  checkAfterFileEdit(name, LOG, edit);
 
 const MARKERS = [
   "<!-- decisions:index:begin -->",
@@ -366,21 +373,26 @@ const MARKERS = [
   "<!-- decisions:seeded:end -->",
 ];
 
+/** The generated file each marker stands in. */
+const fileOfMarker = (marker: string): string => (marker.includes(":index:") ? LOG : TABLE);
+
 describe("decisions:check refuses a log it cannot render, instead of passing", () => {
   it.each(MARKERS)("fails when %s is missing", (marker) => {
-    const { status, stderr } = checkAfterLogEdit("missing-marker", (log) =>
-      log.replace(`${marker}\n`, ""),
+    const file = fileOfMarker(marker);
+    const { status, stderr } = checkAfterFileEdit("missing-marker", file, (text) =>
+      text.replace(`${marker}\n`, ""),
     );
     expect(status).toBe(1);
-    expect(stderr).toContain(`FAIL  ${LOG}: expected exactly one ${marker} line, found 0`);
+    expect(stderr).toContain(`FAIL  ${file}: expected exactly one ${marker} line, found 0`);
   });
 
   it.each(MARKERS)("fails when %s is repeated", (marker) => {
-    const { status, stderr } = checkAfterLogEdit("repeated-marker", (log) =>
-      log.replace(marker, `${marker}\n${marker}`),
+    const file = fileOfMarker(marker);
+    const { status, stderr } = checkAfterFileEdit("repeated-marker", file, (text) =>
+      text.replace(marker, `${marker}\n${marker}`),
     );
     expect(status).toBe(1);
-    expect(stderr).toContain(`FAIL  ${LOG}: expected exactly one ${marker} line, found 2`);
+    expect(stderr).toContain(`FAIL  ${file}: expected exactly one ${marker} line, found 2`);
   });
 
   it("fails when the markers are out of order", () => {
@@ -392,7 +404,7 @@ describe("decisions:check refuses a log it cannot render, instead of passing", (
     );
     expect(status).toBe(1);
     expect(stderr).toContain(
-      `FAIL  ${LOG}: the four markers are not in index-begin, index-end, seeded-begin, seeded-end order`,
+      `FAIL  ${LOG}: the two markers are not in index-begin, index-end order`,
     );
   });
 
@@ -442,27 +454,27 @@ describe("a generated region holds table rows and nothing else", () => {
   });
 
   it("refuses a line inside the seeded region, naming its line number", () => {
-    const { status, stderr } = checkAfterLogEdit("stray-seeded", (log) =>
-      log.replace(MARKERS[3] as string, `Hand-written text.\n${MARKERS[3]}`),
+    const { status, stderr } = checkAfterFileEdit("stray-seeded", TABLE, (text) =>
+      text.replace(MARKERS[3] as string, `Hand-written text.\n${MARKERS[3]}`),
     );
     expect(status).toBe(1);
-    expect(stderr).toContain(`FAIL  ${LOG}: line 22: a generated region holds only table rows`);
+    expect(stderr).toContain(`FAIL  ${TABLE}: line 11: a generated region holds only table rows`);
   });
 
   it("refuses an end marker moved below prose, and the build deletes nothing", () => {
-    const { docs, logPath, status, stderr } = checkAfterLogEdit("moved-end", (log) =>
-      log
+    const { docs, path, status, stderr } = checkAfterFileEdit("moved-end", TABLE, (text) =>
+      text
         .replace(`${MARKERS[3]}\n`, "")
         .replace("Prose here is never generated.", `Prose here is never generated.\n${MARKERS[3]}`),
     );
     expect(status).toBe(1);
     expect(stderr).toContain("a generated region holds only table rows");
-    const before = sha256(logPath);
+    const before = sha256(path);
     const build = run("decisions-build.ts", ["--docs", docs]);
     expect(build.status).toBe(1);
     expect(build.stderr).toContain("a generated region holds only table rows");
-    expect(sha256(logPath), "the build must not rewrite a log it refused").toBe(before);
-    expect(readFileSync(logPath, "utf8")).toContain("## Update Rules");
+    expect(sha256(path), "the build must not rewrite a table it refused").toBe(before);
+    expect(readFileSync(path, "utf8")).toContain("Prose here is never generated.");
   });
 });
 
@@ -477,16 +489,16 @@ describe("marker adjacency is enforced on both tables", () => {
   ];
 
   it.each(beginCases)("refuses the %s begin marker under a table line", (_table, marker) => {
-    const { status, stderr } = checkAfterLogEdit("begin-adjacent", (log) =>
-      log.replace(marker, `| stray | row |\n${marker}`),
+    const { status, stderr } = checkAfterFileEdit("begin-adjacent", fileOfMarker(marker), (text) =>
+      text.replace(marker, `| stray | row |\n${marker}`),
     );
     expect(status).toBe(1);
     expect(stderr).toContain("a begin marker must sit above its table, not under a table line");
   });
 
   it.each(endCases)("refuses the %s end marker above a table line", (_table, marker) => {
-    const { status, stderr } = checkAfterLogEdit("end-adjacent", (log) =>
-      log.replace(marker, `${marker}\n| stray | row |`),
+    const { status, stderr } = checkAfterFileEdit("end-adjacent", fileOfMarker(marker), (text) =>
+      text.replace(marker, `${marker}\n| stray | row |`),
     );
     expect(status).toBe(1);
     expect(stderr).toContain("an end marker must sit below its table, not above a table line");
@@ -546,14 +558,14 @@ describe("the check reuses the register census over a fresh render", () => {
   it("fails a date that is not a date, naming the id and the count", () => {
     const { stderr } = checkAfterDamage("soon", one, "date: 2026-01-01", "date: soon");
     expect(stderr).toContain(
-      `FAIL  ${LOG}: rows whose Date cell does not hold a date: 2 (DEC-0001, DEC-0001)`,
+      `FAIL  ${LOG}, ${TABLE}: rows whose Date cell does not hold a date: 2 (DEC-0001, DEC-0001)`,
     );
   });
 
   it("fails a row whose cell count is not its columns' count", () => {
     const { stderr } = checkAfterDamage("cells", one, "owner: fixture-owner", "owner: a | b");
     expect(stderr).toContain(
-      `FAIL  ${LOG}: rows whose cell count is not their columns' count: 1 (DEC-0001)`,
+      `FAIL  ${TABLE}: rows whose cell count is not their columns' count: 1 (DEC-0001)`,
     );
   });
 
@@ -570,10 +582,10 @@ describe("the check reuses the register census over a fresh render", () => {
   it("fails a row written on another row's line", () => {
     const glued =
       "| DEC-0008 | a | accepted | 2026-01-01 | o | r | N/A || DEC-0009 | b | accepted | 2026-01-02 | o | r | N/A |";
-    const { stderr } = checkAfterLogEdit("glued", (log) =>
-      log.replace("Prose here is never generated.", `Prose here is never generated.\n\n${glued}`),
+    const { stderr } = checkAfterFileEdit("glued", TABLE, (text) =>
+      text.replace("Prose here is never generated.", `Prose here is never generated.\n\n${glued}`),
     );
-    expect(stderr).toContain(`FAIL  ${LOG}: rows written on another row's line: 1 (DEC-0009)`);
+    expect(stderr).toContain(`FAIL  ${TABLE}: rows written on another row's line: 1 (DEC-0009)`);
   });
 
   it("refuses a carriage return in a header value and in the body", () => {
@@ -601,7 +613,7 @@ describe("the check reuses the register census over a fresh render", () => {
       "DEC-0001 in part",
       "DEC-0002",
     );
-    expect(stderr).toContain(`FAIL  ${LOG}: supersede claims naming their own row: 1 (DEC-0002)`);
+    expect(stderr).toContain(`FAIL  ${TABLE}: supersede claims naming their own row: 1 (DEC-0002)`);
     expect(stderr).not.toContain("naming an id the log has no row for");
   });
 
@@ -613,7 +625,7 @@ describe("the check reuses the register census over a fresh render", () => {
       "DEC-0900",
     );
     expect(stderr).toContain(
-      `FAIL  ${LOG}: supersede claims naming an id the log has no row for: 1 (DEC-0002)`,
+      `FAIL  ${TABLE}: supersede claims naming an id the log has no row for: 1 (DEC-0002)`,
     );
     expect(stderr).not.toContain("supersede claims naming their own row");
   });
@@ -698,5 +710,121 @@ describe("every DEC token in supersedes is checked, with word boundaries", () =>
     const check = run("decisions-check.ts", ["--docs", docs]);
     expect(check.stderr).toBe("");
     expect(check.status).toBe(0);
+  });
+});
+
+const SEEDED_BEGIN_LINE = "<!-- decisions:seeded:begin -->\n";
+const SEEDED_END_LINE = "<!-- decisions:seeded:end -->\n";
+
+/** The last row of the clean fixture's full table. */
+const lastFixtureRow = (): string => {
+  const lines = readFileSync(join(CLEAN_FIXTURE, TABLE), "utf8").split("\n");
+  return lines[lines.indexOf(SEEDED_END_LINE.trimEnd()) - 1] as string;
+};
+
+/** The refusal of a copied row, naming the last line of `text` that holds `row`. */
+const strayRowReason = (text: string, row: string): string => {
+  const line = text.split("\n").lastIndexOf(row) + 1;
+  const id = (row.split("|")[1] ?? "").trim();
+  return `line ${line}: ${id} heads a full table row outside the generated table of ${TABLE}`;
+};
+
+/** Writes `edit` of one fixture file back to the copy in `docs`, returning the edited text. */
+const editFixtureFile = (docs: string, file: string, edit: (text: string) => string): string => {
+  const path = join(docs, file);
+  const before = readFileSync(path, "utf8");
+  const after = edit(before);
+  expect(after, `the edit left ${file} unchanged`).not.toBe(before);
+  writeFileSync(path, after);
+  return after;
+};
+
+type Refusal = { subject: string; reason: string };
+
+const TABLE_REFUSAL_CASES: [string, (docs: string) => Refusal][] = [
+  [
+    "a missing decision table",
+    (docs) => {
+      rmSync(join(docs, TABLE));
+      return { subject: TABLE, reason: "could not be read" };
+    },
+  ],
+  [
+    "an empty decision table",
+    (docs) => {
+      writeFileSync(join(docs, TABLE), "\n");
+      return { subject: TABLE, reason: "is empty" };
+    },
+  ],
+  [
+    "a decision table with no rows",
+    (docs) => {
+      editFixtureFile(docs, TABLE, (text) => {
+        const begin = text.indexOf(SEEDED_BEGIN_LINE) + SEEDED_BEGIN_LINE.length;
+        return text.slice(0, begin) + text.slice(text.indexOf(SEEDED_END_LINE));
+      });
+      return {
+        subject: TABLE,
+        reason:
+          "holds no table row between <!-- decisions:seeded:begin --> and <!-- decisions:seeded:end -->",
+      };
+    },
+  ],
+  [
+    "a full table row in the log",
+    (docs) => {
+      const row = lastFixtureRow();
+      const log = editFixtureFile(docs, LOG, (text) =>
+        text.replace("\n## Update Rules\n", `\n${row}\n\n## Update Rules\n`),
+      );
+      return { subject: LOG, reason: strayRowReason(log, row) };
+    },
+  ],
+  [
+    "a full table row below the decision table",
+    (docs) => {
+      const row = lastFixtureRow();
+      const table = editFixtureFile(docs, TABLE, (text) =>
+        text.replace(SEEDED_END_LINE, `${SEEDED_END_LINE}\n${row}\n`),
+      );
+      return { subject: TABLE, reason: strayRowReason(table, row) };
+    },
+  ],
+];
+
+describe("the build and the check refuse a decision table they cannot trust", () => {
+  it.each(TABLE_REFUSAL_CASES)("decisions:build refuses %s", (_case, damage) => {
+    const docs = freshDocs("build-table-refusal");
+    const { subject, reason } = damage(docs);
+    const build = run("decisions-build.ts", ["--check", "--docs", docs]);
+    expect(build.status).not.toBe(0);
+    expect(build.stderr).toContain(`FAIL: ${subject}: ${reason}`);
+  });
+
+  it.each(TABLE_REFUSAL_CASES)("decisions:check refuses %s", (_case, damage) => {
+    const docs = freshDocs("check-table-refusal");
+    const { subject, reason } = damage(docs);
+    const check = run("decisions-check.ts", ["--docs", docs]);
+    expect(check.status).not.toBe(0);
+    expect(check.stderr).toContain(`FAIL  ${subject}: ${reason}`);
+  });
+
+  it("decisions:build --check fails each of the two files that differs and writes neither", () => {
+    const docs = freshDocs("build-both-differ");
+    editFixtureFile(docs, LOG, (text) =>
+      text.replace("Fixture decision one (short)", "Edited by hand"),
+    );
+    editFixtureFile(docs, TABLE, (text) =>
+      text.replace("A second synthetic rationale.", "Edited by hand."),
+    );
+    const logBefore = sha256(join(docs, LOG));
+    const tableBefore = sha256(join(docs, TABLE));
+    const build = run("decisions-build.ts", ["--check", "--docs", docs]);
+    expect(build.status).toBe(1);
+    expect(build.stderr.match(/^FAIL: /gm)).toHaveLength(2);
+    expect(build.stderr).toContain(`FAIL: ${join(docs, LOG)} differs from a fresh build`);
+    expect(build.stderr).toContain(`FAIL: ${join(docs, TABLE)} differs from a fresh build`);
+    expect(sha256(join(docs, LOG)), "--check must not write the log").toBe(logBefore);
+    expect(sha256(join(docs, TABLE)), "--check must not write the table").toBe(tableBefore);
   });
 });

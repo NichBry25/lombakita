@@ -129,6 +129,7 @@ jobs:
           for path in \
             docs/project/open-debt.md \
             docs/project/decision-log.md \
+            docs/project/decision-table.md \
             docs/operations/account-deletion-procedure.md \
             docs/operations/operator-provisioning-procedure.md \
             docs/.claude/commands/precheck.md
