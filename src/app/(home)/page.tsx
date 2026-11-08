@@ -85,7 +85,7 @@ export default async function HomePage() {
             <div className="home-hero-copy stack-md">
               <h1>
                 Temukan kompetisi yang <span className="lime-marker">tepat</span> untuk langkah
-                berikutmu.
+                berikutmu
               </h1>
               <p className="home-hero-lead">
                 Jelajahi kompetisi dari penyelenggara yang bisa kamu percaya.
