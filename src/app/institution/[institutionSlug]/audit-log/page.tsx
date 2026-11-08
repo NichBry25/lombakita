@@ -76,7 +76,7 @@ export default async function AuditLogPage({ params, searchParams }: Props) {
       {events.length === 0 ? (
         <EmptyState
           icon="inbox"
-          title="Belum ada entri audit."
+          title="Belum ada entri audit"
           description="Tindakan administratif dan perubahan penting akan muncul di sini."
         />
       ) : (

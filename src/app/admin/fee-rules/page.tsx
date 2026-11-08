@@ -32,7 +32,7 @@ export default async function AdminFeeRulesPage() {
         {rules.length === 0 && (
           <EmptyState
             icon="settings"
-            title="Belum ada aturan biaya."
+            title="Belum ada aturan biaya"
             description="Pendaftaran berbayar tidak bisa diaktifkan sampai satu aturan berlaku."
           />
         )}

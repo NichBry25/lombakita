@@ -71,7 +71,7 @@ export default async function LoginPage(props: {
     if (!claims) {
       return (
         <AuthPageFrame
-          title="Mulai kembali dengan sesi yang aman."
+          title="Mulai kembali dengan sesi yang aman"
           description="Tautan pendaftaran Google bersifat terbatas dan tidak dapat digunakan setelah kedaluwarsa."
         >
           <div className="auth-state stack-md">
@@ -115,7 +115,7 @@ export default async function LoginPage(props: {
 
   return (
     <AuthPageFrame
-      title="Satu akun untuk menemukan dan mengelola peluang."
+      title="Satu akun untuk menemukan dan mengelola peluang"
       description="Masuk atau daftar dari satu halaman. Kami akan menuntun langkah berikutnya."
     >
       <div className="stack-md">

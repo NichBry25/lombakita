@@ -22,7 +22,7 @@ it("captures the render error beside the existing console report", () => {
   expect(consoleError).toHaveBeenCalledWith(error);
   expect(captureException).toHaveBeenCalledTimes(1);
   expect(captureException).toHaveBeenCalledWith(error);
-  expect(screen.getByRole("heading").textContent).toBe("Terjadi kesalahan.");
+  expect(screen.getByRole("heading").textContent).toBe("Terjadi kesalahan");
   screen.getByRole("button", { name: "Coba lagi" }).click();
   expect(reset).toHaveBeenCalledTimes(1);
   const nextError = new Error("next-render-sentinel");

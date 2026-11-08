@@ -248,7 +248,7 @@ export default function AdminVerificationPage() {
       {!loading && items.length === 0 && (
         <EmptyState
           icon="check"
-          title="Antrean sudah bersih."
+          title="Antrean sudah bersih"
           description="Tidak ada pengajuan dokumen yang menunggu tinjauan."
         />
       )}

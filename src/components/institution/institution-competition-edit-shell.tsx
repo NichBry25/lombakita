@@ -674,7 +674,7 @@ export const InstitutionCompetitionEditShell = ({
       <main className="page-shell app-page competition-form-page">
         <EmptyState
           icon="trophy"
-          title="Kompetisi tidak ditemukan."
+          title="Kompetisi tidak ditemukan"
           description="Formulir kompetisi tidak dapat dimuat."
           action={
             <ButtonLink href={`/institution/${institutionSlug}/competitions`} variant="outline">

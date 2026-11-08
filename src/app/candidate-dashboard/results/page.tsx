@@ -23,7 +23,7 @@ export default async function CandidateResultsPage() {
       {results.length === 0 ? (
         <EmptyState
           icon="trophy"
-          title="Belum ada hasil yang dipublikasikan."
+          title="Belum ada hasil yang dipublikasikan"
           description="Keputusan final akan terlihat setelah penyelenggara mempublikasikannya."
         />
       ) : (

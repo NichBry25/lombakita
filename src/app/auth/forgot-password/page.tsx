@@ -9,7 +9,7 @@ export default async function ForgotPasswordPage(props: {
 
   return (
     <AuthPageFrame
-      title="Atur ulang password Anda."
+      title="Atur ulang password Anda"
       description="Masukkan email akun Anda. Kami akan mengirim tautan untuk membuat password baru."
     >
       <ForgotPasswordForm initialEmail={initialEmail} />

@@ -132,7 +132,7 @@ export function InstitutionPublicView({
             <span className="empty-state-icon" aria-hidden="true">
               <Icon name="trophy" size="xl" />
             </span>
-            <h3>Belum ada kompetisi yang terbit.</h3>
+            <h3>Belum ada kompetisi yang terbit</h3>
             <p>Kompetisi dari penyelenggara ini akan tampil di sini setelah dipublikasikan.</p>
           </div>
         ) : (

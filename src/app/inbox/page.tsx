@@ -50,7 +50,7 @@ export default async function InboxPage() {
       {items.length === 0 ? (
         <EmptyState
           icon="inbox"
-          title="Kotak masuk masih tenang."
+          title="Kotak masuk masih tenang"
           description="Notifikasi, undangan institusi, dan undangan tim akan muncul di sini."
           action={
             <ButtonLink href="/" variant="outline">

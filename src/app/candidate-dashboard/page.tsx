@@ -92,7 +92,7 @@ export default async function CandidateDashboardPage() {
         {upcomingDeadlines.length === 0 ? (
           <EmptyState
             icon="calendar"
-            title="Tidak ada tenggat mendatang."
+            title="Tidak ada tenggat mendatang"
             description="Daftar kompetisi untuk melihat tenggatnya di sini."
           />
         ) : (
@@ -132,7 +132,7 @@ export default async function CandidateDashboardPage() {
         {individualRegs.length === 0 ? (
           <EmptyState
             icon="user"
-            title="Belum ada pendaftaran individu."
+            title="Belum ada pendaftaran individu"
             description="Kompetisi yang kamu daftarkan sendiri akan muncul di sini."
           />
         ) : (
@@ -204,7 +204,7 @@ export default async function CandidateDashboardPage() {
         {teamRegs.length === 0 ? (
           <EmptyState
             icon="users"
-            title="Belum ada pendaftaran tim."
+            title="Belum ada pendaftaran tim"
             description="Tim yang kamu pimpin atau ikuti akan muncul di sini."
           />
         ) : (
@@ -293,7 +293,7 @@ export default async function CandidateDashboardPage() {
         {savedResult.data.length === 0 ? (
           <EmptyState
             icon="bookmark"
-            title="Belum ada kompetisi yang disimpan."
+            title="Belum ada kompetisi yang disimpan"
             description="Simpan peluang dari halaman detail untuk membacanya kembali di sini."
           />
         ) : (

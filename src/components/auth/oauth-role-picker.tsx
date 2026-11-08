@@ -162,7 +162,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
 
   return (
     <AuthPageFrame
-      title="Tetapkan peran utama untuk memulai."
+      title="Tetapkan peran utama untuk memulai"
       description="Kandidat mencari kompetisi, rekruter menerbitkannya. Anda bisa menambah peran lain nanti."
     >
       <div className="auth-entry">

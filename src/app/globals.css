@@ -293,6 +293,7 @@ svg {
   color: var(--color-ink);
   font-weight: 600;
   text-decoration: none;
+  text-wrap: balance;
 }
 
 .record-row-title:hover {
@@ -3129,6 +3130,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   font-size: var(--text-card-title);
   line-height: var(--leading-heading);
   text-decoration: none;
+  text-wrap: balance;
 }
 
 .competition-title-link:hover {
@@ -4975,6 +4977,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   margin: var(--space-0);
   font-weight: 600;
   color: var(--color-ink);
+  text-wrap: balance;
 }
 
 .pf-entry-sub {

@@ -70,7 +70,7 @@ export default async function PublicCompetitionsPage({
       <section className="brand-band listing-hero">
         <div className="content-shell listing-hero-inner">
           <div className="stack-sm listing-heading">
-            <h1>Temukan kompetisi yang layak kamu kejar.</h1>
+            <h1>Temukan kompetisi yang layak kamu kejar</h1>
             <p>
               Cari berdasarkan judul, lalu saring arena yang paling sesuai dengan minat dan waktumu.
             </p>
@@ -97,7 +97,7 @@ export default async function PublicCompetitionsPage({
               <span className="empty-state-icon" aria-hidden="true">
                 <Icon name="search" size="xl" />
               </span>
-              <h2>Belum ada hasil yang cocok.</h2>
+              <h2>Belum ada hasil yang cocok</h2>
               <p>Coba kata kunci yang lebih luas atau kembalikan kategori ke semua kompetisi.</p>
               <ButtonLink href="/competitions" variant="outline">
                 Bersihkan filter

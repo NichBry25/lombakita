@@ -38,7 +38,7 @@ export default async function AdminFeaturedPage() {
       {rows.length === 0 && (
         <EmptyState
           icon="trophy"
-          title="Tidak ada kompetisi diterbitkan."
+          title="Tidak ada kompetisi diterbitkan"
           description="Kompetisi bisa dipilih setelah statusnya Terbit."
         />
       )}

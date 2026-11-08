@@ -243,7 +243,7 @@ export default async function ParticipantsPage({ params, searchParams }: Props) 
       {result.participants.length === 0 ? (
         <EmptyState
           icon="users"
-          title="Tidak ada peserta."
+          title="Tidak ada peserta"
           description="Coba ubah filter, atau kembali lagi setelah pendaftaran dimulai."
         />
       ) : (

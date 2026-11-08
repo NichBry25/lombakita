@@ -34,7 +34,7 @@ export default async function SavedCompetitionsPage({
       {result.data.length === 0 ? (
         <EmptyState
           icon="bookmark"
-          title="Belum ada kompetisi tersimpan."
+          title="Belum ada kompetisi tersimpan"
           description="Gunakan tombol simpan di halaman detail kompetisi untuk mengisi daftar ini."
           action={
             <ButtonLink href="/competitions" variant="outline">

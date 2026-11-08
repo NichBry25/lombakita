@@ -35,7 +35,7 @@ export default async function VerifyRolePage(props: { searchParams?: Promise<{ a
   if (!isVerifiableRole(asParam)) {
     return (
       <AuthPageFrame
-        title="Pilih peran Anda."
+        title="Pilih peran Anda"
         description="Kandidat dan rekruter diverifikasi terpisah."
       >
         <div className="auth-state stack-md">
@@ -68,7 +68,7 @@ export default async function VerifyRolePage(props: { searchParams?: Promise<{ a
 
   return (
     <AuthPageFrame
-      title="Lengkapi data untuk membuka akses."
+      title="Lengkapi data untuk membuka akses"
       description="Kandidat dan rekruter diverifikasi terpisah. Anda bisa menambah peran lain nanti."
     >
       <div className="stack-md">

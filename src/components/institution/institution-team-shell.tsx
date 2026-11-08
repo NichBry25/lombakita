@@ -264,7 +264,7 @@ export const InstitutionTeamShell = ({
         ) : members.length === 0 ? (
           <EmptyState
             icon="users"
-            title="Belum ada anggota aktif."
+            title="Belum ada anggota aktif"
             description="Undang pengelola pada formulir di bawah untuk menambah anggota."
           />
         ) : (
@@ -395,7 +395,7 @@ export const InstitutionTeamShell = ({
         ) : invitations.length === 0 ? (
           <EmptyState
             icon="inbox"
-            title="Tidak ada undangan tertunda."
+            title="Tidak ada undangan tertunda"
             description="Undangan yang dikirim akan muncul di sini sampai dijawab atau dibatalkan."
           />
         ) : (

@@ -16,7 +16,7 @@ export default async function ResetPasswordPage(props: {
 
   return (
     <AuthPageFrame
-      title="Buat password baru."
+      title="Buat password baru"
       description="Pilih password baru untuk akun Anda. Setelah disimpan, Anda perlu masuk lagi di semua perangkat."
     >
       {token ? (

@@ -21,7 +21,7 @@ export default async function ChangePasswordPage() {
 
   return (
     <AuthPageFrame
-      title="Ubah password Anda."
+      title="Ubah password Anda"
       description="Setelah password diubah, Anda keluar dari semua perangkat dan perlu masuk lagi."
     >
       {hasPassword ? (

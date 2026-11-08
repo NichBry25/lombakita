@@ -53,7 +53,7 @@ export default async function MfaEnrollPage(props: {
 
   return (
     <AuthPageFrame
-      title="Amankan akun operasional Anda."
+      title="Amankan akun operasional Anda"
       description="Akun platform_ops dan finance_ops wajib mengaktifkan verifikasi dua langkah sebelum dapat melanjutkan."
     >
       {/* Heading and instructions live in the form, not here: enrolment is two screens (scan, then

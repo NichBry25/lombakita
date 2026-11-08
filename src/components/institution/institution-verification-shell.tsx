@@ -397,7 +397,7 @@ export const InstitutionVerificationShell = ({
         {!loadingHistory && submissions.length === 0 && (
           <EmptyState
             icon="check"
-            title="Belum ada pengajuan."
+            title="Belum ada pengajuan"
             description={
               // A verified institution with no submission was verified directly by the platform
               // team, so "history will appear here" would be a promise nothing will keep.

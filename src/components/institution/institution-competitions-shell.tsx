@@ -142,7 +142,7 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
           items.length === 0 ? (
             <EmptyState
               icon="trophy"
-              title="Belum ada kompetisi."
+              title="Belum ada kompetisi"
               description="Mulai dari draf baru, lalu lengkapi seluruh informasi sebelum diterbitkan."
               action={
                 <ButtonLink
@@ -156,7 +156,7 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
           ) : (
             <EmptyState
               icon="trophy"
-              title="Tidak ada kompetisi pada saringan ini."
+              title="Tidak ada kompetisi pada saringan ini"
               description="Kompetisi lain masih tersimpan. Ubah saringan untuk melihatnya."
               action={
                 <Button variant="outline" onClick={() => setFilter("all")}>

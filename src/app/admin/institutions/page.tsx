@@ -340,7 +340,7 @@ export default function AdminInstitutionsPage() {
       {!loading && rows.length === 0 && (
         <EmptyState
           icon="building"
-          title="Tidak ada institusi ditemukan."
+          title="Tidak ada institusi ditemukan"
           description="Ubah filter status untuk melihat kelompok institusi lainnya."
         />
       )}

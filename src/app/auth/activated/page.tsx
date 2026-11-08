@@ -10,7 +10,7 @@ export default async function ActivatedPage(props: { searchParams?: Promise<{ em
 
   return (
     <AuthPageFrame
-      title="Akun Anda siap."
+      title="Akun Anda siap"
       description="Simpan kompetisi, daftar, dan pantau hasilnya dari satu dasbor."
     >
       <div className="auth-state stack-md">
