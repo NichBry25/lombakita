@@ -1770,7 +1770,7 @@ button.header-nav-link {
   align-items: center;
   min-height: var(--touch-target);
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-input);
+  border-radius: calc(var(--radius-card) - var(--space-1));
   color: var(--color-ink);
   font-size: var(--text-button);
   font-weight: 500;
@@ -2588,7 +2588,7 @@ button.header-nav-link {
   gap: var(--space-2);
   min-height: 44px;
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-input);
+  border-radius: calc(var(--radius-card) - var(--space-1));
   color: var(--color-ink);
   cursor: pointer;
 }
@@ -2710,7 +2710,7 @@ button.header-nav-link {
   gap: var(--space-2);
   min-height: var(--touch-target);
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-input);
+  border-radius: calc(var(--radius-card) - var(--space-1));
   color: var(--color-ink);
   cursor: pointer;
 }
@@ -3516,7 +3516,8 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   margin-block-start: calc(var(--space-6) * -1);
   margin-inline: calc(var(--space-6) * -1);
   padding: var(--space-5) var(--space-6);
-  border-radius: var(--radius-feature) var(--radius-feature) var(--space-0) var(--space-0);
+  border-radius: calc(var(--radius-feature) - var(--border-thin))
+    calc(var(--radius-feature) - var(--border-thin)) var(--space-0) var(--space-0);
   background: var(--color-brand-surface);
   color: var(--color-brand-ink);
 }
@@ -5664,6 +5665,10 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   border-radius: var(--radius-card);
 }
 
+.participant-filter-toolbar .select-field-trigger {
+  border-radius: calc(var(--radius-card) - var(--space-3));
+}
+
 .participant-filter-toolbar .form-field {
   min-width: var(--control-select-min);
 }
@@ -5779,6 +5784,10 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-card);
+}
+
+.admin-filter-toolbar .select-field-trigger {
+  border-radius: calc(var(--radius-card) - var(--space-2));
 }
 
 .admin-filter-toolbar .select-field {
@@ -5921,6 +5930,10 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   border: var(--border-thin) solid var(--color-line-soft);
   border-radius: var(--radius-input);
   background: var(--color-surface);
+}
+
+.moderation-note-row .form-input {
+  border-radius: calc(var(--radius-input) - var(--space-3));
 }
 
 .moderation-note-content {
