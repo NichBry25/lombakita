@@ -23,7 +23,7 @@ const ROLE_COPY: Record<
   candidate: {
     headline: "Verifikasi akun kandidat Anda",
     description:
-      "Akun Anda saat ini hanya terverifikasi sebagai rekruter. Verifikasi sebagai kandidat untuk dapat mengikuti kompetisi sebagai mahasiswa.",
+      "Akun Anda saat ini hanya terverifikasi sebagai rekruter. Verifikasi sebagai kandidat untuk dapat mengikuti kompetisi.",
     cta: "Verifikasi sebagai kandidat",
   },
   recruiter: {

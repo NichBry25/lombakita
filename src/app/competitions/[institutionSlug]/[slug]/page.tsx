@@ -745,7 +745,7 @@ export default async function CompetitionDetailPage({
             ) : null}
             {!session?.user ? (
               <p className="detail-rail-note">
-                <Link href="/auth/login">Masuk</Link> sebagai mahasiswa untuk mendaftar.
+                <Link href="/auth/login">Masuk</Link> sebagai kandidat untuk mendaftar.
               </p>
             ) : null}
             {session?.user && !isCandidate ? (

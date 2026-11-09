@@ -11,7 +11,7 @@ type SecondRoleBannerProps = {
 
 const COPY: Record<VerifiableRole, { headline: string; cta: string }> = {
   candidate: {
-    headline: "Ingin ikut kompetisi sebagai mahasiswa? Verifikasi akun kandidat Anda.",
+    headline: "Ingin ikut kompetisi? Verifikasi akun kandidat Anda.",
     cta: "Verifikasi kandidat",
   },
   recruiter: {
