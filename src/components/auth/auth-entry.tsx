@@ -450,7 +450,6 @@ export const AuthEntry = ({
     <div className="auth-entry">
       <header className="auth-entry-header">
         <h1>Masuk atau daftar</h1>
-        <p>Pilih cara Anda ingin melanjutkan.</p>
       </header>
 
       {method === "choose" ? (

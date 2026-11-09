@@ -80,10 +80,6 @@ export default async function LoginPage(props: {
             </span>
             <div className="stack-xs">
               <h1>Sesi pendaftaran tidak valid</h1>
-              <p>
-                Sesi pendaftaran Google sudah kedaluwarsa atau tidak valid. Silakan mulai lagi dari
-                halaman masuk.
-              </p>
             </div>
             <ButtonLink variant="primary" size="md" href="/auth/login">
               Kembali ke halaman masuk
@@ -116,7 +112,7 @@ export default async function LoginPage(props: {
   return (
     <AuthPageFrame
       title="Satu akun untuk ikut dan menyelenggarakan kompetisi"
-      description="Masuk atau daftar dari satu halaman. Kami akan menuntun langkah berikutnya."
+      description="Kami akan menuntun langkah berikutnya."
     >
       <div className="stack-md">
         <AuthEntry

@@ -324,7 +324,6 @@ export const InstitutionSettingsShell = ({
     <main className="page-shell app-page institution-form-page">
       <PageHeader
         title="Pengaturan institusi"
-        description="Kelola identitas institusi dan profil penyelenggara yang tampil ke publik."
         actions={
           institutionType ? (
             <span className="status-badge">

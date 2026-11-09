@@ -243,7 +243,6 @@ export const InstitutionTeamShell = ({
     <main className="page-shell app-page institution-team-page">
       <PageHeader
         title="Tim institusi"
-        description="Kelola anggota aktif, undang pengelola baru, dan pantau undangan yang belum dijawab."
         backHref={`/institution/${institutionSlug}`}
         backLabel="Kembali"
       />

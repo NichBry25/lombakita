@@ -26,10 +26,7 @@ export default async function SavedCompetitionsPage({
 
   return (
     <main className="page-shell app-page saved-page">
-      <PageHeader
-        title="Kompetisi tersimpan"
-        description="Peluang yang kamu simpan untuk dibaca lagi."
-      />
+      <PageHeader title="Kompetisi tersimpan" />
 
       {result.data.length === 0 ? (
         <EmptyState

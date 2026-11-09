@@ -43,7 +43,6 @@ export default async function InboxPage() {
     <main className="page-shell app-page inbox-page">
       <PageHeader
         title="Kotak masuk"
-        description="Notifikasi dan undangan Anda."
         actions={<span className="inbox-unread-count data-text">{unreadCount} belum dibaca</span>}
       />
 

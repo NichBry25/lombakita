@@ -40,7 +40,6 @@ export default async function AdminBlockedPaymentsPage() {
     <main className="page-shell app-page admin-page">
       <PageHeader
         title="Pembayaran tertahan"
-        description="Kompetisi yang tidak dapat ditarik penyelenggaranya karena masih ada bukti transfer berjalan, dan peserta yang tidak dapat mengirim bukti baru."
         actions={
           <>
             <span className="status-badge data-text">{`${proofCount} bukti transfer`}</span>

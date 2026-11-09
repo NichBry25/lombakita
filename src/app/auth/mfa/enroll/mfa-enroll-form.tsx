@@ -159,8 +159,8 @@ export function MfaEnrollForm({
         </header>
         <div className="feedback" data-tone="warning" role="status">
           <p>
-            <strong>Simpan 10 kode pemulihan ini sekarang.</strong> Setiap kode hanya bisa dipakai
-            satu kali dan tidak akan ditampilkan lagi setelah Anda melanjutkan.
+            Setiap kode hanya bisa dipakai satu kali dan tidak akan ditampilkan lagi setelah Anda
+            melanjutkan.
           </p>
         </div>
         <pre className="diagnostic-code stack-xs" aria-label="Kode pemulihan">

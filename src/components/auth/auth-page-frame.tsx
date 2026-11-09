@@ -20,10 +20,6 @@ export function AuthPageFrame({ children, title, description }: AuthPageFramePro
             {description ? <p>{description}</p> : null}
           </div>
         </div>
-        <div className="auth-context-note">
-          <Icon name="check" size="sm" />
-          <span>Email diverifikasi sebelum akun aktif.</span>
-        </div>
       </section>
       <section className="auth-card">{children}</section>
     </main>

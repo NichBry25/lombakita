@@ -39,7 +39,6 @@ export default async function CandidateDashboardPage() {
     <main className="page-shell app-page candidate-dashboard">
       <PageHeader
         title="Dasbor kandidat"
-        description="Pantau pendaftaran, tenggat, hasil, dan peluang yang kamu simpan."
         actions={
           <>
             <ButtonLink

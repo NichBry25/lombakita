@@ -170,8 +170,8 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
           <h1>Selesaikan pendaftaran dengan Google</h1>
         </header>
         <p className="auth-intro-copy">
-          Anda masuk sebagai <span className="auth-email-emphasis">{email}</span>. Pilih peran untuk
-          menyelesaikan pembuatan akun. Akun baru hanya dibuat setelah Anda memilih peran.
+          Anda masuk sebagai <span className="auth-email-emphasis">{email}</span>. Akun baru hanya
+          dibuat setelah Anda memilih peran.
         </p>
 
         {stage === "choose" ? (
