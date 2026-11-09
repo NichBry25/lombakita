@@ -120,7 +120,6 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Daftar workspace</p>
             <h2>Kompetisi tersimpan</h2>
           </div>
           <div className="competition-list-controls">

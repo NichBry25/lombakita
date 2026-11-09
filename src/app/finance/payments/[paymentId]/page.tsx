@@ -42,7 +42,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
   return (
     <main className="page-shell app-page admin-page">
       <PageHeader
-        eyebrow={detail.competitionTitle}
+        description={detail.competitionTitle}
         title={detail.payerDisplayName}
         backHref="/finance/payments"
       />

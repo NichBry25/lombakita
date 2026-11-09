@@ -55,7 +55,6 @@ export default async function CandidateResultDetailPage({ params }: Props) {
   return (
     <main className="page-shell app-page candidate-result-detail">
       <PageHeader
-        eyebrow="Hasil kompetisi"
         title={registration.competitionTitle}
         backHref="/candidate-dashboard/results"
         backLabel="Semua"
@@ -75,14 +74,14 @@ export default async function CandidateResultDetailPage({ params }: Props) {
           <Icon name="trophy" size="xl" />
         </span>
         <div className="stack-xs">
-          <p className="eyebrow">Hasil</p>
+          <p>Hasil</p>
           <p className="result-hero-label">{result.resultLabel}</p>
         </div>
       </section>
 
       {result.resultNotes ? (
         <section className="surface-card card-padding-lg stack-sm">
-          <p className="eyebrow">Catatan penyelenggara</p>
+          <p>Catatan penyelenggara</p>
           <p className="result-notes">{result.resultNotes}</p>
         </section>
       ) : null}

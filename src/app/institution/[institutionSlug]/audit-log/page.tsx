@@ -83,7 +83,6 @@ export default async function AuditLogPage({ params, searchParams }: Props) {
         <section className="content-section">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Aktivitas terbaru</p>
               <h2>{total} entri tercatat</h2>
             </div>
           </div>

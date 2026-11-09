@@ -198,7 +198,7 @@ svg {
   font-size: var(--text-page-title);
 }
 
-.page-heading-main > p:last-child:not(.eyebrow) {
+.page-heading-main > p:last-child {
   margin: var(--space-0);
   color: var(--color-ink-soft);
   font-size: var(--text-lead);
@@ -517,17 +517,6 @@ svg {
   gap: var(--space-3);
 }
 
-.eyebrow {
-  margin: var(--space-0);
-  color: var(--color-accent);
-  font-family: var(--font-data);
-  font-size: var(--text-micro);
-  font-weight: 500;
-  letter-spacing: var(--tracking-label);
-  line-height: var(--leading-heading);
-  text-transform: uppercase;
-}
-
 .display-title {
   font-size: var(--text-page-title);
 }
@@ -772,15 +761,6 @@ svg {
 .ui-button[data-variant="ghost"]:hover:not(:disabled),
 .action-chip:hover:not(:disabled) {
   background: var(--color-inset);
-}
-
-/*
- * --color-accent is tuned for the page, not for a palm band: in light mode the olive drops to
- * 2.22:1 on palm. Lime is the brand's own accent-on-palm pairing (8.37:1) and reads the same in
- * both themes, since the band is dark in both.
- */
-.brand-band .eyebrow {
-  color: var(--brand-lime);
 }
 
 /*
@@ -1255,8 +1235,6 @@ svg {
   font-family: var(--font-data);
   font-size: var(--text-micro);
   font-weight: 500;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
 .data-table tr:last-child td {
@@ -1318,11 +1296,6 @@ svg {
 .skeleton[data-variant="media"] {
   width: 100%;
   min-height: var(--skeleton-media-min);
-}
-
-.skeleton[data-variant="eyebrow"] {
-  width: var(--skeleton-eyebrow-width);
-  height: var(--space-2-5);
 }
 
 /* Control placeholders repeat the real control geometry so the page does not jump on swap. */
@@ -1713,7 +1686,6 @@ button.header-nav-link {
   color: var(--color-ink-soft);
   font-family: var(--font-data);
   font-size: var(--text-micro);
-  letter-spacing: var(--tracking-label);
 }
 
 .mobile-nav {
@@ -1878,8 +1850,6 @@ button.header-nav-link {
 .footer-support h3 {
   font-family: var(--font-data);
   font-size: var(--text-micro);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
 .footer-support-list {
@@ -2253,8 +2223,6 @@ button.header-nav-link {
   color: var(--brand-lime);
   font-size: var(--text-micro);
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
   animation: marquee-scroll var(--marquee-duration) linear infinite;
 }
 
@@ -2374,8 +2342,6 @@ button.header-nav-link {
   color: var(--on-cover-chip-ink);
   font-size: var(--text-micro);
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
 .home-category-card h3 {
@@ -2503,7 +2469,6 @@ button.header-nav-link {
 }
 
 .filter-result-title {
-  margin-block-start: var(--space-1);
   font-family: var(--font-body);
   font-size: var(--text-body);
   font-weight: 600;
@@ -3099,8 +3064,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   font-family: var(--font-data);
   font-size: var(--text-micro);
   font-weight: 500;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
 .competition-card-body {
@@ -3694,7 +3657,7 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   font-weight: 700;
 }
 
-.detail-verification-panel p:not(.eyebrow) {
+.detail-verification-panel p {
   color: var(--color-ink-soft);
   font-size: var(--text-body-sm);
   text-wrap: pretty;
@@ -3734,7 +3697,7 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   font-size: var(--text-page-title);
 }
 
-.auth-context-panel p:not(.eyebrow) {
+.auth-context-panel p {
   margin: var(--space-0);
   color: var(--brand-mist);
   font-size: var(--text-lead);
@@ -4252,9 +4215,7 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   font-family: var(--font-data);
   font-size: var(--text-micro);
   font-weight: 600;
-  letter-spacing: var(--tracking-label);
   line-height: 1;
-  text-transform: uppercase;
 }
 
 .toast-message {
@@ -4435,8 +4396,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   font-family: var(--font-data);
   font-size: var(--text-meta);
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
 .inbox-card[data-kind="institution_invite"] .inbox-kind-label {
@@ -4563,8 +4522,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   color: var(--color-ink-faint);
   font-size: var(--text-micro);
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
 .submission-summary dd,
@@ -4700,8 +4657,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   font-family: var(--font-body);
   font-size: var(--text-body-sm);
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
 .team-member-list {
@@ -5564,8 +5519,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   color: var(--color-ink-faint);
   font-size: var(--text-micro);
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
 .management-detail-grid dd {
@@ -5595,8 +5548,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   color: var(--color-ink-faint);
   font-size: var(--text-micro);
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
 .detail-grid dt::after {
@@ -5972,7 +5923,7 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   border-radius: var(--radius-feature);
 }
 
-.system-state-card > p:not(.eyebrow) {
+.system-state-card > p {
   margin: var(--space-0);
   color: var(--brand-mist);
 }

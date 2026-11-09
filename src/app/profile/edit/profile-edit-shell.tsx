@@ -129,7 +129,6 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
         <section className="content-section">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Akun</p>
               <h2>Alamat profil publik</h2>
             </div>
           </div>
@@ -150,7 +149,6 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
         <section className="content-section">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Informasi umum</p>
               <h2>Identitas publik</h2>
             </div>
           </div>

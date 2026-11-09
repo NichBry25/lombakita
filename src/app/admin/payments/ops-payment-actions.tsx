@@ -206,7 +206,7 @@ export function OpsPaymentActions({
                 <Card variant="surface" className="stack-md">
                   <div className="section-heading">
                     <div>
-                      <p className="eyebrow">{competition.institutionSlug}</p>
+                      <p>{competition.institutionSlug}</p>
                       <h3>{competition.title}</h3>
                     </div>
                     {/* Both values must be tones the stylesheet defines; `warning` and `neutral` are not
@@ -328,7 +328,7 @@ export function OpsPaymentActions({
                 <Card variant="surface" className="stack-sm">
                   <div className="section-heading">
                     <div>
-                      <p className="eyebrow">{proof.institutionSlug}</p>
+                      <p>{proof.institutionSlug}</p>
                       <h3>{proof.payerDisplayName}</h3>
                       <p className="muted-copy">
                         {`${formatRupiah(proof.grossAmount, proof.currency)} · ${proof.competitionTitle}`}

@@ -104,20 +104,11 @@ function useEditableCollection<T extends { id: string }>(
   return { items, editingId, setEditingId, busy, addResetKey, add, update, remove };
 }
 
-function SectionShell({
-  eyebrow,
-  title,
-  children,
-}: {
-  eyebrow: string;
-  title: string;
-  children: React.ReactNode;
-}) {
+function SectionShell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="content-section">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">{eyebrow}</p>
           <h2>{title}</h2>
         </div>
       </div>
@@ -356,7 +347,7 @@ function ExperienceEditor({
   });
 
   return (
-    <SectionShell eyebrow="Karier" title="Pengalaman">
+    <SectionShell title="Pengalaman">
       <ul className="pf-editor-list">
         {c.items.map((entry) =>
           c.editingId === entry.id ? (
@@ -513,7 +504,7 @@ function EducationEditor({
   });
 
   return (
-    <SectionShell eyebrow="Pendidikan" title="Riwayat pendidikan">
+    <SectionShell title="Riwayat pendidikan">
       <ul className="pf-editor-list">
         {c.items.map((entry) =>
           c.editingId === entry.id ? (
@@ -573,7 +564,7 @@ function SkillEditor({
   };
 
   return (
-    <SectionShell eyebrow="Keahlian" title="Keahlian">
+    <SectionShell title="Keahlian">
       <ul className="pf-tags pf-tags-editable">
         {c.items.map((entry) => (
           <li key={entry.id} className="pf-tag">
@@ -842,7 +833,7 @@ function CertificationEditor({
   });
 
   return (
-    <SectionShell eyebrow="Sertifikasi" title="Sertifikasi & lisensi">
+    <SectionShell title="Sertifikasi & lisensi">
       <ul className="pf-editor-list">
         {c.items.map((entry) =>
           c.editingId === entry.id ? (
@@ -957,7 +948,7 @@ function SocialLinkEditor({
   });
 
   return (
-    <SectionShell eyebrow="Tautan" title="Tautan sosial">
+    <SectionShell title="Tautan sosial">
       <ul className="pf-editor-list">
         {c.items.map((entry) =>
           c.editingId === entry.id ? (

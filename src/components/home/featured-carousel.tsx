@@ -81,7 +81,6 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
   return (
     <>
       <header className="stack-xs">
-        <p className="eyebrow">Pilihan Editor</p>
         <div className="home-section-header">
           <h2 className="section-title">Kompetisi ternama</h2>
           <ButtonLink

@@ -34,17 +34,10 @@ function SkeletonPage({ label, className, children }: PageSkeletonProps & { chil
   );
 }
 
-function SkeletonHeading({
-  withEyebrow = false,
-  withActions = false,
-}: {
-  withEyebrow?: boolean;
-  withActions?: boolean;
-}) {
+function SkeletonHeading({ withActions = false }: { withActions?: boolean }) {
   return (
     <header className="page-heading">
       <div className="page-heading-main">
-        {withEyebrow ? <Skeleton variant="eyebrow" /> : null}
         <Skeleton variant="title" />
         <Skeleton width="wide" />
       </div>
@@ -130,7 +123,7 @@ export function DetailPageSkeleton({
 }: PageSkeletonProps & { withRail?: boolean }) {
   return (
     <SkeletonPage label={label} className={className}>
-      <SkeletonHeading withEyebrow withActions />
+      <SkeletonHeading withActions />
       <div className={withRail ? "detail-layout" : undefined}>
         <div className="detail-main stack-lg">
           <Skeleton variant="media" />

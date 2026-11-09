@@ -65,7 +65,6 @@ export function DevPrimitivesClient() {
     <div className="primitive-showcase">
       <section className="stack-md">
         <div className="stack-xs">
-          <p className="eyebrow">Warna semantik</p>
           <h2 className="section-title">Palet Brandbook v2</h2>
         </div>
         <div className="token-swatch-grid">
@@ -87,7 +86,6 @@ export function DevPrimitivesClient() {
 
       <section className="stack-md">
         <div className="stack-xs">
-          <p className="eyebrow">Kontrol</p>
           <h2 className="section-title">Tombol dan status</h2>
         </div>
         <div className="cluster">
@@ -137,7 +135,6 @@ export function DevPrimitivesClient() {
 
       <section className="stack-md">
         <div className="stack-xs">
-          <p className="eyebrow">Surface hierarchy</p>
           <h2 className="section-title">Opaque untuk membaca, glass untuk chrome</h2>
         </div>
         <div className="primitive-surface-grid">
@@ -165,7 +162,6 @@ export function DevPrimitivesClient() {
       <section className="primitive-columns">
         <div className="stack-md">
           <div className="stack-xs">
-            <p className="eyebrow">Form</p>
             <h2 className="section-title">Keadaan kontrol</h2>
           </div>
           <Card>
@@ -202,7 +198,6 @@ export function DevPrimitivesClient() {
 
         <div className="stack-md">
           <div className="stack-xs">
-            <p className="eyebrow">Feedback</p>
             <h2 className="section-title">Pesan sistem</h2>
           </div>
           <div className="stack-sm">
@@ -256,7 +251,6 @@ export function DevPrimitivesClient() {
 
       <section className="stack-md">
         <div className="stack-xs">
-          <p className="eyebrow">Loading</p>
           <h2 className="section-title">Skeleton yang tenang</h2>
         </div>
         <div className="primitive-skeleton-grid">

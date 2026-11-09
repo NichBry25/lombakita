@@ -155,7 +155,6 @@ export function MfaEnrollForm({
             than the page. A page-level "Pindai kode QR" would sit above a screen asking the
             operator to save ten recovery codes. */}
         <header className="auth-entry-header">
-          <p className="eyebrow">Verifikasi dua langkah</p>
           <h1>Simpan kode pemulihan Anda</h1>
         </header>
         <div className="feedback" data-tone="warning" role="status">
@@ -199,7 +198,6 @@ export function MfaEnrollForm({
   return (
     <form onSubmit={onSubmitCode} className="auth-form stack-md">
       <header className="auth-entry-header">
-        <p className="eyebrow">Verifikasi dua langkah</p>
         <h1>Aktifkan 2FA</h1>
       </header>
       <p>

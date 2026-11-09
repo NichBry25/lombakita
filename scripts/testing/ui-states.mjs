@@ -64,7 +64,7 @@ export const CASES = [
       "1370012345678",
       "Yayasan Seed Academy",
       "Kirim bukti transfer",
-      "BATAS WAKTU",
+      "Batas waktu",
     ],
     // The deadline is LIVE here, so the suspension sentence must not appear. Its countdown text is
     // time-dependent and is asserted in payment-deadline.test.ts rather than pinned to a seed date.
@@ -98,7 +98,7 @@ export const CASES = [
       "Bukti transfer ditolak",
       "Nominal transfer tidak sesuai",
       "Unggah bukti transfer baru",
-      "BATAS WAKTU",
+      "Batas waktu",
     ],
     // RESUMED. A rejection puts the candidate back on a running clock, so the suspension sentence
     // must be gone. This is the half of the pairing that catches a suspension that never lifts.
@@ -343,12 +343,9 @@ export const CASES = [
     present: [
       "Biaya pendaftaran",
       "Rincian per pendaftaran",
-      // UPPERCASE because `.detail-grid dt` sets text-transform and innerText returns RENDERED
-      // text. Written from the source string these three silently missed, the same shape as the
-      // non-breaking space in `Rp\u00a0150.000`: the expectation was wrong, not the render.
-      "DIBAYAR PESERTA",
-      "BIAYA LAYANAN LOMBAKITA",
-      "DITERIMA LEMBAGA ANDA",
+      "Dibayar peserta",
+      "Biaya layanan Lombakita",
+      "Diterima lembaga Anda",
       // The FIGURES, not just the labels. 250 bps on Rp 150.000 is Rp 3.750, leaving Rp 146.250,
       // asserting the arithmetic reached the screen, since a disclosure showing the wrong number
       // is worse than one showing none.
@@ -435,9 +432,7 @@ export const CASES = [
       "Percobaan ke-1",
       "bukti-transfer-bela.jpg",
       "Tanggal transfer tidak terbaca pada bukti.",
-      // UPPERCASE: `.detail-grid dt` sets text-transform and innerText returns RENDERED text. Third
-      // time this trap has fired here: the expectation is wrong, never the render.
-      "STATUS BUKU BESAR",
+      "Status buku besar",
     ],
     // DEC-0162: no verdict power. The controls are ABSENT, not disabled. A disabled Verifikasi
     // still tells the operator they are the person who decides.
@@ -482,9 +477,9 @@ export const CASES = [
       // code path it had never rendered, and a double negation that overstated the receivable was
       // invisible to it. Each needle pins one consequence of getting the sign wrong:
       //   the correction shows at all, and shows as a subtraction ...
-      "KOREKSI\n\u2212Rp\u00a03.750",
+      "Koreksi\n\u2212Rp\u00a03.750",
       //   ... the receivable is 7.500 and not the 15.000 a re-negated reversal produces ...
-      "BELUM DITAGIHKAN\nRp\u00a07.500",
+      "Belum ditagihkan\nRp\u00a07.500",
       //   ... the line itself renders, carrying the reason a reversal may not be written without ...
       "(koreksi) \u00b7 Dana ditarik kembali oleh bank setelah verifikasi",
       //   ... and its amount prints ONE minus, against a row that is already stored negative.

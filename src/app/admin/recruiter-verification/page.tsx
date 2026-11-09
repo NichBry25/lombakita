@@ -256,7 +256,7 @@ export default function RecruiterVerificationQueuePage() {
   if (items === null) {
     return (
       <main className="page-shell app-page admin-page">
-        <PageHeader eyebrow="Operasi platform" title="Verifikasi rekruter" />
+        <PageHeader title="Verifikasi rekruter" />
         <Skeleton />
       </main>
     );

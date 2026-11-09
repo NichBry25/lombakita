@@ -253,7 +253,6 @@ export const InstitutionVerificationShell = ({
         <section className="content-section verification-status-card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Status verifikasi</p>
               <h2>Institusi terverifikasi</h2>
             </div>
             <span className="status-badge" data-status="open">
@@ -282,7 +281,6 @@ export const InstitutionVerificationShell = ({
         <section className="content-section verification-status-card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Status verifikasi</p>
               <h2>Verifikasi tidak berlaku</h2>
             </div>
             <span className="status-badge" data-status="closed">
@@ -311,7 +309,6 @@ export const InstitutionVerificationShell = ({
         <section className="content-section verification-status-card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Status verifikasi</p>
               <h2>Menunggu peninjauan</h2>
             </div>
             <span className="status-badge" data-status="closing">
@@ -334,7 +331,6 @@ export const InstitutionVerificationShell = ({
         <section className="content-section verification-submit-card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Pengajuan baru</p>
               <h2>Dokumen verifikasi</h2>
             </div>
           </div>
@@ -383,7 +379,6 @@ export const InstitutionVerificationShell = ({
       <section className="content-section verification-history-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Jejak pengajuan</p>
             <h2>Riwayat verifikasi</h2>
           </div>
           <span className="status-badge data-text">{submissions.length}</span>

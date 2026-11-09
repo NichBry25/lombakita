@@ -341,7 +341,6 @@ export const InstitutionCompetitionDetailShell = ({
   return (
     <main className="page-shell app-page competition-management-page">
       <PageHeader
-        eyebrow="Konsol kompetisi"
         title={competition.title}
         backHref={`/institution/${institutionSlug}/competitions`}
         backLabel="Kompetisi"
@@ -358,7 +357,6 @@ export const InstitutionCompetitionDetailShell = ({
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Ringkasan konfigurasi</p>
             <h2>Informasi kompetisi</h2>
           </div>
           <IconButtonLink
@@ -430,7 +428,6 @@ export const InstitutionCompetitionDetailShell = ({
         <section className="content-section">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Minimum peserta</p>
               <h2>{getCompetitionParticipationStateLabel(participation.state)}</h2>
             </div>
           </div>
@@ -528,7 +525,6 @@ export const InstitutionCompetitionDetailShell = ({
       <section className="content-section lifecycle-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Siklus publikasi</p>
             <h2>Aksi status</h2>
           </div>
         </div>

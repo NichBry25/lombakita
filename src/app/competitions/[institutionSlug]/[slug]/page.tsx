@@ -205,7 +205,7 @@ function ResultAnnouncementSummary({
   if (phase === "results_announced") {
     return (
       <div className="stack-xs">
-        <p className="eyebrow">Hasil</p>
+        <p>Hasil</p>
         <p className="detail-deadline data-text">Sudah diumumkan</p>
       </div>
     );
@@ -221,7 +221,7 @@ function ResultAnnouncementSummary({
 
   return (
     <div className="stack-xs">
-      <p className="eyebrow">{heading}</p>
+      <p>{heading}</p>
       <p className="detail-deadline data-text">
         {announcement.at ? formatDateTime(announcement.at) : "Belum dijadwalkan"}
       </p>
@@ -485,7 +485,6 @@ export default async function CompetitionDetailPage({
           {competition.description ? (
             <section className="surface-card card-padding-lg stack-md">
               <div className="stack-xs">
-                <p className="eyebrow">Tentang kompetisi</p>
                 <h2 className="section-title">Gambaran umum</h2>
               </div>
               <p className="detail-description">{competition.description}</p>
@@ -495,7 +494,6 @@ export default async function CompetitionDetailPage({
           {competition.rounds.length > 0 ? (
             <section className="surface-card card-padding-lg stack-md">
               <div className="stack-xs">
-                <p className="eyebrow">Tahapan</p>
                 <h2 className="section-title">Tahapan &amp; linimasa</h2>
               </div>
               <div className="detail-timeline">
@@ -526,7 +524,6 @@ export default async function CompetitionDetailPage({
           {competition.rounds.length === 0 ? (
             <section className="surface-card card-padding-lg stack-md">
               <div className="stack-xs">
-                <p className="eyebrow">Jadwal</p>
                 <h2 className="section-title">Tanggal penting</h2>
               </div>
               <div className="detail-timeline">
@@ -565,7 +562,6 @@ export default async function CompetitionDetailPage({
           {competition.prizes.length > 0 ? (
             <section className="surface-card card-padding-lg stack-md">
               <div className="stack-xs">
-                <p className="eyebrow">Apresiasi</p>
                 <h2 className="section-title">Hadiah</h2>
                 {competition.prizePoolTotal ? (
                   <p className="detail-prize-total data-text">
@@ -576,7 +572,7 @@ export default async function CompetitionDetailPage({
               <ul className="detail-prize-list stack-sm">
                 {competition.prizes.map((prize, index) => (
                   <li key={`${prize.title}-${index}`} className="detail-prize-item stack-xs">
-                    {prize.rankLabel ? <p className="eyebrow">{prize.rankLabel}</p> : null}
+                    {prize.rankLabel ? <p>{prize.rankLabel}</p> : null}
                     <div className="cluster">
                       <strong>{prize.title}</strong>
                       {prize.cashAmount && parseFloat(prize.cashAmount) > 0 ? (
@@ -602,7 +598,6 @@ export default async function CompetitionDetailPage({
                   <Icon name="users" size="lg" />
                 </span>
                 <div className="stack-xs">
-                  <p className="eyebrow">Format peserta</p>
                   <h2>Ukuran tim</h2>
                   <p>{formatTeamSizeText(competition.minTeamSize, competition.maxTeamSize)}</p>
                 </div>
@@ -613,7 +608,6 @@ export default async function CompetitionDetailPage({
           {competition.eligibilityNote ? (
             <section className="surface-card card-padding-lg stack-md">
               <div className="stack-xs">
-                <p className="eyebrow">Informasi</p>
                 <h2 className="section-title">Kelayakan</h2>
               </div>
               <p className="detail-description">{competition.eligibilityNote}</p>
@@ -622,7 +616,6 @@ export default async function CompetitionDetailPage({
 
           <section className="surface-card card-padding-lg stack-md">
             <div className="stack-xs">
-              <p className="eyebrow">Ulasan peserta</p>
               <h2 className="section-title">Ulasan</h2>
               {reviewSummary.count > 0 ? (
                 <p className="data-text">
@@ -674,7 +667,6 @@ export default async function CompetitionDetailPage({
               <Icon name={organizerIsVerified ? "check" : "info"} size="md" />
             </span>
             <div className="stack-xs">
-              <p className="eyebrow">Status penyelenggara</p>
               <h2 id="organizer-verification-title">
                 {organizerIsVerified ? "Institusi terverifikasi" : "Belum terverifikasi"}
               </h2>
@@ -691,7 +683,7 @@ export default async function CompetitionDetailPage({
           <div className="detail-rail-summary">
             <CompetitionPhaseSummary phase={competition.phase} phaseDate={competitionPhaseDate} />
             <div className="stack-xs">
-              <p className="eyebrow">Batas pendaftaran</p>
+              <p>Batas pendaftaran</p>
               <p className="detail-deadline data-text">
                 {formatDateTime(competition.registrationEndAt)}
               </p>
@@ -702,14 +694,14 @@ export default async function CompetitionDetailPage({
               eventEndAt={competition.eventEndAt}
             />
             <div className="stack-xs">
-              <p className="eyebrow">Terdaftar</p>
+              <p>Terdaftar</p>
               <p className="detail-deadline data-text">
                 {competition.registrantCount.toLocaleString("id-ID")} peserta
               </p>
             </div>
             {competition.prizePoolTotal ? (
               <div className="stack-xs">
-                <p className="eyebrow">Total hadiah</p>
+                <p>Total hadiah</p>
                 <p className="detail-deadline data-text">
                   Rp {competition.prizePoolTotal.toLocaleString("id-ID")}
                 </p>
@@ -720,7 +712,7 @@ export default async function CompetitionDetailPage({
           <div className="detail-rail-divider" />
 
           <div className="stack-xs">
-            <p className="eyebrow">Biaya pendaftaran</p>
+            <p>Biaya pendaftaran</p>
             <FeeDisplay feeAmount={competition.feeAmount} feeCurrency={competition.feeCurrency} />
           </div>
           <div className="detail-rail-actions">

@@ -123,7 +123,6 @@ export function MfaChallengeForm({ callbackUrl }: MfaChallengeFormProps) {
   return (
     <form onSubmit={onSubmit} className="auth-form stack-md">
       <header className="auth-entry-header">
-        <p className="eyebrow">Verifikasi dua langkah</p>
         {/* The heading follows the mode. It sat on the page as a fixed "Masukkan kode verifikasi",
             so switching to recovery left the page telling the operator to do the one thing the form
             in front of them no longer accepted. */}

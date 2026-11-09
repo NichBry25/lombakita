@@ -251,7 +251,6 @@ export const InstitutionTeamShell = ({
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Anggota aktif</p>
             <h2>Daftar akses institusi</h2>
           </div>
           <span className="status-badge data-text">{members.length}</span>
@@ -338,7 +337,6 @@ export const InstitutionTeamShell = ({
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Undangan baru</p>
             <h2>Tambah pengelola</h2>
           </div>
         </div>
@@ -382,7 +380,6 @@ export const InstitutionTeamShell = ({
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Status akses</p>
             <h2>Undangan tertunda</h2>
           </div>
           <span className="status-badge data-text">{invitations.length}</span>

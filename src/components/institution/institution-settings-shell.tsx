@@ -338,7 +338,6 @@ export const InstitutionSettingsShell = ({
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Identitas</p>
             <h2>Identitas institusi</h2>
           </div>
         </div>

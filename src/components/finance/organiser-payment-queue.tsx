@@ -181,7 +181,6 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
             <Card variant="surface" className="stack-md">
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">Bukti transfer</p>
                   <h2>{proof.payerDisplayName}</h2>
                 </div>
                 <span className="status-badge" data-status={PROOF_STATUS_TONES[proof.status]}>

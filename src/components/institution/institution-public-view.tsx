@@ -112,7 +112,6 @@ export function InstitutionPublicView({
         <section className="content-section">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Tentang</p>
               <h2>Profil {institution.name}</h2>
             </div>
           </div>
@@ -123,7 +122,6 @@ export function InstitutionPublicView({
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Kompetisi</p>
             <h2>Sedang dibuka</h2>
           </div>
         </div>
@@ -152,7 +150,6 @@ export function InstitutionPublicView({
         <section className="content-section">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Kontak</p>
               <h2>Hubungi penyelenggara</h2>
             </div>
           </div>

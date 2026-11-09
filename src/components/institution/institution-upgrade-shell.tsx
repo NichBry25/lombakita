@@ -174,7 +174,6 @@ export const InstitutionUpgradeShell = ({
       <section className="content-section institution-upgrade-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Sebelum melanjutkan</p>
             <h2>Peningkatan ini permanen</h2>
           </div>
         </div>

@@ -509,7 +509,6 @@ function UserPanel({ initialEmail }: { initialEmail?: string }) {
     <section className="content-section moderation-panel">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Pencarian akun</p>
           <h2>Pengguna</h2>
         </div>
       </div>
@@ -636,7 +635,6 @@ function InstitutionPanel() {
     <section className="content-section moderation-panel">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Pencarian workspace</p>
           <h2>Institusi</h2>
         </div>
       </div>

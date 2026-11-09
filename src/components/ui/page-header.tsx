@@ -11,17 +11,11 @@ type PageHeaderBaseProps = {
   className?: string;
 };
 
-/**
- * A page heading carries at most two lines of text: the title, plus EITHER a preceding
- * eyebrow OR a following description — never both. Passing both is a type error.
- */
-type PageHeaderProps = PageHeaderBaseProps &
-  ({ eyebrow?: string; description?: never } | { description?: string; eyebrow?: never });
+type PageHeaderProps = PageHeaderBaseProps & { description?: string };
 
 export function PageHeader({
   title,
   description,
-  eyebrow,
   backHref,
   backLabel = "Kembali",
   actions,
@@ -42,7 +36,6 @@ export function PageHeader({
             {backLabel}
           </ButtonLink>
         ) : null}
-        {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
         <h1>{title}</h1>
         {description ? <p>{description}</p> : null}
       </div>

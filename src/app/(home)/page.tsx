@@ -132,7 +132,6 @@ export default async function HomePage() {
         <div className="content-shell stack-lg">
           <header className="home-section-header">
             <div className="stack-xs">
-              <p className="eyebrow">Jelajahi berdasarkan minat</p>
               <h2 className="section-title">Pilih arenamu</h2>
             </div>
           </header>
@@ -171,7 +170,6 @@ export default async function HomePage() {
         <div className="content-shell">
           <div className="brand-band home-organizer-cta">
             <div className="stack-sm">
-              <p className="eyebrow">Untuk penyelenggara</p>
               <h2>Bangun ruang kompetisi yang dipercaya peserta</h2>
             </div>
             <ButtonLink href="/institution/create" variant="secondary" size="lg" prefetch={false}>

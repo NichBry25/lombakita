@@ -84,7 +84,6 @@ export default async function PublicCompetitionsPage({
         <section className="stack-lg" aria-labelledby="competition-results-title">
           <div className="glass-chrome filter-toolbar">
             <div>
-              <p className="eyebrow">Hasil pencarian</p>
               <h2 id="competition-results-title" className="filter-result-title">
                 {meta.total} kompetisi ditemukan
               </h2>

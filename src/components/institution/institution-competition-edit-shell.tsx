@@ -695,7 +695,6 @@ export const InstitutionCompetitionEditShell = ({
   return (
     <main className="page-shell app-page competition-form-page">
       <PageHeader
-        eyebrow="Editor kompetisi"
         title={competition.title}
         actions={
           <span className="status-badge" data-status={isPublished ? "open" : "closing"}>
@@ -709,7 +708,6 @@ export const InstitutionCompetitionEditShell = ({
           <section className="content-section">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Identitas publik</p>
                 <h2>Informasi utama</h2>
               </div>
             </div>
@@ -844,7 +842,6 @@ export const InstitutionCompetitionEditShell = ({
           <section className="content-section">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Linimasa</p>
                 <h2>Jadwal kompetisi</h2>
               </div>
             </div>

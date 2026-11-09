@@ -40,7 +40,6 @@ export default function SuspendedPage() {
 
         <section className="surface-card card-padding-lg stack-md">
           <div className="stack-xs">
-            <p className="eyebrow">Proses banding</p>
             <h2 className="section-title">Cara mengajukan banding</h2>
           </div>
           <ol className="appeal-steps">

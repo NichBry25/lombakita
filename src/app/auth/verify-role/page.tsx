@@ -73,7 +73,6 @@ export default async function VerifyRolePage(props: { searchParams?: Promise<{ a
     >
       <div className="stack-md">
         <header className="auth-entry-header">
-          <p className="eyebrow">Verifikasi peran</p>
           <h1>{ROLE_HEADLINE[role]}</h1>
         </header>
 

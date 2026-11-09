@@ -167,7 +167,6 @@ export function ResumeSection({
     <section className="content-section">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Dokumen</p>
           <h2>Resume</h2>
         </div>
       </div>

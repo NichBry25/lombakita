@@ -85,7 +85,6 @@ export default async function CandidateDashboardPage() {
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Prioritas waktu</p>
             <h2>Tenggat mendatang</h2>
           </div>
         </div>
@@ -125,7 +124,6 @@ export default async function CandidateDashboardPage() {
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Partisipasi</p>
             <h2>Pendaftaran individu</h2>
           </div>
         </div>
@@ -197,7 +195,6 @@ export default async function CandidateDashboardPage() {
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Kolaborasi</p>
             <h2>Pendaftaran tim</h2>
           </div>
         </div>
@@ -283,7 +280,6 @@ export default async function CandidateDashboardPage() {
       <section className="content-section">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Koleksi pribadi</p>
             <h2>Tersimpan</h2>
           </div>
           <ButtonLink href="/saved" variant="ghost" size="sm">

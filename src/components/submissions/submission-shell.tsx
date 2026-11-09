@@ -189,7 +189,6 @@ export const SubmissionShell = ({
       <section className="content-section submission-status">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Status saat ini</p>
             <h2>Status submission</h2>
           </div>
           <span
@@ -224,7 +223,6 @@ export const SubmissionShell = ({
           <div className="submission-step-heading">
             <span className="submission-step-number data-text">01</span>
             <div>
-              <p className="eyebrow">Unggah berkas</p>
               <h2>{submission ? "Ganti berkas" : "Unggah karya Anda"}</h2>
             </div>
           </div>

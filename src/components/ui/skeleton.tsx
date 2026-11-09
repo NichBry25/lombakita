@@ -1,15 +1,7 @@
 import type { HTMLAttributes } from "react";
 import { joinClassNames } from "./class-names";
 
-export type SkeletonVariant =
-  | "text"
-  | "title"
-  | "eyebrow"
-  | "avatar"
-  | "media"
-  | "button"
-  | "chip"
-  | "block";
+export type SkeletonVariant = "text" | "title" | "avatar" | "media" | "button" | "chip" | "block";
 
 export type SkeletonWidth = "full" | "wide" | "half" | "narrow";
 

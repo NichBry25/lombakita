@@ -67,7 +67,6 @@ export function ReviewForm({
     <section className="content-section participant-review-card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Penilaian internal</p>
           <h2>Tinjauan peserta</h2>
         </div>
         <span className="status-badge">{REVIEW_STATUS_LABELS[status]}</span>

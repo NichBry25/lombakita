@@ -106,7 +106,6 @@ export function ResultForm({
     <section className="content-section participant-result-card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Keluaran publik</p>
           <h2>Hasil kompetisi</h2>
         </div>
         <span className="status-badge" data-status={status === "published" ? "open" : "closing"}>

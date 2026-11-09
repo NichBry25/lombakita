@@ -69,7 +69,7 @@ export default async function CompetitionPaymentsPage({ params }: Props) {
   return (
     <main className="page-shell app-page">
       <PageHeader
-        eyebrow={competitionTitle}
+        description={competitionTitle}
         title="Verifikasi pembayaran"
         backHref={`/institution/${institutionSlug}/competitions/${competitionSlug}`}
         actions={

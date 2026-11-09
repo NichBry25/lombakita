@@ -68,7 +68,6 @@ export default function ContactPage() {
 
         <section className="surface-card card-padding-lg stack-md">
           <div className="stack-xs">
-            <p className="eyebrow">Sebelum menghubungi</p>
             <h2 className="section-title">Hal yang diurus penyelenggara kompetisi</h2>
           </div>
           <div className="document-clause stack-sm">

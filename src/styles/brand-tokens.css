@@ -58,8 +58,7 @@
 
   /*
    * Accent. Lime is a highlighter (background); olive carries accent text. Verified against the
-   * TINTED surfaces too, not just paper: eyebrows land on Palm Mist and on the accent tint, where
-   * the previous #667923 was 4.05:1 and 4.35:1. This clears 4.5:1 on every one of them.
+   * TINTED surfaces too, not just paper.
    */
   --color-accent: #5a6a1f;
   --color-accent-bg: #edf7d0;
@@ -157,7 +156,6 @@
   /* Skeleton */
   --skeleton-base: #ece5d5;
   --skeleton-highlight: #fbf6eb;
-  --skeleton-eyebrow-width: 7rem;
   --skeleton-button-width: 8.5rem;
   --skeleton-chip-width: 5.5rem;
   --skeleton-stat-min: 13rem;
@@ -305,7 +303,6 @@
   --leading-body: 1.65;
   --leading-prose: 1.7;
   --tracking-heading: -0.015em;
-  --tracking-label: 0.09em;
 
   /* Spacing */
   --space-0: 0;
