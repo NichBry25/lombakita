@@ -1,5 +1,5 @@
-import { PageShellSkeleton } from "@/components/ui";
+import { AuthPageSkeleton } from "@/components/ui";
 
 export default function AuthActivatedLoading() {
-  return <PageShellSkeleton label="Memuat status aktivasi" />;
+  return <AuthPageSkeleton label="Memuat status aktivasi" variant="state" />;
 }

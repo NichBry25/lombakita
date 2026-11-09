@@ -209,3 +209,48 @@ export function PageShellSkeleton({ label = "Memuat halaman", className }: PageS
     </SkeletonPage>
   );
 }
+
+/**
+ * The sign-in frame: a brand panel beside a card, for the pages that render AuthPageFrame. A form
+ * page shows a title, its fields and the submit button; a state page (a confirmation or a notice)
+ * shows its icon, two lines and one button.
+ */
+export function AuthPageSkeleton({
+  label = "Memuat autentikasi",
+  variant = "form",
+  fields = 2,
+}: Pick<PageSkeletonProps, "label"> & { variant?: "form" | "state"; fields?: number }) {
+  return (
+    <main className="auth-page skeleton-page" aria-busy="true" aria-label={label}>
+      <section className="brand-band auth-context-panel">
+        <div className="stack-md">
+          <Skeleton variant="avatar" />
+          <div className="stack-sm">
+            <Skeleton variant="title" />
+            <Skeleton width="wide" />
+          </div>
+        </div>
+      </section>
+      <section className="auth-card">
+        {variant === "state" ? (
+          <div className="auth-state">
+            <Skeleton variant="avatar" />
+            <SkeletonTextLines lines={2} />
+            <Skeleton variant="button" />
+          </div>
+        ) : (
+          <div className="auth-form">
+            <Skeleton variant="title" />
+            {countTo(fields).map((index) => (
+              <div key={index} className="stack-xs">
+                <Skeleton width="narrow" />
+                <Skeleton variant="block" />
+              </div>
+            ))}
+            <Skeleton variant="button" />
+          </div>
+        )}
+      </section>
+    </main>
+  );
+}

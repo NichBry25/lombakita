@@ -28,6 +28,7 @@ export type { SpinnerSize } from "./spinner";
 // no use to the plain `<Link>`s that navigate into those routes.
 export { LinkPendingSlot } from "./link-pending";
 export {
+  AuthPageSkeleton,
   DashboardPageSkeleton,
   DetailPageSkeleton,
   FormPageSkeleton,

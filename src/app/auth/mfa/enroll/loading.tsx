@@ -1,5 +1,5 @@
-import { FormPageSkeleton } from "@/components/ui";
+import { AuthPageSkeleton } from "@/components/ui";
 
 export default function MfaEnrollLoading() {
-  return <FormPageSkeleton label="Memuat pengaktifan verifikasi dua langkah" fields={2} />;
+  return <AuthPageSkeleton label="Memuat pengaktifan verifikasi dua langkah" fields={8} />;
 }
