@@ -335,9 +335,6 @@ export function OpsPaymentActions({
                         {proof.attempt > 0 ? ` · Percobaan ke-${proof.attempt + 1}` : ""}
                       </p>
                     </div>
-                    <span className="status-badge" data-status="cancelled">
-                      Dilarang mengirim ulang
-                    </span>
                   </div>
 
                   <dl className="detail-grid">

@@ -343,9 +343,6 @@ export function RecruiterVerificationPanel({
           <div>
             <h2>Rekruter Terpercaya</h2>
           </div>
-          <span className="status-badge" data-status="open">
-            Terverifikasi
-          </span>
         </div>
         <p className="muted-copy">
           Akun Anda telah diverifikasi. Anda kini dapat mempublikasikan kompetisi.
@@ -491,7 +488,6 @@ export function RecruiterVerificationPanel({
           <div>
             <h2>Menunggu peninjauan</h2>
           </div>
-          <span className="status-badge">Diproses</span>
         </div>
         <p className="muted-copy">
           Permohonan Anda sedang ditinjau tim kami. Anda dapat membuat draf kompetisi sekarang,
@@ -551,9 +547,6 @@ export function RecruiterVerificationPanel({
           <div>
             <h2>Permohonan ditolak</h2>
           </div>
-          <span className="status-badge" data-status="closed">
-            Ditolak
-          </span>
         </div>
         <Feedback tone="error">
           <p>
@@ -575,9 +568,6 @@ export function RecruiterVerificationPanel({
           <div>
             <h2>Perbaiki dan ajukan ulang</h2>
           </div>
-          <span className="status-badge" data-status="closed">
-            Ditolak
-          </span>
         </div>
         <Feedback tone="error">
           <p>

@@ -69,7 +69,6 @@ export function ReviewForm({
         <div>
           <h2>Tinjauan peserta</h2>
         </div>
-        <span className="status-badge">{REVIEW_STATUS_LABELS[status]}</span>
       </div>
       {registrationType === "team" && teamName && (
         <p className="participant-team-context">

@@ -2354,16 +2354,6 @@ button.header-nav-link {
   background: var(--on-cover-chip);
 }
 
-.home-category-label {
-  width: fit-content;
-  padding: var(--space-1) var(--space-2-5);
-  border-radius: var(--radius-pill);
-  background: var(--on-cover-chip);
-  color: var(--on-cover-chip-ink);
-  font-size: var(--text-micro);
-  font-weight: 700;
-}
-
 .home-category-card h3 {
   color: var(--on-cover-ink);
   font-size: var(--text-card-title);

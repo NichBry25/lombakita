@@ -255,9 +255,6 @@ export const InstitutionVerificationShell = ({
             <div>
               <h2>Institusi terverifikasi</h2>
             </div>
-            <span className="status-badge" data-status="open">
-              Terverifikasi
-            </span>
           </div>
           <Feedback tone="success">
             <p>
@@ -311,9 +308,6 @@ export const InstitutionVerificationShell = ({
             <div>
               <h2>Menunggu peninjauan</h2>
             </div>
-            <span className="status-badge" data-status="closing">
-              Diproses
-            </span>
           </div>
           <p className="muted-copy">
             Dokumen yang Anda kirim pada {formatLongDate(pendingSubmission.submittedAt)} sedang

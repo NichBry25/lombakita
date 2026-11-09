@@ -148,7 +148,6 @@ export default async function HomePage() {
                   <Icon name="trophy" size="md" />
                 </span>
                 <div className="stack-xs home-category-copy">
-                  <span className="home-category-label">{category.label}</span>
                   <h3>{category.label}</h3>
                   <p>{category.detail}</p>
                 </div>

@@ -191,12 +191,6 @@ export const SubmissionShell = ({
           <div>
             <h2>Status submission</h2>
           </div>
-          <span
-            className="status-badge"
-            data-status={finalized ? "closed" : submission ? "open" : undefined}
-          >
-            {finalized ? "Final" : submission ? "Draft" : "Belum dimulai"}
-          </span>
         </div>
         {submission ? (
           <dl className="submission-summary">

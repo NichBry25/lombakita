@@ -50,7 +50,6 @@ export default async function AdminFeaturedPage() {
               <tr>
                 <th>Judul</th>
                 <th>Institusi</th>
-                <th>Unggulan</th>
                 <th>Urutan</th>
                 <th>Aksi</th>
               </tr>
@@ -60,15 +59,6 @@ export default async function AdminFeaturedPage() {
                 <tr key={row.id}>
                   <td>{row.title}</td>
                   <td className="data-text">{row.institutionSlug}</td>
-                  <td>
-                    {row.isFeatured ? (
-                      <span className="status-badge" data-status="featured">
-                        Ya
-                      </span>
-                    ) : (
-                      <span className="status-badge">Tidak</span>
-                    )}
-                  </td>
                   <td className="data-text">{row.featuredOrder ?? <em>–</em>}</td>
                   <td>
                     <FeaturedRowForm
