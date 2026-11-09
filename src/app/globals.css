@@ -3632,6 +3632,27 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   display: none;
 }
 
+.register-sticky-bar[data-visible="true"] {
+  position: fixed;
+  inset-inline: var(--space-0);
+  inset-block-end: var(--space-0);
+  z-index: var(--z-sticky-tabs);
+  display: grid;
+  justify-items: center;
+  padding: var(--space-3) var(--page-padding) max(var(--space-3), env(safe-area-inset-bottom));
+}
+
+.register-sticky-bar > * {
+  max-width: var(--content-narrow);
+}
+
+body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
+  inset-block-end: calc(
+    var(--control-height-lg) + (var(--space-3) * 2) +
+      max(var(--space-3), env(safe-area-inset-bottom))
+  );
+}
+
 .detail-verification-panel {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -6130,20 +6151,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   }
 
   .register-sticky-bar[data-visible="true"] {
-    position: fixed;
-    inset-inline: var(--space-0);
-    inset-block-end: var(--space-0);
-    z-index: var(--z-sticky-tabs);
-    display: block;
-    padding: var(--space-3) var(--page-padding-mobile)
-      max(var(--space-3), env(safe-area-inset-bottom));
-  }
-
-  body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
-    inset-block-end: calc(
-      var(--control-height-lg) + (var(--space-3) * 2) +
-        max(var(--space-3), env(safe-area-inset-bottom))
-    );
+    padding-inline: var(--page-padding-mobile);
   }
 
   .competition-grid,

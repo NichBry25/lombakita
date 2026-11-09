@@ -9,15 +9,19 @@ type RegisterStickyBarProps = {
 };
 
 export function RegisterStickyBar({ targetId, children }: RegisterStickyBarProps) {
-  const [targetOffScreen, setTargetOffScreen] = useState(false);
+  const [targetWhollyOnScreen, setTargetWhollyOnScreen] = useState(true);
 
   useEffect(() => {
     const target = document.getElementById(targetId);
     if (!target) return;
-    const observer = new IntersectionObserver((entries) => {
-      const entry = entries[0];
-      if (entry) setTargetOffScreen(!entry.isIntersecting);
-    });
+    // Threshold 1: a register control cut off by the screen edge counts as off screen.
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry) setTargetWhollyOnScreen(entry.intersectionRatio === 1);
+      },
+      { threshold: 1 },
+    );
     observer.observe(target);
     return () => observer.disconnect();
   }, [targetId]);
@@ -25,7 +29,7 @@ export function RegisterStickyBar({ targetId, children }: RegisterStickyBarProps
   return (
     <div
       className="glass-chrome register-sticky-bar"
-      data-visible={targetOffScreen ? "true" : "false"}
+      data-visible={targetWhollyOnScreen ? "false" : "true"}
     >
       {children}
     </div>
