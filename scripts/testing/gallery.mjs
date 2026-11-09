@@ -313,10 +313,17 @@ const hashBelowHeader = async (page) => {
   return createHash("sha256").update(png).digest("hex");
 };
 
-const keptShotOf = (kept, key, hash) => (kept.get(key) ?? []).find((k) => k.hash === hash);
+// A shot never counts as the same as its own file, which a retried entry may already have written.
+const keptShotOf = (kept, key, hash, file) =>
+  (kept.get(key) ?? []).find((k) => k.hash === hash && k.file !== file);
+
+const forgetKeptShot = (kept, key, file) => {
+  const others = (kept.get(key) ?? []).filter((k) => k.file !== file);
+  kept.set(key, others);
+};
 
 const rememberKeptShot = (kept, key, file, hash) => {
-  if (!kept.has(key)) kept.set(key, []);
+  forgetKeptShot(kept, key, file);
   kept.get(key).push({ file, hash });
 };
 
@@ -328,8 +335,9 @@ const takeShot = async (page, p, theme, size, kinds, kept) => {
   if (kinds.main) {
     const key = duplicateKeyOf(p, theme, size);
     const hash = await hashBelowHeader(page);
-    const earlier = keptShotOf(kept, key, hash);
+    const earlier = keptShotOf(kept, key, hash, file);
     if (earlier) {
+      forgetKeptShot(kept, key, file);
       record = { file, size: sizeLabel(size), theme, hash, sameAs: earlier.file };
     } else {
       mkdirSync(`${OUT}/${folderOf(p)}`, { recursive: true });
@@ -414,7 +422,7 @@ const rememberRecordedShots = (kept, p, row) => {
   for (const s of row.shots ?? []) {
     if (s.sameAs) continue;
     const [width] = s.size.split("x");
-    rememberKeptShot(kept, `${p.path}|${p.state ?? "default"}|${width}|${s.theme}`, s.file, s.hash);
+    rememberKeptShot(kept, duplicateKeyOf(p, s.theme, { width }), s.file, s.hash);
   }
 };
 

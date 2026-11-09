@@ -728,6 +728,7 @@ const NEW_PATH_NUMBERS = new Map(
     "/candidate-dashboard/registrations/seed-reg-c-open",
     "/candidate-dashboard/registrations/seed-reg-b-done",
     "/candidate-dashboard/registrations/seed-reg-a-dpaid",
+    // Listed without entries so the numbers after it stay fixed.
     "/candidate-dashboard/results/seed-reg-b-done",
     "/institution/seed-academy/competitions/seed-open/participants/seed-reg-a-open",
     "/institution/seed-academy/competitions/seed-featured/participants/seed-reg-a-feat-cxl",
@@ -856,10 +857,10 @@ const registrationEntries = [
       withAnon: true,
     }),
   ),
+  // Both registrations belong to seed-team-b, so its member can open them as well as its captain.
+  ...stateEntries("/candidate-dashboard/registrations/seed-reg-tb-b", "team", ["candC"]),
+  ...stateEntries("/candidate-dashboard/registrations/seed-reg-tb-c", "team", ["candB"]),
   ...stateEntries("/candidate-dashboard/results/seed-reg-a-done", "published", ["candA"], {
-    withAnon: true,
-  }),
-  ...stateEntries("/candidate-dashboard/results/seed-reg-b-done", "draft", ["candB"], {
     withAnon: true,
   }),
   // seed-reg-d-paid belongs to a candidate seeds.mjs has no session for, so only its organiser

@@ -205,7 +205,10 @@ the validation errors. The contrast and mobile audits read `PAGES` only, so they
 the site header is pixel-identical to an earlier role's shot of the same page, state, width and
 theme, it is not written and its index row says `same as <file>`. `GALLERY_THEMES` and
 `GALLERY_START_HERE` need `GALLERY_WIDTHS`; without it the run exits 2. The run is resumable and
-takes the same regex argument and the same chunking as above.
+takes the same regex argument and the same chunking as above. The full capture takes eight shots
+per entry where the default run takes four, so one chunk can outlast the node process: repeat each
+chunk's command, and then the final pass, until it prints its closing `Gallery:` line. Every repeat
+skips what is already captured.
 
 The full capture, four widths and both themes:
 
