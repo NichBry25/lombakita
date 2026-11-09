@@ -213,7 +213,7 @@ export const SubmissionShell = ({
       </section>
 
       {!finalized && !registrationCancelled && windowOpen ? (
-        <section className="content-section submission-step">
+        <section className="content-section surface-card card-padding submission-step">
           <div className="submission-step-heading">
             <span className="submission-step-number data-text">01</span>
             <div>

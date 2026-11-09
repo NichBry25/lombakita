@@ -483,7 +483,7 @@ export default async function CompetitionDetailPage({
           ) : null}
 
           {competition.description ? (
-            <section className="surface-card card-padding-lg stack-md">
+            <section className="stack-md">
               <div className="stack-xs">
                 <h2 className="section-title">Gambaran umum</h2>
               </div>
@@ -492,7 +492,7 @@ export default async function CompetitionDetailPage({
           ) : null}
 
           {competition.rounds.length > 0 ? (
-            <section className="surface-card card-padding-lg stack-md">
+            <section className="stack-md">
               <div className="stack-xs">
                 <h2 className="section-title">Tahapan &amp; linimasa</h2>
               </div>
@@ -522,7 +522,7 @@ export default async function CompetitionDetailPage({
           ) : null}
 
           {competition.rounds.length === 0 ? (
-            <section className="surface-card card-padding-lg stack-md">
+            <section className="stack-md">
               <div className="stack-xs">
                 <h2 className="section-title">Tanggal penting</h2>
               </div>
@@ -560,7 +560,7 @@ export default async function CompetitionDetailPage({
           ) : null}
 
           {competition.prizes.length > 0 ? (
-            <section className="surface-card card-padding-lg stack-md">
+            <section className="stack-md">
               <div className="stack-xs">
                 <h2 className="section-title">Hadiah</h2>
                 {competition.prizePoolTotal ? (
@@ -610,7 +610,7 @@ export default async function CompetitionDetailPage({
           ) : null}
 
           {competition.eligibilityNote ? (
-            <section className="surface-card card-padding-lg stack-md">
+            <section className="stack-md">
               <div className="stack-xs">
                 <h2 className="section-title">Kelayakan</h2>
               </div>
@@ -618,7 +618,7 @@ export default async function CompetitionDetailPage({
             </section>
           ) : null}
 
-          <section className="surface-card card-padding-lg stack-md">
+          <section className="stack-md">
             <div className="stack-xs">
               <h2 className="section-title">Ulasan</h2>
               {reviewSummary.count > 0 ? (

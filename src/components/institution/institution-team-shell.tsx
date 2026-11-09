@@ -333,7 +333,7 @@ export const InstitutionTeamShell = ({
         )}
       </section>
 
-      <section className="content-section">
+      <section className="content-section surface-card card-padding">
         <div className="section-heading">
           <div>
             <h2>Tambah pengelola</h2>

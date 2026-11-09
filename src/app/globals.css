@@ -232,11 +232,6 @@ svg {
      one unbreakable string inside a section drags the whole section past its container. */
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-5);
-  padding: var(--space-6);
-  border: var(--border-thin) solid var(--color-line);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sm);
 }
 
 .section-heading {
@@ -244,8 +239,6 @@ svg {
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-4);
-  padding-block-end: var(--space-3);
-  border-bottom: var(--border-thin) solid var(--color-line-soft);
 }
 
 .section-heading h2 {
@@ -6357,10 +6350,6 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
 
   .page-heading-actions .ui-button {
     flex: 1 1 auto;
-  }
-
-  .content-section {
-    padding: var(--space-5);
   }
 
   .system-state-card {

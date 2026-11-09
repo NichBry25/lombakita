@@ -52,7 +52,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
         atas bukti transfer sepenuhnya milik penyelenggara.
       </Feedback>
 
-      <Card variant="surface" className="stack-md">
+      <div className="stack-md">
         <h2>Pembayaran</h2>
         <dl className="detail-grid">
           <div>
@@ -87,14 +87,14 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
             </div>
           ) : null}
         </dl>
-      </Card>
+      </div>
 
       {detail.proofId === null ? (
         <Feedback tone="warning">
           Peserta ini belum pernah mengirim bukti transfer untuk pembayaran tersebut.
         </Feedback>
       ) : (
-        <Card variant="surface" className="stack-md">
+        <div className="stack-md">
           <div className="section-heading">
             <div>
               <h2>Bukti transfer terkini</h2>
@@ -115,10 +115,10 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
           ) : null}
 
           <DisputeProofFileButton proofId={detail.proofId} />
-        </Card>
+        </div>
       )}
 
-      <Card variant="surface" className="stack-md">
+      <div className="stack-md">
         <h2>Riwayat percobaan</h2>
         {detail.history.length === 0 ? (
           <p className="muted-copy">
@@ -169,7 +169,7 @@ export default async function FinanceDisputePaymentDetailPage({ params }: Props)
             ))}
           </ol>
         )}
-      </Card>
+      </div>
     </main>
   );
 }

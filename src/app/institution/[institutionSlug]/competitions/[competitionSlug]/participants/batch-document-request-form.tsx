@@ -166,7 +166,10 @@ export function BatchDocumentRequestForm({
   if (targets.length === 0) return null;
 
   return (
-    <section className="content-section" aria-label="Minta dokumen dari beberapa peserta">
+    <section
+      className="content-section surface-card card-padding"
+      aria-label="Minta dokumen dari beberapa peserta"
+    >
       <div className="section-heading">
         <h2>Minta dokumen</h2>
         <Button

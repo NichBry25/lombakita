@@ -74,7 +74,7 @@ export function ReviewForm({
   };
 
   return (
-    <section className="content-section participant-review-card">
+    <section className="content-section surface-card card-padding participant-review-card">
       <div className="section-heading">
         <div>
           <h2>Tinjauan peserta</h2>

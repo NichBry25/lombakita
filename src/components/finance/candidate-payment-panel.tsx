@@ -196,7 +196,7 @@ export function CandidatePaymentPanel({
   });
 
   return (
-    <section className="content-section" aria-labelledby={headingId}>
+    <section className="content-section surface-card card-padding" aria-labelledby={headingId}>
       <div className="section-heading">
         <h2 id={headingId}>Pembayaran</h2>
         {/* THE PILL IS ABOUT TIME WHENEVER TIME IS RUNNING. A countdown is the one fact on this

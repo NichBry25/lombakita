@@ -36,7 +36,7 @@ export default function ContactPage() {
       </section>
 
       <div className="page-shell document-page">
-        <section className="surface-card card-padding-lg stack-md">
+        <section className="stack-md">
           <h2 className="section-title">Identitas penyelenggara sistem</h2>
           <dl className="detail-grid">
             <div>
@@ -66,7 +66,7 @@ export default function ContactPage() {
           </dl>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md">
+        <section className="stack-md">
           <div className="stack-xs">
             <h2 className="section-title">Hal yang diurus penyelenggara kompetisi</h2>
           </div>

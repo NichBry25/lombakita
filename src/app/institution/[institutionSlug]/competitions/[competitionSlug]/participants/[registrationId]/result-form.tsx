@@ -122,7 +122,7 @@ export function ResultForm({
   };
 
   return (
-    <section className="content-section participant-result-card">
+    <section className="content-section surface-card card-padding participant-result-card">
       <div className="section-heading">
         <div>
           <h2>Hasil kompetisi</h2>

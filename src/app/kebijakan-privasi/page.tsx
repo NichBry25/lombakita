@@ -42,7 +42,7 @@ export default function PrivacyPage() {
       </section>
 
       <div className="page-shell document-page">
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">1. Siapa yang mengelola data Anda</h2>
           <p>
             Data pada layanan ini dikelola oleh {COMPANY.legalName}, alamat {COMPANY.address}. Untuk
@@ -51,7 +51,7 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">2. Data akun</h2>
           <p>Untuk setiap akun kami menyimpan:</p>
           <ul className="document-list">
@@ -71,7 +71,7 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">3. Data profil</h2>
           <p>
             Saat mendaftar sebagai peserta, Anda mengisi nama lengkap, nomor telepon, status saat
@@ -89,7 +89,7 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">4. Berkas yang Anda unggah</h2>
           <p>
             Berkas disimpan pada layanan penyimpanan objek Cloudflare R2 dan tidak dapat diakses
@@ -107,7 +107,7 @@ export default function PrivacyPage() {
           </ul>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">5. Berapa lama data disimpan</h2>
           <p>
             Bagian ini menyebutkan apa adanya. Ada dua jenis berkas yang dihapus otomatis, dan ada
@@ -160,7 +160,7 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">6. Pihak lain yang menerima data</h2>
           <p>
             Kami tidak menjual data Anda. Data Anda diproses oleh penyedia layanan berikut sebatas
@@ -184,7 +184,7 @@ export default function PrivacyPage() {
           </ul>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">7. Sesi masuk</h2>
           <p>
             Setelah masuk, sesi Anda disimpan pada cookie di peramban dalam bentuk token
@@ -199,7 +199,7 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">8. Analitik dan pelacakan</h2>
           <p>
             Tidak ada. Lombakita tidak memuat skrip analitik atau pelacak pihak ketiga di halaman
@@ -208,7 +208,7 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">9. Hak Anda</h2>
           <p>
             Anda dapat melihat dan mengubah sebagian besar data Anda sendiri melalui halaman profil.
@@ -243,7 +243,7 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">10. Perubahan kebijakan</h2>
           <p>
             Kebijakan ini dapat berubah seiring perubahan produk. Versi dan tanggal berlaku

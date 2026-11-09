@@ -37,7 +37,7 @@ export default function AboutPage() {
       </section>
 
       <div className="page-shell document-page">
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">Layanan kami</h2>
           <p>
             Untuk peserta: jelajahi kompetisi menurut kategori, penyelenggara, dan tenggat, simpan
@@ -50,7 +50,7 @@ export default function AboutPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">Cara mendaftar kompetisi</h2>
           <ol className="document-list prose-list">
             <li>Buka halaman kompetisi dan baca persyaratannya.</li>
@@ -60,7 +60,7 @@ export default function AboutPage() {
           </ol>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">Cara menerbitkan kompetisi</h2>
           <ol className="document-list prose-list">
             <li>Buat akun sebagai penyelenggara, lalu buat ruang kerja institusi.</li>
@@ -69,7 +69,7 @@ export default function AboutPage() {
           </ol>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">Biaya dan pembayaran</h2>
           <p>
             Saat ini semua kompetisi di Lombakita gratis untuk diikuti, dan Lombakita tidak memungut
@@ -89,7 +89,7 @@ export default function AboutPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">Pembatalan dan pengembalian dana</h2>
           <p>
             Biaya pendaftaran yang sudah dibayarkan tidak dikembalikan atas permintaan peserta
@@ -99,7 +99,7 @@ export default function AboutPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md document-clause">
+        <section className="stack-md document-clause">
           <h2 className="section-title">Bantuan</h2>
           <p>
             Pertanyaan tentang jumlah biaya, bukti transfer, jadwal, penilaian, dan hasil lomba
@@ -113,7 +113,7 @@ export default function AboutPage() {
           </p>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md">
+        <section className="stack-md">
           <h2 className="section-title">Identitas badan usaha</h2>
           <dl className="detail-grid">
             <div>

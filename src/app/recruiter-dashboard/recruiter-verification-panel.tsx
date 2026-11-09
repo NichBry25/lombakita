@@ -512,7 +512,7 @@ export function RecruiterVerificationPanel({
 
   if (submission?.status === "draft") {
     return (
-      <section className="content-section recruiter-tier-card">
+      <section className="content-section surface-card card-padding recruiter-tier-card">
         <div className="section-heading">
           <div>
             <h2>Lengkapi permohonan</h2>
@@ -563,7 +563,7 @@ export function RecruiterVerificationPanel({
 
   if (submission?.status === "rejected") {
     return (
-      <section className="content-section recruiter-tier-card">
+      <section className="content-section surface-card card-padding recruiter-tier-card">
         <div className="section-heading">
           <div>
             <h2>Perbaiki dan ajukan ulang</h2>
@@ -585,7 +585,7 @@ export function RecruiterVerificationPanel({
   }
 
   return (
-    <section className="content-section recruiter-tier-card">
+    <section className="content-section surface-card card-padding recruiter-tier-card">
       <div className="section-heading">
         <div>
           <h2>Jadi Rekruter Terpercaya</h2>

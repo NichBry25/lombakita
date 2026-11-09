@@ -129,7 +129,7 @@ export const CompetitionPrizesEditor = ({
   };
 
   return (
-    <section className="content-section stack-md">
+    <section className="content-section surface-card card-padding stack-md">
       <div className="stack-xs">
         <h2 className="section-title">Hadiah</h2>
         <p className="form-help">

@@ -69,7 +69,7 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
         Halaman ini hanya mencatat.
       </Feedback>
 
-      <Card variant="surface" className="stack-md">
+      <div className="stack-md">
         <h2>Ringkasan</h2>
         <dl className="detail-grid">
           <div>
@@ -87,7 +87,7 @@ export default async function InstitutionFeeStatementPage({ params }: Props) {
             <dd className="data-text">{formatRupiah(statement.outstandingAmount, currency)}</dd>
           </div>
         </dl>
-      </Card>
+      </div>
 
       <section className="content-section">
         <h2>Rincian</h2>

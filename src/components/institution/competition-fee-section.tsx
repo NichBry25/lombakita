@@ -69,7 +69,7 @@ export function CompetitionFeeSection({
 
   if (state === null) {
     return (
-      <section className="content-section">
+      <section className="content-section surface-card card-padding">
         <div className="stack-md" aria-label="Memuat biaya pendaftaran">
           <Skeleton variant="title" />
           <Skeleton variant="media" />
@@ -146,7 +146,7 @@ export function CompetitionFeeSection({
   };
 
   return (
-    <section className="content-section">
+    <section className="content-section surface-card card-padding">
       <div className="section-heading">
         <div>
           <h2>Biaya pendaftaran</h2>

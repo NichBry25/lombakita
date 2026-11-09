@@ -90,7 +90,7 @@ export const CompetitionTagsEditor = ({
   };
 
   return (
-    <section className="content-section stack-md">
+    <section className="content-section surface-card card-padding stack-md">
       <div className="stack-xs">
         <h2 className="section-title">Tag</h2>
         <p className="form-help">Pilih label tambahan yang menggambarkan kompetisi ini.</p>

@@ -80,7 +80,7 @@ export default async function CandidateResultDetailPage({ params }: Props) {
       </section>
 
       {result.resultNotes ? (
-        <section className="surface-card card-padding-lg stack-sm">
+        <section className="stack-sm">
           <p>Catatan penyelenggara</p>
           <p className="result-notes">{result.resultNotes}</p>
         </section>

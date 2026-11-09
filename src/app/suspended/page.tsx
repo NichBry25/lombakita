@@ -22,7 +22,7 @@ export default function SuspendedPage() {
       </section>
 
       <div className="page-shell suspension-content">
-        <section className="surface-card card-padding-lg stack-md">
+        <section className="stack-md">
           <span className="detail-info-icon" aria-hidden="true">
             <Icon name="inbox" size="lg" />
           </span>
@@ -38,7 +38,7 @@ export default function SuspendedPage() {
           </div>
         </section>
 
-        <section className="surface-card card-padding-lg stack-md">
+        <section className="stack-md">
           <div className="stack-xs">
             <h2 className="section-title">Cara mengajukan banding</h2>
           </div>

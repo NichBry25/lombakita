@@ -403,7 +403,7 @@ export const InstitutionSettingsShell = ({
       </section>
 
       {isProfileLoading ? (
-        <section className="content-section">
+        <section className="content-section surface-card card-padding">
           <div className="stack-md" aria-label="Memuat profil penyelenggara">
             <Skeleton variant="title" />
             <Skeleton variant="media" />
@@ -411,7 +411,7 @@ export const InstitutionSettingsShell = ({
           </div>
         </section>
       ) : hasProfile ? (
-        <section className="content-section">
+        <section className="content-section surface-card card-padding">
           <div className="section-heading">
             <div>
               <h2>Profil penyelenggara</h2>

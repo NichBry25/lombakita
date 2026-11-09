@@ -257,7 +257,7 @@ export function OrganiserDocumentRequestPanel({
   };
 
   return (
-    <section className="content-section">
+    <section className="content-section surface-card card-padding">
       <div className="section-heading">
         <h2>Verifikasi dokumen</h2>
       </div>

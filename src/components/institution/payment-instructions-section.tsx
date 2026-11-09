@@ -182,7 +182,7 @@ export function PaymentInstructionsSection({
 
   if (isLoading) {
     return (
-      <section className="content-section">
+      <section className="content-section surface-card card-padding">
         <div className="stack-md" aria-label="Memuat informasi pembayaran">
           <Skeleton variant="title" />
           <Skeleton variant="media" />
@@ -192,7 +192,7 @@ export function PaymentInstructionsSection({
   }
 
   return (
-    <section className="content-section">
+    <section className="content-section surface-card card-padding">
       <div className="section-heading">
         <div>
           <h2>Informasi pembayaran</h2>

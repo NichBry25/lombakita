@@ -106,7 +106,7 @@ function useEditableCollection<T extends { id: string }>(
 
 function SectionShell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="content-section">
+    <section className="content-section surface-card card-padding">
       <div className="section-heading">
         <div>
           <h2>{title}</h2>

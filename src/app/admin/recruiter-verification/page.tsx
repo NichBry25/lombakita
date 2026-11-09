@@ -277,7 +277,7 @@ export default function RecruiterVerificationQueuePage() {
             const isRejected = item.submission.status === "rejected";
             const attempt = attemptLabel(item.submission.resubmissionCount);
             return (
-              <li key={item.submission.id} className="content-section">
+              <li key={item.submission.id} className="content-section surface-card card-padding">
                 <div className="section-heading">
                   <div>
                     <h2>{item.submission.fullName}</h2>
