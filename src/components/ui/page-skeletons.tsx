@@ -25,7 +25,7 @@ function countTo(total: number) {
 function SkeletonPage({ label, className, children }: PageSkeletonProps & { children: ReactNode }) {
   return (
     <main
-      className={joinClassNames("page-shell app-page", className)}
+      className={joinClassNames("page-shell app-page skeleton-page", className)}
       aria-busy="true"
       aria-label={label}
     >

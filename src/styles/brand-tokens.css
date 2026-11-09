@@ -404,6 +404,7 @@
   --duration-theme: 400ms;
   --duration-rise: 500ms;
   --duration-pulse: 1600ms;
+  --skeleton-reveal-delay: 300ms;
   /*
    * Spinner rotation. A spinner is the only signal that an action is running, so unlike
    * decorative motion it keeps animating under reduced motion — it slows down instead of

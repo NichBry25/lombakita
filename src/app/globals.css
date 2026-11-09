@@ -1478,6 +1478,26 @@ svg {
 }
 
 /*
+ * A route skeleton stays hidden for the first moments of a load, so a page that arrives quickly
+ * never flashes it. Only the children wait: the page element itself carries aria-busy from the
+ * start. The global reduced-motion rule shortens animation durations, not delays, so the wait
+ * holds there as well.
+ */
+.skeleton-page > * {
+  animation: skeleton-page-reveal 0s linear var(--skeleton-reveal-delay) both;
+}
+
+@keyframes skeleton-page-reveal {
+  from {
+    visibility: hidden;
+  }
+
+  to {
+    visibility: visible;
+  }
+}
+
+/*
  * Spinner — the in-element pending signal.
  *
  * Inherits `currentColor` so it reads correctly inside every button variant without a
