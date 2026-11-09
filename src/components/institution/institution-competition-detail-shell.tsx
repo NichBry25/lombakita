@@ -111,7 +111,7 @@ type ActionKind = "publish" | "unpublish";
 type ParticipationDecision = "cancel" | "proceed";
 
 const actionLabel: Record<ActionKind, string> = {
-  publish: "Status diterbitkan (published).",
+  publish: "Kompetisi diterbitkan.",
   unpublish: "Kompetisi ditarik ke draft dan semua pendaftaran dibatalkan.",
 };
 

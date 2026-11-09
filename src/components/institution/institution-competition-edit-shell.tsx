@@ -617,7 +617,7 @@ export const InstitutionCompetitionEditShell = ({
         });
         return;
       }
-      addToast({ type: "success", message: "Status diterbitkan (published)." });
+      addToast({ type: "success", message: "Kompetisi diterbitkan." });
       void load();
     } finally {
       setIsSubmitting(false);
