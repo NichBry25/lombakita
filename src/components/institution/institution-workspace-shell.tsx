@@ -89,14 +89,21 @@ export const InstitutionWorkspaceShell = () => {
       payload.slug = slug;
     }
 
-    const response = await fetch("/api/v1/institutions", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      credentials: "include",
-      body: JSON.stringify(payload),
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api/v1/institutions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      addToast({ type: "error", message: "Gagal mengirim permintaan karena gangguan koneksi." });
+      setIsCreating(false);
+      return false;
+    }
 
     if (!response.ok) {
       const message = await extractErrorMessage(response);

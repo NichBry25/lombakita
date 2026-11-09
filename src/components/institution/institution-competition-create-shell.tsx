@@ -52,12 +52,19 @@ export const InstitutionCompetitionCreateShell = ({
     if (slug.trim().length > 0) body.slug = slug.trim();
     if (category.length > 0) body.category = category;
 
-    const response = await fetch("/api/v1/competitions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api/v1/competitions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+    } catch {
+      addToast({ type: "error", message: "Gagal mengirim permintaan karena gangguan koneksi." });
+      setIsSubmitting(false);
+      return;
+    }
 
     if (!response.ok) {
       const message = await extractErrorMessage(response);

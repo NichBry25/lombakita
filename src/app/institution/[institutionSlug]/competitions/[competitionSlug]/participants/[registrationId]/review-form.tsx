@@ -107,6 +107,7 @@ export function ReviewForm({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={5}
+          maxLength={5000}
           className="form-textarea"
         />
       </label>

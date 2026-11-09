@@ -82,10 +82,17 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
 
   const load = useCallback(async () => {
     setIsLoading(true);
-    const response = await fetch(
-      `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions`,
-      { cache: "no-store", credentials: "include" },
-    );
+    let response: Response;
+    try {
+      response = await fetch(
+        `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions`,
+        { cache: "no-store", credentials: "include" },
+      );
+    } catch {
+      addToast({ type: "error", message: "Gagal mengirim permintaan karena gangguan koneksi." });
+      setIsLoading(false);
+      return;
+    }
     if (!response.ok) {
       const message = await extractErrorMessage(response);
       addToast({ type: "error", message });
