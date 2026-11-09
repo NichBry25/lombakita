@@ -3123,11 +3123,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   color: var(--brand-lime);
 }
 
-.competition-card:not(.featured-carousel-slide):has(.status-badge[data-status="featured"]) {
-  border: var(--border-strong) solid var(--brand-tangerine);
-  box-shadow: var(--space-3) var(--space-3) 0 var(--surface-offset-block);
-}
-
 .competition-title-link {
   color: var(--color-ink);
   font-family: var(--font-display);
@@ -6233,16 +6228,6 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   .filter-toolbar {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  /*
-   * The featured card's offset peach block needs room to its right that a phone does not have —
-   * it ends up touching or crossing the viewport edge and reads as a rendering fault. The
-   * tangerine frame alone marks the card as featured at this width, and the "Unggulan" badge
-   * still names it, so dropping the offset costs no signal.
-   */
-  .competition-card:not(.featured-carousel-slide):has(.status-badge[data-status="featured"]) {
-    box-shadow: none;
   }
 
   /*
