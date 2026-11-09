@@ -49,7 +49,7 @@ const DISCOVERY_CATEGORIES = [
 ] as const;
 
 const TRUST_MARKERS = [
-  "Penyelenggara terverifikasi",
+  "Tanda penyelenggara terverifikasi",
   "Tenggat di setiap kartu",
   "Daftar tanpa pindah situs",
 ] as const;
@@ -84,11 +84,11 @@ export default async function HomePage() {
           <div className="home-hero-main">
             <div className="home-hero-copy stack-md">
               <h1>
-                Temukan kompetisi yang <span className="lime-marker">tepat</span> untuk langkah
-                berikutmu
+                Cari kompetisi, cek tenggat, dan daftar dari{" "}
+                <span className="lime-marker">satu tempat</span>
               </h1>
               <p className="home-hero-lead">
-                Jelajahi kompetisi dari penyelenggara yang bisa kamu percaya.
+                Lihat tenggat, hadiah, dan penyelenggara setiap kompetisi sebelum mendaftar.
               </p>
             </div>
 
@@ -132,7 +132,7 @@ export default async function HomePage() {
         <div className="content-shell stack-lg">
           <header className="home-section-header">
             <div className="stack-xs">
-              <h2 className="section-title">Pilih arenamu</h2>
+              <h2 className="section-title">Kategori kompetisi</h2>
             </div>
           </header>
 
@@ -170,7 +170,7 @@ export default async function HomePage() {
         <div className="content-shell">
           <div className="brand-band home-organizer-cta">
             <div className="stack-sm">
-              <h2>Bangun ruang kompetisi yang dipercaya peserta</h2>
+              <h2>Buat ruang kerja institusi untuk menerbitkan kompetisi</h2>
             </div>
             <ButtonLink href="/institution/create" variant="secondary" size="lg" prefetch={false}>
               Buka ruang kerja

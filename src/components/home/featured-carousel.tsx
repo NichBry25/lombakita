@@ -82,7 +82,7 @@ export function FeaturedCarousel({ items }: { items: FeaturedItem[] }) {
     <>
       <header className="stack-xs">
         <div className="home-section-header">
-          <h2 className="section-title">Kompetisi ternama</h2>
+          <h2 className="section-title">Kompetisi unggulan</h2>
           <ButtonLink
             href="/competitions"
             variant="primary"

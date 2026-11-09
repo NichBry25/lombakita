@@ -1,6 +1,6 @@
 /**
  * Seeds a mock verified institution and a handful of featured, published competitions so the
- * homepage "Kompetisi ternama" section (which queries is_featured) has content to render.
+ * homepage "Kompetisi unggulan" section (which queries is_featured) has content to render.
  *
  * Idempotent: fixed ids, ON CONFLICT DO UPDATE. Safe to re-run.
  *

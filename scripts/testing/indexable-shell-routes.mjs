@@ -20,15 +20,15 @@
  *   served its entire body from a hidden container. The Rule 36 probe found it.
  *
  *   Contiguous in the markup. React separates an interpolated value from adjacent literal text
- *   with a `<!-- -->` marker, and the brand marker wraps a word of the landing hero in a `<span>`,
+ *   with a `<!-- -->` marker, and the brand marker wraps words of the landing hero in a `<span>`,
  *   so neither of those headings matches as a substring however correct the page is.
  */
 export const INDEXABLE_SHELL_ROUTES = [
   {
     path: "/",
-    // The hero LEAD rather than the heading: the `<h1>` wraps one word in a `<span>` for the brand
+    // The hero LEAD rather than the heading: the `<h1>` wraps two words in a `<span>` for the brand
     // marker, so its text is not contiguous and no substring of it would match.
-    needle: "Jelajahi kompetisi dari penyelenggara yang bisa kamu percaya.",
+    needle: "Lihat tenggat, hadiah, dan penyelenggara setiap kompetisi sebelum mendaftar.",
     label: "the landing page hero lead",
   },
   {

@@ -3128,7 +3128,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 /*
- * Featured carousel (Kompetisi ternama) — a 3-up horizontal scroll-snap rail. The prev/next
+ * Featured carousel (Kompetisi unggulan) — a 3-up horizontal scroll-snap rail. The prev/next
  * arrows flank the rail (left/right), vertically centred; native swipe works too; on mobile it
  * becomes one-up. The "Lihat semua" button stays a single line in the header.
  */
@@ -3139,7 +3139,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 /*
  * The rail keeps its own inline gutter so the flanking prev/next arrows get a lane clear of the
  * cards (the cards get a little narrower in exchange). The header flushes with the page's
- * standard section edge instead, so "Kompetisi ternama" lines up with every other section title
+ * standard section edge instead, so "Kompetisi unggulan" lines up with every other section title
  * on the page; the "Lihat semua" button trails it via space-between.
  */
 .featured-carousel-wrap {

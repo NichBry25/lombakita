@@ -60,7 +60,7 @@ describe("HomePage", () => {
     const html = renderToStaticMarkup(await HomePage());
 
     expect(mockListFeaturedCompetitions).toHaveBeenCalledWith(4);
-    expect(html).toContain("Temukan kompetisi yang");
+    expect(html).toContain("Cari kompetisi, cek tenggat");
     expect(html).toContain("Mulai mencari");
   });
 
@@ -70,7 +70,7 @@ describe("HomePage", () => {
     const html = renderToStaticMarkup(await HomePage());
 
     expect(html).toContain("Kompetisi Unggulan 1");
-    expect(html).toContain("Kompetisi ternama");
+    expect(html).toContain("Kompetisi unggulan");
   });
 
   it("renders cleanly with no broken carousel when there are no featured competitions", async () => {
@@ -78,10 +78,10 @@ describe("HomePage", () => {
 
     const html = renderToStaticMarkup(await HomePage());
 
-    expect(html).not.toContain("Kompetisi ternama");
+    expect(html).not.toContain("Kompetisi unggulan");
     expect(html).not.toContain("featured-carousel");
     // Rest of the page still renders.
-    expect(html).toContain("Pilih arenamu");
+    expect(html).toContain("Kategori kompetisi");
   });
 
   it("degrades to no featured rail — and records the failure — when the fetch throws", async () => {
@@ -90,9 +90,9 @@ describe("HomePage", () => {
     // The decorative featured rail failing must not take down the whole public homepage.
     const html = renderToStaticMarkup(await HomePage());
 
-    expect(html).toContain("Temukan kompetisi yang");
-    expect(html).toContain("Pilih arenamu");
-    expect(html).not.toContain("Kompetisi ternama");
+    expect(html).toContain("Cari kompetisi, cek tenggat");
+    expect(html).toContain("Kategori kompetisi");
+    expect(html).not.toContain("Kompetisi unggulan");
 
     // Degraded, but not silently — the failure is logged for observability.
     expect(mockLoggerError).toHaveBeenCalledWith(
