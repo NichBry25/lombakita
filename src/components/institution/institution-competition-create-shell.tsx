@@ -7,10 +7,22 @@ import { useToast } from "@/components/ui/primitives";
 
 import { COMPETITION_CATEGORY_OPTIONS } from "@/lib/competitions/categories";
 
+const COMPETITION_CREATE_ERROR_MESSAGES: Record<string, string> = {
+  recruiter_role_not_verified:
+    "Verifikasi akun rekruter Anda terlebih dahulu untuk membuat kompetisi.",
+  recruiter_tier_insufficient: "Selesaikan verifikasi rekruter untuk dapat membuat kompetisi.",
+  competition_invalid_value: "Periksa judul, slug, dan kategori lalu coba lagi.",
+  competition_slug_taken:
+    "Slug ini sudah dipakai kompetisi lain di institusi ini. Pilih slug lain.",
+  institution_suspended: "Institusi ini sedang ditangguhkan oleh tim Lombakita.",
+};
+
 const extractErrorMessage = async (response: Response): Promise<string> => {
   try {
-    const payload = (await response.json()) as { error?: { message?: string } };
-    return payload.error?.message ?? "Permintaan gagal diproses.";
+    const payload = (await response.json()) as { error?: { code?: string } };
+    const code = payload.error?.code;
+    const message = code ? COMPETITION_CREATE_ERROR_MESSAGES[code] : undefined;
+    return message ?? "Permintaan gagal diproses.";
   } catch {
     return "Permintaan gagal diproses.";
   }

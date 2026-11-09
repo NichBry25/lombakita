@@ -3,8 +3,24 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CompetitionResultStatus } from "@/server/db/schema";
+import type { ResultErrorCode } from "@/server/participants/result-service";
 import { useToast } from "@/components/ui/primitives";
 import { Button } from "@/components/ui";
+
+const RESULT_ERROR_MESSAGES: Partial<Record<ResultErrorCode, string>> = {
+  result_registration_not_found: "Pendaftaran tidak ditemukan.",
+  result_competition_cancelled:
+    "Kompetisi ini dibatalkan, jadi hasilnya tidak dapat disimpan atau diterbitkan.",
+  result_already_published: "Hasil sudah diterbitkan. Batalkan publikasi sebelum mengubahnya.",
+  result_label_required: "Simpan label hasil sebagai draf sebelum menerbitkan.",
+};
+
+async function readResultErrorMessage(res: Response, fallback: string): Promise<string> {
+  const body: { error?: { code?: ResultErrorCode } } | null = await res.json().catch(() => null);
+  const code = body?.error?.code;
+  if (!code) return fallback;
+  return RESULT_ERROR_MESSAGES[code] ?? fallback;
+}
 
 type Props = {
   apiBasePath: string;
@@ -48,9 +64,10 @@ export function ResultForm({
         }),
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const code = (body as { error?: { code?: string } })?.error?.code ?? `HTTP ${res.status}`;
-        addToast({ type: "error", message: `Gagal menyimpan: ${code}` });
+        addToast({
+          type: "error",
+          message: await readResultErrorMessage(res, "Gagal menyimpan. Coba lagi."),
+        });
         return;
       }
       addToast({ type: "success", message: "Tersimpan sebagai draf." });
@@ -67,9 +84,10 @@ export function ResultForm({
     try {
       const res = await fetch(`${apiBasePath}/publish`, { method: "POST" });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const code = (body as { error?: { code?: string } })?.error?.code ?? `HTTP ${res.status}`;
-        addToast({ type: "error", message: `Gagal mempublikasikan: ${code}` });
+        addToast({
+          type: "error",
+          message: await readResultErrorMessage(res, "Gagal mempublikasikan. Coba lagi."),
+        });
         return;
       }
       setStatus("published");
@@ -87,9 +105,10 @@ export function ResultForm({
     try {
       const res = await fetch(`${apiBasePath}/unpublish`, { method: "POST" });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const code = (body as { error?: { code?: string } })?.error?.code ?? `HTTP ${res.status}`;
-        addToast({ type: "error", message: `Gagal membatalkan publikasi: ${code}` });
+        addToast({
+          type: "error",
+          message: await readResultErrorMessage(res, "Gagal membatalkan publikasi. Coba lagi."),
+        });
         return;
       }
       setStatus("draft");

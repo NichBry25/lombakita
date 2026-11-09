@@ -22,15 +22,31 @@ const TYPE_OPTIONS = Object.entries(FULL_INSTITUTION_TYPE_LABELS).map(([value, l
   label,
 }));
 
+const WORKSPACE_ERROR_MESSAGES: Record<string, string> = {
+  recruiter_role_not_verified:
+    "Verifikasi akun rekruter Anda terlebih dahulu untuk membuat institusi.",
+  recruiter_tier_insufficient:
+    "Akun Anda belum menjadi Trusted Recruiter. Selesaikan verifikasi rekruter untuk dapat membuat institusi.",
+  recruiter_institution_limit_reached: "Satu akun hanya dapat memiliki 3 institusi.",
+  institution_invalid_value: "Periksa nama institusi dan slug lalu coba lagi.",
+  institution_display_name_reserved: "Nama institusi ini tidak dapat digunakan. Pilih nama lain.",
+  institution_slug_reserved: "Slug ini tidak dapat digunakan. Pilih slug lain.",
+  institution_slug_conflicts_with_username:
+    "Slug ini sudah dipakai sebagai username. Pilih slug lain.",
+  account_deactivated: "Data akun ini sudah dihapus. Tindakan ini tidak tersedia.",
+};
+
 const extractErrorMessage = async (response: Response): Promise<string> => {
   try {
     const payload = (await response.json()) as {
       error?: {
-        message?: string;
+        code?: string;
       };
     };
 
-    return payload.error?.message ?? "Permintaan ruang kerja institusi gagal diproses.";
+    const code = payload.error?.code;
+    const message = code ? WORKSPACE_ERROR_MESSAGES[code] : undefined;
+    return message ?? "Permintaan ruang kerja institusi gagal diproses.";
   } catch {
     return "Permintaan ruang kerja institusi gagal diproses.";
   }

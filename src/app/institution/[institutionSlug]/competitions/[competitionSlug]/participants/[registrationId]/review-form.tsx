@@ -6,6 +6,20 @@ import type { CompetitionRegistrationReviewStatus } from "@/server/db/schema";
 import { REVIEW_STATUS_LABELS, REVIEW_STATUS_ORDER } from "../review-status-labels";
 import { useToast } from "@/components/ui/primitives";
 import { Button, SelectField } from "@/components/ui";
+import type { ReviewErrorCode } from "@/server/participants/review-service";
+
+const REVIEW_ERROR_MESSAGES: Partial<Record<ReviewErrorCode, string>> = {
+  review_registration_not_found: "Pendaftaran tidak ditemukan.",
+  review_invalid_payload:
+    "Tinjauan tidak dapat disimpan. Catatan internal paling banyak 5.000 karakter.",
+};
+
+async function readReviewErrorMessage(res: Response, fallback: string): Promise<string> {
+  const body: { error?: { code?: ReviewErrorCode } } | null = await res.json().catch(() => null);
+  const code = body?.error?.code;
+  if (!code) return fallback;
+  return REVIEW_ERROR_MESSAGES[code] ?? fallback;
+}
 
 type Props = {
   apiPath: string;
@@ -44,14 +58,10 @@ export function ReviewForm({
         }),
       });
       if (!res.ok) {
-        let code = `HTTP ${res.status}`;
-        try {
-          const body = await res.json();
-          if (body?.error?.code) code = body.error.code;
-        } catch {
-          // non-JSON error body — keep the status code
-        }
-        addToast({ type: "error", message: `Gagal menyimpan: ${code}` });
+        addToast({
+          type: "error",
+          message: await readReviewErrorMessage(res, "Gagal menyimpan. Coba lagi."),
+        });
         return;
       }
       addToast({ type: "success", message: "Tersimpan." });

@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, CheckboxField } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import { resolveDocumentRequestErrorMessage } from "@/lib/registration-documents/document-request-error-copy";
 
 export type BatchTarget = {
   registrationId: string;
@@ -124,11 +125,14 @@ export function BatchDocumentRequestForm({
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
+          error?: { code?: string };
         } | null;
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Gagal mengirim permintaan. Coba lagi.",
+          message: resolveDocumentRequestErrorMessage(
+            payload?.error?.code,
+            "Gagal mengirim permintaan. Coba lagi.",
+          ),
         });
         return;
       }

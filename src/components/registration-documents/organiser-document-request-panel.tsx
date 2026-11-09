@@ -9,6 +9,7 @@ import {
   DOCUMENT_REQUEST_STATUS_TONES,
   type RegistrationDocumentDisplayStatus,
 } from "@/lib/registration-documents/request-status";
+import { resolveDocumentRequestErrorMessage } from "@/lib/registration-documents/document-request-error-copy";
 import { formatFileSize } from "@/lib/text/format-file-size";
 
 export type OrganiserDocumentRequest = {
@@ -114,11 +115,14 @@ export function OrganiserDocumentRequestPanel({
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
+          error?: { code?: string };
         } | null;
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Gagal mengirim permintaan. Coba lagi.",
+          message: resolveDocumentRequestErrorMessage(
+            payload?.error?.code,
+            "Gagal mengirim permintaan. Coba lagi.",
+          ),
         });
         return;
       }
@@ -151,11 +155,14 @@ export function OrganiserDocumentRequestPanel({
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
+          error?: { code?: string };
         } | null;
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Tindakan gagal. Muat ulang halaman lalu coba lagi.",
+          message: resolveDocumentRequestErrorMessage(
+            payload?.error?.code,
+            "Tindakan gagal. Muat ulang halaman lalu coba lagi.",
+          ),
         });
         return;
       }

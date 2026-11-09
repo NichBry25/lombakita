@@ -51,10 +51,16 @@ const applyCompetitionFilter = (
   return competitions.filter((c) => c.status === filter && !hasFinished(c, now));
 };
 
+const COMPETITION_LIST_ERROR_MESSAGES: Record<string, string> = {
+  forbidden: "Anda tidak memiliki akses ke kompetisi institusi ini.",
+};
+
 const extractErrorMessage = async (response: Response): Promise<string> => {
   try {
-    const payload = (await response.json()) as { error?: { message?: string } };
-    return payload.error?.message ?? "Permintaan gagal diproses.";
+    const payload = (await response.json()) as { error?: { code?: string } };
+    const code = payload.error?.code;
+    const message = code ? COMPETITION_LIST_ERROR_MESSAGES[code] : undefined;
+    return message ?? "Permintaan gagal diproses.";
   } catch {
     return "Permintaan gagal diproses.";
   }
