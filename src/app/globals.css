@@ -3451,6 +3451,17 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   font-weight: 500;
 }
 
+/*
+ * Prizes come in the organiser's rank order, so the first is the top prize and reads larger than
+ * the other tiers.
+ */
+.detail-prize-item[data-main="true"] strong {
+  font-family: var(--font-display);
+  font-size: var(--text-card-title);
+  font-weight: 400;
+  line-height: var(--leading-heading);
+}
+
 .detail-information-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

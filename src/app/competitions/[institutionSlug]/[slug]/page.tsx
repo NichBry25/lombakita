@@ -571,7 +571,11 @@ export default async function CompetitionDetailPage({
               </div>
               <ul className="detail-prize-list stack-sm">
                 {competition.prizes.map((prize, index) => (
-                  <li key={`${prize.title}-${index}`} className="detail-prize-item stack-xs">
+                  <li
+                    key={`${prize.title}-${index}`}
+                    className="detail-prize-item stack-xs"
+                    data-main={index === 0 ? "true" : undefined}
+                  >
                     {prize.rankLabel ? <p>{prize.rankLabel}</p> : null}
                     <div className="cluster">
                       <strong>{prize.title}</strong>
