@@ -5,6 +5,10 @@ import {
 } from "@/server/auth/access-core";
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import {
+  CompetitionError,
+  toCompetitionErrorResponse,
+} from "@/server/competitions/competition-core";
+import {
   CompetitionEligibilityInputError,
   getCompetitionEligibilityForEditor,
   setCompetitionEligibilityForEditor,
@@ -31,6 +35,7 @@ export async function GET(
     );
     return NextResponse.json({ eligibilityNote });
   } catch (error) {
+    if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     if (error instanceof CompetitionEligibilityInputError) return toErrorResponse(error);
     return toAccessDeniedResponse(error);
   }
@@ -62,6 +67,7 @@ export async function PUT(
     );
     return NextResponse.json({ eligibilityNote });
   } catch (error) {
+    if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     if (error instanceof CompetitionEligibilityInputError) return toErrorResponse(error);
     return toAccessDeniedResponse(error);
   }

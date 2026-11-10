@@ -1,18 +1,26 @@
 // @vitest-environment node
 
 import { inspect } from "node:util";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { loggerErrorMock } = vi.hoisted(() => ({ loggerErrorMock: vi.fn() }));
+const { loggerErrorMock, captureExceptionMock } = vi.hoisted(() => ({
+  loggerErrorMock: vi.fn(),
+  captureExceptionMock: vi.fn(),
+}));
 vi.mock("@/lib/logger", () => ({
   logger: { warn: vi.fn(), error: loggerErrorMock, info: vi.fn() },
 }));
+vi.mock("@sentry/nextjs", () => ({ captureException: captureExceptionMock }));
 
 import { reportUnexpectedError } from "@/server/observability/report-unexpected-error";
 
 describe("reportUnexpectedError", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("logs the class and the stack frames of a multi-line error, never its message", () => {
@@ -69,5 +77,30 @@ describe("reportUnexpectedError", () => {
       where: "an authentication route",
       errorType: "string",
     });
+  });
+
+  it("sends the error to Sentry with where as a tag inside Next.js", async () => {
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    const error = new Error("boom");
+
+    reportUnexpectedError("an access-guarded route", error);
+
+    await vi.waitFor(() =>
+      expect(captureExceptionMock).toHaveBeenCalledWith(error, {
+        tags: { where: "an access-guarded route" },
+      }),
+    );
+  });
+
+  it("stays silent when Sentry throws", async () => {
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    captureExceptionMock.mockImplementationOnce(() => {
+      throw new Error("sentry down");
+    });
+
+    expect(() => reportUnexpectedError("an access-guarded route", new Error("boom"))).not.toThrow();
+
+    await vi.waitFor(() => expect(captureExceptionMock).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 });

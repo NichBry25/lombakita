@@ -31,12 +31,26 @@ const describeUnexpectedError = (error: unknown): UnexpectedErrorDetails => {
   }
 };
 
+// NEXT_RUNTIME is set by Next.js in both of its runtimes and never by the Railway worker, which
+// also loads this module and where `@sentry/nextjs` resolves to its browser build
+// (src/server/observability/worker-sentry.ts). The SDK is therefore imported only here, on demand.
+const captureInNextjsSentry = (where: string, error: unknown): void => {
+  if (!process.env.NEXT_RUNTIME) {
+    return;
+  }
+  // Reporting must never replace the caller's fixed answer, so a failed load or capture is dropped.
+  void import("@sentry/nextjs")
+    .then((Sentry) => Sentry.captureException(error, { tags: { where } }))
+    .catch(() => {});
+};
+
 /**
  * Records an error that a caller did not expect, before the caller answers with its fixed error.
- * Only the error's class and the "at" lines of its stack are logged, never its message. Sentry is
- * not called from here because this module also runs in the Railway worker, where
- * `@sentry/nextjs` captures nothing (src/server/observability/worker-sentry.ts).
+ * The log line carries only the error's class and the "at" lines of its stack, never its message.
+ * Inside Next.js the whole error also goes to Sentry, whose server beforeSend replaces a database
+ * error's parameters (src/lib/observability/scrub-sentry-event.ts).
  */
 export const reportUnexpectedError = (where: string, error: unknown): void => {
   logger.error("route.unexpected_error", { where, ...describeUnexpectedError(error) });
+  captureInNextjsSentry(where, error);
 };

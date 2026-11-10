@@ -5,6 +5,10 @@ import {
 } from "@/server/auth/access-core";
 import { requireAuthenticatedSession } from "@/server/auth/session";
 import {
+  CompetitionError,
+  toCompetitionErrorResponse,
+} from "@/server/competitions/competition-core";
+import {
   CompetitionPrizesInputError,
   toCompetitionPrizesErrorResponse,
 } from "@/server/competitions/competition-prizes-core";
@@ -23,6 +27,7 @@ export async function GET(
     const prizes = await getCompetitionPrizesForEditor(session.user.id, competitionId);
     return NextResponse.json({ prizes });
   } catch (error) {
+    if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     if (error instanceof CompetitionPrizesInputError) {
       return toCompetitionPrizesErrorResponse(error);
     }
@@ -52,6 +57,7 @@ export async function PUT(
     const prizes = await setCompetitionPrizesForEditor(session.user.id, competitionId, body);
     return NextResponse.json({ prizes });
   } catch (error) {
+    if (error instanceof CompetitionError) return toCompetitionErrorResponse(error);
     if (error instanceof CompetitionPrizesInputError) {
       return toCompetitionPrizesErrorResponse(error);
     }
