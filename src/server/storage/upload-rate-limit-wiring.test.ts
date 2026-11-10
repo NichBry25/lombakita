@@ -140,7 +140,7 @@ const ENTRY_POINTS: EntryPoint[] = [
   },
   {
     name: "institution logo",
-    route: "src/app/api/v1/institutions/[institutionSlug]/profile/logo/route.ts",
+    route: "src/app/api/v1/institutions/[institutionSlug]/profile/logo/upload-url/route.ts",
     guard: MEDIA_WRAPPER,
     presign: "generateInstitutionMediaUploadUrl(",
     handler: "institutionMediaUploadUrl",
@@ -148,7 +148,7 @@ const ENTRY_POINTS: EntryPoint[] = [
   },
   {
     name: "institution banner",
-    route: "src/app/api/v1/institutions/[institutionSlug]/profile/banner/route.ts",
+    route: "src/app/api/v1/institutions/[institutionSlug]/profile/banner/upload-url/route.ts",
     guard: MEDIA_WRAPPER,
     presign: "generateInstitutionMediaUploadUrl(",
     handler: "institutionMediaUploadUrl",
@@ -273,8 +273,8 @@ describe("every upload-URL entry point draws the shared budget", () => {
       // every wrapper assertion above green, and this route unbounded.
       const source = readCode(route);
 
-      // One handler per import list for the profile routes, three for the institution routes, so the
-      // binding is asserted as "named by this import from this module" rather than as one exact line.
+      // The binding is asserted as "named by this import from this module" rather than as one exact
+      // line, so an import list may hold other handlers.
       const binding = new RegExp(`import \\{[^}]*\\b${handler}\\b[^}]*\\} from "${handlerModule}"`);
 
       expect(source).toMatch(binding);

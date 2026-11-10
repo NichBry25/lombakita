@@ -37,7 +37,7 @@ const session = {
 const context = { params: Promise.resolve({ institutionSlug: "academy" }) };
 
 const makeRequest = () =>
-  new Request("http://localhost/api/v1/institutions/academy/profile/logo", {
+  new Request("http://localhost/api/v1/institutions/academy/profile/logo/upload-url", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ mimeType: "image/png" }),
@@ -55,12 +55,15 @@ beforeEach(() => {
 
 afterEach(() => vi.clearAllMocks());
 
-describe("POST institutions/[institutionSlug]/profile/logo", () => {
+describe("POST institutions/[institutionSlug]/profile/logo/upload-url", () => {
   it("mints the presigned grant for an authenticated owner", async () => {
     const res = await POST(makeRequest(), context);
 
     expect(res.status).toBe(201);
     expect((await res.json()).uploadUrl).toBe("https://signed.example/put");
+    expect(generateInstitutionMediaUploadUrl).toHaveBeenCalledWith("usr_1", "academy", "logo", {
+      contentType: "image/png",
+    });
   });
 
   it("returns 401 when unauthenticated, without counting a budget draw", async () => {
@@ -73,7 +76,7 @@ describe("POST institutions/[institutionSlug]/profile/logo", () => {
   });
 });
 
-describe("POST institutions/[institutionSlug]/profile/logo — the shared upload-URL budget", () => {
+describe("POST institutions/[institutionSlug]/profile/logo/upload-url — the shared upload-URL budget", () => {
   it("counts the calling user against the shared upload-URL bucket", async () => {
     await POST(makeRequest(), context);
 
