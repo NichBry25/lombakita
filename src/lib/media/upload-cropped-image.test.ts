@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { uploadCroppedImage } from "./upload-cropped-image";
+import { deleteUploadedImage, uploadCroppedImage } from "./upload-cropped-image";
 
 const fetchMock = vi.fn();
 
@@ -39,5 +39,21 @@ it("asks for the presigned address at the upload-url path under the base path", 
     1,
     "/api/v1/institutions/academy/profile/logo/upload-url",
     expect.objectContaining({ method: "POST" }),
+  );
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    3,
+    "/api/v1/institutions/academy/profile/logo",
+    expect.objectContaining({ method: "PUT" }),
+  );
+});
+
+it("deletes at the base path", async () => {
+  fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+
+  await deleteUploadedImage("user-42", "/api/v1/institutions/academy/profile/logo");
+
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/v1/institutions/academy/profile/logo",
+    expect.objectContaining({ method: "DELETE" }),
   );
 });
