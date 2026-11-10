@@ -1,19 +1,16 @@
 // @vitest-environment node
 //
-// Step 6.5d.1 (M1) — account-takeover regression guard.
+// Account-takeover regression guard for the public register endpoint.
 //
-// 6.5d introduced verified password-less accounts (Google-only: emailVerified set, no
-// user_password_credentials row). The PUBLIC POST /api/v1/auth/register duplicate guard previously
-// only threw email_exists when a password row existed, so a Google-only account fell through and an
-// unauthenticated attacker who knew the email could write an attacker password (and flip the role)
-// onto it — silent account takeover. The fix makes the guard fire for ANY verified account.
-//
-// This test is built to FAIL under the pre-fix code: the first select (existingUser-by-email)
-// returns a VERIFIED row and every later select returns [] (no password credential), so the old
-// code would fall through the guard and reach the role-flip UPDATE / password INSERT. It asserts
-// email_exists AND that zero inserts/updates ran — i.e. the existing row's role and verification
-// timestamps are untouched and no password row is written.
+// A verified password-less account (Google-only: emailVerified set, no
+// user_password_credentials row) and a never-verified account must both refuse a public
+// POST /api/v1/auth/register before any write. The two refusal tests make the first select
+// (existing user by email) return a row and check the refusal code and that no insert or update
+// ran: a removed guard fails on the code and a guard moved below a write fails on the count. The
+// two clash tests make the users insert reject with a real driver error and check the answer.
 
+import { DrizzleQueryError } from "drizzle-orm";
+import postgres from "postgres";
 import { describe, expect, it, vi } from "vitest";
 
 const { mockGetDb, hashPassword } = vi.hoisted(() => ({
@@ -114,12 +111,15 @@ const buildUnverifiedExistingDb = () => {
 };
 
 const buildInsertFailingDb = (constraintName: string) => {
-  const driverFailure = Object.assign(new Error("Failed query"), {
-    cause: Object.assign(new Error("duplicate"), {
+  const driverFailure = new DrizzleQueryError(
+    'insert into "users"',
+    [],
+    new postgres.PostgresError({
+      message: "duplicate key value violates unique constraint",
       code: "23505",
       constraint_name: constraintName,
-    }),
-  });
+    } as never),
+  );
 
   const tx = {
     select: vi.fn(() => {
@@ -165,8 +165,7 @@ describe("registerUserWithCredentials — M1 account-takeover guard", () => {
       ),
     ).rejects.toMatchObject({ code: "email_exists", status: 409 });
 
-    // The guard short-circuits before any mutation: no role-flip UPDATE, no profile/password
-    // INSERT. Under the pre-fix code these would be > 0 (the takeover write path).
+    // The guard refuses before any write, so no insert or update ran.
     expect(calls.updates).toBe(0);
     expect(calls.inserts).toBe(0);
   });

@@ -720,7 +720,7 @@ export const verifyRegistrationEmailToken = async (
 // email-first (unlike OAuth, where the provider resolves identity), so we classify by email:
 //   - `none`       — no account; the page offers the role picker (signup).
 //   - `unverified` — an account exists but email is not yet verified; the page shows the
-//                    verify notice + resend, and must NOT offer signup (insert would hit 23505).
+//                    verify notice + resend, and must NOT offer signup (register refuses it).
 //   - `verified`   — an account exists and is verified (incl. a Google-only account, which has
 //                    emailVerified set but no password); the page attempts the password sign-in,
 //                    where a wrong/absent password collapses to the generic invalid-credentials
@@ -728,8 +728,8 @@ export const verifyRegistrationEmailToken = async (
 //
 // Enumeration note (flagged for security review): branching existing-vs-new inherently reveals
 // whether an email has an account — this is intrinsic to the owner-approved method-first UX. It
-// exposes nothing the existing register endpoint does not already leak (register returns 409
-// `email_exists` for a taken, verified email).
+// exposes nothing the register endpoint does not already answer (register returns 409
+// `email_exists` for a verified email and 409 `email_not_verified` for an unverified one).
 //
 // Rate limiting for THIS function is applied by its route (POST /api/v1/auth/identify), before the
 // classification runs. That is a statement about this classifier only, not about the file: the

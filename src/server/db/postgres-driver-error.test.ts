@@ -1,5 +1,7 @@
 // @vitest-environment node
 
+import { DrizzleQueryError } from "drizzle-orm";
+import postgres from "postgres";
 import { describe, expect, it } from "vitest";
 import { findPostgresDriverError } from "./postgres-driver-error";
 
@@ -17,12 +19,15 @@ describe("findPostgresDriverError", () => {
   });
 
   it("finds the code on the error's cause", () => {
-    const error = Object.assign(new Error("Failed query"), {
-      cause: Object.assign(new Error("duplicate"), {
+    const error = new DrizzleQueryError(
+      'insert into "users"',
+      [],
+      new postgres.PostgresError({
+        message: "duplicate key value violates unique constraint",
         code: "23505",
         constraint_name: "users_username_unique_idx",
-      }),
-    });
+      } as never),
+    );
 
     expect(findPostgresDriverError(error)).toMatchObject({
       code: "23505",

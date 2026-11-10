@@ -5,6 +5,8 @@
 // suspension on the OAuth path, verification-not-from-Google, recruiter tier parity, and the
 // finalize transaction shape.
 
+import { DrizzleQueryError } from "drizzle-orm";
+import postgres from "postgres";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/runtime/assert-server-only", () => ({ assertServerOnly: vi.fn() }));
@@ -450,12 +452,15 @@ const makeFinalizeDb = () => {
 };
 
 const makeFinalizeDbWithFailingInsert = () => {
-  const driverFailure = Object.assign(new Error("Failed query"), {
-    cause: Object.assign(new Error("duplicate"), {
+  const driverFailure = new DrizzleQueryError(
+    'insert into "users"',
+    [],
+    new postgres.PostgresError({
+      message: "duplicate key value violates unique constraint",
       code: "23505",
       constraint_name: "users_email_unique",
-    }),
-  });
+    } as never),
+  );
 
   const tx = {
     select: vi.fn(() => {
