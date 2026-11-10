@@ -99,4 +99,32 @@ describe("the account the settings save is bound to", () => {
     expect(String(url)).toBe(SETTINGS_URL);
     expect(new Headers(init?.headers).get("X-Expected-User-Id")).toBe("user-42");
   });
+
+  it("shows the session-changed message when the save is refused for another account", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PATCH" && String(input) === SETTINGS_URL) {
+          return jsonResponse(409, { error: { code: "session_user_mismatch", message: "x" } });
+        }
+        return answerByUrlAndMethod(input, init);
+      }),
+    );
+    render(
+      <UIPrimitivesProvider>
+        <PageTransitionProvider>
+          <InstitutionSettingsShell institutionSlug="academy" expectedUserId="user-42" />
+        </PageTransitionProvider>
+      </UIPrimitivesProvider>,
+    );
+
+    fireEvent.change(await screen.findByLabelText("Nama institusi"), {
+      target: { value: "Akademi Baru" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Simpan" }));
+
+    expect(
+      await screen.findByText("Sesi telah berubah ke akun lain. Muat ulang halaman dan coba lagi."),
+    ).toBeTruthy();
+  });
 });

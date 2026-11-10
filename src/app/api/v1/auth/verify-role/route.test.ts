@@ -205,6 +205,28 @@ describe("POST /api/v1/auth/verify-role", () => {
     expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
   });
 
+  it("refuses a mismatched expected user before marking the candidate role as verified", async () => {
+    getServerSessionMock.mockResolvedValue(
+      buildSession({ role: "recruiter", verifiedRoles: ["recruiter"] }),
+    );
+    markRoleAsVerifiedMock.mockResolvedValue({
+      candidateVerified: true,
+      recruiterVerified: true,
+    });
+
+    const response = await POST(
+      buildRequest(
+        { role: "candidate", ...candidateProfileFields },
+        { [SESSION_USER_HEADER]: "someone_else" },
+      ),
+    );
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("session_user_mismatch");
+    expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
+  });
+
   it("marks the role as verified when the expected user matches the session", async () => {
     getServerSessionMock.mockResolvedValue(buildSession());
     markRoleAsVerifiedMock.mockResolvedValue({
