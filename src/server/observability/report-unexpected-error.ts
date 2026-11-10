@@ -38,7 +38,10 @@ const sendToSentryAndFlush = async (where: string, error: unknown): Promise<void
   try {
     const Sentry = await import("@sentry/nextjs");
     Sentry.captureException(error, { tags: { where } });
-    await Sentry.flush(SENTRY_FLUSH_TIMEOUT_MS);
+    const flushed = await Sentry.flush(SENTRY_FLUSH_TIMEOUT_MS);
+    if (!flushed) {
+      logger.warn("route.unexpected_error.sentry_unflushed", { where });
+    }
   } catch {
     logger.warn("route.unexpected_error.sentry_failed", { where });
   }
@@ -46,7 +49,7 @@ const sendToSentryAndFlush = async (where: string, error: unknown): Promise<void
 
 // NEXT_RUNTIME is set by Next.js in both of its runtimes and never by the Railway worker, which
 // also loads this module (its own Sentry setup is src/server/observability/worker-sentry.ts).
-// after() keeps a Vercel function alive until the capture is flushed, and throws outside a request.
+// after() keeps a Vercel function alive until the flush settles, and throws outside a request.
 const captureInSentryAfterResponse = (where: string, error: unknown): void => {
   if (!process.env.NEXT_RUNTIME) {
     return;

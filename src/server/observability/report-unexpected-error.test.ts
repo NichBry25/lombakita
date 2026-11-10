@@ -116,6 +116,7 @@ describe("reportUnexpectedError", () => {
     expect(captureExceptionMock.mock.invocationCallOrder[0]).toBeLessThan(
       flushMock.mock.invocationCallOrder[0]!,
     );
+    expect(loggerWarnMock).not.toHaveBeenCalled();
   });
 
   it("logs a warning naming only where when Sentry fails", async () => {
@@ -133,17 +134,42 @@ describe("reportUnexpectedError", () => {
     expect(flushMock).not.toHaveBeenCalled();
   });
 
-  it("logs a warning naming only where when the flush fails", async () => {
+  it("logs a warning naming only where when the flush times out", async () => {
     vi.stubEnv("NEXT_RUNTIME", "nodejs");
-    flushMock.mockRejectedValueOnce(new Error("flush timeout"));
+    flushMock.mockResolvedValueOnce(false);
 
     reportUnexpectedError("an access-guarded route", new Error("boom"));
 
     await expect(scheduledTasks[0]!()).resolves.toBeUndefined();
     expect(captureExceptionMock).toHaveBeenCalledTimes(1);
-    expect(loggerWarnMock).toHaveBeenCalledWith("route.unexpected_error.sentry_failed", {
+    expect(loggerWarnMock).toHaveBeenCalledWith("route.unexpected_error.sentry_unflushed", {
       where: "an access-guarded route",
     });
+    expect(loggerWarnMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the scheduled task open until the flush settles", async () => {
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    let settleFlush: (flushed: boolean) => void = () => {};
+    flushMock.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleFlush = resolve;
+        }),
+    );
+
+    reportUnexpectedError("an access-guarded route", new Error("boom"));
+
+    let taskSettled = false;
+    const task = Promise.resolve(scheduledTasks[0]!()).then(() => {
+      taskSettled = true;
+    });
+    await vi.waitFor(() => expect(flushMock).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(taskSettled).toBe(false);
+    settleFlush(true);
+    await task;
+    expect(taskSettled).toBe(true);
   });
 
   it("logs a warning naming only where when after() is refused outside a request", () => {
