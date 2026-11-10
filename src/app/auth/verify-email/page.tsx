@@ -2,6 +2,7 @@ import { ButtonLink } from "@/components/ui";
 import { redirect } from "next/navigation";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 import { CredentialsAuthError, verifyRegistrationEmailToken } from "@/server/auth/credentials-auth";
+import { reportUnexpectedError } from "@/server/observability/report-unexpected-error";
 
 type VerifyEmailPageState =
   | { status: "success"; title: string; description: string; email: string }
@@ -54,6 +55,7 @@ const resolveState = async (token: string | undefined): Promise<VerifyEmailPageS
       };
     }
 
+    reportUnexpectedError("email verification", error);
     return {
       status: "error",
       title: "Verifikasi gagal",

@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { inspect } from "node:util";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { loggerErrorMock } = vi.hoisted(() => ({ loggerErrorMock: vi.fn() }));
@@ -15,22 +16,57 @@ describe("reportUnexpectedError", () => {
   });
 
   it("logs the class and the stack frames of a multi-line error, never its message", () => {
-    const error = new Error("Failed query: x\nparams: secret-value\n    at secret-value");
+    const error = new Error(
+      "Failed query: select secret-query\nparams: secret-value\n    at secret-value",
+    );
 
     reportUnexpectedError("an access-guarded route", error);
 
     expect(loggerErrorMock).toHaveBeenCalledTimes(1);
     const [message, details] = loggerErrorMock.mock.calls[0]!;
-    expect(message).toBe("unexpected error in an access-guarded route");
+    expect(message).toBe("route.unexpected_error");
+    expect(Object.keys(details)).toEqual(["where", "errorClass", "stackFrames"]);
+    expect(details.where).toBe("an access-guarded route");
     expect(details.errorClass).toBe("Error");
+    expect(typeof details.stackFrames).toBe("string");
     expect(details.stackFrames).toMatch(/^\s*at /);
-    expect(JSON.stringify(loggerErrorMock.mock.calls[0])).not.toContain("secret-value");
+    const loggedCalls = inspect(loggerErrorMock.mock.calls, { depth: null });
+    expect(loggedCalls).not.toContain("secret-query");
+    expect(loggedCalls).not.toContain("secret-value");
+  });
+
+  it("logs the class alone for an error whose message is not a string, and does not throw", () => {
+    const error = Object.assign(new Error("x"), { message: 42 });
+
+    expect(() => reportUnexpectedError("an access-guarded route", error)).not.toThrow();
+
+    expect(loggerErrorMock).toHaveBeenCalledWith("route.unexpected_error", {
+      where: "an access-guarded route",
+      errorClass: "Error",
+    });
+  });
+
+  it("logs an unreadable class for an error whose stack getter throws, and does not throw", () => {
+    const error = new Error("x");
+    Object.defineProperty(error, "stack", {
+      get() {
+        throw new Error("stack unreadable");
+      },
+    });
+
+    expect(() => reportUnexpectedError("an access-guarded route", error)).not.toThrow();
+
+    expect(loggerErrorMock).toHaveBeenCalledWith("route.unexpected_error", {
+      where: "an access-guarded route",
+      errorClass: "unreadable",
+    });
   });
 
   it("logs the type of a thrown value that is not an Error", () => {
     reportUnexpectedError("an authentication route", "secret-value");
 
-    expect(loggerErrorMock).toHaveBeenCalledWith("unexpected error in an authentication route", {
+    expect(loggerErrorMock).toHaveBeenCalledWith("route.unexpected_error", {
+      where: "an authentication route",
       errorType: "string",
     });
   });

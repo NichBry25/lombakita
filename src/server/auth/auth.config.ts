@@ -378,6 +378,8 @@ export const authOptions: NextAuthOptions = {
         const finalized = await authorizeOAuthFinalize(credentials).catch((error: unknown) => {
           // Surface a distinct, non-leaking signal for the client; the message propagates via
           // next-auth's credentials error path (same mechanism as the email-password provider).
+          // account_conflict has four different causes, so it answers the generic signal: an
+          // "account exists" sentence would be wrong for three of them.
           if (error instanceof OAuthFinalizeError && error.code !== "account_conflict") {
             throw new Error(error.code);
           }

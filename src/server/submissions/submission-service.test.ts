@@ -270,7 +270,8 @@ describe("createOrReplaceSubmission", () => {
 
     await expect(refusal).rejects.toMatchObject({ code: "submission_invalid_file_key" });
     const error = (await refusal.catch((caught: unknown) => caught)) as SubmissionError;
-    expect(error.details?.requiredPrefix).toBeUndefined();
+    expect(error.details).toBeUndefined();
+    expect(error.message).not.toContain("submissions/comp_1/reg_1");
   });
 
   it("blocks a cancelled registration (409)", async () => {

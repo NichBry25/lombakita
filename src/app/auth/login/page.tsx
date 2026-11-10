@@ -24,9 +24,9 @@ const mapSignInPageError = (error: string): string => {
   if (error === "oauth_session_mismatch") {
     return "Anda sudah masuk dengan akun lain. Keluar dulu lalu coba lagi masuk dengan Google.";
   }
-  // Single-use OAuth carrier (surfaced here only if a finalize error arrives via a
-  // full redirect; the in-page role picker maps it directly).
-  if (error === "oauth_carrier_replayed" || error === "oauth_carrier_unavailable") {
+  // Single-use OAuth carrier. The role picker maps this code itself and next-auth sends a
+  // failed authorize to its own error page, so only a typed URL reaches this branch.
+  if (error === "carrier_replayed") {
     return "Sesi pendaftaran Google ini tidak dapat digunakan lagi. Silakan mulai lagi masuk dengan Google.";
   }
   // Failed-login lockout.
