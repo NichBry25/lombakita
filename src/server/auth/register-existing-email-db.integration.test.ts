@@ -67,7 +67,7 @@ const recruiterSignupFor = (email: string) => ({
   signupRole: "recruiter",
   fullName: "Dinda Recruiter",
   mobileNumber: "0812345678",
-  corporateEmail: "dinda@corp.co.id",
+  corporateEmail: "dinda@seed.lombakita.local",
 });
 
 const readStoredAccount = async (tx: Database, userId: string) => {
