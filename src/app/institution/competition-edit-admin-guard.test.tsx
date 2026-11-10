@@ -1,0 +1,112 @@
+// @vitest-environment node
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Session } from "next-auth";
+import { getRedirectError } from "next/dist/client/components/redirect";
+
+// The session is the only hand-built input: the real requireRolePage resolves it, so the user id the
+// admin check receives comes through the production path.
+const mocks = vi.hoisted(() => ({
+  session: vi.fn(),
+  isAdmin: vi.fn(),
+  lookup: vi.fn(),
+  institutionType: vi.fn(),
+  readiness: vi.fn(),
+}));
+
+vi.mock("@/server/auth/session", () => ({ getCurrentSession: mocks.session }));
+vi.mock("next/navigation", () => ({
+  redirect: (path: string): never => {
+    throw getRedirectError(path, "replace");
+  },
+  notFound: (): never => {
+    throw new Error("NEXT_NOT_FOUND");
+  },
+}));
+vi.mock("@/server/institution-members/member-service", () => ({
+  isInstitutionAdminBySlug: mocks.isAdmin,
+}));
+vi.mock("@/server/competitions/competition-service", () => ({
+  getCompetitionIdByInstitutionAndSlug: mocks.lookup,
+}));
+vi.mock("@/server/institution-workspace/institution-service", () => ({
+  loadInstitutionTypeBySlug: mocks.institutionType,
+}));
+vi.mock("@/server/competitions/competition-publish-readiness", () => ({
+  resolveCompetitionPublishReadiness: mocks.readiness,
+}));
+vi.mock("@/components/institution/institution-competition-edit-shell", () => ({
+  InstitutionCompetitionEditShell: () => null,
+}));
+vi.mock("@/components/institution/competition-prizes-editor", () => ({
+  CompetitionPrizesEditor: () => null,
+}));
+vi.mock("@/components/institution/competition-rounds-editor", () => ({
+  CompetitionRoundsEditor: () => null,
+}));
+vi.mock("@/components/institution/competition-tags-editor", () => ({
+  CompetitionTagsEditor: () => null,
+}));
+vi.mock("@/components/institution/competition-eligibility-editor", () => ({
+  CompetitionEligibilityEditor: () => null,
+}));
+vi.mock("@/components/institution/competition-fee-section", () => ({
+  CompetitionFeeSection: () => null,
+}));
+
+const recruiterSession = (): Session => ({
+  user: {
+    id: "recruiter-user",
+    role: "recruiter",
+    verifiedRoles: ["recruiter"],
+    mfaStatus: "not_applicable",
+  },
+  expires: "2099-01-01T00:00:00.000Z",
+});
+
+const renderEditPage = async () => {
+  const page = await import("./[institutionSlug]/competitions/[competitionSlug]/edit/page");
+  return page.default({
+    params: Promise.resolve({ institutionSlug: "institution", competitionSlug: "competition" }),
+  });
+};
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  mocks.session.mockResolvedValue(recruiterSession());
+  mocks.lookup.mockResolvedValue("competition-id");
+  mocks.institutionType.mockResolvedValue("school");
+  mocks.readiness.mockResolvedValue({ ready: false });
+});
+
+describe("competition edit page institution-admin guard", () => {
+  it("redirects a recruiter who is not an institution admin to / before the competition lookup", async () => {
+    mocks.isAdmin.mockResolvedValue(false);
+
+    await expect(renderEditPage()).rejects.toMatchObject({
+      digest: getRedirectError("/", "replace").digest,
+    });
+    expect(mocks.isAdmin).toHaveBeenCalledWith("recruiter-user", "institution");
+    expect(mocks.lookup).not.toHaveBeenCalled();
+    expect(mocks.readiness).not.toHaveBeenCalled();
+  });
+
+  it("lets an institution admin reach the competition lookup", async () => {
+    mocks.isAdmin.mockResolvedValue(true);
+
+    await expect(renderEditPage()).resolves.toBeTruthy();
+    expect(mocks.lookup).toHaveBeenCalledWith("institution", "competition");
+  });
+
+  it("runs the role gate before the admin check", async () => {
+    mocks.session.mockResolvedValue(null);
+    const loginPath = `/auth/login?callbackUrl=${encodeURIComponent(
+      "/institution/institution/competitions/competition/edit",
+    )}`;
+
+    await expect(renderEditPage()).rejects.toMatchObject({
+      digest: getRedirectError(loginPath, "replace").digest,
+    });
+    expect(mocks.isAdmin).not.toHaveBeenCalled();
+    expect(mocks.lookup).not.toHaveBeenCalled();
+  });
+});

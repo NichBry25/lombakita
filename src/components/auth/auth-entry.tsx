@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
-import { Button, ButtonLink, SelectField, usePageTransition } from "@/components/ui";
+import { Button, ButtonLink, SelectField, StepIndicator, usePageTransition } from "@/components/ui";
 import { AssentNotice } from "@/components/legal/assent-notice";
 import { useToast } from "@/components/ui/primitives";
 import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
@@ -17,7 +17,7 @@ import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
 //       • verified  → attempt the password sign-in (path a). Wrong/absent password → generic
 //                     "email atau password salah" (a Google-only account lands here too).
 //       • unverified→ show "email belum diverifikasi" + resend; never offer signup (would 23505).
-//       • none      → role picker + name; create the account via the existing register endpoint,
+//       • none      → role picker + profile; create the account via the existing register endpoint,
 //                     which sends the Resend verification (path b). Account usable on verification.
 // Suspension is enforced in `authorize` regardless of this shell; we route the
 // ACCOUNT_SUSPENDED signal to /suspended.
@@ -85,7 +85,6 @@ export const AuthEntry = ({
   const [email, setEmail] = useState(initialEmail ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [name, setName] = useState("");
 
   // Candidate onboarding fields — collected on the candidateOnboarding stage, right after the
   // candidate role is chosen, and submitted together with the account creation request.
@@ -304,7 +303,7 @@ export const AuthEntry = ({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          name: name.trim(),
+          name: fullName.trim(),
           email: email.trim().toLowerCase(),
           password,
           ...(candidateBody ?? {}),
@@ -357,13 +356,6 @@ export const AuthEntry = ({
       });
       return;
     }
-    if (name.trim().length < 2) {
-      addToast({
-        type: "error",
-        message: "Isi nama lengkap (minimal 2 karakter) untuk mendaftar.",
-      });
-      return;
-    }
     if (password !== confirmPassword) {
       addToast({
         type: "error",
@@ -373,15 +365,12 @@ export const AuthEntry = ({
     }
 
     if (role === "candidate") {
-      // Prefill the candidate's declared full name from the name already entered; it stays editable.
-      setFullName((current) => current || name.trim());
       setStage("candidateOnboarding");
       return;
     }
 
     // Recruiter also completes an onboarding form (affiliation) before the account is created; the
     // account starts sandboxed until platform ops approve it as a Trusted Recruiter.
-    setFullName((current) => current || name.trim());
     setStage("recruiterOnboarding");
   };
 
@@ -566,26 +555,11 @@ export const AuthEntry = ({
 
       {method === "credentials" && stage === "signup" ? (
         <div className="auth-stage-panel">
+          <StepIndicator current={2} total={3} label="Peran" />
           <p>
-            Belum ada akun untuk <span className="font-medium">{email}</span>. Lengkapi nama dan
-            pilih peran untuk mendaftar.
+            Belum ada akun untuk <span className="font-medium">{email}</span>. Ulangi password Anda
+            lalu pilih peran untuk mendaftar.
           </p>
-
-          <div className="form-field">
-            <label className="form-label form-label-required" htmlFor="auth-name">
-              Nama lengkap
-            </label>
-            <input
-              id="auth-name"
-              name="name"
-              type="text"
-              autoComplete="name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="form-input"
-              placeholder="Nama Anda"
-            />
-          </div>
 
           <div className="form-field">
             <label className="form-label form-label-required" htmlFor="auth-confirm-password">
@@ -630,6 +604,7 @@ export const AuthEntry = ({
 
       {method === "credentials" && stage === "candidateOnboarding" ? (
         <form onSubmit={onSubmitCandidateOnboarding} className="auth-form">
+          <StepIndicator current={3} total={3} label="Profil" />
           <p>Lengkapi data kandidat Anda. Data ini bisa diubah nanti di dasbor Anda.</p>
 
           <div className="form-field">
@@ -701,6 +676,7 @@ export const AuthEntry = ({
 
       {method === "credentials" && stage === "recruiterOnboarding" ? (
         <form onSubmit={onSubmitRecruiterOnboarding} className="auth-form">
+          <StepIndicator current={3} total={3} label="Profil" />
           <p>
             Lengkapi data penyelenggara Anda. Setelah mendaftar, akun Anda dapat membuat draf
             kompetisi, tetapi baru bisa mempublikasikannya setelah tim kami menyetujui Anda sebagai{" "}

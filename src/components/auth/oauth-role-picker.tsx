@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { signIn } from "next-auth/react";
-import { Button, SelectField, usePageTransition } from "@/components/ui";
+import { Button, SelectField, StepIndicator, usePageTransition } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 import { AssentNotice } from "@/components/legal/assent-notice";
@@ -176,6 +176,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
 
         {stage === "choose" ? (
           <>
+            <StepIndicator current={1} total={2} label="Peran" />
             <div className="auth-role-list">
               <button
                 type="button"
@@ -212,6 +213,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
 
         {stage === "candidateOnboarding" ? (
           <form onSubmit={onSubmitCandidateOnboarding} className="auth-form">
+            <StepIndicator current={2} total={2} label="Profil" />
             <p>Lengkapi data kandidat Anda. Data ini bisa diubah nanti di dasbor Anda.</p>
 
             <div className="form-field">
@@ -296,6 +298,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
 
         {stage === "recruiterOnboarding" ? (
           <form onSubmit={onSubmitRecruiterOnboarding} className="auth-form">
+            <StepIndicator current={2} total={2} label="Profil" />
             <p>
               Lengkapi data penyelenggara Anda. Akun akan menunggu peninjauan sebelum dapat
               menerbitkan kompetisi.

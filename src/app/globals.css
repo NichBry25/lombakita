@@ -1386,6 +1386,34 @@ svg {
   gap: var(--grid-gap);
 }
 
+/* A flow's step line and its bar of segments; reached segments take the accent. */
+.step-indicator {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.step-indicator-text {
+  color: var(--color-ink-soft);
+  font-size: var(--text-body-sm);
+}
+
+.step-indicator-bar {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: var(--space-1);
+}
+
+.step-indicator-segment {
+  height: var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--color-line);
+}
+
+.step-indicator-segment[data-reached="true"] {
+  background: var(--color-accent);
+}
+
 .primitive-showcase {
   display: grid;
   gap: var(--space-14);
@@ -3875,7 +3903,7 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   gap: var(--space-2);
 }
 
-.auth-stage-panel > p:first-child {
+.auth-stage-panel > p:first-of-type {
   margin: var(--space-0);
   color: var(--color-ink-soft);
 }

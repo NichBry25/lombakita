@@ -42,3 +42,4 @@ export type { FilterOption } from "./filter-dropdown";
 export { EmptyState } from "./empty-state";
 export { Pagination } from "./pagination";
 export { PageHeader } from "./page-header";
+export { StepIndicator } from "./step-indicator";

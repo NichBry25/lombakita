@@ -2,7 +2,14 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useSession } from "next-auth/react";
-import { Button, CheckboxField, Icon, IconButton, usePageTransition } from "@/components/ui";
+import {
+  Button,
+  CheckboxField,
+  Icon,
+  IconButton,
+  StepIndicator,
+  usePageTransition,
+} from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
   describeMfaLockout,
@@ -151,6 +158,7 @@ export function MfaEnrollForm({
   if (stage === "recovery-codes") {
     return (
       <div className="stack-md">
+        <StepIndicator current={2} total={2} label="Simpan kode pemulihan" />
         {/* The QR is scanned and gone by this point, so the heading belongs to this stage rather
             than the page. A page-level "Pindai kode QR" would sit above a screen asking the
             operator to save ten recovery codes. */}
@@ -197,6 +205,7 @@ export function MfaEnrollForm({
 
   return (
     <form onSubmit={onSubmitCode} className="auth-form stack-md">
+      <StepIndicator current={1} total={2} label="Hubungkan aplikasi" />
       <header className="auth-entry-header">
         <h1>Aktifkan 2FA</h1>
       </header>
