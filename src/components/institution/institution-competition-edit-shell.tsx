@@ -662,7 +662,8 @@ export const InstitutionCompetitionEditShell = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPersonal]);
 
-  // "Lanjut", the step "Kembali" and "Tinggalkan" arrive as a step change, which ends their screen.
+  // "Lanjut", the step "Kembali" and the "Tinggalkan" of a section link arrive as a step change,
+  // which ends their screen.
   useEffect(() => {
     if (step === undefined) return;
     end();
@@ -980,8 +981,6 @@ export const InstitutionCompetitionEditShell = ({
     confirmLeavingUnsavedChanges(openBackTarget);
   };
 
-  // With unsaved changes another section is opened only after the confirmation; without them the
-  // link navigates on its own.
   const onSectionLinkClick = (
     event: React.MouseEvent<HTMLAnchorElement>,
     href: string,
@@ -1227,8 +1226,8 @@ export const InstitutionCompetitionEditShell = ({
     </nav>
   );
 
-  // Step 5 opens after a step change, which restores the saved values, so the form state read here
-  // is what was saved.
+  // Every step change resets the form to savedSnapshot and every load sets both, so the form state
+  // read here is what was saved.
   const formValues = currentSnapshot();
   const stepSummarySections = SECTION_STEPS.map((summaryStep) => (
     <StepSummarySection

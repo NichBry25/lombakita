@@ -767,7 +767,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
     );
   });
 
-  it("shows step 5 with no blocks and its own bar", async () => {
+  it("shows step 5 with its summary and its own bar", async () => {
     stubFetchSequence([() => loadOk(READY)]);
 
     render(shellAt(5));
@@ -1110,6 +1110,28 @@ describe("InstitutionCompetitionEditShell steps", () => {
     view.rerender(shellAt(3));
 
     await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
+    fireEvent.click(saveButton());
+    expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
+    expect(patchBodies()).toEqual([]);
+  });
+
+  it("saves a published section on Enter and stays on it", async () => {
+    const competition = { ...COMPETITION, status: "published" };
+    stubFetchSequence([
+      () => okJson({ competition, publishReadiness: READY }),
+      () => okJson({ competition }),
+      () => okJson({ competition, publishReadiness: READY }),
+    ]);
+
+    render(shellAt(1));
+
+    await screen.findByRole("button", { name: "Simpan" });
+    fireEvent.change(screen.getByLabelText(/^Judul/), { target: { value: "Lomba Contoh Baru" } });
+    fireEvent.submit(document.querySelector(".competition-edit-form")!);
+
+    expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
+    expect(patchBodies()).toEqual([{ title: "Lomba Contoh Baru" }]);
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it("opens another section as a plain link without unsaved changes", async () => {
