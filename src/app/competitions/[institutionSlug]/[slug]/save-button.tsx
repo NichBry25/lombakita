@@ -2,12 +2,20 @@
 
 import { useState } from "react";
 import { IconButton } from "@/components/ui";
-import {
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { sessionFetch } from "@/lib/session/session-fetch";
 import { useToast } from "@/components/ui/primitives";
+
+const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
+  competition_not_found: "Kompetisi tidak ditemukan.",
+  competition_not_saveable: "Kompetisi ini sudah tidak tersedia.",
+  forbidden: "Akun Anda bukan akun kandidat. Masuk dengan akun kandidat untuk melanjutkan.",
+};
+
+const SAVE_FALLBACK = "Gagal menyimpan kompetisi. Silakan coba lagi.";
+const UNSAVE_FALLBACK = "Gagal menghapus kompetisi dari daftar tersimpan. Coba lagi.";
+const SAVE_SUCCESS = "Kompetisi disimpan.";
+const UNSAVE_SUCCESS = "Kompetisi dihapus dari daftar tersimpan.";
 
 type Props = {
   competitionId: string;
@@ -29,15 +37,14 @@ export function SaveButton({ competitionId, initialSaved, expectedUserId }: Prop
       });
       if (!res.ok) {
         const body = (await res.json()) as { error?: { code?: string } };
+        const fallback = saved ? UNSAVE_FALLBACK : SAVE_FALLBACK;
         addToast({
           type: "error",
-          message:
-            body.error?.code === SESSION_MISMATCH_CODE
-              ? SESSION_MISMATCH_MESSAGE
-              : (body.error?.code ?? "Terjadi kesalahan. Coba lagi."),
+          message: errorMessageFor(body.error?.code, SAVE_ERROR_COPY, fallback),
         });
       } else {
         setSaved(!saved);
+        addToast({ type: "success", message: saved ? UNSAVE_SUCCESS : SAVE_SUCCESS });
       }
     } catch {
       addToast({ type: "error", message: "Terjadi kesalahan. Coba lagi." });

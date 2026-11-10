@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button, Card, Feedback, Icon } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { AssentNotice } from "@/components/legal/assent-notice";
+import { errorMessageFor } from "@/lib/errors/error-copy";
 import { sessionFetch } from "@/lib/session/session-fetch";
 import {
   PAYMENT_PROOF_ACCEPT_ATTRIBUTE,
@@ -27,6 +28,40 @@ import {
   formatTimeRemaining,
   type PaymentDeadlineState,
 } from "@/lib/finance/payment-deadline";
+
+type SurfaceCopy = Partial<Record<string, string>>;
+
+const PAYMENT_PROOF_ERROR_COPY: SurfaceCopy = {
+  forbidden: "Akun Anda bukan akun kandidat. Masuk dengan akun kandidat untuk melanjutkan.",
+  manual_proof_payment_not_found: "Pembayaran tidak ditemukan. Muat ulang halaman.",
+  manual_proof_resubmission_barred: "Bukti transfer ini tidak dapat dikirim ulang.",
+  manual_proof_not_manual_lane: "Hanya pembayaran transfer manual yang menerima bukti transfer.",
+  manual_proof_object_missing:
+    "Berkas bukti transfer belum selesai diunggah. Silakan unggah ulang.",
+  manual_proof_registration_cancelled:
+    "Pendaftaran ini sudah dibatalkan, sehingga bukti transfer tidak dapat diproses.",
+  manual_proof_lane_closed:
+    "Pembayaran ini sudah selesai, sehingga bukti transfer tidak dapat diproses.",
+  manual_proof_already_submitted:
+    "Pembayaran ini sudah memiliki bukti transfer. Muat ulang halaman untuk mengirim ulang.",
+  manual_proof_not_found: "Belum ada bukti transfer untuk dikirim ulang.",
+  manual_proof_upload_unavailable: "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",
+};
+
+const PAYMENT_PROOF_UPLOAD_URL_ERROR_COPY: SurfaceCopy = {
+  ...PAYMENT_PROOF_ERROR_COPY,
+  rate_limited: "Terlalu banyak permintaan unggah. Coba lagi dalam beberapa menit.",
+  manual_proof_object_key_invalid: `Format tidak didukung. Unggah bukti transfer dalam format ${PAYMENT_PROOF_FORMAT_HINT}.`,
+};
+
+const PAYMENT_PROOF_RECORD_ERROR_COPY: SurfaceCopy = {
+  ...PAYMENT_PROOF_ERROR_COPY,
+  manual_proof_object_key_invalid:
+    "Berkas bukti transfer tidak valid. Pilih berkas lain lalu unggah ulang.",
+};
+
+const PAYMENT_PROOF_UPLOAD_URL_FALLBACK = "Gagal menyiapkan unggahan. Coba lagi.";
+const PAYMENT_PROOF_RECORD_FALLBACK = "Gagal mengirim bukti transfer. Coba lagi.";
 
 export type CandidatePaymentPanelProps = {
   expectedUserId: string;
@@ -131,7 +166,11 @@ export function CandidatePaymentPanel({
       if (!presign.ok) {
         addToast({
           type: "error",
-          message: await refusalMessage(presign, "Gagal menyiapkan unggahan. Coba lagi."),
+          message: await refusalMessage(
+            presign,
+            PAYMENT_PROOF_UPLOAD_URL_ERROR_COPY,
+            PAYMENT_PROOF_UPLOAD_URL_FALLBACK,
+          ),
         });
         return;
       }
@@ -166,7 +205,11 @@ export function CandidatePaymentPanel({
       if (!record.ok) {
         addToast({
           type: "error",
-          message: await refusalMessage(record, "Bukti transfer ditolak. Coba lagi."),
+          message: await refusalMessage(
+            record,
+            PAYMENT_PROOF_RECORD_ERROR_COPY,
+            PAYMENT_PROOF_RECORD_FALLBACK,
+          ),
         });
         return;
       }
@@ -284,12 +327,16 @@ export function CandidatePaymentPanel({
   );
 }
 
-/** The refusal the server gave, or a fallback when it gave none we can read. */
-const refusalMessage = async (response: Response, fallback: string): Promise<string> => {
+/** This panel's sentence for the refusal's code, or the action's fallback. */
+const refusalMessage = async (
+  response: Response,
+  surfaceCopy: SurfaceCopy,
+  fallback: string,
+): Promise<string> => {
   const payload = (await response.json().catch(() => null)) as {
-    error?: { message?: string };
+    error?: { code?: string };
   } | null;
-  return payload?.error?.message ?? fallback;
+  return errorMessageFor(payload?.error?.code, surfaceCopy, fallback);
 };
 
 /**

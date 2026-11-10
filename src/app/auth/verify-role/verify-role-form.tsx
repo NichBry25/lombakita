@@ -5,6 +5,34 @@ import { useSession } from "next-auth/react";
 import { Button, SelectField } from "@/components/ui";
 import type { VerifiableRole } from "@/server/auth/role-verification";
 import { useToast } from "@/components/ui/primitives";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+
+// A key "<code>.<field>" holds the sentence for a refusal about one field.
+const VERIFY_ROLE_ERROR_COPY: Partial<Record<string, string>> = {
+  role_already_verified: "Akun Anda sudah terverifikasi untuk peran ini.",
+  "candidate_profile_invalid_value.fullName": "Isi nama lengkap (minimal 2 karakter).",
+  "candidate_profile_invalid_value.phoneNumber": "Isi nomor telepon yang valid (minimal 8 digit).",
+  "candidate_profile_invalid_value.occupation": "Pilih status Anda saat ini.",
+  "candidate_profile_invalid_value.dateOfBirth": "Isi tanggal lahir Anda.",
+  candidate_profile_invalid_value: "Periksa data kandidat Anda lalu coba lagi.",
+  "recruiter_verification_invalid_value.fullName": "Isi nama lengkap (minimal 2 karakter).",
+  "recruiter_verification_invalid_value.mobileNumber":
+    "Isi nomor ponsel yang valid (minimal 8 digit).",
+  "recruiter_verification_invalid_value.corporateEmail": "Format email kantor tidak valid.",
+  recruiter_verification_invalid_value: "Periksa data rekruter Anda lalu coba lagi.",
+  user_not_found: "Akun tidak ditemukan. Masuk lagi lalu coba lagi.",
+  forbidden: "Akun ini tidak dapat menambah peran kandidat atau rekruter.",
+};
+
+const VERIFY_ROLE_FALLBACK = "Verifikasi gagal. Coba lagi beberapa saat.";
+
+const refusalCopyKey = (
+  code: string | undefined,
+  field: string | undefined,
+): string | undefined => {
+  const fieldKey = `${code}.${field}`;
+  return field && VERIFY_ROLE_ERROR_COPY[fieldKey] ? fieldKey : code;
+};
 
 type VerifyRoleFormProps = {
   role: VerifiableRole;
@@ -51,11 +79,12 @@ export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
+          error?: { code?: string; details?: { fields?: string[] } };
         } | null;
+        const copyKey = refusalCopyKey(payload?.error?.code, payload?.error?.details?.fields?.[0]);
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Verifikasi gagal. Coba lagi beberapa saat.",
+          message: errorMessageFor(copyKey, VERIFY_ROLE_ERROR_COPY, VERIFY_ROLE_FALLBACK),
         });
         setBusy(false);
         return;

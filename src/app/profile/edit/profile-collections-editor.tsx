@@ -4,12 +4,9 @@ import { useId, useRef, useState } from "react";
 import { Button, CheckboxField, IconButton } from "@/components/ui";
 import { FormField, FormInput, FormLabel, FormTextarea, SelectField } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import { ownerFetch, uploadProfileFile } from "./profile-file-upload";
-import {
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { ownerFetch, PROFILE_FILE_REMOVE_FALLBACK, uploadProfileFile } from "./profile-file-upload";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { sessionFetch } from "@/lib/session/session-fetch";
 import {
   SOCIAL_PLATFORMS,
   type CertificationEntry,
@@ -35,8 +32,33 @@ const BASE = "/api/v1/users/me/profile";
 const toMonthInput = (value: string | null): string => (value ? value.slice(0, 7) : "");
 const fromMonthInput = (value: string): string | null => (value ? `${value}-01` : null);
 
+// A key "<code>.<field>" holds the sentence for a refusal about one field.
+const COLLECTION_ERROR_COPY: Partial<Record<string, string>> = {
+  profile_collection_invalid_value: "Gagal menyimpan data. Periksa kembali isian Anda.",
+  profile_collection_not_found: "Entri ini sudah tidak ada. Muat ulang halaman.",
+  "profile_collection_duplicate.name": "Keahlian ini sudah ditambahkan.",
+  "profile_collection_duplicate.platform": "Tautan untuk platform ini sudah ditambahkan.",
+  profile_collection_limit_reached: "Satu bagian paling banyak berisi 50 entri.",
+};
+
+type MutationMethod = "POST" | "PATCH" | "DELETE";
+
+const COLLECTION_FALLBACK: Record<MutationMethod, string> = {
+  POST: "Gagal menambahkan entri. Coba lagi.",
+  PATCH: "Gagal menyimpan perubahan. Coba lagi.",
+  DELETE: "Gagal menghapus entri. Coba lagi.",
+};
+
+const refusalCopyKey = (
+  code: string | undefined,
+  field: string | undefined,
+): string | undefined => {
+  const fieldKey = `${code}.${field}`;
+  return field && COLLECTION_ERROR_COPY[fieldKey] ? fieldKey : code;
+};
+
 type MutationResult = { ok: boolean; entry?: unknown; code: string | null; message: string };
-type Mutate = (method: string, path: string, body?: unknown) => Promise<MutationResult>;
+type Mutate = (method: MutationMethod, path: string, body?: unknown) => Promise<MutationResult>;
 type AddToast = (t: { type: "success" | "error"; message: string }) => void;
 
 type FormProps<D> = {
@@ -761,9 +783,12 @@ function CertFileControl({
 
   const onRemove = async () => {
     setBusy(true);
-    const result = await ownerFetch(expectedUserId, `/uploads/certifications/${certId}`, {
-      method: "DELETE",
-    });
+    const result = await ownerFetch(
+      expectedUserId,
+      `/uploads/certifications/${certId}`,
+      { method: "DELETE" },
+      PROFILE_FILE_REMOVE_FALLBACK,
+    );
     setBusy(false);
     if (!result.ok) {
       addToast({ type: "error", message: result.message });
@@ -1003,7 +1028,10 @@ export function ProfileCollectionsEditor({
         headers: body ? { "Content-Type": "application/json" } : undefined,
         body: body ? JSON.stringify(body) : undefined,
       });
-      let data: { entry?: unknown; error?: { code?: string; message?: string } } = {};
+      let data: {
+        entry?: unknown;
+        error?: { code?: string; details?: { fields?: string[] } };
+      } = {};
       try {
         data = await res.json();
       } catch {
@@ -1011,10 +1039,12 @@ export function ProfileCollectionsEditor({
       }
       if (!res.ok) {
         const code = data.error?.code ?? null;
-        const message =
-          code === SESSION_MISMATCH_CODE
-            ? SESSION_MISMATCH_MESSAGE
-            : (data.error?.message ?? "Terjadi kesalahan. Coba lagi.");
+        const copyKey = refusalCopyKey(data.error?.code, data.error?.details?.fields?.[0]);
+        const message = errorMessageFor(
+          copyKey,
+          COLLECTION_ERROR_COPY,
+          COLLECTION_FALLBACK[method],
+        );
         return { ok: false, code, message };
       }
       return { ok: true, entry: data.entry, code: null, message: "" };

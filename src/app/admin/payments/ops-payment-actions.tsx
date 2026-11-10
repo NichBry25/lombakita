@@ -16,6 +16,28 @@ import { getCompetitionStatusLabel } from "@/lib/competitions/status-labels";
 import { asSentence, formatFinanceDateTime, formatRupiah } from "@/lib/finance/payment-display";
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+
+const OPS_PAYMENT_ERROR_COPY: Partial<Record<string, string>> = {
+  ops_reason_required: "Alasan wajib diisi.",
+  manual_proof_not_voidable:
+    "Bukti transfer ini tidak dapat dibatalkan lagi. Muat ulang halaman untuk melihat status terbaru.",
+  operator_actor_is_target: "Anda tidak dapat menangani pembayaran yang Anda lakukan sendiri.",
+  ops_competition_not_found: "Kompetisi tidak ditemukan.",
+  ops_competition_not_published:
+    "Kompetisi ini sudah tidak berstatus terbit. Muat ulang halaman untuk melihat status terbaru.",
+  ops_competition_concurrently_modified:
+    "Status kompetisi sudah berubah. Muat ulang halaman lalu coba lagi.",
+  operator_actor_conflicted:
+    "Anda tidak dapat mengambil tindakan atas institusi ini karena akun Anda pernah mengajukan verifikasi, diundang, atau menjadi anggota institusi tersebut.",
+  operator_actor_not_found: "Akun Anda tidak ditemukan. Masuk lagi untuk melanjutkan.",
+  operator_actor_not_platform_ops:
+    "Akun Anda tidak lagi memiliki peran yang diperlukan untuk tindakan ini.",
+  operator_actor_suspended: "Akun Anda sedang ditangguhkan oleh tim Lombakita.",
+};
+
+const VOID_PROOF_FALLBACK = "Bukti transfer gagal dibatalkan. Coba lagi.";
+const CANCEL_COMPETITION_FALLBACK = "Kompetisi gagal dibatalkan. Coba lagi.";
 
 export type OpsProofView = {
   proofId: string;
@@ -83,6 +105,7 @@ export function OpsPaymentActions({
     url: string,
     reason: string,
     successMessage: string,
+    refusalFallback: string,
   ): Promise<void> => {
     setPending(key);
     try {
@@ -94,9 +117,12 @@ export function OpsPaymentActions({
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
+          error?: { code?: string };
         } | null;
-        addToast({ type: "error", message: payload?.error?.message ?? "Tindakan gagal disimpan." });
+        addToast({
+          type: "error",
+          message: errorMessageFor(payload?.error?.code, OPS_PAYMENT_ERROR_COPY, refusalFallback),
+        });
         return;
       }
 
@@ -127,6 +153,7 @@ export function OpsPaymentActions({
               `/api/platform-ops/payments/proofs/${proof.proofId}/void`,
               reason,
               "Bukti transfer dibatalkan.",
+              VOID_PROOF_FALLBACK,
             )
           }
           onDone={closeModal}
@@ -153,6 +180,7 @@ export function OpsPaymentActions({
               `/api/platform-ops/payments/proofs/${proof.proofId}/void`,
               reason,
               "Bukti transfer dibatalkan.",
+              VOID_PROOF_FALLBACK,
             )
           }
           onDone={closeModal}
@@ -180,6 +208,7 @@ export function OpsPaymentActions({
               `/api/platform-ops/competitions/${competition.competitionId}/cancel`,
               reason,
               "Kompetisi dibatalkan.",
+              CANCEL_COMPETITION_FALLBACK,
             )
           }
           onDone={closeModal}

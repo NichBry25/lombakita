@@ -4,6 +4,7 @@ import { ChangeEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Feedback, Icon, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import { errorMessageFor } from "@/lib/errors/error-copy";
 import { sessionFetch } from "@/lib/session/session-fetch";
 import {
   getFileExtension,
@@ -33,6 +34,51 @@ export type CandidateDocumentRequest = {
     fileSizeBytes: number;
     createdAt: string;
   }>;
+};
+
+type SurfaceCopy = Partial<Record<string, string>>;
+
+const DOCUMENT_FILE_ERROR_COPY: SurfaceCopy = {
+  forbidden: "Akun Anda bukan akun kandidat. Masuk dengan akun kandidat untuk melanjutkan.",
+  document_request_invalid_value: "Data berkas tidak lengkap. Pilih berkas lagi lalu unggah ulang.",
+  document_request_file_type_not_allowed: "Format tidak didukung. Unggah PDF, JPG, PNG, atau WebP.",
+  document_request_file_invalid: "Berkas ditolak saat verifikasi. Coba berkas lain.",
+  document_request_file_too_large: "Ukuran berkas melebihi batas 10 MB.",
+  document_request_not_found: "Permintaan tidak ditemukan. Muat ulang halaman lalu coba lagi.",
+  document_request_wrong_status:
+    "Status permintaan ini sudah berubah. Muat ulang halaman lalu coba lagi.",
+  document_request_storage_unavailable: "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",
+};
+
+const DOCUMENT_UPLOAD_URL_ERROR_COPY: SurfaceCopy = {
+  ...DOCUMENT_FILE_ERROR_COPY,
+  rate_limited: "Terlalu banyak permintaan unggah. Coba lagi dalam beberapa menit.",
+};
+
+// On finalize a missing file means the upload never landed; on delete it means the row is gone.
+const DOCUMENT_FINALIZE_ERROR_COPY: SurfaceCopy = {
+  ...DOCUMENT_FILE_ERROR_COPY,
+  document_request_file_not_found: "Berkas belum selesai terunggah. Unggah ulang berkas Anda.",
+};
+
+const DOCUMENT_DELETE_ERROR_COPY: SurfaceCopy = {
+  ...DOCUMENT_FILE_ERROR_COPY,
+  document_request_file_not_found: "Dokumen tidak ditemukan. Muat ulang halaman.",
+};
+
+const DOCUMENT_UPLOAD_URL_FALLBACK = "Gagal menyiapkan unggahan. Coba lagi.";
+const DOCUMENT_FINALIZE_FALLBACK = "Gagal menyimpan dokumen. Coba lagi.";
+const DOCUMENT_DELETE_FALLBACK = "Gagal menghapus dokumen. Coba lagi.";
+
+const refusalMessage = async (
+  response: Response,
+  surfaceCopy: SurfaceCopy,
+  fallback: string,
+): Promise<string> => {
+  const payload = (await response.json().catch(() => null)) as {
+    error?: { code?: string };
+  } | null;
+  return errorMessageFor(payload?.error?.code, surfaceCopy, fallback);
 };
 
 const formatDeadline = (isoDate: string): string =>
@@ -159,12 +205,13 @@ function DocumentRequestCard({
       );
 
       if (!presign.ok) {
-        const payload = (await presign.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Gagal menyiapkan unggahan. Coba lagi.",
+          message: await refusalMessage(
+            presign,
+            DOCUMENT_UPLOAD_URL_ERROR_COPY,
+            DOCUMENT_UPLOAD_URL_FALLBACK,
+          ),
         });
         return;
       }
@@ -193,12 +240,13 @@ function DocumentRequestCard({
       );
 
       if (!finalize.ok) {
-        const payload = (await finalize.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Berkas ditolak saat verifikasi. Coba berkas lain.",
+          message: await refusalMessage(
+            finalize,
+            DOCUMENT_FINALIZE_ERROR_COPY,
+            DOCUMENT_FINALIZE_FALLBACK,
+          ),
         });
         return;
       }
@@ -224,12 +272,13 @@ function DocumentRequestCard({
       );
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Gagal menghapus dokumen. Coba lagi.",
+          message: await refusalMessage(
+            response,
+            DOCUMENT_DELETE_ERROR_COPY,
+            DOCUMENT_DELETE_FALLBACK,
+          ),
         });
         return;
       }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, IconButton } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { getAppRoleLabel } from "@/lib/access/role-labels";
+import { errorMessageFor } from "@/lib/errors/error-copy";
 import { INSTITUTION_VERIFICATION_STATUS_LABELS } from "@/lib/institutions/verification-status-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import type { InstitutionVerificationStatus } from "@/server/db/schema";
@@ -48,29 +49,63 @@ type NoteItem = {
 // `src/server/accounts/deactivated-account.ts`, the de-identification service and the moderation
 // service rather than imported: those modules pull in the database client, and this is a client
 // component.
-const OPERATOR_ACTION_ERROR_COPY: Record<string, string> = {
+const OPERATOR_ACTION_ERROR_COPY: Partial<Record<string, string>> = {
   account_deactivated: "Data akun ini sudah dihapus. Tindakan ini tidak tersedia.",
-  deidentify_reason_too_long: "Alasan terlalu panjang (maksimal 500 karakter).",
-  deidentify_commit_failed:
-    "Berkas sudah dihapus tetapi data akun belum diubah. Jalankan lagi untuk menyelesaikan.",
   institution_has_no_owner:
     "Institusi ini tidak memiliki pemilik aktif, sehingga tidak dapat dipulihkan.",
   user_not_found: "Tidak ada pengguna dengan email itu.",
+  note_required: "Catatan wajib diisi.",
+  note_not_found: "Catatan tidak ditemukan. Muat ulang halaman lalu coba lagi.",
+  invalid_note_target: "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+  tier_invalid_payload: "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+  tier_invalid_target: "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+  tier_account_not_found: "Akun tidak ditemukan. Muat ulang halaman lalu coba lagi.",
+  tier_target_not_recruiter_verified:
+    "Akun ini belum terverifikasi sebagai rekruter, jadi tingkatnya tidak dapat dinaikkan.",
+  email_required: "Masukkan email pengguna terlebih dahulu.",
+  reason_required: "Alasan wajib diisi.",
+  cannot_suspend_platform_ops: "Akun tim internal Lombakita tidak dapat ditangguhkan.",
+  user_already_suspended:
+    "Pengguna ini sudah ditangguhkan. Muat ulang halaman untuk melihat status terbaru.",
+  user_not_suspended:
+    "Pengguna ini tidak sedang ditangguhkan. Muat ulang halaman untuk melihat status terbaru.",
+  slug_required: "Masukkan nama institusi terlebih dahulu.",
+  institution_not_found: "Tidak ada institusi yang cocok dengan pencarian itu.",
+  institution_already_suspended:
+    "Institusi ini sudah ditangguhkan. Muat ulang halaman untuk melihat status terbaru.",
+  institution_not_suspended:
+    "Institusi ini tidak sedang ditangguhkan. Muat ulang halaman untuk melihat status terbaru.",
+  operator_actor_not_found: "Akun Anda tidak ditemukan. Masuk lagi untuk melanjutkan.",
+  operator_actor_not_platform_ops:
+    "Akun Anda tidak lagi memiliki peran yang diperlukan untuk tindakan ini.",
+  operator_actor_suspended: "Akun Anda sedang ditangguhkan oleh tim Lombakita.",
+  operator_actor_is_target: "Anda tidak dapat melakukan tindakan ini pada akun Anda sendiri.",
+  operator_actor_conflicted:
+    "Anda tidak dapat mengambil tindakan atas institusi ini karena akun Anda pernah mengajukan verifikasi, diundang, atau menjadi anggota institusi tersebut.",
 };
 
-async function readError(res: Response): Promise<string> {
-  try {
-    const data = await res.json();
-    const copy = OPERATOR_ACTION_ERROR_COPY[data?.error?.code];
-    if (copy !== undefined) {
-      return copy;
-    }
-    return data?.error?.code
-      ? `${data.error.code}: ${data.error.message ?? ""}`
-      : `Error ${res.status}`;
-  } catch {
-    return `Error ${res.status}`;
-  }
+const NOTE_SAVE_FALLBACK = "Catatan gagal disimpan. Coba lagi.";
+const NOTES_LOAD_FALLBACK = "Catatan gagal dimuat. Coba lagi.";
+const NOTE_ADD_FALLBACK = "Catatan gagal ditambahkan. Coba lagi.";
+const RECRUITER_TIER_FALLBACK = "Tingkat rekruter gagal dinaikkan. Coba lagi.";
+const DEIDENTIFY_FALLBACK = "Data akun gagal dihapus. Muat ulang halaman lalu periksa statusnya.";
+const USER_LOOKUP_FALLBACK = "Pencarian pengguna gagal. Coba lagi.";
+const INSTITUTION_LOOKUP_FALLBACK = "Pencarian institusi gagal. Coba lagi.";
+
+const USER_ACTION_FALLBACK: Record<"suspend" | "unsuspend", string> = {
+  suspend: "Pengguna gagal ditangguhkan. Coba lagi.",
+  unsuspend: "Penangguhan gagal dicabut. Coba lagi.",
+};
+
+const INSTITUTION_ACTION_FALLBACK: Record<"suspend" | "reinstate", string> = {
+  suspend: "Institusi gagal ditangguhkan. Coba lagi.",
+  reinstate: "Institusi gagal dipulihkan. Coba lagi.",
+};
+
+async function readError(res: Response, fallback: string): Promise<string> {
+  const data = await res.json().catch(() => null);
+  const code = typeof data?.error?.code === "string" ? data.error.code : null;
+  return errorMessageFor(code, OPERATOR_ACTION_ERROR_COPY, fallback);
 }
 
 function NoteRow({ note, onSaved }: { note: NoteItem; onSaved: () => void }) {
@@ -88,7 +123,7 @@ function NoteRow({ note, onSaved }: { note: NoteItem; onSaved: () => void }) {
         body: JSON.stringify({ note: editText }),
       });
       if (!res.ok) {
-        addToast({ type: "error", message: await readError(res) });
+        addToast({ type: "error", message: await readError(res, NOTE_SAVE_FALLBACK) });
         return;
       }
       setEditing(false);
@@ -160,7 +195,7 @@ function NotesPanel({
     try {
       const res = await fetch(`/api/platform-ops/notes?${query}`);
       if (!res.ok) {
-        addToast({ type: "error", message: await readError(res) });
+        addToast({ type: "error", message: await readError(res, NOTES_LOAD_FALLBACK) });
         return;
       }
       const data = await res.json();
@@ -183,7 +218,7 @@ function NotesPanel({
         body: JSON.stringify({ ...target, note: noteInput }),
       });
       if (!res.ok) {
-        addToast({ type: "error", message: await readError(res) });
+        addToast({ type: "error", message: await readError(res, NOTE_ADD_FALLBACK) });
         return;
       }
       setNoteInput("");
@@ -269,8 +304,17 @@ const ELEVATION_TARGET_TIER = "elevated";
 // this map are the ones that count or name the institutions, teams or competitions still standing in
 // the way: only the server knows those, and its message already has them substituted, so it is shown
 // as it arrives.
-const DEIDENTIFY_ERROR_COPY: Record<string, string> = {
+const DEIDENTIFY_ERROR_COPY: Partial<Record<string, string>> = {
+  deidentify_invalid_payload: "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
   deidentify_reason_required: "Alasan wajib diisi.",
+  deidentify_reason_too_long: "Alasan terlalu panjang (maksimal 500 karakter).",
+  deidentify_account_not_found: "Akun tidak ditemukan. Muat ulang halaman lalu coba lagi.",
+  deidentify_commit_failed:
+    "Berkas sudah dihapus tetapi data akun belum diubah. Jalankan lagi untuk menyelesaikan.",
+  operator_actor_not_found: "Akun Anda tidak ditemukan. Masuk lagi untuk melanjutkan.",
+  operator_actor_not_platform_ops:
+    "Akun Anda tidak lagi memiliki peran yang diperlukan untuk tindakan ini.",
+  operator_actor_suspended: "Akun Anda sedang ditangguhkan oleh tim Lombakita.",
   deidentify_confirmation_mismatch: "Nama pengguna konfirmasi tidak cocok.",
   deidentify_already_done: "Data akun ini sudah dihapus sebelumnya.",
   deidentify_target_is_operator: "Akun operator tidak dapat dihapus lewat tindakan ini.",
@@ -298,14 +342,9 @@ async function readDeidentifyError(res: Response): Promise<string> {
       return message;
     }
 
-    const copy = DEIDENTIFY_ERROR_COPY[code];
-    if (copy !== undefined) {
-      return copy;
-    }
-
-    return code.length > 0 ? `${code}: ${message}` : `Error ${res.status}`;
+    return errorMessageFor(code, DEIDENTIFY_ERROR_COPY, DEIDENTIFY_FALLBACK);
   } catch {
-    return `Error ${res.status}`;
+    return DEIDENTIFY_FALLBACK;
   }
 }
 
@@ -323,7 +362,7 @@ function RecruiterTierAction({ account, onDone }: { account: UserResult; onDone:
         body: JSON.stringify({ tier: ELEVATION_TARGET_TIER }),
       });
       if (!res.ok) {
-        addToast({ type: "error", message: await readError(res) });
+        addToast({ type: "error", message: await readError(res, RECRUITER_TIER_FALLBACK) });
         return;
       }
       const data = await res.json();
@@ -464,7 +503,7 @@ function UserPanel({ initialEmail }: { initialEmail?: string }) {
     try {
       const res = await fetch(`/api/platform-ops/users/lookup?email=${encodeURIComponent(email)}`);
       if (!res.ok) {
-        addToast({ type: "error", message: await readError(res) });
+        addToast({ type: "error", message: await readError(res, USER_LOOKUP_FALLBACK) });
         return;
       }
       const data = await res.json();
@@ -492,7 +531,7 @@ function UserPanel({ initialEmail }: { initialEmail?: string }) {
         body: JSON.stringify({ reason }),
       });
       if (!res.ok) {
-        addToast({ type: "error", message: await readError(res) });
+        addToast({ type: "error", message: await readError(res, USER_ACTION_FALLBACK[action]) });
         return;
       }
       addToast({
@@ -597,7 +636,7 @@ function InstitutionPanel() {
         `/api/platform-ops/institutions/lookup?slug=${encodeURIComponent(slug)}`,
       );
       if (!res.ok) {
-        addToast({ type: "error", message: await readError(res) });
+        addToast({ type: "error", message: await readError(res, INSTITUTION_LOOKUP_FALLBACK) });
         return;
       }
       const data = await res.json();
@@ -618,7 +657,8 @@ function InstitutionPanel() {
         body: JSON.stringify({ reason }),
       });
       if (!res.ok) {
-        addToast({ type: "error", message: await readError(res) });
+        const message = await readError(res, INSTITUTION_ACTION_FALLBACK[action]);
+        addToast({ type: "error", message });
         return;
       }
       addToast({

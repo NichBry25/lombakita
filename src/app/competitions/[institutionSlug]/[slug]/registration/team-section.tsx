@@ -2,12 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  readErrorCode,
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor, NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import { getTeamRoleLabel } from "@/lib/access/role-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
 import { useModal, useToast } from "@/components/ui/primitives";
@@ -60,7 +56,60 @@ type Props = {
   registrationWithheld: boolean;
 };
 
-type ApiError = { code: string; message: string; details?: Record<string, unknown> };
+type SurfaceCopy = Partial<Record<string, string>>;
+
+const TEAM_ERROR_COPY: SurfaceCopy = {
+  forbidden: "Akun Anda bukan akun kandidat. Masuk dengan akun kandidat untuk melanjutkan.",
+  team_invalid_name: "Nama tim harus 2 sampai 80 karakter.",
+  team_invalid_identifier: "Masukkan username atau alamat email yang valid.",
+  team_invite_recipient_not_found: "Tidak ada akun dengan username tersebut.",
+  team_competition_not_found: "Kompetisi tidak ditemukan.",
+  team_competition_not_published: "Kompetisi tidak tersedia untuk pendaftaran.",
+  team_competition_mode_not_allowed: "Kompetisi ini hanya menerima pendaftaran individu.",
+  team_registration_not_allowed: "Kompetisi ini hanya menerima pendaftaran individu.",
+  team_competition_registration_closed: "Batas waktu pendaftaran telah terlewat.",
+  registration_window_closed: "Batas waktu pendaftaran telah terlewat.",
+  registration_not_yet_open: "Pendaftaran kompetisi ini belum dibuka.",
+  team_not_found: "Tim ini sudah tidak ada. Muat ulang halaman.",
+  team_not_captain: "Hanya kapten tim yang dapat melakukan tindakan ini.",
+  team_not_forming: "Tim ini sudah tidak dalam tahap pembentukan. Muat ulang halaman.",
+  team_name_taken: "Nama tim ini sudah dipakai di kompetisi ini. Pilih nama lain.",
+  team_candidate_already_member: "Anda sudah tergabung dalam tim untuk kompetisi ini.",
+  team_at_capacity: "Tim telah mencapai kapasitas maksimum.",
+  team_invite_already_pending: "Undangan untuk orang ini masih menunggu jawaban.",
+  team_invite_not_found: "Undangan tidak ditemukan. Muat ulang halaman.",
+  team_invite_not_actionable: "Undangan ini sudah tidak berlaku.",
+  team_membership_not_found: "Anggota ini sudah tidak ada di tim. Muat ulang halaman.",
+  team_member_not_in_team: "Anggota ini sudah tidak ada di tim. Muat ulang halaman.",
+  team_captain_cannot_leave:
+    "Kapten tidak dapat meninggalkan tim. Bubarkan tim jika ingin berhenti.",
+  team_forbidden: "Hanya kapten atau anggota itu sendiri yang dapat mengeluarkan anggota.",
+  team_member_already_registered: "Satu atau lebih anggota tim sudah terdaftar di kompetisi ini.",
+  team_state_conflict: "Status tim baru saja berubah. Muat ulang halaman lalu coba lagi.",
+  team_not_submitted: "Tim ini belum didaftarkan, jadi tidak ada pendaftaran yang bisa dibatalkan.",
+};
+
+// On an invitation the already-member refusal is about the invitee, not the caller.
+const TEAM_INVITE_ERROR_COPY: SurfaceCopy = {
+  ...TEAM_ERROR_COPY,
+  team_candidate_already_member: "Orang ini sudah ada di tim.",
+};
+
+const CREATE_TEAM_FALLBACK = "Gagal membuat tim. Coba lagi.";
+const CANCEL_TEAM_REGISTRATION_FALLBACK = "Gagal membatalkan pendaftaran tim. Coba lagi.";
+
+// A size limit the competition does not set has no number to name, so that refusal shows the
+// action's fallback.
+const teamSizeErrorCopy = (minTeamSize: number | null, maxTeamSize: number | null): SurfaceCopy => {
+  const copy: SurfaceCopy = {};
+  if (minTeamSize !== null) {
+    copy.team_size_insufficient = `Tim membutuhkan minimal ${minTeamSize} anggota aktif.`;
+  }
+  if (maxTeamSize !== null) {
+    copy.team_size_exceeded = `Tim melebihi maksimum ${maxTeamSize} anggota aktif.`;
+  }
+  return copy;
+};
 
 const TEAM_STATUS_LABELS: Record<string, string> = {
   forming: "Pembentukan",
@@ -71,21 +120,13 @@ const TEAM_STATUS_LABELS: Record<string, string> = {
 const getTeamStatusLabel = (status: string): string =>
   TEAM_STATUS_LABELS[status] ?? formatDisplayToken(status);
 
-const handleError = async (res: Response): Promise<ApiError> => {
-  const code = (await readErrorCode(res)) ?? `http_${res.status}`;
-  if (code === SESSION_MISMATCH_CODE) {
-    return { code, message: SESSION_MISMATCH_MESSAGE };
-  }
-  try {
-    const body = await res.clone().json();
-    return {
-      code,
-      message: body?.error?.message ?? `Request failed with status ${res.status}`,
-      details: body?.error?.details,
-    };
-  } catch {
-    return { code, message: `Request failed with status ${res.status}` };
-  }
+const readRefusalMessage = async (
+  res: Response,
+  surfaceCopy: SurfaceCopy,
+  fallback: string,
+): Promise<string> => {
+  const code = await readErrorCode(res);
+  return errorMessageFor(code, surfaceCopy, fallback);
 };
 
 export function CompetitionTeamSection(props: Props) {
@@ -146,12 +187,14 @@ function CreateTeamForm(props: Props) {
         },
       );
       if (!res.ok) {
-        const err = await handleError(res);
-        addToast({ type: "error", message: err.message });
+        const message = await readRefusalMessage(res, TEAM_ERROR_COPY, CREATE_TEAM_FALLBACK);
+        addToast({ type: "error", message });
         return;
       }
       router.refresh();
       setName("");
+    } catch {
+      addToast({ type: "error", message: NETWORK_ERROR_MESSAGE });
     } finally {
       setBusy(false);
     }
@@ -301,13 +344,14 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     label: string,
     url: string,
     init: RequestInit,
+    surfaceCopy: SurfaceCopy,
   ) => {
     setPendingAction(actionKey);
     try {
       const res = await sessionFetch(props.expectedUserId, url, init);
       if (!res.ok) {
-        const err = await handleError(res);
-        addToast({ type: "error", message: err.message });
+        const message = await readRefusalMessage(res, surfaceCopy, `Gagal ${label}.`);
+        addToast({ type: "error", message });
         return;
       }
       router.refresh();
@@ -320,11 +364,17 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
 
   const onInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    await executeAction("invite", "mengirim undangan", `/api/v1/teams/${team.id}/invitations`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ invitedIdentifier: inviteIdentifier }),
-    });
+    await executeAction(
+      "invite",
+      "mengirim undangan",
+      `/api/v1/teams/${team.id}/invitations`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ invitedIdentifier: inviteIdentifier }),
+      },
+      TEAM_INVITE_ERROR_COPY,
+    );
     setInviteIdentifier("");
   };
 
@@ -334,6 +384,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       "membatalkan undangan",
       `/api/v1/teams/${team.id}/invitations/${tokenHash}`,
       { method: "DELETE" },
+      TEAM_ERROR_COPY,
     );
 
   const onRemoveMember = (membershipId: string) =>
@@ -342,6 +393,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       "menghapus anggota",
       `/api/v1/teams/${team.id}/memberships/${membershipId}`,
       { method: "DELETE" },
+      TEAM_ERROR_COPY,
     );
 
   const onDisband = () =>
@@ -353,9 +405,13 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
           label: "Bubarkan tim",
           autoClose: true,
           onClick: () => {
-            void executeAction("disband", "membubarkan tim", `/api/v1/teams/${team.id}`, {
-              method: "DELETE",
-            });
+            void executeAction(
+              "disband",
+              "membubarkan tim",
+              `/api/v1/teams/${team.id}`,
+              { method: "DELETE" },
+              TEAM_ERROR_COPY,
+            );
           },
         },
         { label: "Batal", onClick: () => {} },
@@ -376,6 +432,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
               "meninggalkan tim",
               `/api/v1/teams/${team.id}/memberships/${membershipId}`,
               { method: "DELETE" },
+              TEAM_ERROR_COPY,
             );
           },
         },
@@ -389,6 +446,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
       "mendaftarkan tim",
       `/api/v1/competitions/${props.competitionId}/teams/${team.id}/registrations`,
       { method: "POST" },
+      { ...TEAM_ERROR_COPY, ...teamSizeErrorCopy(props.minTeamSize, props.maxTeamSize) },
     );
 
   const submitTeamCancel = async (reason: string) => {
@@ -405,8 +463,12 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
         },
       );
       if (!res.ok) {
-        const e = await handleError(res);
-        addToast({ type: "error", message: TEAM_CANCEL_MESSAGE[e.code] ?? e.message });
+        const message = await readRefusalMessage(
+          res,
+          { ...TEAM_ERROR_COPY, ...TEAM_CANCEL_MESSAGE },
+          CANCEL_TEAM_REGISTRATION_FALLBACK,
+        );
+        addToast({ type: "error", message });
         return;
       }
       addToast({ type: "success", message: "Pendaftaran tim dibatalkan." });

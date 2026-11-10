@@ -3,12 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
-import {
-  readErrorCode,
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import { useModal, useToast } from "@/components/ui/primitives";
 
 // Actionable accept/reject controls for an inbox invitation card. Acceptance is in-app
@@ -25,15 +21,31 @@ const ENDPOINT_SEGMENT: Record<InviteKind, string> = {
   team: "team",
 };
 
-const readErrorMessage = async (response: Response): Promise<string> => {
+const INVITE_ERROR_COPY: Partial<Record<string, string>> = {
+  invitation_not_found: "Undangan tidak ditemukan. Muat ulang halaman.",
+  team_invite_not_found: "Undangan tidak ditemukan. Muat ulang halaman.",
+  invitation_not_actionable: "Undangan ini sudah tidak berlaku.",
+  team_invite_not_actionable: "Undangan ini sudah tidak berlaku.",
+  invitation_role_verification_required:
+    "Undangan ini hanya bisa diterima oleh akun rekruter yang sudah diverifikasi. Verifikasi akun rekruter Anda terlebih dahulu.",
+  invitation_already_member: "Anda sudah menjadi anggota institusi ini.",
+  account_deactivated: "Data akun ini sudah dihapus. Tindakan ini tidak tersedia.",
+  team_not_found: "Tim ini sudah tidak ada. Muat ulang halaman.",
+  team_not_forming: "Tim ini sudah tidak menerima anggota baru.",
+  team_invite_candidate_required:
+    "Undangan tim hanya bisa diterima oleh akun kandidat. Verifikasi akun kandidat Anda terlebih dahulu.",
+  team_candidate_already_member: "Anda sudah tergabung dalam tim untuk kompetisi ini.",
+  forbidden: "Akun ini tidak dapat menerima undangan.",
+};
+
+const INVITE_FALLBACK: Record<InviteAction, string> = {
+  accept: "Gagal menerima undangan. Coba lagi.",
+  decline: "Gagal menolak undangan. Coba lagi.",
+};
+
+const readErrorMessage = async (response: Response, action: InviteAction): Promise<string> => {
   const code = await readErrorCode(response);
-  if (code === SESSION_MISMATCH_CODE) return SESSION_MISMATCH_MESSAGE;
-  try {
-    const body = (await response.clone().json()) as { error?: { message?: string } };
-    return body.error?.message ?? `Permintaan gagal (${response.status}).`;
-  } catch {
-    return `Permintaan gagal (${response.status}).`;
-  }
+  return errorMessageFor(code, INVITE_ERROR_COPY, INVITE_FALLBACK[action]);
 };
 
 export function InboxInviteActions({
@@ -60,7 +72,7 @@ export function InboxInviteActions({
         { method: "POST" },
       );
       if (!res.ok) {
-        addToast({ type: "error", message: await readErrorMessage(res) });
+        addToast({ type: "error", message: await readErrorMessage(res, action) });
         // A stale card (already accepted/declined/expired elsewhere) is dropped by refreshing.
         router.refresh();
         return;

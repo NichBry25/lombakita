@@ -11,6 +11,41 @@ import {
   PageHeader,
   Skeleton,
 } from "@/components/ui";
+import { errorMessageFor, NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
+
+type SurfaceCopy = Partial<Record<string, string>>;
+
+const RECRUITER_VERIFICATION_ERROR_COPY: SurfaceCopy = {
+  invalid_payload: "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+  recruiter_verification_not_found: "Pengajuan tidak ditemukan. Muat ulang halaman lalu coba lagi.",
+  operator_actor_is_target: "Anda tidak dapat melakukan tindakan ini pada akun Anda sendiri.",
+  operator_actor_not_found: "Akun Anda tidak ditemukan. Masuk lagi untuk melanjutkan.",
+  operator_actor_not_platform_ops:
+    "Akun Anda tidak lagi memiliki peran yang diperlukan untuk tindakan ini.",
+  operator_actor_suspended: "Akun Anda sedang ditangguhkan oleh tim Lombakita.",
+};
+
+// The same already-reviewed code means a different thing on the review and on the resubmission
+// switch, so each action holds its own sentence for it.
+const REVIEW_ERROR_COPY: SurfaceCopy = {
+  ...RECRUITER_VERIFICATION_ERROR_COPY,
+  recruiter_verification_invalid_value: "Isi alasan penolakan.",
+  recruiter_verification_already_reviewed:
+    "Pengajuan ini sudah ditinjau. Muat ulang halaman untuk melihat hasilnya.",
+};
+
+const RESUBMISSION_ERROR_COPY: SurfaceCopy = {
+  ...RECRUITER_VERIFICATION_ERROR_COPY,
+  recruiter_verification_already_reviewed:
+    "Izin pengajuan ulang hanya dapat diubah pada pengajuan yang ditolak. Muat ulang halaman untuk melihat status terbaru.",
+};
+
+const REVIEW_FALLBACK: Record<"approve" | "reject", string> = {
+  approve: "Pengajuan gagal disetujui. Coba lagi.",
+  reject: "Pengajuan gagal ditolak. Coba lagi.",
+};
+
+const RESUBMISSION_FALLBACK = "Izin pengajuan ulang gagal diubah. Coba lagi.";
 
 type PendingDocument = { id: string; originalFileName: string; contentType: string };
 
@@ -106,9 +141,16 @@ export default function RecruiterVerificationQueuePage() {
         );
         if (!response.ok) {
           const payload = (await response.json().catch(() => null)) as {
-            error?: { message?: string };
+            error?: { code?: string };
           } | null;
-          addToast({ type: "error", message: payload?.error?.message ?? "Peninjauan gagal." });
+          addToast({
+            type: "error",
+            message: errorMessageFor(
+              payload?.error?.code,
+              REVIEW_ERROR_COPY,
+              REVIEW_FALLBACK[decision],
+            ),
+          });
           return;
         }
         addToast({
@@ -117,6 +159,8 @@ export default function RecruiterVerificationQueuePage() {
         });
         closeModal();
         void reload();
+      } catch {
+        addToast({ type: "error", message: NETWORK_ERROR_MESSAGE });
       } finally {
         setPendingAction(null);
       }
@@ -165,9 +209,16 @@ export default function RecruiterVerificationQueuePage() {
         );
         if (!response.ok) {
           const payload = (await response.json().catch(() => null)) as {
-            error?: { message?: string };
+            error?: { code?: string };
           } | null;
-          addToast({ type: "error", message: payload?.error?.message ?? "Perubahan gagal." });
+          addToast({
+            type: "error",
+            message: errorMessageFor(
+              payload?.error?.code,
+              RESUBMISSION_ERROR_COPY,
+              RESUBMISSION_FALLBACK,
+            ),
+          });
           return;
         }
         addToast({

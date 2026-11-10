@@ -12,6 +12,11 @@ import { resolveVerificationRefusalMessage } from "@/lib/institutions/verificati
 
 type SubmissionStatus = "pending_review" | "approved" | "rejected";
 
+const DECISION_FALLBACK: Record<"approved" | "rejected", string> = {
+  approved: "Pengajuan gagal disetujui. Coba lagi.",
+  rejected: "Pengajuan gagal ditolak. Coba lagi.",
+};
+
 type PendingItem = {
   id: string;
   institutionId: string;
@@ -76,7 +81,7 @@ function ReviewPanelBody({
       if (!res.ok) {
         addToast({
           type: "error",
-          message: resolveVerificationRefusalMessage(data.error, `Error ${res.status}`),
+          message: resolveVerificationRefusalMessage(data.error, DECISION_FALLBACK[decision]),
         });
         return;
       }

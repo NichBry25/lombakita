@@ -3,15 +3,35 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { OwnerProfileResponse, ProfileFieldValue } from "@/server/user-profile/profile-core";
-import {
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { sessionFetch } from "@/lib/session/session-fetch";
 import { Button, FormActionBar, Icon, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { ProfileCollectionsEditor } from "./profile-collections-editor";
 import { AvatarUpload, BannerUpload, ResumeSection } from "./profile-media-controls";
+
+// A key "<code>.<field>" holds the sentence for a refusal about one field.
+const PROFILE_ERROR_COPY: Partial<Record<string, string>> = {
+  "profile_invalid_value.username":
+    "Username tidak valid. Gunakan 3 sampai 30 huruf kecil, angka, atau garis bawah.",
+  "profile_invalid_value.displayName": "Nama tampil maksimal 120 karakter.",
+  "profile_invalid_value.location": "Lokasi maksimal 120 karakter.",
+  "profile_invalid_value.bio": "Bio maksimal 300 karakter.",
+  profile_username_reserved: "Username ini tidak tersedia.",
+  profile_username_taken: "Username sudah dipakai akun lain.",
+  profile_username_conflicts_with_institution:
+    "Username ini sudah dipakai oleh institusi. Pilih username lain.",
+};
+
+const PROFILE_SAVE_FALLBACK = "Gagal menyimpan profil. Coba lagi.";
+
+const refusalCopyKey = (
+  code: string | undefined,
+  field: string | undefined,
+): string | undefined => {
+  const fieldKey = `${code}.${field}`;
+  return field && PROFILE_ERROR_COPY[fieldKey] ? fieldKey : code;
+};
 
 type Props = {
   profile: OwnerProfileResponse;
@@ -96,22 +116,18 @@ export function ProfileEditShell({ profile, expectedUserId }: Props) {
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
-
       if (!res.ok) {
-        const errCode: string = data?.error?.code ?? "unknown";
-        const errMsg: string = data?.error?.message ?? "Terjadi kesalahan saat menyimpan profil.";
-
-        if (errCode === SESSION_MISMATCH_CODE) {
-          addToast({ type: "error", message: SESSION_MISMATCH_MESSAGE });
-        } else if (errCode === "profile_username_taken") {
-          addToast({ type: "error", message: "Username sudah dipakai akun lain." });
-        } else if (errCode === "profile_username_reserved") {
-          addToast({ type: "error", message: "Username ini tidak tersedia." });
-        } else {
-          addToast({ type: "error", message: errMsg });
-        }
+        const data = (await res.json().catch(() => null)) as {
+          error?: { code?: string; details?: { fields?: string[] } };
+        } | null;
+        const copyKey = refusalCopyKey(data?.error?.code, data?.error?.details?.fields?.[0]);
+        addToast({
+          type: "error",
+          message: errorMessageFor(copyKey, PROFILE_ERROR_COPY, PROFILE_SAVE_FALLBACK),
+        });
       } else {
+        // A success answer whose body is not JSON still ends in the connection catch below.
+        await res.json();
         addToast({ type: "success", message: "Profil berhasil disimpan." });
         // Re-fetch the /profile server component so it shows the just-saved values.
         router.refresh();

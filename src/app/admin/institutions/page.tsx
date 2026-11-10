@@ -12,10 +12,15 @@ import {
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { emailDeliveryWarning } from "@/lib/email/delivery-notice";
+import { NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
 import { resolveVerificationRefusalMessage } from "@/lib/institutions/verification-refusal-copy";
 import { INSTITUTION_VERIFICATION_STATUS_LABELS } from "@/lib/institutions/verification-status-labels";
 
 type VerificationStatus = "pending_verification" | "under_review" | "verified" | "rejected";
+
+const REJECT_FALLBACK = "Institusi gagal ditolak. Coba lagi.";
+const REVOKE_FALLBACK = "Verifikasi gagal dicabut. Coba lagi.";
+const TRANSITION_FALLBACK = "Status verifikasi gagal diubah. Coba lagi.";
 
 type AuditEntry = {
   id: string;
@@ -100,9 +105,10 @@ function RejectInstitutionForm({
       });
       const data = await res.json();
       if (!res.ok) {
+        const fallback = isRevocation ? REVOKE_FALLBACK : REJECT_FALLBACK;
         addToast({
           type: "error",
-          message: resolveVerificationRefusalMessage(data?.error, `Error ${res.status}`),
+          message: resolveVerificationRefusalMessage(data?.error, fallback),
         });
         return;
       }
@@ -221,11 +227,13 @@ export default function AdminInstitutionsPage() {
       const data = await res.json();
       if (!res.ok) {
         return {
-          ok: false,
-          message: resolveVerificationRefusalMessage(data?.error, `Error ${res.status}`),
+          ok: false as const,
+          message: resolveVerificationRefusalMessage(data?.error, TRANSITION_FALLBACK),
         };
       }
-      return { ok: true, deliveryWarning: emailDeliveryWarning(data?.emailDelivery) };
+      return { ok: true as const, deliveryWarning: emailDeliveryWarning(data?.emailDelivery) };
+    } catch {
+      return { ok: false as const, message: NETWORK_ERROR_MESSAGE };
     } finally {
       setActionLoading(false);
     }
@@ -236,7 +244,7 @@ export default function AdminInstitutionsPage() {
     const result = await performTransition(institutionId, targetStatus);
     setPendingRowAction(null);
     if (!result.ok) {
-      addToast({ type: "error", message: `Gagal: ${result.message}` });
+      addToast({ type: "error", message: result.message });
       return;
     }
     if (result.deliveryWarning) {

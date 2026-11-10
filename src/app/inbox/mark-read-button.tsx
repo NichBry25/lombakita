@@ -3,13 +3,15 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui";
-import {
-  readErrorCode,
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import { useToast } from "@/components/ui/primitives";
+
+const MARK_READ_ERROR_COPY: Partial<Record<string, string>> = {
+  notification_not_found: "Notifikasi ini sudah tidak ada. Muat ulang halaman.",
+};
+
+const MARK_READ_FALLBACK = "Gagal menandai notifikasi sebagai dibaca. Coba lagi.";
 
 export function MarkReadButton({
   notificationId,
@@ -34,10 +36,7 @@ export function MarkReadButton({
         const code = await readErrorCode(res);
         addToast({
           type: "error",
-          message:
-            code === SESSION_MISMATCH_CODE
-              ? SESSION_MISMATCH_MESSAGE
-              : `Gagal menandai dibaca (${res.status}).`,
+          message: errorMessageFor(code, MARK_READ_ERROR_COPY, MARK_READ_FALLBACK),
         });
         setPending(false);
         return;
