@@ -1,5 +1,11 @@
 import type { Session } from "next-auth";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const { reportUnexpectedErrorMock } = vi.hoisted(() => ({ reportUnexpectedErrorMock: vi.fn() }));
+vi.mock("@/server/observability/report-unexpected-error", () => ({
+  reportUnexpectedError: reportUnexpectedErrorMock,
+}));
+
 import {
   AccessError,
   assertAuthenticatedSession,
@@ -360,5 +366,31 @@ describe("account state unavailable refusal", () => {
         message: "Account status is temporarily unavailable",
       },
     });
+  });
+});
+
+describe("toAccessDeniedResponse — unexpected errors", () => {
+  it("reports an error that is not an AccessError and answers the fixed 500", async () => {
+    reportUnexpectedErrorMock.mockClear();
+    const error = new Error("Failed query: x\nparams: secret-value");
+
+    const response = toAccessDeniedResponse(error);
+
+    expect(reportUnexpectedErrorMock).toHaveBeenCalledWith("an access-guarded route", error);
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "access_guard_failed",
+        message: "Unexpected access-guard failure",
+      },
+    });
+  });
+
+  it("does not report an AccessError", () => {
+    reportUnexpectedErrorMock.mockClear();
+
+    toAccessDeniedResponse(new AccessError("forbidden", 403, "Forbidden"));
+
+    expect(reportUnexpectedErrorMock).not.toHaveBeenCalled();
   });
 });

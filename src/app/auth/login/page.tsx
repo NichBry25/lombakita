@@ -45,7 +45,7 @@ const mapSignInPageError = (error: string): string => {
   if (error === "Configuration") {
     return "Login gagal karena konfigurasi autentikasi belum lengkap. Hubungi admin sistem.";
   }
-  return `Login gagal karena ${error}. Coba ulang atau hubungi admin jika masalah berlanjut.`;
+  return "Login gagal. Coba ulang atau hubungi admin jika masalah berlanjut.";
 };
 
 export default async function LoginPage(props: {

@@ -88,11 +88,11 @@ const assertUnderMfaRequestLimit = async (userId: string): Promise<void> => {
     }
 
     default: {
-      const unhandled: never = outcome;
+      outcome satisfies never;
       throw new MfaError(
         "mfa_rate_limit_unavailable",
         503,
-        `Verification is temporarily unavailable (unhandled limiter decision ${JSON.stringify(unhandled)})`,
+        "Verification is temporarily unavailable",
       );
     }
   }

@@ -89,4 +89,11 @@ describe("toFeeRuleTerms", () => {
   it("refuses a rule denominated in a currency this system cannot interpret", () => {
     expect(() => toFeeRuleTerms(rule({ currency: "USD" }))).toThrow(FeeRuleError);
   });
+
+  it("does not name the rule id in the unsupported currency message", () => {
+    expect(() => toFeeRuleTerms(rule({ id: "rule-1", currency: "USD" }))).toThrow(
+      "Fee rule is denominated in unsupported currency USD",
+    );
+    expect(() => toFeeRuleTerms(rule({ id: "rule-1", currency: "USD" }))).not.toThrow(/rule-1/);
+  });
 });

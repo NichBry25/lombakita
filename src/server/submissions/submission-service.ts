@@ -449,7 +449,6 @@ export const createOrReplaceSubmission = async (
     throw new SubmissionError(
       "submission_invalid_file_key",
       "fileKey is not scoped to this registration",
-      { details: { requiredPrefix } },
     );
   }
 

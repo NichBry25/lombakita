@@ -49,7 +49,8 @@ const resolveState = async (token: string | undefined): Promise<VerifyEmailPageS
       return {
         status: "error",
         title: "Verifikasi gagal",
-        description: error.message,
+        description:
+          "Tautan verifikasi tidak valid atau sudah dipakai. Kembali ke halaman login untuk kirim ulang verifikasi.",
       };
     }
 

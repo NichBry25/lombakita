@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { type AppRole, isAppRole, isSelfServiceRole, sessionHasRole } from "@/lib/access/roles";
 import { ACCOUNT_STATE_UNAVAILABLE_MESSAGE } from "@/lib/observability/account-state-unavailable";
 import type { MfaStatus } from "@/server/auth/mfa/mfa-status";
+import { reportUnexpectedError } from "@/server/observability/report-unexpected-error";
 
 export type AuthenticatedSession = Session & {
   user: NonNullable<Session["user"]> & {
@@ -184,6 +185,7 @@ export const toAccessDeniedResponse = (error: unknown): NextResponse => {
     );
   }
 
+  reportUnexpectedError("an access-guarded route", error);
   return NextResponse.json(
     {
       error: {
