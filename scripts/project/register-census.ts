@@ -1286,7 +1286,11 @@ export function measureRegister(
   const items = censusDebtItems(registerFiles);
   const log = readDecisionLog(decisionLogFile);
   const table = readDecisionTable(decisionTableFile);
-  const tableIds = fullTableIds(table, decisionTableFile);
+  refuseLogMarkers(log, decisionLogFile);
+  refuseTableMarkers(table, decisionTableFile);
+  refuseLogWithoutIndexRows(log, decisionLogFile);
+  refuseTableWithoutRows(table, decisionTableFile);
+  const tableIds = fullTableIds(table);
   refuseStrayDecisionRows(log, decisionLogFile, table, decisionTableFile, tableIds);
   const records = [
     ...decisionRecords(log, decisionLogFile),
@@ -1387,24 +1391,64 @@ function markedRegion(lines: string[], begin: string, end: string): MarkedRegion
   return region.begin < region.end ? region : null;
 }
 
+function refuseLogMarkers(logText: string, logFile: string): void {
+  if (markedRegion(logText.split("\n"), INDEX_BEGIN, INDEX_END) !== null) return;
+  throw new RegisterRefusal(
+    logFile,
+    0,
+    `the decision log does not hold exactly one ${INDEX_BEGIN} line followed by exactly one ${INDEX_END} line`,
+  );
+}
+
+function refuseTableMarkers(tableText: string, tableFile: string): void {
+  if (markedRegion(tableText.split("\n"), SEEDED_BEGIN, SEEDED_END) !== null) return;
+  throw new RegisterRefusal(
+    tableFile,
+    0,
+    `the decision table does not hold exactly one ${SEEDED_BEGIN} line followed by exactly one ${SEEDED_END} line`,
+  );
+}
+
 /**
- * The first cells of the generated table's rows below its head and delimiter rows, refusing a table
- * that holds none: every decision obligation would then measure an empty population and read zero.
+ * Refuses a log whose index region holds no row below its head and delimiter rows: every count over
+ * the log would then read zero and pass.
  */
-function fullTableIds(tableText: string, tableFile: string): Set<string> {
+function refuseLogWithoutIndexRows(logText: string, logFile: string): void {
+  const lines = logText.split("\n");
+  const region = markedRegion(lines, INDEX_BEGIN, INDEX_END);
+  const rows =
+    region === null
+      ? []
+      : lines.slice(region.begin + 3, region.end).filter((line) => TABLE_ROW.test(line));
+  if (rows.length > 0) return;
+  throw new RegisterRefusal(
+    logFile,
+    0,
+    `the decision log holds no index row between ${INDEX_BEGIN} and ${INDEX_END}`,
+  );
+}
+
+/**
+ * Refuses a table that holds no row: every decision obligation would then measure an empty
+ * population and read zero.
+ */
+function refuseTableWithoutRows(tableText: string, tableFile: string): void {
+  if (fullTableIds(tableText).size > 0) return;
+  throw new RegisterRefusal(
+    tableFile,
+    0,
+    `the decision table holds no table row between ${SEEDED_BEGIN} and ${SEEDED_END}`,
+  );
+}
+
+/** The first cells of the generated table's rows below its head and delimiter rows. */
+function fullTableIds(tableText: string): Set<string> {
   const lines = tableText.split("\n");
   const region = markedRegion(lines, SEEDED_BEGIN, SEEDED_END);
   const rows =
     region === null
       ? []
       : lines.slice(region.begin + 3, region.end).filter((line) => TABLE_ROW.test(line));
-  if (rows.length === 0) {
-    throw new RegisterRefusal(
-      tableFile,
-      0,
-      `the decision table holds no table row between ${SEEDED_BEGIN} and ${SEEDED_END}`,
-    );
-  }
   return new Set(rows.map((row) => splitRow(row)[0] ?? ""));
 }
 
@@ -1429,12 +1473,15 @@ function refuseStrayDecisionRows(
     const region = markedRegion(lines, source.begin, source.end);
     const insideRegion = (at: number): boolean =>
       region !== null && at > region.begin && at < region.end;
+    // Markdown reads a line indented by up to three spaces as a table line too.
     const stray = lines.findIndex(
       (line, at) =>
-        !insideRegion(at) && TABLE_ROW.test(line) && tableIds.has(splitRow(line)[0] ?? ""),
+        !insideRegion(at) &&
+        /^ {0,3}\|/.test(line) &&
+        tableIds.has(splitRow(line.trimStart())[0] ?? ""),
     );
     if (stray === -1) continue;
-    const id = splitRow(lines[stray] as string)[0];
+    const id = splitRow((lines[stray] as string).trimStart())[0];
     throw new RegisterRefusal(
       source.file,
       stray + 1,

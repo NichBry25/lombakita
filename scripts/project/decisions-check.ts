@@ -5,16 +5,16 @@
  * Run:  node --import tsx scripts/project/decisions-check.ts [--docs <dir>]
  *
  * Exits 1 and prints the id and the reason for every failure. A directory it cannot read, or a log
- * it cannot render, is a failure and never an empty pass.
+ * or table it cannot render, is a failure and never an empty pass.
  *
  * A fresh render of the log and of the table, read as one population, is read by the register
  * census's own functions for six of its eight decision-log counts, and each must be zero: rows
- * outside every table, rows written on another
- * row's line, rows whose cell count is not their columns' count, rows whose Date cell is not a
- * date, supersede claims naming their own row, and supersede claims naming an id with no row. The
- * other two are not run: the floor on Supersedes cells that hold nothing but an id, and the filed
- * count of claims naming a newer decision. A log this check passes can therefore still fail the
- * register gate on a floor that a clean set of files does not meet.
+ * outside every table, rows written on another row's line, rows whose cell count is not their
+ * columns' count, rows whose Date cell is not a date, supersede claims naming their own row, and
+ * supersede claims naming an id with no row. The other two are not run: the floor on Supersedes
+ * cells that hold nothing but an id, and the filed count of claims naming a newer decision. A log
+ * this check passes can therefore still fail the register gate on a floor that a clean set of files
+ * does not meet.
  */
 
 import { join } from "node:path";

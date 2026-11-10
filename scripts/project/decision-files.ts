@@ -57,7 +57,9 @@ export interface DecisionFile {
   rationale: string;
 }
 
-/** A file that cannot be read as a decision, or a log that cannot take generated regions. */
+/**
+ * A file that cannot be read as a decision, or a log or table that cannot take generated regions.
+ */
 export class DecisionRefusal extends Error {
   constructor(
     readonly subject: string,
@@ -422,13 +424,17 @@ function refuseStrayRowsIn(
   region: MarkedRegion,
   ids: Set<string>,
 ): void {
+  // Markdown reads a line indented by up to three spaces as a table line too.
   const stray = lines.findIndex(
     (line, at) =>
-      (at < region.begin || at > region.end) && line.startsWith("|") && ids.has(firstCell(line)),
+      (at < region.begin || at > region.end) &&
+      /^ {0,3}\|/.test(line) &&
+      ids.has(firstCell(line.trimStart())),
   );
   if (stray === -1) return;
+  const id = firstCell((lines[stray] as string).trimStart());
   throw new DecisionRefusal(
     subject,
-    `line ${stray + 1}: ${firstCell(lines[stray] as string)} heads a full table row outside the generated table of ${DECISION_TABLE_IN_DOCS}`,
+    `line ${stray + 1}: ${id} heads a full table row outside the generated table of ${DECISION_TABLE_IN_DOCS}`,
   );
 }

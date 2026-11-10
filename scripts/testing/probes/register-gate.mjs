@@ -1,22 +1,21 @@
 /*
  * Rule 36 probes for the register gate.
  *
- * WHY THIS FILE EXISTS. `npm run verify:register` asserts twelve obligations — eleven held at a
- * number, nine of them exactly and two as floors, and one reported rather than asserted — over
- * `open-debt.md`, `decision-log.md` and the close procedure that runs it. A pinned literal is a
- * claim about what the file currently contains, and the Phase 2 precedent
- * is explicit: the census
- * ratchet pinned at 40 was never observed failing, and a ratchet that has never gone red is a
- * literal nobody has tested — it could be asserting a number that no input can move. So each probe
- * here breaks the file the way the defect was actually found in it, and requires the gate to go red
- * naming THAT obligation and THAT measured number.
+ * WHY THIS FILE EXISTS. `npm run verify:register` asserts thirteen obligations, twelve held at a
+ * number (ten of them exactly and two as floors) and one reported rather than asserted, over
+ * `open-debt.md`, `decision-log.md`, `decision-table.md` and the close procedure that runs it. A
+ * pinned literal is a claim about what the file currently contains, and the Phase 2 precedent is
+ * explicit: the census ratchet pinned at 40 was never observed failing, and a ratchet that has never
+ * gone red is a literal nobody has tested — it could be asserting a number that no input can move.
+ * So each probe here breaks the file the way the defect was actually found in it, and requires the
+ * gate to go red naming THAT obligation and THAT measured number.
  *
  * THE CONTROL MATTERS AS MUCH AS THE PROBES. A gate that was already red before anything was
  * mutated would make every probe below report "red as claimed" while proving nothing about the
  * mutation. The entry point therefore requires the gate GREEN before the first probe runs, and
  * refuses the whole suite if it is not.
  *
- * CLASS D (Rule 36): the gate is a read-only instrument over three text files — there is no write to
+ * CLASS D (Rule 36): the gate is a read-only instrument over text files — there is no write to
  * reorder and no transaction to roll back, so the detector is result content. Every probe's failure
  * mode is the same: the harm is an unrecorded item, a broken row or a vacuous instrument, not a
  * committed mutation, so "what did it refuse and why" is the whole of the evidence.
@@ -147,11 +146,8 @@ const CLOSE_STEP_COMMIT_LINE =
 const SUPERSEDES_CELL_OF_DEC_0010 = "| DEC-0153 |\n| DEC-0011 |";
 
 /**
- * Row prefixes run as far as the `| owner |` cell on purpose.
- *
- * The Index table repeats every decision's id and title, so an anchor that stops at the title
- * matches twice and `substituteOnce` refuses it. `| owner |` is a Seeded Decisions column and
- * appears in no Index row, which is what makes these unambiguous.
+ * Row prefixes run as far as the `| owner |` cell, a column only the full table has, so that each
+ * anchor matches exactly one record.
  *
  * DEC-0125's row is glued onto DEC-0124's because DEC-0124 declares seven cells. That detail is the
  * whole of the mutation: the log's glue detector keys on a doubled pipe, which puts the glued
@@ -166,8 +162,9 @@ const ROW_DEC_0125 =
 /**
  * The last row of the contiguous run of table lines that opens under `## Seeded Decisions`.
  *
- * Found when the probe runs rather than named, because a row appended to the log moves the end of
- * that run and a probe pinned to one row's text then orphans every row below it instead of one.
+ * Found when the probe runs rather than named, because a row appended to the decision table moves
+ * the end of that run and a probe pinned to one row's text then orphans every row below it instead
+ * of one.
  */
 const lastRowOfSeededDecisionsTable = () => {
   const lines = readFileSync(DECISION_TABLE, "utf8").split("\n");
@@ -426,6 +423,26 @@ export const probes = [
       ),
   },
   {
+    name: "a decision log with no index rows fails the close",
+    klass: "D",
+    harmfulMove:
+      "emptying the index, so the gate measures a log whose rows are gone and every index count reads zero",
+    files: [DECISION_LOG],
+    repo: DOC_LANE,
+    appliedMarkers: ["<!-- decisions:index:begin -->\n<!-- decisions:index:end -->"],
+    mutate: () => {
+      const text = readFileSync(DECISION_LOG, "utf8");
+      const begin = text.indexOf("<!-- decisions:index:begin -->\n");
+      const end = text.indexOf("<!-- decisions:index:end -->");
+      const between = text.slice(begin + "<!-- decisions:index:begin -->\n".length, end);
+      substituteOnce(DECISION_LOG, between, "");
+    },
+    detect: () =>
+      gateRefused(
+        /the census refuses docs\/project\/decision-log\.md:\d+: the decision log holds no index row between/,
+      ),
+  },
+  {
     name: "two records glued onto one line fail the close",
     klass: "D",
     harmfulMove:
@@ -606,7 +623,7 @@ export const probes = [
 // Exported as DATA and run only when this file IS the entry point, so the coverage test can read
 // the probe set without mutating the tree to find out.
 //
-// `verify:register` reads three text files and nothing else — the shared precondition's soundness
+// `verify:register` reads text files and nothing else — the shared precondition's soundness
 // argument holds for it, and `scripts/testing/guard-probe.mjs` carries it.
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   requireGreenBeforeProbing("register-gate", [["npm", VERIFY]]);

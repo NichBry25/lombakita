@@ -340,6 +340,7 @@ describe("the log renderer and the build refuse what they cannot render faithful
 
   it("renders tables the register census reads as whole tables", () => {
     expect(orphanedDecisionRows(renderDecisionLog(log(), files()), "fixture")).toEqual([]);
+    expect(orphanedDecisionRows(renderDecisionTable(table(), files()), "fixture")).toEqual([]);
   });
 
   it("reads the docs directory from --docs and refuses a flag without a value", () => {
@@ -792,7 +793,77 @@ const TABLE_REFUSAL_CASES: [string, (docs: string) => Refusal][] = [
   ],
 ];
 
+/** The log with a copy of the full table's head, delimiter and last row under its own heading. */
+const logWithCopiedTable = (log: string, indent: string): { log: string; row: string } => {
+  const lines = readFileSync(join(CLEAN_FIXTURE, TABLE), "utf8").split("\n");
+  const begin = lines.indexOf(SEEDED_BEGIN_LINE.trimEnd());
+  const copied = [lines[begin + 1], lines[begin + 2], lastFixtureRow()].map(
+    (line) => `${indent}${line}`,
+  );
+  const block = ["## Copied", "", ...copied, "", ""].join("\n");
+  return {
+    log: log.replace("\n## Update Rules\n", `\n${block}## Update Rules\n`),
+    row: copied[2] as string,
+  };
+};
+
+const COPIED_TABLE_CASES: [string, string][] = [
+  ["a copied table in the log", ""],
+  ["an indented copied table in the log", " "],
+];
+
 describe("the build and the check refuse a decision table they cannot trust", () => {
+  it.each(COPIED_TABLE_CASES)("decisions:build refuses %s", (_case, indent) => {
+    const docs = freshDocs("build-copied-table");
+    const { log, row } = logWithCopiedTable(readFileSync(join(docs, LOG), "utf8"), indent);
+    editFixtureFile(docs, LOG, () => log);
+    const build = run("decisions-build.ts", ["--check", "--docs", docs]);
+    expect(build.status).toBe(1);
+    expect(build.stderr).toContain(`FAIL: ${LOG}: ${strayRowReason(log, row)}`);
+  });
+
+  it.each(COPIED_TABLE_CASES)("decisions:check refuses %s", (_case, indent) => {
+    const docs = freshDocs("check-copied-table");
+    const { log, row } = logWithCopiedTable(readFileSync(join(docs, LOG), "utf8"), indent);
+    editFixtureFile(docs, LOG, () => log);
+    const check = run("decisions-check.ts", ["--docs", docs]);
+    expect(check.status).toBe(1);
+    expect(check.stderr).toContain(`FAIL  ${LOG}: ${strayRowReason(log, row)}`);
+  });
+
+  it("decisions:build refuses reversed seeded markers", () => {
+    const docs = freshDocs("build-reversed-seeded");
+    editFixtureFile(docs, TABLE, (text) =>
+      text
+        .replace(SEEDED_BEGIN_LINE, "<!-- TMP -->\n")
+        .replace(SEEDED_END_LINE, SEEDED_BEGIN_LINE)
+        .replace("<!-- TMP -->\n", SEEDED_END_LINE),
+    );
+    const build = run("decisions-build.ts", ["--check", "--docs", docs]);
+    expect(build.status).toBe(1);
+    expect(build.stderr).toContain(
+      `FAIL: ${TABLE}: the two markers are not in seeded-begin, seeded-end order`,
+    );
+  });
+
+  it("decisions:build refuses before it writes either file", () => {
+    const docs = freshDocs("build-refuses-before-write");
+    editFixtureFile(docs, LOG, (text) =>
+      text.replace("Fixture decision one (short)", "Edited by hand"),
+    );
+    const row = lastFixtureRow();
+    const table = editFixtureFile(docs, TABLE, (text) =>
+      text.replace(SEEDED_END_LINE, `${SEEDED_END_LINE}\n${row}\n`),
+    );
+    const logBefore = sha256(join(docs, LOG));
+    const tableBefore = sha256(join(docs, TABLE));
+    const build = run("decisions-build.ts", ["--docs", docs]);
+    expect(build.status).toBe(1);
+    expect(build.stderr).toContain(`FAIL: ${TABLE}: ${strayRowReason(table, row)}`);
+    expect(sha256(join(docs, LOG)), "the build must not rewrite the log").toBe(logBefore);
+    expect(sha256(join(docs, TABLE)), "the build must not rewrite the table").toBe(tableBefore);
+  });
+
   it.each(TABLE_REFUSAL_CASES)("decisions:build refuses %s", (_case, damage) => {
     const docs = freshDocs("build-table-refusal");
     const { subject, reason } = damage(docs);

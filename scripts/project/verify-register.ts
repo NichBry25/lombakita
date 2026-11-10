@@ -1,6 +1,6 @@
 /**
- * The register gate: what a close must be able to assert about `open-debt.md` and `decision-log.md`
- * before the work unit is allowed to close.
+ * The register gate: what a close must be able to assert about `open-debt.md`, `decision-log.md`
+ * and `decision-table.md` before the work unit is allowed to close.
  *
  * WHY THIS IS A GATE AND NOT A REPORT. Both files are read by grep. An id that is filed without an
  * anchor, a row whose cells do not match its columns, a blank line that ends a table — none of them

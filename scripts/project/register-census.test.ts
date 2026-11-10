@@ -821,6 +821,72 @@ describe("the register gate as a process", () => {
     expect(gate.status).not.toBe(0);
     expect(gate.err).toContain(strayRefusal(TABLE_PATH, table, row));
   }, 30_000);
+
+  const INDEX_BEGIN_LINE = "<!-- decisions:index:begin -->\n";
+  const INDEX_END_LINE = "<!-- decisions:index:end -->\n";
+
+  it("verify:register refuses an emptied decision log", () => {
+    const gate = runGate(laneWith(REGISTERS, { [LOG_PATH]: "\n" }));
+
+    expect(gate.status).not.toBe(0);
+    expect(gate.err).toContain(
+      `FAIL: the census refuses docs/${LOG_PATH}:0: the decision log does not hold exactly one <!-- decisions:index:begin --> line followed by exactly one <!-- decisions:index:end --> line`,
+    );
+  }, 30_000);
+
+  it("verify:register refuses a decision log with no index rows", () => {
+    const log = docsText(LOG_PATH);
+    const begin = log.indexOf(INDEX_BEGIN_LINE) + INDEX_BEGIN_LINE.length;
+    const emptied = log.slice(0, begin) + log.slice(log.indexOf(INDEX_END_LINE));
+    const gate = runGate(laneWith(REGISTERS, { [LOG_PATH]: emptied }));
+
+    expect(gate.status).not.toBe(0);
+    expect(gate.err).toContain(
+      `FAIL: the census refuses docs/${LOG_PATH}:0: the decision log holds no index row between <!-- decisions:index:begin --> and <!-- decisions:index:end -->`,
+    );
+  }, 30_000);
+
+  it("verify:register refuses reversed decision table markers", () => {
+    const table = docsText(TABLE_PATH)
+      .replace(SEEDED_BEGIN_LINE, "<!-- TMP -->\n")
+      .replace(SEEDED_END_LINE, SEEDED_BEGIN_LINE)
+      .replace("<!-- TMP -->\n", SEEDED_END_LINE);
+    const gate = runGate(laneWith(REGISTERS, { [TABLE_PATH]: table }));
+
+    expect(gate.status).not.toBe(0);
+    expect(gate.err).toContain(
+      `FAIL: the census refuses docs/${TABLE_PATH}:0: the decision table does not hold exactly one <!-- decisions:seeded:begin --> line followed by exactly one <!-- decisions:seeded:end --> line`,
+    );
+  }, 30_000);
+
+  /** The log with a copy of the full table's head, delimiter and last row under its own heading. */
+  const logWithCopiedTable = (indent: string): { log: string; row: string } => {
+    const lines = docsText(TABLE_PATH).split("\n");
+    const begin = lines.indexOf(SEEDED_BEGIN_LINE.trimEnd());
+    const copied = [lines[begin + 1], lines[begin + 2], lastTableRow()].map(
+      (line) => `${indent}${line}`,
+    );
+    const block = ["## Copied", "", ...copied, "", ""].join("\n");
+    return {
+      log: docsText(LOG_PATH).replace("\n## Update Rules\n", `\n${block}## Update Rules\n`),
+      row: copied[2] as string,
+    };
+  };
+
+  it.each([
+    ["a copied table in the log", ""],
+    ["an indented copied table in the log", " "],
+  ])(
+    "verify:register refuses %s",
+    (_case, indent) => {
+      const { log, row } = logWithCopiedTable(indent);
+      const gate = runGate(laneWith(REGISTERS, { [LOG_PATH]: log }));
+
+      expect(gate.status).not.toBe(0);
+      expect(gate.err).toContain(strayRefusal(LOG_PATH, log, row));
+    },
+    30_000,
+  );
 });
 
 describe("what the decision log reader covers", () => {
@@ -913,6 +979,29 @@ describe("what the decision log reader covers", () => {
     );
 
     expect(rowsOffColumnCount(records).map((record) => record.row.id)).toEqual(["DEC-0001"]);
+  });
+
+  it("the glued-row key tells the two files apart", () => {
+    const head =
+      "## Seeded Decisions\n\n" +
+      "| Decision ID | Title | Status | Date | Supersedes |\n" +
+      "| --- | --- | --- | --- | --- |\n";
+    const records = [
+      ...recordsOf(
+        "glued-log.md",
+        `${head}| DEC-0001 | A thing | accepted | 2026-01-01 | N/A || DEC-0002 | Another | accepted | 2026-01-02 | N/A |\n`,
+      ),
+      ...recordsOf(
+        "off-column-table.md",
+        `${head}| DEC-0003 | \`a\` || \`b\` | accepted | 2026-01-03 | N/A |\n`,
+      ),
+    ];
+    const glued = gluedRecords(records);
+    const offColumn = rowsOffColumnCount(records);
+
+    expect(glued[0]?.row.line).toBe(offColumn[0]?.row.line);
+    expect(glued).toHaveLength(1);
+    expect(offColumn).toHaveLength(1);
   });
 
   /**
