@@ -169,6 +169,7 @@ describe("InstitutionCompetitionDetailShell publish readiness", () => {
     await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(false));
     expect(screen.queryByText(UNVERIFIED_REASON)).toBeNull();
     expect(await screen.findByText(LOAD_FAILED_MESSAGE)).toBeTruthy();
+    expect(screen.queryByText(SERVER_LOAD_FAILED_MESSAGE)).toBeNull();
 
     // 3. KNOWN-BLOCKED AGAIN. A second action whose refetch succeeds restores the refusal, which is
     // what proves the unknown state is not sticky.

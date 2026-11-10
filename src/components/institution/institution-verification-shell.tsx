@@ -24,7 +24,7 @@ import type { InstitutionType } from "@/server/db/schema";
 import type { FullInstitutionType } from "@/server/institution-workspace/institution-type";
 import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
-import { errorMessageFor } from "@/lib/errors/error-copy";
+import { errorMessageFor, NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
 import { sessionFetch } from "@/lib/session/session-fetch";
 
 type SubmissionItem = {
@@ -247,6 +247,12 @@ export const InstitutionVerificationShell = ({
       }
 
       await fetchHistory();
+    } catch {
+      openModal({
+        title: "Pengajuan gagal",
+        body: NETWORK_ERROR_MESSAGE,
+        actions: [{ label: "OK", onClick: () => {} }],
+      });
     } finally {
       setSubmitting(false);
     }

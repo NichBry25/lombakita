@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SESSION_MISMATCH_MESSAGE } from "@/lib/session/session-fetch";
 import { errorMessageFor } from "./error-copy";
 
 describe("errorMessageFor", () => {
@@ -12,6 +13,12 @@ describe("errorMessageFor", () => {
     const message = errorMessageFor("unauthenticated", {}, "Fallback.");
 
     expect(message).toBe("Sesi Anda sudah berakhir. Masuk kembali lalu coba lagi.");
+  });
+
+  it("returns the session-mismatch sentence for session_user_mismatch", () => {
+    const message = errorMessageFor("session_user_mismatch", {}, "Fallback.");
+
+    expect(message).toBe(SESSION_MISMATCH_MESSAGE);
   });
 
   it("returns the fallback for a code without copy", () => {

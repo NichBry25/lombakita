@@ -45,6 +45,8 @@ const SAVE_FALLBACK = "Biaya pendaftaran gagal disimpan. Coba lagi.";
 
 const LOAD_FAILURE_MESSAGE = "Biaya pendaftaran gagal dimuat. Muat ulang halaman lalu coba lagi.";
 
+const LOAD_ERROR_COPY: Partial<Record<string, string>> = { forbidden: SAVE_ERROR_COPY.forbidden };
+
 /**
  * Turning paid registration on, and the disclosure that has to happen first.
  *
@@ -72,7 +74,8 @@ export function CompetitionFeeSection({
   const [windowDays, setWindowDays] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [loadFailed, setLoadFailed] = useState(false);
+  // The code is null when the request itself threw.
+  const [loadFailure, setLoadFailure] = useState<{ code: string | null } | null>(null);
 
   const base = `/api/v1/competitions/${encodeURIComponent(competitionId)}/fee`;
 
@@ -81,11 +84,12 @@ export function CompetitionFeeSection({
     try {
       response = await fetch(base, { credentials: "include" });
     } catch {
-      setLoadFailed(true);
+      setLoadFailure({ code: null });
       return;
     }
     if (!response.ok) {
-      setLoadFailed(true);
+      const code = await readErrorCode(response);
+      setLoadFailure({ code });
       return;
     }
 
@@ -102,7 +106,12 @@ export function CompetitionFeeSection({
 
   // Only a failure before the first answer replaces the section; a failed reload after a save keeps
   // the form that is already on screen.
-  if (state === null && loadFailed) {
+  if (state === null && loadFailure !== null) {
+    // The fee GET is owner only and the editor also admits institution staff, so a forbidden load is
+    // the expected state for staff and not an error they can fix.
+    const { code } = loadFailure;
+    const tone = code === "forbidden" ? "info" : "error";
+    const message = errorMessageFor(code, LOAD_ERROR_COPY, LOAD_FAILURE_MESSAGE);
     return (
       <section className="content-section surface-card card-padding">
         <div className="section-heading">
@@ -110,7 +119,7 @@ export function CompetitionFeeSection({
             <h2>Biaya pendaftaran</h2>
           </div>
         </div>
-        <Feedback tone="error">{LOAD_FAILURE_MESSAGE}</Feedback>
+        <Feedback tone={tone}>{message}</Feedback>
       </section>
     );
   }

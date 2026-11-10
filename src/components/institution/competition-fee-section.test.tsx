@@ -40,6 +40,27 @@ const mountWith = async (body: unknown) => {
   return screen.findByRole("heading", { name: "Biaya pendaftaran" });
 };
 
+const mountRefused = async (code: string, status: number) => {
+  // A real Response: the section reads the code through readErrorCode, which reads a clone.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code } }), { status })),
+  );
+
+  render(
+    <UIPrimitivesProvider>
+      <CompetitionFeeSection competitionId="comp_1" expectedUserId="org_1" />
+    </UIPrimitivesProvider>,
+  );
+
+  // The refused state renders the same heading as the loaded form.
+  return screen.findByRole("heading", { name: "Biaya pendaftaran" });
+};
+
+const OWNER_ONLY_MESSAGE = "Hanya pemilik institusi yang dapat mengatur biaya pendaftaran.";
+
+const LOAD_FAILURE_MESSAGE = "Biaya pendaftaran gagal dimuat. Muat ulang halaman lalu coba lagi.";
+
 const saveButton = () => screen.getByRole("button", { name: /Simpan biaya pendaftaran/ });
 
 describe("CompetitionFeeSection", () => {
@@ -118,5 +139,18 @@ describe("CompetitionFeeSection", () => {
     expect(screen.queryByRole("checkbox", { name: /menyetujui/ })).toBeNull();
     // Save stays available: clearing a fee needs no acknowledgement, and the server agrees.
     expect(saveButton().hasAttribute("disabled")).toBe(false);
+  });
+
+  it("tells a staff member that only the owner sets the fee when the load is forbidden", async () => {
+    await mountRefused("forbidden", 403);
+
+    expect(screen.getByRole("status").textContent).toBe(OWNER_ONLY_MESSAGE);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows the load failure as an error for any other refused load", async () => {
+    await mountRefused("competition_not_found", 404);
+
+    expect(screen.getByRole("alert").textContent).toBe(LOAD_FAILURE_MESSAGE);
   });
 });
