@@ -146,9 +146,6 @@ const CLOSE_STEP_COMMIT_LINE =
 const SUPERSEDES_CELL_OF_DEC_0010 = "| DEC-0153 |\n| DEC-0011 |";
 
 /**
- * Row prefixes run as far as the `| owner |` cell, a column only the full table has, so that each
- * anchor matches exactly one record.
- *
  * DEC-0125's row is glued onto DEC-0124's because DEC-0124 declares seven cells. That detail is the
  * whole of the mutation: the log's glue detector keys on a doubled pipe, which puts the glued
  * record's id exactly one stride (columns + 1) past an empty cell. DEC-0112's row declares ten

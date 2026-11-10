@@ -402,10 +402,26 @@ export function renderDecisionTable(tableText: string, files: DecisionFile[]): s
   return rendered.join("\n");
 }
 
+const TABLE_LINE_PREFIX = /^(?:[ \t]*>)*[ \t]*(?:(?:[-*+]|\d{1,9}[.)])[ \t]+)*/;
+
 /**
- * Refuses the first line, the log first, that starts with `|` outside both generated regions and
- * whose first cell is an id the full table holds: a copy of a record that every census would count
- * twice.
+ * The first cell of a line that markdown can render as a table line, read after any blockquote
+ * markers, indent and list markers, with or without a leading pipe. Null when the line holds no
+ * pipe.
+ */
+export function tableLineFirstCell(line: string): string | null {
+  const body = line.replace(TABLE_LINE_PREFIX, "");
+  if (!body.includes("|")) return null;
+  const cells = body.startsWith("|") ? body.slice(1) : body;
+  const cellEnd = cells.indexOf("|");
+  const cell = cellEnd === -1 ? cells : cells.slice(0, cellEnd);
+  return cell.trim();
+}
+
+/**
+ * Refuses the first line, the log first, that stands outside both generated regions, that markdown
+ * can render as a table line and whose first cell is an id the full table holds: a copy of a record
+ * that every census would count twice.
  */
 export function refuseStrayDecisionRows(logText: string, tableText: string): void {
   const logLines = logText.split("\n");
@@ -424,15 +440,13 @@ function refuseStrayRowsIn(
   region: MarkedRegion,
   ids: Set<string>,
 ): void {
-  // Markdown reads a line indented by up to three spaces as a table line too.
-  const stray = lines.findIndex(
-    (line, at) =>
-      (at < region.begin || at > region.end) &&
-      /^ {0,3}\|/.test(line) &&
-      ids.has(firstCell(line.trimStart())),
-  );
+  const stray = lines.findIndex((line, at) => {
+    if (at >= region.begin && at <= region.end) return false;
+    const cell = tableLineFirstCell(line);
+    return cell !== null && ids.has(cell);
+  });
   if (stray === -1) return;
-  const id = firstCell((lines[stray] as string).trimStart());
+  const id = tableLineFirstCell(lines[stray] as string);
   throw new DecisionRefusal(
     subject,
     `line ${stray + 1}: ${id} heads a full table row outside the generated table of ${DECISION_TABLE_IN_DOCS}`,

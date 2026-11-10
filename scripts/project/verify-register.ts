@@ -2,7 +2,7 @@
  * The register gate: what a close must be able to assert about `open-debt.md`, `decision-log.md`
  * and `decision-table.md` before the work unit is allowed to close.
  *
- * WHY THIS IS A GATE AND NOT A REPORT. Both files are read by grep. An id that is filed without an
+ * WHY THIS IS A GATE AND NOT A REPORT. These files are read by grep. An id that is filed without an
  * anchor, a row whose cells do not match its columns, a blank line that ends a table — none of them
  * makes anything fail. They make the greps that every future reader depends on return something
  * other than the truth, silently, and the reader has no way to tell. This script is the only thing
@@ -23,11 +23,13 @@
  *    failing. The order is asserted from `.claude/commands/close-step.md` for that reason — a
  *    correct order with nothing testing it is a correct order until someone edits the file.
  *
- * WHAT IT REFUSES. A register the census cannot classify, a baseline git cannot answer for, and a
- * close procedure whose two steps cannot be located. All three throw rather than report zero,
- * because zero is the value that reads green: an unreadable file has an empty population, a missing
+ * WHAT IT REFUSES. A register the census cannot classify, a baseline git cannot answer for, a close
+ * procedure whose two steps cannot be located, and a decision log or decision table that is
+ * missing, empty, without exactly one pair of its markers, without rows, or holding a copy of a
+ * full table row outside its generated region. All of them throw rather than report zero, because
+ * zero is the value that reads green: an unreadable file has an empty population, a missing
  * baseline makes every item in the file look newly filed, and an unlocatable step makes the running
- * order unassertable. The alternative — carry on with the counts that remain plausible — is the
+ * order unassertable. The alternative, carrying on with the counts that remain plausible, is the
  * fail-open this module exists to prevent.
  *
  * Run:  node --import tsx scripts/project/verify-register.ts

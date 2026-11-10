@@ -23,6 +23,7 @@ import {
   readDecisionDirectory,
   renderDecisionLog,
   renderDecisionTable,
+  tableLineFirstCell,
   type DecisionFile,
 } from "./decision-files";
 
@@ -723,11 +724,14 @@ const lastFixtureRow = (): string => {
   return lines[lines.indexOf(SEEDED_END_LINE.trimEnd()) - 1] as string;
 };
 
-/** The refusal of a copied row, naming the last line of `text` that holds `row`. */
-const strayRowReason = (text: string, row: string): string => {
+/**
+ * The refusal of a copied row, naming the last line of `text` that holds `row`, and `id`, or the
+ * first cell of `row` when no id is given.
+ */
+const strayRowReason = (text: string, row: string, id?: string): string => {
   const line = text.split("\n").lastIndexOf(row) + 1;
-  const id = (row.split("|")[1] ?? "").trim();
-  return `line ${line}: ${id} heads a full table row outside the generated table of ${TABLE}`;
+  const rowId = id ?? (row.split("|")[1] ?? "").trim();
+  return `line ${line}: ${rowId} heads a full table row outside the generated table of ${TABLE}`;
 };
 
 /** Writes `edit` of one fixture file back to the copy in `docs`, returning the edited text. */
@@ -793,42 +797,54 @@ const TABLE_REFUSAL_CASES: [string, (docs: string) => Refusal][] = [
   ],
 ];
 
-/** The log with a copy of the full table's head, delimiter and last row under its own heading. */
-const logWithCopiedTable = (log: string, indent: string): { log: string; row: string } => {
+/**
+ * The log with a copy of the full table's head, delimiter and last row, each written by `shape`,
+ * under its own heading.
+ */
+const logWithCopiedTable = (
+  log: string,
+  shape: (line: string, position: number) => string,
+): { log: string; row: string; id: string } => {
   const lines = readFileSync(join(CLEAN_FIXTURE, TABLE), "utf8").split("\n");
   const begin = lines.indexOf(SEEDED_BEGIN_LINE.trimEnd());
-  const copied = [lines[begin + 1], lines[begin + 2], lastFixtureRow()].map(
-    (line) => `${indent}${line}`,
-  );
+  const lastRow = lastFixtureRow();
+  const copied = [lines[begin + 1] as string, lines[begin + 2] as string, lastRow].map(shape);
   const block = ["## Copied", "", ...copied, "", ""].join("\n");
   return {
     log: log.replace("\n## Update Rules\n", `\n${block}## Update Rules\n`),
     row: copied[2] as string,
+    id: (lastRow.split("|")[1] ?? "").trim(),
   };
 };
 
-const COPIED_TABLE_CASES: [string, string][] = [
-  ["a copied table in the log", ""],
-  ["an indented copied table in the log", " "],
+const COPIED_TABLE_CASES: [string, (line: string, position: number) => string][] = [
+  ["a copied table in the log", (line) => line],
+  ["an indented copied table in the log", (line) => ` ${line}`],
+  ["a quoted copied table in the log", (line) => `> ${line}`],
+  ["a copied table without leading pipes in the log", (line) => line.replace(/^\| /, "")],
+  [
+    "a copied table in a list item in the log",
+    (line, position) => (position === 0 ? `10. ${line}` : `    ${line}`),
+  ],
 ];
 
 describe("the build and the check refuse a decision table they cannot trust", () => {
-  it.each(COPIED_TABLE_CASES)("decisions:build refuses %s", (_case, indent) => {
+  it.each(COPIED_TABLE_CASES)("decisions:build refuses %s", (_case, shape) => {
     const docs = freshDocs("build-copied-table");
-    const { log, row } = logWithCopiedTable(readFileSync(join(docs, LOG), "utf8"), indent);
+    const { log, row, id } = logWithCopiedTable(readFileSync(join(docs, LOG), "utf8"), shape);
     editFixtureFile(docs, LOG, () => log);
     const build = run("decisions-build.ts", ["--check", "--docs", docs]);
     expect(build.status).toBe(1);
-    expect(build.stderr).toContain(`FAIL: ${LOG}: ${strayRowReason(log, row)}`);
+    expect(build.stderr).toContain(`FAIL: ${LOG}: ${strayRowReason(log, row, id)}`);
   });
 
-  it.each(COPIED_TABLE_CASES)("decisions:check refuses %s", (_case, indent) => {
+  it.each(COPIED_TABLE_CASES)("decisions:check refuses %s", (_case, shape) => {
     const docs = freshDocs("check-copied-table");
-    const { log, row } = logWithCopiedTable(readFileSync(join(docs, LOG), "utf8"), indent);
+    const { log, row, id } = logWithCopiedTable(readFileSync(join(docs, LOG), "utf8"), shape);
     editFixtureFile(docs, LOG, () => log);
     const check = run("decisions-check.ts", ["--docs", docs]);
     expect(check.status).toBe(1);
-    expect(check.stderr).toContain(`FAIL  ${LOG}: ${strayRowReason(log, row)}`);
+    expect(check.stderr).toContain(`FAIL  ${LOG}: ${strayRowReason(log, row, id)}`);
   });
 
   it("decisions:build refuses reversed seeded markers", () => {
@@ -860,6 +876,47 @@ describe("the build and the check refuse a decision table they cannot trust", ()
     const build = run("decisions-build.ts", ["--docs", docs]);
     expect(build.status).toBe(1);
     expect(build.stderr).toContain(`FAIL: ${TABLE}: ${strayRowReason(table, row)}`);
+    expect(sha256(join(docs, LOG)), "the build must not rewrite the log").toBe(logBefore);
+    expect(sha256(join(docs, TABLE)), "the build must not rewrite the table").toBe(tableBefore);
+  });
+
+  it("tableLineFirstCell reads the first cell of every line markdown renders as a table line", () => {
+    const cases: [string, string | null][] = [
+      ["| A | b |", "A"],
+      ["| A", "A"],
+      ["A | b", "A"],
+      ["> | A | b |", "A"],
+      ["> > A | b", "A"],
+      ["10. | A | b |", "A"],
+      ["- A | b", "A"],
+      ["    | A | b |", "A"],
+      ["|", ""],
+      ["no pipe here", null],
+      ["", null],
+    ];
+    for (const [line, cell] of cases) {
+      expect(tableLineFirstCell(line), JSON.stringify(line)).toBe(cell);
+    }
+  });
+
+  it("decisions:build refuses a table it cannot render before it writes the log", () => {
+    const docs = freshDocs("build-unrenderable-table");
+    editFixtureFile(docs, LOG, (text) =>
+      text.replace("Fixture decision one (short)", "Edited by hand"),
+    );
+    editFixtureFile(docs, TABLE, (text) => {
+      const lines = text.split("\n");
+      const delimiterAt = lines.indexOf(SEEDED_BEGIN_LINE.trimEnd()) + 2;
+      const endAt = lines.indexOf(SEEDED_END_LINE.trimEnd());
+      return [...lines.slice(0, delimiterAt + 1), ...lines.slice(endAt)].join("\n");
+    });
+    const logBefore = sha256(join(docs, LOG));
+    const tableBefore = sha256(join(docs, TABLE));
+    const build = run("decisions-build.ts", ["--docs", docs]);
+    expect(build.status).toBe(1);
+    expect(build.stderr).toContain(
+      `FAIL: ${TABLE}: holds no table row between <!-- decisions:seeded:begin --> and <!-- decisions:seeded:end -->`,
+    );
     expect(sha256(join(docs, LOG)), "the build must not rewrite the log").toBe(logBefore);
     expect(sha256(join(docs, TABLE)), "the build must not rewrite the table").toBe(tableBefore);
   });

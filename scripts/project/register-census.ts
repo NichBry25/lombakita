@@ -1,6 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { INDEX_BEGIN, INDEX_END, SEEDED_BEGIN, SEEDED_END } from "./decision-files";
+import {
+  INDEX_BEGIN,
+  INDEX_END,
+  SEEDED_BEGIN,
+  SEEDED_END,
+  tableLineFirstCell,
+} from "./decision-files";
 
 /**
  * The census of the two project registers.
@@ -1453,9 +1459,9 @@ function fullTableIds(tableText: string): Set<string> {
 }
 
 /**
- * Refuses the first table line, the log first, that stands outside both generated regions and whose
- * first cell is an id of the full table: a copy of a record that every decision obligation would
- * count twice.
+ * Refuses the first line, the log first, that stands outside both generated regions, that markdown
+ * can render as a table line and whose first cell is an id of the full table: a copy of a record
+ * that every decision obligation would count twice.
  */
 function refuseStrayDecisionRows(
   logText: string,
@@ -1473,15 +1479,13 @@ function refuseStrayDecisionRows(
     const region = markedRegion(lines, source.begin, source.end);
     const insideRegion = (at: number): boolean =>
       region !== null && at > region.begin && at < region.end;
-    // Markdown reads a line indented by up to three spaces as a table line too.
-    const stray = lines.findIndex(
-      (line, at) =>
-        !insideRegion(at) &&
-        /^ {0,3}\|/.test(line) &&
-        tableIds.has(splitRow(line.trimStart())[0] ?? ""),
-    );
+    const stray = lines.findIndex((line, at) => {
+      if (insideRegion(at)) return false;
+      const cell = tableLineFirstCell(line);
+      return cell !== null && tableIds.has(cell);
+    });
     if (stray === -1) continue;
-    const id = splitRow((lines[stray] as string).trimStart())[0];
+    const id = tableLineFirstCell(lines[stray] as string);
     throw new RegisterRefusal(
       source.file,
       stray + 1,

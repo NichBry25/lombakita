@@ -767,10 +767,14 @@ describe("the register gate as a process", () => {
 
   const firstCellOf = (row: string): string => (row.split("|")[1] ?? "").trim();
 
-  /** The gate's refusal of a copied row, naming the last line of `text` that holds `row`. */
-  const strayRefusal = (relative: string, text: string, row: string): string => {
+  /**
+   * The gate's refusal of a copied row, naming the last line of `text` that holds `row`, and `id`,
+   * or the first cell of `row` when no id is given.
+   */
+  const strayRefusal = (relative: string, text: string, row: string, id?: string): string => {
     const line = text.split("\n").lastIndexOf(row) + 1;
-    return `FAIL: the census refuses docs/${relative}:${line}: ${firstCellOf(row)} heads a full table row outside the generated table of docs/${TABLE_PATH}`;
+    const rowId = id ?? firstCellOf(row);
+    return `FAIL: the census refuses docs/${relative}:${line}: ${rowId} heads a full table row outside the generated table of docs/${TABLE_PATH}`;
   };
 
   it("verify:register refuses a missing decision table", () => {
@@ -859,31 +863,42 @@ describe("the register gate as a process", () => {
     );
   }, 30_000);
 
-  /** The log with a copy of the full table's head, delimiter and last row under its own heading. */
-  const logWithCopiedTable = (indent: string): { log: string; row: string } => {
+  /**
+   * The log with a copy of the full table's head, delimiter and last row, each written by `shape`,
+   * under its own heading.
+   */
+  const logWithCopiedTable = (
+    shape: (line: string, position: number) => string,
+  ): { log: string; row: string; id: string } => {
     const lines = docsText(TABLE_PATH).split("\n");
     const begin = lines.indexOf(SEEDED_BEGIN_LINE.trimEnd());
-    const copied = [lines[begin + 1], lines[begin + 2], lastTableRow()].map(
-      (line) => `${indent}${line}`,
-    );
+    const lastRow = lastTableRow();
+    const copied = [lines[begin + 1] as string, lines[begin + 2] as string, lastRow].map(shape);
     const block = ["## Copied", "", ...copied, "", ""].join("\n");
     return {
       log: docsText(LOG_PATH).replace("\n## Update Rules\n", `\n${block}## Update Rules\n`),
       row: copied[2] as string,
+      id: firstCellOf(lastRow),
     };
   };
 
-  it.each([
-    ["a copied table in the log", ""],
-    ["an indented copied table in the log", " "],
+  it.each<[string, (line: string, position: number) => string]>([
+    ["a copied table in the log", (line) => line],
+    ["an indented copied table in the log", (line) => ` ${line}`],
+    ["a quoted copied table in the log", (line) => `> ${line}`],
+    ["a copied table without leading pipes in the log", (line) => line.replace(/^\| /, "")],
+    [
+      "a copied table in a list item in the log",
+      (line, position) => (position === 0 ? `10. ${line}` : `    ${line}`),
+    ],
   ])(
     "verify:register refuses %s",
-    (_case, indent) => {
-      const { log, row } = logWithCopiedTable(indent);
+    (_case, shape) => {
+      const { log, row, id } = logWithCopiedTable(shape);
       const gate = runGate(laneWith(REGISTERS, { [LOG_PATH]: log }));
 
       expect(gate.status).not.toBe(0);
-      expect(gate.err).toContain(strayRefusal(LOG_PATH, log, row));
+      expect(gate.err).toContain(strayRefusal(LOG_PATH, log, row, id));
     },
     30_000,
   );
