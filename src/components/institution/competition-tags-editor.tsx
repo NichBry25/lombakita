@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Button, CheckboxField } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import { ALLOWED_COMPETITION_TAGS } from "@/lib/competitions/tags";
@@ -16,13 +16,92 @@ const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
 
 const SAVE_FALLBACK = "Gagal menyimpan tag. Coba lagi.";
 
-export const CompetitionTagsEditor = ({
-  competitionId,
-  expectedUserId,
+export type CompetitionTagsSaveResult = { ok: true } | { ok: false; errorMessage: string };
+
+/** Replaces the competition's tags. A refusal or a failed request comes back as the error text. */
+export const saveCompetitionTags = async (
+  expectedUserId: string,
+  competitionId: string,
+  tags: string[],
+): Promise<CompetitionTagsSaveResult> => {
+  try {
+    const response = await sessionFetch(
+      expectedUserId,
+      `/api/v1/competitions/${competitionId}/tags`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tags }),
+      },
+    );
+    if (!response.ok) {
+      const code = await readErrorCode(response);
+      return { ok: false, errorMessage: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK) };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, errorMessage: "Gagal menyimpan tag karena gangguan koneksi." };
+  }
+};
+
+const TagsSection = ({ children }: { children: ReactNode }) => (
+  <section className="content-section surface-card card-padding stack-md">
+    <div className="stack-xs">
+      <h2 className="section-title">Tag</h2>
+      <p className="form-help">Pilih label tambahan yang menggambarkan kompetisi ini.</p>
+    </div>
+    {children}
+  </section>
+);
+
+const TagCheckboxes = ({
+  isSelected,
+  onToggle,
 }: {
-  competitionId: string;
-  expectedUserId: string;
-}) => {
+  isSelected: (tag: string) => boolean;
+  onToggle: (tag: string) => void;
+}) => (
+  <div className="cluster">
+    {ALLOWED_COMPETITION_TAGS.map((tag) => (
+      <CheckboxField key={tag} checked={isSelected(tag)} onChange={() => onToggle(tag)}>
+        {tag}
+      </CheckboxField>
+    ))}
+  </div>
+);
+
+type StoredTagsProps = { competitionId: string; expectedUserId: string };
+
+// A competition that does not exist yet has nothing to load or save, so its creator holds the tags.
+type ControlledTagsProps = {
+  competitionId?: undefined;
+  value: string[];
+  onChange: (tags: string[]) => void;
+};
+
+export const CompetitionTagsEditor = (props: StoredTagsProps | ControlledTagsProps) => {
+  if (props.competitionId === undefined) {
+    return <ControlledTagsEditor value={props.value} onChange={props.onChange} />;
+  }
+  return (
+    <StoredTagsEditor competitionId={props.competitionId} expectedUserId={props.expectedUserId} />
+  );
+};
+
+const ControlledTagsEditor = ({ value, onChange }: Omit<ControlledTagsProps, "competitionId">) => {
+  const toggle = (tag: string) => {
+    const next = value.includes(tag) ? value.filter((t) => t !== tag) : [...value, tag];
+    onChange(next);
+  };
+
+  return (
+    <TagsSection>
+      <TagCheckboxes isSelected={(tag) => value.includes(tag)} onToggle={toggle} />
+    </TagsSection>
+  );
+};
+
+const StoredTagsEditor = ({ competitionId, expectedUserId }: StoredTagsProps) => {
   const { addToast } = useToast();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
@@ -65,54 +144,29 @@ export const CompetitionTagsEditor = ({
     if (isSaving) return;
     setIsSaving(true);
     try {
-      const response = await sessionFetch(
-        expectedUserId,
-        `/api/v1/competitions/${competitionId}/tags`,
-        {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ tags: [...selected] }),
-        },
-      );
-      if (!response.ok) {
-        const code = await readErrorCode(response);
-        addToast({
-          type: "error",
-          message: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK),
-        });
+      const result = await saveCompetitionTags(expectedUserId, competitionId, [...selected]);
+      if (!result.ok) {
+        addToast({ type: "error", message: result.errorMessage });
         return;
       }
       addToast({ type: "success", message: "Tag berhasil disimpan." });
-    } catch {
-      addToast({ type: "error", message: "Gagal menyimpan tag karena gangguan koneksi." });
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <section className="content-section surface-card card-padding stack-md">
-      <div className="stack-xs">
-        <h2 className="section-title">Tag</h2>
-        <p className="form-help">Pilih label tambahan yang menggambarkan kompetisi ini.</p>
-      </div>
-
+    <TagsSection>
       {isLoading ? (
         <p className="muted-copy">Memuat tag…</p>
       ) : (
         <div className="stack-md">
-          <div className="cluster">
-            {ALLOWED_COMPETITION_TAGS.map((tag) => (
-              <CheckboxField key={tag} checked={selected.has(tag)} onChange={() => toggle(tag)}>
-                {tag}
-              </CheckboxField>
-            ))}
-          </div>
+          <TagCheckboxes isSelected={(tag) => selected.has(tag)} onToggle={toggle} />
           <Button type="button" onClick={saveTags} loading={isSaving}>
             Simpan
           </Button>
         </div>
       )}
-    </section>
+    </TagsSection>
   );
 };

@@ -205,13 +205,23 @@ export const InstitutionCompetitionsShell = ({ institutionSlug }: { institutionS
                 >
                   {hasFinished(c, loadedAt) ? "Selesai" : getCompetitionStatusLabel(c.status)}
                 </span>
-                <ButtonLink
-                  href={`/institution/${institutionSlug}/competitions/${c.slug}/participants`}
-                  variant="outline"
-                  size="sm"
-                >
-                  Peserta
-                </ButtonLink>
+                {c.status === "draft" ? (
+                  <ButtonLink
+                    href={`/institution/${institutionSlug}/competitions/${c.slug}/edit`}
+                    variant="outline"
+                    size="sm"
+                  >
+                    Lanjutkan
+                  </ButtonLink>
+                ) : (
+                  <ButtonLink
+                    href={`/institution/${institutionSlug}/competitions/${c.slug}/participants`}
+                    variant="outline"
+                    size="sm"
+                  >
+                    Peserta
+                  </ButtonLink>
+                )}
               </li>
             ))}
           </ul>

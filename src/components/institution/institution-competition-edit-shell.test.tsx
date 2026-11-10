@@ -19,13 +19,30 @@
 // A6: a successful read clears the unknown state even when the response omits the optional
 // `publishReadiness` key.
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SESSION_MISMATCH_MESSAGE } from "@/lib/session/session-fetch";
+import { NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
+import { PageTransitionProvider } from "@/components/ui/page-transition";
 import { InstitutionCompetitionEditShell } from "./institution-competition-edit-shell";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
+const { mockPush, mockReplace } = vi.hoisted(() => ({
+  mockPush: vi.fn(),
+  mockReplace: vi.fn(),
+}));
+
+// PageTransitionProvider reads the pathname; the shell reads the router for its navigations.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: mockPush, replace: mockReplace }),
+  usePathname: () => "/institution/institusi-contoh/competitions/lomba-contoh-2026/edit",
+}));
+
+// The vitest config clears no mocks between tests.
+beforeEach(() => {
+  mockPush.mockClear();
+  mockReplace.mockClear();
+});
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -134,12 +151,14 @@ const stubFetchSequence = (responses: Array<() => Response>) => {
 const mount = () =>
   render(
     <UIPrimitivesProvider>
-      <InstitutionCompetitionEditShell
-        institutionSlug="institusi-contoh"
-        competitionId="comp_1"
-        expectedUserId="org_1"
-        initialPublishReadiness={BLOCKED}
-      />
+      <PageTransitionProvider>
+        <InstitutionCompetitionEditShell
+          institutionSlug="institusi-contoh"
+          competitionId="comp_1"
+          expectedUserId="org_1"
+          initialPublishReadiness={BLOCKED}
+        />
+      </PageTransitionProvider>
     </UIPrimitivesProvider>,
   );
 
@@ -591,5 +610,340 @@ describe("InstitutionCompetitionEditShell publish readiness", () => {
       "PATCH /api/v1/competitions/comp_1",
       "GET /api/v1/competitions/comp_1",
     ]);
+  });
+});
+
+describe("InstitutionCompetitionEditShell steps", () => {
+  const STEP_TITLES = {
+    1: "Informasi dasar",
+    2: "Peserta",
+    3: "Jadwal",
+    4: "Hadiah dan biaya",
+    5: "Tinjau dan terbitkan",
+  } as const;
+  const SECTION_HEADINGS_BY_STEP = {
+    1: ["Informasi utama"],
+    2: ["Mode dan ukuran tim", "Minimum peserta"],
+    3: ["Jadwal kompetisi", "Minimum peserta"],
+    4: ["Kebijakan pembatalan peserta"],
+  } as const;
+  const ALL_SECTION_HEADINGS = [
+    "Informasi utama",
+    "Mode dan ukuran tim",
+    "Jadwal kompetisi",
+    "Minimum peserta",
+    "Kebijakan pembatalan peserta",
+  ];
+  const STEP_FIELD_LABELS = {
+    1: ["Judul", "Kategori", "Deskripsi", "Slug"],
+    2: ["Mode", "Min. anggota tim", "Maks. anggota tim", "Minimum pendaftaran"],
+    3: [
+      "Pendaftaran mulai",
+      "Pendaftaran berakhir",
+      "Acara mulai",
+      "Acara berakhir",
+      "Pengumuman hasil",
+      "Konfirmasi peserta",
+    ],
+    4: ["Batas pembatalan (hari sebelum acara mulai)"],
+  } as const;
+  const STEP_CHILD_TEXT = {
+    1: "Sub-editor langkah 1",
+    2: "Sub-editor langkah 2",
+    3: "Sub-editor langkah 3",
+    4: "Sub-editor langkah 4",
+  } as const;
+  const ALL_CHILDREN_TEXT = "Semua sub-editor";
+  const EDIT_URL = "/institution/institusi-contoh/competitions/lomba-contoh-2026/edit";
+  const LIST_URL = "/institution/institusi-contoh/competitions";
+
+  const shellAt = (step: 1 | 2 | 3 | 4 | 5 | null) => (
+    <UIPrimitivesProvider>
+      <PageTransitionProvider>
+        <InstitutionCompetitionEditShell
+          institutionSlug="institusi-contoh"
+          competitionId="comp_1"
+          expectedUserId="org_1"
+          initialPublishReadiness={{ canPublish: true, blockers: [] }}
+          step={step}
+          stepChildren={{
+            1: <p>{STEP_CHILD_TEXT[1]}</p>,
+            2: <p>{STEP_CHILD_TEXT[2]}</p>,
+            3: <p>{STEP_CHILD_TEXT[3]}</p>,
+            4: <p>{STEP_CHILD_TEXT[4]}</p>,
+          }}
+        >
+          <p>{ALL_CHILDREN_TEXT}</p>
+        </InstitutionCompetitionEditShell>
+      </PageTransitionProvider>
+    </UIPrimitivesProvider>
+  );
+
+  const indicatorLine = () => document.querySelector(".step-indicator-text")?.textContent;
+  const sectionHeadings = () =>
+    screen.queryAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+  const fieldLabels = () =>
+    [...document.querySelectorAll(".competition-edit-form .form-label")].map(
+      (label) => label.textContent,
+    );
+  const readinessNote = () => document.getElementById("publish-readiness-message");
+  const patchBodies = () =>
+    vi
+      .mocked(fetch)
+      .mock.calls.filter(([, init]) => init?.method === "PATCH")
+      .map(([, init]) => JSON.parse(init!.body as string) as Record<string, unknown>);
+  const minuteDate = (iso: string) => {
+    const date = new Date(iso);
+    date.setSeconds(0, 0);
+    return date.toISOString();
+  };
+  const toLocalInput = (date: Date) => {
+    const local = new Date(date);
+    local.setMinutes(local.getMinutes() - local.getTimezoneOffset());
+    return local.toISOString().slice(0, 16);
+  };
+  const failingRequest = (): Response => {
+    throw new TypeError("Failed to fetch");
+  };
+  const transitionMessage = (message: string) =>
+    document.querySelector(".page-transition-message")?.textContent === message;
+
+  // Records any rejection nothing handled, so a test can assert that a failed request stays inside
+  // the shell instead of escaping from a click handler.
+  const watchUnhandledRejections = () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    return {
+      unhandled,
+      stop: () => process.off("unhandledRejection", unhandled),
+    };
+  };
+
+  it.each([1, 2, 3, 4] as const)("renders only the blocks of step %i", async (step) => {
+    stubFetchSequence([() => loadOk(READY)]);
+
+    render(shellAt(step));
+
+    await screen.findByRole("button", { name: "Lanjut" });
+    expect(indicatorLine()).toBe(`Langkah ${step} dari 5: ${STEP_TITLES[step]}`);
+    const expectedHeadings: readonly string[] = SECTION_HEADINGS_BY_STEP[step];
+    for (const heading of ALL_SECTION_HEADINGS) {
+      expect(sectionHeadings().includes(heading), heading).toBe(expectedHeadings.includes(heading));
+    }
+    expect(fieldLabels()).toEqual(STEP_FIELD_LABELS[step]);
+    for (const childStep of [1, 2, 3, 4] as const) {
+      const shown = screen.queryByText(STEP_CHILD_TEXT[childStep]) !== null;
+      expect(shown, `child of step ${childStep}`).toBe(childStep === step);
+    }
+    expect(screen.queryByText(ALL_CHILDREN_TEXT)).toBeNull();
+  });
+
+  it.each([1, 2, 3, 4] as const)("shows the step bar on step %i", async (step) => {
+    stubFetchSequence([() => loadOk(READY)]);
+
+    render(shellAt(step));
+
+    const next = await screen.findByRole("button", { name: "Lanjut" });
+    const saveAndExit = screen.getByRole("button", { name: "Simpan dan keluar" });
+    const backLabel = step === 1 ? "Kembali ke daftar kompetisi" : "Kembali";
+    expect(screen.getByRole("button", { name: backLabel })).toBeTruthy();
+    expect(next.getAttribute("data-variant")).toBe("primary");
+    expect(saveAndExit.getAttribute("data-variant")).toBe("outline");
+    expect(screen.queryByRole("button", { name: "Simpan" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull();
+    expect(readinessNote()?.textContent).toContain(
+      "Semua perubahan tersimpan dan siap diterbitkan",
+    );
+  });
+
+  it("shows step 5 with no blocks and its own bar", async () => {
+    stubFetchSequence([() => loadOk(READY)]);
+
+    render(shellAt(5));
+
+    const publish = await screen.findByRole("button", { name: "Terbitkan" });
+    expect(indicatorLine()).toBe("Langkah 5 dari 5: Tinjau dan terbitkan");
+    expect(sectionHeadings()).toEqual([]);
+    expect(fieldLabels()).toEqual([]);
+    for (const text of [...Object.values(STEP_CHILD_TEXT), ALL_CHILDREN_TEXT]) {
+      expect(screen.queryByText(text), text).toBeNull();
+    }
+    expect(publish.getAttribute("data-variant")).toBe("primary");
+    expect(publish.hasAttribute("disabled")).toBe(false);
+    const exit = screen.getByRole("link", { name: "Keluar" });
+    expect(exit.getAttribute("href")).toBe(LIST_URL);
+    expect(exit.getAttribute("data-variant")).toBe("ghost");
+    expect(screen.getByRole("button", { name: "Kembali" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Lanjut" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Simpan dan keluar" })).toBeNull();
+    expect(readinessNote()).not.toBeNull();
+  });
+
+  it("keeps today's page for a published competition opened at a step", async () => {
+    const competition = { ...COMPETITION, status: "published" };
+    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+
+    render(shellAt(2));
+
+    await screen.findByRole("button", { name: "Simpan" });
+    expect(indicatorLine()).toBeUndefined();
+    for (const heading of ALL_SECTION_HEADINGS) {
+      expect(sectionHeadings().includes(heading), heading).toBe(true);
+    }
+    expect(screen.getByText(ALL_CHILDREN_TEXT)).toBeTruthy();
+    expect(screen.queryByText(STEP_CHILD_TEXT[2])).toBeNull();
+    expect(screen.getByRole("button", { name: "Kembali ke aksi status" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Lanjut" })).toBeNull();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("covers Lanjut with the transition screen until the next step arrives", async () => {
+    stubFetchSequence([() => loadOk(READY), () => patchOk, () => loadOk(READY)]);
+
+    const view = render(shellAt(1));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Lanjut" }));
+    expect(transitionMessage("Menyimpan kompetisi…")).toBe(true);
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=2`));
+    expect(transitionMessage("Menyimpan kompetisi…")).toBe(true);
+
+    view.rerender(shellAt(2));
+
+    await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
+  });
+
+  it.each(["Lanjut", "Simpan dan keluar"])(
+    "keeps the user on the step when the request behind %s throws",
+    async (action) => {
+      const watcher = watchUnhandledRejections();
+      try {
+        stubFetchSequence([() => loadOk(READY), failingRequest]);
+
+        render(shellAt(2));
+
+        fireEvent.click(await screen.findByRole("button", { name: action }));
+
+        expect(await screen.findByText(NETWORK_ERROR_MESSAGE)).toBeTruthy();
+        await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
+        for (const name of ["Lanjut", "Simpan dan keluar"]) {
+          const button = screen.getByRole("button", { name });
+          expect(button.hasAttribute("disabled"), name).toBe(false);
+          expect(button.hasAttribute("aria-busy"), name).toBe(false);
+        }
+        expect(mockPush).not.toHaveBeenCalled();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(watcher.unhandled).not.toHaveBeenCalled();
+      } finally {
+        watcher.stop();
+      }
+    },
+  );
+
+  it("opens a draft without a step at the step it should resume at", async () => {
+    // A team draft with no team size resumes at step 2.
+    const competition = { ...COMPETITION, mode: "team", minTeamSize: null, maxTeamSize: null };
+    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+
+    render(shellAt(null));
+
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`${EDIT_URL}?langkah=2`));
+    expect(screen.getByLabelText("Memuat formulir kompetisi")).toBeTruthy();
+    expect(document.querySelector("form")).toBeNull();
+    for (const text of [...Object.values(STEP_CHILD_TEXT), ALL_CHILDREN_TEXT]) {
+      expect(screen.queryByText(text), text).toBeNull();
+    }
+  });
+
+  it("keeps today's page for a published competition opened without a step", async () => {
+    const competition = { ...COMPETITION, status: "published" };
+    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+
+    render(shellAt(null));
+
+    await screen.findByRole("button", { name: "Simpan" });
+    expect(screen.getByText(ALL_CHILDREN_TEXT)).toBeTruthy();
+    expect(indicatorLine()).toBeUndefined();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("drops an unsaved value of another step when the step changes", async () => {
+    stubFetchSequence([() => loadOk(READY), () => patchOk, () => loadOk(READY)]);
+
+    const view = render(shellAt(3));
+
+    await screen.findByRole("button", { name: "Lanjut" });
+    const later = new Date(COMPETITION.resultAnnouncementAt);
+    later.setDate(later.getDate() + 3);
+    fireEvent.change(screen.getByLabelText(/Pengumuman hasil/), {
+      target: { value: toLocalInput(later) },
+    });
+
+    view.rerender(shellAt(2));
+    fireEvent.click(await screen.findByRole("button", { name: "Lanjut" }));
+
+    await waitFor(() => expect(patchBodies()).toHaveLength(1));
+    expect(patchBodies()[0]?.resultAnnouncementAt).toBe(
+      minuteDate(COMPETITION.resultAnnouncementAt),
+    );
+  });
+
+  it("keeps a value saved on one step when the reload after it is refused", async () => {
+    stubFetchSequence([
+      () => loadOk(READY),
+      () => patchOk,
+      () => loadFailed,
+      () => patchOk,
+      () => loadOk(READY),
+    ]);
+
+    const view = render(shellAt(2));
+
+    await screen.findByRole("button", { name: "Lanjut" });
+    fireEvent.change(screen.getByLabelText(/Minimum pendaftaran/), { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=3`));
+    expect(await screen.findByText(LOAD_FAILED_MESSAGE)).toBeTruthy();
+
+    view.rerender(shellAt(3));
+    fireEvent.click(await screen.findByRole("button", { name: "Lanjut" }));
+
+    await waitFor(() => expect(patchBodies()).toHaveLength(2));
+    expect(patchBodies()[0]?.minimumParticipantEntries).toBe(5);
+    expect(patchBodies()[1]?.minimumParticipantEntries).toBe(5);
+  });
+
+  it("does not open step 5 with the unsaved changes of step 4", async () => {
+    stubFetchSequence([() => loadOk(READY)]);
+
+    const view = render(shellAt(4));
+
+    await screen.findByRole("button", { name: "Lanjut" });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Izinkan peserta membatalkan pendaftaran sendiri" }),
+    );
+    expect(readinessNote()?.textContent).toContain("Simpan perubahan sebelum menerbitkan");
+
+    view.rerender(shellAt(5));
+
+    await screen.findByRole("button", { name: "Terbitkan" });
+    expect(readinessNote()).not.toBeNull();
+    expect(readinessNote()?.textContent).not.toContain("Simpan perubahan sebelum menerbitkan");
+  });
+
+  it("opens the next step at the slug step 1 just saved", async () => {
+    stubFetchSequence([() => loadOk(READY), () => patchOk, () => loadOk(READY)]);
+
+    render(shellAt(1));
+
+    await screen.findByRole("button", { name: "Lanjut" });
+    fireEvent.change(screen.getByLabelText(/^Slug/), { target: { value: "lomba-baru" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith(
+        "/institution/institusi-contoh/competitions/lomba-baru/edit?langkah=2",
+      ),
+    );
+    expect(patchBodies()[0]?.slug).toBe("lomba-baru");
   });
 });

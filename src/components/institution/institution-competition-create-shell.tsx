@@ -2,8 +2,25 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, FormActionBar, IconButton, PageHeader, SelectField } from "@/components/ui";
+import {
+  Button,
+  FormActionBar,
+  IconButton,
+  PageHeader,
+  SelectField,
+  usePageTransition,
+} from "@/components/ui";
+import { StepIndicator } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import {
+  COMPETITION_STEP_COUNT,
+  COMPETITION_STEP_TITLES,
+  getCompetitionStepHref,
+} from "@/components/institution/competition-steps";
+import {
+  CompetitionTagsEditor,
+  saveCompetitionTags,
+} from "@/components/institution/competition-tags-editor";
 
 import { COMPETITION_CATEGORY_OPTIONS } from "@/lib/competitions/categories";
 
@@ -28,29 +45,39 @@ const extractErrorMessage = async (response: Response): Promise<string> => {
   }
 };
 
+type CreatedCompetition = { id: string; slug: string };
+
+// "next" opens step 2 of the new draft; "exit" returns to the competition list.
+type CreateAction = "next" | "exit";
+
 export const InstitutionCompetitionCreateShell = ({
   institutionSlug,
+  expectedUserId,
 }: {
   institutionSlug: string;
+  // Rule 16: the rendered-for user id, sent as `X-Expected-User-Id` on the tags save.
+  expectedUserId: string;
 }) => {
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
   const [category, setCategory] = useState<string>("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [description, setDescription] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [pendingAction, setPendingAction] = useState<CreateAction | null>(null);
   const { addToast } = useToast();
+  const { runAndNavigate } = usePageTransition();
   const router = useRouter();
   const backHref = `/institution/${institutionSlug}/competitions`;
 
-  const onSubmit = async (event?: React.FormEvent<HTMLFormElement>) => {
-    event?.preventDefault();
-    setIsSubmitting(true);
-
+  // Resolves to the new draft, or to null when the create failed and its toast is shown.
+  const createDraft = async (): Promise<CreatedCompetition | null> => {
     const body: Record<string, unknown> = {
       institutionSlug,
       title: title.trim(),
+      category,
+      description,
     };
     if (slug.trim().length > 0) body.slug = slug.trim();
-    if (category.length > 0) body.category = category;
 
     let response: Response;
     try {
@@ -62,31 +89,73 @@ export const InstitutionCompetitionCreateShell = ({
       });
     } catch {
       addToast({ type: "error", message: "Gagal mengirim permintaan karena gangguan koneksi." });
-      setIsSubmitting(false);
-      return;
+      return null;
     }
 
     if (!response.ok) {
       const message = await extractErrorMessage(response);
       addToast({ type: "error", message });
-      setIsSubmitting(false);
-      return;
+      return null;
     }
 
-    // Institution-side competition pages are slug-keyed. Navigate to the edit
-    // page by the competition's slug, not its internal id, or the [competitionSlug] route 404s.
-    const data = (await response.json()) as { competition: { id: string; slug: string } };
-    window.location.href = `/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(data.competition.slug)}/edit`;
+    const data = (await response.json()) as { competition: CreatedCompetition };
+    return data.competition;
+  };
+
+  // Resolves to whether the selected tags are stored; a failure has already shown its toast.
+  const saveSelectedTags = async (competitionId: string): Promise<boolean> => {
+    if (tags.length === 0) return true;
+    const result = await saveCompetitionTags(expectedUserId, competitionId, tags);
+    if (!result.ok) {
+      addToast({ type: "error", message: result.errorMessage });
+      return false;
+    }
+    return true;
+  };
+
+  // Institution-side competition pages are slug-keyed, so the draft is opened by its slug. A draft
+  // whose tags were not saved reopens at step 1, where the tags are.
+  const createAndOpen = async (action: CreateAction): Promise<boolean> => {
+    setPendingAction(action);
+    const created = await createDraft();
+    if (!created) {
+      setPendingAction(null);
+      return false;
+    }
+    const tagsSaved = await saveSelectedTags(created.id);
+    const draftStep = tagsSaved ? 2 : 1;
+    const destination =
+      action === "exit" && tagsSaved
+        ? backHref
+        : getCompetitionStepHref(institutionSlug, created.slug, draftStep);
+    router.replace(destination);
+    return true;
+  };
+
+  const onCreate = (action: CreateAction) => {
+    if (category === "") {
+      addToast({ type: "error", message: "Pilih kategori kompetisi." });
+      return;
+    }
+    void runAndNavigate(() => createAndOpen(action), { message: "Membuat kompetisi…" });
   };
 
   return (
     <main className="page-shell app-page competition-form-page">
-      <PageHeader
-        title="Buat draf kompetisi"
-        description="Mulai dengan identitas inti. Detail jadwal, format, dan publikasi diatur setelah draf dibuat."
+      <PageHeader title="Buat kompetisi" />
+      <StepIndicator
+        current={1}
+        total={COMPETITION_STEP_COUNT}
+        label={COMPETITION_STEP_TITLES[1]}
       />
 
-      <form onSubmit={onSubmit} className="content-section stack-md">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          onCreate("next");
+        }}
+        className="content-section stack-md"
+      >
         <label className="form-field">
           <span className="form-label form-label-required">Judul</span>
           <input
@@ -98,46 +167,72 @@ export const InstitutionCompetitionCreateShell = ({
             maxLength={200}
             className="form-input"
           />
-          <span className="form-help">5–200 karakter.</span>
-        </label>
-
-        <label className="form-field">
-          <span className="form-label">Slug (Opsional)</span>
-          <input
-            type="text"
-            value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-            className="form-input"
-          />
-          <span className="form-help">
-            Gunakan huruf kecil, angka, dan tanda hubung; 3–120 karakter.
-          </span>
+          <span className="form-help">5 sampai 200 karakter.</span>
         </label>
 
         <div className="form-field">
-          <span className="form-label" id="create-category-label">
-            Kategori (Opsional)
+          <span className="form-label form-label-required" id="create-category-label">
+            Kategori
           </span>
           <SelectField
             label="Kategori"
             id="create-category-label"
             value={category}
             placeholder="Pilih"
+            required
             options={[...COMPETITION_CATEGORY_OPTIONS]}
             onChange={setCategory}
           />
         </div>
+
+        <label className="form-field">
+          <span className="form-label">Deskripsi</span>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={4}
+            maxLength={10000}
+            className="form-textarea"
+          />
+        </label>
+
+        <label className="form-field">
+          <span className="form-label">Slug (opsional)</span>
+          <input
+            type="text"
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            className="form-input"
+          />
+          <span className="form-help">Gunakan huruf kecil, angka, dan tanda hubung.</span>
+        </label>
       </form>
+
+      <CompetitionTagsEditor value={tags} onChange={setTags} />
 
       <FormActionBar>
         <IconButton
           icon="arrow-left"
-          label="Daftar kompetisi"
+          label="Kembali ke daftar kompetisi"
           onClick={() => router.push(backHref)}
         />
         <div className="form-action-bar-end">
-          <Button type="button" onClick={() => onSubmit()} loading={isSubmitting}>
-            Buat draf
+          <Button
+            variant="outline"
+            type="button"
+            onClick={() => onCreate("exit")}
+            loading={pendingAction === "exit"}
+            disabled={pendingAction !== null}
+          >
+            Simpan dan keluar
+          </Button>
+          <Button
+            type="button"
+            onClick={() => onCreate("next")}
+            loading={pendingAction === "next"}
+            disabled={pendingAction !== null}
+          >
+            Lanjut
           </Button>
         </div>
       </FormActionBar>
