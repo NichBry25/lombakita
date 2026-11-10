@@ -16,6 +16,18 @@ const SHARED_ERROR_COPY: Partial<Record<string, string>> = {
 
 export const NETWORK_ERROR_MESSAGE = "Gagal mengirim permintaan karena gangguan koneksi.";
 
+// A key "<code>.<field>" holds the sentence for a refusal about one field.
+export const ONBOARDING_FIELD_REFUSAL_COPY: Partial<Record<string, string>> = {
+  "candidate_profile_invalid_value.fullName": "Isi nama lengkap (minimal 2 karakter).",
+  "candidate_profile_invalid_value.phoneNumber": "Isi nomor telepon yang valid (minimal 8 digit).",
+  "candidate_profile_invalid_value.occupation": "Pilih status Anda saat ini.",
+  "candidate_profile_invalid_value.dateOfBirth": "Isi tanggal lahir Anda.",
+  "recruiter_verification_invalid_value.fullName": "Isi nama lengkap (minimal 2 karakter).",
+  "recruiter_verification_invalid_value.mobileNumber":
+    "Isi nomor ponsel yang valid (minimal 8 digit).",
+  "recruiter_verification_invalid_value.corporateEmail": "Format email kantor tidak valid.",
+};
+
 export const errorMessageFor = (
   code: string | null | undefined,
   surfaceCopy: Partial<Record<string, string>>,
@@ -23,4 +35,13 @@ export const errorMessageFor = (
 ): string => {
   if (!code) return fallback;
   return surfaceCopy[code] ?? SHARED_ERROR_COPY[code] ?? fallback;
+};
+
+export const refusalCopyKey = (
+  code: string | undefined,
+  field: string | undefined,
+  surfaceCopy: Partial<Record<string, string>>,
+): string | undefined => {
+  const fieldKey = `${code}.${field}`;
+  return field && surfaceCopy[fieldKey] ? fieldKey : code;
 };

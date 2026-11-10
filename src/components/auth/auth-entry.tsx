@@ -6,8 +6,11 @@ import { Button, ButtonLink, SelectField, StepIndicator, usePageTransition } fro
 import { AssentNotice } from "@/components/legal/assent-notice";
 import { useToast } from "@/components/ui/primitives";
 import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
-import { errorMessageFor } from "@/lib/errors/error-copy";
-import { readErrorCode } from "@/lib/session/session-fetch";
+import {
+  errorMessageFor,
+  ONBOARDING_FIELD_REFUSAL_COPY,
+  refusalCopyKey,
+} from "@/lib/errors/error-copy";
 
 // Method-first single-page auth entry. Replaces the earlier two-page login/register
 // toggle. The user first picks a sign-in method; then:
@@ -18,7 +21,7 @@ import { readErrorCode } from "@/lib/session/session-fetch";
 //     (/api/v1/auth/identify) and branch:
 //       • verified  → attempt the password sign-in (path a). Wrong/absent password → generic
 //                     "email atau password salah" (a Google-only account lands here too).
-//       • unverified→ show "email belum diverifikasi" + resend; never offer signup (would 23505).
+//       • unverified→ show "email belum diverifikasi" + resend; never offer signup (the server refuses it).
 //       • none      → role picker + profile; create the account via the existing register endpoint,
 //                     which sends the Resend verification (path b). Account usable on verification.
 // Suspension is enforced in `authorize` regardless of this shell; we route the
@@ -70,9 +73,8 @@ const OCCUPATION_OPTIONS = [
   { value: "other", label: "Lainnya" },
 ] as const;
 
-// The register route drops the field names of a refused profile, so these codes get one sentence
-// each rather than a sentence per field.
 const SIGNUP_ERROR_COPY: Partial<Record<string, string>> = {
+  ...ONBOARDING_FIELD_REFUSAL_COPY,
   rate_limited: "Terlalu banyak percobaan. Tunggu beberapa saat lalu coba lagi.",
   invalid_signup_role: "Pilih peran akun Anda lalu coba lagi.",
   invalid_name: "Isi nama lengkap (minimal 2 karakter) untuk mendaftar.",
@@ -330,10 +332,24 @@ export const AuthEntry = ({
       });
 
       if (!response.ok) {
-        const code = await readErrorCode(response);
+        const payload = (await response.json().catch(() => null)) as {
+          error?: { code?: string; details?: { fields?: string[] } };
+        } | null;
+        const code = payload?.error?.code;
+        const firstField = payload?.error?.details?.fields?.[0];
+
+        if (code === "email_not_verified") {
+          setStage("verifyNotice");
+          return;
+        }
+
         addToast({
           type: "error",
-          message: errorMessageFor(code, SIGNUP_ERROR_COPY, SIGNUP_FALLBACK),
+          message: errorMessageFor(
+            refusalCopyKey(code, firstField, SIGNUP_ERROR_COPY),
+            SIGNUP_ERROR_COPY,
+            SIGNUP_FALLBACK,
+          ),
         });
         return;
       }

@@ -4,8 +4,7 @@
 //
 // Verifies that registerUserWithCredentials({ signupRole: "recruiter", ... }) writes both
 // `recruiterVerifiedAt` (a Date) and `recruiterVerificationTier="minimal"` in the SAME INSERT
-// `values()` call — i.e. one DB statement, not two separate writes. The same expectation holds
-// for the re-declaration UPDATE path (pre-existing unverified row).
+// `values()` call — i.e. one DB statement, not two separate writes.
 
 import { describe, expect, it, vi } from "vitest";
 

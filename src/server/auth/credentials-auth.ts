@@ -6,6 +6,7 @@ import {
   UsernameGenerationError,
 } from "@/lib/username/generate";
 import { getDb, type Database } from "@/server/db/client";
+import { findPostgresDriverError } from "@/server/db/postgres-driver-error";
 import {
   userEmailVerificationTokens,
   userPasswordCredentials,
@@ -108,6 +109,7 @@ type AuthFlowErrorCode =
   | "invalid_password"
   | "invalid_signup_role"
   | "email_exists"
+  | "email_not_verified"
   | "verification_required"
   | "verification_token_invalid"
   | "verification_token_expired"
@@ -247,7 +249,7 @@ export const parseRegistrationInput = (payload: unknown): RegistrationInput => {
       candidateProfile = parseCandidateProfileInput(payload);
     } catch (error) {
       if (error instanceof CandidateProfileError) {
-        throw new CredentialsAuthError(error.code, 400, error.message);
+        throw new CredentialsAuthError(error.code, 400, error.message, error.details);
       }
       throw error;
     }
@@ -266,7 +268,7 @@ export const parseRegistrationInput = (payload: unknown): RegistrationInput => {
           error.code === "recruiter_verification_invalid_payload"
             ? ("recruiter_verification_invalid_payload" as const)
             : ("recruiter_verification_invalid_value" as const);
-        throw new CredentialsAuthError(code, 400, error.message);
+        throw new CredentialsAuthError(code, 400, error.message, error.details);
       }
       throw error;
     }
@@ -364,89 +366,61 @@ export const registerUserWithCredentials = async (
         .where(eq(users.email, input.email))
         .limit(1);
 
-      // Duplicate-account guard. This fires for ANY verified account, whether
-      // it authenticates by password OR by a linked OAuth identity. Google-only accounts have
-      // `emailVerified` set but NO `user_password_credentials` row; the prior guard only
-      // threw when a password row existed, so a Google-only account fell through and this PUBLIC
-      // endpoint would write an attacker-supplied password (and re-apply an attacker-declared role)
-      // onto it — a silent, unauthenticated account takeover. A verified account is already a real
-      // identity; re-registration over it via this public endpoint is never legitimate (adding a
-      // password to an OAuth account belongs in a separate authenticated flow, not here). The throw
-      // occurs BEFORE any mutation below (username INSERT, role-flip UPDATE, password upsert), so no
-      // write lands. The unverified re-registration path is unaffected — this guard keys on
-      // `emailVerified`, and a verified row always pre-exists, so there is no create-race window:
-      // a concurrent same-email creation collapses to the 23505 → `email_exists` branch below, and
-      // the role-flip UPDATE / password upsert only ever target an unverified-existing or brand-new
-      // row (never a verified one, which threw here).
-      if (existingUser?.emailVerified) {
-        throw new CredentialsAuthError(
-          "email_exists",
-          409,
-          "An account with this email already exists",
-        );
+      // Any existing account for this email refuses, verified or not, before any write: a second sign-up must never set the password, role or profile of an account its owner may still verify.
+      if (existingUser) {
+        throw existingUser.emailVerified
+          ? new CredentialsAuthError(
+              "email_exists",
+              409,
+              "An account with this email already exists",
+            )
+          : new CredentialsAuthError(
+              "email_not_verified",
+              409,
+              "An unverified account with this email already exists",
+            );
       }
 
       // Write the declared user-level role and the matching
       // *_verified_at timestamp at account-creation time. The CHECK constraint
       // `users_one_verified_role_chk` enforces the invariant at the DB layer; the application
       // also sets exactly one timestamp here so the constraint passes on the first INSERT.
-      // For pre-existing unverified rows (re-registration into the same email without prior
-      // email verification) we re-apply the declared role + verifiedAt to reflect the latest
-      // declaration.
       //
       // Recruiter signup auto-grants the `minimal` tier in the
-      // same INSERT/UPDATE statement so tier and recruiterVerifiedAt land atomically. Candidate
+      // same INSERT statement so tier and recruiterVerifiedAt land atomically. Candidate
       // signups leave the tier at the column default ('unverified'); the tier is only meaningful
       // once the account verifies the recruiter mode.
       const now = new Date();
       const roleColumns = deriveSignupRoleColumns(input.signupRole, now);
 
-      let userId = existingUser?.id;
+      // Generate a valid, unique, reserved-word-safe
+      // username before the user INSERT. Generation runs inside this
+      // transaction: the uniqueness probe sees only committed rows, and a
+      // generation failure aborts the transaction so no user row is ever
+      // persisted without a username.
+      const username = await generateUniqueUsernameForName(input.name, async (candidate) => {
+        const [taken] = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.username, candidate))
+          .limit(1);
+        return !taken;
+      });
 
-      if (!userId) {
-        // Generate a valid, unique, reserved-word-safe
-        // username before the user INSERT. Generation runs inside this
-        // transaction: the uniqueness probe sees only committed rows, and a
-        // generation failure aborts the transaction so no user row is ever
-        // persisted without a username.
-        const username = await generateUniqueUsernameForName(input.name, async (candidate) => {
-          const [taken] = await tx
-            .select({ id: users.id })
-            .from(users)
-            .where(eq(users.username, candidate))
-            .limit(1);
-          return !taken;
-        });
+      const [inserted] = await tx
+        .insert(users)
+        .values({
+          email: input.email,
+          name: input.name,
+          username,
+          ...roleColumns,
+        })
+        .returning({ id: users.id });
 
-        const [inserted] = await tx
-          .insert(users)
-          .values({
-            email: input.email,
-            name: input.name,
-            username,
-            ...roleColumns,
-          })
-          .returning({ id: users.id });
-
-        userId = inserted?.id;
-      }
+      const userId = inserted?.id;
 
       if (!userId) {
         throw new Error("Failed to create user account");
-      }
-
-      if (existingUser?.id) {
-        // Re-declaration on an unverified pre-existing account: re-apply the role declaration
-        // and verification timestamp so the row reflects the latest signup intent. The CHECK
-        // invariant always holds (at least one of the two timestamps is non-null on every
-        // path).
-        await tx
-          .update(users)
-          .set({
-            ...roleColumns,
-            updatedAt: now,
-          })
-          .where(eq(users.id, userId));
       }
 
       await tx
@@ -489,24 +463,15 @@ export const registerUserWithCredentials = async (
           },
         });
 
-      if (existingUser?.emailVerified) {
-        return {
-          userId,
-          alreadyVerified: true,
-          verificationRawToken: null as string | null,
-        };
-      }
-
       const verificationChallenge = await createVerificationChallengeForUser(userId, tx);
 
       return {
         userId,
-        alreadyVerified: false,
         verificationRawToken: verificationChallenge.rawToken,
       };
     });
 
-    if (!registrationState.alreadyVerified && registrationState.verificationRawToken) {
+    if (registrationState.verificationRawToken) {
       try {
         await sendRegistrationVerificationEmail({
           email: input.email,
@@ -533,8 +498,8 @@ export const registerUserWithCredentials = async (
 
     return {
       email: input.email,
-      verificationRequired: !registrationState.alreadyVerified,
-      alreadyVerified: registrationState.alreadyVerified,
+      verificationRequired: true,
+      alreadyVerified: false,
     };
   } catch (error) {
     if (error instanceof CredentialsAuthError) {
@@ -559,15 +524,10 @@ export const registerUserWithCredentials = async (
     // would be misreported to the client as `email_exists`. The constraint
     // name is exposed as `constraint_name` (postgres.js) or `constraint`
     // (node-postgres); `detail` is a final fallback.
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      (error as { code?: string }).code === "23505"
-    ) {
-      const pgError = error as { constraint_name?: string; constraint?: string; detail?: string };
-      const constraint = pgError.constraint_name ?? pgError.constraint ?? "";
-      const detail = pgError.detail ?? "";
+    const driverError = findPostgresDriverError(error);
+    if (driverError?.code === "23505") {
+      const constraint = driverError.constraint_name ?? driverError.constraint ?? "";
+      const detail = driverError.detail ?? "";
 
       if (constraint.includes("username") || detail.includes("username")) {
         logger.error("username.generation.collision", { email: input.email });

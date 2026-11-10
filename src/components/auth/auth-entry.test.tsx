@@ -162,4 +162,40 @@ describe("the email sign-up profile step", () => {
     expect(describedBy).toBe("recruiter-full-name-help");
     expect(helpText).toBe(HELP_SENTENCE);
   });
+
+  it("names the refused field when the server refuses the candidate's phone number", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.startsWith(REGISTER_URL)) {
+        return jsonResponse(400, {
+          error: {
+            code: "candidate_profile_invalid_value",
+            message: "x",
+            details: { fields: ["phoneNumber"] },
+          },
+        });
+      }
+      return answerByUrl(url);
+    });
+    await reachCandidateStage();
+    fillCandidateProfile("Andi Saputra");
+
+    submitProfile();
+
+    expect(await screen.findByText("Isi nomor telepon yang valid (minimal 8 digit).")).toBeTruthy();
+  });
+
+  it("shows the verify notice when the server says the email is not yet verified", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.startsWith(REGISTER_URL)) {
+        return jsonResponse(409, { error: { code: "email_not_verified", message: "x" } });
+      }
+      return answerByUrl(url);
+    });
+    await reachCandidateStage();
+    fillCandidateProfile("Andi Saputra");
+
+    submitProfile();
+
+    expect(await screen.findByText(/belum diverifikasi/)).toBeTruthy();
+  });
 });

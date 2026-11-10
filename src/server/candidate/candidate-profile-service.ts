@@ -45,9 +45,8 @@ export const getCandidateProfile = async (
   return row ?? null;
 };
 
-// Inserts the candidate onboarding profile. Intended to run inside the registration transaction
-// (`tx`) so the profile and the candidate verification grant land atomically. Idempotent on the
-// re-registration-into-unverified path: an existing row is left untouched.
+// Inserts the candidate onboarding profile inside the caller's transaction (`tx`), so the profile and the candidate
+// verification grant land atomically. An existing row for the user is overwritten.
 export const insertCandidateProfileInTransaction = async (
   tx: Database,
   userId: string,

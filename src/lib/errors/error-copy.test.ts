@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SESSION_MISMATCH_MESSAGE } from "@/lib/session/session-fetch";
-import { errorMessageFor } from "./error-copy";
+import { errorMessageFor, ONBOARDING_FIELD_REFUSAL_COPY, refusalCopyKey } from "./error-copy";
 
 describe("errorMessageFor", () => {
   it("returns the surface copy over the shared copy for the same code", () => {
@@ -31,5 +31,27 @@ describe("errorMessageFor", () => {
     const message = errorMessageFor(null, {}, "Fallback.");
 
     expect(message).toBe("Fallback.");
+  });
+});
+
+describe("refusalCopyKey", () => {
+  it("picks the field sentence when the surface copy has one for that field", () => {
+    const key = refusalCopyKey(
+      "candidate_profile_invalid_value",
+      "phoneNumber",
+      ONBOARDING_FIELD_REFUSAL_COPY,
+    );
+
+    expect(key).toBe("candidate_profile_invalid_value.phoneNumber");
+  });
+
+  it("falls back to the code when the field has no sentence", () => {
+    const key = refusalCopyKey(
+      "candidate_profile_invalid_value",
+      "unknownField",
+      ONBOARDING_FIELD_REFUSAL_COPY,
+    );
+
+    expect(key).toBe("candidate_profile_invalid_value");
   });
 });

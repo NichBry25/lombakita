@@ -4,6 +4,7 @@ import { decode as decodeNextAuthJwt } from "next-auth/jwt";
 import { serverEnv } from "@/config/env.server";
 import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
+import { findPostgresDriverError } from "@/server/db/postgres-driver-error";
 import { accounts, userProfiles, users } from "@/server/db/schema";
 import {
   deriveSignupRoleColumns,
@@ -338,12 +339,7 @@ export const finalizeOAuthSignup = async (
     }
     // A unique-violation race (email or Google account created concurrently) collapses to a
     // conflict rather than a duplicate.
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      (error as { code?: string }).code === "23505"
-    ) {
+    if (findPostgresDriverError(error)?.code === "23505") {
       logger.warn("oauth.signup.conflict", { email });
       throw new OAuthFinalizeError("account_conflict", "Account could not be created right now");
     }

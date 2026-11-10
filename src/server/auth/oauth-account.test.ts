@@ -449,6 +449,41 @@ const makeFinalizeDb = () => {
   return { db, captures };
 };
 
+const makeFinalizeDbWithFailingInsert = () => {
+  const driverFailure = Object.assign(new Error("Failed query"), {
+    cause: Object.assign(new Error("duplicate"), {
+      code: "23505",
+      constraint_name: "users_email_unique",
+    }),
+  });
+
+  const tx = {
+    select: vi.fn(() => {
+      const chain: Record<string, unknown> = {};
+      chain.from = vi.fn(() => chain);
+      chain.where = vi.fn(() => chain);
+      chain.limit = vi.fn(() => Promise.resolve([]));
+      return chain;
+    }),
+    insert: vi.fn((table: unknown) => {
+      const isUsers = table === usersRef;
+      const chain: Record<string, unknown> = {};
+      chain.values = vi.fn(() => chain);
+      chain.returning = vi.fn(() =>
+        isUsers
+          ? Promise.reject(driverFailure)
+          : Promise.resolve([{ id: "new-oauth-id", email: "user@example.com" }]),
+      );
+      chain.onConflictDoNothing = vi.fn(() => Promise.resolve(undefined));
+      chain.onConflictDoUpdate = vi.fn(() => Promise.resolve(undefined));
+      return chain;
+    }),
+  };
+
+  const db = { transaction: vi.fn((fn: (t: unknown) => unknown) => fn(tx)) };
+  return { db };
+};
+
 // Candidate onboarding fields written in the finalize transaction (parity with credentials signup).
 const candidateProfileFixture = {
   fullName: "Dinda Putri",
@@ -497,6 +532,14 @@ describe("finalizeOAuthSignup — transactional creation, verification never fro
       occupation: "college_student",
       dateOfBirth: "2000-01-15",
     });
+  });
+
+  it("treats a unique violation found on the error's cause as an account conflict", async () => {
+    const { db } = makeFinalizeDbWithFailingInsert();
+
+    await expect(
+      finalizeOAuthSignup(googleClaims, "candidate", candidateProfileFixture, null, db as never),
+    ).rejects.toMatchObject({ code: "account_conflict" });
   });
 
   it("sets candidate verification from the DECLARED ROLE even when Google email_verified is false", async () => {
