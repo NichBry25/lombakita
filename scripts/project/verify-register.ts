@@ -1,8 +1,8 @@
 /**
- * The register gate: what a close must be able to assert about `open-debt.md` and `decision-log.md`
- * before the work unit is allowed to close.
+ * The register gate: what a close must be able to assert about `open-debt.md`, `decision-log.md`
+ * and `decision-table.md` before the work unit is allowed to close.
  *
- * WHY THIS IS A GATE AND NOT A REPORT. Both files are read by grep. An id that is filed without an
+ * WHY THIS IS A GATE AND NOT A REPORT. These files are read by grep. An id that is filed without an
  * anchor, a row whose cells do not match its columns, a blank line that ends a table — none of them
  * makes anything fail. They make the greps that every future reader depends on return something
  * other than the truth, silently, and the reader has no way to tell. This script is the only thing
@@ -23,11 +23,13 @@
  *    failing. The order is asserted from `.claude/commands/close-step.md` for that reason — a
  *    correct order with nothing testing it is a correct order until someone edits the file.
  *
- * WHAT IT REFUSES. A register the census cannot classify, a baseline git cannot answer for, and a
- * close procedure whose two steps cannot be located. All three throw rather than report zero,
- * because zero is the value that reads green: an unreadable file has an empty population, a missing
+ * WHAT IT REFUSES. A register the census cannot classify, a baseline git cannot answer for, a close
+ * procedure whose two steps cannot be located, and a decision log or decision table that is
+ * missing, empty, without exactly one pair of its markers, without rows, or holding a copy of a
+ * full table row outside its generated region. All of them throw rather than report zero, because
+ * zero is the value that reads green: an unreadable file has an empty population, a missing
  * baseline makes every item in the file look newly filed, and an unlocatable step makes the running
- * order unassertable. The alternative — carry on with the counts that remain plausible — is the
+ * order unassertable. The alternative, carrying on with the counts that remain plausible, is the
  * fail-open this module exists to prevent.
  *
  * Run:  node --import tsx scripts/project/verify-register.ts
@@ -53,11 +55,13 @@ const DOC_LANE = "docs";
 const REGISTER_IN_DOC_REPO = "project/open-debt.md";
 const REGISTER_ARCHIVE_IN_DOC_REPO = "archive/project/open-debt-archive.md";
 const DECISION_LOG_IN_DOC_REPO = "project/decision-log.md";
+const DECISION_TABLE_IN_DOC_REPO = "project/decision-table.md";
 const CLOSE_STEP_IN_DOC_REPO = ".claude/commands/close-step.md";
 
 const REGISTER = join(DOC_LANE, REGISTER_IN_DOC_REPO);
 const REGISTER_ARCHIVE = join(DOC_LANE, REGISTER_ARCHIVE_IN_DOC_REPO);
 const DECISION_LOG = join(DOC_LANE, DECISION_LOG_IN_DOC_REPO);
+const DECISION_TABLE = join(DOC_LANE, DECISION_TABLE_IN_DOC_REPO);
 const CLOSE_STEP = join(DOC_LANE, CLOSE_STEP_IN_DOC_REPO);
 
 let failures = 0;
@@ -168,7 +172,12 @@ const main = (): void => {
 
   try {
     items = censusDebtItems([REGISTER, REGISTER_ARCHIVE]);
-    measurements = measureRegister([REGISTER, REGISTER_ARCHIVE], REGISTER_ARCHIVE, DECISION_LOG);
+    measurements = measureRegister(
+      [REGISTER, REGISTER_ARCHIVE],
+      REGISTER_ARCHIVE,
+      DECISION_LOG,
+      DECISION_TABLE,
+    );
     baseline = committedRegister(DOC_LANE, REGISTER_IN_DOC_REPO);
     archiveBaseline = committedRegister(DOC_LANE, REGISTER_ARCHIVE_IN_DOC_REPO);
     order = runningOrder(CLOSE_STEP);
@@ -189,6 +198,7 @@ const main = (): void => {
   console.log(`  register          ${REGISTER}`);
   console.log(`  register archive  ${REGISTER_ARCHIVE}`);
   console.log(`  decision log      ${DECISION_LOG}`);
+  console.log(`  decision table    ${DECISION_TABLE}`);
   console.log(
     `  baseline          ${DOC_LANE}@${baseline.revision} ` +
       `(${REGISTER_IN_DOC_REPO}, ${REGISTER_ARCHIVE_IN_DOC_REPO})`,
