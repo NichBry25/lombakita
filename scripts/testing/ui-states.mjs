@@ -339,7 +339,7 @@ export const CASES = [
   {
     id: "fee-disclosure-on-paid-competition",
     as: "recElev",
-    path: `/institution/${INST.a.slug}/competitions/${COMP.paid.slug}/edit`,
+    path: `/institution/${INST.a.slug}/competitions/${COMP.paid.slug}/edit?langkah=4`,
     present: [
       "Biaya pendaftaran",
       "Rincian per pendaftaran",
@@ -360,7 +360,7 @@ export const CASES = [
   {
     id: "fee-disclosure-withheld-on-free-competition",
     as: "recElev",
-    path: `/institution/${INST.a.slug}/competitions/${COMP.open.slug}/edit`,
+    path: `/institution/${INST.a.slug}/competitions/${COMP.open.slug}/edit?langkah=4`,
     present: ["Biaya pendaftaran", "Pendaftaran gratis"],
     // Paired with the case above. A free competition has no amount, so there is nothing to
     // disclose and nothing to consent to, so the acknowledgement must not be reachable.

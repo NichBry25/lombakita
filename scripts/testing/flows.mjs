@@ -234,7 +234,7 @@ const main = async () => {
   });
 
   await runFlow(browser, "post-publish-edit-guard", "recElev", async (page, capture) => {
-    await visit(page, "/institution/seed-academy/competitions/seed-open/edit");
+    await visit(page, "/institution/seed-academy/competitions/seed-open/edit?langkah=2");
     await capture("edit-published", "editing a published competition — immutable fields disabled");
   });
 
