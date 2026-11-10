@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { TransactionRollbackError } from "drizzle-orm";
+import { TransactionRollbackError, and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { AuthenticatedSession } from "@/server/auth/access-core";
@@ -178,6 +178,51 @@ describe.skipIf(skipWithoutDatabase)("the fee settings read, against a real data
 
       expect(status).toBe(200);
       expect(body).toMatchObject({ pricing: { feeAmount: 50_000 } });
+    });
+  });
+
+  it("refuses the owner of another institution the fee settings", async () => {
+    await inRollback(async (tx) => {
+      const competitionFixture = await seedFixture(tx, "institution_owner");
+      const otherInstitutionFixture = await seedFixture(tx, "institution_owner");
+      const fixture: Fixture = {
+        competitionId: competitionFixture.competitionId,
+        actorUserId: otherInstitutionFixture.actorUserId,
+      };
+
+      const { status, body } = await getFeeViaRoute(fixture, tx);
+
+      expect(status).toBe(403);
+      expect(body).toMatchObject({ error: { code: "forbidden" } });
+      expect(body).not.toHaveProperty("pricing");
+    });
+  });
+
+  it("refuses a revoked owner the fee settings", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx, "institution_owner");
+      const [competition] = await tx
+        .select({ institutionId: competitions.institutionId })
+        .from(competitions)
+        .where(eq(competitions.id, fixture.competitionId));
+      const revokedMemberships = await tx
+        .update(institutionMemberships)
+        .set({ status: "revoked" })
+        .where(
+          and(
+            eq(institutionMemberships.institutionId, competition!.institutionId),
+            eq(institutionMemberships.userId, fixture.actorUserId),
+            eq(institutionMemberships.membershipRole, "institution_owner"),
+          ),
+        )
+        .returning({ id: institutionMemberships.id });
+      expect(revokedMemberships).toHaveLength(1);
+
+      const { status, body } = await getFeeViaRoute(fixture, tx);
+
+      expect(status).toBe(403);
+      expect(body).toMatchObject({ error: { code: "forbidden" } });
+      expect(body).not.toHaveProperty("pricing");
     });
   });
 });

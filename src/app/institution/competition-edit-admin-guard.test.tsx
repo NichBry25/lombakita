@@ -124,4 +124,17 @@ describe("competition edit page institution-admin guard", () => {
       viewerIsOwner: false,
     });
   });
+
+  it("tells the fee section that the owner is the owner, checked for the editor's institution", async () => {
+    mocks.isAdmin.mockResolvedValue(true);
+    mocks.isOwner.mockResolvedValue(true);
+
+    const page = await renderEditPage();
+
+    expect(page.props.children[4].props).toMatchObject({ viewerIsOwner: true });
+    expect(page.props.stepChildren[4].props.children[1].props).toMatchObject({
+      viewerIsOwner: true,
+    });
+    expect(mocks.isOwner).toHaveBeenCalledWith("recruiter-user", "institution");
+  });
 });

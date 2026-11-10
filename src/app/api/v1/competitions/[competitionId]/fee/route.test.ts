@@ -1,8 +1,9 @@
 // @vitest-environment node
 //
-// The route reads a body and calls one service; every gate lives in that service and is proven
-// against a real database. What is proven here is the boundary, which is where this route already
-// had a real defect.
+// The PUT checks the session in the route and calls one service; every other gate of the PUT
+// lives in that service and is proven against a real database. What is proven here for the PUT is
+// the boundary, which is where this route already had a real defect. The GET tests pin its owner
+// check and its order.
 //
 // `setCompetitionFee` raises THREE error families across its six gates. A handler converting only
 // CompetitionError sends the other two to `toAccessDeniedResponse`, which answers anything it does
@@ -99,6 +100,12 @@ describe("GET …/competitions/[competitionId]/fee", () => {
 
     expect(response.status).toBe(403);
     expect(body.error.code).toBe("forbidden");
+    expect(assertCompetitionAccess).toHaveBeenCalledWith(
+      ORGANISER.user.id,
+      "comp_1",
+      "admin",
+      expect.anything(),
+    );
     expect(loadCompetitionPricing).not.toHaveBeenCalled();
     expect(resolveFeeRule).not.toHaveBeenCalled();
   });
