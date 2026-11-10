@@ -102,18 +102,12 @@ export default async function PublicProfilePage({
               </a>
             )}
 
-            {(profile.candidateVerified || profile.recruiterVerified) && (
+            {(profile.candidateVerified || profile.trustedRecruiter) && (
               <div className="pf-badges">
                 {profile.candidateVerified && (
                   <span className="status-badge" data-status="open">
                     <Icon name="check" size="sm" aria-hidden="true" />
                     Kandidat Terverifikasi
-                  </span>
-                )}
-                {profile.recruiterVerified && !profile.trustedRecruiter && (
-                  <span className="status-badge" data-status="open">
-                    <Icon name="check" size="sm" aria-hidden="true" />
-                    Rekruter Terverifikasi
                   </span>
                 )}
                 {profile.trustedRecruiter && (
