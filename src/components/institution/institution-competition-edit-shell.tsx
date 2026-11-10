@@ -11,12 +11,13 @@ import {
   FormActionBar,
   Icon,
   IconButton,
+  IconButtonLink,
   PageHeader,
   SelectField,
   Skeleton,
+  StepIndicator,
   usePageTransition,
 } from "@/components/ui";
-import { StepIndicator } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import {
   COMPETITION_STEP_COUNT,
@@ -25,9 +26,13 @@ import {
   getCompetitionStepHref,
   type CompetitionStep,
 } from "@/components/institution/competition-steps";
-import { COMPETITION_CATEGORY_OPTIONS } from "@/lib/competitions/categories";
+import {
+  COMPETITION_CATEGORY_OPTIONS,
+  getCompetitionCategoryLabel,
+} from "@/lib/competitions/categories";
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
-import { COMPETITION_MODE_OPTIONS } from "@/lib/competitions/modes";
+import { COMPETITION_MODE_OPTIONS, getCompetitionModeLabel } from "@/lib/competitions/modes";
+import { truncateText } from "@/lib/text/truncate";
 import { getMissingCompetitionPublishFields } from "@/lib/competitions/competition-publish-required-fields";
 import {
   isRegistrationEndPast,
@@ -214,6 +219,104 @@ const snapshotEquals = (a: FormSnapshot, b: FormSnapshot): boolean =>
   a.allowCancellation === b.allowCancellation &&
   a.cutoffDays === b.cutoffDays;
 
+// The steps whose fields can be edited: the sections of a published competition.
+const SECTION_STEPS = [1, 2, 3, 4] as const;
+type SectionStep = (typeof SECTION_STEPS)[number];
+
+type SummaryRow = { term: string; value: string };
+
+const orEmptyMark = (value: string): string => (value === "" ? "—" : value);
+
+// The detail page's date format prints UTC, which is off by hours in WIB, so step 5 shows the
+// form's own value in the browser's time zone instead.
+const formatDateTimeInputValue = (value: string): string => orEmptyMark(value.replace("T", " "));
+
+const formatMinimumEntries = (value: string): string =>
+  value.trim() === "" ? "—" : Number(value).toLocaleString("id-ID");
+
+const getBasicInfoRows = (values: FormSnapshot): SummaryRow[] => [
+  { term: "Judul", value: orEmptyMark(values.title) },
+  { term: "Kategori", value: orEmptyMark(getCompetitionCategoryLabel(values.category)) },
+  { term: "Deskripsi", value: orEmptyMark(truncateText(values.description, 200)) },
+  { term: "Slug", value: orEmptyMark(values.slug) },
+];
+
+const getParticipantRows = (values: FormSnapshot): SummaryRow[] => {
+  const hasTeams = values.mode === "team" || values.mode === "both";
+  const teamSizeRows = hasTeams
+    ? [
+        { term: "Min. anggota tim", value: orEmptyMark(values.minTeamSize) },
+        { term: "Maks. anggota tim", value: orEmptyMark(values.maxTeamSize) },
+      ]
+    : [];
+  return [
+    { term: "Mode", value: orEmptyMark(getCompetitionModeLabel(values.mode)) },
+    ...teamSizeRows,
+    { term: "Minimum pendaftaran", value: formatMinimumEntries(values.minimumEntries) },
+  ];
+};
+
+const getScheduleRows = (values: FormSnapshot): SummaryRow[] => [
+  { term: "Pendaftaran mulai", value: formatDateTimeInputValue(values.regStart) },
+  { term: "Pendaftaran berakhir", value: formatDateTimeInputValue(values.regEnd) },
+  { term: "Acara mulai", value: formatDateTimeInputValue(values.evtStart) },
+  { term: "Acara berakhir", value: formatDateTimeInputValue(values.evtEnd) },
+  { term: "Pengumuman hasil", value: formatDateTimeInputValue(values.resultAnnounce) },
+  { term: "Konfirmasi peserta", value: formatDateTimeInputValue(values.participantConfirmation) },
+];
+
+const getCancellationRows = (values: FormSnapshot): SummaryRow[] => {
+  if (!values.allowCancellation) {
+    return [{ term: "Pembatalan oleh peserta", value: "Tidak diizinkan" }];
+  }
+  const cutoff =
+    values.cutoffDays.trim() === "" ? "—" : `${values.cutoffDays} hari sebelum acara mulai`;
+  return [
+    { term: "Pembatalan oleh peserta", value: "Diizinkan" },
+    { term: "Batas pembatalan", value: cutoff },
+  ];
+};
+
+const SUMMARY_ROWS_BY_STEP: Record<SectionStep, (values: FormSnapshot) => SummaryRow[]> = {
+  1: getBasicInfoRows,
+  2: getParticipantRows,
+  3: getScheduleRows,
+  4: getCancellationRows,
+};
+
+const StepSummarySection = ({
+  step,
+  rows,
+  editHref,
+}: {
+  step: SectionStep;
+  rows: SummaryRow[];
+  editHref: string;
+}) => (
+  <section className="content-section">
+    <div className="section-heading">
+      <div>
+        <h2>{COMPETITION_STEP_TITLES[step]}</h2>
+      </div>
+      <IconButtonLink
+        href={editHref}
+        icon="edit"
+        label={`Edit ${COMPETITION_STEP_TITLES[step].toLowerCase()}`}
+        variant="outline"
+        size="sm"
+      />
+    </div>
+    <dl className="management-detail-grid">
+      {rows.map((row) => (
+        <div key={row.term}>
+          <dt>{row.term}</dt>
+          <dd className="data-text">{row.value}</dd>
+        </div>
+      ))}
+    </dl>
+  </section>
+);
+
 export const InstitutionCompetitionEditShell = ({
   institutionSlug,
   competitionId,
@@ -237,7 +340,7 @@ export const InstitutionCompetitionEditShell = ({
   // page keeps a single <main>. The parent page wires these because they carry their own save.
   children?: ReactNode;
   // Absent: the whole editor on one page. Null: the URL named no valid step, so a draft is sent to
-  // the step it should resume at. A draft shows only the named step; other statuses ignore it.
+  // the step it should resume at, a published competition to section 1. Other statuses ignore it.
   step?: CompetitionStep | null;
   // The same sub-editors grouped by the step that shows them, rendered in place of `children` in
   // step mode so the page does not need to know the competition's status.
@@ -322,8 +425,9 @@ export const InstitutionCompetitionEditShell = ({
     setCutoffDays(snapshot.cutoffDays);
   };
 
-  // The step a draft shows; null for today's single page, which every other status keeps.
-  const activeStep = competition?.status === "draft" && typeof step === "number" ? step : null;
+  const isDraftOrPublished = competition?.status === "draft" || competition?.status === "published";
+  // The step a draft shows or the section a published competition shows; null for the single page.
+  const activeStep = isDraftOrPublished && typeof step === "number" ? step : null;
   // Which of "Lanjut" and "Simpan dan keluar" is running, so the spinner lands on the pressed one.
   const [pendingStepAction, setPendingStepAction] = useState<"next" | "exit" | null>(null);
 
@@ -332,7 +436,7 @@ export const InstitutionCompetitionEditShell = ({
   const [renderedStep, setRenderedStep] = useState(step);
   if (step !== renderedStep) {
     setRenderedStep(step);
-    if (competition?.status === "draft" && step !== undefined && savedSnapshot) {
+    if (isDraftOrPublished && step !== undefined && savedSnapshot) {
       restoreFormValues(savedSnapshot);
     }
   }
@@ -558,7 +662,7 @@ export const InstitutionCompetitionEditShell = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPersonal]);
 
-  // A step change is how "Lanjut" and the step "Kembali" arrive, so it closes their screen.
+  // "Lanjut", the step "Kembali" and "Tinggalkan" arrive as a step change, which ends their screen.
   useEffect(() => {
     if (step === undefined) return;
     end();
@@ -581,6 +685,13 @@ export const InstitutionCompetitionEditShell = ({
       participantConfirmationAt: savedSnapshot.participantConfirmation,
     });
     router.replace(getCompetitionStepHref(institutionSlug, savedSnapshot.slug, resumeStep));
+  }, [step, competition?.status, savedSnapshot, institutionSlug, router]);
+
+  // A published competition has no step 5, so a missing or review step opens its first section.
+  useEffect(() => {
+    if (competition?.status !== "published" || !savedSnapshot) return;
+    if (step !== null && step !== COMPETITION_STEP_COUNT) return;
+    router.replace(getCompetitionStepHref(institutionSlug, savedSnapshot.slug, 1));
   }, [step, competition?.status, savedSnapshot, institutionSlug, router]);
 
   // Resolves to the form values the save sent when it succeeded, and to undefined otherwise.
@@ -737,6 +848,11 @@ export const InstitutionCompetitionEditShell = ({
     router.push(getCompetitionStepHref(institutionSlug, sentSnapshot.slug, nextStep));
   };
 
+  const onStepFormSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void onNextStep();
+  };
+
   const onSaveAndExit = () =>
     runAndNavigate(
       async () => {
@@ -821,7 +937,7 @@ export const InstitutionCompetitionEditShell = ({
   // Step 1 leaves for the list, whose route skeleton is its waiting signal. Steps 2 to 5 stay on
   // this path, which shows no skeleton, so the transition screen covers the wait instead.
   const openBackTarget = () => {
-    if (activeStep === null) {
+    if (activeStep === null || competition?.status !== "draft") {
       router.push(backUrl);
       return;
     }
@@ -834,11 +950,7 @@ export const InstitutionCompetitionEditShell = ({
     router.push(getCompetitionStepHref(institutionSlug, savedCompetitionSlug, previousStep));
   };
 
-  const handleBack = () => {
-    if (!isDirty) {
-      openBackTarget();
-      return;
-    }
+  const confirmLeavingUnsavedChanges = (leave: () => void) => {
     openModal({
       title: "Perubahan belum tersimpan",
       body: "Anda memiliki perubahan yang belum disimpan. Yakin ingin meninggalkan halaman ini?",
@@ -848,7 +960,7 @@ export const InstitutionCompetitionEditShell = ({
           label: "Tinggalkan",
           variant: "danger",
           autoClose: true,
-          onClick: openBackTarget,
+          onClick: leave,
         },
         {
           label: "Tetap di sini",
@@ -860,10 +972,36 @@ export const InstitutionCompetitionEditShell = ({
     });
   };
 
+  const handleBack = () => {
+    if (!isDirty) {
+      openBackTarget();
+      return;
+    }
+    confirmLeavingUnsavedChanges(openBackTarget);
+  };
+
+  // With unsaved changes another section is opened only after the confirmation; without them the
+  // link navigates on its own.
+  const onSectionLinkClick = (
+    event: React.MouseEvent<HTMLAnchorElement>,
+    href: string,
+    isCurrentSection: boolean,
+  ) => {
+    if (!isDirty || isCurrentSection) return;
+    event.preventDefault();
+    confirmLeavingUnsavedChanges(() => {
+      begin("Membuka bagian kompetisi…");
+      router.push(href);
+    });
+  };
+
   // A draft opened without a valid step keeps the skeleton until the resume step's URL arrives.
   const isAwaitingResumeStep = step === null && competition?.status === "draft";
+  // A published competition opened without a section keeps it until section 1's URL arrives.
+  const isAwaitingFirstSection =
+    competition?.status === "published" && (step === null || step === COMPETITION_STEP_COUNT);
 
-  if (isLoading || isAwaitingResumeStep) {
+  if (isLoading || isAwaitingResumeStep || isAwaitingFirstSection) {
     return (
       <main className="page-shell app-page competition-form-page">
         <div className="stack-md" aria-label="Memuat formulir kompetisi">
@@ -994,8 +1132,12 @@ export const InstitutionCompetitionEditShell = ({
       />
     </label>
   );
-  const participantConfirmationHelpId =
-    activeStep === null ? "minimum-participation-help" : "participant-confirmation-help";
+  let participantConfirmationHelpIds = "participant-confirmation-help";
+  if (activeStep === null) {
+    participantConfirmationHelpIds = "minimum-participation-help";
+  } else if (isPublished) {
+    participantConfirmationHelpIds = "minimum-participation-help participant-confirmation-help";
+  }
   const participantConfirmationField = (
     <label className="form-field">
       <span className="form-label form-label-required">Konfirmasi peserta</span>
@@ -1011,8 +1153,8 @@ export const InstitutionCompetitionEditShell = ({
         aria-invalid={participantConfirmationError ? true : undefined}
         aria-describedby={
           participantConfirmationError
-            ? `${participantConfirmationHelpId} participant-confirmation-timeline-error`
-            : participantConfirmationHelpId
+            ? `${participantConfirmationHelpIds} participant-confirmation-timeline-error`
+            : participantConfirmationHelpIds
         }
       />
       {participantConfirmationError ? (
@@ -1064,6 +1206,41 @@ export const InstitutionCompetitionEditShell = ({
     </div>
   );
 
+  const sectionNav = (
+    <nav aria-label="Bagian kompetisi" className="cluster">
+      {SECTION_STEPS.map((sectionStep) => {
+        const href = getCompetitionStepHref(institutionSlug, savedCompetitionSlug, sectionStep);
+        const isCurrentSection = sectionStep === activeStep;
+        return (
+          <ButtonLink
+            key={sectionStep}
+            href={href}
+            size="sm"
+            variant={isCurrentSection ? "primary" : "outline"}
+            aria-current={isCurrentSection ? "page" : undefined}
+            onClick={(event) => onSectionLinkClick(event, href, isCurrentSection)}
+          >
+            {COMPETITION_STEP_TITLES[sectionStep]}
+          </ButtonLink>
+        );
+      })}
+    </nav>
+  );
+
+  // Step 5 opens after a step change, which restores the saved values, so the form state read here
+  // is what was saved.
+  const formValues = currentSnapshot();
+  const stepSummarySections = SECTION_STEPS.map((summaryStep) => (
+    <StepSummarySection
+      key={summaryStep}
+      step={summaryStep}
+      rows={SUMMARY_ROWS_BY_STEP[summaryStep](formValues)}
+      editHref={getCompetitionStepHref(institutionSlug, savedCompetitionSlug, summaryStep)}
+    />
+  ));
+
+  const isDraftStep = activeStep !== null && isDraft;
+
   return (
     <main className="page-shell app-page competition-form-page">
       <PageHeader
@@ -1074,16 +1251,17 @@ export const InstitutionCompetitionEditShell = ({
           </span>
         }
       />
-      {activeStep === null ? null : (
+      {activeStep !== null && isPublished ? sectionNav : null}
+      {isDraftStep ? (
         <StepIndicator
           current={activeStep}
           total={COMPETITION_STEP_COUNT}
           label={COMPETITION_STEP_TITLES[activeStep]}
         />
-      )}
+      ) : null}
 
       {!isEditable || activeStep === 5 ? null : (
-        <form onSubmit={onSave} className="competition-edit-form">
+        <form onSubmit={isDraftStep ? onStepFormSubmit : onSave} className="competition-edit-form">
           {showsStep(1) ? (
             <section className="content-section">
               <div className="section-heading">
@@ -1326,6 +1504,7 @@ export const InstitutionCompetitionEditShell = ({
           {activeStep === 3 ? (
             <fieldset className="content-section competition-policy-fieldset">
               {minimumParticipationHeading}
+              {isPublished ? minimumParticipationHelp : null}
               <div className="form-grid">{participantConfirmationField}</div>
               {participantConfirmationHelp}
             </fieldset>
@@ -1361,9 +1540,11 @@ export const InstitutionCompetitionEditShell = ({
         </form>
       )}
 
+      {activeStep === 5 ? stepSummarySections : null}
+
       {activeStep === null ? children : activeStep === 5 ? null : stepChildren?.[activeStep]}
 
-      {activeStep === null ? (
+      {!isDraftStep ? (
         <FormActionBar>
           <IconButton icon="arrow-left" label="Kembali ke aksi status" onClick={handleBack} />
           {isEditable ? (

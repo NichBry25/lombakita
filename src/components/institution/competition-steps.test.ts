@@ -36,6 +36,14 @@ describe("getCompetitionResumeStep", () => {
     expect(getCompetitionResumeStep({ ...completeForm(), [field]: "" })).toBe(step);
   });
 
+  it("resumes at step 1 with every field empty and knows every missing-field label", () => {
+    const keys = Object.keys(completeForm());
+    const emptyForm = Object.fromEntries(keys.map((key) => [key, ""])) as CompetitionResumeValues;
+
+    expect(() => getCompetitionResumeStep(emptyForm)).not.toThrow();
+    expect(getCompetitionResumeStep(emptyForm)).toBe(1);
+  });
+
   it("opens the first step that holds a missing field", () => {
     const values = { ...completeForm(), description: "", mode: "", eventEndAt: "" };
     expect(getCompetitionResumeStep(values)).toBe(1);

@@ -20,7 +20,7 @@
 // `publishReadiness` key.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SESSION_MISMATCH_MESSAGE } from "@/lib/session/session-fetch";
 import { NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
@@ -687,6 +687,16 @@ describe("InstitutionCompetitionEditShell steps", () => {
       (label) => label.textContent,
     );
   const readinessNote = () => document.getElementById("publish-readiness-message");
+  const sectionNav = () => screen.getByRole("navigation", { name: "Bagian kompetisi" });
+  const summaryTerms = () =>
+    [...document.querySelectorAll(".management-detail-grid dt")].map((term) => term.textContent);
+  const summaryValue = (term: string) => {
+    const terms = [...document.querySelectorAll(".management-detail-grid dt")].filter(
+      (element) => element.textContent === term,
+    );
+    expect(terms, term).toHaveLength(1);
+    return terms[0]?.nextElementSibling?.textContent;
+  };
   const patchBodies = () =>
     vi
       .mocked(fetch)
@@ -763,7 +773,12 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
     const publish = await screen.findByRole("button", { name: "Terbitkan" });
     expect(indicatorLine()).toBe("Langkah 5 dari 5: Tinjau dan terbitkan");
-    expect(sectionHeadings()).toEqual([]);
+    expect(sectionHeadings()).toEqual([
+      STEP_TITLES[1],
+      STEP_TITLES[2],
+      STEP_TITLES[3],
+      STEP_TITLES[4],
+    ]);
     expect(fieldLabels()).toEqual([]);
     for (const text of [...Object.values(STEP_CHILD_TEXT), ALL_CHILDREN_TEXT]) {
       expect(screen.queryByText(text), text).toBeNull();
@@ -779,7 +794,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
     expect(readinessNote()).not.toBeNull();
   });
 
-  it("keeps today's page for a published competition opened at a step", async () => {
+  it("opens a section of a published competition opened at a step", async () => {
     const competition = { ...COMPETITION, status: "published" };
     stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
 
@@ -787,13 +802,34 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
     await screen.findByRole("button", { name: "Simpan" });
     expect(indicatorLine()).toBeUndefined();
+    const links = within(sectionNav()).getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual([
+      STEP_TITLES[1],
+      STEP_TITLES[2],
+      STEP_TITLES[3],
+      STEP_TITLES[4],
+    ]);
+    links.forEach((link, index) => {
+      const isCurrent = index === 1;
+      expect(link.getAttribute("href")).toBe(`${EDIT_URL}?langkah=${index + 1}`);
+      expect(link.getAttribute("aria-current")).toBe(isCurrent ? "page" : null);
+      expect(link.getAttribute("data-variant")).toBe(isCurrent ? "primary" : "outline");
+      expect(link.getAttribute("data-size")).toBe("sm");
+    });
+    const expectedHeadings: readonly string[] = SECTION_HEADINGS_BY_STEP[2];
     for (const heading of ALL_SECTION_HEADINGS) {
-      expect(sectionHeadings().includes(heading), heading).toBe(true);
+      expect(sectionHeadings().includes(heading), heading).toBe(expectedHeadings.includes(heading));
     }
-    expect(screen.getByText(ALL_CHILDREN_TEXT)).toBeTruthy();
-    expect(screen.queryByText(STEP_CHILD_TEXT[2])).toBeNull();
+    expect(fieldLabels()).toEqual(STEP_FIELD_LABELS[2]);
+    for (const childStep of [1, 2, 3, 4] as const) {
+      const shown = screen.queryByText(STEP_CHILD_TEXT[childStep]) !== null;
+      expect(shown, `child of step ${childStep}`).toBe(childStep === 2);
+    }
+    expect(screen.queryByText(ALL_CHILDREN_TEXT)).toBeNull();
     expect(screen.getByRole("button", { name: "Kembali ke aksi status" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Lanjut" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Simpan dan keluar" })).toBeNull();
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
@@ -854,16 +890,30 @@ describe("InstitutionCompetitionEditShell steps", () => {
     }
   });
 
-  it("keeps today's page for a published competition opened without a step", async () => {
+  it("sends a published competition opened without a step to section 1", async () => {
     const competition = { ...COMPETITION, status: "published" };
     stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
 
     render(shellAt(null));
 
-    await screen.findByRole("button", { name: "Simpan" });
-    expect(screen.getByText(ALL_CHILDREN_TEXT)).toBeTruthy();
-    expect(indicatorLine()).toBeUndefined();
-    expect(mockReplace).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`${EDIT_URL}?langkah=1`));
+    expect(screen.getByLabelText("Memuat formulir kompetisi")).toBeTruthy();
+    expect(document.querySelector("form")).toBeNull();
+    for (const text of [...Object.values(STEP_CHILD_TEXT), ALL_CHILDREN_TEXT]) {
+      expect(screen.queryByText(text), text).toBeNull();
+    }
+  });
+
+  it("sends a published competition opened at step 5 to section 1", async () => {
+    const competition = { ...COMPETITION, status: "published" };
+    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+
+    render(shellAt(5));
+
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`${EDIT_URL}?langkah=1`));
+    expect(screen.getByLabelText("Memuat formulir kompetisi")).toBeTruthy();
+    expect(document.querySelector("form")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Terbitkan" })).toBeNull();
   });
 
   it("drops an unsaved value of another step when the step changes", async () => {
@@ -945,5 +995,232 @@ describe("InstitutionCompetitionEditShell steps", () => {
       ),
     );
     expect(patchBodies()[0]?.slug).toBe("lomba-baru");
+  });
+
+  it("sums up each step of a draft on step 5 with a link to edit it", async () => {
+    const competition = {
+      ...COMPETITION,
+      description: "a".repeat(250),
+      mode: "team",
+      minTeamSize: 2,
+      maxTeamSize: 4,
+      minimumParticipantEntries: 1500,
+      registrationStartAt: new Date(2026, 11, 1, 9, 0).toISOString(),
+      resultAnnouncementAt: null,
+      allowCancellation: true,
+      cancellationCutoffDays: 3,
+    };
+    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+
+    render(shellAt(5));
+
+    await screen.findByRole("button", { name: "Terbitkan" });
+    const editLabels = [
+      "Edit informasi dasar",
+      "Edit peserta",
+      "Edit jadwal",
+      "Edit hadiah dan biaya",
+    ];
+    editLabels.forEach((label, index) => {
+      const link = screen.getByRole("link", { name: label });
+      expect(link.getAttribute("href")).toBe(`${EDIT_URL}?langkah=${index + 1}`);
+      expect(link.getAttribute("data-variant")).toBe("outline");
+      expect(link.getAttribute("data-size")).toBe("sm");
+    });
+    expect(summaryValue("Judul")).toBe(COMPETITION.title);
+    expect(summaryValue("Kategori")).toBe("Hackathon");
+    expect(summaryValue("Deskripsi")).toBe(`${"a".repeat(200)}…`);
+    expect(summaryValue("Slug")).toBe(COMPETITION.slug);
+    expect(summaryValue("Mode")).toBe("Tim");
+    expect(summaryValue("Min. anggota tim")).toBe("2");
+    expect(summaryValue("Maks. anggota tim")).toBe("4");
+    expect(summaryValue("Minimum pendaftaran")).toBe("1.500");
+    expect(summaryValue("Pendaftaran mulai")).toBe("2026-12-01 09:00");
+    expect(summaryValue("Pengumuman hasil")).toBe("—");
+    expect(summaryValue("Pembatalan oleh peserta")).toBe("Diizinkan");
+    expect(summaryValue("Batas pembatalan")).toBe("3 hari sebelum acara mulai");
+    expect(summaryTerms()).toEqual([
+      "Judul",
+      "Kategori",
+      "Deskripsi",
+      "Slug",
+      "Mode",
+      "Min. anggota tim",
+      "Maks. anggota tim",
+      "Minimum pendaftaran",
+      "Pendaftaran mulai",
+      "Pendaftaran berakhir",
+      "Acara mulai",
+      "Acara berakhir",
+      "Pengumuman hasil",
+      "Konfirmasi peserta",
+      "Pembatalan oleh peserta",
+      "Batas pembatalan",
+    ]);
+  });
+
+  it.each([
+    ["individual", false],
+    ["team", true],
+    ["both", true],
+  ])("shows the team size rows on step 5 for mode %s: %s", async (mode, showsTeamRows) => {
+    const competition = { ...COMPETITION, mode, minTeamSize: 1, maxTeamSize: 3 };
+    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+
+    render(shellAt(5));
+
+    await screen.findByRole("button", { name: "Terbitkan" });
+    expect(summaryTerms().includes("Min. anggota tim")).toBe(showsTeamRows);
+    expect(summaryTerms().includes("Maks. anggota tim")).toBe(showsTeamRows);
+  });
+
+  it("shows no cutoff on step 5 when participants may not cancel", async () => {
+    stubFetchSequence([() => loadOk(READY)]);
+
+    render(shellAt(5));
+
+    await screen.findByRole("button", { name: "Terbitkan" });
+    expect(summaryValue("Pembatalan oleh peserta")).toBe("Tidak diizinkan");
+    expect(summaryTerms().includes("Batas pembatalan")).toBe(false);
+  });
+
+  it("asks before another section opens with unsaved changes", async () => {
+    const competition = { ...COMPETITION, status: "published" };
+    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+
+    const view = render(shellAt(1));
+
+    await screen.findByRole("button", { name: "Simpan" });
+    fireEvent.change(screen.getByLabelText(/^Judul/), { target: { value: "Lomba Contoh Baru" } });
+    const notPrevented = fireEvent.click(
+      within(sectionNav()).getByRole("link", { name: "Jadwal" }),
+    );
+
+    expect(notPrevented).toBe(false);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Perubahan belum tersimpan")).toBeTruthy();
+    expect(mockPush).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Tinggalkan" }));
+
+    expect(transitionMessage("Membuka bagian kompetisi…")).toBe(true);
+    expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=3`);
+
+    view.rerender(shellAt(3));
+
+    await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
+  });
+
+  it("opens another section as a plain link without unsaved changes", async () => {
+    const competition = { ...COMPETITION, status: "published" };
+    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+
+    render(shellAt(1));
+
+    await screen.findByRole("button", { name: "Simpan" });
+    const notPrevented = fireEvent.click(
+      within(sectionNav()).getByRole("link", { name: "Jadwal" }),
+    );
+
+    expect(notPrevented).toBe(true);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.querySelector(".page-transition")).toBeNull();
+  });
+
+  it("asks nothing when the current section is pressed with unsaved changes", async () => {
+    const competition = { ...COMPETITION, status: "published" };
+    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+
+    render(shellAt(1));
+
+    await screen.findByRole("button", { name: "Simpan" });
+    fireEvent.change(screen.getByLabelText(/^Judul/), { target: { value: "Lomba Contoh Baru" } });
+    const current = within(sectionNav()).getByRole("link", { name: STEP_TITLES[1] });
+    const notPrevented = fireEvent.click(current);
+
+    expect(notPrevented).toBe(true);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("opens the status actions from the back control of every published section", async () => {
+    const competition = { ...COMPETITION, status: "published" };
+    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+
+    const view = render(shellAt(1));
+
+    await screen.findByRole("button", { name: "Simpan" });
+    for (const section of [1, 2, 3, 4] as const) {
+      view.rerender(shellAt(section));
+      fireEvent.click(screen.getByRole("button", { name: "Kembali ke aksi status" }));
+      expect(mockPush).toHaveBeenLastCalledWith(
+        "/institution/institusi-contoh/competitions/lomba-contoh-2026",
+      );
+    }
+    expect(mockPush).toHaveBeenCalledTimes(4);
+  });
+
+  it("names the published sentence before the confirmation help in published section 3", async () => {
+    const competition = { ...COMPETITION, status: "published" };
+    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+
+    render(shellAt(3));
+
+    await screen.findByRole("button", { name: "Simpan" });
+    const publishedSentence = document.getElementById("minimum-participation-help");
+    expect(publishedSentence?.textContent).toBe(
+      "Minimum peserta dan waktu konfirmasi tidak dapat diubah setelah kompetisi terbit.",
+    );
+    const confirmation = screen.getByLabelText(/Konfirmasi peserta/);
+    expect(confirmation.getAttribute("aria-describedby")).toBe(
+      "minimum-participation-help participant-confirmation-help",
+    );
+
+    const afterConfirmation = new Date(COMPETITION.participantConfirmationAt);
+    afterConfirmation.setDate(afterConfirmation.getDate() + 5);
+    fireEvent.change(screen.getByLabelText(/Pendaftaran berakhir/), {
+      target: { value: toLocalInput(afterConfirmation) },
+    });
+
+    expect(document.getElementById("participant-confirmation-timeline-error")).not.toBeNull();
+    expect(confirmation.getAttribute("aria-describedby")).toBe(
+      "minimum-participation-help participant-confirmation-help participant-confirmation-timeline-error",
+    );
+  });
+
+  it("runs Lanjut when a step form is submitted", async () => {
+    const competition = { ...COMPETITION, allowCancellation: true, cancellationCutoffDays: 3 };
+    stubFetchSequence([
+      () => okJson({ competition, publishReadiness: READY }),
+      () => okJson({ competition }),
+      () => okJson({ competition, publishReadiness: READY }),
+    ]);
+
+    render(shellAt(4));
+
+    await screen.findByRole("button", { name: "Lanjut" });
+    fireEvent.submit(document.querySelector("form")!);
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=5`));
+    expect(patchBodies()).toHaveLength(1);
+  });
+
+  it("publishes from step 5 and opens the management page", async () => {
+    const calls = stubFetchSequence([() => loadOk(READY), () => okJson({})]);
+
+    render(shellAt(5));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Terbitkan" }));
+
+    expect(await screen.findByText("Kompetisi diterbitkan.")).toBeTruthy();
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith(
+        "/institution/institusi-contoh/competitions/lomba-contoh-2026",
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toEqual([
+      "GET /api/v1/competitions/comp_1",
+      "POST /api/v1/institutions/institusi-contoh/competitions/comp_1/publish",
+    ]);
   });
 });
