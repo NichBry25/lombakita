@@ -106,8 +106,8 @@ export const AuthEntry = ({
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  // Candidate onboarding fields — collected on the candidateOnboarding stage, right after the
-  // candidate role is chosen, and submitted together with the account creation request.
+  // Onboarding fields, collected on the chosen role's onboarding stage and sent with the account
+  // creation request. fullName serves both roles and is also sent as the account name.
   const [fullName, setFullName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [occupation, setOccupation] = useState("");
@@ -310,11 +310,10 @@ export const AuthEntry = ({
     }
   };
 
-  // Shared account-creation call. `candidateBody` carries the candidate onboarding fields on the
-  // candidate path; it is null for recruiters.
+  // Shared account-creation call. `onboardingBody` carries the chosen role's onboarding fields.
   const registerAccount = async (
     role: "candidate" | "recruiter",
-    candidateBody: Record<string, unknown> | null,
+    onboardingBody: Record<string, unknown> | null,
   ) => {
     setIsSubmitting(true);
 
@@ -326,7 +325,7 @@ export const AuthEntry = ({
           name: fullName.trim(),
           email: email.trim().toLowerCase(),
           password,
-          ...(candidateBody ?? {}),
+          ...(onboardingBody ?? {}),
         }),
       });
 
@@ -355,8 +354,7 @@ export const AuthEntry = ({
     }
   };
 
-  // Validates the shared signup fields, then either advances the candidate to the onboarding form
-  // or (for recruiters) creates the account immediately.
+  // Checks the password confirmation, then opens the chosen role's onboarding form.
   const onPickSignupRole = (role: "candidate" | "recruiter") => {
     if (!verificationEnabled) {
       addToast({
@@ -628,7 +626,11 @@ export const AuthEntry = ({
               onChange={(event) => setFullName(event.target.value)}
               className="form-input"
               placeholder="Nama lengkap sesuai identitas"
+              aria-describedby="candidate-full-name-help"
             />
+            <p className="form-help" id="candidate-full-name-help">
+              Nama ini juga tampil di profil publik Anda dan dapat diubah di halaman profil.
+            </p>
           </div>
 
           <div className="form-field">
@@ -704,7 +706,11 @@ export const AuthEntry = ({
               onChange={(event) => setFullName(event.target.value)}
               className="form-input"
               placeholder="Nama lengkap sesuai identitas"
+              aria-describedby="recruiter-full-name-help"
             />
+            <p className="form-help" id="recruiter-full-name-help">
+              Nama ini juga tampil di profil publik Anda dan dapat diubah di halaman profil.
+            </p>
           </div>
 
           <div className="form-field">

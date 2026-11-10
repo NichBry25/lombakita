@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "next-auth";
 import { getRedirectError } from "next/dist/client/components/redirect";
 
-// The session is the only hand-built input: the real requireRolePage resolves it, so the user id the
-// admin check receives comes through the production path.
+// The session and the admin check's answer are the hand-built inputs. The real requireRolePage
+// resolves the session, so the user id the admin check receives comes through the production path.
 const mocks = vi.hoisted(() => ({
   session: vi.fn(),
   isAdmin: vi.fn(),

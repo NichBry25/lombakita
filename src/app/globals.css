@@ -1386,7 +1386,6 @@ svg {
   gap: var(--grid-gap);
 }
 
-/* A flow's step line and its bar of segments; reached segments take the accent. */
 .step-indicator {
   display: grid;
   gap: var(--space-2);
