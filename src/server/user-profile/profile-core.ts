@@ -161,7 +161,7 @@ export const buildPublicProfileResponse = (
     // Banner is enriched by the service layer (needs an async presigned URL); null by default.
     bannerUrl: null,
     candidateVerified: row.candidateVerifiedAt !== null,
-    recruiterVerified: row.recruiterVerifiedAt !== null,
+    recruiterVerified: row.recruiterVerificationTier === "elevated",
     trustedRecruiter: row.recruiterVerificationTier === "elevated",
     // Resume is enriched by the service layer (only when resume_public); null by default.
     resume: null,

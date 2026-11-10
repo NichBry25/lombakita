@@ -110,20 +110,22 @@ export default async function OwnerProfilePage() {
               </a>
             )}
 
-            <div className="pf-badges">
-              {profile.candidateVerified && (
-                <span className="status-badge" data-status="open">
-                  <Icon name="check" size="sm" aria-hidden="true" />
-                  Kandidat Terverifikasi
-                </span>
-              )}
-              {profile.trustedRecruiter && (
-                <span className="status-badge" data-status="open">
-                  <Icon name="check" size="sm" aria-hidden="true" />
-                  Rekruter Terpercaya
-                </span>
-              )}
-            </div>
+            {(profile.candidateVerified || profile.trustedRecruiter) && (
+              <div className="pf-badges">
+                {profile.candidateVerified && (
+                  <span className="status-badge" data-status="open">
+                    <Icon name="check" size="sm" aria-hidden="true" />
+                    Kandidat Terverifikasi
+                  </span>
+                )}
+                {profile.trustedRecruiter && (
+                  <span className="status-badge" data-status="open">
+                    <Icon name="check" size="sm" aria-hidden="true" />
+                    Rekruter Terpercaya
+                  </span>
+                )}
+              </div>
+            )}
 
             <p className="pf-email">Email: {profile.email}</p>
           </div>

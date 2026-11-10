@@ -26,7 +26,7 @@ vi.mock("@/server/user-profile/profile-service", () => ({
   isUsernameOwnedBy: mockIsUsernameOwnedBy,
 }));
 
-import PublicProfilePage from "@/app/[username]/page";
+import PublicProfilePage, { generateMetadata } from "@/app/[username]/page";
 
 const baseRow = {
   id: "u1",
@@ -89,5 +89,47 @@ describe("the public profile badges", () => {
 
     expect(html).toContain("Rekruter Terpercaya");
     expect(html).not.toContain("Rekruter Terverifikasi");
+  });
+
+  it("shows only the candidate badge for a candidate whose recruiter role awaits approval", async () => {
+    mockGetCurrentSession.mockResolvedValue(null);
+    mockIsUsernameOwnedBy.mockResolvedValue(false);
+    mockGetPublicProfile.mockResolvedValue(
+      buildPublicProfileResponse(
+        {
+          ...baseRow,
+          candidateVerifiedAt: new Date(),
+          recruiterVerifiedAt: new Date(),
+          recruiterVerificationTier: "minimal",
+        },
+        emptyProfileCollections(),
+      ),
+    );
+
+    const html = await renderPublicProfile();
+
+    expect(html).toContain("Kandidat Terverifikasi");
+    expect(html).not.toContain("Rekruter Terverifikasi");
+    expect(html).not.toContain("Rekruter Terpercaya");
+  });
+});
+
+describe("the public profile page without a profile", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("shows the not-found page for an account with no public profile", async () => {
+    const notFoundError = new Error("NEXT_NOT_FOUND");
+    mockGetCurrentSession.mockResolvedValue(null);
+    mockIsUsernameOwnedBy.mockResolvedValue(false);
+    mockGetPublicProfile.mockResolvedValue(null);
+    mockNotFound.mockImplementationOnce(() => {
+      throw notFoundError;
+    });
+    const params = Promise.resolve({ username: "john_abc1" });
+
+    await expect(PublicProfilePage({ params })).rejects.toThrow(notFoundError);
+    await expect(generateMetadata({ params })).resolves.toMatchObject({
+      title: "Profil tidak ditemukan · Lombakita",
+    });
   });
 });

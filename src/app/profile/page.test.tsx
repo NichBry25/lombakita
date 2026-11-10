@@ -41,6 +41,16 @@ const recruiterSession = {
   expires: new Date(Date.now() + 60_000).toISOString(),
 };
 
+const dualRoleCandidateSession = {
+  user: {
+    id: "u1",
+    email: "john@example.com",
+    role: "candidate",
+    verifiedRoles: ["candidate", "recruiter"],
+  },
+  expires: new Date(Date.now() + 60_000).toISOString(),
+};
+
 describe("the owner profile badges", () => {
   afterEach(() => vi.clearAllMocks());
 
@@ -62,5 +72,47 @@ describe("the owner profile badges", () => {
     const html = renderToStaticMarkup(await OwnerProfilePage());
 
     expect(html).not.toContain("Rekruter Terverifikasi");
+  });
+
+  it("shows no badge row and keeps the second-role button for a recruiter awaiting approval", async () => {
+    mockGetCurrentSession.mockResolvedValue(recruiterSession);
+    mockGetOwnerProfile.mockResolvedValue(
+      buildOwnerProfileResponse(
+        {
+          ...baseRow,
+          role: "recruiter",
+          candidateVerifiedAt: null,
+          recruiterVerifiedAt: new Date(),
+          recruiterVerificationTier: "minimal",
+        },
+        emptyProfileCollections(),
+      ),
+    );
+
+    const html = renderToStaticMarkup(await OwnerProfilePage());
+
+    expect(html).not.toContain("pf-badges");
+    expect(html).toContain("Verifikasi sebagai Kandidat");
+  });
+
+  it("shows the owner only the candidate badge while the recruiter role awaits approval", async () => {
+    mockGetCurrentSession.mockResolvedValue(dualRoleCandidateSession);
+    mockGetOwnerProfile.mockResolvedValue(
+      buildOwnerProfileResponse(
+        {
+          ...baseRow,
+          candidateVerifiedAt: new Date(),
+          recruiterVerifiedAt: new Date(),
+          recruiterVerificationTier: "minimal",
+        },
+        emptyProfileCollections(),
+      ),
+    );
+
+    const html = renderToStaticMarkup(await OwnerProfilePage());
+
+    expect(html).toContain("Kandidat Terverifikasi");
+    expect(html).not.toContain("Rekruter Terverifikasi");
+    expect(html).not.toContain("Rekruter Terpercaya");
   });
 });

@@ -101,6 +101,26 @@ describe("buildPublicProfileResponse", () => {
     expect(none.recruiterVerified).toBe(false);
   });
 
+  it("calls a recruiter verified in the public data only after approval", () => {
+    const awaitingApprovalRow = {
+      ...baseRow,
+      candidateVerifiedAt: null,
+      recruiterVerifiedAt: new Date(),
+      recruiterVerificationTier: "minimal" as const,
+    };
+    const approvedRow = { ...awaitingApprovalRow, recruiterVerificationTier: "elevated" as const };
+
+    expect(buildPublicProfileResponse(awaitingApprovalRow).recruiterVerified).toBe(false);
+    expect(buildPublicProfileResponse(approvedRow).recruiterVerified).toBe(true);
+
+    const ownerResponse = buildOwnerProfileResponse({
+      ...awaitingApprovalRow,
+      email: "john@example.com",
+      role: "recruiter",
+    });
+    expect(ownerResponse.recruiterVerified).toBe(true);
+  });
+
   it("exposes trustedRecruiter only when the recruiter tier is elevated", () => {
     const trusted = buildPublicProfileResponse({
       ...baseRow,
