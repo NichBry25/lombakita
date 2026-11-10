@@ -170,5 +170,24 @@ describe.skipIf(skipWithoutDatabase)(
         expect(generatePresignedPutUrl).not.toHaveBeenCalled();
       });
     });
+
+    it("refuses a revoked owner of the institution", async () => {
+      await inRollback(async (tx) => {
+        const fixture = await seedMediaFixture(tx);
+        const revokedOwnerA = await seedUser(tx, "mrevokeda");
+        await seedMembership(
+          tx,
+          fixture.institutionA.id,
+          revokedOwnerA,
+          "institution_owner",
+          "revoked",
+        );
+
+        await expect(
+          requestLogoUploadUrl(tx, revokedOwnerA, fixture.institutionA.slug),
+        ).rejects.toMatchObject({ code: "forbidden", status: 403 });
+        expect(generatePresignedPutUrl).not.toHaveBeenCalled();
+      });
+    });
   },
 );
