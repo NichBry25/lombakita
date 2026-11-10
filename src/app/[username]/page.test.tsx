@@ -15,7 +15,9 @@ const {
   mockGetCurrentSession: vi.fn(),
   mockGetPublicProfile: vi.fn(),
   mockIsUsernameOwnedBy: vi.fn(),
-  mockNotFound: vi.fn(),
+  mockNotFound: vi.fn(() => {
+    throw new Error("NEXT_NOT_FOUND");
+  }),
   mockRedirect: vi.fn(),
 }));
 
@@ -122,9 +124,6 @@ describe("the public profile page without a profile", () => {
     mockGetCurrentSession.mockResolvedValue(null);
     mockIsUsernameOwnedBy.mockResolvedValue(false);
     mockGetPublicProfile.mockResolvedValue(null);
-    mockNotFound.mockImplementationOnce(() => {
-      throw notFoundError;
-    });
     const params = Promise.resolve({ username: "john_abc1" });
 
     await expect(PublicProfilePage({ params })).rejects.toThrow(notFoundError);

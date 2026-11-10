@@ -31,6 +31,8 @@ const inRollback = async (test: (tx: Database) => Promise<void>): Promise<void> 
 
 type AccountOverrides = {
   emailVerified?: Date | null;
+  recruiterVerifiedAt?: Date | null;
+  recruiterVerificationTier?: "unverified" | "minimal" | "elevated";
 };
 
 const createAccount = async (tx: Database, overrides: AccountOverrides = {}) => {
@@ -43,6 +45,8 @@ const createAccount = async (tx: Database, overrides: AccountOverrides = {}) => 
       name: "Siti Aminah",
       role: "candidate",
       candidateVerifiedAt: new Date(),
+      recruiterVerifiedAt: overrides.recruiterVerifiedAt ?? null,
+      recruiterVerificationTier: overrides.recruiterVerificationTier ?? "unverified",
       emailVerified: overrides.emailVerified === undefined ? new Date() : overrides.emailVerified,
     })
     .returning({ id: schema.users.id, username: schema.users.username });
@@ -69,6 +73,36 @@ describe.skipIf(skipWithoutDatabase)("getPublicProfile and email verification", 
       const profile = await getPublicProfile(account.username, tx);
 
       expect(profile?.username).toBe(account.username);
+    });
+  });
+
+  it("calls a recruiter awaiting approval unverified in the public data", async () => {
+    await inRollback(async (tx) => {
+      const account = await createAccount(tx, {
+        emailVerified: new Date(),
+        recruiterVerifiedAt: new Date(),
+        recruiterVerificationTier: "minimal",
+      });
+
+      const profile = await getPublicProfile(account.username, tx);
+
+      expect(profile?.recruiterVerified).toBe(false);
+      expect(profile?.trustedRecruiter).toBe(false);
+    });
+  });
+
+  it("calls an approved recruiter verified in the public data", async () => {
+    await inRollback(async (tx) => {
+      const account = await createAccount(tx, {
+        emailVerified: new Date(),
+        recruiterVerifiedAt: new Date(),
+        recruiterVerificationTier: "elevated",
+      });
+
+      const profile = await getPublicProfile(account.username, tx);
+
+      expect(profile?.recruiterVerified).toBe(true);
+      expect(profile?.trustedRecruiter).toBe(true);
     });
   });
 });
