@@ -17,6 +17,33 @@ import { asSentence, formatFinanceDateTime, formatRupiah } from "@/lib/finance/p
 import { PROOF_STATUS_LABELS, PROOF_STATUS_TONES } from "@/lib/finance/proof-display";
 import { formatFileSize } from "@/lib/text/format-file-size";
 import type { ManualPaymentProofStatus } from "@/lib/finance/payment-model";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode } from "@/lib/session/session-fetch";
+
+type RefusalAction = "open" | "decision";
+
+const PROOF_ERROR_COPY: Partial<Record<string, string>> = {
+  forbidden: "Hanya pemilik atau staf institusi yang dapat meninjau bukti transfer.",
+  manual_proof_not_found: "Bukti transfer tidak ditemukan.",
+  manual_proof_upload_unavailable:
+    "Penyimpanan berkas tidak tersedia, jadi bukti transfer belum dapat dibuka. Coba lagi nanti.",
+  manual_proof_action_unrecognised:
+    "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+  manual_proof_not_pending:
+    "Bukti transfer ini tidak sedang menunggu tinjauan, mungkin sudah ditinjau.",
+  manual_proof_payment_not_found: "Pembayaran tidak ditemukan.",
+  manual_proof_registration_cancelled:
+    "Pendaftaran ini sudah dibatalkan, sehingga bukti transfer tidak dapat diproses.",
+  manual_proof_lane_closed:
+    "Pembayaran ini sudah selesai, sehingga bukti transfer tidak dapat diproses.",
+  manual_proof_reason_required:
+    "Penolakan harus menyertakan alasan agar peserta tahu apa yang perlu diperbaiki.",
+};
+
+const REFUSAL_FALLBACK: Record<RefusalAction, string> = {
+  open: "Bukti transfer tidak dapat dibuka. Coba lagi.",
+  decision: "Keputusan gagal disimpan. Coba lagi.",
+};
 
 export type OrganiserProofView = {
   proofId: string;
@@ -58,22 +85,16 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
 
   const base = `/api/v1/institutions/${institutionSlug}/competitions/${competitionId}/payment-proofs`;
 
-  const refusalMessage = async (response: Response, fallback: string): Promise<string> => {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string };
-    } | null;
-    return payload?.error?.message ?? fallback;
-  };
-
   const openProofFile = async (proofId: string) => {
     setPendingAction(`view:${proofId}`);
     try {
       const response = await fetch(`${base}/${proofId}/view`, { method: "POST" });
 
       if (!response.ok) {
+        const code = await readErrorCode(response);
         addToast({
           type: "error",
-          message: await refusalMessage(response, "Bukti transfer tidak dapat dibuka."),
+          message: errorMessageFor(code, PROOF_ERROR_COPY, REFUSAL_FALLBACK.open),
         });
         return;
       }
@@ -101,9 +122,10 @@ export function OrganiserPaymentQueue({ institutionSlug, competitionId, proofs }
       });
 
       if (!response.ok) {
+        const code = await readErrorCode(response);
         addToast({
           type: "error",
-          message: await refusalMessage(response, "Keputusan gagal disimpan."),
+          message: errorMessageFor(code, PROOF_ERROR_COPY, REFUSAL_FALLBACK.decision),
         });
         return;
       }

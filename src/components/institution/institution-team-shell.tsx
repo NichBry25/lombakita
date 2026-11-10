@@ -12,6 +12,8 @@ import {
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import { getInstitutionRoleLabel } from "@/lib/access/role-labels";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode } from "@/lib/session/session-fetch";
 
 type MemberRole = "institution_owner" | "institution_staff" | "institution_member";
 
@@ -39,13 +41,38 @@ type Invitation = {
   createdAt: string;
 };
 
-const extractErrorMessage = async (response: Response): Promise<string> => {
-  try {
-    const payload = (await response.json()) as { error?: { message?: string } };
-    return payload.error?.message ?? "Permintaan gagal diproses.";
-  } catch {
-    return "Permintaan gagal diproses.";
-  }
+type RefusalAction = "role" | "remove" | "invite" | "cancel";
+
+const INVALID_PAYLOAD_MESSAGE =
+  "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.";
+
+const TEAM_ERROR_COPY: Partial<Record<string, string>> = {
+  forbidden: "Hanya pemilik atau staf institusi yang dapat mengelola anggota.",
+  member_invalid_payload: INVALID_PAYLOAD_MESSAGE,
+  invitation_invalid_payload: INVALID_PAYLOAD_MESSAGE,
+  member_invalid_role: "Peran yang dipilih tidak valid. Muat ulang halaman lalu coba lagi.",
+  member_not_found: "Anggota tidak ditemukan. Muat ulang halaman lalu coba lagi.",
+  member_self_action: "Anda tidak dapat mengubah peran atau menghapus akun Anda sendiri.",
+  role_escalation_forbidden:
+    "Akun ini harus menyelesaikan verifikasi rekruter sebelum dapat menjadi pemilik atau staf.",
+  last_owner_demotion_forbidden: "Institusi harus memiliki paling sedikit satu pemilik.",
+  member_last_admin:
+    "Pemilik terakhir tidak dapat dihapus. Institusi harus memiliki paling sedikit satu pemilik.",
+  invitation_invalid_identifier: "Masukkan username atau alamat email yang valid.",
+  invitation_invalid_role: "Peran undangan tidak valid. Muat ulang halaman lalu coba lagi.",
+  invitation_personal_institution: "Institusi personal tidak dapat mengundang anggota.",
+  invitation_recipient_not_found: "Tidak ada akun dengan username ini.",
+  invitation_already_member: "Orang ini sudah menjadi anggota institusi.",
+  invitation_already_pending: "Undangan untuk orang ini masih menunggu jawaban.",
+  invitation_not_found: "Undangan tidak ditemukan. Muat ulang halaman lalu coba lagi.",
+  invitation_not_actionable: "Undangan ini sudah tidak aktif, jadi tidak dapat dibatalkan.",
+};
+
+const TEAM_FALLBACK: Record<RefusalAction, string> = {
+  role: "Peran gagal diperbarui. Coba lagi.",
+  remove: "Anggota gagal dihapus. Coba lagi.",
+  invite: "Undangan gagal dikirim. Coba lagi.",
+  cancel: "Undangan gagal dibatalkan. Coba lagi.",
 };
 
 const formatDate = (iso: string): string => {
@@ -146,8 +173,11 @@ export const InstitutionTeamShell = ({
     setPendingAction(null);
 
     if (!response.ok) {
-      const message = await extractErrorMessage(response);
-      addToast({ type: "error", message });
+      const code = await readErrorCode(response);
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, TEAM_ERROR_COPY, TEAM_FALLBACK.role),
+      });
       return;
     }
 
@@ -169,8 +199,11 @@ export const InstitutionTeamShell = ({
     setPendingAction(null);
 
     if (!response.ok) {
-      const message = await extractErrorMessage(response);
-      addToast({ type: "error", message });
+      const code = await readErrorCode(response);
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, TEAM_ERROR_COPY, TEAM_FALLBACK.remove),
+      });
       return;
     }
 
@@ -207,8 +240,11 @@ export const InstitutionTeamShell = ({
     });
 
     if (!response.ok) {
-      const message = await extractErrorMessage(response);
-      addToast({ type: "error", message });
+      const code = await readErrorCode(response);
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, TEAM_ERROR_COPY, TEAM_FALLBACK.invite),
+      });
       setIsInviting(false);
       return;
     }
@@ -230,8 +266,11 @@ export const InstitutionTeamShell = ({
     setPendingAction(null);
 
     if (!response.ok) {
-      const message = await extractErrorMessage(response);
-      addToast({ type: "error", message });
+      const code = await readErrorCode(response);
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, TEAM_ERROR_COPY, TEAM_FALLBACK.cancel),
+      });
       return;
     }
 

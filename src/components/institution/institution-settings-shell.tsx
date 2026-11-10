@@ -20,11 +20,8 @@ import { PaymentInstructionsSection } from "@/components/institution/payment-ins
 import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
 import { INSTITUTION_STATUS_LABELS } from "@/lib/institutions/status-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
-import {
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import type { InstitutionType } from "@/server/db/schema";
 
 type SocialPlatform = "linkedin" | "github" | "instagram" | "x" | "website";
@@ -78,33 +75,42 @@ const emptySocials = (): Record<SocialPlatform, string> => ({
   website: "",
 });
 
-const extractErrorMessage = async (response: Response): Promise<string> => {
-  try {
-    const payload = (await response.json()) as {
-      error?: {
-        message?: string;
-      };
-    };
+type RefusalAction = "load" | "identity" | "profile";
 
-    return payload.error?.message ?? "Permintaan pengaturan institusi gagal diproses.";
-  } catch {
-    return "Permintaan pengaturan institusi gagal diproses.";
-  }
+const INVALID_PAYLOAD_MESSAGE =
+  "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.";
+
+const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
+  load: {
+    institution_invalid_value: "Institusi tidak ditemukan. Periksa tautan lalu coba lagi.",
+    forbidden: "Hanya pemilik institusi yang dapat membuka pengaturan ini.",
+  },
+  identity: {
+    forbidden: "Hanya pemilik institusi yang dapat mengubah pengaturan ini.",
+    institution_invalid_payload: INVALID_PAYLOAD_MESSAGE,
+    institution_protected_fields: INVALID_PAYLOAD_MESSAGE,
+    institution_invalid_fields: INVALID_PAYLOAD_MESSAGE,
+    institution_invalid_value: "Periksa nama institusi dan slug lalu coba lagi.",
+    institution_display_name_reserved: "Nama institusi ini tidak dapat digunakan. Pilih nama lain.",
+    institution_slug_reserved: "Slug ini tidak dapat digunakan. Pilih slug lain.",
+    institution_slug_conflicts_with_username:
+      "Slug ini sudah dipakai sebagai username. Pilih slug lain.",
+  },
+  profile: {
+    forbidden: "Hanya pemilik institusi yang dapat mengubah profil penyelenggara.",
+    institution_profile_invalid_payload: INVALID_PAYLOAD_MESSAGE,
+    institution_profile_invalid_fields: INVALID_PAYLOAD_MESSAGE,
+    institution_profile_invalid_value:
+      "Periksa kontak, situs web, dan tautan media sosial lalu coba lagi.",
+    institution_profile_not_editable:
+      "Institusi personal tidak memiliki profil penyelenggara publik.",
+  },
 };
 
-const extractSessionAwareErrorMessage = async (
-  response: Response,
-  fallback: string,
-): Promise<string> => {
-  const body = (await response.json().catch(() => null)) as {
-    error?: { code?: string; message?: string };
-  } | null;
-
-  if (body?.error?.code === SESSION_MISMATCH_CODE) {
-    return SESSION_MISMATCH_MESSAGE;
-  }
-
-  return body?.error?.message ?? fallback;
+const REFUSAL_FALLBACK: Record<RefusalAction, string> = {
+  load: "Pengaturan institusi gagal dimuat. Muat ulang halaman lalu coba lagi.",
+  identity: "Pengaturan institusi gagal disimpan. Coba lagi.",
+  profile: "Gagal menyimpan profil. Coba lagi.",
 };
 
 export const InstitutionSettingsShell = ({
@@ -163,8 +169,11 @@ export const InstitutionSettingsShell = ({
     );
 
     if (!response.ok) {
-      const message = await extractErrorMessage(response);
-      addToast({ type: "error", message });
+      const code = await readErrorCode(response);
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, REFUSAL_COPY.load, REFUSAL_FALLBACK.load),
+      });
       setIsLoading(false);
       return;
     }
@@ -253,8 +262,11 @@ export const InstitutionSettingsShell = ({
     );
 
     if (!response.ok) {
-      const message = await extractErrorMessage(response);
-      addToast({ type: "error", message });
+      const code = await readErrorCode(response);
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, REFUSAL_COPY.identity, REFUSAL_FALLBACK.identity),
+      });
       setIsSaving(false);
       return;
     }
@@ -304,11 +316,11 @@ export const InstitutionSettingsShell = ({
       );
 
       if (!response.ok) {
-        const message = await extractSessionAwareErrorMessage(
-          response,
-          "Gagal menyimpan profil. Coba lagi.",
-        );
-        addToast({ type: "error", message });
+        const code = await readErrorCode(response);
+        addToast({
+          type: "error",
+          message: errorMessageFor(code, REFUSAL_COPY.profile, REFUSAL_FALLBACK.profile),
+        });
         return;
       }
 

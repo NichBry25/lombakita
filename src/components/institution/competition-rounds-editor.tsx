@@ -3,11 +3,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import {
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
+
+const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
+  forbidden: "Anda tidak memiliki akses ke kompetisi institusi ini.",
+  competition_rounds_invalid_payload:
+    "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+  competition_rounds_invalid_value:
+    "Periksa data tahapan lalu coba lagi. Tanggal selesai tidak boleh sebelum tanggal mulai.",
+};
+
+const SAVE_FALLBACK = "Gagal menyimpan tahapan. Coba lagi.";
 
 type RoundRow = {
   title: string;
@@ -124,15 +131,10 @@ export const CompetitionRoundsEditor = ({
         },
       );
       if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: { code?: string; message?: string };
-        } | null;
+        const code = await readErrorCode(response);
         addToast({
           type: "error",
-          message:
-            body?.error?.code === SESSION_MISMATCH_CODE
-              ? SESSION_MISMATCH_MESSAGE
-              : (body?.error?.message ?? "Gagal menyimpan tahapan. Coba lagi."),
+          message: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK),
         });
         return;
       }

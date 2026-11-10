@@ -3,9 +3,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Feedback, Icon, Skeleton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import { sessionFetch } from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import { QRIS_FORMAT_HINT, QRIS_MAX_BYTES, qrisMimeTypeForFileName } from "@/lib/finance/qris-file";
 import { formatFileSize } from "@/lib/text/format-file-size";
+
+type RefusalAction = "grant" | "save";
+
+const PAYMENT_INSTRUCTIONS_ERROR_COPY: Partial<Record<string, string>> = {
+  rate_limited: "Terlalu banyak permintaan unggah. Coba lagi dalam beberapa menit.",
+  forbidden: "Hanya pemilik institusi yang dapat mengatur informasi pembayaran.",
+  payment_instructions_qris_format_unsupported: `Format tidak didukung. Gunakan ${QRIS_FORMAT_HINT}.`,
+  payment_instructions_upload_unavailable:
+    "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",
+  payment_instructions_incomplete:
+    "Isi nama bank, nomor rekening, dan nama pemilik rekening, atau unggah QRIS.",
+  payment_instructions_qris_key_invalid: "Berkas QRIS tidak valid. Unggah ulang QRIS lalu simpan.",
+};
+
+const REFUSAL_FALLBACK: Record<RefusalAction, string> = {
+  grant: "QRIS gagal diunggah. Coba lagi.",
+  save: "Informasi pembayaran gagal disimpan. Coba lagi.",
+};
 
 type Instructions = {
   bankName: string | null;
@@ -52,13 +71,6 @@ export function PaymentInstructionsSection({
   const [isUploading, setIsUploading] = useState(false);
 
   const base = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/payment-instructions`;
-
-  const refusalMessage = async (response: Response, fallback: string): Promise<string> => {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string };
-    } | null;
-    return payload?.error?.message ?? fallback;
-  };
 
   const load = useCallback(async () => {
     try {
@@ -113,9 +125,10 @@ export function PaymentInstructionsSection({
       });
 
       if (!grantResponse.ok) {
+        const code = await readErrorCode(grantResponse);
         addToast({
           type: "error",
-          message: await refusalMessage(grantResponse, "QRIS gagal diunggah."),
+          message: errorMessageFor(code, PAYMENT_INSTRUCTIONS_ERROR_COPY, REFUSAL_FALLBACK.grant),
         });
         return;
       }
@@ -162,9 +175,10 @@ export function PaymentInstructionsSection({
       });
 
       if (!response.ok) {
+        const code = await readErrorCode(response);
         addToast({
           type: "error",
-          message: await refusalMessage(response, "Informasi pembayaran gagal disimpan."),
+          message: errorMessageFor(code, PAYMENT_INSTRUCTIONS_ERROR_COPY, REFUSAL_FALLBACK.save),
         });
         return;
       }

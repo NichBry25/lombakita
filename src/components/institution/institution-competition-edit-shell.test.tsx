@@ -73,7 +73,9 @@ const UNVERIFIED_REASON =
 const VALIDATION_REASON = "Data kompetisi belum lengkap atau belum valid.";
 const REGISTRATION_END_PAST_MESSAGE =
   "Tanggal berakhir pendaftaran sudah lewat. Pilih tanggal mendatang agar kompetisi dapat diterbitkan.";
-const LOAD_FAILED_MESSAGE = "Gagal memuat kompetisi.";
+// The server's message is never shown: a refused load with no known code shows the load fallback.
+const SERVER_LOAD_FAILED_MESSAGE = "Gagal memuat kompetisi.";
+const LOAD_FAILED_MESSAGE = "Data kompetisi gagal dimuat. Muat ulang halaman lalu coba lagi.";
 
 const BLOCKED_BY_CHECKLIST = {
   canPublish: false,
@@ -108,7 +110,7 @@ const loadOk = (publishReadiness: unknown) =>
 // may be absent, so the shell has to behave for a response that carries no new answer.
 const loadOkWithoutReadiness = okJson({ competition: COMPETITION });
 const patchOk = okJson({ competition: COMPETITION });
-const loadFailed = failedJson({ error: { message: LOAD_FAILED_MESSAGE } });
+const loadFailed = failedJson({ error: { message: SERVER_LOAD_FAILED_MESSAGE } });
 
 // Answers in the order the shell asks, and records what it asked, so a test that drifts out of
 // sequence fails loudly instead of silently reading the wrong response.

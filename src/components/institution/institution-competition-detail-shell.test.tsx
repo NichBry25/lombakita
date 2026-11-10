@@ -73,7 +73,9 @@ const BLOCKED = {
 // The exact sentence `competition-publish-messages.ts` renders for that code.
 const UNVERIFIED_REASON =
   "Kompetisi berbayar hanya dapat diterbitkan oleh institusi yang sudah terverifikasi.";
-const LOAD_FAILED_MESSAGE = "Gagal memuat kompetisi.";
+// The server's message is never shown: a refused load with no known code shows the load fallback.
+const SERVER_LOAD_FAILED_MESSAGE = "Gagal memuat kompetisi.";
+const LOAD_FAILED_MESSAGE = "Data kompetisi gagal dimuat. Muat ulang halaman lalu coba lagi.";
 
 const okJson = (body: unknown): Response =>
   ({ ok: true, json: async () => body }) as unknown as Response;
@@ -88,7 +90,7 @@ const loadOk = (publishReadiness: unknown) =>
 const decisionOk = okJson({ participation: PARTICIPATION });
 const loadFailed = {
   ok: false,
-  json: async () => ({ error: { message: LOAD_FAILED_MESSAGE } }),
+  json: async () => ({ error: { message: SERVER_LOAD_FAILED_MESSAGE } }),
 } as unknown as Response;
 
 // Answers in the order the shell asks, and records what it asked, so a test that drifts out of

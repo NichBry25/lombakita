@@ -4,7 +4,8 @@ import { ChangeEvent, FormEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Feedback, Icon, IconButton } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
-import { sessionFetch } from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import {
   getFileExtension,
   mimeTypeForExtension,
@@ -37,6 +38,70 @@ type PanelProps = {
   isTrusted: boolean;
   submission: Submission | null;
   documents: DocumentEntry[];
+};
+
+type RefusalAction = "start" | "finish" | "delete" | "submit" | "withdraw";
+
+const RECRUITER_ONLY_MESSAGE = "Fitur ini hanya untuk akun rekruter.";
+const INVALID_PAYLOAD_MESSAGE =
+  "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.";
+const UPLOAD_UNAVAILABLE_MESSAGE = "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.";
+const DOCUMENT_TOO_LARGE_MESSAGE = "Ukuran berkas melebihi batas 10 MB.";
+const DOCUMENT_INVALID_MESSAGE = "Berkas ditolak saat verifikasi. Coba berkas lain.";
+const DOCUMENTS_LOCKED_MESSAGE =
+  "Dokumen hanya dapat diubah sebelum permohonan dikirim. Tarik permohonan terlebih dahulu jika sedang ditinjau.";
+const DOCUMENT_NOT_FOUND_MESSAGE = "Dokumen tidak ditemukan. Muat ulang halaman lalu coba lagi.";
+
+const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
+  start: {
+    forbidden: RECRUITER_ONLY_MESSAGE,
+    rate_limited: "Terlalu banyak permintaan unggah. Coba lagi dalam beberapa menit.",
+    invalid_payload: INVALID_PAYLOAD_MESSAGE,
+    recruiter_verification_storage_unavailable: UPLOAD_UNAVAILABLE_MESSAGE,
+    recruiter_verification_document_type_not_allowed:
+      "Format tidak didukung. Unggah PDF, JPG, PNG, atau WebP.",
+    recruiter_verification_document_too_large: DOCUMENT_TOO_LARGE_MESSAGE,
+    recruiter_verification_document_invalid: DOCUMENT_INVALID_MESSAGE,
+    recruiter_verification_not_found: DOCUMENTS_LOCKED_MESSAGE,
+  },
+  finish: {
+    forbidden: RECRUITER_ONLY_MESSAGE,
+    invalid_payload: INVALID_PAYLOAD_MESSAGE,
+    recruiter_verification_storage_unavailable: UPLOAD_UNAVAILABLE_MESSAGE,
+    recruiter_verification_document_too_large: DOCUMENT_TOO_LARGE_MESSAGE,
+    recruiter_verification_document_invalid: DOCUMENT_INVALID_MESSAGE,
+    recruiter_verification_not_found: DOCUMENTS_LOCKED_MESSAGE,
+    recruiter_verification_document_not_found: DOCUMENT_NOT_FOUND_MESSAGE,
+  },
+  delete: {
+    forbidden: RECRUITER_ONLY_MESSAGE,
+    recruiter_verification_not_found: DOCUMENTS_LOCKED_MESSAGE,
+    recruiter_verification_document_not_found: DOCUMENT_NOT_FOUND_MESSAGE,
+  },
+  submit: {
+    forbidden: RECRUITER_ONLY_MESSAGE,
+    invalid_payload: INVALID_PAYLOAD_MESSAGE,
+    recruiter_verification_invalid_payload: INVALID_PAYLOAD_MESSAGE,
+    recruiter_verification_invalid_value:
+      "Periksa nama lengkap, nomor ponsel, dan email kantor lalu coba lagi.",
+    recruiter_verification_not_found: "Akun tidak ditemukan. Muat ulang halaman lalu coba lagi.",
+    recruiter_already_trusted: "Akun Anda sudah menjadi Rekruter Terpercaya.",
+    recruiter_verification_resubmission_blocked:
+      "Akun ini tidak dapat mengajukan permohonan verifikasi lagi. Hubungi dukungan Lombakita.",
+    recruiter_verification_already_pending: "Permohonan verifikasi Anda masih menunggu tinjauan.",
+  },
+  withdraw: {
+    forbidden: RECRUITER_ONLY_MESSAGE,
+    recruiter_verification_not_found: "Permohonan tidak dapat ditarik. Muat ulang halaman ini.",
+  },
+};
+
+const REFUSAL_FALLBACK: Record<RefusalAction, string> = {
+  start: "Gagal menyiapkan unggahan. Coba lagi.",
+  finish: "Dokumen gagal dilampirkan. Coba lagi.",
+  delete: "Dokumen gagal dihapus. Coba lagi.",
+  submit: "Pengiriman gagal. Coba lagi beberapa saat.",
+  withdraw: "Permohonan tidak dapat ditarik. Muat ulang halaman ini.",
 };
 
 function formatFileSize(bytes: number): string {
@@ -134,12 +199,10 @@ export function RecruiterVerificationPanel({
       );
 
       if (!presignResponse.ok) {
-        const payload = (await presignResponse.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
+        const code = await readErrorCode(presignResponse);
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Gagal menyiapkan unggahan. Coba lagi.",
+          message: errorMessageFor(code, REFUSAL_COPY.start, REFUSAL_FALLBACK.start),
         });
         return;
       }
@@ -171,12 +234,10 @@ export function RecruiterVerificationPanel({
       );
 
       if (!finalizeResponse.ok) {
-        const payload = (await finalizeResponse.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
+        const code = await readErrorCode(finalizeResponse);
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Berkas ditolak saat verifikasi. Coba berkas lain.",
+          message: errorMessageFor(code, REFUSAL_COPY.finish, REFUSAL_FALLBACK.finish),
         });
         return;
       }
@@ -200,12 +261,10 @@ export function RecruiterVerificationPanel({
       );
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
+        const code = await readErrorCode(response);
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Dokumen gagal dihapus. Coba lagi.",
+          message: errorMessageFor(code, REFUSAL_COPY.delete, REFUSAL_FALLBACK.delete),
         });
         return;
       }
@@ -265,12 +324,10 @@ export function RecruiterVerificationPanel({
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
+        const code = await readErrorCode(response);
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Pengiriman gagal. Coba lagi beberapa saat.",
+          message: errorMessageFor(code, REFUSAL_COPY.submit, REFUSAL_FALLBACK.submit),
         });
         return;
       }
@@ -292,13 +349,10 @@ export function RecruiterVerificationPanel({
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
+        const code = await readErrorCode(response);
         addToast({
           type: "error",
-          message:
-            payload?.error?.message ?? "Permohonan tidak dapat ditarik. Muat ulang halaman ini.",
+          message: errorMessageFor(code, REFUSAL_COPY.withdraw, REFUSAL_FALLBACK.withdraw),
         });
         return;
       }

@@ -13,12 +13,8 @@ import {
   usePageTransition,
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
-import {
-  readErrorCode,
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 // Type-only: importing the enum VALUE would pull the Drizzle schema into the client bundle. The
 // exhaustive Record the options are built from is keyed by FullInstitutionType, so a new full
 // subtype fails to build until it is given a label.
@@ -36,17 +32,24 @@ type UpgradeResponse = {
   slug: string;
 };
 
-const extractErrorMessage = async (response: Response): Promise<string> => {
-  if ((await readErrorCode(response.clone())) === SESSION_MISMATCH_CODE) {
-    return SESSION_MISMATCH_MESSAGE;
-  }
-  try {
-    const payload = (await response.json()) as { error?: { message?: string } };
-    return payload.error?.message ?? "Peningkatan institusi gagal diproses.";
-  } catch {
-    return "Peningkatan institusi gagal diproses.";
-  }
+const UPGRADE_ERROR_COPY: Partial<Record<string, string>> = {
+  forbidden: "Verifikasi akun rekruter Anda terlebih dahulu untuk meningkatkan institusi.",
+  invalid_payload: "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+  institution_invalid_value: "Periksa nama institusi lalu coba lagi.",
+  institution_display_name_reserved: "Nama institusi ini tidak dapat digunakan. Pilih nama lain.",
+  institution_upgrade_tier_insufficient:
+    "Peningkatan institusi hanya tersedia untuk Rekruter Terpercaya. Selesaikan verifikasi akun Anda terlebih dahulu.",
+  institution_not_found: "Institusi tidak ditemukan.",
+  institution_upgrade_forbidden: "Hanya pemilik institusi yang dapat meningkatkan institusi ini.",
+  institution_type_transition_forbidden:
+    "Institusi ini sudah menjadi institusi resmi, jadi tidak dapat ditingkatkan lagi.",
+  institution_upgrade_limit_reached: "Satu akun hanya dapat memiliki 3 institusi.",
+  institution_upgrade_slug_unavailable:
+    "Alamat institusi tidak dapat dibuat dari nama ini. Coba nama lain.",
+  institution_upgrade_conflict: "Jenis institusi sudah berubah. Muat ulang halaman lalu coba lagi.",
 };
+
+const UPGRADE_FALLBACK = "Peningkatan institusi gagal diproses. Coba lagi.";
 
 type InstitutionUpgradeShellProps = {
   institutionSlug: string;
@@ -105,7 +108,11 @@ export const InstitutionUpgradeShell = ({
       );
 
       if (!response.ok) {
-        addToast({ type: "error", message: await extractErrorMessage(response) });
+        const code = await readErrorCode(response);
+        addToast({
+          type: "error",
+          message: errorMessageFor(code, UPGRADE_ERROR_COPY, UPGRADE_FALLBACK),
+        });
         return false;
       }
 

@@ -12,12 +12,8 @@ import {
   usePageTransition,
 } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import {
-  readErrorCode,
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 
 type PersonalInstitutionResponse = {
   institution: {
@@ -36,17 +32,20 @@ type CreatedInstitution = {
   slug: string;
 };
 
-const extractErrorMessage = async (response: Response): Promise<string> => {
-  if ((await readErrorCode(response.clone())) === SESSION_MISMATCH_CODE) {
-    return SESSION_MISMATCH_MESSAGE;
-  }
-  try {
-    const payload = (await response.json()) as { error?: { message?: string } };
-    return payload.error?.message ?? "Permintaan institusi personal gagal diproses.";
-  } catch {
-    return "Permintaan institusi personal gagal diproses.";
-  }
+const VERIFY_RECRUITER_FIRST_MESSAGE =
+  "Verifikasi akun rekruter Anda terlebih dahulu untuk membuat institusi.";
+
+const CREATE_ERROR_COPY: Partial<Record<string, string>> = {
+  forbidden: VERIFY_RECRUITER_FIRST_MESSAGE,
+  recruiter_role_not_verified: VERIFY_RECRUITER_FIRST_MESSAGE,
+  personal_institution_already_exists:
+    "Anda sudah memiliki institusi personal. Satu akun hanya dapat memiliki satu institusi personal.",
+  account_deactivated: "Data akun ini sudah dihapus. Tindakan ini tidak tersedia.",
+  institution_invalid_value:
+    "Alamat institusi personal belum dapat dibuat. Coba lagi atau hubungi dukungan Lombakita.",
 };
+
+const CREATE_FALLBACK = "Institusi personal gagal dibuat. Coba lagi.";
 
 export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUserId: string }) => {
   const router = useRouter();
@@ -72,7 +71,11 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
     });
 
     if (!response.ok) {
-      addToast({ type: "error", message: await extractErrorMessage(response) });
+      const code = await readErrorCode(response);
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, CREATE_ERROR_COPY, CREATE_FALLBACK),
+      });
       setIsCreating(false);
       return false;
     }

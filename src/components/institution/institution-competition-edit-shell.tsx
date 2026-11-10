@@ -27,6 +27,7 @@ import {
   type CompetitionTimelineError,
   type CompetitionTimelineField,
 } from "@/lib/competitions/competition-timeline";
+import { errorMessageFor } from "@/lib/errors/error-copy";
 import { resolveSessionMismatchMessage, sessionFetch } from "@/lib/session/session-fetch";
 import {
   getPublishBlockerReason,
@@ -89,10 +90,40 @@ type FormSnapshot = {
   cutoffDays: string;
 };
 
+type RefusalAction = "load" | "save";
+
+const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
+  load: {
+    competition_not_found: "Kompetisi tidak ditemukan.",
+    forbidden: "Anda tidak memiliki akses ke kompetisi institusi ini.",
+  },
+  save: {
+    competition_not_found: "Kompetisi tidak ditemukan.",
+    forbidden: "Anda tidak memiliki akses ke kompetisi institusi ini.",
+    competition_invalid_payload:
+      "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+    competition_invalid_value: "Periksa isian formulir lalu coba lagi.",
+    competition_field_immutable:
+      "Beberapa bidang tidak dapat diubah setelah kompetisi diterbitkan.",
+    competition_post_publish_blocked:
+      "Perubahan ini akan membatalkan pendaftaran yang sudah ada, jadi tidak dapat disimpan.",
+    competition_publish_validation_failed:
+      "Bidang wajib pada kompetisi yang sudah terbit tidak dapat dikosongkan.",
+    competition_personal_individual_only:
+      "Institusi personal hanya dapat menjalankan kompetisi mode individu.",
+    competition_slug_taken:
+      "Slug ini sudah dipakai kompetisi lain di institusi ini. Pilih slug lain.",
+  },
+};
+
+const REFUSAL_FALLBACK: Record<RefusalAction, string> = {
+  load: "Data kompetisi gagal dimuat. Muat ulang halaman lalu coba lagi.",
+  save: "Perubahan gagal disimpan. Coba lagi.",
+};
+
 const extractError = async (
   response: Response,
 ): Promise<{
-  message: string;
   code?: string;
   failures?: PublishValidationFailure[];
   blockedFields?: string[];
@@ -101,18 +132,21 @@ const extractError = async (
     const payload = (await response.json()) as {
       error?: {
         code?: string;
-        message?: string;
-        details?: { failures?: PublishValidationFailure[]; blockedFields?: string[] };
+        details?: {
+          failures?: PublishValidationFailure[];
+          blockedFields?: string[];
+          fields?: string[];
+        };
       };
     };
     return {
-      message: payload.error?.message ?? "Permintaan gagal diproses.",
       code: payload.error?.code,
       failures: payload.error?.details?.failures,
-      blockedFields: payload.error?.details?.blockedFields,
+      // The competition service names the locked fields in `fields`.
+      blockedFields: payload.error?.details?.blockedFields ?? payload.error?.details?.fields,
     };
   } catch {
-    return { message: "Permintaan gagal diproses." };
+    return {};
   }
 };
 
@@ -344,8 +378,11 @@ export const InstitutionCompetitionEditShell = ({
       credentials: "include",
     });
     if (!response.ok) {
-      const { message } = await extractError(response);
-      addToast({ type: "error", message });
+      const { code } = await extractError(response);
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, REFUSAL_COPY.load, REFUSAL_FALLBACK.load),
+      });
       // The read failed, so the readiness on screen is no longer an answer to anything. Drop it.
       setReadinessIsKnown(false);
       setIsLoading(false);
@@ -537,7 +574,8 @@ export const InstitutionCompetitionEditShell = ({
     );
 
     if (!response.ok) {
-      const { message, code, blockedFields } = await extractError(response);
+      const { code, blockedFields } = await extractError(response);
+      const message = errorMessageFor(code, REFUSAL_COPY.save, REFUSAL_FALLBACK.save);
       // A post-publish blocked or immutable-field edit is surfaced in a modal naming the
       // offending field(s) and why, per the shared-primitive rule.
       if (code === "competition_post_publish_blocked" || code === "competition_field_immutable") {
@@ -568,11 +606,11 @@ export const InstitutionCompetitionEditShell = ({
           ),
           actions: [{ label: "Mengerti", variant: "primary", autoClose: true, onClick: () => {} }],
         });
-        addToast({ type: "error", message: resolveSessionMismatchMessage(code, message) });
+        addToast({ type: "error", message });
         setIsSubmitting(false);
         return;
       }
-      addToast({ type: "error", message: resolveSessionMismatchMessage(code, message) });
+      addToast({ type: "error", message });
       setIsSubmitting(false);
       return;
     }

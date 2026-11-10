@@ -24,12 +24,8 @@ import type { InstitutionType } from "@/server/db/schema";
 import type { FullInstitutionType } from "@/server/institution-workspace/institution-type";
 import { INSTITUTION_TYPE_LABELS } from "@/lib/institutions/type-labels";
 import { formatDisplayToken } from "@/lib/text/capitalize";
-import {
-  readErrorCode,
-  SESSION_MISMATCH_CODE,
-  SESSION_MISMATCH_MESSAGE,
-  sessionFetch,
-} from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { sessionFetch } from "@/lib/session/session-fetch";
 
 type SubmissionItem = {
   id: string;
@@ -70,6 +66,24 @@ type InstitutionVerificationShellProps = {
   // survives a reload, never as a toast.
   rejectionReason: string | null;
 };
+
+const SUBMIT_ERROR_COPY: Partial<Record<string, string>> = {
+  forbidden: "Hanya akun rekruter yang dapat mengajukan verifikasi institusi.",
+  rate_limited: "Terlalu banyak permintaan unggah. Coba lagi dalam beberapa menit.",
+  invalid_payload: "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
+  verification_storage_unavailable: "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",
+  institution_not_found: "Institusi tidak ditemukan, atau Anda bukan pemiliknya.",
+  institution_verification_not_applicable:
+    "Institusi personal tidak memerlukan verifikasi dokumen. Tingkatkan institusi terlebih dahulu.",
+  institution_already_verified: "Institusi ini sudah terverifikasi.",
+  missing_required_documents: "Lengkapi semua dokumen yang dibutuhkan lalu kirim lagi.",
+  verification_submission_already_pending:
+    "Pengajuan verifikasi untuk institusi ini masih menunggu tinjauan.",
+};
+
+const SUBMIT_FALLBACK = "Pengajuan gagal dikirim. Coba lagi.";
+
+const UNLABELLED_DOCUMENT_LABEL = "Dokumen lainnya";
 
 const formatLongDate = (isoDate: string): string =>
   new Date(isoDate).toLocaleDateString("id-ID", {
@@ -165,21 +179,17 @@ export const InstitutionVerificationShell = ({
         },
       );
 
-      const data = (await res.json()) as {
-        submissionId?: string;
-        documents?: Array<{ documentType: string; uploadUrl: string; r2Key: string }>;
-        error?: { code: string; message: string; details?: Record<string, unknown> };
-      };
-
       if (!res.ok) {
-        const errorCode = await readErrorCode(res.clone());
-        const errMsg =
-          errorCode === SESSION_MISMATCH_CODE
-            ? SESSION_MISMATCH_MESSAGE
-            : (data.error?.message ?? `Error ${res.status}`);
+        let errorCode: string | null = null;
+        try {
+          const data = (await res.json()) as { error?: { code?: string } };
+          errorCode = data.error?.code ?? null;
+        } catch {
+          // A body that is not JSON carries no code, so the modal shows the fallback.
+        }
         openModal({
           title: "Pengajuan gagal",
-          body: errMsg,
+          body: errorMessageFor(errorCode, SUBMIT_ERROR_COPY, SUBMIT_FALLBACK),
           actions: [{ label: "OK", onClick: () => {} }],
         });
         // This page was rendered before the institution reached a state that closes submissions —
@@ -195,6 +205,12 @@ export const InstitutionVerificationShell = ({
         return;
       }
 
+      const data = (await res.json()) as {
+        submissionId?: string;
+        documents?: Array<{ documentType: string; uploadUrl: string; r2Key: string }>;
+        error?: { code: string; message: string; details?: Record<string, unknown> };
+      };
+
       // Upload each document file to its presigned R2 URL.
       const uploadErrors: string[] = [];
       for (const uploadTarget of data.documents ?? []) {
@@ -208,14 +224,12 @@ export const InstitutionVerificationShell = ({
           });
           if (!uploadRes.ok) {
             uploadErrors.push(
-              DOCUMENT_TYPE_LABELS[uploadTarget.documentType] ??
-                formatDisplayToken(uploadTarget.documentType),
+              DOCUMENT_TYPE_LABELS[uploadTarget.documentType] ?? UNLABELLED_DOCUMENT_LABEL,
             );
           }
         } catch {
           uploadErrors.push(
-            DOCUMENT_TYPE_LABELS[uploadTarget.documentType] ??
-              formatDisplayToken(uploadTarget.documentType),
+            DOCUMENT_TYPE_LABELS[uploadTarget.documentType] ?? UNLABELLED_DOCUMENT_LABEL,
           );
         }
       }
@@ -223,12 +237,12 @@ export const InstitutionVerificationShell = ({
       if (uploadErrors.length > 0) {
         addToast({
           type: "error",
-          message: `Pengajuan dibuat, tetapi upload gagal untuk: ${uploadErrors.join(", ")}. Hubungi dukungan.`,
+          message: `Pengajuan dibuat, tetapi dokumen berikut gagal diunggah: ${uploadErrors.join(", ")}. Hubungi dukungan Lombakita.`,
         });
       } else {
         addToast({
           type: "success",
-          message: "Dokumen berhasil dikirim. Kami akan meninjau dalam 1–3 hari kerja.",
+          message: "Dokumen berhasil dikirim. Kami akan meninjau dalam 1 sampai 3 hari kerja.",
         });
       }
 

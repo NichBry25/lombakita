@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, CheckboxField, Feedback, Icon, Skeleton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
-import { sessionFetch } from "@/lib/session/session-fetch";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import { computePlatformFee, type FeeRuleTerms } from "@/lib/finance/fee";
 import { formatRupiah } from "@/lib/finance/payment-display";
 
@@ -21,6 +22,28 @@ type FeeState = {
 };
 
 const CURRENCY = "IDR";
+
+const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
+  competition_not_found: "Kompetisi tidak ditemukan.",
+  forbidden: "Hanya pemilik institusi yang dapat mengatur biaya pendaftaran.",
+  competition_invalid_value: "Periksa biaya, mata uang, dan batas waktu pembayaran lalu coba lagi.",
+  competition_fee_change_blocked_payment_in_flight:
+    "Biaya tidak dapat diubah selama masih ada bukti transfer yang menunggu verifikasi.",
+  competition_fee_blocked_free_registrations:
+    "Biaya tidak dapat ditetapkan karena sudah ada pendaftar yang mendaftar tanpa biaya.",
+  competition_institution_not_verified:
+    "Institusi harus terverifikasi sebelum dapat memungut biaya pendaftaran. Kompetisi gratis tetap dapat dipublikasikan.",
+  payment_instructions_missing:
+    "Lengkapi informasi pembayaran institusi Anda sebelum mengaktifkan pendaftaran berbayar.",
+  fee_rule_not_in_force:
+    "Tarif layanan Lombakita belum dikonfigurasi, sehingga pendaftaran berbayar belum dapat diaktifkan. Hubungi tim Lombakita.",
+  competition_fee_disclosure_required:
+    "Setujui rincian biaya layanan Lombakita sebelum mengaktifkan pendaftaran berbayar.",
+};
+
+const SAVE_FALLBACK = "Biaya pendaftaran gagal disimpan. Coba lagi.";
+
+const LOAD_FAILURE_MESSAGE = "Biaya pendaftaran gagal dimuat. Muat ulang halaman lalu coba lagi.";
 
 /**
  * Turning paid registration on, and the disclosure that has to happen first.
@@ -49,12 +72,22 @@ export function CompetitionFeeSection({
   const [windowDays, setWindowDays] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const base = `/api/v1/competitions/${encodeURIComponent(competitionId)}/fee`;
 
   const load = useCallback(async () => {
-    const response = await fetch(base, { credentials: "include" });
-    if (!response.ok) return;
+    let response: Response;
+    try {
+      response = await fetch(base, { credentials: "include" });
+    } catch {
+      setLoadFailed(true);
+      return;
+    }
+    if (!response.ok) {
+      setLoadFailed(true);
+      return;
+    }
 
     const data = (await response.json()) as FeeState;
     setState(data);
@@ -66,6 +99,21 @@ export function CompetitionFeeSection({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Only a failure before the first answer replaces the section; a failed reload after a save keeps
+  // the form that is already on screen.
+  if (state === null && loadFailed) {
+    return (
+      <section className="content-section surface-card card-padding">
+        <div className="section-heading">
+          <div>
+            <h2>Biaya pendaftaran</h2>
+          </div>
+        </div>
+        <Feedback tone="error">{LOAD_FAILURE_MESSAGE}</Feedback>
+      </section>
+    );
+  }
 
   if (state === null) {
     return (
@@ -118,12 +166,10 @@ export function CompetitionFeeSection({
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
+        const code = await readErrorCode(response);
         addToast({
           type: "error",
-          message: payload?.error?.message ?? "Biaya pendaftaran gagal disimpan.",
+          message: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK),
         });
         return;
       }

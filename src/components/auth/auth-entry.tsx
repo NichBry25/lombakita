@@ -6,6 +6,8 @@ import { Button, ButtonLink, SelectField, StepIndicator, usePageTransition } fro
 import { AssentNotice } from "@/components/legal/assent-notice";
 import { useToast } from "@/components/ui/primitives";
 import { PENDING_PROMPT_KEY } from "@/components/auth/second-role-prompt-modal";
+import { errorMessageFor } from "@/lib/errors/error-copy";
+import { readErrorCode } from "@/lib/session/session-fetch";
 
 // Method-first single-page auth entry. Replaces the earlier two-page login/register
 // toggle. The user first picks a sign-in method; then:
@@ -67,6 +69,24 @@ const OCCUPATION_OPTIONS = [
   { value: "professional", label: "Profesional / bekerja" },
   { value: "other", label: "Lainnya" },
 ] as const;
+
+// The register route drops the field names of a refused profile, so these codes get one sentence
+// each rather than a sentence per field.
+const SIGNUP_ERROR_COPY: Partial<Record<string, string>> = {
+  rate_limited: "Terlalu banyak percobaan. Tunggu beberapa saat lalu coba lagi.",
+  invalid_signup_role: "Pilih peran akun Anda lalu coba lagi.",
+  invalid_name: "Isi nama lengkap (minimal 2 karakter) untuk mendaftar.",
+  invalid_email: "Format email tidak valid. Gunakan format seperti nama@kampus.ac.id.",
+  invalid_password: "Password harus 8 sampai 72 karakter.",
+  candidate_profile_invalid_value: "Periksa data kandidat Anda lalu coba lagi.",
+  recruiter_verification_invalid_value: "Periksa data rekruter Anda lalu coba lagi.",
+  email_exists: "Akun untuk email ini sudah ada. Silakan masuk, bukan mendaftar.",
+  verification_email_failed:
+    "Akun sudah dibuat, tetapi email verifikasi belum terkirim. Masukkan email Anda lagi untuk mengirim ulang verifikasi.",
+  username_generation_failed: "Akun belum dapat dibuat saat ini. Coba lagi beberapa saat.",
+};
+
+const SIGNUP_FALLBACK = "Pendaftaran gagal. Coba lagi beberapa saat.";
 
 export const AuthEntry = ({
   googleEnabled,
@@ -311,21 +331,11 @@ export const AuthEntry = ({
       });
 
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: { code?: string; message?: string };
-        } | null;
-        if (payload?.error?.code === "email_exists") {
-          addToast({
-            type: "error",
-            message: "Akun untuk email ini sudah ada. Silakan masuk, bukan mendaftar.",
-          });
-        } else {
-          addToast({
-            type: "error",
-            message:
-              payload?.error?.message ?? "Pendaftaran gagal. Periksa data Anda lalu coba lagi.",
-          });
-        }
+        const code = await readErrorCode(response);
+        addToast({
+          type: "error",
+          message: errorMessageFor(code, SIGNUP_ERROR_COPY, SIGNUP_FALLBACK),
+        });
         return;
       }
 
@@ -351,8 +361,7 @@ export const AuthEntry = ({
     if (!verificationEnabled) {
       addToast({
         type: "error",
-        message:
-          "Pendaftaran tidak tersedia karena konfigurasi email verifikasi (Resend) belum lengkap.",
+        message: "Pendaftaran email sedang tidak tersedia. Coba lagi nanti.",
       });
       return;
     }

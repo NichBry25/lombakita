@@ -18,6 +18,7 @@ import { getCompetitionModeLabel } from "@/lib/competitions/modes";
 import { getCompetitionStatusLabel } from "@/lib/competitions/status-labels";
 import { resolveResultAnnouncement } from "@/lib/competitions/competition-phase";
 import { useWithdrawalAvailability } from "@/components/competitions/use-withdrawal-availability";
+import { errorMessageFor } from "@/lib/errors/error-copy";
 import { resolveSessionMismatchMessage, sessionFetch } from "@/lib/session/session-fetch";
 import { capitalizeFirst } from "@/lib/text/capitalize";
 import {
@@ -80,24 +81,69 @@ const formatFailures = (failures: PublishValidationFailure[] | undefined): strin
     .join("; ");
 };
 
+type RefusalAction = "load" | "unpublish" | "decision" | "delete";
+
+const INVALID_PAYLOAD_MESSAGE =
+  "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.";
+
+const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
+  load: {
+    competition_not_found: "Kompetisi tidak ditemukan.",
+    forbidden: "Anda tidak memiliki akses ke kompetisi institusi ini.",
+  },
+  unpublish: {
+    competition_not_found: "Kompetisi tidak ditemukan.",
+    forbidden: "Hanya pemilik institusi yang dapat menarik kompetisi.",
+    competition_invalid_transition:
+      "Status kompetisi sudah berubah. Muat ulang halaman lalu coba lagi.",
+    competition_already_cancelled: "Kompetisi ini sudah dibatalkan.",
+    competition_unpublish_blocked_after_participation_confirmation:
+      "Kompetisi tidak dapat ditarik setelah tanggal konfirmasi peserta.",
+    competition_unpublish_blocked_payment_in_flight:
+      "Kompetisi tidak dapat ditarik selama masih ada bukti transfer yang menunggu verifikasi. Hubungi tim Lombakita untuk pembatalan.",
+    competition_unpublish_blocked_after_start:
+      "Kompetisi yang sudah dimulai dan masih memiliki peserta tidak dapat ditarik. Ubah data kompetisi sebagai gantinya.",
+  },
+  decision: {
+    competition_not_found: "Kompetisi tidak ditemukan.",
+    forbidden: "Hanya pemilik institusi yang dapat memutuskan kelanjutan kompetisi.",
+    competition_already_cancelled: "Kompetisi ini sudah dibatalkan.",
+    competition_invalid_payload: INVALID_PAYLOAD_MESSAGE,
+    competition_participation_decision_unavailable:
+      "Keputusan kelanjutan belum tersedia atau sudah diambil. Muat ulang halaman lalu coba lagi.",
+    competition_participation_not_configured:
+      "Kompetisi ini tidak memiliki syarat minimum peserta, jadi tidak perlu keputusan kelanjutan.",
+  },
+  delete: {
+    competition_not_found: "Kompetisi tidak ditemukan.",
+    forbidden: "Anda tidak memiliki akses ke kompetisi institusi ini.",
+    competition_delete_not_allowed: "Hanya kompetisi berstatus draf yang dapat dihapus.",
+  },
+};
+
+const REFUSAL_FALLBACK: Record<RefusalAction, string> = {
+  load: "Data kompetisi gagal dimuat. Muat ulang halaman lalu coba lagi.",
+  unpublish: "Kompetisi gagal ditarik. Coba lagi atau hubungi dukungan Lombakita.",
+  decision: "Keputusan gagal disimpan. Coba lagi.",
+  delete: "Draf gagal dihapus. Coba lagi.",
+};
+
 const extractError = async (
   response: Response,
-): Promise<{ message: string; code?: string; failures?: PublishValidationFailure[] }> => {
+): Promise<{ code?: string; failures?: PublishValidationFailure[] }> => {
   try {
     const payload = (await response.json()) as {
       error?: {
         code?: string;
-        message?: string;
         details?: { failures?: PublishValidationFailure[] };
       };
     };
     return {
-      message: payload.error?.message ?? "Permintaan gagal diproses.",
       code: payload.error?.code,
       failures: payload.error?.details?.failures,
     };
   } catch {
-    return { message: "Permintaan gagal diproses." };
+    return {};
   }
 };
 
@@ -160,8 +206,11 @@ export const InstitutionCompetitionDetailShell = ({
       credentials: "include",
     });
     if (!response.ok) {
-      const { message } = await extractError(response);
-      addToast({ type: "error", message });
+      const { code } = await extractError(response);
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, REFUSAL_COPY.load, REFUSAL_FALLBACK.load),
+      });
       // The read failed, so the readiness on screen is no longer an answer to anything. Drop it.
       setReadinessIsKnown(false);
       setIsLoading(false);
@@ -204,7 +253,7 @@ export const InstitutionCompetitionDetailShell = ({
     const url = `/api/v1/institutions/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competitionId)}/${action}`;
     const response = await sessionFetch(expectedUserId, url, { method: "POST" });
     if (!response.ok) {
-      const { message, code, failures } = await extractError(response);
+      const { code, failures } = await extractError(response);
       // A publish refusal is translated from its code, never relayed. The server's message is
       // English and written for a log; the person who pressed the button gets Indonesian.
       if (action === "publish") {
@@ -216,13 +265,11 @@ export const InstitutionCompetitionDetailShell = ({
           ),
         });
       } else {
+        const message = errorMessageFor(code, REFUSAL_COPY.unpublish, REFUSAL_FALLBACK.unpublish);
         const failureText = formatFailures(failures);
         addToast({
           type: "error",
-          message: resolveSessionMismatchMessage(
-            code,
-            failureText ? `${message} (${failureText})` : message,
-          ),
+          message: failureText ? `${message} (${failureText})` : message,
         });
       }
       setPendingAction(null);
@@ -242,8 +289,11 @@ export const InstitutionCompetitionDetailShell = ({
       body: JSON.stringify({ decision }),
     });
     if (!response.ok) {
-      const { message, code } = await extractError(response);
-      addToast({ type: "error", message: resolveSessionMismatchMessage(code, message) });
+      const { code } = await extractError(response);
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, REFUSAL_COPY.decision, REFUSAL_FALLBACK.decision),
+      });
       setPendingAction(null);
       return;
     }
@@ -264,8 +314,11 @@ export const InstitutionCompetitionDetailShell = ({
       { method: "DELETE" },
     );
     if (!response.ok && response.status !== 204) {
-      const { message, code } = await extractError(response);
-      addToast({ type: "error", message: resolveSessionMismatchMessage(code, message) });
+      const { code } = await extractError(response);
+      addToast({
+        type: "error",
+        message: errorMessageFor(code, REFUSAL_COPY.delete, REFUSAL_FALLBACK.delete),
+      });
       setPendingAction(null);
       return;
     }
