@@ -26,6 +26,7 @@ vi.mock("@/server/auth/role-verification", async (importOriginal) => {
 
 import { POST } from "@/app/api/v1/auth/verify-role/route";
 import { RoleVerificationError } from "@/server/auth/role-verification";
+import { SESSION_USER_HEADER } from "@/lib/session/session-fetch";
 
 const buildSession = (overrides: Partial<Session["user"]> = {}): Session =>
   ({
@@ -39,10 +40,10 @@ const buildSession = (overrides: Partial<Session["user"]> = {}): Session =>
     expires: new Date(Date.now() + 60_000).toISOString(),
   }) as Session;
 
-const buildRequest = (body: unknown) =>
+const buildRequest = (body: unknown, headers: Record<string, string> = {}) =>
   new Request("http://localhost/api/v1/auth/verify-role", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   }) as unknown as Parameters<typeof POST>[0];
 
@@ -182,6 +183,44 @@ describe("POST /api/v1/auth/verify-role", () => {
       mobileNumber: "0812345678",
       corporateEmail: "rendra@corp.co.id",
     });
+  });
+
+  it("refuses a mismatched expected user before marking the role as verified", async () => {
+    getServerSessionMock.mockResolvedValue(buildSession());
+    markRoleAsVerifiedMock.mockResolvedValue({
+      candidateVerified: true,
+      recruiterVerified: true,
+    });
+
+    const response = await POST(
+      buildRequest(
+        { role: "recruiter", ...recruiterVerificationFields },
+        { [SESSION_USER_HEADER]: "someone_else" },
+      ),
+    );
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("session_user_mismatch");
+    expect(markRoleAsVerifiedMock).not.toHaveBeenCalled();
+  });
+
+  it("marks the role as verified when the expected user matches the session", async () => {
+    getServerSessionMock.mockResolvedValue(buildSession());
+    markRoleAsVerifiedMock.mockResolvedValue({
+      candidateVerified: true,
+      recruiterVerified: true,
+    });
+
+    const response = await POST(
+      buildRequest(
+        { role: "recruiter", ...recruiterVerificationFields },
+        { [SESSION_USER_HEADER]: "u_1" },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(markRoleAsVerifiedMock).toHaveBeenCalledOnce();
   });
 
   it("happy path: verifies candidate on a recruiter-only account and passes the onboarding profile", async () => {

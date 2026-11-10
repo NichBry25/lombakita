@@ -80,7 +80,7 @@ export default async function VerifyRolePage(props: { searchParams?: Promise<{ a
           <p>Verifikasi peran rekruter Anda untuk mulai menerbitkan dan mengelola peluang.</p>
         ) : null}
 
-        <VerifyRoleForm role={role} />
+        <VerifyRoleForm role={role} expectedUserId={session.user.id} />
         <ButtonLink href="/" variant="ghost" size="sm">
           Kembali
         </ButtonLink>

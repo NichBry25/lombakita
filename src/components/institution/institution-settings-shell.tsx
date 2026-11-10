@@ -249,14 +249,12 @@ export const InstitutionSettingsShell = ({
       body.displayName = displayName;
     }
 
-    const response = await fetch(
+    const response = await sessionFetch(
+      expectedUserId,
       `/api/v1/institutions/${encodeURIComponent(activeSlug)}/settings`,
       {
         method: "PATCH",
-        headers: {
-          "content-type": "application/json",
-        },
-        credentials: "include",
+        headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       },
     );

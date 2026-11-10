@@ -6,6 +6,7 @@ import { Button, SelectField } from "@/components/ui";
 import type { VerifiableRole } from "@/server/auth/role-verification";
 import { useToast } from "@/components/ui/primitives";
 import { errorMessageFor } from "@/lib/errors/error-copy";
+import { sessionFetch } from "@/lib/session/session-fetch";
 
 // A key "<code>.<field>" holds the sentence for a refusal about one field.
 const VERIFY_ROLE_ERROR_COPY: Partial<Record<string, string>> = {
@@ -36,6 +37,7 @@ const refusalCopyKey = (
 
 type VerifyRoleFormProps = {
   role: VerifiableRole;
+  expectedUserId: string;
 };
 
 // Candidate onboarding option list. Values must match the `candidate_occupation` DB enum exactly.
@@ -54,7 +56,7 @@ const OCCUPATION_OPTIONS = [
 // registration onboarding form — and sends them in the same request, so a recruiter-first account
 // gaining candidate access lands with an onboarding profile written (parity with the credentials-
 // and OAuth-signup candidacy paths). The recruiter path submits with no extra fields.
-export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
+export function VerifyRoleForm({ role, expectedUserId }: VerifyRoleFormProps) {
   const { update } = useSession();
   const { addToast } = useToast();
   const [busy, setBusy] = useState(false);
@@ -71,7 +73,7 @@ export function VerifyRoleForm({ role }: VerifyRoleFormProps) {
   const submit = async (body: Record<string, unknown>) => {
     setBusy(true);
     try {
-      const response = await fetch("/api/v1/auth/verify-role", {
+      const response = await sessionFetch(expectedUserId, "/api/v1/auth/verify-role", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),

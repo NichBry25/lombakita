@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertSessionMatchesExpectedUser } from "@/server/auth/access-core";
 import { withApiRole } from "@/server/auth/api-guard";
 import {
   dashboardPathForRole,
@@ -36,6 +37,7 @@ import {
 // carries participant verification timestamps from before it was promoted, but must not collect
 // new ones — `sessionHasRole` suppresses the fold for operational roles, so it is refused here.
 export const POST = withApiRole(VERIFIABLE_ROLES, async (request, session) => {
+  assertSessionMatchesExpectedUser(request, session);
   let body: unknown;
   try {
     body = await request.json();
