@@ -3,20 +3,41 @@
 import { inspect } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { loggerErrorMock, captureExceptionMock } = vi.hoisted(() => ({
-  loggerErrorMock: vi.fn(),
-  captureExceptionMock: vi.fn(),
-}));
+const {
+  loggerErrorMock,
+  loggerWarnMock,
+  captureExceptionMock,
+  flushMock,
+  scheduledTasks,
+  afterMock,
+} = vi.hoisted(() => {
+  const scheduledTasks: Array<() => unknown> = [];
+  return {
+    loggerErrorMock: vi.fn(),
+    loggerWarnMock: vi.fn(),
+    captureExceptionMock: vi.fn(),
+    flushMock: vi.fn(async () => true),
+    scheduledTasks,
+    afterMock: vi.fn((task: () => unknown) => {
+      scheduledTasks.push(task);
+    }),
+  };
+});
 vi.mock("@/lib/logger", () => ({
-  logger: { warn: vi.fn(), error: loggerErrorMock, info: vi.fn() },
+  logger: { warn: loggerWarnMock, error: loggerErrorMock, info: vi.fn() },
 }));
-vi.mock("@sentry/nextjs", () => ({ captureException: captureExceptionMock }));
+vi.mock("@sentry/nextjs", () => ({ captureException: captureExceptionMock, flush: flushMock }));
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: afterMock,
+}));
 
 import { reportUnexpectedError } from "@/server/observability/report-unexpected-error";
 
 describe("reportUnexpectedError", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    scheduledTasks.length = 0;
   });
 
   afterEach(() => {
@@ -79,28 +100,63 @@ describe("reportUnexpectedError", () => {
     });
   });
 
-  it("sends the error to Sentry with where as a tag inside Next.js", async () => {
+  it("sends the error to Sentry with where as a tag after the response, then flushes", async () => {
     vi.stubEnv("NEXT_RUNTIME", "nodejs");
     const error = new Error("boom");
 
     reportUnexpectedError("an access-guarded route", error);
 
-    await vi.waitFor(() =>
-      expect(captureExceptionMock).toHaveBeenCalledWith(error, {
-        tags: { where: "an access-guarded route" },
-      }),
+    expect(afterMock).toHaveBeenCalledTimes(1);
+    expect(captureExceptionMock).not.toHaveBeenCalled();
+    await scheduledTasks[0]!();
+    expect(captureExceptionMock).toHaveBeenCalledWith(error, {
+      tags: { where: "an access-guarded route" },
+    });
+    expect(flushMock).toHaveBeenCalledWith(2000);
+    expect(captureExceptionMock.mock.invocationCallOrder[0]).toBeLessThan(
+      flushMock.mock.invocationCallOrder[0]!,
     );
   });
 
-  it("stays silent when Sentry throws", async () => {
+  it("logs a warning naming only where when Sentry fails", async () => {
     vi.stubEnv("NEXT_RUNTIME", "nodejs");
     captureExceptionMock.mockImplementationOnce(() => {
       throw new Error("sentry down");
     });
 
+    reportUnexpectedError("an access-guarded route", new Error("boom"));
+
+    await expect(scheduledTasks[0]!()).resolves.toBeUndefined();
+    expect(loggerWarnMock).toHaveBeenCalledWith("route.unexpected_error.sentry_failed", {
+      where: "an access-guarded route",
+    });
+    expect(flushMock).not.toHaveBeenCalled();
+  });
+
+  it("logs a warning naming only where when the flush fails", async () => {
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    flushMock.mockRejectedValueOnce(new Error("flush timeout"));
+
+    reportUnexpectedError("an access-guarded route", new Error("boom"));
+
+    await expect(scheduledTasks[0]!()).resolves.toBeUndefined();
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+    expect(loggerWarnMock).toHaveBeenCalledWith("route.unexpected_error.sentry_failed", {
+      where: "an access-guarded route",
+    });
+  });
+
+  it("logs a warning naming only where when after() is refused outside a request", () => {
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    afterMock.mockImplementationOnce(() => {
+      throw new Error("outside a request");
+    });
+
     expect(() => reportUnexpectedError("an access-guarded route", new Error("boom"))).not.toThrow();
 
-    await vi.waitFor(() => expect(captureExceptionMock).toHaveBeenCalledTimes(1));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(loggerWarnMock).toHaveBeenCalledWith("route.unexpected_error.sentry_skipped", {
+      where: "an access-guarded route",
+    });
+    expect(loggerErrorMock).toHaveBeenCalledTimes(1);
   });
 });

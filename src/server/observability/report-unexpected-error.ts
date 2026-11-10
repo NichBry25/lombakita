@@ -1,4 +1,7 @@
+import { after } from "next/server";
 import { logger } from "@/lib/logger";
+
+const SENTRY_FLUSH_TIMEOUT_MS = 2000;
 
 type UnexpectedErrorDetails = { errorClass: string; stackFrames?: string } | { errorType: string };
 
@@ -31,17 +34,28 @@ const describeUnexpectedError = (error: unknown): UnexpectedErrorDetails => {
   }
 };
 
+const sendToSentryAndFlush = async (where: string, error: unknown): Promise<void> => {
+  try {
+    const Sentry = await import("@sentry/nextjs");
+    Sentry.captureException(error, { tags: { where } });
+    await Sentry.flush(SENTRY_FLUSH_TIMEOUT_MS);
+  } catch {
+    logger.warn("route.unexpected_error.sentry_failed", { where });
+  }
+};
+
 // NEXT_RUNTIME is set by Next.js in both of its runtimes and never by the Railway worker, which
-// also loads this module and where `@sentry/nextjs` resolves to its browser build
-// (src/server/observability/worker-sentry.ts). The SDK is therefore imported only here, on demand.
-const captureInNextjsSentry = (where: string, error: unknown): void => {
+// also loads this module (its own Sentry setup is src/server/observability/worker-sentry.ts).
+// after() keeps a Vercel function alive until the capture is flushed, and throws outside a request.
+const captureInSentryAfterResponse = (where: string, error: unknown): void => {
   if (!process.env.NEXT_RUNTIME) {
     return;
   }
-  // Reporting must never replace the caller's fixed answer, so a failed load or capture is dropped.
-  void import("@sentry/nextjs")
-    .then((Sentry) => Sentry.captureException(error, { tags: { where } }))
-    .catch(() => {});
+  try {
+    after(() => sendToSentryAndFlush(where, error));
+  } catch {
+    logger.warn("route.unexpected_error.sentry_skipped", { where });
+  }
 };
 
 /**
@@ -52,5 +66,5 @@ const captureInNextjsSentry = (where: string, error: unknown): void => {
  */
 export const reportUnexpectedError = (where: string, error: unknown): void => {
   logger.error("route.unexpected_error", { where, ...describeUnexpectedError(error) });
-  captureInNextjsSentry(where, error);
+  captureInSentryAfterResponse(where, error);
 };
