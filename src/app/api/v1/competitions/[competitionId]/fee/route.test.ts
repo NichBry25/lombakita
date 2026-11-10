@@ -16,13 +16,23 @@ import { CompetitionError } from "@/server/competitions/competition-core";
 import { FeeRuleError } from "@/server/finance/fee-rule-service";
 import { PaymentInstructionsError } from "@/server/institutions/payment-instructions-service";
 
-const { requireAuthenticatedSession, assertSessionMatchesExpectedUser, setCompetitionFee, getDb } =
-  vi.hoisted(() => ({
-    requireAuthenticatedSession: vi.fn(),
-    assertSessionMatchesExpectedUser: vi.fn(),
-    setCompetitionFee: vi.fn(),
-    getDb: vi.fn(() => ({}) as never),
-  }));
+const {
+  requireAuthenticatedSession,
+  assertSessionMatchesExpectedUser,
+  setCompetitionFee,
+  getDb,
+  assertCompetitionAccess,
+  loadCompetitionPricing,
+  resolveFeeRule,
+} = vi.hoisted(() => ({
+  requireAuthenticatedSession: vi.fn(),
+  assertSessionMatchesExpectedUser: vi.fn(),
+  setCompetitionFee: vi.fn(),
+  getDb: vi.fn(() => ({}) as never),
+  assertCompetitionAccess: vi.fn(),
+  loadCompetitionPricing: vi.fn(),
+  resolveFeeRule: vi.fn(),
+}));
 
 vi.mock("@/server/auth/session", () => ({ requireAuthenticatedSession }));
 vi.mock("@/server/db/client", () => ({ getDb }));
@@ -36,7 +46,23 @@ vi.mock("@/server/auth/access-core", async () => {
 
 vi.mock("@/server/competitions/competition-fee-service", () => ({ setCompetitionFee }));
 
-import { PUT } from "./route";
+vi.mock("@/server/competitions/competition-access", () => ({ assertCompetitionAccess }));
+
+vi.mock("@/server/competitions/competition-service", async () => {
+  const actual = await vi.importActual<typeof import("@/server/competitions/competition-service")>(
+    "@/server/competitions/competition-service",
+  );
+  return { ...actual, loadCompetitionPricing };
+});
+
+vi.mock("@/server/finance/fee-rule-service", async () => {
+  const actual = await vi.importActual<typeof import("@/server/finance/fee-rule-service")>(
+    "@/server/finance/fee-rule-service",
+  );
+  return { ...actual, resolveFeeRule };
+});
+
+import { GET, PUT } from "./route";
 
 const ORGANISER = {
   user: { id: "org_1", role: "recruiter", email: "o@example.test" },
@@ -53,6 +79,44 @@ const feeRequest = (body: Record<string, unknown>): Request =>
   });
 
 const PRICED = { feeAmount: 150_000, feeCurrency: "IDR", feeDisclosureAcknowledged: true };
+
+const PRICING = { feeAmount: 150_000, feeCurrency: "IDR", paymentWindowDays: 3 };
+
+const feeReadRequest = (): Request =>
+  new Request("http://localhost/api/v1/competitions/comp_1/fee", { method: "GET" });
+
+describe("GET …/competitions/[competitionId]/fee", () => {
+  afterEach(() => vi.resetAllMocks());
+
+  it("refuses institution staff before loading any pricing", async () => {
+    requireAuthenticatedSession.mockResolvedValue(ORGANISER);
+    assertCompetitionAccess.mockRejectedValue(
+      new AccessError("forbidden", 403, "institution_owner access required"),
+    );
+
+    const response = await GET(feeReadRequest(), context);
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe("forbidden");
+    expect(loadCompetitionPricing).not.toHaveBeenCalled();
+    expect(resolveFeeRule).not.toHaveBeenCalled();
+  });
+
+  it("answers the owner with the pricing", async () => {
+    requireAuthenticatedSession.mockResolvedValue(ORGANISER);
+    assertCompetitionAccess.mockResolvedValue({ competition: { institutionId: "inst_1" } });
+    loadCompetitionPricing.mockResolvedValue(PRICING);
+    resolveFeeRule.mockResolvedValue(null);
+
+    const response = await GET(feeReadRequest(), context);
+    const body = (await response.json()) as { pricing: unknown; feeRule: unknown };
+
+    expect(response.status).toBe(200);
+    expect(body.pricing).toEqual(PRICING);
+    expect(body.feeRule).toBeNull();
+  });
+});
 
 describe("PUT …/competitions/[competitionId]/fee", () => {
   afterEach(() => vi.resetAllMocks());

@@ -12,7 +12,10 @@ import { requireRolePage } from "@/server/auth/page-guard";
 import { CompetitionError } from "@/server/competitions/competition-core";
 import { getCompetitionIdByInstitutionAndSlug } from "@/server/competitions/competition-service";
 import { resolveCompetitionPublishReadiness } from "@/server/competitions/competition-publish-readiness";
-import { isInstitutionAdminBySlug } from "@/server/institution-members/member-service";
+import {
+  isInstitutionAdminBySlug,
+  isInstitutionOwnerBySlug,
+} from "@/server/institution-members/member-service";
 import { loadInstitutionTypeBySlug } from "@/server/institution-workspace/institution-service";
 import { isPersonalInstitutionType } from "@/server/institution-workspace/institution-type";
 
@@ -35,6 +38,7 @@ export default async function InstitutionCompetitionEditPage({ params, searchPar
   if (!isAdmin) {
     redirect("/");
   }
+  const viewerIsOwner = await isInstitutionOwnerBySlug(session.user.id, institutionSlug);
   const query = await searchParams;
   const step = parseCompetitionStep(query?.langkah);
 
@@ -80,7 +84,11 @@ export default async function InstitutionCompetitionEditPage({ params, searchPar
               competitionId={competitionId}
               expectedUserId={session.user.id}
             />
-            <CompetitionFeeSection competitionId={competitionId} expectedUserId={session.user.id} />
+            <CompetitionFeeSection
+              competitionId={competitionId}
+              expectedUserId={session.user.id}
+              viewerIsOwner={viewerIsOwner}
+            />
           </>
         ),
       }}
@@ -92,7 +100,11 @@ export default async function InstitutionCompetitionEditPage({ params, searchPar
         competitionId={competitionId}
         expectedUserId={session.user.id}
       />
-      <CompetitionFeeSection competitionId={competitionId} expectedUserId={session.user.id} />
+      <CompetitionFeeSection
+        competitionId={competitionId}
+        expectedUserId={session.user.id}
+        viewerIsOwner={viewerIsOwner}
+      />
     </InstitutionCompetitionEditShell>
   );
 }

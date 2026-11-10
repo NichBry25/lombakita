@@ -62,9 +62,11 @@ const LOAD_ERROR_COPY: Partial<Record<string, string>> = { forbidden: SAVE_ERROR
 export function CompetitionFeeSection({
   competitionId,
   expectedUserId,
+  viewerIsOwner,
 }: {
   competitionId: string;
   expectedUserId: string;
+  viewerIsOwner: boolean;
 }) {
   const { addToast } = useToast();
 
@@ -76,6 +78,7 @@ export function CompetitionFeeSection({
   const [isSaving, setIsSaving] = useState(false);
   // The code is null when the request itself threw.
   const [loadFailure, setLoadFailure] = useState<{ code: string | null } | null>(null);
+  const shownLoadFailure = viewerIsOwner ? loadFailure : { code: "forbidden" };
 
   const base = `/api/v1/competitions/${encodeURIComponent(competitionId)}/fee`;
 
@@ -101,15 +104,16 @@ export function CompetitionFeeSection({
   }, [base]);
 
   useEffect(() => {
+    if (!viewerIsOwner) return;
     void load();
-  }, [load]);
+  }, [load, viewerIsOwner]);
 
   // Only a failure before the first answer replaces the section; a failed reload after a save keeps
   // the form that is already on screen.
-  if (state === null && loadFailure !== null) {
-    // The fee GET is owner only and the editor also admits institution staff, so a forbidden load is
-    // the expected state for staff and not an error they can fix.
-    const { code } = loadFailure;
+  if (state === null && shownLoadFailure !== null) {
+    // A viewer passed in as the owner can still be refused, for example after losing the owner role
+    // in another tab.
+    const { code } = shownLoadFailure;
     const tone = code === "forbidden" ? "info" : "error";
     const message = errorMessageFor(code, LOAD_ERROR_COPY, LOAD_FAILURE_MESSAGE);
     return (

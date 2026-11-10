@@ -8,6 +8,7 @@ import { getRedirectError } from "next/dist/client/components/redirect";
 const mocks = vi.hoisted(() => ({
   session: vi.fn(),
   isAdmin: vi.fn(),
+  isOwner: vi.fn(),
   lookup: vi.fn(),
   institutionType: vi.fn(),
   readiness: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/server/institution-members/member-service", () => ({
   isInstitutionAdminBySlug: mocks.isAdmin,
+  isInstitutionOwnerBySlug: mocks.isOwner,
 }));
 vi.mock("@/server/competitions/competition-service", () => ({
   getCompetitionIdByInstitutionAndSlug: mocks.lookup,
@@ -73,6 +75,7 @@ const renderEditPage = async () => {
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.session.mockResolvedValue(recruiterSession());
+  mocks.isOwner.mockResolvedValue(true);
   mocks.lookup.mockResolvedValue("competition-id");
   mocks.institutionType.mockResolvedValue("school");
   mocks.readiness.mockResolvedValue({ ready: false });
@@ -108,5 +111,17 @@ describe("competition edit page institution-admin guard", () => {
     });
     expect(mocks.isAdmin).not.toHaveBeenCalled();
     expect(mocks.lookup).not.toHaveBeenCalled();
+  });
+
+  it("tells the fee section that a staff member is not the owner", async () => {
+    mocks.isAdmin.mockResolvedValue(true);
+    mocks.isOwner.mockResolvedValue(false);
+
+    const page = await renderEditPage();
+
+    expect(page.props.children[4].props).toMatchObject({ viewerIsOwner: false });
+    expect(page.props.stepChildren[4].props.children[1].props).toMatchObject({
+      viewerIsOwner: false,
+    });
   });
 });

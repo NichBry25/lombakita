@@ -24,7 +24,7 @@ const RULE = {
   maximumFeeAmount: null,
 };
 
-const mountWith = async (body: unknown) => {
+const mountWith = async (body: unknown, viewerIsOwner = true) => {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({ ok: true, json: async () => body } as Response),
@@ -32,7 +32,11 @@ const mountWith = async (body: unknown) => {
 
   render(
     <UIPrimitivesProvider>
-      <CompetitionFeeSection competitionId="comp_1" expectedUserId="org_1" />
+      <CompetitionFeeSection
+        competitionId="comp_1"
+        expectedUserId="org_1"
+        viewerIsOwner={viewerIsOwner}
+      />
     </UIPrimitivesProvider>,
   );
 
@@ -40,7 +44,7 @@ const mountWith = async (body: unknown) => {
   return screen.findByRole("heading", { name: "Biaya pendaftaran" });
 };
 
-const mountRefused = async (code: string, status: number) => {
+const mountRefused = async (code: string, status: number, viewerIsOwner = true) => {
   // A real Response: the section reads the code through readErrorCode, which reads a clone.
   vi.stubGlobal(
     "fetch",
@@ -49,7 +53,11 @@ const mountRefused = async (code: string, status: number) => {
 
   render(
     <UIPrimitivesProvider>
-      <CompetitionFeeSection competitionId="comp_1" expectedUserId="org_1" />
+      <CompetitionFeeSection
+        competitionId="comp_1"
+        expectedUserId="org_1"
+        viewerIsOwner={viewerIsOwner}
+      />
     </UIPrimitivesProvider>,
   );
 
@@ -141,11 +149,17 @@ describe("CompetitionFeeSection", () => {
     expect(saveButton().hasAttribute("disabled")).toBe(false);
   });
 
-  it("tells a staff member that only the owner sets the fee when the load is forbidden", async () => {
+  it("tells a staff member that only the owner sets the fee, without asking the server", async () => {
+    await mountRefused("forbidden", 403, false);
+
+    expect(screen.getByRole("status").textContent).toBe(OWNER_ONLY_MESSAGE);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("tells an owner whose load is refused that only the owner sets the fee", async () => {
     await mountRefused("forbidden", 403);
 
     expect(screen.getByRole("status").textContent).toBe(OWNER_ONLY_MESSAGE);
-    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("shows the load failure as an error for any other refused load", async () => {
