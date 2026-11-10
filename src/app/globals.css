@@ -5569,6 +5569,31 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   overflow-wrap: anywhere;
 }
 
+.management-detail-grid > .management-detail-wide {
+  grid-column: 1 / -1;
+}
+
+.summary-long-value {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+
+.summary-long-text {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+/* -webkit-line-clamp needs the -webkit-box display, so the open state goes back to block. */
+.summary-long-text[data-expanded="true"] {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+
 /* A key and its value share one line here, so a row is a line of text rather than a block. 8px
    between lines of a three-item list reads as three separate statements; 4px reads as one list.
    Every detail list in the app uses this, so the rhythm stays the same everywhere. */

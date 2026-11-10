@@ -1030,7 +1030,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
     });
     expect(summaryValue("Judul")).toBe(COMPETITION.title);
     expect(summaryValue("Kategori")).toBe("Hackathon");
-    expect(summaryValue("Deskripsi")).toBe(`${"a".repeat(200)}…`);
+    expect(summaryValue("Deskripsi")).toBe("a".repeat(250));
     expect(summaryValue("Slug")).toBe(COMPETITION.slug);
     expect(summaryValue("Mode")).toBe("Tim");
     expect(summaryValue("Min. anggota tim")).toBe("2");
@@ -1058,6 +1058,64 @@ describe("InstitutionCompetitionEditShell steps", () => {
       "Pembatalan oleh peserta",
       "Batas pembatalan",
     ]);
+  });
+
+  it("shows the whole description on a row of its own", async () => {
+    const competition = { ...COMPETITION, description: "Baris satu\nBaris dua" };
+    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+
+    render(shellAt(5));
+
+    await screen.findByRole("button", { name: "Terbitkan" });
+    expect(summaryValue("Deskripsi")).toBe("Baris satu\nBaris dua");
+    expect(
+      screen
+        .getByText("Deskripsi", { selector: "dt" })
+        .parentElement?.classList.contains("management-detail-wide"),
+    ).toBe(true);
+    expect(screen.queryByRole("button", { name: "Lihat selengkapnya" })).toBeNull();
+  });
+
+  it("offers Lihat selengkapnya when the description runs past three lines, and folds it back", async () => {
+    const competition = {
+      ...COMPETITION,
+      description: "Baris satu\nBaris dua\nBaris tiga\nBaris empat",
+    };
+    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+    const scrollHeight = vi.spyOn(Element.prototype, "scrollHeight", "get").mockReturnValue(120);
+    const clientHeight = vi.spyOn(Element.prototype, "clientHeight", "get").mockReturnValue(60);
+
+    try {
+      render(shellAt(5));
+
+      const more = await screen.findByRole("button", { name: "Lihat selengkapnya" });
+      expect(more.getAttribute("aria-expanded")).toBe("false");
+      const text = document.getElementById(more.getAttribute("aria-controls") ?? "");
+      expect(text?.textContent).toBe("Baris satu\nBaris dua\nBaris tiga\nBaris empat");
+      expect(text?.getAttribute("data-expanded")).toBe("false");
+      fireEvent.click(more);
+      const less = screen.getByRole("button", { name: "Tampilkan lebih sedikit" });
+      expect(less.getAttribute("aria-expanded")).toBe("true");
+      expect(text?.getAttribute("data-expanded")).toBe("true");
+      fireEvent.click(less);
+      expect(
+        screen.getByRole("button", { name: "Lihat selengkapnya" }).getAttribute("aria-expanded"),
+      ).toBe("false");
+    } finally {
+      scrollHeight.mockRestore();
+      clientHeight.mockRestore();
+    }
+  });
+
+  it("shows a dash and no button for an empty description", async () => {
+    const competition = { ...COMPETITION, description: "" };
+    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+
+    render(shellAt(5));
+
+    await screen.findByRole("button", { name: "Terbitkan" });
+    expect(summaryValue("Deskripsi")).toBe("—");
+    expect(screen.queryByRole("button", { name: "Lihat selengkapnya" })).toBeNull();
   });
 
   it.each([

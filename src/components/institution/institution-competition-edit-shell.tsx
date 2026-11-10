@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -32,7 +40,6 @@ import {
 } from "@/lib/competitions/categories";
 import { getCompetitionFieldLabel } from "@/lib/competitions/fields";
 import { COMPETITION_MODE_OPTIONS, getCompetitionModeLabel } from "@/lib/competitions/modes";
-import { truncateText } from "@/lib/text/truncate";
 import { getMissingCompetitionPublishFields } from "@/lib/competitions/competition-publish-required-fields";
 import {
   isRegistrationEndPast,
@@ -223,7 +230,7 @@ const snapshotEquals = (a: FormSnapshot, b: FormSnapshot): boolean =>
 const SECTION_STEPS = [1, 2, 3, 4] as const;
 type SectionStep = (typeof SECTION_STEPS)[number];
 
-type SummaryRow = { term: string; value: string };
+type SummaryRow = { term: string; value: string; isLongText?: boolean };
 
 const orEmptyMark = (value: string): string => (value === "" ? "—" : value);
 
@@ -237,7 +244,7 @@ const formatMinimumEntries = (value: string): string =>
 const getBasicInfoRows = (values: FormSnapshot): SummaryRow[] => [
   { term: "Judul", value: orEmptyMark(values.title) },
   { term: "Kategori", value: orEmptyMark(getCompetitionCategoryLabel(values.category)) },
-  { term: "Deskripsi", value: orEmptyMark(truncateText(values.description, 200)) },
+  { term: "Deskripsi", value: orEmptyMark(values.description.trim()), isLongText: true },
   { term: "Slug", value: orEmptyMark(values.slug) },
 ];
 
@@ -284,6 +291,46 @@ const SUMMARY_ROWS_BY_STEP: Record<SectionStep, (values: FormSnapshot) => Summar
   4: getCancellationRows,
 };
 
+const ClampedSummaryText = ({ text }: { text: string }) => {
+  const textId = useId();
+  const textRef = useRef<HTMLDivElement>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+
+  useLayoutEffect(() => {
+    const element = textRef.current;
+    if (!element || isExpanded) return;
+    const measureOverflow = () => setIsOverflowing(element.scrollHeight > element.clientHeight);
+    measureOverflow();
+    window.addEventListener("resize", measureOverflow);
+    return () => window.removeEventListener("resize", measureOverflow);
+  }, [text, isExpanded]);
+
+  return (
+    <dd className="data-text summary-long-value">
+      <div
+        ref={textRef}
+        id={textId}
+        className="summary-long-text"
+        data-expanded={isExpanded ? "true" : "false"}
+      >
+        {text}
+      </div>
+      {isOverflowing ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-expanded={isExpanded}
+          aria-controls={textId}
+          onClick={() => setIsExpanded((expanded) => !expanded)}
+        >
+          {isExpanded ? "Tampilkan lebih sedikit" : "Lihat selengkapnya"}
+        </Button>
+      ) : null}
+    </dd>
+  );
+};
+
 const StepSummarySection = ({
   step,
   rows,
@@ -307,12 +354,19 @@ const StepSummarySection = ({
       />
     </div>
     <dl className="management-detail-grid">
-      {rows.map((row) => (
-        <div key={row.term}>
-          <dt>{row.term}</dt>
-          <dd className="data-text">{row.value}</dd>
-        </div>
-      ))}
+      {rows.map((row) =>
+        row.isLongText ? (
+          <div key={row.term} className="management-detail-wide">
+            <dt>{row.term}</dt>
+            <ClampedSummaryText text={row.value} />
+          </div>
+        ) : (
+          <div key={row.term}>
+            <dt>{row.term}</dt>
+            <dd className="data-text">{row.value}</dd>
+          </div>
+        ),
+      )}
     </dl>
   </section>
 );
