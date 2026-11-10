@@ -32,6 +32,7 @@ const FIXTURES = join(__dirname, "..", "testing", "fixtures", "register-sweep");
 const fixture = (name: string): string => readFileSync(join(FIXTURES, name), "utf8");
 
 const DECISION_LOG = "docs/project/decision-log.md";
+const DECISION_TABLE = "docs/project/decision-table.md";
 const DATE = "2026-03-05";
 
 const workspace = mkdtempSync(join(tmpdir(), "register-sweep-"));
@@ -67,9 +68,12 @@ const filesFor = (live: string, archive: string): [string, string] => {
 const measuredAs = (live: string, archive: string) => {
   const [livePath, archivePath] = filesFor(live, archive);
   const items = censusDebtItems([livePath, archivePath]);
-  const obligations = measureRegister([livePath, archivePath], archivePath, DECISION_LOG).map(
-    (measurement) => [measurement.obligation.what, measurement.measured],
-  );
+  const obligations = measureRegister(
+    [livePath, archivePath],
+    archivePath,
+    DECISION_LOG,
+    DECISION_TABLE,
+  ).map((measurement) => [measurement.obligation.what, measurement.measured]);
   const entries = items
     .map((item) => [item.id, item.live, item.discharged, item.withdrawn, item.anchor].join("|"))
     .sort();
@@ -892,7 +896,12 @@ describe("a live entry planted in the archive", () => {
 
     const plan = sweep(live, `# ARCHIVE\n\n${planted}`);
     const [livePath, archivePath] = filesFor(plan.live, plan.archive);
-    const archiveOwing = measureRegister([livePath, archivePath], archivePath, DECISION_LOG).find(
+    const archiveOwing = measureRegister(
+      [livePath, archivePath],
+      archivePath,
+      DECISION_LOG,
+      DECISION_TABLE,
+    ).find(
       (measurement) =>
         measurement.obligation.what ===
         "entries filed in the archive file that carry no mark of being finished",

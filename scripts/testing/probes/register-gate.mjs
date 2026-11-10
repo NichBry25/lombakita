@@ -1,22 +1,21 @@
 /*
  * Rule 36 probes for the register gate.
  *
- * WHY THIS FILE EXISTS. `npm run verify:register` asserts twelve obligations — eleven held at a
- * number, nine of them exactly and two as floors, and one reported rather than asserted — over
- * `open-debt.md`, `decision-log.md` and the close procedure that runs it. A pinned literal is a
- * claim about what the file currently contains, and the Phase 2 precedent
- * is explicit: the census
- * ratchet pinned at 40 was never observed failing, and a ratchet that has never gone red is a
- * literal nobody has tested — it could be asserting a number that no input can move. So each probe
- * here breaks the file the way the defect was actually found in it, and requires the gate to go red
- * naming THAT obligation and THAT measured number.
+ * WHY THIS FILE EXISTS. `npm run verify:register` asserts thirteen obligations, twelve held at a
+ * number (ten of them exactly and two as floors) and one reported rather than asserted, over
+ * `open-debt.md`, `decision-log.md`, `decision-table.md` and the close procedure that runs it. A
+ * pinned literal is a claim about what the file currently contains, and the Phase 2 precedent is
+ * explicit: the census ratchet pinned at 40 was never observed failing, and a ratchet that has never
+ * gone red is a literal nobody has tested — it could be asserting a number that no input can move.
+ * So each probe here breaks the file the way the defect was actually found in it, and requires the
+ * gate to go red naming THAT obligation and THAT measured number.
  *
  * THE CONTROL MATTERS AS MUCH AS THE PROBES. A gate that was already red before anything was
  * mutated would make every probe below report "red as claimed" while proving nothing about the
  * mutation. The entry point therefore requires the gate GREEN before the first probe runs, and
  * refuses the whole suite if it is not.
  *
- * CLASS D (Rule 36): the gate is a read-only instrument over three text files — there is no write to
+ * CLASS D (Rule 36): the gate is a read-only instrument over text files — there is no write to
  * reorder and no transaction to roll back, so the detector is result content. Every probe's failure
  * mode is the same: the harm is an unrecorded item, a broken row or a vacuous instrument, not a
  * committed mutation, so "what did it refuse and why" is the whole of the evidence.
@@ -39,6 +38,7 @@ import { liveAnchorItem } from "./live-anchor-item.mjs";
 const REGISTER = "docs/project/open-debt.md";
 const REGISTER_ARCHIVE = "docs/archive/project/open-debt-archive.md";
 const DECISION_LOG = "docs/project/decision-log.md";
+const DECISION_TABLE = "docs/project/decision-table.md";
 
 /**
  * The close procedure, listed by the path git knows it by in the doc repository.
@@ -146,12 +146,6 @@ const CLOSE_STEP_COMMIT_LINE =
 const SUPERSEDES_CELL_OF_DEC_0010 = "| DEC-0153 |\n| DEC-0011 |";
 
 /**
- * Row prefixes run as far as the `| owner |` cell on purpose.
- *
- * The Index table repeats every decision's id and title, so an anchor that stops at the title
- * matches twice and `substituteOnce` refuses it. `| owner |` is a Seeded Decisions column and
- * appears in no Index row, which is what makes these unambiguous.
- *
  * DEC-0125's row is glued onto DEC-0124's because DEC-0124 declares seven cells. That detail is the
  * whole of the mutation: the log's glue detector keys on a doubled pipe, which puts the glued
  * record's id exactly one stride (columns + 1) past an empty cell. DEC-0112's row declares ten
@@ -165,16 +159,17 @@ const ROW_DEC_0125 =
 /**
  * The last row of the contiguous run of table lines that opens under `## Seeded Decisions`.
  *
- * Found when the probe runs rather than named, because a row appended to the log moves the end of
- * that run and a probe pinned to one row's text then orphans every row below it instead of one.
+ * Found when the probe runs rather than named, because a row appended to the decision table moves
+ * the end of that run and a probe pinned to one row's text then orphans every row below it instead
+ * of one.
  */
 const lastRowOfSeededDecisionsTable = () => {
-  const lines = readFileSync(DECISION_LOG, "utf8").split("\n");
+  const lines = readFileSync(DECISION_TABLE, "utf8").split("\n");
   const heading = lines.indexOf("## Seeded Decisions");
-  if (heading === -1) throw new Error(`no "## Seeded Decisions" heading in ${DECISION_LOG}`);
+  if (heading === -1) throw new Error(`no "## Seeded Decisions" heading in ${DECISION_TABLE}`);
 
   let last = lines.findIndex((line, index) => index > heading && line.startsWith("|"));
-  if (last === -1) throw new Error(`no table after "## Seeded Decisions" in ${DECISION_LOG}`);
+  if (last === -1) throw new Error(`no table after "## Seeded Decisions" in ${DECISION_TABLE}`);
 
   while (lines[last + 1]?.startsWith("|")) last += 1;
   return lines[last];
@@ -329,12 +324,12 @@ export const probes = [
     klass: "D",
     harmfulMove:
       "adding a cell to a well-formed row, so the row reads as a different record to every column-indexed reader",
-    files: [DECISION_LOG],
+    files: [DECISION_TABLE],
     repo: DOC_LANE,
     appliedMarkers: ["reversible via uninstall | n/a | probe |"],
     mutate: () =>
       substituteOnce(
-        DECISION_LOG,
+        DECISION_TABLE,
         "reversible via uninstall | n/a |",
         "reversible via uninstall | n/a | probe |",
       ),
@@ -348,14 +343,14 @@ export const probes = [
     klass: "D",
     harmfulMove:
       "inserting a blank line inside a table, which drops every row below it out of the table for any reader that walks it",
-    files: [DECISION_LOG],
+    files: [DECISION_TABLE],
     repo: DOC_LANE,
     get appliedMarkers() {
       return [`\n\n${lastRowOfSeededDecisionsTable()}\n`];
     },
     mutate: () => {
       const lastRow = lastRowOfSeededDecisionsTable();
-      substituteOnce(DECISION_LOG, `\n${lastRow}\n`, `\n\n${lastRow}\n`);
+      substituteOnce(DECISION_TABLE, `\n${lastRow}\n`, `\n\n${lastRow}\n`);
     },
     detect: () =>
       gateRefused(
@@ -363,14 +358,96 @@ export const probes = [
       ),
   },
   {
+    name: "a decision table with no rows fails the close",
+    klass: "D",
+    harmfulMove:
+      "emptying the generated table, so every decision obligation measures an empty population and reads zero",
+    files: [DECISION_TABLE],
+    repo: DOC_LANE,
+    appliedMarkers: ["<!-- decisions:seeded:begin -->\n<!-- decisions:seeded:end -->"],
+    mutate: () => {
+      const text = readFileSync(DECISION_TABLE, "utf8");
+      const begin = text.indexOf("<!-- decisions:seeded:begin -->\n");
+      const end = text.indexOf("<!-- decisions:seeded:end -->");
+      const between = text.slice(begin + "<!-- decisions:seeded:begin -->\n".length, end);
+      substituteOnce(DECISION_TABLE, between, "");
+    },
+    detect: () =>
+      gateRefused(
+        /the census refuses docs\/project\/decision-table\.md:\d+: the decision table holds no table row between/,
+      ),
+  },
+  {
+    name: "a full table row copied into the log fails the close",
+    klass: "D",
+    harmfulMove:
+      "copying a full table row into the log, so the decision population counts a second copy of a record",
+    files: [DECISION_LOG],
+    repo: DOC_LANE,
+    get appliedMarkers() {
+      return [`${lastRowOfSeededDecisionsTable()}\n\n## Update Rules`];
+    },
+    mutate: () => {
+      const lastRow = lastRowOfSeededDecisionsTable();
+      substituteOnce(DECISION_LOG, "\n## Update Rules\n", `\n${lastRow}\n\n## Update Rules\n`);
+    },
+    detect: () =>
+      gateRefused(
+        /the census refuses docs\/project\/decision-log\.md:\d+: \S+ heads a full table row outside the generated table of docs\/project\/decision-table\.md/,
+      ),
+  },
+  {
+    name: "a full table row copied below the decision table fails the close",
+    klass: "D",
+    harmfulMove:
+      "copying a full table row below the generated table, so the decision population counts a second copy of a record",
+    files: [DECISION_TABLE],
+    repo: DOC_LANE,
+    get appliedMarkers() {
+      return [`<!-- decisions:seeded:end -->\n\n${lastRowOfSeededDecisionsTable()}`];
+    },
+    mutate: () => {
+      const lastRow = lastRowOfSeededDecisionsTable();
+      substituteOnce(
+        DECISION_TABLE,
+        "<!-- decisions:seeded:end -->\n",
+        `<!-- decisions:seeded:end -->\n\n${lastRow}\n`,
+      );
+    },
+    detect: () =>
+      gateRefused(
+        /the census refuses docs\/project\/decision-table\.md:\d+: \S+ heads a full table row outside the generated table of docs\/project\/decision-table\.md/,
+      ),
+  },
+  {
+    name: "a decision log with no index rows fails the close",
+    klass: "D",
+    harmfulMove:
+      "emptying the index, so the gate measures a log whose rows are gone and every index count reads zero",
+    files: [DECISION_LOG],
+    repo: DOC_LANE,
+    appliedMarkers: ["<!-- decisions:index:begin -->\n<!-- decisions:index:end -->"],
+    mutate: () => {
+      const text = readFileSync(DECISION_LOG, "utf8");
+      const begin = text.indexOf("<!-- decisions:index:begin -->\n");
+      const end = text.indexOf("<!-- decisions:index:end -->");
+      const between = text.slice(begin + "<!-- decisions:index:begin -->\n".length, end);
+      substituteOnce(DECISION_LOG, between, "");
+    },
+    detect: () =>
+      gateRefused(
+        /the census refuses docs\/project\/decision-log\.md:\d+: the decision log holds no index row between/,
+      ),
+  },
+  {
     name: "two records glued onto one line fail the close",
     klass: "D",
     harmfulMove:
       "deleting the newline between two records, so the second is read as the first record's trailing cells",
-    files: [DECISION_LOG],
+    files: [DECISION_TABLE],
     repo: DOC_LANE,
     appliedMarkers: ["|| DEC-0125 |"],
-    mutate: () => substituteOnce(DECISION_LOG, `\n${ROW_DEC_0125}`, ROW_DEC_0125),
+    mutate: () => substituteOnce(DECISION_TABLE, `\n${ROW_DEC_0125}`, ROW_DEC_0125),
     detect: () =>
       gateRefused(
         /FAIL\s+\d+\s+decision-log rows written on another record's line instead of below it\s+\(up 1\)/,
@@ -381,12 +458,12 @@ export const probes = [
     klass: "D",
     harmfulMove:
       "putting a status token where the date belongs, so the row cannot be ordered in time",
-    files: [DECISION_LOG],
+    files: [DECISION_TABLE],
     repo: DOC_LANE,
     appliedMarkers: ["between 6.5h and 6.5.INFRA | accepted | accepted |"],
     mutate: () =>
       substituteOnce(
-        DECISION_LOG,
+        DECISION_TABLE,
         "between 6.5h and 6.5.INFRA | accepted | 2026-07-07 |",
         "between 6.5h and 6.5.INFRA | accepted | accepted |",
       ),
@@ -398,10 +475,10 @@ export const probes = [
     klass: "D",
     harmfulMove:
       "writing a row's own id into its Supersedes cell, which states a relation the row cannot stand in",
-    files: [DECISION_LOG],
+    files: [DECISION_TABLE],
     repo: DOC_LANE,
     appliedMarkers: ["1759 tests passing. | DEC-0124 |"],
-    mutate: () => substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0124 |"),
+    mutate: () => substituteOnce(DECISION_TABLE, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0124 |"),
     detect: () =>
       gateRefused(/FAIL\s+\d+\s+decision-log supersede claims naming their own row\s+\(up 1\)/),
   },
@@ -410,10 +487,10 @@ export const probes = [
     klass: "D",
     harmfulMove:
       "naming an id the log has no record for, so the claim can never be checked against the row it names",
-    files: [DECISION_LOG],
+    files: [DECISION_TABLE],
     repo: DOC_LANE,
     appliedMarkers: ["1759 tests passing. | DEC-0900 |"],
-    mutate: () => substituteOnce(DECISION_LOG, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0900 |"),
+    mutate: () => substituteOnce(DECISION_TABLE, SUPERSEDES_CELL_OF_DEC_0124, "DEC-0900 |"),
     detect: () =>
       gateRefused(
         /FAIL\s+\d+\s+decision-log supersede claims naming an id the log has no row for\s+\(up 1\)/,
@@ -495,12 +572,12 @@ export const probes = [
     klass: "D",
     harmfulMove:
       "turning the one Supersedes cell that holds nothing but an id into prose, which takes the three supersede obligations from asserting over one cell to asserting over none while they keep reporting green",
-    files: [DECISION_LOG],
+    files: [DECISION_TABLE],
     repo: DOC_LANE,
     appliedMarkers: ["| Extends DEC-0153 |"],
     mutate: () =>
       substituteOnce(
-        DECISION_LOG,
+        DECISION_TABLE,
         SUPERSEDES_CELL_OF_DEC_0010,
         "| Extends DEC-0153 |\n| DEC-0011 |",
       ),
@@ -543,7 +620,7 @@ export const probes = [
 // Exported as DATA and run only when this file IS the entry point, so the coverage test can read
 // the probe set without mutating the tree to find out.
 //
-// `verify:register` reads three text files and nothing else — the shared precondition's soundness
+// `verify:register` reads text files and nothing else — the shared precondition's soundness
 // argument holds for it, and `scripts/testing/guard-probe.mjs` carries it.
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   requireGreenBeforeProbing("register-gate", [["npm", VERIFY]]);

@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import {
+  INDEX_BEGIN,
+  INDEX_END,
+  SEEDED_BEGIN,
+  SEEDED_END,
+  tableLineFirstCell,
+} from "./decision-files";
 
 /**
  * The census of the two project registers.
@@ -871,10 +878,11 @@ export function gluedRecords(records: DecisionRecord[]): DecisionRecord[] {
  * extra cells are not a stray pipe, and the repair is a different one.
  */
 export function rowsOffColumnCount(records: DecisionRecord[]): DecisionRecord[] {
-  const gluedLines = new Set(gluedRecords(records).map((record) => record.row.line));
+  const placeOf = (row: DecisionRow): string => `${row.file}:${row.line}`;
+  const gluedLines = new Set(gluedRecords(records).map((record) => placeOf(record.row)));
   return records.filter((record) => {
     if (!record.opensLine || record.columns.length === 0) return false;
-    if (gluedLines.has(record.row.line)) return false;
+    if (gluedLines.has(placeOf(record.row))) return false;
     return record.row.cells.length !== record.columns.length;
   });
 }
@@ -1003,7 +1011,7 @@ export const REGISTER_OBLIGATIONS: readonly RegisterObligation[] = Object.freeze
   },
   {
     what: "live debt ids carrying an anchor that names a step and a block",
-    bound: 203,
+    bound: 211,
     direction: "floor",
     measuredBy: "node --import tsx scripts/project/verify-register.ts",
     reason:
@@ -1276,13 +1284,28 @@ export function measureRegister(
   registerFiles: readonly string[],
   archiveFile: string,
   decisionLogFile: string,
+  decisionTableFile: string,
 ): RegisterMeasurement[] {
   if (!registerFiles.includes(archiveFile)) {
     throw new RegisterRefusal(archiveFile, 0, "the archive file is not among the register files");
   }
   const items = censusDebtItems(registerFiles);
   const log = readDecisionLog(decisionLogFile);
-  const records = decisionRecords(log, decisionLogFile);
+  const table = readDecisionTable(decisionTableFile);
+  refuseLogMarkers(log, decisionLogFile);
+  refuseTableMarkers(table, decisionTableFile);
+  refuseLogWithoutIndexRows(log, decisionLogFile);
+  refuseTableWithoutRows(table, decisionTableFile);
+  const tableIds = fullTableIds(table);
+  refuseStrayDecisionRows(log, decisionLogFile, table, decisionTableFile, tableIds);
+  const records = [
+    ...decisionRecords(log, decisionLogFile),
+    ...decisionRecords(table, decisionTableFile),
+  ];
+  const orphans = [
+    ...orphanedDecisionRows(log, decisionLogFile),
+    ...orphanedDecisionRows(table, decisionTableFile),
+  ];
 
   /** A measurement whose number is its whole subject. */
   const count = (measured: number): Omit<RegisterMeasurement, "obligation"> => ({
@@ -1312,7 +1335,7 @@ export function measureRegister(
       case "decision-log rows whose cells do not match their columns' declared count":
         return count(rowsOffColumnCount(records).length);
       case "decision-log rows a blank line left outside every table":
-        return count(orphanedDecisionRows(log, decisionLogFile).length);
+        return count(orphans.length);
       case "decision-log rows written on another record's line instead of below it":
         return count(gluedRecords(records).length);
       case "decision-log rows whose Date cell does not hold a date":
@@ -1342,6 +1365,132 @@ export function readDecisionLog(file: string): string {
     return readFileSync(file, "utf8");
   } catch {
     throw new RegisterRefusal(file, 0, "the decision log could not be read");
+  }
+}
+
+/** Reads the decision table, refusing rather than reporting a missing or blank one. */
+export function readDecisionTable(file: string): string {
+  let text: string;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch {
+    throw new RegisterRefusal(file, 0, "the decision table could not be read");
+  }
+  if (text.trim() === "") throw new RegisterRefusal(file, 0, "the decision table is empty");
+  return text;
+}
+
+/** The 0-based lines of a generated region's two markers. */
+type MarkedRegion = { begin: number; end: number };
+
+/**
+ * The region between one begin marker and one end marker below it, or null when either marker is
+ * missing or repeated or the two are reversed: such a file has no generated region to trust.
+ */
+function markedRegion(lines: string[], begin: string, end: string): MarkedRegion | null {
+  const linesOf = (marker: string): number[] =>
+    lines.flatMap((line, index) => (line.trim() === marker ? [index] : []));
+  const begins = linesOf(begin);
+  const ends = linesOf(end);
+  if (begins.length !== 1 || ends.length !== 1) return null;
+  const region = { begin: begins[0] as number, end: ends[0] as number };
+  return region.begin < region.end ? region : null;
+}
+
+function refuseLogMarkers(logText: string, logFile: string): void {
+  if (markedRegion(logText.split("\n"), INDEX_BEGIN, INDEX_END) !== null) return;
+  throw new RegisterRefusal(
+    logFile,
+    0,
+    `the decision log does not hold exactly one ${INDEX_BEGIN} line followed by exactly one ${INDEX_END} line`,
+  );
+}
+
+function refuseTableMarkers(tableText: string, tableFile: string): void {
+  if (markedRegion(tableText.split("\n"), SEEDED_BEGIN, SEEDED_END) !== null) return;
+  throw new RegisterRefusal(
+    tableFile,
+    0,
+    `the decision table does not hold exactly one ${SEEDED_BEGIN} line followed by exactly one ${SEEDED_END} line`,
+  );
+}
+
+/**
+ * Refuses a log whose index region holds no row below its head and delimiter rows: every count over
+ * the log would then read zero and pass.
+ */
+function refuseLogWithoutIndexRows(logText: string, logFile: string): void {
+  const lines = logText.split("\n");
+  const region = markedRegion(lines, INDEX_BEGIN, INDEX_END);
+  const rows =
+    region === null
+      ? []
+      : lines.slice(region.begin + 3, region.end).filter((line) => TABLE_ROW.test(line));
+  if (rows.length > 0) return;
+  throw new RegisterRefusal(
+    logFile,
+    0,
+    `the decision log holds no index row between ${INDEX_BEGIN} and ${INDEX_END}`,
+  );
+}
+
+/**
+ * Refuses a table that holds no row: every decision obligation would then measure an empty
+ * population and read zero.
+ */
+function refuseTableWithoutRows(tableText: string, tableFile: string): void {
+  if (fullTableIds(tableText).size > 0) return;
+  throw new RegisterRefusal(
+    tableFile,
+    0,
+    `the decision table holds no table row between ${SEEDED_BEGIN} and ${SEEDED_END}`,
+  );
+}
+
+/** The first cells of the generated table's rows below its head and delimiter rows. */
+function fullTableIds(tableText: string): Set<string> {
+  const lines = tableText.split("\n");
+  const region = markedRegion(lines, SEEDED_BEGIN, SEEDED_END);
+  const rows =
+    region === null
+      ? []
+      : lines.slice(region.begin + 3, region.end).filter((line) => TABLE_ROW.test(line));
+  return new Set(rows.map((row) => splitRow(row)[0] ?? ""));
+}
+
+/**
+ * Refuses the first line, the log first, that stands outside both generated regions, that markdown
+ * can render as a table line and whose first cell is an id of the full table: a copy of a record
+ * that every decision obligation would count twice.
+ */
+function refuseStrayDecisionRows(
+  logText: string,
+  logFile: string,
+  tableText: string,
+  tableFile: string,
+  tableIds: Set<string>,
+): void {
+  const sources = [
+    { file: logFile, text: logText, begin: INDEX_BEGIN, end: INDEX_END },
+    { file: tableFile, text: tableText, begin: SEEDED_BEGIN, end: SEEDED_END },
+  ];
+  for (const source of sources) {
+    const lines = source.text.split("\n");
+    const region = markedRegion(lines, source.begin, source.end);
+    const insideRegion = (at: number): boolean =>
+      region !== null && at > region.begin && at < region.end;
+    const stray = lines.findIndex((line, at) => {
+      if (insideRegion(at)) return false;
+      const cell = tableLineFirstCell(line);
+      return cell !== null && tableIds.has(cell);
+    });
+    if (stray === -1) continue;
+    const id = tableLineFirstCell(lines[stray] as string);
+    throw new RegisterRefusal(
+      source.file,
+      stray + 1,
+      `${id} heads a full table row outside the generated table of ${tableFile}`,
+    );
   }
 }
 
