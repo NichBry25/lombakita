@@ -60,7 +60,7 @@ import { enqueueCompetitionEdited } from "@/server/async/enqueue";
 // that the ordinary edit path uses. Two implementations of one rule are two things to keep in
 // agreement, and the failure mode is silent: they diverge, and which one you get depends on which
 // surface the organiser happened to use. The classifier is the single statement of the matrix and
-// this path is now one of its two callers.
+// both write paths in this file call it.
 
 export type SetCompetitionFeeInput = {
   // Integer smallest unit (@/lib/finance/money). 0 or null both mean free.
@@ -217,6 +217,58 @@ export const setCompetitionFee = async (
   await notifyFeeEdit(competitionId, competition.status, notify);
 };
 
+// THE WINDOW-ONLY WRITE PATH. Staff of the institution may move the payment window of a fee the
+// owner already turned on (DEC-0179 keeps the price and the consent with the owner). It writes no
+// consent row and no price, so the consent on file still matches the stored fee, and it has none
+// of the charging gates, because it cannot turn money on. It holds the participation lock so the
+// fee it found on cannot be turned off under it, and it asks the edit matrix only which fields to
+// announce, because the matrix never blocks a window change.
+export const setCompetitionPaymentWindow = async (
+  actorUserId: string,
+  competitionId: string,
+  paymentWindowDays: number,
+  db: Database = getDb(),
+): Promise<void> => {
+  const { competition } = await assertCompetitionAccess(actorUserId, competitionId, "member", db);
+
+  if (!isValidPaymentWindowDays(paymentWindowDays)) {
+    throw new CompetitionError(
+      "competition_invalid_value",
+      400,
+      "Batas waktu pembayaran tidak valid",
+      { fields: ["paymentWindowDays"] },
+    );
+  }
+
+  const notify = await db.transaction(async (tx) => {
+    await acquireCompetitionParticipationLock(tx, competitionId);
+
+    const pricing = await loadCompetitionPricing(competitionId, tx);
+    if (pricing.feeAmount === null || pricing.feeAmount <= 0) {
+      throw new CompetitionError(
+        "competition_fee_not_enabled",
+        409,
+        "Biaya pendaftaran belum aktif. Hanya pemilik institusi yang dapat mengaktifkannya.",
+        { fields: ["paymentWindowDays"] },
+      );
+    }
+    const nextPricing: CompetitionPricing = { ...pricing, paymentWindowDays };
+
+    const snapshot = await loadEditClassificationSnapshot(competitionId, tx);
+    const classification = classifyCompetitionEdit(
+      toClassifiable(competition, pricing),
+      toClassifiable(competition, nextPricing),
+      snapshot,
+    );
+
+    await writePaymentWindow(competitionId, paymentWindowDays, tx);
+
+    return classification.notify;
+  });
+
+  await notifyFeeEdit(competitionId, competition.status, notify);
+};
+
 /**
  * Turns the classifier's blocked-field list into the refusal an organiser can act on.
  *
@@ -286,6 +338,22 @@ const writeFee = async (
       updatedAt: sql`now()`,
     })
     .where(and(eq(competitions.id, competitionId)))
+    .returning({ id: competitions.id });
+
+  if (!row) {
+    throw new CompetitionError("competition_not_found", 404, "Competition not found");
+  }
+};
+
+const writePaymentWindow = async (
+  competitionId: string,
+  paymentWindowDays: number,
+  db: Database,
+): Promise<void> => {
+  const [row] = await db
+    .update(competitions)
+    .set({ paymentWindowDays, updatedAt: sql`now()` })
+    .where(eq(competitions.id, competitionId))
     .returning({ id: competitions.id });
 
   if (!row) {

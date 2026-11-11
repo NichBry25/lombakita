@@ -11,7 +11,10 @@ import {
 } from "@/server/competitions/competition-core";
 import { assertCompetitionAccess } from "@/server/competitions/competition-access";
 import { loadCompetitionPricing } from "@/server/competitions/competition-service";
-import { setCompetitionFee } from "@/server/competitions/competition-fee-service";
+import {
+  setCompetitionFee,
+  setCompetitionPaymentWindow,
+} from "@/server/competitions/competition-fee-service";
 import { resolveFeeRule, toFeeRuleTerms } from "@/server/finance/fee-rule-service";
 import { computePlatformFee } from "@/lib/finance/fee";
 import { FeeRuleError } from "@/server/finance/fee-rule-service";
@@ -81,7 +84,7 @@ const refuse = (error: unknown): Response => {
 // error. Every price change in the system goes through `setCompetitionFee`, which is what lets its
 // six gates be complete rather than merely present. A second write path would defeat all of them.
 //
-// OWNER-ONLY, like the payment-instructions surface. `assertCompetitionAccess(..., "admin")` admits
+// THE PRICE IS OWNER-ONLY, like the payment-instructions surface. `assertCompetitionAccess(..., "admin")` admits
 // `institution_owner` alone. Note that this is NOT the same set as `requireAdminInstitutionBySlug`,
 // which is owner-or-staff. The two spellings of "admin" mean different things one call apart.
 //
@@ -104,7 +107,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
     const { competition } = await assertCompetitionAccess(
       session.user.id,
       competitionId,
-      "admin",
+      "member",
       db,
     );
 
@@ -164,6 +167,24 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
       getDb(),
     );
 
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return refuse(error);
+  }
+}
+
+// PATCH moves the payment window alone, for the owner and the institution's staff ("member"). It
+// reads nothing but paymentWindowDays, so no body can change the price or record consent here.
+export async function PATCH(request: Request, context: RouteContext): Promise<Response> {
+  try {
+    const session = await requireAuthenticatedSession();
+    assertSessionMatchesExpectedUser(request, session);
+    const { competitionId } = await context.params;
+    const payload = await request.json().catch(() => null);
+    const body = isRecord(payload) ? payload : {};
+    const paymentWindowDays =
+      typeof body.paymentWindowDays === "number" ? body.paymentWindowDays : Number.NaN;
+    await setCompetitionPaymentWindow(session.user.id, competitionId, paymentWindowDays, getDb());
     return NextResponse.json({ ok: true });
   } catch (error) {
     return refuse(error);

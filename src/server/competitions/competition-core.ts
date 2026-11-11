@@ -78,6 +78,8 @@ type CompetitionErrorCode =
   // The organiser must be shown, and confirm, what the platform charges before a price goes live.
   // The confirmation is recorded; this refusal is what makes it unskippable.
   | "competition_fee_disclosure_required"
+  // A window-only change needs a fee that is already on. Only the owner turns a fee on (DEC-0179).
+  | "competition_fee_not_enabled"
   | "competition_already_cancelled"
   | "competition_participation_not_configured"
   | "competition_participation_decision_unavailable"

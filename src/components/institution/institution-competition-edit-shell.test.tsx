@@ -26,6 +26,7 @@ import { NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { PageTransitionProvider } from "@/components/ui/page-transition";
 import { ALLOWED_COMPETITION_TAGS } from "@/lib/competitions/tags";
+import { formatRupiah } from "@/lib/finance/payment-display";
 import { InstitutionCompetitionEditShell } from "./institution-competition-edit-shell";
 import { CompetitionEligibilityEditor } from "./competition-eligibility-editor";
 import { CompetitionFeeSection } from "./competition-fee-section";
@@ -1576,19 +1577,57 @@ describe("InstitutionCompetitionEditShell steps", () => {
       expect(screen.getAllByText("Perubahan tersimpan.")).toHaveLength(1);
     });
 
-    it("never shows or sends the fee part to a staff member", async () => {
-      const calls = stubFetchRoutes(partRoutes());
+    it("sends only the payment window for a staff member", async () => {
+      const calls = stubFetchRoutes({
+        ...partRoutes(),
+        [`PATCH ${COMPETITION_URL}/fee`]: [() => okJson({ ok: true })],
+      });
 
       render(shellWithPartsAt(4, false));
 
       await screen.findByRole("button", { name: "Lanjut" });
-      expect(screen.getByText(OWNER_ONLY_FEE_MESSAGE)).toBeTruthy();
+      const windowInput = await screen.findByLabelText("Batas waktu pembayaran (hari)");
+      const amount = document.querySelector("p.data-text");
+      expect(amount?.textContent).toBe(formatRupiah(150_000, "IDR"));
+      expect(amount?.previousElementSibling?.textContent).toBe("Biaya per pendaftaran");
       expect(screen.queryByRole("checkbox", { name: "Pendaftaran berbayar" })).toBeNull();
-      await addPrizeTitled("Medali");
+      expect(screen.queryByLabelText("Biaya per pendaftaran")).toBeNull();
+      expect(screen.queryByRole("checkbox", { name: /menyetujui/ })).toBeNull();
+      fireEvent.change(windowInput, { target: { value: "5" } });
       fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
 
       await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=5`));
-      expect(calls.filter(({ key }) => key.includes("/fee"))).toEqual([]);
+      const feePatches = calls.filter(({ key }) => key === `PATCH ${COMPETITION_URL}/fee`);
+      expect(feePatches).toHaveLength(1);
+      expect(feePatches[0]?.body).toEqual({ paymentWindowDays: 5 });
+      expect(feePatches[0]?.expectedUserId).toBe("org_1");
+      expect(writeKeys(calls)).not.toContain(`PUT ${COMPETITION_URL}/fee`);
+    });
+
+    it("sends no fee request for a staff member while the fee is off", async () => {
+      const calls = stubFetchRoutes({
+        ...partRoutes(),
+        [`GET ${COMPETITION_URL}/fee`]: [
+          () =>
+            okJson({
+              pricing: { feeAmount: null, feeCurrency: null, paymentWindowDays: 3 },
+              feeRule: FEE_RULE,
+            }),
+        ],
+      });
+
+      render(shellWithPartsAt(4, false));
+
+      await screen.findByRole("button", { name: "Lanjut" });
+      expect(await screen.findByText(OWNER_ONLY_FEE_MESSAGE)).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=5`));
+      expect(
+        calls.filter(
+          ({ key }) => key.endsWith(`${COMPETITION_URL}/fee`) && !key.startsWith("GET "),
+        ),
+      ).toEqual([]);
     });
 
     it("asks before leaving a step with an unsaved round", async () => {

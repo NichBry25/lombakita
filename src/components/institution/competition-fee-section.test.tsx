@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // checkbox click plus a text change do not need its extra fidelity.
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
+import { formatRupiah } from "@/lib/finance/payment-display";
 import { CompetitionFeeSection } from "./competition-fee-section";
 import {
   CompetitionEditorPartsContext,
@@ -96,6 +97,11 @@ const PAID = {
   feeRule: RULE,
 };
 
+const FREE = {
+  pricing: { feeAmount: null, feeCurrency: null, paymentWindowDays: 3 },
+  feeRule: RULE,
+};
+
 const feeReports = () => reportPart.mock.calls.filter(([key]) => key === "fee");
 
 const lastReportedFeePart = (): CompetitionEditorPart => {
@@ -115,6 +121,9 @@ const saveReportedFee = async (): Promise<CompetitionPartSaveResult | undefined>
 
 const putCalls = () =>
   vi.mocked(fetch).mock.calls.filter(([, init]) => (init as RequestInit)?.method === "PUT");
+
+const patchCalls = () =>
+  vi.mocked(fetch).mock.calls.filter(([, init]) => (init as RequestInit)?.method === "PATCH");
 
 const acknowledgement = () => screen.getByRole("checkbox", { name: /menyetujui/ });
 
@@ -328,17 +337,86 @@ describe("CompetitionFeeSection", () => {
     });
   });
 
-  it("tells a staff member that only the owner sets the fee, without asking the server", async () => {
-    await mountRefused("forbidden", 403, false);
+  it("tells a staff member that only the owner sets a fee that is off", async () => {
+    await mountWith(FREE, false);
 
     expect(screen.getByRole("status").textContent).toBe(OWNER_ONLY_MESSAGE);
-    expect(fetch).not.toHaveBeenCalled();
+    expect(lastReportedFeePart().isDirty).toBe(false);
   });
 
-  it("reports no fee part to the editor for a staff member", async () => {
-    await mountRefused("forbidden", 403, false);
+  it("shows a staff member the amount read-only and the window editable", async () => {
+    await mountWith(PAID, false);
 
-    expect(feeReports()).toEqual([]);
+    const amount = document.querySelector("p.data-text");
+    expect(amount?.textContent).toBe(formatRupiah(150_000, "IDR"));
+    expect(amount?.previousElementSibling?.textContent).toBe("Biaya per pendaftaran");
+    expect((screen.getByLabelText("Batas waktu pembayaran (hari)") as HTMLInputElement).value).toBe(
+      "3",
+    );
+    expect(screen.queryByRole("checkbox", { name: "Pendaftaran berbayar" })).toBeNull();
+    expect(screen.queryByLabelText("Biaya per pendaftaran")).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /menyetujui/ })).toBeNull();
+    expect(
+      screen.getByText(
+        "Hanya pemilik institusi yang dapat mengubah biaya atau menonaktifkan pendaftaran berbayar.",
+      ),
+    ).toBeTruthy();
+    expect(lastReportedFeePart().isDirty).toBe(false);
+  });
+
+  it("sends only the window for a staff member and then reports no change", async () => {
+    await mountWith(PAID, false);
+
+    fireEvent.change(screen.getByLabelText("Batas waktu pembayaran (hari)"), {
+      target: { value: "5" },
+    });
+    expect(lastReportedFeePart().isDirty).toBe(true);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+        init?.method === "PATCH"
+          ? ({ ok: true, json: async () => ({ ok: true }) } as Response)
+          : ({
+              ok: true,
+              json: async () => ({
+                pricing: { ...PAID.pricing, paymentWindowDays: 5 },
+                feeRule: RULE,
+              }),
+            } as Response),
+      ),
+    );
+
+    expect(await saveReportedFee()).toEqual({ ok: true });
+    expect(patchCalls()).toHaveLength(1);
+    const init = patchCalls()[0]?.[1] as RequestInit;
+    expect(JSON.parse(init.body as string)).toEqual({ paymentWindowDays: 5 });
+    expect(new Headers(init.headers).get("X-Expected-User-Id")).toBe("org_1");
+    expect(putCalls()).toEqual([]);
+    expect(lastReportedFeePart().isDirty).toBe(false);
+  });
+
+  it("names a fee that is no longer on when a staff save is refused", async () => {
+    await mountWith(PAID, false);
+
+    fireEvent.change(screen.getByLabelText("Batas waktu pembayaran (hari)"), {
+      target: { value: "5" },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: { code: "competition_fee_not_enabled" } }), {
+          status: 409,
+        }),
+      ),
+    );
+
+    expect(await saveReportedFee()).toEqual({
+      ok: false,
+      errorMessage:
+        "Biaya pendaftaran belum aktif. Hanya pemilik institusi yang dapat mengaktifkannya.",
+    });
+    expect(lastReportedFeePart().isDirty).toBe(true);
   });
 
   it("reports the fee part to the editor for the owner", async () => {

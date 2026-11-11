@@ -43,6 +43,8 @@ const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
     "Tarif layanan Lombakita belum dikonfigurasi, sehingga pendaftaran berbayar belum dapat diaktifkan. Hubungi tim Lombakita.",
   competition_fee_disclosure_required:
     "Setujui rincian biaya layanan Lombakita sebelum mengaktifkan pendaftaran berbayar.",
+  competition_fee_not_enabled:
+    "Biaya pendaftaran belum aktif. Hanya pemilik institusi yang dapat mengaktifkannya.",
 };
 
 const SAVE_FALLBACK = "Biaya pendaftaran gagal disimpan. Coba lagi.";
@@ -102,9 +104,10 @@ export function CompetitionFeeSection({
   expectedUserId: string;
   viewerIsOwner: boolean;
 }) {
-  // Staff never mount the form, so it never loads, never joins the shell's save and never sends a
-  // fee. The server refuses them as well (fee/route.ts, owner-only).
-  if (!viewerIsOwner) return <FeeSectionNotice code="forbidden" />;
+  // Staff may move the payment window of a fee that is on. The price and the consent stay with the owner (fee/route.ts).
+  if (!viewerIsOwner) {
+    return <StaffFeeForm competitionId={competitionId} expectedUserId={expectedUserId} />;
+  }
   return <OwnerFeeForm competitionId={competitionId} expectedUserId={expectedUserId} />;
 }
 
@@ -370,6 +373,141 @@ function OwnerFeeForm({
             Pendaftaran gratis. Aktifkan pendaftaran berbayar untuk menetapkan biaya.
           </p>
         )}
+      </div>
+    </section>
+  );
+}
+
+function StaffFeeForm({
+  competitionId,
+  expectedUserId,
+}: {
+  competitionId: string;
+  expectedUserId: string;
+}) {
+  const [state, setState] = useState<FeeState | null>(null);
+  const [windowDays, setWindowDays] = useState("");
+  const [savedWindowDays, setSavedWindowDays] = useState("");
+  const [loadFailure, setLoadFailure] = useState<{ code: string | null } | null>(null);
+
+  const base = `/api/v1/competitions/${encodeURIComponent(competitionId)}/fee`;
+
+  const load = useCallback(async () => {
+    let response: Response;
+    try {
+      response = await fetch(base, { credentials: "include" });
+    } catch {
+      setLoadFailure({ code: null });
+      return;
+    }
+    if (!response.ok) {
+      const code = await readErrorCode(response);
+      setLoadFailure({ code });
+      return;
+    }
+
+    let data: FeeState;
+    try {
+      data = (await response.json()) as FeeState;
+    } catch {
+      setLoadFailure({ code: null });
+      return;
+    }
+    const loadedWindowDays = String(data.pricing.paymentWindowDays);
+    setState(data);
+    setWindowDays(loadedWindowDays);
+    setSavedWindowDays(loadedWindowDays);
+  }, [base]);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [load]);
+
+  const feeAmount = state?.pricing.feeAmount ?? 0;
+  const feeIsOn = feeAmount > 0;
+
+  const isDirty = windowDays !== savedWindowDays;
+
+  const saveWindow = async (): Promise<CompetitionPartSaveResult> => {
+    try {
+      const response = await sessionFetch(expectedUserId, base, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ paymentWindowDays: Number.parseInt(windowDays, 10) }),
+      });
+      if (!response.ok) {
+        const code = await readErrorCode(response);
+        return { ok: false, errorMessage: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK) };
+      }
+      setSavedWindowDays(windowDays);
+      await load();
+      return { ok: true };
+    } catch {
+      return {
+        ok: false,
+        errorMessage: "Biaya pendaftaran gagal disimpan karena gangguan koneksi.",
+      };
+    }
+  };
+
+  useCompetitionEditorPart("fee", isDirty, saveWindow);
+
+  if (state === null && loadFailure !== null) {
+    return <FeeSectionNotice code={loadFailure.code} />;
+  }
+
+  if (state === null) {
+    return (
+      <section className="content-section surface-card card-padding">
+        <div className="stack-md" aria-label="Memuat biaya pendaftaran">
+          <Skeleton variant="title" />
+          <Skeleton variant="media" />
+        </div>
+      </section>
+    );
+  }
+
+  if (!feeIsOn) return <FeeSectionNotice code="forbidden" />;
+
+  return (
+    <section className="content-section surface-card card-padding">
+      <div className="section-heading">
+        <div>
+          <h2>Biaya pendaftaran</h2>
+        </div>
+      </div>
+
+      <div className="stack-md">
+        <div className="form-field">
+          <span className="form-label">Biaya per pendaftaran</span>
+          <p className="data-text">
+            {formatRupiah(feeAmount, state.pricing.feeCurrency ?? CURRENCY)}
+          </p>
+        </div>
+
+        <div className="form-field">
+          <label className="form-label" htmlFor="fee-window">
+            Batas waktu pembayaran (hari)
+          </label>
+          <input
+            id="fee-window"
+            className="form-input"
+            inputMode="numeric"
+            value={windowDays}
+            maxLength={3}
+            onChange={(event) => setWindowDays(event.target.value.replace(/[^0-9]/g, ""))}
+          />
+          <p className="form-help">
+            Peserta yang belum membayar setelah batas ini kehilangan pendaftarannya.
+          </p>
+        </div>
+
+        <Feedback tone="info">
+          Hanya pemilik institusi yang dapat mengubah biaya atau menonaktifkan pendaftaran berbayar.
+        </Feedback>
       </div>
     </section>
   );

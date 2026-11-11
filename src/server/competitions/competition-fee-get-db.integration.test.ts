@@ -158,9 +158,53 @@ describe.skipIf(skipWithoutDatabase)("the fee settings read, against a real data
     routeState.actorUserId = null;
   });
 
-  it("refuses an institution staff member the fee settings", async () => {
+  it("answers an institution staff member with the fee settings", async () => {
     await inRollback(async (tx) => {
       const fixture = await seedFixture(tx, "institution_staff");
+
+      const { status, body } = await getFeeViaRoute(fixture, tx);
+
+      expect(status).toBe(200);
+      expect(body).toMatchObject({ pricing: { feeAmount: 50_000 } });
+    });
+  });
+
+  it("refuses a revoked staff member the fee settings", async () => {
+    await inRollback(async (tx) => {
+      const fixture = await seedFixture(tx, "institution_staff");
+      const [competition] = await tx
+        .select({ institutionId: competitions.institutionId })
+        .from(competitions)
+        .where(eq(competitions.id, fixture.competitionId));
+      const revokedMemberships = await tx
+        .update(institutionMemberships)
+        .set({ status: "revoked" })
+        .where(
+          and(
+            eq(institutionMemberships.institutionId, competition!.institutionId),
+            eq(institutionMemberships.userId, fixture.actorUserId),
+            eq(institutionMemberships.membershipRole, "institution_staff"),
+          ),
+        )
+        .returning({ id: institutionMemberships.id });
+      expect(revokedMemberships).toHaveLength(1);
+
+      const { status, body } = await getFeeViaRoute(fixture, tx);
+
+      expect(status).toBe(403);
+      expect(body).toMatchObject({ error: { code: "forbidden" } });
+      expect(body).not.toHaveProperty("pricing");
+    });
+  });
+
+  it("refuses the staff of another institution the fee settings", async () => {
+    await inRollback(async (tx) => {
+      const competitionFixture = await seedFixture(tx, "institution_owner");
+      const otherInstitutionFixture = await seedFixture(tx, "institution_staff");
+      const fixture: Fixture = {
+        competitionId: competitionFixture.competitionId,
+        actorUserId: otherInstitutionFixture.actorUserId,
+      };
 
       const { status, body } = await getFeeViaRoute(fixture, tx);
 

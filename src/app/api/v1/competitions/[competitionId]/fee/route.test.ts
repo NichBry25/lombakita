@@ -2,8 +2,8 @@
 //
 // The PUT checks the session in the route and calls one service; every other gate of the PUT
 // lives in that service and is proven against a real database. What is proven here for the PUT is
-// the boundary, which is where this route already had a real defect. The GET tests pin its owner
-// check and its order.
+// the boundary, which is where this route already had a real defect. The GET tests pin its
+// owner-or-staff check and its order.
 //
 // `setCompetitionFee` raises THREE error families across its six gates. A handler converting only
 // CompetitionError sends the other two to `toAccessDeniedResponse`, which answers anything it does
@@ -21,6 +21,7 @@ const {
   requireAuthenticatedSession,
   assertSessionMatchesExpectedUser,
   setCompetitionFee,
+  setCompetitionPaymentWindow,
   getDb,
   assertCompetitionAccess,
   loadCompetitionPricing,
@@ -29,6 +30,7 @@ const {
   requireAuthenticatedSession: vi.fn(),
   assertSessionMatchesExpectedUser: vi.fn(),
   setCompetitionFee: vi.fn(),
+  setCompetitionPaymentWindow: vi.fn(),
   getDb: vi.fn(() => ({}) as never),
   assertCompetitionAccess: vi.fn(),
   loadCompetitionPricing: vi.fn(),
@@ -45,7 +47,10 @@ vi.mock("@/server/auth/access-core", async () => {
   return { ...actual, assertSessionMatchesExpectedUser };
 });
 
-vi.mock("@/server/competitions/competition-fee-service", () => ({ setCompetitionFee }));
+vi.mock("@/server/competitions/competition-fee-service", () => ({
+  setCompetitionFee,
+  setCompetitionPaymentWindow,
+}));
 
 vi.mock("@/server/competitions/competition-access", () => ({ assertCompetitionAccess }));
 
@@ -63,7 +68,7 @@ vi.mock("@/server/finance/fee-rule-service", async () => {
   return { ...actual, resolveFeeRule };
 });
 
-import { GET, PUT } from "./route";
+import { GET, PATCH, PUT } from "./route";
 
 const ORGANISER = {
   user: { id: "org_1", role: "recruiter", email: "o@example.test" },
@@ -79,6 +84,13 @@ const feeRequest = (body: Record<string, unknown>): Request =>
     body: JSON.stringify(body),
   });
 
+const windowRequest = (body: Record<string, unknown>): Request =>
+  new Request("http://localhost/api/v1/competitions/comp_1/fee", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", "x-expected-user-id": "org_1" },
+    body: JSON.stringify(body),
+  });
+
 const PRICED = { feeAmount: 150_000, feeCurrency: "IDR", feeDisclosureAcknowledged: true };
 
 const PRICING = { feeAmount: 150_000, feeCurrency: "IDR", paymentWindowDays: 3 };
@@ -89,10 +101,29 @@ const feeReadRequest = (): Request =>
 describe("GET …/competitions/[competitionId]/fee", () => {
   afterEach(() => vi.resetAllMocks());
 
-  it("refuses institution staff before loading any pricing", async () => {
+  it("answers institution staff with the pricing", async () => {
+    requireAuthenticatedSession.mockResolvedValue(ORGANISER);
+    assertCompetitionAccess.mockResolvedValue({ competition: { institutionId: "inst_1" } });
+    loadCompetitionPricing.mockResolvedValue(PRICING);
+    resolveFeeRule.mockResolvedValue(null);
+
+    const response = await GET(feeReadRequest(), context);
+    const body = (await response.json()) as { pricing: unknown };
+
+    expect(response.status).toBe(200);
+    expect(body.pricing).toEqual(PRICING);
+    expect(assertCompetitionAccess).toHaveBeenCalledWith(
+      ORGANISER.user.id,
+      "comp_1",
+      "member",
+      expect.anything(),
+    );
+  });
+
+  it("refuses a caller outside the institution before loading any pricing", async () => {
     requireAuthenticatedSession.mockResolvedValue(ORGANISER);
     assertCompetitionAccess.mockRejectedValue(
-      new AccessError("forbidden", 403, "institution_owner access required"),
+      new AccessError("forbidden", 403, "Institution owner/staff access required"),
     );
 
     const response = await GET(feeReadRequest(), context);
@@ -103,7 +134,7 @@ describe("GET …/competitions/[competitionId]/fee", () => {
     expect(assertCompetitionAccess).toHaveBeenCalledWith(
       ORGANISER.user.id,
       "comp_1",
-      "admin",
+      "member",
       expect.anything(),
     );
     expect(loadCompetitionPricing).not.toHaveBeenCalled();
@@ -245,5 +276,82 @@ describe("PUT …/competitions/[competitionId]/fee", () => {
 
     expect((await PUT(feeRequest(PRICED), context)).status).toBe(409);
     expect(setCompetitionFee).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH …/competitions/[competitionId]/fee", () => {
+  afterEach(() => vi.resetAllMocks());
+
+  it("passes only the payment window to the service", async () => {
+    requireAuthenticatedSession.mockResolvedValue(ORGANISER);
+    setCompetitionPaymentWindow.mockResolvedValue(undefined);
+
+    const response = await PATCH(
+      windowRequest({
+        paymentWindowDays: 5,
+        feeAmount: 1,
+        feeCurrency: "USD",
+        feeDisclosureAcknowledged: true,
+      }),
+      context,
+    );
+
+    expect(response.status).toBe(200);
+    expect(setCompetitionPaymentWindow).toHaveBeenCalledTimes(1);
+    expect(setCompetitionPaymentWindow).toHaveBeenCalledWith(
+      "org_1",
+      "comp_1",
+      5,
+      expect.anything(),
+    );
+    expect(setCompetitionFee).not.toHaveBeenCalled();
+  });
+
+  it("sends a window that is not a number to the service as NaN", async () => {
+    requireAuthenticatedSession.mockResolvedValue(ORGANISER);
+    setCompetitionPaymentWindow.mockResolvedValue(undefined);
+
+    await PATCH(windowRequest({ paymentWindowDays: "5" }), context);
+
+    expect(setCompetitionPaymentWindow).toHaveBeenCalledWith(
+      "org_1",
+      "comp_1",
+      Number.NaN,
+      expect.anything(),
+    );
+  });
+
+  it("surfaces a fee that is not on as the service's own 409", async () => {
+    requireAuthenticatedSession.mockResolvedValue(ORGANISER);
+    setCompetitionPaymentWindow.mockRejectedValue(
+      new CompetitionError(
+        "competition_fee_not_enabled",
+        409,
+        "Biaya pendaftaran belum aktif. Hanya pemilik institusi yang dapat mengaktifkannya.",
+      ),
+    );
+
+    const response = await PATCH(windowRequest({ paymentWindowDays: 5 }), context);
+    const body = (await response.json()) as { error: { code: string } };
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe("competition_fee_not_enabled");
+  });
+
+  it("WRITES NOTHING for an unauthenticated caller", async () => {
+    requireAuthenticatedSession.mockRejectedValue(new AccessError("unauthenticated", 401, "no"));
+
+    expect((await PATCH(windowRequest({ paymentWindowDays: 5 }), context)).status).toBe(401);
+    expect(setCompetitionPaymentWindow).not.toHaveBeenCalled();
+  });
+
+  it("WRITES NOTHING when the browser session flipped under the form", async () => {
+    requireAuthenticatedSession.mockResolvedValue(ORGANISER);
+    assertSessionMatchesExpectedUser.mockImplementation(() => {
+      throw new AccessError("session_user_mismatch", 409, "session changed");
+    });
+
+    expect((await PATCH(windowRequest({ paymentWindowDays: 5 }), context)).status).toBe(409);
+    expect(setCompetitionPaymentWindow).not.toHaveBeenCalled();
   });
 });
