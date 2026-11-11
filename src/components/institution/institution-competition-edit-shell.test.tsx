@@ -2242,6 +2242,11 @@ describe("InstitutionCompetitionEditShell steps", () => {
         .queryAllByLabelText("Nama tahapan")
         .filter((input) => (input as HTMLInputElement).value === "");
       expect(blankTitles).toEqual([]);
+      expect(
+        (screen.getAllByLabelText("Nama tahapan") as HTMLInputElement[]).map(
+          (input) => input.value,
+        ),
+      ).toEqual(["Penyisihan Daring"]);
       await waitFor(() =>
         expect(readinessNote()?.textContent).not.toContain("Simpan perubahan sebelum menerbitkan"),
       );
@@ -2337,6 +2342,48 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
         expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
         expect(calls.map((call) => call.key)).not.toContain(`PUT ${COMPETITION_URL}/${key}`);
+      },
+    );
+
+    it.each([
+      ["tags", "throws", 1, "Tag"],
+      ["tags", "answers an unreadable body", 1, "Tag"],
+      ["eligibility", "throws", 2, "Kelayakan"],
+      ["eligibility", "answers an unreadable body", 2, "Kelayakan"],
+      ["rounds", "throws", 3, "Tahapan & linimasa"],
+      ["rounds", "answers an unreadable body", 3, "Tahapan & linimasa"],
+      ["prizes", "throws", 4, "Hadiah"],
+      ["prizes", "answers an unreadable body", 4, "Hadiah"],
+    ] as const)(
+      "shows the load failure in place of the %s list when its read %s",
+      async (key, kind, step, label) => {
+        stubFetchRoutes({
+          ...partRoutes(PUBLISHED),
+          [`GET ${COMPETITION_URL}/${key}`]: [
+            kind === "throws" ? failingRequest : () => new Response("not json", { status: 200 }),
+          ],
+        });
+
+        render(shellWithPartsAt(step));
+
+        await screen.findByRole("button", { name: "Simpan" });
+        expect(
+          await screen.findByText(`${label} gagal dimuat. Muat ulang halaman lalu coba lagi.`),
+        ).toBeTruthy();
+        if (step === 1) {
+          expect(screen.queryByRole("checkbox", { name: FIRST_TAG })).toBeNull();
+        }
+        if (step === 2) {
+          expect(screen.queryByLabelText("Catatan kelayakan")).toBeNull();
+        }
+        if (step === 3) {
+          expect(screen.queryByRole("button", { name: "Tambah tahapan" })).toBeNull();
+          expect(screen.queryByLabelText("Nama tahapan")).toBeNull();
+        }
+        if (step === 4) {
+          expect(screen.queryByRole("button", { name: "Tambah hadiah" })).toBeNull();
+          expect(screen.queryByLabelText("Nama hadiah")).toBeNull();
+        }
       },
     );
 
