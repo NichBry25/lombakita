@@ -222,6 +222,78 @@ describe("CompetitionFeeSection", () => {
     expect(lastReportedFeePart().isDirty).toBe(false);
   });
 
+  it("sends the full free body when a paid fee is switched off, and then reports no change", async () => {
+    await mountWith(PAID);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Pendaftaran berbayar" }));
+    expect(lastReportedFeePart().isDirty).toBe(true);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+        init?.method === "PUT"
+          ? ({ ok: true, json: async () => ({}) } as Response)
+          : ({
+              ok: true,
+              json: async () => ({
+                pricing: { feeAmount: null, feeCurrency: null, paymentWindowDays: 3 },
+                feeRule: RULE,
+              }),
+            } as Response),
+      ),
+    );
+
+    expect(await saveReportedFee()).toEqual({ ok: true });
+    const [put] = putCalls();
+    expect(JSON.parse((put?.[1] as RequestInit).body as string)).toEqual({
+      feeAmount: 0,
+      feeCurrency: null,
+      paymentWindowDays: 3,
+      feeDisclosureAcknowledged: false,
+    });
+    expect(lastReportedFeePart().isDirty).toBe(false);
+  });
+
+  it("counts an unsent consent tick as a change and sends it once", async () => {
+    await mountWith(PAID);
+
+    fireEvent.click(acknowledgement());
+    expect(lastReportedFeePart().isDirty).toBe(true);
+
+    expect(await saveReportedFee()).toEqual({ ok: true });
+    const [put] = putCalls();
+    expect(JSON.parse((put?.[1] as RequestInit).body as string)).toEqual({
+      feeAmount: 150000,
+      feeCurrency: "IDR",
+      paymentWindowDays: 3,
+      feeDisclosureAcknowledged: true,
+    });
+    expect(lastReportedFeePart().isDirty).toBe(false);
+
+    fireEvent.click(acknowledgement());
+    expect(lastReportedFeePart().isDirty).toBe(false);
+  });
+
+  it("reports a saved fee as saved when the reload body cannot be read", async () => {
+    await mountWith(PAID);
+
+    fireEvent.change(screen.getByLabelText("Batas waktu pembayaran (hari)"), {
+      target: { value: "5" },
+    });
+    fireEvent.click(acknowledgement());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+        init?.method === "PUT"
+          ? ({ ok: true, json: async () => ({}) } as Response)
+          : new Response("not json", { status: 200 }),
+      ),
+    );
+
+    expect(await saveReportedFee()).toEqual({ ok: true });
+    expect(lastReportedFeePart().isDirty).toBe(false);
+  });
+
   it("returns the connection reason when the save request throws", async () => {
     await mountWith({
       pricing: { feeAmount: null, feeCurrency: null, paymentWindowDays: 3 },

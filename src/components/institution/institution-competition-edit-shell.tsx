@@ -705,6 +705,12 @@ export const InstitutionCompetitionEditShell = ({
     setIsLoading(false);
   }, [competitionId, addToast]);
 
+  const endThrownReload = () => {
+    addToast({ type: "error", message: REFUSAL_FALLBACK.load });
+    setReadinessIsKnown(false);
+    setIsLoading(false);
+  };
+
   useEffect(() => {
     const id = window.setTimeout(() => {
       void load();
@@ -918,15 +924,16 @@ export const InstitutionCompetitionEditShell = ({
       const mainOutcome = await saveMainFields();
       if (mainOutcome.status === "failed") return null;
       if (mainOutcome.status === "saved") {
-        // The step change restores savedSnapshot, so it must hold what was just saved. load() waits until
-        // every part has saved: its skeleton unmounts the parts and would drop what is typed in them.
+        // The step change restores savedSnapshot, so it must hold what was just saved.
+        // load() waits until every part has saved: its skeleton unmounts the parts and would drop
+        // what is typed in them.
         setSavedSnapshot(mainOutcome.sentSnapshot);
       }
       const partsSaved = await saveChangedParts();
       if (!partsSaved) return null;
       addToast({ type: "success", message: "Perubahan tersimpan." });
+      void load().catch(endThrownReload);
       if (mainOutcome.status === "unchanged") return currentSnapshot();
-      void load();
       return mainOutcome.sentSnapshot;
     } catch {
       addToast({ type: "error", message: NETWORK_ERROR_MESSAGE });
@@ -938,6 +945,7 @@ export const InstitutionCompetitionEditShell = ({
 
   const onSaveSection = (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
+    if (isSubmitting) return;
     void saveCurrentStep();
   };
 
@@ -947,6 +955,7 @@ export const InstitutionCompetitionEditShell = ({
   const savedCompetitionSlug = savedSnapshot?.slug ?? competitionId;
 
   const onNextStep = async () => {
+    if (isSubmitting) return;
     if (activeStep === null || activeStep === COMPETITION_STEP_COUNT) return;
     const nextStep = (activeStep + 1) as CompetitionStep;
     setPendingStepAction("next");
@@ -1045,9 +1054,9 @@ export const InstitutionCompetitionEditShell = ({
       { message: "Menerbitkan kompetisi…" },
     );
 
-  // Intercept in-app back navigation when form is dirty. Use competition slug for the
-  // back URL (page routes are slug-keyed); fall back to competitionId while data loads.
-  const backUrl = `/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(competition?.slug ?? competitionId)}`;
+  // Page routes are slug-keyed, so the back control follows the last saved slug, which a save can
+  // change before one of its parts fails.
+  const backUrl = `/institution/${encodeURIComponent(institutionSlug)}/competitions/${encodeURIComponent(savedCompetitionSlug)}`;
 
   // Step 1 leaves for the list, whose route skeleton is its waiting signal. Steps 2 to 5 stay on
   // this path, which shows no skeleton, so the transition screen covers the wait instead.
@@ -1304,7 +1313,7 @@ export const InstitutionCompetitionEditShell = ({
                   <Link
                     href={resolvePublishReasonHref(reason.link.kind, {
                       institutionSlug,
-                      competitionSlug: competition.slug,
+                      competitionSlug: savedCompetitionSlug,
                     })}
                   >
                     {reason.link.label}
@@ -1380,281 +1389,288 @@ export const InstitutionCompetitionEditShell = ({
           onSubmit={isDraftStep ? onStepFormSubmit : onSaveSection}
           className="competition-edit-form"
         >
-          {showsStep(1) ? (
-            <section className="content-section">
-              <div className="section-heading">
-                <div>
-                  <h2>Informasi utama</h2>
+          <fieldset className="competition-edit-form-fields" role="none" disabled={isSubmitting}>
+            {showsStep(1) ? (
+              <section className="content-section">
+                <div className="section-heading">
+                  <div>
+                    <h2>Informasi utama</h2>
+                  </div>
                 </div>
-              </div>
-              {activeStep === null ? (
-                <>
-                  {titleField}
-                  {slugField}
-                  {descriptionField}
-                  {categoryField}
-                </>
-              ) : (
-                <>
-                  {titleField}
-                  {categoryField}
-                  {descriptionField}
-                  {slugField}
-                </>
-              )}
-            </section>
-          ) : null}
+                {activeStep === null ? (
+                  <>
+                    {titleField}
+                    {slugField}
+                    {descriptionField}
+                    {categoryField}
+                  </>
+                ) : (
+                  <>
+                    {titleField}
+                    {categoryField}
+                    {descriptionField}
+                    {slugField}
+                  </>
+                )}
+              </section>
+            ) : null}
 
-          {showsStep(2) ? (
-            <section className="content-section">
-              <div className="section-heading">
-                <div>
-                  <h2>Mode dan ukuran tim</h2>
+            {showsStep(2) ? (
+              <section className="content-section">
+                <div className="section-heading">
+                  <div>
+                    <h2>Mode dan ukuran tim</h2>
+                  </div>
                 </div>
-              </div>
-              {isPublished ? (
-                <p className="form-help">
-                  Format peserta dan ukuran tim tidak dapat diubah setelah kompetisi terbit.
-                </p>
-              ) : null}
-              <div className="form-field">
-                <span className="form-label form-label-required" id="competition-mode-label">
-                  Mode
-                </span>
-                {/* Personal institutions are individual-only. */}
-                <SelectField
-                  label="Mode"
-                  id="competition-mode-label"
-                  value={mode}
-                  disabled={isPublished}
-                  required
-                  placeholder="Pilih"
-                  options={
-                    isPersonal
-                      ? COMPETITION_MODE_OPTIONS.filter((option) => option.value === "individual")
-                      : [...COMPETITION_MODE_OPTIONS]
-                  }
-                  onChange={(newMode) => {
-                    setMode(newMode);
-                    // Mode-driven team-size behaviour:
-                    //   individual → fixed 1/1, both fields disabled
-                    //   team       → default 2/2, both fields editable
-                    //   both       → min fixed at 1 (disabled), max editable (default 2)
-                    if (newMode === "individual") {
-                      setMinTeamSize("1");
-                      setMaxTeamSize("1");
-                    } else if (newMode === "team") {
-                      setMinTeamSize("2");
-                      setMaxTeamSize("2");
-                    } else if (newMode === "both") {
-                      setMinTeamSize("1");
-                      if (!maxTeamSize || Number.parseInt(maxTeamSize, 10) < 1) {
+                {isPublished ? (
+                  <p className="form-help">
+                    Format peserta dan ukuran tim tidak dapat diubah setelah kompetisi terbit.
+                  </p>
+                ) : null}
+                <div className="form-field">
+                  <span className="form-label form-label-required" id="competition-mode-label">
+                    Mode
+                  </span>
+                  {/* Personal institutions are individual-only. */}
+                  <SelectField
+                    label="Mode"
+                    id="competition-mode-label"
+                    value={mode}
+                    disabled={isPublished}
+                    required
+                    placeholder="Pilih"
+                    options={
+                      isPersonal
+                        ? COMPETITION_MODE_OPTIONS.filter((option) => option.value === "individual")
+                        : [...COMPETITION_MODE_OPTIONS]
+                    }
+                    onChange={(newMode) => {
+                      setMode(newMode);
+                      // Mode-driven team-size behaviour:
+                      //   individual → fixed 1/1, both fields disabled
+                      //   team       → default 2/2, both fields editable
+                      //   both       → min fixed at 1 (disabled), max editable (default 2)
+                      if (newMode === "individual") {
+                        setMinTeamSize("1");
+                        setMaxTeamSize("1");
+                      } else if (newMode === "team") {
+                        setMinTeamSize("2");
                         setMaxTeamSize("2");
+                      } else if (newMode === "both") {
+                        setMinTeamSize("1");
+                        if (!maxTeamSize || Number.parseInt(maxTeamSize, 10) < 1) {
+                          setMaxTeamSize("2");
+                        }
                       }
-                    }
-                  }}
-                />
-              </div>
-              <div className="form-grid">
-                <label className="form-field">
-                  <span className="form-label">Min. anggota tim</span>
-                  <input
-                    type="number"
-                    value={minTeamSize}
-                    onChange={(e) => setMinTeamSize(e.target.value)}
-                    min={mode === "team" ? 2 : 1}
-                    // Min is fixed for individual (1) and both (1); only team allows editing min.
-                    // Immutable once published.
-                    disabled={isPublished || mode === "individual" || mode === "both"}
-                    className="form-input"
+                    }}
                   />
-                </label>
-                <label className="form-field">
-                  <span className="form-label">Maks. anggota tim</span>
-                  <input
-                    type="number"
-                    value={maxTeamSize}
-                    onChange={(e) => setMaxTeamSize(e.target.value)}
-                    min={1}
-                    // Max is fixed for individual (1); team and both allow editing max.
-                    // Immutable once published.
-                    disabled={isPublished || mode === "individual"}
-                    className="form-input"
-                  />
-                </label>
-              </div>
-            </section>
-          ) : null}
-
-          {showsStep(3) ? (
-            <section className="content-section">
-              <div className="section-heading">
-                <div>
-                  <h2>Jadwal kompetisi</h2>
                 </div>
-              </div>
-              <div className="form-grid">
-                <label className="form-field">
-                  <span className="form-label form-label-required">Pendaftaran mulai</span>
-                  <input
-                    type="datetime-local"
-                    value={regStart}
-                    onChange={(e) => setRegStart(e.target.value)}
-                    max={regEnd || undefined}
-                    required
-                    className="form-input"
-                  />
-                </label>
-                <label className="form-field">
-                  <span className="form-label form-label-required">Pendaftaran berakhir</span>
-                  <input
-                    type="datetime-local"
-                    value={regEnd}
-                    onChange={(e) => setRegEnd(e.target.value)}
-                    min={regStart || undefined}
-                    max={participantConfirmation || evtStart || undefined}
-                    required
-                    className="form-input"
-                    aria-invalid={registrationEndError ? true : undefined}
-                    aria-describedby={
-                      registrationEndError ? "registration-end-timeline-error" : undefined
-                    }
-                  />
-                  {registrationEndError ? (
-                    <span className="form-error" id="registration-end-timeline-error" role="alert">
-                      {registrationEndError}
-                    </span>
-                  ) : null}
-                </label>
-                <label className="form-field">
-                  <span className="form-label form-label-required">Acara mulai</span>
-                  <input
-                    type="datetime-local"
-                    value={evtStart}
-                    onChange={(e) => setEvtStart(e.target.value)}
-                    min={participantConfirmation || regEnd || undefined}
-                    max={evtEnd || undefined}
-                    required
-                    className="form-input"
-                    aria-invalid={eventStartError ? true : undefined}
-                    aria-describedby={eventStartError ? "event-start-timeline-error" : undefined}
-                  />
-                  {eventStartError ? (
-                    <span className="form-error" id="event-start-timeline-error" role="alert">
-                      {eventStartError}
-                    </span>
-                  ) : null}
-                </label>
-                <label className="form-field">
-                  <span className="form-label form-label-required">Acara berakhir</span>
-                  <input
-                    type="datetime-local"
-                    value={evtEnd}
-                    onChange={(e) => setEvtEnd(e.target.value)}
-                    min={evtStart || undefined}
-                    max={resultAnnounce || undefined}
-                    required
-                    className="form-input"
-                    aria-invalid={eventEndError ? true : undefined}
-                    aria-describedby={eventEndError ? "event-end-timeline-error" : undefined}
-                  />
-                  {eventEndError ? (
-                    <span className="form-error" id="event-end-timeline-error" role="alert">
-                      {eventEndError}
-                    </span>
-                  ) : null}
-                </label>
-                {/* The hint sits in the grid's second column rather than under the input, so the
-                  field keeps the same height as the four date fields above it. */}
-                <div className="form-field-with-aside">
+                <div className="form-grid">
                   <label className="form-field">
-                    <span className="form-label form-label-required">Pengumuman hasil</span>
+                    <span className="form-label">Min. anggota tim</span>
+                    <input
+                      type="number"
+                      value={minTeamSize}
+                      onChange={(e) => setMinTeamSize(e.target.value)}
+                      min={mode === "team" ? 2 : 1}
+                      // Min is fixed for individual (1) and both (1); only team allows editing min.
+                      // Immutable once published.
+                      disabled={isPublished || mode === "individual" || mode === "both"}
+                      className="form-input"
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span className="form-label">Maks. anggota tim</span>
+                    <input
+                      type="number"
+                      value={maxTeamSize}
+                      onChange={(e) => setMaxTeamSize(e.target.value)}
+                      min={1}
+                      // Max is fixed for individual (1); team and both allow editing max.
+                      // Immutable once published.
+                      disabled={isPublished || mode === "individual"}
+                      className="form-input"
+                    />
+                  </label>
+                </div>
+              </section>
+            ) : null}
+
+            {showsStep(3) ? (
+              <section className="content-section">
+                <div className="section-heading">
+                  <div>
+                    <h2>Jadwal kompetisi</h2>
+                  </div>
+                </div>
+                <div className="form-grid">
+                  <label className="form-field">
+                    <span className="form-label form-label-required">Pendaftaran mulai</span>
                     <input
                       type="datetime-local"
-                      value={resultAnnounce}
-                      onChange={(e) => setResultAnnounce(e.target.value)}
-                      min={evtEnd || undefined}
+                      value={regStart}
+                      onChange={(e) => setRegStart(e.target.value)}
+                      max={regEnd || undefined}
                       required
                       className="form-input"
-                      aria-invalid={resultAnnouncementError ? true : undefined}
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span className="form-label form-label-required">Pendaftaran berakhir</span>
+                    <input
+                      type="datetime-local"
+                      value={regEnd}
+                      onChange={(e) => setRegEnd(e.target.value)}
+                      min={regStart || undefined}
+                      max={participantConfirmation || evtStart || undefined}
+                      required
+                      className="form-input"
+                      aria-invalid={registrationEndError ? true : undefined}
                       aria-describedby={
-                        resultAnnouncementError
-                          ? "result-announcement-hint result-announcement-timeline-error"
-                          : "result-announcement-hint"
+                        registrationEndError ? "registration-end-timeline-error" : undefined
                       }
                     />
-                    {resultAnnouncementError ? (
+                    {registrationEndError ? (
                       <span
                         className="form-error"
-                        id="result-announcement-timeline-error"
+                        id="registration-end-timeline-error"
                         role="alert"
                       >
-                        {resultAnnouncementError}
+                        {registrationEndError}
                       </span>
                     ) : null}
                   </label>
-                  <p className="form-field-aside" id="result-announcement-hint">
-                    Wajib diisi sebelum kompetisi diterbitkan agar peserta tahu kapan hasil keluar.
-                  </p>
+                  <label className="form-field">
+                    <span className="form-label form-label-required">Acara mulai</span>
+                    <input
+                      type="datetime-local"
+                      value={evtStart}
+                      onChange={(e) => setEvtStart(e.target.value)}
+                      min={participantConfirmation || regEnd || undefined}
+                      max={evtEnd || undefined}
+                      required
+                      className="form-input"
+                      aria-invalid={eventStartError ? true : undefined}
+                      aria-describedby={eventStartError ? "event-start-timeline-error" : undefined}
+                    />
+                    {eventStartError ? (
+                      <span className="form-error" id="event-start-timeline-error" role="alert">
+                        {eventStartError}
+                      </span>
+                    ) : null}
+                  </label>
+                  <label className="form-field">
+                    <span className="form-label form-label-required">Acara berakhir</span>
+                    <input
+                      type="datetime-local"
+                      value={evtEnd}
+                      onChange={(e) => setEvtEnd(e.target.value)}
+                      min={evtStart || undefined}
+                      max={resultAnnounce || undefined}
+                      required
+                      className="form-input"
+                      aria-invalid={eventEndError ? true : undefined}
+                      aria-describedby={eventEndError ? "event-end-timeline-error" : undefined}
+                    />
+                    {eventEndError ? (
+                      <span className="form-error" id="event-end-timeline-error" role="alert">
+                        {eventEndError}
+                      </span>
+                    ) : null}
+                  </label>
+                  {/* The hint sits in the grid's second column rather than under the input, so the
+                  field keeps the same height as the four date fields above it. */}
+                  <div className="form-field-with-aside">
+                    <label className="form-field">
+                      <span className="form-label form-label-required">Pengumuman hasil</span>
+                      <input
+                        type="datetime-local"
+                        value={resultAnnounce}
+                        onChange={(e) => setResultAnnounce(e.target.value)}
+                        min={evtEnd || undefined}
+                        required
+                        className="form-input"
+                        aria-invalid={resultAnnouncementError ? true : undefined}
+                        aria-describedby={
+                          resultAnnouncementError
+                            ? "result-announcement-hint result-announcement-timeline-error"
+                            : "result-announcement-hint"
+                        }
+                      />
+                      {resultAnnouncementError ? (
+                        <span
+                          className="form-error"
+                          id="result-announcement-timeline-error"
+                          role="alert"
+                        >
+                          {resultAnnouncementError}
+                        </span>
+                      ) : null}
+                    </label>
+                    <p className="form-field-aside" id="result-announcement-hint">
+                      Wajib diisi sebelum kompetisi diterbitkan agar peserta tahu kapan hasil
+                      keluar.
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </section>
-          ) : null}
+              </section>
+            ) : null}
 
-          {activeStep === null ? (
-            <fieldset className="content-section competition-policy-fieldset">
-              {minimumParticipationHeading}
-              {minimumParticipationHelp}
-              <div className="form-grid">
-                {minimumEntriesField}
-                {participantConfirmationField}
-              </div>
-              {participantConfirmationHelp}
-            </fieldset>
-          ) : null}
-          {activeStep === 2 ? (
-            <fieldset className="content-section competition-policy-fieldset">
-              {minimumParticipationHeading}
-              {minimumParticipationHelp}
-              <div className="form-grid">{minimumEntriesField}</div>
-            </fieldset>
-          ) : null}
-          {activeStep === 3 ? (
-            <fieldset className="content-section competition-policy-fieldset">
-              {minimumParticipationHeading}
-              {isPublished ? minimumParticipationHelp : null}
-              <div className="form-grid">{participantConfirmationField}</div>
-              {participantConfirmationHelp}
-            </fieldset>
-          ) : null}
-
-          {showsStep(4) ? (
-            <fieldset className="content-section competition-policy-fieldset">
-              <legend className="sr-only">Kebijakan pembatalan peserta</legend>
-              <div className="section-heading">
-                <div>
-                  <h2>Kebijakan pembatalan peserta</h2>
+            {activeStep === null ? (
+              <fieldset className="content-section competition-policy-fieldset">
+                {minimumParticipationHeading}
+                {minimumParticipationHelp}
+                <div className="form-grid">
+                  {minimumEntriesField}
+                  {participantConfirmationField}
                 </div>
-              </div>
-              <CheckboxField
-                checked={allowCancellation}
-                onChange={(e) => setAllowCancellation(e.target.checked)}
-              >
-                Izinkan peserta membatalkan pendaftaran sendiri
-              </CheckboxField>
-              <label className="form-field">
-                <span className="form-label">Batas pembatalan (hari sebelum acara mulai)</span>
-                <input
-                  type="number"
-                  value={cutoffDays}
-                  onChange={(e) => setCutoffDays(e.target.value)}
-                  min={0}
-                  disabled={!allowCancellation}
-                  className="form-input"
-                />
-              </label>
-            </fieldset>
-          ) : null}
+                {participantConfirmationHelp}
+              </fieldset>
+            ) : null}
+            {activeStep === 2 ? (
+              <fieldset className="content-section competition-policy-fieldset">
+                {minimumParticipationHeading}
+                {minimumParticipationHelp}
+                <div className="form-grid">{minimumEntriesField}</div>
+              </fieldset>
+            ) : null}
+            {activeStep === 3 ? (
+              <fieldset className="content-section competition-policy-fieldset">
+                {minimumParticipationHeading}
+                {isPublished ? minimumParticipationHelp : null}
+                <div className="form-grid">{participantConfirmationField}</div>
+                {participantConfirmationHelp}
+              </fieldset>
+            ) : null}
+
+            {showsStep(4) ? (
+              <fieldset className="content-section competition-policy-fieldset">
+                <legend className="sr-only">Kebijakan pembatalan peserta</legend>
+                <div className="section-heading">
+                  <div>
+                    <h2>Kebijakan pembatalan peserta</h2>
+                  </div>
+                </div>
+                <CheckboxField
+                  checked={allowCancellation}
+                  onChange={(e) => setAllowCancellation(e.target.checked)}
+                >
+                  Izinkan peserta membatalkan pendaftaran sendiri
+                </CheckboxField>
+                <label className="form-field">
+                  <span className="form-label">Batas pembatalan (hari sebelum acara mulai)</span>
+                  <input
+                    type="number"
+                    value={cutoffDays}
+                    onChange={(e) => setCutoffDays(e.target.value)}
+                    min={0}
+                    disabled={!allowCancellation}
+                    className="form-input"
+                  />
+                </label>
+              </fieldset>
+            ) : null}
+          </fieldset>
         </form>
       )}
 
@@ -1662,7 +1678,11 @@ export const InstitutionCompetitionEditShell = ({
 
       <CompetitionEditorPartsContext.Provider value={reportEditorPart}>
         {editorPartsNode === null || editorPartsNode === undefined ? null : (
-          <fieldset className="competition-editor-parts" disabled={!isEditable || isSubmitting}>
+          <fieldset
+            className="competition-editor-parts"
+            role="none"
+            disabled={!isEditable || isSubmitting}
+          >
             {editorPartsNode}
           </fieldset>
         )}

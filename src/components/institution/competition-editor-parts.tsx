@@ -10,7 +10,7 @@ export const COMPETITION_EDITOR_PART_ORDER = [
 ] as const;
 export type CompetitionEditorPartKey = (typeof COMPETITION_EDITOR_PART_ORDER)[number];
 
-// The words a failure message names a part with, the same as the part's heading (copy: Q5).
+// The words a failure message names a part with, the same as the part's heading.
 export const COMPETITION_EDITOR_PART_LABELS: Record<CompetitionEditorPartKey, string> = {
   tags: "Tag",
   eligibility: "Kelayakan",

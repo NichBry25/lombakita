@@ -5668,6 +5668,14 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   gap: var(--space-6);
 }
 
+/* The main fields sit in one fieldset so a save in progress can disable them at once, and nothing
+   typed after the click is lost to the reload; the grid keeps the form's gap. */
+.competition-edit-form-fields {
+  display: grid;
+  gap: var(--space-6);
+  min-inline-size: 0;
+}
+
 .checkbox-field {
   display: flex;
   min-height: var(--touch-target);

@@ -14,8 +14,7 @@ const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
   forbidden: "Anda tidak memiliki akses ke kompetisi institusi ini.",
   competition_prizes_invalid_payload:
     "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
-  competition_prizes_invalid_value:
-    "Periksa data hadiah lalu coba lagi. Setiap hadiah wajib memiliki judul.",
+  competition_prizes_invalid_value: "Periksa data hadiah lalu coba lagi.",
 };
 
 const SAVE_FALLBACK = "Gagal menyimpan hadiah. Coba lagi.";
@@ -122,6 +121,13 @@ export const CompetitionPrizesEditor = ({
         errorMessage: "Periksa data hadiah lalu coba lagi. Setiap hadiah wajib memiliki judul.",
       };
     }
+    if (sentRows.some((row) => row.cashAmount.trim() === "" && !row.isCertificate)) {
+      return {
+        ok: false,
+        errorMessage:
+          "Periksa data hadiah lalu coba lagi. Setiap hadiah wajib memiliki nominal tunai atau sertifikat.",
+      };
+    }
     const prizes = sentRows.map((row) => ({
       rankLabel: row.rankLabel.trim() || null,
       title: row.title.trim(),
@@ -144,6 +150,7 @@ export const CompetitionPrizesEditor = ({
         const code = await readErrorCode(response);
         return { ok: false, errorMessage: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK) };
       }
+      setRows(sentRows);
       setSavedRows(sentRows);
       await loadPrizes();
       return { ok: true };

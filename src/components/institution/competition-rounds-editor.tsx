@@ -162,6 +162,7 @@ export const CompetitionRoundsEditor = ({
         const code = await readErrorCode(response);
         return { ok: false, errorMessage: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK) };
       }
+      setRows(sentRows);
       setSavedRows(sentRows);
       await loadRounds();
       return { ok: true };

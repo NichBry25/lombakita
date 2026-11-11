@@ -124,7 +124,8 @@ function OwnerFeeForm({
     amountText: "",
     windowDays: "",
   });
-  // The code is null when the request itself threw.
+  const [savedAcknowledgement, setSavedAcknowledgement] = useState(false);
+  // The code is null when the request threw or its body could not be read.
   const [loadFailure, setLoadFailure] = useState<{ code: string | null } | null>(null);
 
   const base = `/api/v1/competitions/${encodeURIComponent(competitionId)}/fee`;
@@ -143,7 +144,13 @@ function OwnerFeeForm({
       return;
     }
 
-    const data = (await response.json()) as FeeState;
+    let data: FeeState;
+    try {
+      data = (await response.json()) as FeeState;
+    } catch {
+      setLoadFailure({ code: null });
+      return;
+    }
     const loadedFee: FeeFormValues = {
       isPaid: (data.pricing.feeAmount ?? 0) > 0,
       amountText: data.pricing.feeAmount ? String(data.pricing.feeAmount) : "",
@@ -186,7 +193,9 @@ function OwnerFeeForm({
   // preview to exist is what stops a checkbox being ticked against a blank disclosure.
   const canEnable = hasAmount && preview !== null && acknowledged;
 
-  const isDirty = feeFormDiffers({ isPaid, amountText, windowDays }, savedFee);
+  const isDirty =
+    feeFormDiffers({ isPaid, amountText, windowDays }, savedFee) ||
+    (isPaid && acknowledged && !savedAcknowledgement);
 
   const saveFee = async (): Promise<CompetitionPartSaveResult> => {
     // Sent anyway, a paid form without an amount arrives as null and clears the stored fee.
@@ -210,6 +219,7 @@ function OwnerFeeForm({
         return { ok: false, errorMessage: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK) };
       }
       setSavedFee(sentValues);
+      setSavedAcknowledgement(isPaid && acknowledged);
       await load();
       return { ok: true };
     } catch {

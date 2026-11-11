@@ -1151,7 +1151,10 @@ describe("InstitutionCompetitionEditShell steps", () => {
 
   it("asks before another section opens with unsaved changes", async () => {
     const competition = { ...COMPETITION, status: "published" };
-    stubFetchSequence([() => okJson({ competition, publishReadiness: READY })]);
+    stubFetchSequence([
+      () => okJson({ competition, publishReadiness: READY }),
+      () => okJson({ competition, publishReadiness: READY }),
+    ]);
 
     const view = render(shellAt(1));
 
@@ -1329,6 +1332,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
     };
     const PRIZE_TITLE_REASON =
       "Periksa data hadiah lalu coba lagi. Setiap hadiah wajib memiliki judul.";
+    const PRIZE_SERVER_REASON = "Periksa data hadiah lalu coba lagi.";
     const ROUND_TITLE_REASON =
       "Periksa data tahapan lalu coba lagi. Setiap tahapan wajib memiliki judul.";
     const OWNER_ONLY_FEE_MESSAGE = "Hanya pemilik institusi yang dapat mengatur biaya pendaftaran.";
@@ -1422,6 +1426,9 @@ describe("InstitutionCompetitionEditShell steps", () => {
     const addPrizeTitled = async (title: string) => {
       fireEvent.click(await screen.findByRole("button", { name: "Tambah hadiah" }));
       fireEvent.change(screen.getByLabelText("Nama hadiah"), { target: { value: title } });
+      fireEvent.change(screen.getByLabelText("Nominal tunai (Rp)"), {
+        target: { value: "100000" },
+      });
     };
 
     const changeFeeWindowWithAcknowledgement = async () => {
@@ -1464,6 +1471,23 @@ describe("InstitutionCompetitionEditShell steps", () => {
       for (const call of calls.filter(({ key }) => !key.startsWith("GET "))) {
         expect(call.expectedUserId, call.key).toBe("org_1");
       }
+      expect(calls.find(({ key }) => key === `PUT ${COMPETITION_URL}/prizes`)?.body).toEqual({
+        prizes: [
+          {
+            rankLabel: null,
+            title: "Medali",
+            cashAmount: 100000,
+            isCertificate: false,
+            description: null,
+          },
+        ],
+      });
+      expect(calls.find(({ key }) => key === `PUT ${COMPETITION_URL}/fee`)?.body).toEqual({
+        feeAmount: 150000,
+        feeCurrency: "IDR",
+        paymentWindowDays: 5,
+        feeDisclosureAcknowledged: true,
+      });
       expect(screen.getAllByText("Perubahan tersimpan.")).toHaveLength(1);
       for (const message of REMOVED_PART_SUCCESS_MESSAGES) {
         expect(screen.queryByText(message), message).toBeNull();
@@ -1488,7 +1512,7 @@ describe("InstitutionCompetitionEditShell steps", () => {
         fireEvent.click(screen.getByRole("button", { name: action }));
 
         expect(
-          await screen.findByText(`Hadiah belum tersimpan. ${PRIZE_TITLE_REASON}`),
+          await screen.findByText(`Hadiah belum tersimpan. ${PRIZE_SERVER_REASON}`),
         ).toBeTruthy();
         await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
         expect(writeKeys(calls)).not.toContain(`PUT ${COMPETITION_URL}/fee`);
@@ -1921,5 +1945,343 @@ describe("InstitutionCompetitionEditShell steps", () => {
         expect(calls.find(({ key }) => key === partWrite)?.body).toEqual(blankBody);
       },
     );
+
+    it("refuses a titled prize with neither cash nor certificate and sends nothing", async () => {
+      const calls = stubFetchRoutes(partRoutes());
+
+      render(shellWithPartsAt(4));
+
+      fireEvent.click(await screen.findByRole("button", { name: "Tambah hadiah" }));
+      fireEvent.change(screen.getByLabelText("Nama hadiah"), { target: { value: "Medali" } });
+      fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+      expect(
+        await screen.findByText(
+          "Hadiah belum tersimpan. Periksa data hadiah lalu coba lagi. Setiap hadiah wajib memiliki nominal tunai atau sertifikat.",
+        ),
+      ).toBeTruthy();
+      await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
+      expect(writeKeys(calls)).not.toContain(`PUT ${COMPETITION_URL}/prizes`);
+      expect(inputValue("Nama hadiah")).toBe("Medali");
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it("starts no second save while a published Simpan saves", async () => {
+      let releaseFee: (response: Response) => void = () => {};
+      const heldFee = new Promise<Response>((resolve) => {
+        releaseFee = resolve;
+      });
+      const calls = stubFetchRoutes({
+        ...partRoutes(PUBLISHED),
+        [`PUT ${COMPETITION_URL}/fee`]: [() => heldFee],
+      });
+
+      render(shellWithPartsAt(4));
+
+      await screen.findByRole("button", { name: "Simpan" });
+      await changeFeeWindowWithAcknowledgement();
+      fireEvent.click(saveButton());
+
+      await waitFor(() => expect(writeKeys(calls)).toContain(`PUT ${COMPETITION_URL}/fee`));
+      fireEvent.submit(document.querySelector(".competition-edit-form")!);
+      fireEvent.click(saveButton());
+
+      releaseFee(okJson({}));
+
+      expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
+      await waitFor(() => expect(saveButton().hasAttribute("disabled")).toBe(false));
+      const writes = writeKeys(calls);
+      expect(writes.filter((key) => key === `PATCH ${COMPETITION_URL}`).length).toBeLessThan(2);
+      expect(writes.filter((key) => key === `PUT ${COMPETITION_URL}/fee`)).toHaveLength(1);
+      expect(screen.getAllByText("Perubahan tersimpan.")).toHaveLength(1);
+    });
+
+    it("starts no second save while Lanjut saves", async () => {
+      let releasePatch: (response: Response) => void = () => {};
+      const heldPatch = new Promise<Response>((resolve) => {
+        releasePatch = resolve;
+      });
+      const calls = stubFetchRoutes({
+        ...partRoutes(),
+        [`PATCH ${COMPETITION_URL}`]: [() => heldPatch],
+      });
+
+      render(shellWithPartsAt(1));
+
+      await screen.findByRole("button", { name: "Lanjut" });
+      fireEvent.change(screen.getByLabelText(/^Judul/), { target: { value: "Lomba Contoh Baru" } });
+      fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+      await waitFor(() => expect(writeKeys(calls)).toContain(`PATCH ${COMPETITION_URL}`));
+      fireEvent.submit(document.querySelector(".competition-edit-form")!);
+      expect(document.querySelector(".page-transition")).not.toBeNull();
+
+      releasePatch(okJson({ competition: COMPETITION }));
+
+      await waitFor(() => expect(mockPush).toHaveBeenCalled());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(writeKeys(calls).filter((key) => key === `PATCH ${COMPETITION_URL}`)).toHaveLength(1);
+      expect(mockPush).toHaveBeenCalledTimes(1);
+    });
+
+    it("locks the main form while a published Simpan saves", async () => {
+      let releasePatch: (response: Response) => void = () => {};
+      const heldPatch = new Promise<Response>((resolve) => {
+        releasePatch = resolve;
+      });
+      const renamed = { ...PUBLISHED, title: "Lomba Contoh Baru" };
+      const calls = stubFetchRoutes({
+        ...partRoutes(PUBLISHED),
+        [`GET ${COMPETITION_URL}`]: [
+          () => okJson({ competition: PUBLISHED, publishReadiness: READY }),
+          () => okJson({ competition: renamed, publishReadiness: READY }),
+        ],
+        [`PATCH ${COMPETITION_URL}`]: [() => heldPatch],
+      });
+      const titleInput = () => screen.getByLabelText(/^Judul/) as HTMLInputElement;
+
+      render(shellWithPartsAt(1));
+
+      await screen.findByRole("button", { name: "Simpan" });
+      fireEvent.change(titleInput(), { target: { value: "Lomba Contoh Baru" } });
+      fireEvent.click(saveButton());
+
+      await waitFor(() => expect(writeKeys(calls)).toContain(`PATCH ${COMPETITION_URL}`));
+      expect(titleInput().matches(":disabled")).toBe(true);
+
+      releasePatch(okJson({ competition: renamed }));
+
+      await waitFor(() => expect(titleInput().matches(":disabled")).toBe(false));
+      expect(titleInput().value).toBe("Lomba Contoh Baru");
+    });
+
+    it("reloads after a part-only save so the back control follows the saved slug", async () => {
+      const renamed = { ...PUBLISHED, title: "Lomba Contoh Baru", slug: "lomba-baru" };
+      const patchHasGone = () => calls.some(({ key }) => key === `PATCH ${COMPETITION_URL}`);
+      const calls = stubFetchRoutes({
+        ...partRoutes(PUBLISHED),
+        [`GET ${COMPETITION_URL}`]: [
+          () =>
+            okJson({
+              competition: patchHasGone() ? renamed : PUBLISHED,
+              publishReadiness: READY,
+            }),
+        ],
+        [`PUT ${COMPETITION_URL}/tags`]: [
+          () => refusedWith("competition_tags_invalid_value"),
+          () => okJson({}),
+        ],
+      });
+
+      render(shellWithPartsAt(1));
+
+      await screen.findByRole("button", { name: "Simpan" });
+      fireEvent.change(screen.getByLabelText(/^Judul/), { target: { value: "Lomba Contoh Baru" } });
+      fireEvent.change(screen.getByLabelText(/^Slug/), { target: { value: "lomba-baru" } });
+      fireEvent.click(await screen.findByRole("checkbox", { name: FIRST_TAG }));
+      fireEvent.click(saveButton());
+
+      expect(
+        await screen.findByText("Tag belum tersimpan. Pilih tag dari daftar yang tersedia."),
+      ).toBeTruthy();
+      await waitFor(() => expect(saveButton().hasAttribute("disabled")).toBe(false));
+      fireEvent.click(saveButton());
+
+      expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
+      expect(
+        await screen.findByRole("heading", { level: 1, name: "Lomba Contoh Baru" }),
+      ).toBeTruthy();
+      await waitFor(() =>
+        expect(readinessNote()?.textContent).not.toContain("Simpan perubahan sebelum menerbitkan"),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Kembali ke aksi status" }));
+
+      expect(mockPush).toHaveBeenCalledWith(
+        "/institution/institusi-contoh/competitions/lomba-baru",
+      );
+    });
+
+    it("keeps the back control on the saved slug when a part fails after the main fields saved", async () => {
+      stubFetchRoutes({
+        ...partRoutes(PUBLISHED),
+        [`PUT ${COMPETITION_URL}/tags`]: [() => refusedWith("competition_tags_invalid_value")],
+      });
+
+      render(shellWithPartsAt(1));
+
+      await screen.findByRole("button", { name: "Simpan" });
+      fireEvent.change(screen.getByLabelText(/^Slug/), { target: { value: "lomba-baru" } });
+      fireEvent.click(await screen.findByRole("checkbox", { name: FIRST_TAG }));
+      fireEvent.click(saveButton());
+
+      expect(
+        await screen.findByText("Tag belum tersimpan. Pilih tag dari daftar yang tersedia."),
+      ).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Kembali ke aksi status" }));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Tinggalkan" }));
+
+      expect(mockPush).toHaveBeenCalledWith(
+        "/institution/institusi-contoh/competitions/lomba-baru",
+      );
+    });
+
+    it("keeps the editor on screen when the reload after a part-only save throws", async () => {
+      const watcher = watchUnhandledRejections();
+      try {
+        stubFetchRoutes({
+          ...partRoutes(PUBLISHED),
+          [`GET ${COMPETITION_URL}`]: [
+            () => okJson({ competition: PUBLISHED, publishReadiness: READY }),
+            failingRequest,
+          ],
+        });
+
+        render(shellWithPartsAt(2));
+
+        fireEvent.change(await screen.findByLabelText("Catatan kelayakan"), {
+          target: { value: "Terbuka untuk umum." },
+        });
+        fireEvent.click(saveButton());
+
+        expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
+        expect(await screen.findByText(LOAD_FAILED_MESSAGE)).toBeTruthy();
+        await waitFor(() => expect(saveButton().hasAttribute("disabled")).toBe(false));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(watcher.unhandled).not.toHaveBeenCalled();
+      } finally {
+        watcher.stop();
+      }
+    });
+
+    it("sends an unsent consent tick once from a published Simpan", async () => {
+      const calls = stubFetchRoutes(partRoutes(PUBLISHED));
+      const feeWrites = () => calls.filter(({ key }) => key === `PUT ${COMPETITION_URL}/fee`);
+
+      render(shellWithPartsAt(4));
+
+      await screen.findByRole("button", { name: "Simpan" });
+      fireEvent.click(await screen.findByRole("checkbox", { name: /menyetujui/ }));
+      fireEvent.click(saveButton());
+
+      expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
+      expect(feeWrites()).toHaveLength(1);
+      expect(feeWrites()[0]?.body).toEqual({
+        feeAmount: 150000,
+        feeCurrency: "IDR",
+        paymentWindowDays: 3,
+        feeDisclosureAcknowledged: true,
+      });
+      await waitFor(() =>
+        expect(readinessNote()?.textContent).not.toContain("Simpan perubahan sebelum menerbitkan"),
+      );
+
+      fireEvent.click(saveButton());
+
+      await waitFor(() => expect(screen.getAllByText("Perubahan tersimpan.")).toHaveLength(2));
+      expect(feeWrites()).toHaveLength(1);
+    });
+
+    it("keeps the main fields saved before a part failed when the step is left and saved again", async () => {
+      const calls = stubFetchRoutes({
+        ...partRoutes(),
+        [`PUT ${COMPETITION_URL}/prizes`]: [() => refusedWith("competition_prizes_invalid_value")],
+      });
+      const patchWrites = () => calls.filter(({ key }) => key === `PATCH ${COMPETITION_URL}`);
+
+      const view = render(shellWithPartsAt(4));
+
+      await screen.findByRole("button", { name: "Lanjut" });
+      fireEvent.click(
+        screen.getByRole("checkbox", { name: "Izinkan peserta membatalkan pendaftaran sendiri" }),
+      );
+      await addPrizeTitled("Medali");
+      fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+      expect(await screen.findByText(/^Hadiah belum tersimpan\./)).toBeTruthy();
+      await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
+      fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Tinggalkan" }));
+      expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=3`);
+
+      view.rerender(shellWithPartsAt(3));
+
+      await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
+      fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+      await waitFor(() => expect(patchWrites()).toHaveLength(2));
+      expect(patchWrites()[1]?.body).toMatchObject({ allowCancellation: true });
+    });
+
+    it("clears a dropped blank round when the reload after its save fails", async () => {
+      const storedRound = {
+        title: "Penyisihan",
+        platformLabel: null,
+        startsAt: null,
+        endsAt: null,
+        description: null,
+      };
+      stubFetchRoutes({
+        ...partRoutes(PUBLISHED),
+        [`GET ${COMPETITION_URL}/rounds`]: [
+          () => okJson({ rounds: [storedRound] }),
+          () => new Response(null, { status: 500 }),
+        ],
+      });
+
+      render(shellWithPartsAt(3));
+
+      const [storedTitle] = await screen.findAllByLabelText("Nama tahapan");
+      fireEvent.click(screen.getByRole("button", { name: "Tambah tahapan" }));
+      fireEvent.change(storedTitle!, { target: { value: "Penyisihan Daring" } });
+      fireEvent.click(saveButton());
+
+      expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
+      const blankTitles = screen
+        .queryAllByLabelText("Nama tahapan")
+        .filter((input) => (input as HTMLInputElement).value === "");
+      expect(blankTitles).toEqual([]);
+      await waitFor(() =>
+        expect(readinessNote()?.textContent).not.toContain("Simpan perubahan sebelum menerbitkan"),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Kembali ke aksi status" }));
+
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    it("clears a dropped blank prize when the reload after its save fails", async () => {
+      const storedPrize = {
+        rankLabel: null,
+        title: "Medali",
+        cashAmount: "100000.00",
+        isCertificate: false,
+        description: null,
+      };
+      stubFetchRoutes({
+        ...partRoutes(PUBLISHED),
+        [`GET ${COMPETITION_URL}/prizes`]: [
+          () => okJson({ prizes: [storedPrize] }),
+          () => new Response(null, { status: 500 }),
+        ],
+        [`PUT ${COMPETITION_URL}/fee`]: [() => refusedWith("competition_invalid_value")],
+      });
+
+      render(shellWithPartsAt(4));
+
+      const [storedTitle] = await screen.findAllByLabelText("Nama hadiah");
+      fireEvent.click(screen.getByRole("button", { name: "Tambah hadiah" }));
+      fireEvent.change(storedTitle!, { target: { value: "Medali Emas" } });
+      await changeFeeWindowWithAcknowledgement();
+      fireEvent.click(saveButton());
+
+      expect(
+        await screen.findByText(
+          "Biaya pendaftaran belum tersimpan. Periksa biaya, mata uang, dan batas waktu pembayaran lalu coba lagi.",
+        ),
+      ).toBeTruthy();
+      const titles = screen.getAllByLabelText("Nama hadiah") as HTMLInputElement[];
+      expect(titles.map((input) => input.value)).toEqual(["Medali Emas"]);
+    });
   });
 });
