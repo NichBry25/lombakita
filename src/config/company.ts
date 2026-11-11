@@ -11,7 +11,7 @@
  * number when one exists.
  */
 export const COMPANY = {
-  legalName: "KARYA TALENTA NUSANTARA",
+  legalName: "Karya Talenta Nusantara",
   address:
     "Jl. Raya Satelit Utara KN-8, RT 088 / RW 03, Tanjungsari, Sukomanunggal, Kota Surabaya, Jawa Timur 60187",
   supportEmail: "dukungan@lombakita.com",

@@ -49,4 +49,16 @@ describe("SiteFooter", () => {
     expect(html).toMatch(/<a href="\/tentang">Tentang/);
     expect(html.indexOf('href="/tentang"')).toBeLessThan(html.indexOf('href="/syarat-ketentuan"'));
   });
+
+  it("writes the browser note without a dash and names the company in its own spelling", () => {
+    const html = renderToStaticMarkup(<SiteFooter />);
+    const browserNote = html.match(/<p class="footer-support-note">(.*?)<\/p>/)?.[1];
+
+    expect(html).toContain(
+      "Versi yang lebih lama tetap bisa dipakai, hanya sebagian detail tampilan yang berbeda.",
+    );
+    expect(html).toContain("Karya Talenta Nusantara");
+    expect(browserNote).toBeDefined();
+    expect(browserNote).not.toContain("—");
+  });
 });

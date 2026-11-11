@@ -98,7 +98,7 @@ export function InstitutionPublicView({
 
             {institution.isVerified && (
               <div className="pf-badges">
-                <span className="status-badge" data-status="open">
+                <span className="status-badge" data-status="verified">
                   <Icon name="check" size="sm" aria-hidden="true" />
                   Institusi Terverifikasi
                 </span>

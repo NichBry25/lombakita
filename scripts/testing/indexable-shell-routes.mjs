@@ -12,7 +12,7 @@
  *
  *   Not chrome. The site header and footer are in the shell of even a fully streaming page — that
  *   is exactly what a broken page serves — so a needle taken from them passes on the pages this
- *   check exists to catch. `KARYA TALENTA NUSANTARA` is in the footer of all seven and would have
+ *   check exists to catch. `Karya Talenta Nusantara` is in the footer of all seven and would have
  *   been a natural, useless choice.
  *
  *   Not the `<title>`. It is in the head, so it is in the shell for the same reason. The

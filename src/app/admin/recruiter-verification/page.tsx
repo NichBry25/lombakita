@@ -402,8 +402,14 @@ export default function RecruiterVerificationQueuePage() {
                   {isRejected ? (
                     <Button
                       type="button"
-                      variant={item.submission.resubmissionAllowed ? "ghost" : "outline"}
+                      variant="outline"
                       size="sm"
+                      aria-pressed={item.submission.resubmissionAllowed}
+                      leadingIcon={
+                        item.submission.resubmissionAllowed ? (
+                          <Icon name="check" size="sm" aria-hidden="true" />
+                        ) : undefined
+                      }
                       loading={pendingAction === `resubmission:${item.submission.id}`}
                       onClick={() =>
                         void setResubmissionAllowed(
@@ -412,9 +418,7 @@ export default function RecruiterVerificationQueuePage() {
                         )
                       }
                     >
-                      {item.submission.resubmissionAllowed
-                        ? "Larang ajukan ulang"
-                        : "Izinkan ajukan ulang"}
+                      Izinkan ajukan ulang
                     </Button>
                   ) : (
                     <>

@@ -116,9 +116,11 @@ export function ApplicationHeader() {
           )}
           <NotificationBell />
           <IconButton
-            icon={theme === "light" ? "moon" : "sun"}
-            label={theme === "light" ? "Gunakan tema gelap" : "Gunakan tema terang"}
+            icon="moon"
+            label="Tema gelap"
             variant="ghost"
+            className="theme-toggle"
+            aria-pressed={theme === "dark"}
             onClick={toggleTheme}
           />
           {status === "loading" ? null : status === "authenticated" ? (

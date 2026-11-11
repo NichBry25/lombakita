@@ -61,7 +61,7 @@ export function SiteFooter() {
             ))}
           </ul>
           <p className="footer-support-note">
-            Versi yang lebih lama tetap bisa dipakai — sebagian detail tampilan saja yang berbeda.
+            Versi yang lebih lama tetap bisa dipakai, hanya sebagian detail tampilan yang berbeda.
           </p>
         </div>
       </div>

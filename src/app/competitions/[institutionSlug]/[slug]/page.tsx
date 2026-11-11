@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Button, ButtonLink, Icon, LinkPendingSlot } from "@/components/ui";
+import { Icon, LinkPendingSlot } from "@/components/ui";
 import { INDEXABLE_ROBOTS } from "@/config/indexable-routes";
 import { sessionHasRole } from "@/lib/access/roles";
-import { getCompetitionCategoryLabel } from "@/lib/competitions/categories";
+import { getCompetitionCategoryLabel, tagsOtherThanCategory } from "@/lib/competitions/categories";
 import { getCompetitionModeLabel } from "@/lib/competitions/modes";
 import { getCompetitionCancellationReasonLabel } from "@/lib/competitions/competition-participation";
 import {
@@ -30,6 +30,7 @@ import {
 } from "@/server/competitions/competition-reviews-service";
 import { loadInstitutionVerificationSummaryBySlug } from "@/server/institution-workspace/institution-service";
 import { RegisterStickyBar } from "./register-sticky-bar";
+import { RegistrationButton } from "./registration-button";
 import { SaveButton } from "./save-button";
 import { DetailActions } from "./detail-actions";
 import { CompetitionReviewForm } from "./competition-review-form";
@@ -87,60 +88,6 @@ function FeeDisplay({
       </p>
       <p className="detail-rail-note">Pembayaran online segera hadir.</p>
     </div>
-  );
-}
-
-function CTANavLink({
-  ctaState,
-  registrationPath,
-  isCandidate,
-  isCancelled,
-}: {
-  ctaState: PublicCompetitionDetail["ctaState"];
-  registrationPath: string;
-  isCandidate: boolean;
-  isCancelled: boolean;
-}) {
-  if (isCancelled) {
-    return (
-      <Button disabled size="lg" fullWidth>
-        Kompetisi dibatalkan
-      </Button>
-    );
-  }
-  if (ctaState === "open" && isCandidate) {
-    return (
-      <ButtonLink href={registrationPath} variant="primary" size="lg" fullWidth>
-        Daftar kompetisi
-        <Icon name="arrow-right" size="md" />
-      </ButtonLink>
-    );
-  }
-
-  if (ctaState === "open" && !isCandidate) {
-    return (
-      <Button disabled size="lg" fullWidth>
-        Daftar kompetisi
-      </Button>
-    );
-  }
-
-  // "Pendaftaran belum dibuka" sits exactly on the §9 24-character cap. The visible label
-  // shortens to "Belum dibuka" so it reads as a status rather than a sentence; the accessible name
-  // keeps the full phrase, because someone reaching this control by screen reader has no visual
-  // "Daftar kompetisi" heading above it to supply the missing subject.
-  if (ctaState === "not_yet_open") {
-    return (
-      <Button disabled size="lg" fullWidth aria-label="Pendaftaran belum dibuka">
-        Belum dibuka
-      </Button>
-    );
-  }
-
-  return (
-    <Button disabled size="lg" fullWidth>
-      Pendaftaran ditutup
-    </Button>
   );
 }
 
@@ -379,6 +326,8 @@ export default async function CompetitionDetailPage({
     : false;
 
   const registrationPath = `/competitions/${institutionSlug}/${slug}/registration`;
+  const competitionPath = `/competitions/${institutionSlug}/${slug}`;
+  const signInPath = `/auth/login?callbackUrl=${encodeURIComponent(competitionPath)}`;
   const showTeamSize =
     competition.mode !== "individual" &&
     (competition.minTeamSize !== null || competition.maxTeamSize !== null);
@@ -429,7 +378,10 @@ export default async function CompetitionDetailPage({
               {competition.mode ? (
                 <span className="status-badge">{getCompetitionModeLabel(competition.mode)}</span>
               ) : null}
-              {competition.tags.map((tag) => (
+              {tagsOtherThanCategory(
+                competition.tags,
+                competition.category ? getCompetitionCategoryLabel(competition.category) : null,
+              ).map((tag) => (
                 <span className="status-badge" key={tag}>
                   {tag}
                 </span>
@@ -721,10 +673,12 @@ export default async function CompetitionDetailPage({
           </div>
           <div className="detail-rail-actions">
             <div className="detail-primary-actions" id="register-actions">
-              <CTANavLink
+              <RegistrationButton
                 ctaState={competition.ctaState}
                 registrationPath={registrationPath}
+                signInPath={signInPath}
                 isCandidate={isCandidate}
+                isSignedIn={Boolean(session?.user)}
                 isCancelled={competition.cancelledAt !== null}
               />
               {isCandidate ? (
@@ -737,7 +691,7 @@ export default async function CompetitionDetailPage({
             </div>
             {organizerIsVerified ? (
               <div className="pf-badges">
-                <span className="status-badge" data-status="open">
+                <span className="status-badge" data-status="verified">
                   <Icon name="check" size="sm" aria-hidden="true" />
                   Institusi Terverifikasi
                 </span>
@@ -752,7 +706,7 @@ export default async function CompetitionDetailPage({
               <p className="detail-rail-note">Hanya akun kandidat yang dapat mendaftar.</p>
             ) : null}
 
-            {!isCandidate ? (
+            {!session?.user ? (
               <p className="detail-rail-note">
                 <Link href="/auth/login">Masuk</Link> untuk menyimpan kompetisi ini.
               </p>
@@ -772,10 +726,12 @@ export default async function CompetitionDetailPage({
           </div>
         </aside>
         <RegisterStickyBar targetId="register-actions">
-          <CTANavLink
+          <RegistrationButton
             ctaState={competition.ctaState}
             registrationPath={registrationPath}
+            signInPath={signInPath}
             isCandidate={isCandidate}
+            isSignedIn={Boolean(session?.user)}
             isCancelled={competition.cancelledAt !== null}
           />
         </RegisterStickyBar>

@@ -68,3 +68,13 @@ export const getCompetitionCategoryLabel = (value: string | null | undefined): s
   if (!value) return "";
   return COMPETITION_CATEGORY_LABELS[value as CompetitionCategory] ?? formatDisplayToken(value);
 };
+
+// A tag spelled like the category says the same thing twice on the banner, so the category stays.
+export const tagsOtherThanCategory = (
+  tags: readonly string[],
+  categoryLabel: string | null,
+): string[] => {
+  if (categoryLabel === null) return [...tags];
+  const category = categoryLabel.trim().toLowerCase();
+  return tags.filter((tag) => tag.trim().toLowerCase() !== category);
+};

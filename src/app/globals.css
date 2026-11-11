@@ -1063,6 +1063,11 @@ svg {
   color: var(--color-status-open-text);
 }
 
+.status-badge[data-status="verified"] {
+  background: var(--color-status-open-bg);
+  color: var(--color-status-open-text);
+}
+
 .status-badge[data-status="closing"] {
   background: var(--color-status-closing-bg);
   color: var(--color-status-closing-text);
@@ -3351,6 +3356,7 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
   height: var(--control-height-sm);
   border-radius: var(--radius-input);
   object-fit: contain;
+  background: var(--color-inset);
 }
 
 .detail-organizer-link {
@@ -3623,6 +3629,10 @@ input.form-input[type="file"]:hover:not(:disabled)::file-selector-button {
 }
 
 .detail-save-action[data-saved="true"] .ui-icon {
+  fill: currentColor;
+}
+
+.theme-toggle[aria-pressed="true"] .ui-icon {
   fill: currentColor;
 }
 

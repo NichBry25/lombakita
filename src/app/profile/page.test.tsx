@@ -112,6 +112,8 @@ describe("the owner profile badges", () => {
     const html = renderToStaticMarkup(await OwnerProfilePage());
 
     expect(html).toContain("Kandidat Terverifikasi");
+    expect(html).toContain('data-status="verified"');
+    expect(html).not.toContain('data-status="open"');
     expect(html).not.toContain("Rekruter Terverifikasi");
     expect(html).not.toContain("Rekruter Terpercaya");
   });

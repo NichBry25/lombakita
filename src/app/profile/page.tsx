@@ -113,13 +113,13 @@ export default async function OwnerProfilePage() {
             {(profile.candidateVerified || profile.trustedRecruiter) && (
               <div className="pf-badges">
                 {profile.candidateVerified && (
-                  <span className="status-badge" data-status="open">
+                  <span className="status-badge" data-status="verified">
                     <Icon name="check" size="sm" aria-hidden="true" />
                     Kandidat Terverifikasi
                   </span>
                 )}
                 {profile.trustedRecruiter && (
-                  <span className="status-badge" data-status="open">
+                  <span className="status-badge" data-status="verified">
                     <Icon name="check" size="sm" aria-hidden="true" />
                     Rekruter Terpercaya
                   </span>
