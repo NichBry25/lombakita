@@ -1,8 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, CheckboxField, IconButton } from "@/components/ui";
+import { CheckboxField, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import {
+  useCompetitionEditorPart,
+  type CompetitionPartSaveResult,
+} from "@/components/institution/competition-editor-parts";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 
@@ -42,6 +46,24 @@ const emptyRow = (): PrizeRow => ({
   description: "",
 });
 
+const isBlankPrize = (row: PrizeRow): boolean =>
+  !row.isCertificate &&
+  [row.rankLabel, row.title, row.cashAmount, row.description].every((value) => value.trim() === "");
+
+const prizeRowsEqual = (a: PrizeRow[], b: PrizeRow[]): boolean =>
+  a.length === b.length &&
+  a.every((row, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      row.rankLabel === other.rankLabel &&
+      row.title === other.title &&
+      row.cashAmount === other.cashAmount &&
+      row.isCertificate === other.isCertificate &&
+      row.description === other.description
+    );
+  });
+
 export const CompetitionPrizesEditor = ({
   competitionId,
   expectedUserId,
@@ -51,8 +73,8 @@ export const CompetitionPrizesEditor = ({
 }) => {
   const { addToast } = useToast();
   const [rows, setRows] = useState<PrizeRow[]>([]);
+  const [savedRows, setSavedRows] = useState<PrizeRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
 
   const loadPrizes = useCallback(async () => {
     setIsLoading(true);
@@ -66,15 +88,15 @@ export const CompetitionPrizesEditor = ({
         return;
       }
       const { prizes } = (await response.json()) as PrizesResponse;
-      setRows(
-        prizes.map((prize) => ({
-          rankLabel: prize.rankLabel ?? "",
-          title: prize.title,
-          cashAmount: prize.cashAmount ?? "",
-          isCertificate: prize.isCertificate,
-          description: prize.description ?? "",
-        })),
-      );
+      const loadedRows = prizes.map((prize) => ({
+        rankLabel: prize.rankLabel ?? "",
+        title: prize.title,
+        cashAmount: prize.cashAmount ?? "",
+        isCertificate: prize.isCertificate,
+        description: prize.description ?? "",
+      }));
+      setRows(loadedRows);
+      setSavedRows(loadedRows);
     } catch {
       addToast({ type: "error", message: "Gagal memuat hadiah." });
     } finally {
@@ -90,18 +112,23 @@ export const CompetitionPrizesEditor = ({
     setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   };
 
-  const savePrizes = async () => {
-    if (isSaving) return;
-    setIsSaving(true);
-    const prizes = rows
-      .filter((row) => row.title.trim().length > 0)
-      .map((row) => ({
-        rankLabel: row.rankLabel.trim() || null,
-        title: row.title.trim(),
-        cashAmount: row.cashAmount.trim() ? Number(row.cashAmount) : null,
-        isCertificate: row.isCertificate,
-        description: row.description.trim() || null,
-      }));
+  const isDirty = !prizeRowsEqual(rows, savedRows);
+
+  const savePrizes = async (): Promise<CompetitionPartSaveResult> => {
+    const sentRows = rows.filter((row) => !isBlankPrize(row));
+    if (sentRows.some((row) => row.title.trim() === "")) {
+      return {
+        ok: false,
+        errorMessage: "Periksa data hadiah lalu coba lagi. Setiap hadiah wajib memiliki judul.",
+      };
+    }
+    const prizes = sentRows.map((row) => ({
+      rankLabel: row.rankLabel.trim() || null,
+      title: row.title.trim(),
+      cashAmount: row.cashAmount.trim() ? Number(row.cashAmount) : null,
+      isCertificate: row.isCertificate,
+      description: row.description.trim() || null,
+    }));
 
     try {
       const response = await sessionFetch(
@@ -115,20 +142,17 @@ export const CompetitionPrizesEditor = ({
       );
       if (!response.ok) {
         const code = await readErrorCode(response);
-        addToast({
-          type: "error",
-          message: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK),
-        });
-        return;
+        return { ok: false, errorMessage: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK) };
       }
-      addToast({ type: "success", message: "Hadiah berhasil disimpan." });
+      setSavedRows(sentRows);
       await loadPrizes();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Gagal menyimpan hadiah karena gangguan koneksi." });
-    } finally {
-      setIsSaving(false);
+      return { ok: false, errorMessage: "Gagal menyimpan hadiah karena gangguan koneksi." };
     }
   };
+
+  useCompetitionEditorPart("prizes", isDirty, savePrizes);
 
   return (
     <section className="content-section surface-card card-padding stack-md">
@@ -224,9 +248,6 @@ export const CompetitionPrizesEditor = ({
               label="Tambah hadiah"
               onClick={() => setRows((prev) => [...prev, emptyRow()])}
             />
-            <Button type="button" onClick={savePrizes} loading={isSaving}>
-              Simpan
-            </Button>
           </div>
         </div>
       )}

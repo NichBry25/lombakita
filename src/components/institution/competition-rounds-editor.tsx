@@ -1,8 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, IconButton } from "@/components/ui";
+import { IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import {
+  useCompetitionEditorPart,
+  type CompetitionPartSaveResult,
+} from "@/components/institution/competition-editor-parts";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 
@@ -59,6 +63,25 @@ const emptyRow = (): RoundRow => ({
   description: "",
 });
 
+const isBlankRound = (row: RoundRow): boolean =>
+  [row.title, row.platformLabel, row.startsAt, row.endsAt, row.description].every(
+    (value) => value.trim() === "",
+  );
+
+const roundRowsEqual = (a: RoundRow[], b: RoundRow[]): boolean =>
+  a.length === b.length &&
+  a.every((row, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      row.title === other.title &&
+      row.platformLabel === other.platformLabel &&
+      row.startsAt === other.startsAt &&
+      row.endsAt === other.endsAt &&
+      row.description === other.description
+    );
+  });
+
 export const CompetitionRoundsEditor = ({
   competitionId,
   expectedUserId,
@@ -68,8 +91,8 @@ export const CompetitionRoundsEditor = ({
 }) => {
   const { addToast } = useToast();
   const [rows, setRows] = useState<RoundRow[]>([]);
+  const [savedRows, setSavedRows] = useState<RoundRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
 
   const loadRounds = useCallback(async () => {
     setIsLoading(true);
@@ -83,15 +106,15 @@ export const CompetitionRoundsEditor = ({
         return;
       }
       const { rounds } = (await response.json()) as RoundsResponse;
-      setRows(
-        rounds.map((round) => ({
-          title: round.title,
-          platformLabel: round.platformLabel ?? "",
-          startsAt: toLocalInputValue(round.startsAt),
-          endsAt: toLocalInputValue(round.endsAt),
-          description: round.description ?? "",
-        })),
-      );
+      const loadedRows = rounds.map((round) => ({
+        title: round.title,
+        platformLabel: round.platformLabel ?? "",
+        startsAt: toLocalInputValue(round.startsAt),
+        endsAt: toLocalInputValue(round.endsAt),
+        description: round.description ?? "",
+      }));
+      setRows(loadedRows);
+      setSavedRows(loadedRows);
     } catch {
       addToast({ type: "error", message: "Gagal memuat tahapan." });
     } finally {
@@ -107,18 +130,23 @@ export const CompetitionRoundsEditor = ({
     setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   };
 
-  const saveRounds = async () => {
-    if (isSaving) return;
-    setIsSaving(true);
-    const rounds = rows
-      .filter((row) => row.title.trim().length > 0)
-      .map((row) => ({
-        title: row.title.trim(),
-        platformLabel: row.platformLabel.trim() || null,
-        startsAt: toIsoOrNull(row.startsAt),
-        endsAt: toIsoOrNull(row.endsAt),
-        description: row.description.trim() || null,
-      }));
+  const isDirty = !roundRowsEqual(rows, savedRows);
+
+  const saveRounds = async (): Promise<CompetitionPartSaveResult> => {
+    const sentRows = rows.filter((row) => !isBlankRound(row));
+    if (sentRows.some((row) => row.title.trim() === "")) {
+      return {
+        ok: false,
+        errorMessage: "Periksa data tahapan lalu coba lagi. Setiap tahapan wajib memiliki judul.",
+      };
+    }
+    const rounds = sentRows.map((row) => ({
+      title: row.title.trim(),
+      platformLabel: row.platformLabel.trim() || null,
+      startsAt: toIsoOrNull(row.startsAt),
+      endsAt: toIsoOrNull(row.endsAt),
+      description: row.description.trim() || null,
+    }));
 
     try {
       const response = await sessionFetch(
@@ -132,20 +160,17 @@ export const CompetitionRoundsEditor = ({
       );
       if (!response.ok) {
         const code = await readErrorCode(response);
-        addToast({
-          type: "error",
-          message: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK),
-        });
-        return;
+        return { ok: false, errorMessage: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK) };
       }
-      addToast({ type: "success", message: "Tahapan berhasil disimpan." });
+      setSavedRows(sentRows);
       await loadRounds();
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Gagal menyimpan tahapan karena gangguan koneksi." });
-    } finally {
-      setIsSaving(false);
+      return { ok: false, errorMessage: "Gagal menyimpan tahapan karena gangguan koneksi." };
     }
   };
+
+  useCompetitionEditorPart("rounds", isDirty, saveRounds);
 
   return (
     <section className="content-section surface-card card-padding stack-md">
@@ -243,9 +268,6 @@ export const CompetitionRoundsEditor = ({
               label="Tambah tahapan"
               onClick={() => setRows((prev) => [...prev, emptyRow()])}
             />
-            <Button type="button" onClick={saveRounds} loading={isSaving}>
-              Simpan
-            </Button>
           </div>
         </div>
       )}

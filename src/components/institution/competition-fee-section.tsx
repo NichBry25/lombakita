@@ -1,8 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, CheckboxField, Feedback, Icon, Skeleton } from "@/components/ui";
-import { useToast } from "@/components/ui/primitives";
+import { Card, CheckboxField, Feedback, Skeleton } from "@/components/ui";
+import {
+  useCompetitionEditorPart,
+  type CompetitionPartSaveResult,
+} from "@/components/institution/competition-editor-parts";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 import { computePlatformFee, type FeeRuleTerms } from "@/lib/finance/fee";
@@ -47,6 +50,36 @@ const LOAD_FAILURE_MESSAGE = "Biaya pendaftaran gagal dimuat. Muat ulang halaman
 
 const LOAD_ERROR_COPY: Partial<Record<string, string>> = { forbidden: SAVE_ERROR_COPY.forbidden };
 
+type FeeFormValues = { isPaid: boolean; amountText: string; windowDays: string };
+
+const feeFormDiffers = (current: FeeFormValues, saved: FeeFormValues): boolean =>
+  current.isPaid !== saved.isPaid ||
+  current.windowDays !== saved.windowDays ||
+  (current.isPaid && current.amountText !== saved.amountText);
+
+const describeIncompletePaidFee = (hasAmount: boolean, feeRuleIsConfigured: boolean): string => {
+  if (!hasAmount) return "Isi biaya per pendaftaran.";
+  if (!feeRuleIsConfigured) {
+    return errorMessageFor("fee_rule_not_in_force", SAVE_ERROR_COPY, SAVE_FALLBACK);
+  }
+  return errorMessageFor("competition_fee_disclosure_required", SAVE_ERROR_COPY, SAVE_FALLBACK);
+};
+
+const FeeSectionNotice = ({ code }: { code: string | null }) => {
+  const tone = code === "forbidden" ? "info" : "error";
+  const message = errorMessageFor(code, LOAD_ERROR_COPY, LOAD_FAILURE_MESSAGE);
+  return (
+    <section className="content-section surface-card card-padding">
+      <div className="section-heading">
+        <div>
+          <h2>Biaya pendaftaran</h2>
+        </div>
+      </div>
+      <Feedback tone={tone}>{message}</Feedback>
+    </section>
+  );
+};
+
 /**
  * Turning paid registration on, and the disclosure that has to happen first.
  *
@@ -68,17 +101,31 @@ export function CompetitionFeeSection({
   expectedUserId: string;
   viewerIsOwner: boolean;
 }) {
-  const { addToast } = useToast();
+  // Staff never mount the form, so it never loads, never joins the shell's save and never sends a
+  // fee. The server refuses them as well (fee/route.ts, owner-only).
+  if (!viewerIsOwner) return <FeeSectionNotice code="forbidden" />;
+  return <OwnerFeeForm competitionId={competitionId} expectedUserId={expectedUserId} />;
+}
 
+function OwnerFeeForm({
+  competitionId,
+  expectedUserId,
+}: {
+  competitionId: string;
+  expectedUserId: string;
+}) {
   const [state, setState] = useState<FeeState | null>(null);
   const [isPaid, setIsPaid] = useState(false);
   const [amountText, setAmountText] = useState("");
   const [windowDays, setWindowDays] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [savedFee, setSavedFee] = useState<FeeFormValues>({
+    isPaid: false,
+    amountText: "",
+    windowDays: "",
+  });
   // The code is null when the request itself threw.
   const [loadFailure, setLoadFailure] = useState<{ code: string | null } | null>(null);
-  const shownLoadFailure = viewerIsOwner ? loadFailure : { code: "forbidden" };
 
   const base = `/api/v1/competitions/${encodeURIComponent(competitionId)}/fee`;
 
@@ -97,35 +144,90 @@ export function CompetitionFeeSection({
     }
 
     const data = (await response.json()) as FeeState;
+    const loadedFee: FeeFormValues = {
+      isPaid: (data.pricing.feeAmount ?? 0) > 0,
+      amountText: data.pricing.feeAmount ? String(data.pricing.feeAmount) : "",
+      windowDays: String(data.pricing.paymentWindowDays),
+    };
     setState(data);
-    setIsPaid((data.pricing.feeAmount ?? 0) > 0);
-    setAmountText(data.pricing.feeAmount ? String(data.pricing.feeAmount) : "");
-    setWindowDays(String(data.pricing.paymentWindowDays));
+    setIsPaid(loadedFee.isPaid);
+    setAmountText(loadedFee.amountText);
+    setWindowDays(loadedFee.windowDays);
+    setSavedFee(loadedFee);
   }, [base]);
 
   useEffect(() => {
-    if (!viewerIsOwner) return;
-    void load();
-  }, [load, viewerIsOwner]);
+    const id = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [load]);
+
+  const amount = Number.parseInt(amountText, 10);
+  const hasAmount = Number.isSafeInteger(amount) && amount > 0;
+
+  const feeRule = state?.feeRule ?? null;
+  const terms: FeeRuleTerms | null =
+    feeRule === null
+      ? null
+      : {
+          basisPoints: feeRule.basisPoints,
+          flatAmount: feeRule.flatAmount,
+          minimumFeeAmount: feeRule.minimumFeeAmount,
+          maximumFeeAmount: feeRule.maximumFeeAmount,
+          currency: feeRule.currency as FeeRuleTerms["currency"],
+        };
+
+  // Computed with the ledger's own function, so what the organiser is shown and what they are
+  // billed are the same arithmetic rather than two implementations that agree today.
+  const preview = terms !== null && hasAmount ? computePlatformFee(amount, terms) : null;
+
+  // The acknowledgement is meaningless unless there is something to acknowledge. Requiring the
+  // preview to exist is what stops a checkbox being ticked against a blank disclosure.
+  const canEnable = hasAmount && preview !== null && acknowledged;
+
+  const isDirty = feeFormDiffers({ isPaid, amountText, windowDays }, savedFee);
+
+  const saveFee = async (): Promise<CompetitionPartSaveResult> => {
+    // Sent anyway, a paid form without an amount arrives as null and clears the stored fee.
+    if (isPaid && !canEnable) {
+      return { ok: false, errorMessage: describeIncompletePaidFee(hasAmount, terms !== null) };
+    }
+    const sentValues: FeeFormValues = { isPaid, amountText, windowDays };
+    try {
+      const response = await sessionFetch(expectedUserId, base, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          feeAmount: isPaid ? amount : 0,
+          feeCurrency: isPaid ? CURRENCY : null,
+          paymentWindowDays: Number.parseInt(windowDays, 10),
+          feeDisclosureAcknowledged: isPaid ? acknowledged : false,
+        }),
+      });
+      if (!response.ok) {
+        const code = await readErrorCode(response);
+        return { ok: false, errorMessage: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK) };
+      }
+      setSavedFee(sentValues);
+      await load();
+      return { ok: true };
+    } catch {
+      return {
+        ok: false,
+        errorMessage: "Biaya pendaftaran gagal disimpan karena gangguan koneksi.",
+      };
+    }
+  };
+
+  useCompetitionEditorPart("fee", isDirty, saveFee);
 
   // Only a failure before the first answer replaces the section; a failed reload after a save keeps
   // the form that is already on screen.
-  if (state === null && shownLoadFailure !== null) {
+  if (state === null && loadFailure !== null) {
     // A viewer passed in as the owner can still be refused, for example after losing the owner role
     // in another tab.
-    const { code } = shownLoadFailure;
-    const tone = code === "forbidden" ? "info" : "error";
-    const message = errorMessageFor(code, LOAD_ERROR_COPY, LOAD_FAILURE_MESSAGE);
-    return (
-      <section className="content-section surface-card card-padding">
-        <div className="section-heading">
-          <div>
-            <h2>Biaya pendaftaran</h2>
-          </div>
-        </div>
-        <Feedback tone={tone}>{message}</Feedback>
-      </section>
-    );
+    return <FeeSectionNotice code={loadFailure.code} />;
   }
 
   if (state === null) {
@@ -139,71 +241,6 @@ export function CompetitionFeeSection({
     );
   }
 
-  const amount = Number.parseInt(amountText, 10);
-  const hasAmount = Number.isSafeInteger(amount) && amount > 0;
-
-  const terms: FeeRuleTerms | null =
-    state.feeRule === null
-      ? null
-      : {
-          basisPoints: state.feeRule.basisPoints,
-          flatAmount: state.feeRule.flatAmount,
-          minimumFeeAmount: state.feeRule.minimumFeeAmount,
-          maximumFeeAmount: state.feeRule.maximumFeeAmount,
-          currency: state.feeRule.currency as FeeRuleTerms["currency"],
-        };
-
-  // Computed with the ledger's own function, so what the organiser is shown and what they are
-  // billed are the same arithmetic rather than two implementations that agree today.
-  const preview = terms !== null && hasAmount ? computePlatformFee(amount, terms) : null;
-
-  // The acknowledgement is meaningless unless there is something to acknowledge. Requiring the
-  // preview to exist is what stops a checkbox being ticked against a blank disclosure.
-  const canEnable = hasAmount && preview !== null && acknowledged;
-
-  const save = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (isSaving) return;
-    setIsSaving(true);
-
-    try {
-      const response = await sessionFetch(expectedUserId, base, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          feeAmount: isPaid ? amount : 0,
-          feeCurrency: isPaid ? CURRENCY : null,
-          paymentWindowDays: Number.parseInt(windowDays, 10),
-          feeDisclosureAcknowledged: isPaid ? acknowledged : false,
-        }),
-      });
-
-      if (!response.ok) {
-        const code = await readErrorCode(response);
-        addToast({
-          type: "error",
-          message: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK),
-        });
-        return;
-      }
-
-      addToast({
-        type: "success",
-        message: isPaid
-          ? "Pendaftaran berbayar diaktifkan."
-          : "Pendaftaran dikembalikan ke gratis.",
-      });
-      await load();
-    } catch {
-      addToast({
-        type: "error",
-        message: "Biaya pendaftaran gagal disimpan karena gangguan koneksi.",
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   return (
     <section className="content-section surface-card card-padding">
       <div className="section-heading">
@@ -212,7 +249,7 @@ export function CompetitionFeeSection({
         </div>
       </div>
 
-      <form className="stack-md" onSubmit={save}>
+      <div className="stack-md">
         <span className="form-label">Jenis pendaftaran</span>
         <CheckboxField
           id="fee-paid"
@@ -322,18 +359,7 @@ export function CompetitionFeeSection({
             Pendaftaran gratis. Aktifkan pendaftaran berbayar untuk menetapkan biaya.
           </p>
         )}
-
-        <div className="cluster">
-          <Button
-            type="submit"
-            loading={isSaving}
-            disabled={isPaid && !canEnable}
-            leadingIcon={<Icon name="save" />}
-          >
-            Simpan biaya pendaftaran
-          </Button>
-        </div>
-      </form>
+      </div>
     </section>
   );
 }

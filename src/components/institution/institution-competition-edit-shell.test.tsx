@@ -25,7 +25,13 @@ import { SESSION_MISMATCH_MESSAGE } from "@/lib/session/session-fetch";
 import { NETWORK_ERROR_MESSAGE } from "@/lib/errors/error-copy";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { PageTransitionProvider } from "@/components/ui/page-transition";
+import { ALLOWED_COMPETITION_TAGS } from "@/lib/competitions/tags";
 import { InstitutionCompetitionEditShell } from "./institution-competition-edit-shell";
+import { CompetitionEligibilityEditor } from "./competition-eligibility-editor";
+import { CompetitionFeeSection } from "./competition-fee-section";
+import { CompetitionPrizesEditor } from "./competition-prizes-editor";
+import { CompetitionRoundsEditor } from "./competition-rounds-editor";
+import { CompetitionTagsEditor } from "./competition-tags-editor";
 
 const { mockPush, mockReplace } = vi.hoisted(() => ({
   mockPush: vi.fn(),
@@ -1303,5 +1309,617 @@ describe("InstitutionCompetitionEditShell steps", () => {
       "GET /api/v1/competitions/comp_1",
       "POST /api/v1/institutions/institusi-contoh/competitions/comp_1/publish",
     ]);
+  });
+
+  describe("with the real parts", () => {
+    const COMPETITION_URL = "/api/v1/competitions/comp_1";
+    const PUBLISHED = { ...COMPETITION, status: "published" };
+    const ARCHIVED = { ...COMPETITION, status: "archived" };
+    const [FIRST_TAG] = ALLOWED_COMPETITION_TAGS;
+    const FEE_RULE = {
+      basisPoints: 250,
+      flatAmount: 0,
+      currency: "IDR",
+      minimumFeeAmount: null,
+      maximumFeeAmount: null,
+    };
+    const PAID_FEE = {
+      pricing: { feeAmount: 150_000, feeCurrency: "IDR", paymentWindowDays: 3 },
+      feeRule: FEE_RULE,
+    };
+    const PRIZE_TITLE_REASON =
+      "Periksa data hadiah lalu coba lagi. Setiap hadiah wajib memiliki judul.";
+    const ROUND_TITLE_REASON =
+      "Periksa data tahapan lalu coba lagi. Setiap tahapan wajib memiliki judul.";
+    const OWNER_ONLY_FEE_MESSAGE = "Hanya pemilik institusi yang dapat mengatur biaya pendaftaran.";
+    const REMOVED_PART_SUCCESS_MESSAGES = [
+      "Tag berhasil disimpan.",
+      "Informasi kelayakan berhasil disimpan.",
+      "Tahapan berhasil disimpan.",
+      "Hadiah berhasil disimpan.",
+      "Pendaftaran berbayar diaktifkan.",
+      "Pendaftaran dikembalikan ke gratis.",
+    ];
+
+    type RouteResponses = Record<string, Array<() => Response | Promise<Response>>>;
+    type RecordedCall = { key: string; expectedUserId: string | null; body: unknown };
+
+    const stubFetchRoutes = (routes: RouteResponses) => {
+      const queues = new Map(Object.entries(routes).map(([key, answers]) => [key, [...answers]]));
+      const calls: RecordedCall[] = [];
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const key = `${init?.method ?? "GET"} ${String(input)}`;
+          const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+          const expectedUserId = new Headers(init?.headers).get("X-Expected-User-Id");
+          calls.push({ key, expectedUserId, body });
+          const queue = queues.get(key) ?? [];
+          const answer = queue.length > 1 ? queue.shift() : queue[0];
+          if (!answer) throw new Error(`unexpected request: ${key}`);
+          return answer();
+        }),
+      );
+
+      return calls;
+    };
+
+    const partRoutes = (competition: unknown = COMPETITION): RouteResponses => ({
+      [`GET ${COMPETITION_URL}`]: [() => okJson({ competition, publishReadiness: READY })],
+      [`PATCH ${COMPETITION_URL}`]: [() => okJson({ competition })],
+      [`GET ${COMPETITION_URL}/tags`]: [() => okJson({ tags: [] })],
+      [`GET ${COMPETITION_URL}/eligibility`]: [() => okJson({ eligibilityNote: null })],
+      [`GET ${COMPETITION_URL}/rounds`]: [() => okJson({ rounds: [] })],
+      [`GET ${COMPETITION_URL}/prizes`]: [() => okJson({ prizes: [] })],
+      [`GET ${COMPETITION_URL}/fee`]: [() => okJson(PAID_FEE)],
+      [`PUT ${COMPETITION_URL}/tags`]: [() => okJson({})],
+      [`PUT ${COMPETITION_URL}/eligibility`]: [() => okJson({})],
+      [`PUT ${COMPETITION_URL}/rounds`]: [() => okJson({})],
+      [`PUT ${COMPETITION_URL}/prizes`]: [() => okJson({})],
+      [`PUT ${COMPETITION_URL}/fee`]: [() => okJson({})],
+    });
+
+    const refusedWith = (code: string): Response =>
+      new Response(JSON.stringify({ error: { code } }), { status: 400 });
+
+    const writeKeys = (calls: RecordedCall[]) =>
+      calls.filter(({ key }) => !key.startsWith("GET ")).map(({ key }) => key);
+
+    const realParts = (viewerIsOwner: boolean) => ({
+      1: <CompetitionTagsEditor competitionId="comp_1" expectedUserId="org_1" />,
+      2: <CompetitionEligibilityEditor competitionId="comp_1" expectedUserId="org_1" />,
+      3: <CompetitionRoundsEditor competitionId="comp_1" expectedUserId="org_1" />,
+      4: (
+        <>
+          <CompetitionPrizesEditor competitionId="comp_1" expectedUserId="org_1" />
+          <CompetitionFeeSection
+            competitionId="comp_1"
+            expectedUserId="org_1"
+            viewerIsOwner={viewerIsOwner}
+          />
+        </>
+      ),
+    });
+
+    const shellWithPartsAt = (step: 1 | 2 | 3 | 4 | 5, viewerIsOwner = true) => (
+      <UIPrimitivesProvider>
+        <PageTransitionProvider>
+          <InstitutionCompetitionEditShell
+            institutionSlug="institusi-contoh"
+            competitionId="comp_1"
+            expectedUserId="org_1"
+            initialPublishReadiness={{ canPublish: true, blockers: [] }}
+            step={step}
+            stepChildren={realParts(viewerIsOwner)}
+          />
+        </PageTransitionProvider>
+      </UIPrimitivesProvider>
+    );
+
+    const inputValue = (label: string) => (screen.getByLabelText(label) as HTMLInputElement).value;
+
+    const addPrizeTitled = async (title: string) => {
+      fireEvent.click(await screen.findByRole("button", { name: "Tambah hadiah" }));
+      fireEvent.change(screen.getByLabelText("Nama hadiah"), { target: { value: title } });
+    };
+
+    const changeFeeWindowWithAcknowledgement = async () => {
+      fireEvent.change(await screen.findByLabelText("Batas waktu pembayaran (hari)"), {
+        target: { value: "5" },
+      });
+      fireEvent.click(screen.getByRole("checkbox", { name: /menyetujui/ }));
+    };
+
+    const expectStepBarIdle = () => {
+      for (const name of ["Lanjut", "Simpan dan keluar"]) {
+        const button = screen.getByRole("button", { name });
+        expect(button.hasAttribute("disabled"), name).toBe(false);
+        expect(button.hasAttribute("aria-busy"), name).toBe(false);
+      }
+    };
+
+    const unloadIsPrevented = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+
+    it("saves in order and reports once", async () => {
+      const calls = stubFetchRoutes(partRoutes());
+
+      render(shellWithPartsAt(4));
+
+      await screen.findByRole("button", { name: "Lanjut" });
+      await addPrizeTitled("Medali");
+      await changeFeeWindowWithAcknowledgement();
+      fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=5`));
+      expect(writeKeys(calls)).toEqual([
+        `PATCH ${COMPETITION_URL}`,
+        `PUT ${COMPETITION_URL}/prizes`,
+        `PUT ${COMPETITION_URL}/fee`,
+      ]);
+      for (const call of calls.filter(({ key }) => !key.startsWith("GET "))) {
+        expect(call.expectedUserId, call.key).toBe("org_1");
+      }
+      expect(screen.getAllByText("Perubahan tersimpan.")).toHaveLength(1);
+      for (const message of REMOVED_PART_SUCCESS_MESSAGES) {
+        expect(screen.queryByText(message), message).toBeNull();
+      }
+    });
+
+    it.each(["Lanjut", "Simpan dan keluar"])(
+      "stops at the first failure behind %s and keeps what was typed",
+      async (action) => {
+        const calls = stubFetchRoutes({
+          ...partRoutes(),
+          [`PUT ${COMPETITION_URL}/prizes`]: [
+            () => refusedWith("competition_prizes_invalid_value"),
+          ],
+        });
+
+        render(shellWithPartsAt(4));
+
+        await screen.findByRole("button", { name: action });
+        await addPrizeTitled("Medali");
+        await changeFeeWindowWithAcknowledgement();
+        fireEvent.click(screen.getByRole("button", { name: action }));
+
+        expect(
+          await screen.findByText(`Hadiah belum tersimpan. ${PRIZE_TITLE_REASON}`),
+        ).toBeTruthy();
+        await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
+        expect(writeKeys(calls)).not.toContain(`PUT ${COMPETITION_URL}/fee`);
+        expect(mockPush).not.toHaveBeenCalled();
+        expect(screen.queryByText("Perubahan tersimpan.")).toBeNull();
+        expect(inputValue("Nama hadiah")).toBe("Medali");
+        expect(inputValue("Batas waktu pembayaran (hari)")).toBe("5");
+        expectStepBarIdle();
+        const patchIndex = calls.findIndex(({ key }) => key === `PATCH ${COMPETITION_URL}`);
+        expect(patchIndex).toBeGreaterThanOrEqual(0);
+        const readsAfterPatch = calls
+          .slice(patchIndex + 1)
+          .filter(
+            ({ key }) =>
+              key === `GET ${COMPETITION_URL}` || key === `GET ${COMPETITION_URL}/prizes`,
+          );
+        expect(readsAfterPatch).toEqual([]);
+      },
+    );
+
+    it("stops before every part when the main fields are refused", async () => {
+      const calls = stubFetchRoutes({
+        ...partRoutes(),
+        [`PATCH ${COMPETITION_URL}`]: [() => refusedWith("competition_invalid_value")],
+      });
+
+      render(shellWithPartsAt(4));
+
+      await screen.findByRole("button", { name: "Lanjut" });
+      await addPrizeTitled("Medali");
+      await changeFeeWindowWithAcknowledgement();
+      fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+      expect(await screen.findByText("Periksa isian formulir lalu coba lagi.")).toBeTruthy();
+      expect(writeKeys(calls)).toEqual([`PATCH ${COMPETITION_URL}`]);
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it("shows the success message only after the last part has saved", async () => {
+      let releasePrizes: (response: Response) => void = () => {};
+      const heldPrizes = new Promise<Response>((resolve) => {
+        releasePrizes = resolve;
+      });
+      const calls = stubFetchRoutes({
+        ...partRoutes(),
+        [`PUT ${COMPETITION_URL}/prizes`]: [() => heldPrizes],
+      });
+
+      render(shellWithPartsAt(4));
+
+      await screen.findByRole("button", { name: "Lanjut" });
+      await addPrizeTitled("Medali");
+      fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+      await waitFor(() => expect(writeKeys(calls)).toContain(`PUT ${COMPETITION_URL}/prizes`));
+      expect(screen.queryByText("Perubahan tersimpan.")).toBeNull();
+
+      releasePrizes(okJson({}));
+
+      expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
+      expect(screen.getAllByText("Perubahan tersimpan.")).toHaveLength(1);
+    });
+
+    it("never shows or sends the fee part to a staff member", async () => {
+      const calls = stubFetchRoutes(partRoutes());
+
+      render(shellWithPartsAt(4, false));
+
+      await screen.findByRole("button", { name: "Lanjut" });
+      expect(screen.getByText(OWNER_ONLY_FEE_MESSAGE)).toBeTruthy();
+      expect(screen.queryByRole("checkbox", { name: "Pendaftaran berbayar" })).toBeNull();
+      await addPrizeTitled("Medali");
+      fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=5`));
+      expect(calls.filter(({ key }) => key.includes("/fee"))).toEqual([]);
+    });
+
+    it("asks before leaving a step with an unsaved round", async () => {
+      stubFetchRoutes(partRoutes());
+
+      render(shellWithPartsAt(3));
+
+      fireEvent.click(await screen.findByRole("button", { name: "Tambah tahapan" }));
+      fireEvent.change(screen.getByLabelText("Nama tahapan"), { target: { value: "Penyisihan" } });
+      fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
+
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText("Perubahan belum tersimpan")).toBeTruthy();
+      expect(mockPush).not.toHaveBeenCalled();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Tetap di sini" }));
+      expect(inputValue("Nama tahapan")).toBe("Penyisihan");
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it("leaves a step without asking when no part has changed", async () => {
+      stubFetchRoutes(partRoutes());
+
+      render(shellWithPartsAt(3));
+
+      await screen.findByRole("button", { name: "Tambah tahapan" });
+      fireEvent.click(screen.getByRole("button", { name: "Kembali" }));
+
+      expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=2`);
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    it("asks before another section opens with an unsaved tag", async () => {
+      stubFetchRoutes(partRoutes(PUBLISHED));
+
+      render(shellWithPartsAt(1));
+
+      fireEvent.click(await screen.findByRole("checkbox", { name: FIRST_TAG }));
+      const notPrevented = fireEvent.click(
+        within(sectionNav()).getByRole("link", { name: "Jadwal" }),
+      );
+
+      expect(notPrevented).toBe(false);
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText("Perubahan belum tersimpan")).toBeTruthy();
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it("warns before the page unloads once a part has unsaved changes", async () => {
+      stubFetchRoutes(partRoutes());
+
+      render(shellWithPartsAt(1));
+
+      const tag = await screen.findByRole("checkbox", { name: FIRST_TAG });
+      expect(unloadIsPrevented()).toBe(false);
+      fireEvent.click(tag);
+
+      expect(unloadIsPrevented()).toBe(true);
+    });
+
+    it("asks to save before publishing while a part has unsaved changes", async () => {
+      stubFetchRoutes(partRoutes());
+
+      render(shellWithPartsAt(1));
+
+      fireEvent.click(await screen.findByRole("checkbox", { name: FIRST_TAG }));
+
+      expect(readinessNote()?.textContent).toContain("Simpan perubahan sebelum menerbitkan");
+    });
+
+    it("saves a published section in which only a part changed", async () => {
+      const calls = stubFetchRoutes(partRoutes(PUBLISHED));
+
+      render(shellWithPartsAt(2));
+
+      fireEvent.change(await screen.findByLabelText("Catatan kelayakan"), {
+        target: { value: "Terbuka untuk umum." },
+      });
+      fireEvent.click(saveButton());
+
+      expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
+      expect(writeKeys(calls)).toEqual([`PUT ${COMPETITION_URL}/eligibility`]);
+      expect(calls.find(({ key }) => key === `PUT ${COMPETITION_URL}/eligibility`)?.body).toEqual({
+        eligibilityNote: "Terbuka untuk umum.",
+      });
+      expect(screen.getAllByText("Perubahan tersimpan.")).toHaveLength(1);
+      await waitFor(() =>
+        expect(readinessNote()?.textContent).not.toContain("Simpan perubahan sebelum menerbitkan"),
+      );
+
+      fireEvent.click(saveButton());
+
+      await waitFor(() => expect(screen.getAllByText("Perubahan tersimpan.")).toHaveLength(2));
+      expect(writeKeys(calls)).toEqual([`PUT ${COMPETITION_URL}/eligibility`]);
+    });
+
+    it("shows the connection message when a published Simpan request throws", async () => {
+      const watcher = watchUnhandledRejections();
+      try {
+        stubFetchSequence([
+          () => okJson({ competition: PUBLISHED, publishReadiness: READY }),
+          failingRequest,
+        ]);
+
+        render(shellAt(1));
+
+        await screen.findByRole("button", { name: "Simpan" });
+        fireEvent.change(screen.getByLabelText(/^Judul/), {
+          target: { value: "Lomba Contoh Baru" },
+        });
+        fireEvent.click(saveButton());
+
+        expect(await screen.findByText(NETWORK_ERROR_MESSAGE)).toBeTruthy();
+        await waitFor(() => expect(saveButton().hasAttribute("disabled")).toBe(false));
+        expect(saveButton().hasAttribute("aria-busy")).toBe(false);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(watcher.unhandled).not.toHaveBeenCalled();
+      } finally {
+        watcher.stop();
+      }
+    });
+
+    it("shows the connection message when Terbitkan on step 5 throws", async () => {
+      const watcher = watchUnhandledRejections();
+      try {
+        stubFetchSequence([() => loadOk(READY), failingRequest]);
+
+        render(shellAt(5));
+
+        fireEvent.click(await screen.findByRole("button", { name: "Terbitkan" }));
+
+        expect(await screen.findByText(NETWORK_ERROR_MESSAGE)).toBeTruthy();
+        await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
+        expect(publishButton().hasAttribute("disabled")).toBe(false);
+        expect(publishButton().hasAttribute("aria-busy")).toBe(false);
+        expect(mockPush).not.toHaveBeenCalled();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(watcher.unhandled).not.toHaveBeenCalled();
+      } finally {
+        watcher.stop();
+      }
+    });
+
+    it("shows the connection message when the single-page Terbitkan throws", async () => {
+      const watcher = watchUnhandledRejections();
+      try {
+        stubFetchSequence([() => loadOk(READY), failingRequest]);
+
+        mount();
+
+        await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(false));
+        fireEvent.click(publishButton());
+
+        expect(await screen.findByText(NETWORK_ERROR_MESSAGE)).toBeTruthy();
+        await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(false));
+        expect(publishButton().hasAttribute("aria-busy")).toBe(false);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(watcher.unhandled).not.toHaveBeenCalled();
+      } finally {
+        watcher.stop();
+      }
+    });
+
+    it("names the part whose save request throws and stays on the step", async () => {
+      stubFetchRoutes({
+        ...partRoutes(),
+        [`PUT ${COMPETITION_URL}/prizes`]: [failingRequest],
+      });
+
+      render(shellWithPartsAt(4));
+
+      await screen.findByRole("button", { name: "Lanjut" });
+      await addPrizeTitled("Medali");
+      fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+      expect(
+        await screen.findByText(
+          "Hadiah belum tersimpan. Gagal menyimpan hadiah karena gangguan koneksi.",
+        ),
+      ).toBeTruthy();
+      await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
+      expect(mockPush).not.toHaveBeenCalled();
+      expect(inputValue("Nama hadiah")).toBe("Medali");
+    });
+
+    it.each([
+      {
+        refusal: "no amount",
+        edit: () =>
+          fireEvent.change(screen.getByLabelText("Biaya per pendaftaran"), {
+            target: { value: "" },
+          }),
+        reason: "Isi biaya per pendaftaran.",
+      },
+      {
+        refusal: "no acknowledgement",
+        edit: () =>
+          fireEvent.change(screen.getByLabelText("Batas waktu pembayaran (hari)"), {
+            target: { value: "5" },
+          }),
+        reason:
+          "Setujui rincian biaya layanan Lombakita sebelum mengaktifkan pendaftaran berbayar.",
+      },
+    ])(
+      "refuses a paid fee with $refusal on the client and sends nothing",
+      async ({ edit, reason }) => {
+        const calls = stubFetchRoutes(partRoutes());
+
+        render(shellWithPartsAt(4));
+
+        await screen.findByRole("button", { name: "Lanjut" });
+        await screen.findByLabelText("Biaya per pendaftaran");
+        edit();
+        fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+        expect(
+          await screen.findByText(`Biaya pendaftaran belum tersimpan. ${reason}`),
+        ).toBeTruthy();
+        expect(writeKeys(calls)).not.toContain(`PUT ${COMPETITION_URL}/fee`);
+        await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
+        expect(mockPush).not.toHaveBeenCalled();
+      },
+    );
+
+    it("keeps a read-only competition's parts read-only", async () => {
+      stubFetchRoutes(partRoutes(ARCHIVED));
+
+      render(
+        <UIPrimitivesProvider>
+          <PageTransitionProvider>
+            <InstitutionCompetitionEditShell
+              institutionSlug="institusi-contoh"
+              competitionId="comp_1"
+              expectedUserId="org_1"
+              initialPublishReadiness={{ canPublish: true, blockers: [] }}
+              step={1}
+              stepChildren={realParts(true)}
+            >
+              <CompetitionTagsEditor competitionId="comp_1" expectedUserId="org_1" />
+            </InstitutionCompetitionEditShell>
+          </PageTransitionProvider>
+        </UIPrimitivesProvider>,
+      );
+
+      await screen.findByRole("checkbox", { name: FIRST_TAG });
+      const controls = [
+        ...document.querySelectorAll(
+          ".competition-editor-parts input, .competition-editor-parts button",
+        ),
+      ];
+      expect(controls.length).toBeGreaterThan(0);
+      for (const control of controls) {
+        expect(control.matches(":disabled"), control.outerHTML).toBe(true);
+      }
+    });
+
+    it("locks the parts while a published Simpan saves", async () => {
+      let releaseNote: (response: Response) => void = () => {};
+      const heldNote = new Promise<Response>((resolve) => {
+        releaseNote = resolve;
+      });
+      const calls = stubFetchRoutes({
+        ...partRoutes(PUBLISHED),
+        [`PUT ${COMPETITION_URL}/eligibility`]: [() => heldNote],
+      });
+
+      render(shellWithPartsAt(2));
+
+      fireEvent.change(await screen.findByLabelText("Catatan kelayakan"), {
+        target: { value: "Terbuka untuk umum." },
+      });
+      fireEvent.click(saveButton());
+
+      await waitFor(() => expect(writeKeys(calls)).toContain(`PUT ${COMPETITION_URL}/eligibility`));
+      expect(screen.getByLabelText("Catatan kelayakan").matches(":disabled")).toBe(true);
+
+      releaseNote(okJson({}));
+
+      await waitFor(() =>
+        expect(screen.getByLabelText("Catatan kelayakan").matches(":disabled")).toBe(false),
+      );
+      expect(inputValue("Catatan kelayakan")).toBe("Terbuka untuk umum.");
+    });
+
+    it.each([
+      {
+        row: "a prize with only a cash amount",
+        step: 4 as const,
+        addRow: "Tambah hadiah",
+        type: () =>
+          fireEvent.change(screen.getByLabelText("Nominal tunai (Rp)"), {
+            target: { value: "500000" },
+          }),
+        typedIsKept: () => inputValue("Nominal tunai (Rp)") === "500000",
+        clear: () =>
+          fireEvent.change(screen.getByLabelText("Nominal tunai (Rp)"), {
+            target: { value: "" },
+          }),
+        refusal: `Hadiah belum tersimpan. ${PRIZE_TITLE_REASON}`,
+        partWrite: `PUT ${COMPETITION_URL}/prizes`,
+        blankBody: { prizes: [] },
+      },
+      {
+        row: "a prize with only Termasuk sertifikat ticked",
+        step: 4 as const,
+        addRow: "Tambah hadiah",
+        type: () => fireEvent.click(screen.getByRole("checkbox", { name: "Termasuk sertifikat" })),
+        typedIsKept: () =>
+          (screen.getByRole("checkbox", { name: "Termasuk sertifikat" }) as HTMLInputElement)
+            .checked,
+        clear: () => fireEvent.click(screen.getByRole("checkbox", { name: "Termasuk sertifikat" })),
+        refusal: `Hadiah belum tersimpan. ${PRIZE_TITLE_REASON}`,
+        partWrite: `PUT ${COMPETITION_URL}/prizes`,
+        blankBody: { prizes: [] },
+      },
+      {
+        row: "a round with only a description",
+        step: 3 as const,
+        addRow: "Tambah tahapan",
+        type: () =>
+          fireEvent.change(screen.getByLabelText("Deskripsi"), {
+            target: { value: "Babak awal" },
+          }),
+        typedIsKept: () => inputValue("Deskripsi") === "Babak awal",
+        clear: () =>
+          fireEvent.change(screen.getByLabelText("Deskripsi"), { target: { value: "" } }),
+        refusal: `Tahapan & linimasa belum tersimpan. ${ROUND_TITLE_REASON}`,
+        partWrite: `PUT ${COMPETITION_URL}/rounds`,
+        blankBody: { rounds: [] },
+      },
+    ])(
+      "refuses a typed round or prize with no title and sends nothing ($row)",
+      async ({ step, addRow, type, typedIsKept, clear, refusal, partWrite, blankBody }) => {
+        const calls = stubFetchRoutes(partRoutes());
+
+        render(shellWithPartsAt(step));
+
+        fireEvent.click(await screen.findByRole("button", { name: addRow }));
+        type();
+        fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+        expect(await screen.findByText(refusal)).toBeTruthy();
+        await waitFor(() => expect(document.querySelector(".page-transition")).toBeNull());
+        expect(writeKeys(calls)).not.toContain(partWrite);
+        expect(typedIsKept()).toBe(true);
+        expect(mockPush).not.toHaveBeenCalled();
+
+        clear();
+        fireEvent.click(screen.getByRole("button", { name: "Lanjut" }));
+
+        await waitFor(() =>
+          expect(mockPush).toHaveBeenCalledWith(`${EDIT_URL}?langkah=${step + 1}`),
+        );
+        expect(screen.queryAllByText(refusal).length).toBeLessThanOrEqual(1);
+        expect(calls.find(({ key }) => key === partWrite)?.body).toEqual(blankBody);
+      },
+    );
   });
 });

@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { UIPrimitivesProvider } from "@/components/ui/primitives";
 import { ALLOWED_COMPETITION_TAGS } from "@/lib/competitions/tags";
 import { CompetitionTagsEditor } from "./competition-tags-editor";
+import {
+  CompetitionEditorPartsContext,
+  type CompetitionPartSaveResult,
+  type ReportCompetitionEditorPart,
+} from "./competition-editor-parts";
 
 const [FIRST_TAG, SECOND_TAG] = ALLOWED_COMPETITION_TAGS;
 
@@ -41,10 +46,17 @@ describe("CompetitionTagsEditor", () => {
       return okJson({ tags: [FIRST_TAG] });
     });
     vi.stubGlobal("fetch", fetchSpy);
+    const reportPart = vi.fn<ReportCompetitionEditorPart>();
+    const lastReportedPart = () => {
+      const reports = reportPart.mock.calls.filter(([key]) => key === "tags");
+      return reports[reports.length - 1]?.[1];
+    };
 
     render(
       <UIPrimitivesProvider>
-        <CompetitionTagsEditor competitionId="comp_1" expectedUserId="org_1" />
+        <CompetitionEditorPartsContext.Provider value={reportPart}>
+          <CompetitionTagsEditor competitionId="comp_1" expectedUserId="org_1" />
+        </CompetitionEditorPartsContext.Provider>
       </UIPrimitivesProvider>,
     );
 
@@ -54,16 +66,25 @@ describe("CompetitionTagsEditor", () => {
       "/api/v1/competitions/comp_1/tags",
       expect.objectContaining({ cache: "no-store" }),
     );
+    expect(lastReportedPart()?.isDirty).toBe(false);
 
     fireEvent.click(screen.getByRole("checkbox", { name: SECOND_TAG }));
-    fireEvent.click(screen.getByRole("button", { name: "Simpan" }));
+    expect(lastReportedPart()?.isDirty).toBe(true);
 
-    expect(await screen.findByText("Tag berhasil disimpan.")).toBeTruthy();
+    let result: CompetitionPartSaveResult | undefined;
+    await act(async () => {
+      result = await lastReportedPart()?.save();
+    });
+
+    expect(result).toEqual({ ok: true });
     const putCall = fetchSpy.mock.calls.find(([, init]) => init?.method === "PUT");
     expect(putCall?.[0]).toBe("/api/v1/competitions/comp_1/tags");
     const headers = new Headers(putCall?.[1]?.headers);
     expect(headers.get("X-Expected-User-Id")).toBe("org_1");
     expect(JSON.parse(putCall?.[1]?.body as string)).toEqual({ tags: [FIRST_TAG, SECOND_TAG] });
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(lastReportedPart()?.isDirty).toBe(false);
+    expect(screen.queryByRole("button", { name: "Simpan" })).toBeNull();
+    expect(screen.queryByText("Tag berhasil disimpan.")).toBeNull();
   });
 });

@@ -1,8 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
+import {
+  useCompetitionEditorPart,
+  type CompetitionPartSaveResult,
+} from "@/components/institution/competition-editor-parts";
 import { errorMessageFor } from "@/lib/errors/error-copy";
 import { readErrorCode, sessionFetch } from "@/lib/session/session-fetch";
 
@@ -25,8 +28,8 @@ export const CompetitionEligibilityEditor = ({
 }) => {
   const { addToast } = useToast();
   const [note, setNote] = useState("");
+  const [savedNote, setSavedNote] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
 
   const loadNote = useCallback(async () => {
     setIsLoading(true);
@@ -41,6 +44,7 @@ export const CompetitionEligibilityEditor = ({
       }
       const { eligibilityNote } = (await response.json()) as { eligibilityNote: string | null };
       setNote(eligibilityNote ?? "");
+      setSavedNote(eligibilityNote ?? "");
     } catch {
       addToast({ type: "error", message: "Gagal memuat informasi kelayakan." });
     } finally {
@@ -52,9 +56,10 @@ export const CompetitionEligibilityEditor = ({
     void loadNote();
   }, [loadNote]);
 
-  const saveNote = async () => {
-    if (isSaving) return;
-    setIsSaving(true);
+  const isDirty = note !== savedNote;
+
+  const saveNote = async (): Promise<CompetitionPartSaveResult> => {
+    const sentNote = note;
     try {
       const response = await sessionFetch(
         expectedUserId,
@@ -62,24 +67,21 @@ export const CompetitionEligibilityEditor = ({
         {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ eligibilityNote: note }),
+          body: JSON.stringify({ eligibilityNote: sentNote }),
         },
       );
       if (!response.ok) {
         const code = await readErrorCode(response);
-        addToast({
-          type: "error",
-          message: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK),
-        });
-        return;
+        return { ok: false, errorMessage: errorMessageFor(code, SAVE_ERROR_COPY, SAVE_FALLBACK) };
       }
-      addToast({ type: "success", message: "Informasi kelayakan berhasil disimpan." });
+      setSavedNote(sentNote);
+      return { ok: true };
     } catch {
-      addToast({ type: "error", message: "Gagal menyimpan informasi karena gangguan koneksi." });
-    } finally {
-      setIsSaving(false);
+      return { ok: false, errorMessage: "Gagal menyimpan informasi karena gangguan koneksi." };
     }
   };
+
+  useCompetitionEditorPart("eligibility", isDirty, saveNote);
 
   return (
     <section className="content-section surface-card card-padding stack-md">
@@ -107,9 +109,6 @@ export const CompetitionEligibilityEditor = ({
               onChange={(event) => setNote(event.target.value)}
             />
           </div>
-          <Button type="button" onClick={saveNote} loading={isSaving}>
-            Simpan
-          </Button>
         </div>
       )}
     </section>

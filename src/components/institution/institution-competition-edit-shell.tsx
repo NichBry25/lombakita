@@ -28,6 +28,14 @@ import {
 } from "@/components/ui";
 import { useModal, useToast } from "@/components/ui/primitives";
 import {
+  COMPETITION_EDITOR_PART_LABELS,
+  COMPETITION_EDITOR_PART_ORDER,
+  CompetitionEditorPartsContext,
+  type CompetitionEditorPart,
+  type CompetitionEditorPartKey,
+  type ReportCompetitionEditorPart,
+} from "@/components/institution/competition-editor-parts";
+import {
   COMPETITION_STEP_COUNT,
   COMPETITION_STEP_TITLES,
   getCompetitionResumeStep,
@@ -110,6 +118,11 @@ type FormSnapshot = {
   allowCancellation: boolean;
   cutoffDays: string;
 };
+
+type MainFieldsSaveOutcome =
+  | { status: "saved"; sentSnapshot: FormSnapshot }
+  | { status: "unchanged" }
+  | { status: "failed" };
 
 type RefusalAction = "load" | "save";
 
@@ -225,6 +238,9 @@ const snapshotEquals = (a: FormSnapshot, b: FormSnapshot): boolean =>
   a.participantConfirmation === b.participantConfirmation &&
   a.allowCancellation === b.allowCancellation &&
   a.cutoffDays === b.cutoffDays;
+
+const describePartSaveFailure = (key: CompetitionEditorPartKey, reason: string): string =>
+  `${COMPETITION_EDITOR_PART_LABELS[key]} belum tersimpan. ${reason}`;
 
 // The steps whose fields can be edited: the sections of a published competition.
 const SECTION_STEPS = [1, 2, 3, 4] as const;
@@ -391,7 +407,8 @@ export const InstitutionCompetitionEditShell = ({
   // (assertPersonalInstitutionIndividualMode, 422) remains the authoritative enforcement.
   isPersonal?: boolean;
   // Additional authoring surfaces (e.g. the prizes editor) rendered inside the page shell so the
-  // page keeps a single <main>. The parent page wires these because they carry their own save.
+  // page keeps a single <main>. Each reports its unsaved state and its save to the shell, which
+  // saves them with the step.
   children?: ReactNode;
   // Absent: the whole editor on one page. Null: the URL named no valid step, so a draft is sent to
   // the step it should resume at, a published competition to section 1. Other statuses ignore it.
@@ -496,6 +513,23 @@ export const InstitutionCompetitionEditShell = ({
   }
 
   const isDirty = savedSnapshot !== null && !snapshotEquals(currentSnapshot(), savedSnapshot);
+
+  const [editorParts, setEditorParts] = useState<
+    Partial<Record<CompetitionEditorPartKey, CompetitionEditorPart>>
+  >({});
+  const reportEditorPart = useCallback<ReportCompetitionEditorPart>((key, part) => {
+    setEditorParts((previous) => {
+      const next = { ...previous };
+      delete next[key];
+      if (part !== null) next[key] = part;
+      return next;
+    });
+  }, []);
+
+  const partsHaveUnsavedChanges = COMPETITION_EDITOR_PART_ORDER.some(
+    (key) => editorParts[key]?.isDirty === true,
+  );
+  const hasUnsavedChanges = isDirty || partsHaveUnsavedChanges;
   const missingPublishFields = getMissingCompetitionPublishFields({
     title,
     description,
@@ -532,7 +566,10 @@ export const InstitutionCompetitionEditShell = ({
   const resultAnnouncementError = getTimelineFieldError(timelineErrors, "resultAnnouncementAt");
   const timelineIsInvalid = timelineErrors.length > 0;
   const clientPublishIsBlocked =
-    isDirty || missingPublishFields.length > 0 || timelineIsInvalid || registrationEndIsPast;
+    hasUnsavedChanges ||
+    missingPublishFields.length > 0 ||
+    timelineIsInvalid ||
+    registrationEndIsPast;
 
   // Whether `editorStatusMessage` below is about to say, in this form's own terms, what the
   // checklist reason would say. The two overlap on missing fields, out-of-order dates and a closed
@@ -573,7 +610,7 @@ export const InstitutionCompetitionEditShell = ({
     : "Semua perubahan tersimpan dan siap diterbitkan";
   if (timelineIsInvalid) {
     editorStatusMessage = `Perbaiki urutan jadwal: ${timelineErrors[0]?.message}`;
-  } else if (isDirty) {
+  } else if (hasUnsavedChanges) {
     editorStatusMessage = "Simpan perubahan sebelum menerbitkan";
   } else if (missingPublishFields.length > 0) {
     editorStatusMessage = `Lengkapi untuk menerbitkan: ${missingPublishFields.join(", ")}`;
@@ -675,15 +712,15 @@ export const InstitutionCompetitionEditShell = ({
     return () => window.clearTimeout(id);
   }, [load]);
 
-  // Warn browser on page unload/refresh when form is dirty.
+  // Warn browser on page unload/refresh while the main fields or any part have unsaved changes.
   useEffect(() => {
-    if (!isDirty) return;
+    if (!hasUnsavedChanges) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [isDirty]);
+  }, [hasUnsavedChanges]);
 
   useEffect(() => {
     if (competition?.status === "published") {
@@ -749,23 +786,17 @@ export const InstitutionCompetitionEditShell = ({
     router.replace(getCompetitionStepHref(institutionSlug, savedSnapshot.slug, 1));
   }, [step, competition?.status, savedSnapshot, institutionSlug, router]);
 
-  // Resolves to the form values the save sent when it succeeded, and to undefined otherwise.
-  const onSave = async (
-    event?: React.FormEvent<HTMLFormElement>,
-  ): Promise<FormSnapshot | undefined> => {
-    event?.preventDefault();
+  // Sends the main fields, or nothing for a published form without changes. A refusal shows its own
+  // toast or modal. A request that throws escapes to saveCurrentStep.
+  const saveMainFields = async (): Promise<MainFieldsSaveOutcome> => {
     if (timelineIsInvalid) {
       addToast({
         type: "error",
         message: `Perbaiki urutan jadwal: ${timelineErrors.map(({ message }) => message).join(" ")}`,
       });
-      return;
+      return { status: "failed" };
     }
-    if (isPublished && !isDirty) {
-      addToast({ type: "success", message: "Perubahan tersimpan." });
-      return;
-    }
-    setIsSubmitting(true);
+    if (isPublished && !isDirty) return { status: "unchanged" };
 
     const sentSnapshot = currentSnapshot();
     const patch: Record<string, unknown> = {
@@ -854,31 +885,60 @@ export const InstitutionCompetitionEditShell = ({
           actions: [{ label: "Mengerti", variant: "primary", autoClose: true, onClick: () => {} }],
         });
         addToast({ type: "error", message });
-        setIsSubmitting(false);
-        return;
+        return { status: "failed" };
       }
       addToast({ type: "error", message });
-      setIsSubmitting(false);
-      return;
+      return { status: "failed" };
     }
 
-    addToast({ type: "success", message: "Perubahan tersimpan." });
-    setIsSubmitting(false);
-    void load();
-    return sentSnapshot;
+    return { status: "saved", sentSnapshot };
   };
 
-  // The save behind "Lanjut" and "Simpan dan keluar". onSave lets a request that throws escape, and
-  // here the user stays on the step, so it becomes a toast and a save that did not succeed.
-  const saveStepValues = async (): Promise<FormSnapshot | null> => {
+  // Saves each part of this step that has unsaved changes, in COMPETITION_EDITOR_PART_ORDER, and
+  // stops at the first that fails, naming it.
+  const saveChangedParts = async (): Promise<boolean> => {
+    for (const key of COMPETITION_EDITOR_PART_ORDER) {
+      const part = editorParts[key];
+      if (!part?.isDirty) continue;
+      const result = await part.save();
+      if (!result.ok) {
+        addToast({ type: "error", message: describePartSaveFailure(key, result.errorMessage) });
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // Saves the main fields, then each changed part of this step. Resolves to the main form values
+  // now saved when everything saved, and to null when anything failed, with the failure already
+  // shown.
+  const saveCurrentStep = async (): Promise<FormSnapshot | null> => {
+    setIsSubmitting(true);
     try {
-      const sentSnapshot = await onSave();
-      return sentSnapshot ?? null;
+      const mainOutcome = await saveMainFields();
+      if (mainOutcome.status === "failed") return null;
+      if (mainOutcome.status === "saved") {
+        // The step change restores savedSnapshot, so it must hold what was just saved. load() waits until
+        // every part has saved: its skeleton unmounts the parts and would drop what is typed in them.
+        setSavedSnapshot(mainOutcome.sentSnapshot);
+      }
+      const partsSaved = await saveChangedParts();
+      if (!partsSaved) return null;
+      addToast({ type: "success", message: "Perubahan tersimpan." });
+      if (mainOutcome.status === "unchanged") return currentSnapshot();
+      void load();
+      return mainOutcome.sentSnapshot;
     } catch {
       addToast({ type: "error", message: NETWORK_ERROR_MESSAGE });
-      setIsSubmitting(false);
       return null;
+    } finally {
+      setIsSubmitting(false);
     }
+  };
+
+  const onSaveSection = (event?: React.FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
+    void saveCurrentStep();
   };
 
   const listHref = `/institution/${institutionSlug}/competitions`;
@@ -891,16 +951,13 @@ export const InstitutionCompetitionEditShell = ({
     const nextStep = (activeStep + 1) as CompetitionStep;
     setPendingStepAction("next");
     begin("Menyimpan kompetisi…");
-    const sentSnapshot = await saveStepValues();
+    const savedValues = await saveCurrentStep();
     setPendingStepAction(null);
-    if (!sentSnapshot) {
+    if (!savedValues) {
       end();
       return;
     }
-    // The step change restores savedSnapshot, so it must already hold what was just saved; the
-    // reload onSave started replaces it with the server's values when it lands.
-    setSavedSnapshot(sentSnapshot);
-    router.push(getCompetitionStepHref(institutionSlug, sentSnapshot.slug, nextStep));
+    router.push(getCompetitionStepHref(institutionSlug, savedValues.slug, nextStep));
   };
 
   const onStepFormSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -912,9 +969,9 @@ export const InstitutionCompetitionEditShell = ({
     runAndNavigate(
       async () => {
         setPendingStepAction("exit");
-        const sentSnapshot = await saveStepValues();
+        const savedValues = await saveCurrentStep();
         setPendingStepAction(null);
-        if (!sentSnapshot) return false;
+        if (!savedValues) return false;
         router.push(listHref);
         return true;
       },
@@ -931,7 +988,7 @@ export const InstitutionCompetitionEditShell = ({
         message: clientPublishIsBlocked
           ? timelineIsInvalid
             ? `Perbaiki urutan jadwal: ${timelineErrors.map(({ message }) => message).join(" ")}`
-            : isDirty
+            : hasUnsavedChanges
               ? "Simpan perubahan sebelum menerbitkan kompetisi."
               : missingPublishFields.length > 0
                 ? `Lengkapi bidang wajib sebelum menerbitkan: ${missingPublishFields.join(", ")}.`
@@ -959,6 +1016,9 @@ export const InstitutionCompetitionEditShell = ({
       }
       addToast({ type: "success", message: "Kompetisi diterbitkan." });
       return true;
+    } catch {
+      addToast({ type: "error", message: NETWORK_ERROR_MESSAGE });
+      return false;
     } finally {
       setIsSubmitting(false);
       setIsPublishing(false);
@@ -1028,7 +1088,7 @@ export const InstitutionCompetitionEditShell = ({
   };
 
   const handleBack = () => {
-    if (!isDirty) {
+    if (!hasUnsavedChanges) {
       openBackTarget();
       return;
     }
@@ -1040,7 +1100,7 @@ export const InstitutionCompetitionEditShell = ({
     href: string,
     isCurrentSection: boolean,
   ) => {
-    if (!isDirty || isCurrentSection) return;
+    if (!hasUnsavedChanges || isCurrentSection) return;
     event.preventDefault();
     confirmLeavingUnsavedChanges(() => {
       begin("Membuka bagian kompetisi…");
@@ -1293,6 +1353,8 @@ export const InstitutionCompetitionEditShell = ({
   ));
 
   const isDraftStep = activeStep !== null && isDraft;
+  const editorPartsNode =
+    activeStep === null ? children : activeStep === 5 ? null : stepChildren?.[activeStep];
 
   return (
     <main className="page-shell app-page competition-form-page">
@@ -1314,7 +1376,10 @@ export const InstitutionCompetitionEditShell = ({
       ) : null}
 
       {!isEditable || activeStep === 5 ? null : (
-        <form onSubmit={isDraftStep ? onStepFormSubmit : onSave} className="competition-edit-form">
+        <form
+          onSubmit={isDraftStep ? onStepFormSubmit : onSaveSection}
+          className="competition-edit-form"
+        >
           {showsStep(1) ? (
             <section className="content-section">
               <div className="section-heading">
@@ -1595,7 +1660,13 @@ export const InstitutionCompetitionEditShell = ({
 
       {activeStep === 5 ? stepSummarySections : null}
 
-      {activeStep === null ? children : activeStep === 5 ? null : stepChildren?.[activeStep]}
+      <CompetitionEditorPartsContext.Provider value={reportEditorPart}>
+        {editorPartsNode === null || editorPartsNode === undefined ? null : (
+          <fieldset className="competition-editor-parts" disabled={!isEditable || isSubmitting}>
+            {editorPartsNode}
+          </fieldset>
+        )}
+      </CompetitionEditorPartsContext.Provider>
 
       {!isDraftStep ? (
         <FormActionBar>
@@ -1605,7 +1676,7 @@ export const InstitutionCompetitionEditShell = ({
               {publishReadinessNote}
               <Button
                 type="button"
-                onClick={() => onSave()}
+                onClick={() => onSaveSection()}
                 loading={isSubmitting}
                 disabled={isSubmitting || timelineIsInvalid}
                 leadingIcon={<Icon name="save" />}

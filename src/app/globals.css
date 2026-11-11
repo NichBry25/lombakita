@@ -5609,6 +5609,14 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   -webkit-line-clamp: unset;
 }
 
+/* The parts sit in one fieldset so a read-only competition, or a save in progress, can disable
+   them all at once; the grid keeps the page's gap between them. */
+.competition-editor-parts {
+  display: grid;
+  gap: var(--space-8);
+  min-inline-size: 0;
+}
+
 /* A key and its value share one line here, so a row is a line of text rather than a block. 8px
    between lines of a three-item list reads as three separate statements; 4px reads as one list.
    Every detail list in the app uses this, so the rhythm stays the same everywhere. */
