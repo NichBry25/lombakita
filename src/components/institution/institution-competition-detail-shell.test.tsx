@@ -217,6 +217,7 @@ describe("InstitutionCompetitionDetailShell share panel", () => {
 
     expect(await screen.findByText("Kompetisi sudah terbit")).toBeTruthy();
     expect(screen.getByText(publicUrl())).toBeTruthy();
+    expect(screen.getByText(publicUrl()).tagName).toBe("DD");
     expect(screen.getByRole("link", { name: "Lihat halaman" }).getAttribute("href")).toBe(
       "/competitions/acme/lomba-1",
     );
@@ -231,6 +232,19 @@ describe("InstitutionCompetitionDetailShell share panel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Salin tautan" }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(publicUrl()));
+    expect(await screen.findByText("Tautan disalin ke papan klip.")).toBeTruthy();
+  });
+
+  it("tells the host when the address could not be copied", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    stubFetchSequence([() => loadOk(BLOCKED, PUBLISHED_COMPETITION)]);
+
+    mount("acme");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Salin tautan" }));
+
+    expect(await screen.findByText("Gagal menyalin tautan. Coba lagi.")).toBeTruthy();
   });
 
   it("shows no share panel for a draft", async () => {
@@ -239,6 +253,22 @@ describe("InstitutionCompetitionDetailShell share panel", () => {
     mount("acme");
 
     await screen.findByRole("button", { name: "Terbitkan" });
+    expect(screen.queryByText("Kompetisi sudah terbit")).toBeNull();
+  });
+
+  it("shows no share panel for a cancelled competition", async () => {
+    stubFetchSequence([
+      () =>
+        loadOk(BLOCKED, {
+          ...PUBLISHED_COMPETITION,
+          cancelledAt: "2026-11-01T00:00:00.000Z",
+          cancellationReason: "insufficient_participants",
+        }),
+    ]);
+
+    mount("acme");
+
+    await screen.findByText("Dibatalkan");
     expect(screen.queryByText("Kompetisi sudah terbit")).toBeNull();
   });
 });

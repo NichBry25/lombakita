@@ -15,9 +15,12 @@ vi.mock("@/server/auth/page-guard", () => ({
 vi.mock("@/server/auth/role-verification", () => ({
   getUnverifiedRoles: vi.fn().mockResolvedValue([]),
 }));
-vi.mock("@/server/auth/recruiter-tier", () => ({
-  getRecruiterTierForAccount: mockGetRecruiterTierForAccount,
-}));
+vi.mock("@/server/auth/recruiter-tier", async () => {
+  const actual = await vi.importActual<typeof import("@/server/auth/recruiter-tier")>(
+    "@/server/auth/recruiter-tier",
+  );
+  return { ...actual, getRecruiterTierForAccount: mockGetRecruiterTierForAccount };
+});
 vi.mock("@/server/recruiter-verification/recruiter-verification-service", () => ({
   getLatestRecruiterVerificationForUser: vi.fn().mockResolvedValue(null),
 }));

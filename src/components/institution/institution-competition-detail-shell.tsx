@@ -387,10 +387,11 @@ export const InstitutionCompetitionDetailShell = ({
   const resolvedAnnouncement = resolveResultAnnouncement(competition);
   const announcementIsDerived = resolvedAnnouncement.source === "derived";
   const publicPath = `/competitions/${encodeURIComponent(institutionSlug)}/${encodeURIComponent(competition.slug)}`;
+  const publicUrl = `${window.location.origin}${publicPath}`;
 
   const copyPublicUrl = async () => {
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}${publicPath}`);
+      await navigator.clipboard.writeText(publicUrl);
       addToast({ type: "success", message: "Tautan disalin ke papan klip." });
     } catch {
       addToast({ type: "error", message: "Gagal menyalin tautan. Coba lagi." });
@@ -423,7 +424,12 @@ export const InstitutionCompetitionDetailShell = ({
           <p className="muted-copy">
             Bagikan tautan ini agar peserta dapat menemukan dan mendaftar.
           </p>
-          <p className="data-text">{`${window.location.origin}${publicPath}`}</p>
+          <dl className="management-detail-grid">
+            <div className="management-detail-wide">
+              <dt>Tautan publik</dt>
+              <dd className="data-text">{publicUrl}</dd>
+            </div>
+          </dl>
           <div className="record-actions">
             <Button
               type="button"

@@ -45,7 +45,7 @@ const CREATE_ERROR_COPY: Partial<Record<string, string>> = {
     "Alamat institusi personal belum dapat dibuat. Coba lagi atau hubungi dukungan Lombakita.",
 };
 
-const CREATE_FALLBACK = "Institusi personal gagal dibuat. Coba lagi.";
+const CREATE_FALLBACK = "Ruang kerja personal gagal disiapkan. Coba lagi.";
 
 export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUserId: string }) => {
   const router = useRouter();

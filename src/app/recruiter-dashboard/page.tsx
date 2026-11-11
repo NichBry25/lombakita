@@ -3,7 +3,11 @@ import { SecondRoleBanner } from "@/components/auth/second-role-banner";
 import { Icon, PageHeader } from "@/components/ui";
 import { requireRolePage } from "@/server/auth/page-guard";
 import { getUnverifiedRoles } from "@/server/auth/role-verification";
-import { getRecruiterTierForAccount } from "@/server/auth/recruiter-tier";
+import {
+  FULL_INSTITUTION_CREATION_MIN_TIER,
+  getRecruiterTierForAccount,
+  meetsRecruiterTier,
+} from "@/server/auth/recruiter-tier";
 import { getLatestRecruiterVerificationForUser } from "@/server/recruiter-verification/recruiter-verification-service";
 import {
   findOwnedPersonalInstitution,
@@ -32,6 +36,9 @@ export default async function RecruiterDashboardPage() {
     findOwnedPersonalInstitution(session.user.id),
   ]);
   const isTrusted = tierState?.recruiterVerificationTier === "elevated";
+  const canCreateFullInstitution = tierState
+    ? meetsRecruiterTier(tierState.recruiterVerificationTier, FULL_INSTITUTION_CREATION_MIN_TIER)
+    : false;
   const startHostingHref = personalInstitution
     ? `/institution/${personalInstitution.slug}/competitions/new`
     : "/institution/personal";
@@ -57,7 +64,7 @@ export default async function RecruiterDashboardPage() {
             <p>Buat draf kompetisi di ruang kerja personal Anda.</p>
           </div>
         </Link>
-        {isTrusted ? (
+        {canCreateFullInstitution ? (
           <Link className="hub-card" href="/institution/create">
             <span className="hub-card-icon">
               <Icon name="building" size="lg" />
