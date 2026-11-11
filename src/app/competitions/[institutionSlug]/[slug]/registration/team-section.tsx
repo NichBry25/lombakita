@@ -87,6 +87,12 @@ const TEAM_ERROR_COPY: SurfaceCopy = {
   team_member_already_registered: "Satu atau lebih anggota tim sudah terdaftar di kompetisi ini.",
   team_state_conflict: "Status tim baru saja berubah. Muat ulang halaman lalu coba lagi.",
   team_not_submitted: "Tim ini belum didaftarkan, jadi tidak ada pendaftaran yang bisa dibatalkan.",
+  // The organiser cannot take payment right now: unverified, no published account, or no fee rule
+  // in force. All three collapse to one code server-side so none of them leaks, and none of them is
+  // the candidate's to fix. The generic "coba lagi" fallback was worse than nothing here: it
+  // describes a transient fault and invites a candidate to retry something that will never succeed.
+  registration_payment_unavailable:
+    "Penyelenggara kompetisi ini belum dapat menerima pembayaran, jadi pendaftaran berbayar belum bisa diproses. Hubungi penyelenggara.",
 };
 
 // On an invitation the already-member refusal is about the invitee, not the caller.
@@ -269,12 +275,6 @@ function TeamCancelReasonForm({
 const TEAM_CANCEL_MESSAGE: Record<string, string> = {
   cancellation_reason_required: "Alasan pembatalan wajib diisi.",
   cancellation_reason_too_long: "Alasan pembatalan terlalu panjang (maksimal 500 karakter).",
-  // The organiser cannot take payment right now: unverified, no published account, or no fee rule
-  // in force. All three collapse to one code server-side so none of them leaks, and none of them is
-  // the candidate's to fix. The generic "coba lagi" fallback was worse than nothing here: it
-  // describes a transient fault and invites a candidate to retry something that will never succeed.
-  registration_payment_unavailable:
-    "Penyelenggara kompetisi ini belum dapat menerima pembayaran, jadi pendaftaran berbayar belum bisa diproses. Hubungi penyelenggara.",
   cancellation_not_supported_for_paid:
     "Pendaftaran tidak dapat dibatalkan setelah bukti transfer dikirim.",
   cancellation_disabled_by_institution:
@@ -333,7 +333,7 @@ function TeamRoster(props: Props & { team: TeamSnapshot }) {
     if (!isCaptain && ownMembership) {
       addToast({
         type: "info",
-        message: `Hanya kapten (${team.captainId.slice(0, 8)}…) yang dapat mendaftarkan atau membubarkan tim.`,
+        message: "Hanya kapten yang dapat mendaftarkan atau membubarkan tim.",
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

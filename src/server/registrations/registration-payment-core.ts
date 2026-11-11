@@ -1,3 +1,5 @@
+import { NextResponse } from "next/server";
+
 // The refusal a candidate sees when a priced competition cannot currently take their money.
 //
 // Its own module, with no server-only imports, so both registration services and the routes that
@@ -28,3 +30,9 @@ export class RegistrationPaymentError extends Error {
     this.name = "RegistrationPaymentError";
   }
 }
+
+export const toRegistrationPaymentErrorResponse = (error: RegistrationPaymentError): NextResponse =>
+  NextResponse.json(
+    { error: { code: error.code, message: error.message } },
+    { status: error.status },
+  );

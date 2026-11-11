@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
+import { RegistrationPaymentError } from "@/server/registrations/registration-payment-core";
 import { TeamError } from "@/server/teams/team-core";
 
 const { requireSessionRole, submitTeamRegistration, cancelTeamRegistration } = vi.hoisted(() => ({
@@ -93,6 +94,24 @@ describe("POST /api/v1/competitions/[competitionId]/teams/[teamId]/registrations
     submitTeamRegistration.mockRejectedValue(new TeamError("team_member_already_registered", "x"));
     const res = await POST(makeRequest("POST"), makeContext());
     expect(res.status).toBe(409);
+  });
+
+  it("answers 409 when the organiser cannot take the payment", async () => {
+    requireSessionRole.mockResolvedValueOnce(candidateSession);
+    submitTeamRegistration.mockRejectedValueOnce(
+      new RegistrationPaymentError(
+        "registration_payment_unavailable",
+        "Kompetisi ini belum dapat menerima pembayaran. Hubungi penyelenggara.",
+      ),
+    );
+    const res = await POST(makeRequest("POST"), makeContext());
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "registration_payment_unavailable",
+        message: "Kompetisi ini belum dapat menerima pembayaran. Hubungi penyelenggara.",
+      },
+    });
   });
 
   // Cross-session form-submission guard: header carries a different user id than the resolved

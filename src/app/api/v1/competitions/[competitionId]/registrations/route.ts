@@ -8,6 +8,10 @@ import {
   RegistrationError,
   toRegistrationErrorResponse,
 } from "@/server/registrations/registration-core";
+import {
+  RegistrationPaymentError,
+  toRegistrationPaymentErrorResponse,
+} from "@/server/registrations/registration-payment-core";
 import { createIndividualRegistration } from "@/server/registrations/registration-service";
 
 type RouteContext = { params: Promise<{ competitionId: string }> };
@@ -23,6 +27,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     return NextResponse.json({ registration }, { status: 201 });
   } catch (error) {
     if (error instanceof RegistrationError) return toRegistrationErrorResponse(error);
+    if (error instanceof RegistrationPaymentError) return toRegistrationPaymentErrorResponse(error);
     return toAccessDeniedResponse(error);
   }
 }

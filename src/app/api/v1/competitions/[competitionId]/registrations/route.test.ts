@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessError } from "@/server/auth/access-core";
+import { RegistrationPaymentError } from "@/server/registrations/registration-payment-core";
 
 const { requireSessionRole, createIndividualRegistration } = vi.hoisted(() => ({
   requireSessionRole: vi.fn(),
@@ -107,5 +108,23 @@ describe("POST /api/v1/competitions/[competitionId]/registrations", () => {
 
     const res = await POST(makeRequest() as never, makeContext());
     expect(res.status).toBe(409);
+  });
+
+  it("answers 409 when the organiser cannot take the payment", async () => {
+    requireSessionRole.mockResolvedValueOnce(candidateSession);
+    createIndividualRegistration.mockRejectedValueOnce(
+      new RegistrationPaymentError(
+        "registration_payment_unavailable",
+        "Kompetisi ini belum dapat menerima pembayaran. Hubungi penyelenggara.",
+      ),
+    );
+    const res = await POST(makeRequest(), makeContext());
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: {
+        code: "registration_payment_unavailable",
+        message: "Kompetisi ini belum dapat menerima pembayaran. Hubungi penyelenggara.",
+      },
+    });
   });
 });

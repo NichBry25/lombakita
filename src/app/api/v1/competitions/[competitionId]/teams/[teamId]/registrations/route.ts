@@ -4,6 +4,10 @@ import {
   toAccessDeniedResponse,
 } from "@/server/auth/access-core";
 import { requireSessionRole } from "@/server/auth/session";
+import {
+  RegistrationPaymentError,
+  toRegistrationPaymentErrorResponse,
+} from "@/server/registrations/registration-payment-core";
 import { TeamError, toTeamErrorResponse } from "@/server/teams/team-core";
 import {
   cancelTeamRegistration,
@@ -23,6 +27,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     return NextResponse.json({ registration: result }, { status: 201 });
   } catch (error) {
     if (error instanceof TeamError) return toTeamErrorResponse(error);
+    if (error instanceof RegistrationPaymentError) return toRegistrationPaymentErrorResponse(error);
     return toAccessDeniedResponse(error);
   }
 }

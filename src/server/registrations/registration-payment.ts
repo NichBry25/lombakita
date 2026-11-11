@@ -7,7 +7,9 @@ import { getDb, type Database } from "@/server/db/client";
 import { competitions } from "@/server/db/schema";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
 import { resolvePaymentDueAt } from "@/lib/finance/payment-window";
-import { createPayment } from "@/server/finance/payment-service";
+import { CompetitionError } from "@/server/competitions/competition-core";
+import { createPayment, PaymentError } from "@/server/finance/payment-service";
+import { PaymentInstructionsError } from "@/server/institutions/payment-instructions-service";
 import { RegistrationPaymentError } from "@/server/registrations/registration-payment-core";
 
 // WHERE A REGISTRATION ACQUIRES ITS DEBT.
@@ -65,6 +67,13 @@ export const loadRegistrationPricing = async (
   return row ?? null;
 };
 
+// The three refusals that mean the organiser cannot take money yet. Any other failure is a fault
+// the candidate cannot act on, so it surfaces as the unexpected error it is.
+const isOrganiserNotReadyToCharge = (error: unknown): boolean =>
+  (error instanceof CompetitionError && error.code === "competition_institution_not_verified") ||
+  (error instanceof PaymentInstructionsError && error.code === "payment_instructions_missing") ||
+  (error instanceof PaymentError && error.code === "payment_fee_rule_not_found");
+
 /**
  * Records the payment a new registration owes, or does nothing when the competition is free.
  *
@@ -76,7 +85,7 @@ export const loadRegistrationPricing = async (
  * It is snapshotted onto the payment and never recomputed, so an organiser who later shortens the
  * window does not move a deadline this candidate was already given.
  *
- * Every refusal `createPayment` can raise (the institution is unverified, it has published no
+ * The three refusals that mean the organiser cannot take money (the institution is unverified, it has published no
  * account, no fee rule is in force) collapses to ONE candidate-facing code. All three mean the
  * same thing to the person registering: this organiser cannot take payment right now, and none of
  * it is the candidate's to fix. Distinguishing them here would leak the organiser's verification
@@ -119,6 +128,7 @@ export const createRegistrationPayment = async (
     );
   } catch (error) {
     if (error instanceof RegistrationPaymentError) throw error;
+    if (!isOrganiserNotReadyToCharge(error)) throw error;
 
     throw new RegistrationPaymentError(
       "registration_payment_unavailable",
