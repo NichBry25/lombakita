@@ -57,12 +57,15 @@ describe("the .status-badge tone vocabulary", () => {
     expect(tonesDefinedForStatusBadge().has("ineligible")).toBe(false);
   });
 
-  it("gives every tone but `featured` the leading dot its siblings have", () => {
-    // `featured` is deliberately outside the dot group. It is a promotional marker rather than a
-    // lifecycle state. Everything else must be in it, or one badge in a row renders visibly
-    // lighter than the others for no reason a reader can see.
+  it("gives every tone but `featured` and `verified` the leading dot its siblings have", () => {
+    // `featured` and `verified` are deliberately outside the dot group: featured is a promotional
+    // marker rather than a lifecycle state, and verified carries a check icon as its only mark.
+    // Everything else must be in it, or one badge in a row renders visibly lighter than the others
+    // for no reason a reader can see.
     const dotted = tonesWithDot();
-    const expected = STATUS_BADGE_TONES.filter((tone) => tone !== "featured");
+    const expected = STATUS_BADGE_TONES.filter(
+      (tone) => tone !== "featured" && tone !== "verified",
+    );
 
     expect([...dotted].sort()).toEqual([...expected].sort());
   });
