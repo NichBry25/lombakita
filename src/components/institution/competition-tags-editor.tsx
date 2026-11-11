@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { CheckboxField } from "@/components/ui";
+import { CheckboxField, Feedback } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
+  describePartLoadFailure,
   useCompetitionEditorPart,
   type CompetitionPartSaveResult,
 } from "@/components/institution/competition-editor-parts";
@@ -111,6 +112,7 @@ const StoredTagsEditor = ({ competitionId, expectedUserId }: StoredTagsProps) =>
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [savedTags, setSavedTags] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const loadTags = useCallback(async () => {
     setIsLoading(true);
@@ -126,6 +128,7 @@ const StoredTagsEditor = ({ competitionId, expectedUserId }: StoredTagsProps) =>
       const { tags } = (await response.json()) as { tags: string[] };
       setSelected(new Set(tags));
       setSavedTags(new Set(tags));
+      setHasLoaded(true);
     } catch {
       addToast({ type: "error", message: "Gagal memuat tag." });
     } finally {
@@ -161,6 +164,8 @@ const StoredTagsEditor = ({ competitionId, expectedUserId }: StoredTagsProps) =>
     <TagsSection>
       {isLoading ? (
         <p className="muted-copy">Memuat tag…</p>
+      ) : !hasLoaded ? (
+        <Feedback tone="error">{describePartLoadFailure("tags")}</Feedback>
       ) : (
         <div className="stack-md">
           <TagCheckboxes isSelected={(tag) => selected.has(tag)} onToggle={toggle} />

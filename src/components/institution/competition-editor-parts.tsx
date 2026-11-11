@@ -19,6 +19,9 @@ export const COMPETITION_EDITOR_PART_LABELS: Record<CompetitionEditorPartKey, st
   fee: "Biaya pendaftaran",
 };
 
+export const describePartLoadFailure = (key: CompetitionEditorPartKey): string =>
+  `${COMPETITION_EDITOR_PART_LABELS[key]} gagal dimuat. Muat ulang halaman lalu coba lagi.`;
+
 export type CompetitionPartSaveResult = { ok: true } | { ok: false; errorMessage: string };
 
 export type CompetitionEditorPart = {

@@ -274,6 +274,27 @@ describe("CompetitionFeeSection", () => {
     expect(lastReportedFeePart().isDirty).toBe(false);
   });
 
+  it("keeps an unsent consent tick unsent when its save is refused", async () => {
+    await mountWith(PAID);
+
+    fireEvent.click(acknowledgement());
+    expect(lastReportedFeePart().isDirty).toBe(true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: { code: "competition_fee_disclosure_required" } }), {
+          status: 422,
+        }),
+      ),
+    );
+
+    const result = await saveReportedFee();
+
+    expect(lastReportedFeePart().isDirty).toBe(true);
+    expect(putCalls()).toHaveLength(1);
+    expect(result).toEqual({ ok: false, errorMessage: DISCLOSURE_REASON });
+  });
+
   it("reports a saved fee as saved when the reload body cannot be read", async () => {
     await mountWith(PAID);
 

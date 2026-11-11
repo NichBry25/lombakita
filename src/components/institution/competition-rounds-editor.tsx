@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { IconButton } from "@/components/ui";
+import { Feedback, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
+  describePartLoadFailure,
   useCompetitionEditorPart,
   type CompetitionPartSaveResult,
 } from "@/components/institution/competition-editor-parts";
@@ -93,6 +94,7 @@ export const CompetitionRoundsEditor = ({
   const [rows, setRows] = useState<RoundRow[]>([]);
   const [savedRows, setSavedRows] = useState<RoundRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const loadRounds = useCallback(async () => {
     setIsLoading(true);
@@ -115,6 +117,7 @@ export const CompetitionRoundsEditor = ({
       }));
       setRows(loadedRows);
       setSavedRows(loadedRows);
+      setHasLoaded(true);
     } catch {
       addToast({ type: "error", message: "Gagal memuat tahapan." });
     } finally {
@@ -185,6 +188,8 @@ export const CompetitionRoundsEditor = ({
 
       {isLoading ? (
         <p className="muted-copy">Memuat tahapan…</p>
+      ) : !hasLoaded ? (
+        <Feedback tone="error">{describePartLoadFailure("rounds")}</Feedback>
       ) : (
         <div className="stack-md">
           {rows.map((row, index) => (

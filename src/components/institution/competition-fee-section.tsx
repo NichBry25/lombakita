@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Card, CheckboxField, Feedback, Skeleton } from "@/components/ui";
 import {
+  describePartLoadFailure,
   useCompetitionEditorPart,
   type CompetitionPartSaveResult,
 } from "@/components/institution/competition-editor-parts";
@@ -46,7 +47,7 @@ const SAVE_ERROR_COPY: Partial<Record<string, string>> = {
 
 const SAVE_FALLBACK = "Biaya pendaftaran gagal disimpan. Coba lagi.";
 
-const LOAD_FAILURE_MESSAGE = "Biaya pendaftaran gagal dimuat. Muat ulang halaman lalu coba lagi.";
+const LOAD_FAILURE_MESSAGE = describePartLoadFailure("fee");
 
 const LOAD_ERROR_COPY: Partial<Record<string, string>> = { forbidden: SAVE_ERROR_COPY.forbidden };
 
@@ -125,7 +126,7 @@ function OwnerFeeForm({
     windowDays: "",
   });
   const [savedAcknowledgement, setSavedAcknowledgement] = useState(false);
-  // The code is null when the request threw or its body could not be read.
+  // The code is null when the request threw, its body could not be read, or the refusal named no code.
   const [loadFailure, setLoadFailure] = useState<{ code: string | null } | null>(null);
 
   const base = `/api/v1/competitions/${encodeURIComponent(competitionId)}/fee`;

@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Feedback } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
+  describePartLoadFailure,
   useCompetitionEditorPart,
   type CompetitionPartSaveResult,
 } from "@/components/institution/competition-editor-parts";
@@ -30,6 +32,7 @@ export const CompetitionEligibilityEditor = ({
   const [note, setNote] = useState("");
   const [savedNote, setSavedNote] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const loadNote = useCallback(async () => {
     setIsLoading(true);
@@ -45,6 +48,7 @@ export const CompetitionEligibilityEditor = ({
       const { eligibilityNote } = (await response.json()) as { eligibilityNote: string | null };
       setNote(eligibilityNote ?? "");
       setSavedNote(eligibilityNote ?? "");
+      setHasLoaded(true);
     } catch {
       addToast({ type: "error", message: "Gagal memuat informasi kelayakan." });
     } finally {
@@ -94,6 +98,8 @@ export const CompetitionEligibilityEditor = ({
 
       {isLoading ? (
         <p className="muted-copy">Memuat…</p>
+      ) : !hasLoaded ? (
+        <Feedback tone="error">{describePartLoadFailure("eligibility")}</Feedback>
       ) : (
         <div className="stack-md">
           <div className="form-field">

@@ -2283,5 +2283,134 @@ describe("InstitutionCompetitionEditShell steps", () => {
       const titles = screen.getAllByLabelText("Nama hadiah") as HTMLInputElement[];
       expect(titles.map((input) => input.value)).toEqual(["Medali Emas"]);
     });
+
+    it.each([
+      ["tags", 1, "Tag"],
+      ["eligibility", 2, "Kelayakan"],
+      ["rounds", 3, "Tahapan & linimasa"],
+      ["prizes", 4, "Hadiah"],
+    ] as const)(
+      "shows the load failure in place of the %s list and sends nothing for it",
+      async (key, step, label) => {
+        const calls = stubFetchRoutes({
+          ...partRoutes(PUBLISHED),
+          [`GET ${COMPETITION_URL}/${key}`]: [() => new Response(null, { status: 500 })],
+        });
+
+        render(shellWithPartsAt(step));
+
+        await screen.findByRole("button", { name: "Simpan" });
+        expect(
+          await screen.findByText(`${label} gagal dimuat. Muat ulang halaman lalu coba lagi.`),
+        ).toBeTruthy();
+        if (step === 1) {
+          expect(screen.queryByRole("checkbox", { name: FIRST_TAG })).toBeNull();
+          fireEvent.change(screen.getByLabelText(/^Judul/), {
+            target: { value: "Lomba Contoh Baru" },
+          });
+        }
+        if (step === 2) {
+          expect(screen.queryByLabelText("Catatan kelayakan")).toBeNull();
+        }
+        if (step === 3) {
+          expect(screen.queryByRole("button", { name: "Tambah tahapan" })).toBeNull();
+          expect(screen.queryByLabelText("Nama tahapan")).toBeNull();
+          const deadline = new Date(PUBLISHED.registrationEndAt);
+          deadline.setDate(deadline.getDate() + 1);
+          deadline.setSeconds(0, 0);
+          const localDeadline = new Date(deadline);
+          localDeadline.setMinutes(localDeadline.getMinutes() - localDeadline.getTimezoneOffset());
+          fireEvent.change(screen.getByLabelText(/Pendaftaran berakhir/), {
+            target: { value: localDeadline.toISOString().slice(0, 16) },
+          });
+        }
+        if (step === 4) {
+          expect(screen.queryByRole("button", { name: "Tambah hadiah" })).toBeNull();
+          expect(screen.queryByLabelText("Nama hadiah")).toBeNull();
+          fireEvent.click(
+            screen.getByRole("checkbox", {
+              name: "Izinkan peserta membatalkan pendaftaran sendiri",
+            }),
+          );
+        }
+        fireEvent.click(saveButton());
+
+        expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
+        expect(calls.map((call) => call.key)).not.toContain(`PUT ${COMPETITION_URL}/${key}`);
+      },
+    );
+
+    it("keeps a part that fails to read again after the reload from replacing its stored rows", async () => {
+      const storedRound = {
+        title: "Penyisihan",
+        platformLabel: null,
+        startsAt: null,
+        endsAt: null,
+        description: null,
+      };
+      const calls = stubFetchRoutes({
+        ...partRoutes(PUBLISHED),
+        [`GET ${COMPETITION_URL}`]: [
+          () => okJson({ competition: PUBLISHED, publishReadiness: READY }),
+          async () => {
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            return okJson({ competition: PUBLISHED, publishReadiness: READY });
+          },
+        ],
+        [`GET ${COMPETITION_URL}/rounds`]: [
+          () => okJson({ rounds: [storedRound] }),
+          () => okJson({ rounds: [{ ...storedRound, title: "Penyisihan Daring" }] }),
+          () => new Response(null, { status: 500 }),
+        ],
+      });
+      const roundWrites = () => calls.filter(({ key }) => key === `PUT ${COMPETITION_URL}/rounds`);
+      const roundReads = () => calls.filter(({ key }) => key === `GET ${COMPETITION_URL}/rounds`);
+
+      render(shellWithPartsAt(3));
+
+      fireEvent.change(await screen.findByLabelText("Nama tahapan"), {
+        target: { value: "Penyisihan Daring" },
+      });
+      fireEvent.click(saveButton());
+
+      expect(await screen.findByText("Perubahan tersimpan.")).toBeTruthy();
+      expect(roundWrites()).toHaveLength(1);
+      expect(
+        await screen.findByText(
+          "Tahapan & linimasa gagal dimuat. Muat ulang halaman lalu coba lagi.",
+        ),
+      ).toBeTruthy();
+      expect(screen.queryByLabelText("Nama tahapan")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Tambah tahapan" })).toBeNull();
+
+      fireEvent.click(saveButton());
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Perubahan tersimpan.")).toHaveLength(2);
+        expect(roundReads()).toHaveLength(4);
+      });
+      expect(roundWrites()).toHaveLength(1);
+      expect(
+        await screen.findByText(
+          "Tahapan & linimasa gagal dimuat. Muat ulang halaman lalu coba lagi.",
+        ),
+      ).toBeTruthy();
+    });
+
+    it("forgets a server refusal when the reload after a save throws", async () => {
+      stubFetchSequence([() => loadOk(BLOCKED), () => patchOk, failingRequest]);
+
+      mount();
+
+      await screen.findByRole("button", { name: "Terbitkan" });
+      expect(publishButton().hasAttribute("disabled")).toBe(true);
+      expect(screen.getByText(UNVERIFIED_REASON)).toBeTruthy();
+      fireEvent.click(saveButton());
+
+      await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(false));
+      expect(screen.queryByText(UNVERIFIED_REASON)).toBeNull();
+      expect(await screen.findByText(LOAD_FAILED_MESSAGE)).toBeTruthy();
+      expect(screen.queryByText(SERVER_LOAD_FAILED_MESSAGE)).toBeNull();
+    });
   });
 });

@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckboxField, IconButton } from "@/components/ui";
+import { CheckboxField, Feedback, IconButton } from "@/components/ui";
 import { useToast } from "@/components/ui/primitives";
 import {
+  describePartLoadFailure,
   useCompetitionEditorPart,
   type CompetitionPartSaveResult,
 } from "@/components/institution/competition-editor-parts";
@@ -74,6 +75,7 @@ export const CompetitionPrizesEditor = ({
   const [rows, setRows] = useState<PrizeRow[]>([]);
   const [savedRows, setSavedRows] = useState<PrizeRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const loadPrizes = useCallback(async () => {
     setIsLoading(true);
@@ -96,6 +98,7 @@ export const CompetitionPrizesEditor = ({
       }));
       setRows(loadedRows);
       setSavedRows(loadedRows);
+      setHasLoaded(true);
     } catch {
       addToast({ type: "error", message: "Gagal memuat hadiah." });
     } finally {
@@ -173,6 +176,8 @@ export const CompetitionPrizesEditor = ({
 
       {isLoading ? (
         <p className="muted-copy">Memuat hadiah…</p>
+      ) : !hasLoaded ? (
+        <Feedback tone="error">{describePartLoadFailure("prizes")}</Feedback>
       ) : (
         <div className="stack-md">
           {rows.map((row, index) => (

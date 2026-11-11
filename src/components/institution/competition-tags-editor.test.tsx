@@ -87,4 +87,30 @@ describe("CompetitionTagsEditor", () => {
     expect(screen.queryByRole("button", { name: "Simpan" })).toBeNull();
     expect(screen.queryByText("Tag berhasil disimpan.")).toBeNull();
   });
+
+  it("shows the load failure in place of the tags and reports no change", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 500 })),
+    );
+    const reportPart = vi.fn<ReportCompetitionEditorPart>();
+    const lastReportedPart = () => {
+      const reports = reportPart.mock.calls.filter(([key]) => key === "tags");
+      return reports[reports.length - 1]?.[1];
+    };
+
+    render(
+      <UIPrimitivesProvider>
+        <CompetitionEditorPartsContext.Provider value={reportPart}>
+          <CompetitionTagsEditor competitionId="comp_1" expectedUserId="org_1" />
+        </CompetitionEditorPartsContext.Provider>
+      </UIPrimitivesProvider>,
+    );
+
+    expect(
+      await screen.findByText("Tag gagal dimuat. Muat ulang halaman lalu coba lagi."),
+    ).toBeTruthy();
+    expect(screen.queryAllByRole("checkbox")).toEqual([]);
+    expect(lastReportedPart()?.isDirty).toBe(false);
+  });
 });
