@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { AuthPageFrame } from "@/components/auth/auth-page-frame";
 import { isOperationalRole } from "@/lib/access/roles";
+import { sameSitePathOr } from "@/lib/session/return-path";
 import { requireActiveSessionPage } from "@/server/auth/page-guard";
 import { AccessError } from "@/server/auth/access-core";
 import { startMfaEnrolment } from "@/server/auth/mfa/factor-service";
@@ -24,7 +25,10 @@ export default async function MfaEnrollPage(props: {
   }
 
   const searchParams = await props.searchParams;
-  const callbackUrl = searchParams?.callbackUrl || defaultDestination(session.user.role);
+  const callbackUrl = sameSitePathOr(
+    searchParams?.callbackUrl,
+    defaultDestination(session.user.role),
+  );
 
   if (session.user.mfaStatus === "satisfied") {
     redirect(callbackUrl);
