@@ -202,9 +202,9 @@ index. A gallery made before state entries stopped repeating their state in the 
 other ids, so start a width run in a fresh folder rather than resuming such a gallery. Setting
 `GALLERY_WIDTHS` switches the gallery to the whole inventory: `PAGES` from `pages.mjs`, then
 `STATE_PAGES` from `state-pages.mjs`, which adds the routes `PAGES` leaves out, every seeded state,
-the empty states and
-the validation errors. The contrast and mobile audits read `PAGES` only, so they do not measure the
-`STATE_PAGES` entries. Each shot is written to `<output>/<page>/<role or anon>__<theme>__<width>.png`, and
+the empty states and the validation errors. The contrast and mobile audits read `PAGES` only, so
+they do not measure the `STATE_PAGES` entries. Each shot is written to
+`<output>/<page>/<role or anon>__<theme>__<width>.png`, and
 `index.md` lists every shot with its page, role, state, theme and width. When a role's shot below
 the site header is pixel-identical to an earlier role's shot of the same page, state, width and
 theme, it is not written and its index row says `same as <file>`. `GALLERY_THEMES` and

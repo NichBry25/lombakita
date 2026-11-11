@@ -415,7 +415,8 @@ const isCapturedAtSizes = (p, row, run) => {
       const main =
         !kinds.main ||
         (row.shots ?? []).some(
-          (s) => sameShot(s, wanted) && (s.sameAs || existsSync(`${OUT}/${s.file}`)),
+          // A filtered FORCE=1 run can delete the picture a "same as" row names.
+          (s) => sameShot(s, wanted) && existsSync(`${OUT}/${s.sameAs ?? s.file}`),
         );
       const startHere =
         !kinds.startHere || existsSync(`${OUT}/${START_HERE_DIR}/${fileOf(p, theme, size)}`);

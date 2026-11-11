@@ -115,7 +115,7 @@ const idPrefixOf = (path) => {
   const listed = PAGES.find((page) => page.path === path);
   if (listed) return listed.id;
   const number = NEW_PATH_NUMBERS.get(path);
-  if (number === undefined) throw new Error(`pages.mjs: no id number for ${path}`);
+  if (number === undefined) throw new Error(`state-pages.mjs: no id number for ${path}`);
   return `${number}-${routePartOf(path)}`;
 };
 
