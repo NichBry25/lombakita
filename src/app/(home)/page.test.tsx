@@ -84,6 +84,16 @@ describe("HomePage", () => {
     expect(html).toContain("Kategori kompetisi");
   });
 
+  it("sends the hosting button to the host dashboard", async () => {
+    mockListFeaturedCompetitions.mockResolvedValue([]);
+
+    const html = renderToStaticMarkup(await HomePage());
+
+    const anchors = html.match(/<a\b[^>]*>[\s\S]*?<\/a>/g) ?? [];
+    const hostingLink = anchors.find((anchor) => anchor.includes("Buka ruang kerja"));
+    expect(hostingLink).toContain('href="/recruiter-dashboard"');
+  });
+
   it("degrades to no featured rail — and records the failure — when the fetch throws", async () => {
     mockListFeaturedCompetitions.mockRejectedValue(new Error("db unavailable"));
 

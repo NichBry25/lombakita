@@ -56,8 +56,7 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
 
   // No name or slug input: a personal institution's name derives from your username and its slug is
   // derived through the shared slug path. Creation is a single action from the sticky action bar.
-  const onSubmit = () =>
-    runAndNavigate(createInstitution, { message: "Membuat institusi personal…" });
+  const onSubmit = () => runAndNavigate(createInstitution, { message: "Menyiapkan ruang kerja…" });
 
   // Returns whether a navigation was started, so a rejected create drops the blocking screen
   // instead of leaving the user staring at it.
@@ -85,16 +84,16 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
       displayName: data.institution.displayName,
       slug: data.institution.slug,
     });
-    addToast({ type: "success", message: "Institusi personal berhasil dibuat." });
+    addToast({ type: "success", message: "Ruang kerja personal siap. Buat draf kompetisi Anda." });
     setIsCreating(false);
-    router.replace(`/institution/${data.institution.slug}`);
+    router.replace(`/institution/${data.institution.slug}/competitions/new`);
     return true;
   };
 
   return (
     <main className="page-shell app-page personal-institution-page">
       <PageHeader
-        title="Buat institusi personal"
+        title="Mulai menyelenggarakan"
         description="Untuk menyelenggarakan kompetisi sendiri. Nama institusi mengikuti username Anda."
       />
 
@@ -140,7 +139,7 @@ export const PersonalInstitutionCreateShell = ({ expectedUserId }: { expectedUse
         {!created ? (
           <div className="form-action-bar-end">
             <Button type="button" onClick={onSubmit} loading={isCreating}>
-              Buat institusi personal
+              Mulai menyelenggarakan
             </Button>
           </div>
         ) : null}

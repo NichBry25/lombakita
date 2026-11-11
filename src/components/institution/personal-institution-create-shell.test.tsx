@@ -58,7 +58,7 @@ describe("PersonalInstitutionCreateShell", () => {
     vi.clearAllMocks();
   });
 
-  it("replaces the create route with the canonical institution route after creation", async () => {
+  it("opens a new competition draft after creating the personal workspace", async () => {
     mockSessionFetch.mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -80,10 +80,10 @@ describe("PersonalInstitutionCreateShell", () => {
     );
 
     render(<PersonalInstitutionCreateShell expectedUserId="user_recruiter" />);
-    fireEvent.click(screen.getByRole("button", { name: "Buat institusi personal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mulai menyelenggarakan" }));
 
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/institution/owner-username");
+      expect(mockReplace).toHaveBeenCalledWith("/institution/owner-username/competitions/new");
     });
     expect(mockSessionFetch).toHaveBeenCalledWith(
       "user_recruiter",

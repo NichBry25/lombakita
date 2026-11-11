@@ -32,9 +32,9 @@ export default async function RecruiterDashboardPage() {
     findOwnedPersonalInstitution(session.user.id),
   ]);
   const isTrusted = tierState?.recruiterVerificationTier === "elevated";
-  // Only one personal institution is allowed per account, so the create-personal entry point is
-  // shown only while the account has none.
-  const canCreatePersonalInstitution = personalInstitution === null;
+  const startHostingHref = personalInstitution
+    ? `/institution/${personalInstitution.slug}/competitions/new`
+    : "/institution/personal";
 
   return (
     <main className="page-shell app-page recruiter-dashboard">
@@ -48,15 +48,26 @@ export default async function RecruiterDashboardPage() {
       ) : null}
 
       <section className="hub-grid" aria-label="Akses penyelenggara">
-        <Link className="hub-card hub-card--action" href="/institution/create">
+        <Link className="hub-card hub-card--action" href={startHostingHref}>
           <span className="hub-card-icon">
-            <Icon name="building" size="lg" />
+            <Icon name="plus" size="lg" />
           </span>
           <div className="stack-xs">
-            <h2>Buat institusi</h2>
-            <p>Buat ruang penyelenggara baru untuk memublikasikan kompetisi.</p>
+            <h2>Mulai menyelenggarakan</h2>
+            <p>Buat draf kompetisi di ruang kerja personal Anda.</p>
           </div>
         </Link>
+        {isTrusted ? (
+          <Link className="hub-card" href="/institution/create">
+            <span className="hub-card-icon">
+              <Icon name="building" size="lg" />
+            </span>
+            <div className="stack-xs">
+              <h2>Buat institusi</h2>
+              <p>Buat ruang penyelenggara baru untuk memublikasikan kompetisi.</p>
+            </div>
+          </Link>
+        ) : null}
         <Link className="hub-card" href="/profile">
           <span className="hub-card-icon">
             <Icon name="user" size="lg" />
@@ -66,20 +77,6 @@ export default async function RecruiterDashboardPage() {
             <p>Pastikan identitas publik dan kredensial penyelenggara tetap mutakhir.</p>
           </div>
         </Link>
-        {canCreatePersonalInstitution ? (
-          <Link className="hub-card" href="/institution/personal">
-            <span className="hub-card-icon">
-              <Icon name="plus" size="lg" />
-            </span>
-            <div className="stack-xs">
-              <h2>Buat institusi personal</h2>
-              <p>
-                Tampil sebagai perorangan untuk mulai memublikasikan kompetisi tanpa institusi
-                resmi.
-              </p>
-            </div>
-          </Link>
-        ) : null}
       </section>
 
       <section className="content-section" aria-label="Institusi Anda">

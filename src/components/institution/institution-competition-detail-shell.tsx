@@ -6,6 +6,7 @@ import {
   Button,
   ButtonLink,
   EmptyState,
+  Icon,
   IconButtonLink,
   PageHeader,
   Skeleton,
@@ -385,6 +386,16 @@ export const InstitutionCompetitionDetailShell = ({
   // the organizer the same value, marked as the estimate it is.
   const resolvedAnnouncement = resolveResultAnnouncement(competition);
   const announcementIsDerived = resolvedAnnouncement.source === "derived";
+  const publicPath = `/competitions/${encodeURIComponent(institutionSlug)}/${encodeURIComponent(competition.slug)}`;
+
+  const copyPublicUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${publicPath}`);
+      addToast({ type: "success", message: "Tautan disalin ke papan klip." });
+    } catch {
+      addToast({ type: "error", message: "Gagal menyalin tautan. Coba lagi." });
+    }
+  };
 
   return (
     <main className="page-shell app-page competition-management-page">
@@ -401,6 +412,33 @@ export const InstitutionCompetitionDetailShell = ({
           </span>
         }
       />
+
+      {isPublished && !isCancelled ? (
+        <section className="content-section">
+          <div className="section-heading">
+            <div>
+              <h2>Kompetisi sudah terbit</h2>
+            </div>
+          </div>
+          <p className="muted-copy">
+            Bagikan tautan ini agar peserta dapat menemukan dan mendaftar.
+          </p>
+          <p className="data-text">{`${window.location.origin}${publicPath}`}</p>
+          <div className="record-actions">
+            <Button
+              type="button"
+              variant="outline"
+              leadingIcon={<Icon name="copy" size="sm" />}
+              onClick={copyPublicUrl}
+            >
+              Salin tautan
+            </Button>
+            <ButtonLink href={publicPath} variant="secondary">
+              Lihat halaman
+            </ButtonLink>
+          </div>
+        </section>
+      ) : null}
 
       <section className="content-section">
         <div className="section-heading">

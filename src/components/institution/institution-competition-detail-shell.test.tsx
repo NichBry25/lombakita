@@ -80,9 +80,11 @@ const LOAD_FAILED_MESSAGE = "Data kompetisi gagal dimuat. Muat ulang halaman lal
 const okJson = (body: unknown): Response =>
   ({ ok: true, json: async () => body }) as unknown as Response;
 
-const loadOk = (publishReadiness: unknown) =>
+const PUBLISHED_COMPETITION = { ...COMPETITION, status: "published", slug: "lomba-1" };
+
+const loadOk = (publishReadiness: unknown, competition: unknown = COMPETITION) =>
   okJson({
-    competition: COMPETITION,
+    competition,
     hasActiveRegistrations: true,
     participation: PARTICIPATION,
     publishReadiness,
@@ -112,12 +114,12 @@ const stubFetchSequence = (responses: Array<() => Response>) => {
   return calls;
 };
 
-const mount = () =>
+const mount = (institutionSlug = "institusi-contoh") =>
   render(
     <UIPrimitivesProvider>
       <PageTransitionProvider>
         <InstitutionCompetitionDetailShell
-          institutionSlug="institusi-contoh"
+          institutionSlug={institutionSlug}
           competitionId="comp_1"
           expectedUserId="org_1"
           initialPublishReadiness={BLOCKED}
@@ -195,5 +197,48 @@ describe("InstitutionCompetitionDetailShell publish readiness", () => {
     await screen.findByRole("button", { name: "Terbitkan" });
     await waitFor(() => expect(publishButton().hasAttribute("disabled")).toBe(true));
     expect(screen.getByText(UNVERIFIED_REASON)).toBeTruthy();
+  });
+});
+
+describe("InstitutionCompetitionDetailShell share panel", () => {
+  const publicUrl = () => `${window.location.origin}/competitions/acme/lomba-1`;
+
+  const stubClipboard = () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    // jsdom has no clipboard.
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    return writeText;
+  };
+
+  it("shows the public address and the copy and view actions for a published competition", async () => {
+    stubFetchSequence([() => loadOk(BLOCKED, PUBLISHED_COMPETITION)]);
+
+    mount("acme");
+
+    expect(await screen.findByText("Kompetisi sudah terbit")).toBeTruthy();
+    expect(screen.getByText(publicUrl())).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Lihat halaman" }).getAttribute("href")).toBe(
+      "/competitions/acme/lomba-1",
+    );
+  });
+
+  it("copies the public address", async () => {
+    const writeText = stubClipboard();
+    stubFetchSequence([() => loadOk(BLOCKED, PUBLISHED_COMPETITION)]);
+
+    mount("acme");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Salin tautan" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(publicUrl()));
+  });
+
+  it("shows no share panel for a draft", async () => {
+    stubFetchSequence([() => loadOk(BLOCKED)]);
+
+    mount("acme");
+
+    await screen.findByRole("button", { name: "Terbitkan" });
+    expect(screen.queryByText("Kompetisi sudah terbit")).toBeNull();
   });
 });
