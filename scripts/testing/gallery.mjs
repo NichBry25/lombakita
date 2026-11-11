@@ -10,7 +10,7 @@
  *   FORCE=1 node gallery.mjs    # recapture even if PNGs exist
  *
  * Environment:
- *   GALLERY_OUT          output folder (default test-artifacts/gallery)
+ *   GALLERY_OUT          output folder (default test-artifacts/gallery; a width run needs it)
  *   GALLERY_DRY_RUN=1    print how many shots the run would take, per page and in total; capture nothing
  *   GALLERY_WIDTHS       comma-separated WIDTHxHEIGHT, e.g. 1440x900,1024x768,768x1024,390x844.
  *                        Captures PAGES and STATE_PAGES at those sizes as
@@ -22,10 +22,11 @@
  *                        state into <output>/start-here/
  */
 import { createHash } from "crypto";
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from "fs";
-import { resolve } from "path";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from "fs";
+import { dirname, resolve } from "path";
 import { launch, contextFor, setTheme, visit, shot, DESKTOP, MOBILE } from "./lib-browser.mjs";
-import { PAGES, STATE_PAGES } from "./pages.mjs";
+import { PAGES } from "./pages.mjs";
+import { STATE_PAGES } from "./state-pages.mjs";
 import { USERS } from "./seeds.mjs";
 
 const REPO = "/Users/nikau/Developer/lombakita";
@@ -113,17 +114,18 @@ const capturePage = async (browser, contexts, p) => {
 };
 
 /**
- * Captures every target in order, resumably: `isDone` skips an entry already captured, the
- * browser is recycled every RECYCLE entries, and an entry is retried once before its error is
- * recorded.
+ * Captures every target in order, resumably: `isDone` skips an entry already captured and `onSkip`
+ * sees each skipped entry, the browser is recycled every RECYCLE entries, and an entry is retried
+ * once before its error is recorded.
  */
-const captureAll = async (targets, state, { isDone, capture }) => {
+const captureAll = async (targets, state, { isDone, capture, onSkip = () => {} }) => {
   let browser = await launch();
   let contexts = new Map();
   let sinceRecycle = 0;
 
   for (const p of targets) {
     if (isDone(p)) {
+      onSkip(p);
       console.log(`skip ${p.id}`);
       continue;
     }
@@ -327,6 +329,11 @@ const rememberKeptShot = (kept, key, file, hash) => {
   kept.get(key).push({ file, hash });
 };
 
+const writeShotFile = (file, png) => {
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, png);
+};
+
 const takeShot = async (page, p, theme, size, kinds, kept) => {
   const png = await page.screenshot({ fullPage: true, animations: "disabled" });
   const file = fileOf(p, theme, size);
@@ -338,17 +345,17 @@ const takeShot = async (page, p, theme, size, kinds, kept) => {
     const earlier = keptShotOf(kept, key, hash, file);
     if (earlier) {
       forgetKeptShot(kept, key, file);
+      // An earlier run may have written this role's own picture; the index now points elsewhere.
+      rmSync(`${OUT}/${file}`, { force: true });
       record = { file, size: sizeLabel(size), theme, hash, sameAs: earlier.file };
     } else {
-      mkdirSync(`${OUT}/${folderOf(p)}`, { recursive: true });
-      writeFileSync(`${OUT}/${file}`, png);
+      writeShotFile(`${OUT}/${file}`, png);
       rememberKeptShot(kept, key, file, hash);
       record = { file, size: sizeLabel(size), theme, hash, sameAs: null };
     }
   }
   if (kinds.startHere) {
-    mkdirSync(`${OUT}/${START_HERE_DIR}/${folderOf(p)}`, { recursive: true });
-    writeFileSync(`${OUT}/${START_HERE_DIR}/${file}`, png);
+    writeShotFile(`${OUT}/${START_HERE_DIR}/${file}`, png);
   }
   return { record, startHere: kinds.startHere ? { file, size: sizeLabel(size), theme } : null };
 };
@@ -484,15 +491,11 @@ const runAtSizes = async (run) => {
   mkdirSync(OUT, { recursive: true });
   const state = loadState();
   const kept = new Map();
-  const isDone = (p) => {
-    const row = state.get(p.id);
-    if (!isCapturedAtSizes(p, row, run)) return false;
-    rememberRecordedShots(kept, p, row);
-    return true;
-  };
+  const isDone = (p) => isCapturedAtSizes(p, state.get(p.id), run);
+  const onSkip = (p) => rememberRecordedShots(kept, p, state.get(p.id));
   const capture = (browser, contexts, p) =>
     captureEntryAtSizes(browser, contexts, p, run, kept, state.get(p.id));
-  await captureAll(targets, state, { isDone, capture });
+  await captureAll(targets, state, { isDone, capture, onSkip });
 
   const recorded = writeSizesIndex(state, run);
   console.log(`\nGallery: ${recorded} entries recorded → ${OUT}/index.md`);
@@ -523,6 +526,11 @@ const main = async () => {
     }
     await runDefault();
     return;
+  }
+
+  if (!process.env.GALLERY_OUT && !dryRun) {
+    console.error("GALLERY_WIDTHS needs GALLERY_OUT, so the default run's index stays intact");
+    process.exit(2);
   }
 
   const themesSetting = process.env.GALLERY_THEMES;

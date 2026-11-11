@@ -196,9 +196,13 @@ node scripts/testing/gallery.mjs   # final pass — picks up anything still miss
 
 ### Gallery at four widths
 
-`GALLERY_OUT` names the output folder of any run (default `test-artifacts/gallery`). Setting
-`GALLERY_WIDTHS` switches the gallery to the inventory of `pages.mjs` as a whole: `PAGES`, then
-`STATE_PAGES`, which adds the routes `PAGES` leaves out, every seeded state, the empty states and
+`GALLERY_OUT` names the output folder of any run (default `test-artifacts/gallery`). A run with
+`GALLERY_WIDTHS` refuses to start without `GALLERY_OUT`, so it never overwrites the default run's
+index. A gallery made before state entries stopped repeating their state in the folder name uses
+other ids, so start a width run in a fresh folder rather than resuming such a gallery. Setting
+`GALLERY_WIDTHS` switches the gallery to the whole inventory: `PAGES` from `pages.mjs`, then
+`STATE_PAGES` from `state-pages.mjs`, which adds the routes `PAGES` leaves out, every seeded state,
+the empty states and
 the validation errors. The contrast and mobile audits read `PAGES` only, so they do not measure the
 `STATE_PAGES` entries. Each shot is written to `<output>/<page>/<role or anon>__<theme>__<width>.png`, and
 `index.md` lists every shot with its page, role, state, theme and width. When a role's shot below
@@ -267,7 +271,8 @@ upward by one per run.
 | `seeds.mjs` | Ids, slugs, and emails of every seeded fixture — the single place to update if the seed changes |
 | `lib-auth.mjs` | Mints real NextAuth credential sessions over HTTP; thin fetch wrapper |
 | `lib-browser.mjs` | Playwright launch, session-carrying contexts, theme switching, screenshots, and `MOBILE_VIEWPORTS` — the widths the mobile audit measures |
-| `pages.mjs` | The 85-entry page inventory for the gallery (`as` selects the session) |
+| `pages.mjs` | The gallery's page inventory, `PAGES` (`as` selects the session) |
+| `state-pages.mjs` | The gallery's states on top of `PAGES`, captured only by the four-width run |
 | `api-matrix.mjs` | Auth branches, ownership/IDOR, publish gates, ops guards, rate limiting |
 | `r2-flows.mjs` | Presign → real PUT → record/finalize → read back, plus the negative cases |
 | `flows.mjs` | Clicks and typing, capturing how each state looks |
