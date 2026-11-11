@@ -5579,6 +5579,11 @@ body:has(.register-sticky-bar[data-visible="true"]) .toast-region {
   justify-items: start;
 }
 
+/* The button has no visible fill in this cell, so it drops its padding to line up with the text. */
+.summary-long-value > .ui-button {
+  padding-inline: 0;
+}
+
 .summary-long-text {
   display: -webkit-box;
   overflow: hidden;
