@@ -69,7 +69,7 @@ type InstitutionVerificationShellProps = {
 };
 
 const SUBMIT_ERROR_COPY: Partial<Record<string, string>> = {
-  forbidden: "Hanya akun rekruter yang dapat mengajukan verifikasi institusi.",
+  forbidden: "Hanya akun penyelenggara yang dapat mengajukan verifikasi institusi.",
   rate_limited: "Terlalu banyak permintaan unggah. Coba lagi dalam beberapa menit.",
   invalid_payload: "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
   verification_storage_unavailable: "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.",

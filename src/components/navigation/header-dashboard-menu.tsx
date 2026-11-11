@@ -6,7 +6,7 @@ import { Icon } from "@/components/ui";
 
 const DASHBOARD_LINKS = [
   { href: "/candidate-dashboard", label: "Kandidat" },
-  { href: "/recruiter-dashboard", label: "Rekruter" },
+  { href: "/recruiter-dashboard", label: "Penyelenggara" },
 ] as const;
 
 const MENU_PANEL_ID = "header-dashboard-menu-panel";

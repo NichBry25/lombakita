@@ -115,6 +115,6 @@ describe("the owner profile badges", () => {
     expect(html).toContain('data-status="verified"');
     expect(html).not.toContain('data-status="open"');
     expect(html).not.toContain("Rekruter Terverifikasi");
-    expect(html).not.toContain("Rekruter Terpercaya");
+    expect(html).not.toContain("Penyelenggara terverifikasi");
   });
 });

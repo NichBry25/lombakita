@@ -55,7 +55,7 @@ describe("the name the Google role picker prefills", () => {
   it("carries the identity's name into the recruiter form", () => {
     renderPicker("Andi Saputra");
 
-    chooseRole("Daftar sebagai rekruter");
+    chooseRole("Daftar sebagai penyelenggara");
 
     expect(nameFieldValue()).toBe("Andi Saputra");
   });
@@ -72,7 +72,7 @@ describe("the name the Google role picker prefills", () => {
   it("leaves the recruiter field empty when the identity carried an empty name", () => {
     renderPicker("");
 
-    chooseRole("Daftar sebagai rekruter");
+    chooseRole("Daftar sebagai penyelenggara");
 
     expect(nameFieldValue()).toBe("");
     expect(nameFieldValue()).not.toBe(EMAIL);
@@ -91,7 +91,7 @@ describe("the autofill token on the Google role picker's name field", () => {
   it("carries autoComplete=name on the recruiter form's field", () => {
     renderPicker("Andi Saputra");
 
-    chooseRole("Daftar sebagai rekruter");
+    chooseRole("Daftar sebagai penyelenggara");
 
     expect(nameField().getAttribute("autocomplete")).toBe("name");
   });
@@ -107,7 +107,7 @@ describe("the autofill token on the Google role picker's name field", () => {
   it("does not carry autoComplete=off on the recruiter form's field", () => {
     renderPicker("Andi Saputra");
 
-    chooseRole("Daftar sebagai rekruter");
+    chooseRole("Daftar sebagai penyelenggara");
 
     expect(nameField().getAttribute("autocomplete")).not.toBe("off");
   });

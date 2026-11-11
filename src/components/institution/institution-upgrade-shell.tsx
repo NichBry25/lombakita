@@ -33,12 +33,12 @@ type UpgradeResponse = {
 };
 
 const UPGRADE_ERROR_COPY: Partial<Record<string, string>> = {
-  forbidden: "Verifikasi akun rekruter Anda terlebih dahulu untuk meningkatkan institusi.",
+  forbidden: "Verifikasi akun penyelenggara Anda terlebih dahulu untuk meningkatkan institusi.",
   invalid_payload: "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.",
   institution_invalid_value: "Periksa nama institusi lalu coba lagi.",
   institution_display_name_reserved: "Nama institusi ini tidak dapat digunakan. Pilih nama lain.",
   institution_upgrade_tier_insufficient:
-    "Peningkatan institusi hanya tersedia untuk Rekruter Terpercaya. Selesaikan verifikasi akun Anda terlebih dahulu.",
+    "Peningkatan institusi hanya tersedia untuk penyelenggara terverifikasi. Selesaikan verifikasi akun Anda terlebih dahulu.",
   institution_not_found: "Institusi tidak ditemukan.",
   institution_upgrade_forbidden: "Hanya pemilik institusi yang dapat meningkatkan institusi ini.",
   institution_type_transition_forbidden:
@@ -83,7 +83,7 @@ export const InstitutionUpgradeShell = ({
       addToast({
         type: "warning",
         message:
-          "Peningkatan institusi hanya tersedia untuk Rekruter Terpercaya. Selesaikan verifikasi akun Anda terlebih dahulu.",
+          "Peningkatan institusi hanya tersedia untuk penyelenggara terverifikasi. Selesaikan verifikasi akun Anda terlebih dahulu.",
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -234,8 +234,8 @@ export const InstitutionUpgradeShell = ({
 
         {!canUpgrade && (
           <span id={blockedNoticeId} className="sr-only">
-            Peningkatan institusi hanya tersedia untuk Rekruter Terpercaya. Selesaikan verifikasi
-            akun Anda terlebih dahulu.
+            Peningkatan institusi hanya tersedia untuk penyelenggara terverifikasi. Selesaikan
+            verifikasi akun Anda terlebih dahulu.
           </span>
         )}
       </section>

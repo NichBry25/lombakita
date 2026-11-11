@@ -48,13 +48,13 @@ const mapFinalizeError = (error: string | null | undefined): string => {
     return "Data kandidat belum lengkap atau tidak valid. Periksa kembali isian Anda.";
   }
   if (normalized.includes("RECRUITER_VERIFICATION")) {
-    return "Data rekruter belum lengkap atau tidak valid. Periksa kembali isian Anda.";
+    return "Data penyelenggara belum lengkap atau tidak valid. Periksa kembali isian Anda.";
   }
   if (normalized.includes("ACCOUNT_CONFLICT")) {
     return "Akun untuk email ini sudah ada. Coba masuk dengan metode yang sudah terdaftar.";
   }
   if (normalized.includes("INVALID_ROLE")) {
-    return "Peran tidak valid. Pilih kandidat atau rekruter.";
+    return "Peran tidak valid. Pilih kandidat atau penyelenggara.";
   }
   return "Pendaftaran dengan Google gagal. Silakan coba lagi.";
 };
@@ -163,7 +163,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
   return (
     <AuthPageFrame
       title="Tetapkan peran utama untuk memulai"
-      description="Kandidat mencari kompetisi, rekruter menerbitkannya. Anda bisa menambah peran lain nanti."
+      description="Kandidat mencari kompetisi, penyelenggara menerbitkannya. Anda bisa menambah peran lain nanti."
     >
       <div className="auth-entry">
         <header className="auth-entry-header">
@@ -203,7 +203,7 @@ export const OAuthRolePicker = ({ carrier, email, name }: OAuthRolePickerProps) 
                 }}
                 className="auth-role-option"
               >
-                <strong>Daftar sebagai rekruter</strong>
+                <strong>Daftar sebagai penyelenggara</strong>
                 <span>Perwakilan institusi yang ingin menerbitkan dan mengelola peluang.</span>
               </button>
             </div>

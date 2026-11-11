@@ -26,8 +26,8 @@ import { COMPETITION_CATEGORY_OPTIONS } from "@/lib/competitions/categories";
 
 const COMPETITION_CREATE_ERROR_MESSAGES: Record<string, string> = {
   recruiter_role_not_verified:
-    "Verifikasi akun rekruter Anda terlebih dahulu untuk membuat kompetisi.",
-  recruiter_tier_insufficient: "Selesaikan verifikasi rekruter untuk dapat membuat kompetisi.",
+    "Verifikasi akun penyelenggara Anda terlebih dahulu untuk membuat kompetisi.",
+  recruiter_tier_insufficient: "Selesaikan verifikasi penyelenggara untuk dapat membuat kompetisi.",
   competition_invalid_value: "Periksa judul, slug, dan kategori lalu coba lagi.",
   competition_slug_taken:
     "Slug ini sudah dipakai kompetisi lain di institusi ini. Pilih slug lain.",

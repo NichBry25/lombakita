@@ -55,7 +55,7 @@ const TEAM_ERROR_COPY: Partial<Record<string, string>> = {
   member_not_found: "Anggota tidak ditemukan. Muat ulang halaman lalu coba lagi.",
   member_self_action: "Anda tidak dapat mengubah peran atau menghapus akun Anda sendiri.",
   role_escalation_forbidden:
-    "Akun ini harus menyelesaikan verifikasi rekruter sebelum dapat menjadi pemilik atau staf.",
+    "Akun ini harus menyelesaikan verifikasi penyelenggara sebelum dapat menjadi pemilik atau staf.",
   last_owner_demotion_forbidden: "Institusi harus memiliki paling sedikit satu pemilik.",
   member_last_admin:
     "Pemilik terakhir tidak dapat dihapus. Institusi harus memiliki paling sedikit satu pemilik.",

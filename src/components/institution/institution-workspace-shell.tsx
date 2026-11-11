@@ -24,9 +24,9 @@ const TYPE_OPTIONS = Object.entries(FULL_INSTITUTION_TYPE_LABELS).map(([value, l
 
 const WORKSPACE_ERROR_MESSAGES: Record<string, string> = {
   recruiter_role_not_verified:
-    "Verifikasi akun rekruter Anda terlebih dahulu untuk membuat institusi.",
+    "Verifikasi akun penyelenggara Anda terlebih dahulu untuk membuat institusi.",
   recruiter_tier_insufficient:
-    "Akun Anda belum menjadi Trusted Recruiter. Selesaikan verifikasi rekruter untuk dapat membuat institusi.",
+    "Akun Anda belum menjadi penyelenggara terverifikasi. Selesaikan verifikasi penyelenggara untuk dapat membuat institusi.",
   recruiter_institution_limit_reached: "Satu akun hanya dapat memiliki 3 institusi.",
   institution_invalid_value: "Periksa nama institusi dan slug lalu coba lagi.",
   institution_display_name_reserved: "Nama institusi ini tidak dapat digunakan. Pilih nama lain.",
@@ -171,7 +171,7 @@ export const InstitutionWorkspaceShell = () => {
       <FormActionBar>
         <IconButton
           icon="arrow-left"
-          label="Dasbor rekruter"
+          label="Dasbor penyelenggara"
           onClick={() => router.push("/recruiter-dashboard")}
         />
         <div className="form-action-bar-end">

@@ -58,7 +58,7 @@ describe("publish blocker reasons", () => {
       forbidden: "Hanya pemilik institusi yang dapat menerbitkan kompetisi.",
       competition_invalid_transition: "Hanya kompetisi berstatus draf yang dapat diterbitkan.",
       competition_recruiter_not_trusted:
-        "Akun Anda belum menjadi Trusted Recruiter. Selesaikan verifikasi rekruter untuk dapat menerbitkan kompetisi.",
+        "Akun Anda belum menjadi penyelenggara terverifikasi. Selesaikan verifikasi penyelenggara untuk dapat menerbitkan kompetisi.",
       institution_suspended:
         "Institusi ini sedang ditangguhkan oleh tim Lombakita. Kompetisi tidak dapat diterbitkan.",
       competition_publish_validation_failed: "Data kompetisi belum lengkap atau belum valid.",
@@ -79,7 +79,7 @@ describe("publish blocker reasons", () => {
     const links: Record<CompetitionPublishBlockerCode, string | null> = {
       forbidden: null,
       competition_invalid_transition: null,
-      competition_recruiter_not_trusted: "Verifikasi rekruter",
+      competition_recruiter_not_trusted: "Verifikasi penyelenggara",
       institution_suspended: null,
       competition_publish_validation_failed: "Buka halaman edit",
       competition_institution_not_verified: "Ajukan verifikasi",

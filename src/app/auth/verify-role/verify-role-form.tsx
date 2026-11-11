@@ -16,9 +16,9 @@ const VERIFY_ROLE_ERROR_COPY: Partial<Record<string, string>> = {
   role_already_verified: "Akun Anda sudah terverifikasi untuk peran ini.",
   ...ONBOARDING_FIELD_REFUSAL_COPY,
   candidate_profile_invalid_value: "Periksa data kandidat Anda lalu coba lagi.",
-  recruiter_verification_invalid_value: "Periksa data rekruter Anda lalu coba lagi.",
+  recruiter_verification_invalid_value: "Periksa data penyelenggara Anda lalu coba lagi.",
   user_not_found: "Akun tidak ditemukan. Masuk lagi lalu coba lagi.",
-  forbidden: "Akun ini tidak dapat menambah peran kandidat atau rekruter.",
+  forbidden: "Akun ini tidak dapat menambah peran kandidat atau penyelenggara.",
 };
 
 const VERIFY_ROLE_FALLBACK = "Verifikasi gagal. Coba lagi beberapa saat.";
@@ -127,8 +127,8 @@ export function VerifyRoleForm({ role, expectedUserId }: VerifyRoleFormProps) {
       <form onSubmit={onSubmitRecruiter} className="auth-form">
         <p>
           Lengkapi data penyelenggara Anda. Setelah dikirim, akun akan menunggu peninjauan tim kami
-          untuk menjadi <strong>Rekruter Terpercaya</strong>. Anda bisa membuat draf kompetisi
-          sekarang, tetapi belum bisa mempublikasikannya sampai disetujui.
+          untuk menjadi <strong>penyelenggara terverifikasi</strong>. Anda bisa membuat draf
+          kompetisi sekarang, tetapi belum bisa mempublikasikannya sampai disetujui.
         </p>
 
         <div className="form-field">

@@ -68,7 +68,7 @@ describe("the public profile badges", () => {
     const html = await renderPublicProfile();
 
     expect(html).not.toContain("Rekruter Terverifikasi");
-    expect(html).not.toContain("Rekruter Terpercaya");
+    expect(html).not.toContain("Penyelenggara terverifikasi");
     expect(html).not.toContain("pf-badges");
   });
 
@@ -89,7 +89,7 @@ describe("the public profile badges", () => {
 
     const html = await renderPublicProfile();
 
-    expect(html).toContain("Rekruter Terpercaya");
+    expect(html).toContain("Penyelenggara terverifikasi");
     expect(html).not.toContain("Rekruter Terverifikasi");
   });
 
@@ -114,7 +114,7 @@ describe("the public profile badges", () => {
     expect(html).toContain('data-status="verified"');
     expect(html).not.toContain('data-status="open"');
     expect(html).not.toContain("Rekruter Terverifikasi");
-    expect(html).not.toContain("Rekruter Terpercaya");
+    expect(html).not.toContain("Penyelenggara terverifikasi");
   });
 });
 

@@ -68,7 +68,7 @@ const reachCandidateStage = async () => {
 
 const reachRecruiterStage = async () => {
   await reachRoleChoice();
-  chooseRole("Daftar sebagai rekruter");
+  chooseRole("Daftar sebagai penyelenggara");
 };
 
 const fillCandidateProfile = (fullName: string) => {

@@ -39,7 +39,7 @@ export default async function RecruiterDashboardPage() {
   return (
     <main className="page-shell app-page recruiter-dashboard">
       <PageHeader
-        title="Dasbor rekruter"
+        title="Dasbor penyelenggara"
         description="Kelola identitas penyelenggara dan buka ruang kerja institusi Anda."
       />
 
@@ -47,7 +47,7 @@ export default async function RecruiterDashboardPage() {
         <SecondRoleBanner unverifiedRole="candidate" userId={session.user.id} />
       ) : null}
 
-      <section className="hub-grid" aria-label="Akses rekruter">
+      <section className="hub-grid" aria-label="Akses penyelenggara">
         <Link className="hub-card hub-card--action" href="/institution/create">
           <span className="hub-card-icon">
             <Icon name="building" size="lg" />
@@ -63,7 +63,7 @@ export default async function RecruiterDashboardPage() {
           </span>
           <div className="stack-xs">
             <h2>Profil saya</h2>
-            <p>Pastikan identitas publik dan kredensial rekruter tetap mutakhir.</p>
+            <p>Pastikan identitas publik dan kredensial penyelenggara tetap mutakhir.</p>
           </div>
         </Link>
         {canCreatePersonalInstitution ? (

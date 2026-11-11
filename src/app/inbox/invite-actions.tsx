@@ -27,7 +27,7 @@ const INVITE_ERROR_COPY: Partial<Record<string, string>> = {
   invitation_not_actionable: "Undangan ini sudah tidak berlaku.",
   team_invite_not_actionable: "Undangan ini sudah tidak berlaku.",
   invitation_role_verification_required:
-    "Undangan ini hanya bisa diterima oleh akun rekruter yang sudah diverifikasi. Verifikasi akun rekruter Anda terlebih dahulu.",
+    "Undangan ini hanya bisa diterima oleh akun penyelenggara yang sudah diverifikasi. Verifikasi akun penyelenggara Anda terlebih dahulu.",
   invitation_already_member: "Anda sudah menjadi anggota institusi ini.",
   account_deactivated: "Data akun ini sudah dihapus. Tindakan ini tidak tersedia.",
   team_not_found: "Tim ini sudah tidak ada. Muat ulang halaman.",

@@ -39,12 +39,12 @@ const REASONS: Record<CompetitionPublishBlockerCode, PublishBlockerReason> = {
   },
   competition_recruiter_not_trusted: {
     code: "competition_recruiter_not_trusted",
-    text: "Akun Anda belum menjadi Trusted Recruiter. Selesaikan verifikasi rekruter untuk dapat menerbitkan kompetisi.",
+    text: "Akun Anda belum menjadi penyelenggara terverifikasi. Selesaikan verifikasi penyelenggara untuk dapat menerbitkan kompetisi.",
     // There is no dedicated recruiter-verification ROUTE in this app: the verification panel is
     // rendered on `/recruiter-dashboard` (app/recruiter-dashboard/recruiter-verification-panel.tsx,
     // mounted by that page). The dashboard is therefore the page the link names — the link's text
     // says what to do there rather than claiming a page that does not exist.
-    link: { kind: "recruiter", label: "Verifikasi rekruter" },
+    link: { kind: "recruiter", label: "Verifikasi penyelenggara" },
   },
   institution_suspended: {
     code: "institution_suspended",

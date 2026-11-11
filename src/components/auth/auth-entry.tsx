@@ -59,7 +59,7 @@ const SIGNUP_ROLES = [
   },
   {
     role: "recruiter" as const,
-    label: "Daftar sebagai rekruter",
+    label: "Daftar sebagai penyelenggara",
     hint: "Perwakilan institusi yang ingin menerbitkan dan mengelola peluang.",
   },
 ];
@@ -81,7 +81,7 @@ const SIGNUP_ERROR_COPY: Partial<Record<string, string>> = {
   invalid_email: "Format email tidak valid. Gunakan format seperti nama@kampus.ac.id.",
   invalid_password: "Password harus 8 sampai 72 karakter.",
   candidate_profile_invalid_value: "Periksa data kandidat Anda lalu coba lagi.",
-  recruiter_verification_invalid_value: "Periksa data rekruter Anda lalu coba lagi.",
+  recruiter_verification_invalid_value: "Periksa data penyelenggara Anda lalu coba lagi.",
   email_exists: "Akun untuk email ini sudah ada. Silakan masuk, bukan mendaftar.",
   verification_email_failed:
     "Akun sudah dibuat, tetapi email verifikasi belum terkirim. Masukkan email Anda lagi untuk mengirim ulang verifikasi.",
@@ -707,7 +707,7 @@ export const AuthEntry = ({
           <p>
             Lengkapi data penyelenggara Anda. Setelah mendaftar, akun Anda dapat membuat draf
             kompetisi, tetapi baru bisa mempublikasikannya setelah tim kami menyetujui Anda sebagai{" "}
-            <strong>Rekruter Terpercaya</strong>.
+            <strong>penyelenggara terverifikasi</strong>.
           </p>
 
           <div className="form-field">

@@ -43,7 +43,7 @@ type PanelProps = {
 
 type RefusalAction = "start" | "finish" | "delete" | "submit" | "withdraw";
 
-const RECRUITER_ONLY_MESSAGE = "Fitur ini hanya untuk akun rekruter.";
+const RECRUITER_ONLY_MESSAGE = "Fitur ini hanya untuk akun penyelenggara.";
 const INVALID_PAYLOAD_MESSAGE =
   "Permintaan tidak dapat diproses. Muat ulang halaman lalu coba lagi.";
 const UPLOAD_UNAVAILABLE_MESSAGE = "Unggahan berkas sedang tidak tersedia. Coba lagi nanti.";
@@ -86,7 +86,7 @@ const REFUSAL_COPY: Record<RefusalAction, Partial<Record<string, string>>> = {
     recruiter_verification_invalid_value:
       "Periksa nama lengkap, nomor ponsel, dan email kantor lalu coba lagi.",
     recruiter_verification_not_found: "Akun tidak ditemukan. Muat ulang halaman lalu coba lagi.",
-    recruiter_already_trusted: "Akun Anda sudah menjadi Rekruter Terpercaya.",
+    recruiter_already_trusted: "Akun Anda sudah menjadi penyelenggara terverifikasi.",
     recruiter_verification_resubmission_blocked:
       "Akun ini tidak dapat mengajukan permohonan verifikasi lagi. Hubungi dukungan Lombakita.",
     recruiter_verification_already_pending: "Permohonan verifikasi Anda masih menunggu tinjauan.",
@@ -388,7 +388,7 @@ export function RecruiterVerificationPanel({
       <section className="content-section recruiter-tier-card">
         <div className="section-heading">
           <div>
-            <h2>Rekruter Terpercaya</h2>
+            <h2>Penyelenggara terverifikasi</h2>
           </div>
         </div>
         <p className="muted-copy">
@@ -537,8 +537,9 @@ export function RecruiterVerificationPanel({
           </div>
         </div>
         <p className="muted-copy">
-          Permohonan Anda sedang ditinjau tim kami. Anda dapat membuat draf kompetisi sekarang,
-          tetapi belum bisa mempublikasikannya sampai disetujui sebagai Rekruter Terpercaya.
+          Permohonan Anda sedang ditinjau tim kami, biasanya 1 hari. Anda dapat membuat draf
+          kompetisi sekarang, tetapi belum bisa mempublikasikannya sampai Anda menjadi penyelenggara
+          terverifikasi.
         </p>
         {submission.vouchedAt ? (
           <p className="muted-copy">
@@ -635,7 +636,7 @@ export function RecruiterVerificationPanel({
     <section className="content-section surface-card card-padding recruiter-tier-card">
       <div className="section-heading">
         <div>
-          <h2>Jadi Rekruter Terpercaya</h2>
+          <h2>Jadi penyelenggara terverifikasi</h2>
         </div>
       </div>
 

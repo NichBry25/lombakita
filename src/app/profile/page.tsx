@@ -59,7 +59,7 @@ export default async function OwnerProfilePage() {
                 profile.recruiterVerified,
               ) && (
                 <VerifyOtherRoleButton
-                  unverifiedRoleLabel={profile.candidateVerified ? "Rekruter" : "Kandidat"}
+                  unverifiedRoleLabel={profile.candidateVerified ? "Penyelenggara" : "Kandidat"}
                 />
               )}
               <ButtonLink
@@ -121,7 +121,7 @@ export default async function OwnerProfilePage() {
                 {profile.trustedRecruiter && (
                   <span className="status-badge" data-status="verified">
                     <Icon name="check" size="sm" aria-hidden="true" />
-                    Rekruter Terpercaya
+                    Penyelenggara terverifikasi
                   </span>
                 )}
               </div>

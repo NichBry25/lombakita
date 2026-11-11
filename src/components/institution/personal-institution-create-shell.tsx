@@ -33,7 +33,7 @@ type CreatedInstitution = {
 };
 
 const VERIFY_RECRUITER_FIRST_MESSAGE =
-  "Verifikasi akun rekruter Anda terlebih dahulu untuk membuat institusi.";
+  "Verifikasi akun penyelenggara Anda terlebih dahulu untuk membuat institusi.";
 
 const CREATE_ERROR_COPY: Partial<Record<string, string>> = {
   forbidden: VERIFY_RECRUITER_FIRST_MESSAGE,

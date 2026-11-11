@@ -113,7 +113,7 @@ export default async function PublicProfilePage({
                 {profile.trustedRecruiter && (
                   <span className="status-badge" data-status="verified">
                     <Icon name="check" size="sm" aria-hidden="true" />
-                    Rekruter Terpercaya
+                    Penyelenggara terverifikasi
                   </span>
                 )}
               </div>

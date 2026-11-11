@@ -212,7 +212,7 @@ export function ApplicationHeader() {
                   aria-current={pathname.startsWith("/recruiter-dashboard") ? "page" : undefined}
                   onClick={() => setMenuOpen(false)}
                 >
-                  Dasbor rekruter
+                  Dasbor penyelenggara
                 </Link>
               </>
             ) : null}

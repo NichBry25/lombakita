@@ -39,7 +39,7 @@ vi.mock("next/link", () => {
 import { HeaderDashboardMenu } from "./header-dashboard-menu";
 
 describe("HeaderDashboardMenu", () => {
-  it("opens the menu with Kandidat and Rekruter links on click", () => {
+  it("opens the menu with Kandidat and Penyelenggara links on click", () => {
     render(<HeaderDashboardMenu pathname="/" />);
     const trigger = screen.getByRole("button", { name: "Dasbor" });
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
@@ -48,7 +48,7 @@ describe("HeaderDashboardMenu", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
 
     const kandidat = screen.getByRole("menuitem", { name: "Kandidat" });
-    const rekruter = screen.getByRole("menuitem", { name: "Rekruter" });
+    const rekruter = screen.getByRole("menuitem", { name: "Penyelenggara" });
     expect(kandidat.getAttribute("href")).toBe("/candidate-dashboard");
     expect(rekruter.getAttribute("href")).toBe("/recruiter-dashboard");
   });
@@ -65,7 +65,7 @@ describe("HeaderDashboardMenu", () => {
   it("closes the menu when a menu item is clicked", () => {
     render(<HeaderDashboardMenu pathname="/" />);
     fireEvent.click(screen.getByRole("button", { name: "Dasbor" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Rekruter" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Penyelenggara" }));
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
@@ -74,7 +74,7 @@ describe("HeaderDashboardMenu", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dasbor" }));
     const menu = screen.getByRole("menu");
     const kandidat = screen.getByRole("menuitem", { name: "Kandidat" });
-    const rekruter = screen.getByRole("menuitem", { name: "Rekruter" });
+    const rekruter = screen.getByRole("menuitem", { name: "Penyelenggara" });
     expect(document.activeElement).toBe(kandidat);
 
     fireEvent.keyDown(menu, { key: "ArrowDown" });
@@ -90,9 +90,9 @@ describe("HeaderDashboardMenu", () => {
     expect(trigger.getAttribute("aria-current")).toBe("page");
 
     fireEvent.click(trigger);
-    expect(screen.getByRole("menuitem", { name: "Rekruter" }).getAttribute("aria-current")).toBe(
-      "page",
-    );
+    expect(
+      screen.getByRole("menuitem", { name: "Penyelenggara" }).getAttribute("aria-current"),
+    ).toBe("page");
     expect(screen.getByRole("menuitem", { name: "Kandidat" }).getAttribute("aria-current")).toBe(
       null,
     );
