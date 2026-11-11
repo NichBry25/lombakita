@@ -17,6 +17,8 @@ const ROWS: ReadonlyArray<{ input: string | null | undefined; expected: string }
   { input: "/\t/example.com", expected: FALLBACK },
   { input: "/admin\n", expected: FALLBACK },
   { input: "javascript:alert(1)", expected: FALLBACK },
+  { input: "/admin\u007f", expected: FALLBACK },
+  { input: "/search?q=a b", expected: "/search?q=a b" },
 ];
 
 describe("sameSitePathOr", () => {
