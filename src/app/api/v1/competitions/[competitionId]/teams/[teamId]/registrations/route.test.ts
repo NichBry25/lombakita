@@ -114,6 +114,14 @@ describe("POST /api/v1/competitions/[competitionId]/teams/[teamId]/registrations
     });
   });
 
+  it("keeps an unexpected failure at 500", async () => {
+    requireSessionRole.mockResolvedValueOnce(candidateSession);
+    submitTeamRegistration.mockRejectedValueOnce(new Error("boom"));
+    const res = await POST(makeRequest("POST"), makeContext());
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ error: { code: "access_guard_failed" } });
+  });
+
   // Cross-session form-submission guard: header carries a different user id than the resolved
   // session. Endpoint must 409 BEFORE the service is invoked.
   it("returns 409 session_user_mismatch when X-Expected-User-Id differs from session", async () => {

@@ -1,13 +1,15 @@
 // @vitest-environment node
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { TransactionRollbackError, and, eq, inArray } from "drizzle-orm";
+import { TransactionRollbackError, and, eq, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/server/db/schema";
 import {
   competitionRegistrations,
   competitions,
+  financeFeeRules,
+  financePayments,
   institutionPaymentInstructions,
   institutions,
   teamMemberships,
@@ -92,6 +94,7 @@ const seedCandidate = async (tx: Tx, label: string): Promise<string> => {
 
 const seedFormingTeamOfPaidCompetition = async (
   tx: Tx,
+  { withFeeRule }: { withFeeRule: boolean },
 ): Promise<{
   captainUserId: string;
   memberUserId: string;
@@ -119,6 +122,16 @@ const seedFormingTeamOfPaidCompetition = async (
     accountNumber: "1234567890",
     accountHolderName: "Panitia Lomba",
   });
+
+  if (withFeeRule) {
+    await tx.insert(financeFeeRules).values({
+      institutionId: institution!.id,
+      currency: "IDR",
+      basisPoints: 250,
+      flatAmount: 0,
+      effectiveFrom: new Date(Date.now() - 30 * DAY_MS),
+    });
+  }
 
   const [competition] = await tx
     .insert(competitions)
@@ -155,6 +168,60 @@ const seedFormingTeamOfPaidCompetition = async (
   return { captainUserId, memberUserId, competitionId: competition!.id, teamId: team!.id };
 };
 
+const registerTeamViaRoute = async (
+  tx: Tx,
+  captainUserId: string,
+  competitionId: string,
+  teamId: string,
+): Promise<{ status: number; body: Record<string, unknown> }> => {
+  routeState.transaction = tx as unknown as Database;
+  routeState.actorUserId = captainUserId;
+
+  const response = await POST(
+    new Request(
+      `https://lombakita.test/api/v1/competitions/${competitionId}/teams/${teamId}/registrations`,
+      { method: "POST" },
+    ),
+    { params: Promise.resolve({ competitionId, teamId }) },
+  );
+  const body = (await response.json()) as Record<string, unknown>;
+  return { status: response.status, body };
+};
+
+const registeredStudentIds = async (
+  tx: Tx,
+  competitionId: string,
+  userIds: string[],
+): Promise<string[]> => {
+  const rows = await tx
+    .select({ studentId: competitionRegistrations.studentId })
+    .from(competitionRegistrations)
+    .where(
+      and(
+        eq(competitionRegistrations.competitionId, competitionId),
+        inArray(competitionRegistrations.studentId, userIds),
+      ),
+    );
+  return rows.map((row) => row.studentId);
+};
+
+const teamStatus = async (tx: Tx, teamId: string) => {
+  const [team] = await tx.select({ status: teams.status }).from(teams).where(eq(teams.id, teamId));
+  return team!.status;
+};
+
+const paymentsPaidBy = async (tx: Tx, payerUserId: string) =>
+  tx
+    .select({ id: financePayments.id })
+    .from(financePayments)
+    .where(eq(financePayments.payerUserId, payerUserId));
+
+const platformWideFeeRules = async (tx: Tx) =>
+  tx
+    .select({ id: financeFeeRules.id })
+    .from(financeFeeRules)
+    .where(isNull(financeFeeRules.institutionId));
+
 describe.skipIf(skipWithoutDatabase)(
   "registering a team for a priced competition through the route, against a real database",
   () => {
@@ -165,39 +232,50 @@ describe.skipIf(skipWithoutDatabase)(
 
     it("answers 409, registers nobody and leaves the team forming when no fee rule is in force", async () => {
       await inRollback(async (tx) => {
+        expect(
+          await platformWideFeeRules(tx),
+          "the test database holds a platform-wide fee rule, so no fee rule in force cannot be staged",
+        ).toHaveLength(0);
         const { captainUserId, memberUserId, competitionId, teamId } =
-          await seedFormingTeamOfPaidCompetition(tx);
-        routeState.transaction = tx as unknown as Database;
-        routeState.actorUserId = captainUserId;
+          await seedFormingTeamOfPaidCompetition(tx, { withFeeRule: false });
 
-        const response = await POST(
-          new Request(
-            `https://lombakita.test/api/v1/competitions/${competitionId}/teams/${teamId}/registrations`,
-            { method: "POST" },
-          ),
-          { params: Promise.resolve({ competitionId, teamId }) },
+        const { status, body } = await registerTeamViaRoute(
+          tx,
+          captainUserId,
+          competitionId,
+          teamId,
         );
-        const body = (await response.json()) as Record<string, unknown>;
 
-        expect(response.status).toBe(409);
-        expect(body).toMatchObject({ error: { code: "registration_payment_unavailable" } });
+        expect(status).toBe(409);
+        expect(body).toEqual({
+          error: {
+            code: "registration_payment_unavailable",
+            message: "Kompetisi ini belum dapat menerima pembayaran. Hubungi penyelenggara.",
+          },
+        });
+        expect(
+          await registeredStudentIds(tx, competitionId, [captainUserId, memberUserId]),
+        ).toHaveLength(0);
+        expect(await teamStatus(tx, teamId)).toBe("forming");
+        expect(await paymentsPaidBy(tx, captainUserId)).toHaveLength(0);
+      });
+    });
 
-        const registrations = await tx
-          .select({ id: competitionRegistrations.id })
-          .from(competitionRegistrations)
-          .where(
-            and(
-              eq(competitionRegistrations.competitionId, competitionId),
-              inArray(competitionRegistrations.studentId, [captainUserId, memberUserId]),
-            ),
-          );
-        expect(registrations).toHaveLength(0);
+    it("registers the team once a fee rule is in force", async () => {
+      await inRollback(async (tx) => {
+        const { captainUserId, memberUserId, competitionId, teamId } =
+          await seedFormingTeamOfPaidCompetition(tx, { withFeeRule: true });
 
-        const [team] = await tx
-          .select({ status: teams.status })
-          .from(teams)
-          .where(eq(teams.id, teamId));
-        expect(team!.status).toBe("forming");
+        const { status } = await registerTeamViaRoute(tx, captainUserId, competitionId, teamId);
+
+        expect(status).toBe(201);
+        expect(await teamStatus(tx, teamId)).toBe("submitted");
+        const studentIds = await registeredStudentIds(tx, competitionId, [
+          captainUserId,
+          memberUserId,
+        ]);
+        expect([...studentIds].sort()).toEqual([captainUserId, memberUserId].sort());
+        expect(await paymentsPaidBy(tx, captainUserId)).toHaveLength(1);
       });
     });
   },

@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { TransactionRollbackError, eq } from "drizzle-orm";
+import { TransactionRollbackError, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/server/db/schema";
@@ -9,6 +9,7 @@ import {
   competitionRegistrations,
   competitions,
   financeFeeRules,
+  financePayments,
   institutionPaymentInstructions,
   institutions,
   users,
@@ -109,6 +110,7 @@ const seedPaidCompetition = async (
 
   if (withFeeRule) {
     await tx.insert(financeFeeRules).values({
+      institutionId: institution!.id,
       currency: "IDR",
       basisPoints: 250,
       flatAmount: 0,
@@ -158,6 +160,18 @@ const registrationsFor = async (tx: Tx, candidateUserId: string) =>
     .from(competitionRegistrations)
     .where(eq(competitionRegistrations.studentId, candidateUserId));
 
+const paymentsPaidBy = async (tx: Tx, payerUserId: string) =>
+  tx
+    .select({ id: financePayments.id })
+    .from(financePayments)
+    .where(eq(financePayments.payerUserId, payerUserId));
+
+const platformWideFeeRules = async (tx: Tx) =>
+  tx
+    .select({ id: financeFeeRules.id })
+    .from(financeFeeRules)
+    .where(isNull(financeFeeRules.institutionId));
+
 describe.skipIf(skipWithoutDatabase)(
   "registering for a priced competition through the route, against a real database",
   () => {
@@ -168,6 +182,10 @@ describe.skipIf(skipWithoutDatabase)(
 
     it("answers 409 and registers nobody when no fee rule is in force", async () => {
       await inRollback(async (tx) => {
+        expect(
+          await platformWideFeeRules(tx),
+          "the test database holds a platform-wide fee rule, so no fee rule in force cannot be staged",
+        ).toHaveLength(0);
         const { candidateUserId, competitionId } = await seedPaidCompetition(tx, {
           withFeeRule: false,
         });
@@ -175,8 +193,14 @@ describe.skipIf(skipWithoutDatabase)(
         const { status, body } = await registerViaRoute(tx, candidateUserId, competitionId);
 
         expect(status).toBe(409);
-        expect(body).toMatchObject({ error: { code: "registration_payment_unavailable" } });
+        expect(body).toEqual({
+          error: {
+            code: "registration_payment_unavailable",
+            message: "Kompetisi ini belum dapat menerima pembayaran. Hubungi penyelenggara.",
+          },
+        });
         expect(await registrationsFor(tx, candidateUserId)).toHaveLength(0);
+        expect(await paymentsPaidBy(tx, candidateUserId)).toHaveLength(0);
       });
     });
 
@@ -190,6 +214,7 @@ describe.skipIf(skipWithoutDatabase)(
 
         expect(status).toBe(201);
         expect(await registrationsFor(tx, candidateUserId)).toHaveLength(1);
+        expect(await paymentsPaidBy(tx, candidateUserId)).toHaveLength(1);
       });
     });
   },

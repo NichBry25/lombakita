@@ -3,6 +3,7 @@ import { assertServerOnly } from "@/server/runtime/assert-server-only";
 assertServerOnly("server/registrations/registration-payment");
 
 import { eq } from "drizzle-orm";
+import { logger } from "@/lib/logger";
 import { getDb, type Database } from "@/server/db/client";
 import { competitions } from "@/server/db/schema";
 import { isPaidCompetition } from "@/lib/competitions/paid-competition";
@@ -67,12 +68,20 @@ export const loadRegistrationPricing = async (
   return row ?? null;
 };
 
-// The three refusals that mean the organiser cannot take money yet. Any other failure is a fault
-// the candidate cannot act on, so it surfaces as the unexpected error it is.
-const isOrganiserNotReadyToCharge = (error: unknown): boolean =>
-  (error instanceof CompetitionError && error.code === "competition_institution_not_verified") ||
-  (error instanceof PaymentInstructionsError && error.code === "payment_instructions_missing") ||
-  (error instanceof PaymentError && error.code === "payment_fee_rule_not_found");
+// The codes of the three refusals that mean the organiser is not ready to take money yet. Any other
+// failure is a platform fault, so it surfaces as the unexpected error it is.
+const organiserRefusalCodeOf = (error: unknown): string | null => {
+  if (error instanceof CompetitionError && error.code === "competition_institution_not_verified") {
+    return error.code;
+  }
+  if (error instanceof PaymentInstructionsError && error.code === "payment_instructions_missing") {
+    return error.code;
+  }
+  if (error instanceof PaymentError && error.code === "payment_fee_rule_not_found") {
+    return error.code;
+  }
+  return null;
+};
 
 /**
  * Records the payment a new registration owes, or does nothing when the competition is free.
@@ -85,11 +94,11 @@ const isOrganiserNotReadyToCharge = (error: unknown): boolean =>
  * It is snapshotted onto the payment and never recomputed, so an organiser who later shortens the
  * window does not move a deadline this candidate was already given.
  *
- * The three refusals that mean the organiser cannot take money (the institution is unverified, it has published no
- * account, no fee rule is in force) collapses to ONE candidate-facing code. All three mean the
- * same thing to the person registering: this organiser cannot take payment right now, and none of
- * it is the candidate's to fix. Distinguishing them here would leak the organiser's verification
- * state and its billing configuration to anyone who clicks register.
+ * The three refusals that mean the organiser cannot take money (the institution is unverified, it
+ * has published no account, no fee rule is in force) collapse to ONE candidate-facing code. All
+ * three mean the same thing to the person registering: this organiser cannot take payment right
+ * now, and none of it is the candidate's to fix. Distinguishing them here would leak the
+ * organiser's verification state and its billing configuration to anyone who clicks register.
  */
 export const createRegistrationPayment = async (
   pricing: RegistrationPricingSnapshot,
@@ -104,10 +113,7 @@ export const createRegistrationPayment = async (
     // A CHECK makes this unreachable: a priced competition must carry a currency. Asserted rather
     // than coerced to a default, because a default here would price somebody in a currency nobody
     // chose.
-    throw new RegistrationPaymentError(
-      "registration_payment_unavailable",
-      "Kompetisi ini belum dapat menerima pembayaran. Hubungi penyelenggara.",
-    );
+    throw new Error("A priced competition has no currency, which its CHECK forbids");
   }
 
   const dueAt = resolvePaymentDueAt(at, pricing.paymentWindowDays, pricing.registrationEndAt);
@@ -127,9 +133,13 @@ export const createRegistrationPayment = async (
       db,
     );
   } catch (error) {
-    if (error instanceof RegistrationPaymentError) throw error;
-    if (!isOrganiserNotReadyToCharge(error)) throw error;
-
+    const refusalCode = organiserRefusalCodeOf(error);
+    if (refusalCode === null) throw error;
+    // The candidate sees one code; operators see which of the three it was.
+    logger.warn("registration.payment_unavailable", {
+      institutionId: pricing.institutionId,
+      reason: refusalCode,
+    });
     throw new RegistrationPaymentError(
       "registration_payment_unavailable",
       "Kompetisi ini belum dapat menerima pembayaran. Hubungi penyelenggara.",

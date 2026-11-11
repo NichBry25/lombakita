@@ -89,8 +89,7 @@ const TEAM_ERROR_COPY: SurfaceCopy = {
   team_not_submitted: "Tim ini belum didaftarkan, jadi tidak ada pendaftaran yang bisa dibatalkan.",
   // The organiser cannot take payment right now: unverified, no published account, or no fee rule
   // in force. All three collapse to one code server-side so none of them leaks, and none of them is
-  // the candidate's to fix. The generic "coba lagi" fallback was worse than nothing here: it
-  // describes a transient fault and invites a candidate to retry something that will never succeed.
+  // the candidate's to fix. A generic "coba lagi" message would invite a retry that cannot succeed.
   registration_payment_unavailable:
     "Penyelenggara kompetisi ini belum dapat menerima pembayaran, jadi pendaftaran berbayar belum bisa diproses. Hubungi penyelenggara.",
 };

@@ -127,4 +127,12 @@ describe("POST /api/v1/competitions/[competitionId]/registrations", () => {
       },
     });
   });
+
+  it("keeps an unexpected failure at 500", async () => {
+    requireSessionRole.mockResolvedValueOnce(candidateSession);
+    createIndividualRegistration.mockRejectedValueOnce(new Error("boom"));
+    const res = await POST(makeRequest(), makeContext());
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ error: { code: "access_guard_failed" } });
+  });
 });
